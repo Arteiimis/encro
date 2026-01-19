@@ -1,0 +1,5 @@
+{
+  "xmake.debuggingTargetsArguments": {
+    // "default": ["-f \"D:/scoop/apps/ffmpeg/current/bin\"", "-i xxx"]
+  }
+}
