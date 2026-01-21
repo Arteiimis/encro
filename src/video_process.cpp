@@ -6,6 +6,8 @@
 #include <boost/lambda2.hpp>
 #include <boost/parser/parser.hpp>
 #include <indicators/progress_bar.hpp>
+#include <indicators/dynamic_progress.hpp>
+#include <spdlog/spdlog.h>
 
 #include "video_process.h"
 #include "video_info.h"
@@ -16,20 +18,23 @@ namespace fs = std::filesystem;
 using namespace boost::lambda2;
 
 bool encodeToHevc(const fs::path& inputVidPath) {
-  const auto outputVidDir     = OUTPUT_PATH.value_or(inputVidPath.parent_path());
-  const auto outputVidPath    = outputVidDir / inputVidPath.filename();
+  const auto outputVidDir  = GLBs.OUTPUT_PATH.value_or(inputVidPath.parent_path());
+  const auto outputVidPath = outputVidDir
+                           / std::format("{}.hevc.mp4", inputVidPath.stem().string());
   const auto progressFilePath = fs::temp_directory_path()
-                              / std::format("progress_{}.txt", UUID_GENERATOR());
+                              / std::format("progress_{}.txt", getUUID());
 
-  PROGRESS_FILES[inputVidPath] = progressFilePath;
+  GLBs.PROGRESS_FILES[inputVidPath] = progressFilePath;
 
   const auto cmd = std::format(
     "{} -i \"{}\" -c:v hevc_nvenc -crf 20 \"{}\" -progress \"{}\"",
-    FFMPEG_PATH.value().string(),
+    GLBs.FFMPEG_PATH.value().string(),
     inputVidPath.string(),
     outputVidPath.string(),
     progressFilePath.string()
   );
+
+  spdlog::debug("Executing command: {}", cmd);
 
   std::println("Encoding video: {}", inputVidPath.string());
 
@@ -60,18 +65,18 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
   return 0;
 }
 
-auto getProgressBar(const fs::path& videoPath) -> indicators::ProgressBar {
+auto getProgressBar(const fs::path& videoPath) {
   using namespace indicators;
-  return ProgressBar{
+  return std::make_unique<ProgressBar>(
     option::BarWidth{50},
     option::Start{"["},
     option::End{"]"},
-    option::PrefixText{std::format("Encoding: {}", videoPath.filename().string())},
+    option::PrefixText{std::format("Encoding: {:20}", videoPath.filename().string())},
     option::ForegroundColor{Color::white},
     option::ShowElapsedTime{true},
     option::ShowRemainingTime{true},
     option::MaxProgress{100}
-  };
+  );
 }
 
 auto readLastNLines(const fs::path& filePath, std::size_t n)
@@ -130,17 +135,58 @@ int handlePathEncoding(const fs::path& inputPath) {
   const auto vids = readAllVids(inputPath);
 
   auto vidsRunRes = std::unordered_map<fs::path, bool>{};
-  auto pool       = BS::pause_thread_pool{std::thread::hardware_concurrency()};
+  auto pool       = BS::pause_thread_pool{vids.size() * 2};
   pool.pause();
+
+  auto bars              = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
+  auto progressManager   = indicators::DynamicProgress<indicators::ProgressBar>{};
+  auto progressBarIndexs = std::unordered_map<fs::path, std::size_t>{};
+  for (const auto& vidPath: vids) {
+    bars.emplace_back(getProgressBar(vidPath));
+    progressBarIndexs[vidPath] = progressManager.push_back(*bars.back());
+  }
 
   for (const auto& vidPath: vids) {
     pool.detach_task([&vidsRunRes, vidPath]() {
-      if (encodeToHevc(vidPath)) {
-        std::println("Successfully encoded: {}", vidPath.string());
-        vidsRunRes[vidPath] = true;
-      } else {
-        std::println("Failed to encode: {}", vidPath.string());
-        vidsRunRes[vidPath] = false;
+      vidsRunRes[vidPath] = encodeToHevc(vidPath);
+    });
+    pool.detach_task([&progressManager, &progressBarIndexs, vidPath] {
+      const auto totalFrames = getVidTotalFrames(vidPath);
+      while (true) {
+        try {
+          const auto progressFilePath = GLBs.PROGRESS_FILES.at(vidPath);
+
+          const auto  frameCount      = getFrameCountFromProgress(progressFilePath);
+          const float progressPercent = ((float)frameCount / totalFrames) * 100.0;
+
+          spdlog::debug(
+            "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
+            vidPath.string(),
+            frameCount,
+            totalFrames,
+            progressPercent
+          );
+
+          if (progressPercent <= 1) {
+            progressManager[progressBarIndexs.at(vidPath)].set_progress(1);
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            continue;
+          }
+
+          progressManager[progressBarIndexs.at(vidPath)].set_progress(
+            progressPercent
+          );
+
+          if (frameCount >= totalFrames) { break; }
+          std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        } catch (const std::exception& e) {
+          spdlog::debug(
+            "Error updating progress for video {}: {}",
+            vidPath.string(),
+            e.what()
+          );
+          continue;
+        }
       }
     });
   }
@@ -154,7 +200,39 @@ int handlePathEncoding(const fs::path& inputPath) {
 
   pool.unpause();
 
-  while (true) { }
+  // while (true) {
+  //   bool allDone = true;
+
+  //   if (GLBs.PROGRESS_FILES.size() != vids.size()) {
+  //     std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  //     continue;
+  //   }
+
+  //   for (const auto& vidPath: vids) {
+  //     const auto progressFilePath = GLBs.PROGRESS_FILES.at(vidPath);
+  //     const auto frameCount       = getFrameCountFromProgress(progressFilePath);
+  //     const auto totalFrames      = getVidTotalFrames(vidPath);
+
+  //     const auto progressPercent = static_cast<double>(frameCount)
+  //                                / totalFrames
+  //                                * 100.0;
+
+  //     if (progressPercent <= 1) {
+  //       allDone = false;
+  //       continue;
+  //     }
+
+  //     progressManager[progressBarIndexs.at(vidPath)].set_progress(
+  //       static_cast<size_t>(progressPercent)
+  //     );
+
+  //     if (frameCount < totalFrames) { allDone = false; }
+  //   }
+
+  //   if (allDone) { break; }
+
+  //   std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  // }
 
   pool.wait();
 

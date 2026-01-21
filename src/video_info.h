@@ -8,8 +8,7 @@
 
 auto getVidInfo(const std::filesystem::path& videoPath) -> boost::json::value;
 
-auto getVidLengthMs(const std::filesystem::path& videoPath)
-  -> std::chrono::milliseconds;
+auto getVidTotalFrames(const std::filesystem::path& videoPath) -> int64_t;
 
 bool isHevcEncoded(const std::filesystem::path& videoPath);
 

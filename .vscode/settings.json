@@ -1,5 +1,5 @@
 {
   "xmake.debuggingTargetsArguments": {
-    // "default": ["-f \"D:/scoop/apps/ffmpeg/current/bin\"", "-i xxx"]
+    "video_encoder": ["-i D:\\BaiduNetdiskDownload\\nsfw", "-y"]
   }
 }

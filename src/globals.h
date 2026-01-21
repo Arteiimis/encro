@@ -4,23 +4,23 @@
 #include <optional>
 #include <unordered_map>
 
-#include <boost/uuid.hpp>
 #include <boost/json.hpp>
 
-enum class LogLevel {
-  Info,
-  Verbose,
-  Debug
+struct Globals {
+  // Add any global configurations or constants here if needed
+  bool                                                          YES_TO_ALL;
+  std::filesystem::path                                         INPUT_PATH;
+  std::optional<std::filesystem::path>                          FFMPEG_INSTALL_DIR;
+  std::optional<std::filesystem::path>                          FFMPEG_PATH;
+  std::optional<std::filesystem::path>                          FFPROBE_PATH;
+  std::optional<std::filesystem::path>                          OUTPUT_PATH;
+  std::unordered_map<std::filesystem::path, boost::json::value> VIDEO_INFO_CACHE;
+  std::unordered_map<std::filesystem::path, std::filesystem::path> PROGRESS_FILES;
+
+  static Globals& instance() {
+    static Globals instance;
+    return instance;
+  }
 };
 
-inline static auto CURRENT_LOG_LEVEL  = LogLevel::Info;
-inline static auto FFMPEG_INSTALL_DIR = std::optional<std::filesystem::path>{};
-inline static auto FFMPEG_PATH        = std::optional<std::filesystem::path>{};
-inline static auto FFPROBE_PATH       = std::optional<std::filesystem::path>{};
-inline static auto INPUT_PATH         = std::optional<std::filesystem::path>{};
-inline static auto OUTPUT_PATH        = std::optional<std::filesystem::path>{};
-inline static auto
-  VIDEO_INFO_CACHE = std::unordered_map<std::filesystem::path, boost::json::value>{};
-inline static auto
-  PROGRESS_FILES = std::unordered_map<std::filesystem::path, std::filesystem::path>{};
-inline static auto UUID_GENERATOR = boost::uuids::random_generator{};
+inline static auto& GLBs = Globals::instance();

@@ -11,7 +11,7 @@ auto getVidInfo(const fs::path& videoPath) -> boost::json::value {
 
   const auto cmd = std::format(
     "{} -v quiet -print_format json -show_format -show_streams \"{}\"",
-    FFPROBE_PATH.value().string(),
+    GLBs.FFPROBE_PATH.value_or("ffprobe").string(),
     videoPath.string()
   );
 
@@ -27,7 +27,7 @@ auto getVidInfo(const fs::path& videoPath) -> boost::json::value {
 }
 
 auto getVidTotalFrames(const fs::path& videoPath) -> int64_t {
-  const auto vidInfo = VIDEO_INFO_CACHE.at(videoPath);
+  const auto vidInfo = GLBs.VIDEO_INFO_CACHE.at(videoPath);
 
   for (const auto& stream: vidInfo.at("streams").as_array()) {
     if (stream.at("codec_type").as_string() == "video") {
@@ -79,7 +79,7 @@ auto readAllVids(const fs::path& dirPath) -> std::vector<fs::path> {
     }
     if (rng::contains(videoTypes, vidsExt)) {
       vids.emplace_back(entry.path());
-      VIDEO_INFO_CACHE[entry.path()] = getVidInfo(entry.path());
+      GLBs.VIDEO_INFO_CACHE[entry.path()] = getVidInfo(entry.path());
     }
   }
 

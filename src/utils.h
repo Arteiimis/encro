@@ -17,3 +17,5 @@ auto findFFprobe() -> std::optional<fs::path>;
 auto findFFmpeg() -> std::optional<fs::path>;
 
 bool toolCheck();
+
+std::string getUUID();

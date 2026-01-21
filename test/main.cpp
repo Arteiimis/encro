@@ -29,6 +29,11 @@ TEST_CASE("Test getFrameCountFromProgress function", "[getFrameCountFromProgress
   std::println("Parsed frame count: {}", frameCount);
 }
 
+TEST_CASE("Test path exists", "[filesystem]") {
+  auto testPath = std::filesystem::path{"D:\\BaiduNetdiskDownload\\nsfw"};
+  REQUIRE(std::filesystem::exists(testPath));
+}
+
 int main(int argc, char* argv[]) {
   return Catch::Session().run(argc, argv);
 }

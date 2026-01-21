@@ -1,6 +1,9 @@
 #include <print>
 #include <iostream>
 
+#include <boost/uuid.hpp>
+#include <boost/lexical_cast.hpp>
+
 #include "globals.h"
 #include "utils.h"
 
@@ -21,6 +24,8 @@ auto exec2(std::string_view cmd) -> std::pair<int, std::string> {
 }
 
 bool readUserIpt() {
+  if (GLBs.YES_TO_ALL) { return true; }
+
   std::print("do you want to encode the video to HEVC format? (y/N): ");
 
   auto response = 'n';
@@ -32,22 +37,22 @@ bool readUserIpt() {
 }
 
 auto findFFprobe() -> std::optional<fs::path> {
-  if (!FFMPEG_INSTALL_DIR.has_value() && exec2("ffprobe -version").first == 0) {
+  if (!GLBs.FFMPEG_INSTALL_DIR.has_value() && exec2("ffprobe -version").first == 0) {
     return fs::path{"ffprobe"};
   }
 
-  if (fs::is_regular_file(FFMPEG_INSTALL_DIR.value())
-      && FFMPEG_INSTALL_DIR.value().filename() == "ffprobe") {
+  if (fs::is_regular_file(GLBs.FFMPEG_INSTALL_DIR.value())
+      && GLBs.FFMPEG_INSTALL_DIR.value().filename() == "ffprobe") {
     const auto cmd = std::format(
       "\"{}\" -version",
-      FFMPEG_INSTALL_DIR.value().string()
+      GLBs.FFMPEG_INSTALL_DIR.value().string()
     );
 
-    if (exec2(cmd).first == 0) { return FFMPEG_INSTALL_DIR; }
+    if (exec2(cmd).first == 0) { return GLBs.FFMPEG_INSTALL_DIR; }
   }
 
-  if (fs::is_directory(FFMPEG_INSTALL_DIR.value())) {
-    auto path = FFMPEG_INSTALL_DIR.value() / "ffprobe";
+  if (fs::is_directory(GLBs.FFMPEG_INSTALL_DIR.value())) {
+    auto path = GLBs.FFMPEG_INSTALL_DIR.value() / "ffprobe";
     auto cmd  = std::format("\"{}\" -version", path.string());
 
     if (exec2(cmd).first == 0) { return path; }
@@ -57,19 +62,22 @@ auto findFFprobe() -> std::optional<fs::path> {
 }
 
 auto findFFmpeg() -> std::optional<fs::path> {
-  if (!FFMPEG_INSTALL_DIR.has_value() && exec2("ffmpeg -version").first == 0) {
+  if (!GLBs.FFMPEG_INSTALL_DIR.has_value() && exec2("ffmpeg -version").first == 0) {
     return fs::path{"ffmpeg"};
   }
 
-  if (fs::is_regular_file(FFMPEG_INSTALL_DIR.value())
-      && FFMPEG_INSTALL_DIR.value().filename() == "ffmpeg") {
-    auto cmd = std::format("\"{}\" -version", FFMPEG_INSTALL_DIR.value().string());
+  if (fs::is_regular_file(GLBs.FFMPEG_INSTALL_DIR.value())
+      && GLBs.FFMPEG_INSTALL_DIR.value().filename() == "ffmpeg") {
+    auto cmd = std::format(
+      "\"{}\" -version",
+      GLBs.FFMPEG_INSTALL_DIR.value().string()
+    );
 
-    if (exec2(cmd).first == 0) { return FFMPEG_INSTALL_DIR; }
+    if (exec2(cmd).first == 0) { return GLBs.FFMPEG_INSTALL_DIR; }
   }
 
-  if (fs::is_directory(FFMPEG_INSTALL_DIR.value())) {
-    auto path = FFMPEG_INSTALL_DIR.value() / "ffmpeg";
+  if (fs::is_directory(GLBs.FFMPEG_INSTALL_DIR.value())) {
+    auto path = GLBs.FFMPEG_INSTALL_DIR.value() / "ffmpeg";
     auto cmd  = std::format("\"{}\" -version", path.string());
 
     if (exec2(cmd).first == 0) { return path; }
@@ -79,22 +87,26 @@ auto findFFmpeg() -> std::optional<fs::path> {
 }
 
 bool toolCheck() {
-  if (FFMPEG_PATH = findFFmpeg(); !FFMPEG_PATH.has_value()) {
+  if (GLBs.FFMPEG_PATH = findFFmpeg(); !GLBs.FFMPEG_PATH.has_value()) {
     std::println(
       "FFmpeg not found. Please ensure FFmpeg is installed and accessible."
     );
     return false;
   }
 
-  if (FFPROBE_PATH = findFFprobe(); !FFPROBE_PATH.has_value()) {
+  if (GLBs.FFPROBE_PATH = findFFprobe(); !GLBs.FFPROBE_PATH.has_value()) {
     std::println(
       "FFprobe not found. Please ensure FFprobe is installed and accessible."
     );
     return false;
   }
 
-  std::println("Using FFmpeg at: {}", FFMPEG_PATH.value().string());
-  std::println("Using FFprobe at: {}", FFPROBE_PATH.value().string());
+  std::println("Using FFmpeg at: {}", GLBs.FFMPEG_PATH.value().string());
+  std::println("Using FFprobe at: {}", GLBs.FFPROBE_PATH.value().string());
 
   return true;
+}
+
+std::string getUUID() {
+  return boost::lexical_cast<std::string>(boost::uuids::random_generator{}());
 }
