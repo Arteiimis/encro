@@ -9,7 +9,7 @@ int handleSingleFileEncoding(const std::filesystem::path& videoPath);
 auto readLastNLines(const std::filesystem::path& filePath, std::size_t n)
   -> std::vector<std::string>;
 
-auto getFrameCountFromProgress(const std::filesystem::path& progressFilePath)
-  -> uint64_t;
+auto parseProgressFile(const std::filesystem::path& progressFilePath)
+  -> std::pair<uint64_t, std::string>;
 
 int handlePathEncoding(const std::filesystem::path& inputPath);
