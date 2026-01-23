@@ -33,7 +33,7 @@ target_end()
 target("tests")
   set_kind("binary")
   set_default(false)
-  set_policy("build.optimization.lto", true)
+  set_policy("build.optimization.lto", true)  
 
   add_packages("boost", "thread-pool", "indicators", "spdlog", "catch2")
   add_includedirs("src")

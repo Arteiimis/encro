@@ -25,7 +25,12 @@ int main(int argc, char* argv[]) {
 
   if (vm.count("yes")) {
     GLBs.YES_TO_ALL = true;
-    std::println("Automatic 'yes' to prompts enabled.");
+    spdlog::info("Automatic 'yes to all' enabled.");
+  }
+
+  if (vm.count("recursive")) {
+    GLBs.RECURSIVE = true;
+    spdlog::info("Recursive directory search enabled.");
   }
 
   if (vm.count("ffmpeg-path")) {

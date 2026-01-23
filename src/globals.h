@@ -9,6 +9,7 @@
 struct Globals {
   // Add any global configurations or constants here if needed
   bool                                                          YES_TO_ALL;
+  bool                                                          RECURSIVE;
   std::filesystem::path                                         INPUT_PATH;
   std::optional<std::filesystem::path>                          FFMPEG_INSTALL_DIR;
   std::optional<std::filesystem::path>                          FFMPEG_PATH;

@@ -3,6 +3,7 @@
 
 #include <boost/uuid.hpp>
 #include <boost/lexical_cast.hpp>
+#include <spdlog/spdlog.h>
 
 #include "globals.h"
 #include "utils.h"
@@ -88,21 +89,21 @@ auto findFFmpeg() -> std::optional<fs::path> {
 
 bool toolCheck() {
   if (GLBs.FFMPEG_PATH = findFFmpeg(); !GLBs.FFMPEG_PATH.has_value()) {
-    std::println(
+    spdlog::error(
       "FFmpeg not found. Please ensure FFmpeg is installed and accessible."
     );
     return false;
   }
 
   if (GLBs.FFPROBE_PATH = findFFprobe(); !GLBs.FFPROBE_PATH.has_value()) {
-    std::println(
+    spdlog::error(
       "FFprobe not found. Please ensure FFprobe is installed and accessible."
     );
     return false;
   }
 
-  std::println("Using FFmpeg at: {}", GLBs.FFMPEG_PATH.value().string());
-  std::println("Using FFprobe at: {}", GLBs.FFPROBE_PATH.value().string());
+  spdlog::debug("Using FFmpeg at: {}", GLBs.FFMPEG_PATH.value().string());
+  spdlog::debug("Using FFprobe at: {}", GLBs.FFPROBE_PATH.value().string());
 
   return true;
 }
