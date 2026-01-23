@@ -9,12 +9,9 @@ constexpr auto commandLineInit(int argc, char* argv[])
   namespace po = boost::program_options;
 
   auto desc = po::options_description("Allowed options");
-  desc.add_options()                                                       //
-    ("help,h", "produce help message")                                     //
-    ("input,i", po::value<std::string>(), "input file or directory path")  //
-    ("input-seq,I",
-     po::value<std::vector<std::string>>(),
-     "input sequence of files")                                               //
+  desc.add_options()                                                          //
+    ("help,h", "produce help message")                                        //
+    ("input,i", po::value<std::string>(), "input file or directory path")     //
     ("output,o", po::value<std::string>(), "custom output directory path")    //
     ("ffmpeg-path,f", po::value<std::string>(), "custom ffmpeg binary path")  //
     ("recursive,R", "recursively search for video files in directories")      //

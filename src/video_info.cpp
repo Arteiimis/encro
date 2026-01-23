@@ -1,5 +1,7 @@
 #include <print>
 
+#include <spdlog/spdlog.h>
+
 #include "video_info.h"
 #include "globals.h"
 #include "utils.h"
@@ -17,11 +19,7 @@ auto getVidInfo(const fs::path& videoPath) -> boost::json::value {
 
   const auto [exitCode, output] = exec2(cmd);
 
-  if (exitCode != 0) {
-    throw std::runtime_error(
-      std::format("ffprobe failed to get video info for: {}", videoPath.string())
-    );
-  }
+  if (exitCode != 0) { return json::object{}; }
 
   return json::parse(output);
 }
@@ -52,7 +50,10 @@ bool isHevcEncoded(const fs::path& videoPath) {
   return false;
 }
 
-auto readAllVids(const fs::path& dirPath) -> std::vector<fs::path> {
+template<class Iter>
+  requires std::same_as<Iter, fs::directory_iterator>
+        || std::same_as<Iter, fs::recursive_directory_iterator>
+auto readAllVidsImpl(const fs::path& dirPath) -> std::vector<fs::path> {
   namespace rng = std::ranges;
 
   constexpr auto videoTypes = std::array{
@@ -67,21 +68,25 @@ auto readAllVids(const fs::path& dirPath) -> std::vector<fs::path> {
 
   auto vids = std::vector<fs::path>{};
 
-  for (const auto& entry: fs::directory_iterator(dirPath)) {
+  for (const auto& entry: Iter(dirPath)) {
     const auto vidsExt = entry.path().extension().string();
     if (!entry.is_regular_file()) {
-      std::println("Skipping non-regular file: {}", entry.path().string());
+      spdlog::debug("Skipping non-regular file: {}", entry.path().string());
       continue;
     }
-    if (isHevcEncoded(entry.path())) {
-      std::println("Skipping already HEVC encoded video: {}", entry.path().string());
-      continue;
-    }
-    if (rng::contains(videoTypes, vidsExt)) {
+    if (rng::contains(videoTypes, vidsExt) && !isHevcEncoded(entry.path())) {
       vids.emplace_back(entry.path());
       GLBs.VIDEO_INFO_CACHE[entry.path()] = getVidInfo(entry.path());
     }
   }
 
   return vids;
+}
+
+auto readAllVids(const fs::path& dirPath) -> std::vector<fs::path> {
+  if (GLBs.RECURSIVE) {
+    return readAllVidsImpl<fs::recursive_directory_iterator>(dirPath);
+  } else {
+    return readAllVidsImpl<fs::directory_iterator>(dirPath);
+  }
 }

@@ -1,5 +1,5 @@
 {
   "xmake.debuggingTargetsArguments": {
-    "video_encoder": ["-i D:\\BaiduNetdiskDownload\\nsfw", "-y"]
+    "video_encoder": ["-i D:\\迅雷下载", "-R"]
   }
 }
