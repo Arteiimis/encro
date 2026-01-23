@@ -1,6 +1,6 @@
 add_rules("plugin.compile_commands.autoupdate", { outputdir = "./build" })
 add_rules("mode.debug", "mode.release", "mode.releasedbg", "mode.check", "mode.minsizerel")
-set_license("GPL-3.0")
+set_policy("build.optimization.lto", true)
 
 set_languages("c++23")
 set_toolchains("clang")
@@ -21,8 +21,7 @@ add_requires("indicators")
 add_requires("catch2")
 
 target("video_encoder")
-  set_kind("binary")
-  set_policy("build.optimization.lto", true)
+  set_kind("binary")  
 
   add_packages("boost", "thread-pool", "indicators", "spdlog")
   add_includedirs("src")
@@ -33,7 +32,6 @@ target_end()
 target("tests")
   set_kind("binary")
   set_default(false)
-  set_policy("build.optimization.lto", true)  
 
   add_packages("boost", "thread-pool", "indicators", "spdlog", "catch2")
   add_includedirs("src")
