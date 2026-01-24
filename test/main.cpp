@@ -22,7 +22,7 @@ TEST_CASE("Test getFrameCountFromProgress function", "[getFrameCountFromProgress
   auto tempProgressFilePath = std::filesystem::path{"D:\\迅雷下载\\19\\progress.txt"};
 
   // Call the function to parse the progress file
-  auto frameCount = getFrameCountFromProgress(tempProgressFilePath);
+  auto [frameCount, _] = parseProgressFile(tempProgressFilePath);
 
   // Verify the output
   REQUIRE(frameCount >= 0);
