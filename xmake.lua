@@ -3,7 +3,8 @@ add_rules("mode.debug", "mode.release", "mode.releasedbg", "mode.check", "mode.m
 set_policy("build.optimization.lto", true)
 
 set_languages("c++23")
-set_toolchains("clang")
+add_cxxflags("-std=c++23")
+set_toolchains("clang-cl")
 set_toolset("ld", "lld-link")
 
 add_cxxflags("-Wno-c++26-extensions")
@@ -19,12 +20,14 @@ add_requires("boost[all]")
 add_requires("thread-pool")
 add_requires("spdlog[std_format]")
 add_requires("indicators")
+add_requires("libzippp")
 add_requires("catch2")
 
 target("video_encoder")
   set_kind("binary")
 
-  add_packages("boost", "thread-pool", "indicators", "spdlog")
+  add_packages("boost", "thread-pool", "indicators", "spdlog", "libzippp")
+
   add_includedirs("src")
   add_files("src/*.cpp")
 target_end()
@@ -34,7 +37,8 @@ target("tests")
   set_kind("binary")
   set_default(false)
 
-  add_packages("boost", "thread-pool", "indicators", "spdlog", "catch2")
+  add_deps("video_encoder")
+  add_packages("catch2")
   add_includedirs("src")
-  add_files("test/*.cpp", "src/*.cpp|main.cpp")
+  add_files("test/*.cpp")
 target_end()

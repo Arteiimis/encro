@@ -87,6 +87,12 @@ auto findFFmpeg() -> std::optional<fs::path> {
   return std::nullopt;
 }
 
+auto find7zip() -> std::optional<fs::path> {
+  if (exec2("7z").first == 0) { return fs::path{"7z"}; }
+
+  return std::nullopt;
+}
+
 bool toolCheck() {
   if (GLBs.FFMPEG_PATH = findFFmpeg(); !GLBs.FFMPEG_PATH.has_value()) {
     spdlog::error(
@@ -110,4 +116,19 @@ bool toolCheck() {
 
 std::string getUUID() {
   return boost::lexical_cast<std::string>(boost::uuids::random_generator{}());
+}
+
+auto getProgressBar(std::string_view promptText)
+  -> std::unique_ptr<indicators::ProgressBar> {
+  using namespace indicators;
+  return std::make_unique<ProgressBar>(
+    option::BarWidth{50},
+    option::Start{"["},
+    option::End{"]"},
+    option::PostfixText{promptText},
+    option::ForegroundColor{Color::white},
+    option::ShowElapsedTime{true},
+    option::ShowRemainingTime{true},
+    option::MaxProgress{100}
+  );
 }

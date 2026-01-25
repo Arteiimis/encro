@@ -45,19 +45,6 @@ bool encodeToHevc(const fs::path& inputVidPath) {
   return exitCode == 0;
 }
 
-auto getProgressBar(const fs::path& videoPath) {
-  return std::make_unique<ProgressBar>(
-    option::BarWidth{50},
-    option::Start{"["},
-    option::End{"]"},
-    option::PostfixText{std::format("Encoding: {}", videoPath.filename().string())},
-    option::ForegroundColor{Color::white},
-    option::ShowElapsedTime{true},
-    option::ShowRemainingTime{true},
-    option::MaxProgress{100}
-  );
-}
-
 int handleSingleFileEncoding(const fs::path& videoPath) {
   if (isHevcEncoded(videoPath)) {
     std::println("Video is already HEVC encoded: {}", videoPath.string());
@@ -73,7 +60,9 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
 
   auto returnCode  = 0;
   auto pool        = BS::pause_thread_pool{2};
-  auto progressBar = getProgressBar(videoPath);
+  auto progressBar = getProgressBar(
+    std::format("Encoding: {}", videoPath.filename().string())
+  );
 
   pool.pause();
   pool.detach_task([&videoPath, &returnCode]() {
@@ -230,7 +219,9 @@ int handlePathEncoding(const fs::path& inputPath) {
   auto progressManager   = indicators::DynamicProgress<indicators::ProgressBar>{};
   auto progressBarIndexs = std::unordered_map<fs::path, std::size_t>{};
   for (const auto& vidPath: vids) {
-    bars.emplace_back(getProgressBar(vidPath));
+    bars.emplace_back(
+      getProgressBar(std::format("Encoding: {}", vidPath.filename().string()))
+    );
     progressBarIndexs[vidPath] = progressManager.push_back(*bars.back());
   }
 

@@ -13,6 +13,7 @@ constexpr auto commandLineInit(int argc, char* argv[])
     ("help,h", "produce help message")                                        //
     ("input,i", po::value<std::string>(), "input file or directory path")     //
     ("output,o", po::value<std::string>(), "custom output directory path")    //
+    ("type,t", po::value<std::string>(), "process type: video or picture")    //
     ("ffmpeg-path,f", po::value<std::string>(), "custom ffmpeg binary path")  //
     ("recursive,R", "recursively search for video files in directories")      //
     ("yes,y", "automatic yes to prompts")                                     //

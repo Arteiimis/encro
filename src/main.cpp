@@ -1,4 +1,5 @@
 #include <iostream>
+#include <print>
 
 #include <spdlog/spdlog.h>
 
@@ -6,16 +7,33 @@
 #include "globals.h"
 #include "utils.h"
 #include "video_process.h"
+#include "picture_process.h"
 
 int main(int argc, char* argv[]) {
   auto [desc, vm] = commandLineInit(argc, argv);
+  spdlog::set_pattern("[%^%l%$] %v");
 
   if (vm.count("help")) {
     std::cout << desc << "\n";
     return 0;
   }
 
-  spdlog::set_pattern("[%^%l%$] %v");
+  if (vm.count("type")) {
+    const auto typeStr = boost::trim_copy(vm.at("type").as<std::string>());
+    if (typeStr == std::string("video")) {
+      GLBs.PROCESS_TYPE = "video";
+    } else if (typeStr == std::string("picture")) {
+      GLBs.PROCESS_TYPE = "picture";
+    } else {
+      spdlog::error(
+        "Invalid process type specified: {}",
+        vm.at("type").as<std::string>()
+      );
+      return 1;
+    }
+  } else {
+    GLBs.PROCESS_TYPE = "video";
+  }
 
   if (vm.count("verbose")) {
     spdlog::set_level(spdlog::level::debug);
@@ -82,12 +100,26 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  if (fs::is_directory(GLBs.INPUT_PATH)) {
+  if (GLBs.PROCESS_TYPE == "video" && fs::is_directory(GLBs.INPUT_PATH)) {
     return handlePathEncoding(GLBs.INPUT_PATH);
   }
 
-  if (fs::is_regular_file(GLBs.INPUT_PATH)) {
+  if (GLBs.PROCESS_TYPE == "video" && fs::is_regular_file(GLBs.INPUT_PATH)) {
     return handleSingleFileEncoding(GLBs.INPUT_PATH);
+  }
+
+  if (GLBs.PROCESS_TYPE == "picture" && fs::is_directory(GLBs.INPUT_PATH)) {
+    const auto outputDir = GLBs.OUTPUT_PATH.value_or(GLBs.INPUT_PATH) / "packed";
+    const auto packRes   = packAllPicsToZip(GLBs.INPUT_PATH, outputDir);
+
+    if (!packRes) {
+      spdlog::error("Failed to pack pictures: {}", packRes.error());
+      return 1;
+    }
+
+    std::println("All pictures packed successfully to: {}", outputDir.string());
+
+    return 0;
   }
 
   spdlog::error(

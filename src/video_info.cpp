@@ -69,11 +69,12 @@ auto readAllVidsImpl(const fs::path& dirPath) -> std::vector<fs::path> {
   auto vids = std::vector<fs::path>{};
 
   for (const auto& entry: Iter(dirPath)) {
-    const auto vidsExt = entry.path().extension().string();
     if (!entry.is_regular_file()) {
       spdlog::debug("Skipping non-regular file: {}", entry.path().string());
       continue;
     }
+
+    const auto vidsExt = entry.path().extension().string();
     if (rng::contains(videoTypes, vidsExt) && !isHevcEncoded(entry.path())) {
       vids.emplace_back(entry.path());
       GLBs.VIDEO_INFO_CACHE[entry.path()] = getVidInfo(entry.path());
