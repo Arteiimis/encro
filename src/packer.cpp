@@ -3,8 +3,7 @@
 #include <ranges>
 
 #include <libzippp/libzippp.h>
-
-#include "utils.h"
+#include <indicators/progress_bar.hpp>
 
 namespace fs = std::filesystem;
 
