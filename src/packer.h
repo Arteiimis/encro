@@ -4,9 +4,12 @@
 #include <expected>
 #include <vector>
 
+#include <indicators/progress_bar.hpp>
+
 auto packFilesToZip(
   const std::vector<std::filesystem::path>& filePaths,
-  const std::filesystem::path&              zipFilePath
+  const std::filesystem::path&              zipFilePath,
+  indicators::ProgressBar*                  progressBar = nullptr
 ) -> std::expected<void, std::string>;
 
 auto groupFilesBySize(

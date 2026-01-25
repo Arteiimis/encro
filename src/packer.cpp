@@ -1,5 +1,6 @@
 #include <expected>
 #include <filesystem>
+#include <ranges>
 
 #include <libzippp/libzippp.h>
 
@@ -9,15 +10,20 @@ namespace fs = std::filesystem;
 
 auto packFilesToZip(
   const std::vector<fs::path>& filePaths,
-  const fs::path&              zipFilePath
+  const fs::path&              zipFilePath,
+  indicators::ProgressBar*     progressBar = nullptr
 ) -> std::expected<void, std::string> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());
+  auto fileCount = filePaths.size();
 
-  zip.open(libzippp::ZipArchive::Write);
+  zip.open(libzippp::ZipArchive::New);
 
-  for (const auto& filePath: filePaths) {
+  for (const auto& [index, filePath]: std::views::enumerate(filePaths)) {
     if (fs::is_regular_file(filePath)) {
       zip.addFile(filePath.filename().string(), filePath.string());
+      if (progressBar) {
+        progressBar->set_progress(index / (float)fileCount * 100.0f);
+      }
     }
   }
 

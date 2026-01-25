@@ -110,7 +110,7 @@ int main(int argc, char* argv[]) {
 
   if (GLBs.PROCESS_TYPE == "picture" && fs::is_directory(GLBs.INPUT_PATH)) {
     const auto outputDir = GLBs.OUTPUT_PATH.value_or(GLBs.INPUT_PATH) / "packed";
-    const auto packRes   = packAllPicsToZip(GLBs.INPUT_PATH, outputDir);
+    const auto packRes   = packAllPicsToZipParallel(GLBs.INPUT_PATH, outputDir);
 
     if (!packRes) {
       spdlog::error("Failed to pack pictures: {}", packRes.error());
