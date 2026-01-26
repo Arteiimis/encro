@@ -25,3 +25,5 @@ std::string getUUID();
 
 auto getProgressBar(std::string_view promptText)
   -> std::unique_ptr<indicators::ProgressBar>;
+
+void cursorToggleVisibility(bool visible);

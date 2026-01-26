@@ -1,16 +1,20 @@
 #include <expected>
 #include <filesystem>
 #include <ranges>
+#include <cmath>
 
+#include <spdlog/spdlog.h>
 #include <libzippp/libzippp.h>
 #include <indicators/progress_bar.hpp>
+#include <indicators/dynamic_progress.hpp>
 
 namespace fs = std::filesystem;
 
 auto packFilesToZip(
-  const std::vector<fs::path>& filePaths,
-  const fs::path&              zipFilePath,
-  indicators::ProgressBar*     progressBar = nullptr
+  const std::vector<fs::path>&                          filePaths,
+  const fs::path&                                       zipFilePath,
+  indicators::DynamicProgress<indicators::ProgressBar>& progressBarManager,
+  size_t                                                progressBarIndex
 ) -> std::expected<void, std::string> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());
   auto fileCount = filePaths.size();
@@ -18,12 +22,14 @@ auto packFilesToZip(
   zip.open(libzippp::ZipArchive::New);
 
   for (const auto& [index, filePath]: std::views::enumerate(filePaths)) {
+    const auto progress = (size_t)std::round((index + 1) / (float)fileCount * 100.0f);
+
     if (fs::is_regular_file(filePath)) {
       zip.addFile(filePath.filename().string(), filePath.string());
-      if (progressBar) {
-        progressBar->set_progress(index / (float)fileCount * 100.0f);
-      }
+      progressBarManager[progressBarIndex].set_progress(progress);
     }
+
+    spdlog::debug("Packing progress: {}%, File: {}", progress, filePath.string());
   }
 
   zip.close();

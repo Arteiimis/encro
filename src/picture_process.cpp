@@ -54,38 +54,6 @@ auto readAllPics(const fs::path& dirPath) -> std::vector<fs::path> {
   }
 }
 
-auto packAllPicsToZip(const fs::path& dirPath, const fs::path& zipFileDir)
-  -> std::expected<void, std::string> {
-  namespace view = std::views;
-
-  const auto groupedPics = groupFilesBySize(readAllPics(dirPath));
-
-  for (const auto& [index, group]: view::enumerate(groupedPics)) {
-    const auto zipFileName = std::format(
-      "{}_part{}.zip",
-      dirPath.filename().string(),
-      index + 1
-    );
-    const auto zipFilePath = zipFileDir / zipFileName;
-    fs::create_directory(zipFileDir);
-
-    const auto packRes = packFilesToZip(group, zipFilePath);
-    if (!packRes) {
-      fs::remove(zipFilePath);
-
-      const auto errMsg = std::format(
-        "Failed to pack pictures to {}: {}",
-        zipFilePath.string(),
-        packRes.error()
-      );
-      spdlog::error(errMsg);
-      return std::unexpected{errMsg};
-    }
-  }
-
-  return {};
-}
-
 auto packAllPicsToZipParallel(
   const std::filesystem::path& dirPath,
   const std::filesystem::path& zipFileDir
@@ -119,7 +87,7 @@ auto packAllPicsToZipParallel(
       const auto zipFilePath = zipFileDir / zipFileName;
       fs::create_directory(zipFileDir);
 
-      const auto packRes = packFilesToZip(group, zipFilePath, bars[index].get());
+      const auto packRes = packFilesToZip(group, zipFilePath, progressManager, index);
       if (!packRes) {
         fs::remove(zipFilePath);
 
@@ -137,8 +105,10 @@ auto packAllPicsToZipParallel(
     });
   }
 
+  cursorToggleVisibility(false);
   pool.unpause();
   pool.wait();
+  cursorToggleVisibility(true);
 
   for (const auto& res: packResults) {
     if (!res) { return res; }

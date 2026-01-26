@@ -132,3 +132,24 @@ auto getProgressBar(std::string_view promptText)
     option::MaxProgress{100}
   );
 }
+
+#if defined(_WIN32) || defined(_WIN64)
+  #include <windows.h>
+#endif
+
+void cursorToggleVisibility(bool visible) {
+#if defined(_WIN32) || defined(_WIN64)
+  HANDLE              hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+  CONSOLE_CURSOR_INFO cursorInfo;
+
+  GetConsoleCursorInfo(hConsole, &cursorInfo);
+  cursorInfo.bVisible = visible;
+  SetConsoleCursorInfo(hConsole, &cursorInfo);
+#else
+  if (visible) {
+    std::print("\033[?25h");
+  } else {
+    std::print("\033[?25l");
+  }
+#endif
+}

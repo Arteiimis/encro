@@ -13,11 +13,6 @@ auto readAllPicsImpl(const std::filesystem::path& dirPath)
 auto readAllPics(const std::filesystem::path& dirPath)
   -> std::vector<std::filesystem::path>;
 
-auto packAllPicsToZip(
-  const std::filesystem::path& dirPath,
-  const std::filesystem::path& zipFileDir
-) -> std::expected<void, std::string>;
-
 auto packAllPicsToZipParallel(
   const std::filesystem::path& dirPath,
   const std::filesystem::path& zipFileDir

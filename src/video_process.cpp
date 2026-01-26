@@ -241,8 +241,10 @@ int handlePathEncoding(const fs::path& inputPath) {
     return 0;
   }
 
+  cursorToggleVisibility(false);
   pool.unpause();
   pool.wait();
+  cursorToggleVisibility(true);
 
   std::println("All encoding tasks completed.");
   std::println("Summary:");
