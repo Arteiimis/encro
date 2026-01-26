@@ -20,7 +20,7 @@ add_requires("boost[all]")
 add_requires("thread-pool")
 add_requires("spdlog[std_format]")
 add_requires("indicators")
-add_requires("libzippp")
+add_requires("libzippp[zstd]")
 add_requires("catch2")
 
 target("video_encoder")
