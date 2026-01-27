@@ -1,5 +1,3 @@
-#include <print>
-
 #include <spdlog/spdlog.h>
 
 #include "video_info.h"
