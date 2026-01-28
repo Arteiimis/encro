@@ -57,7 +57,7 @@ auto readAllPics(const fs::path& dirPath) -> std::vector<fs::path> {
 auto packAllPicsToZipParallel(
   const std::filesystem::path& dirPath,
   const std::filesystem::path& zipFileDir
-) -> std::expected<void, std::string> {
+) -> eh::Result<void> {
   namespace view = std::views;
 
   const auto groupedPics = groupFilesBySize(readAllPics(dirPath));
@@ -73,12 +73,10 @@ auto packAllPicsToZipParallel(
     progressManager.push_back(*bars.back());
   }
 
-  auto packResults = std::vector<std::expected<void, std::string>>(
-    groupedPics.size()
-  );
+  auto packResults = std::vector<eh::Result<void>>(groupedPics.size());
 
   for (const auto& [index, group]: view::enumerate(groupedPics)) {
-    pool.detach_task([&, index, group]() {
+    pool.detach_task([&, index, group] {
       const auto zipFileName = std::format(
         "{}_part{}.zip",
         dirPath.filename().string(),
@@ -97,7 +95,7 @@ auto packAllPicsToZipParallel(
           packRes.error()
         );
         spdlog::error(errMsg);
-        packResults[index] = std::unexpected{errMsg};
+        packResults[index] = eh::makeError(errMsg);
         return;
       }
 
