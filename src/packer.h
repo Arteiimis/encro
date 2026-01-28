@@ -1,7 +1,6 @@
 #pragma once
 
 #include <filesystem>
-#include <expected>
 #include <vector>
 
 #include <indicators/progress_bar.hpp>

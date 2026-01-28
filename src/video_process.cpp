@@ -8,7 +8,6 @@
 #include <indicators/progress_bar.hpp>
 #include <indicators/dynamic_progress.hpp>
 #include <spdlog/spdlog.h>
-#include <stacktrace>
 
 #include "video_process.h"
 #include "video_info.h"
