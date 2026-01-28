@@ -27,7 +27,7 @@ int main(int argc, char* argv[]) {
     } else {
       spdlog::error(
         "Invalid process type specified: {}",
-        vm.at("type").as<std::string>()
+        boost::trim_copy(vm.at("type").as<std::string>())
       );
       return 1;
     }
@@ -51,9 +51,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (vm.count("ffmpeg-path")) {
-    const auto iptPath = fs::path{
-      boost::trim_copy(vm.at("ffmpeg-path").as<std::string>())
-    };
+    const auto iptPath = getTrimedPath(vm.at("ffmpeg-path").as<std::string>());
 
     if (!fs::is_directory(iptPath) && !fs::is_regular_file(iptPath)) {
       spdlog::error("The specified FFmpeg path is invalid: {}", iptPath.string());
@@ -75,7 +73,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (vm.count("output")) {
-    GLBs.OUTPUT_PATH = fs::path{boost::trim_copy(vm.at("output").as<std::string>())};
+    GLBs.OUTPUT_PATH = getTrimedPath(vm.at("output").as<std::string>());
 
     if (!fs::is_directory(GLBs.OUTPUT_PATH.value())) {
       spdlog::error(
@@ -88,7 +86,10 @@ int main(int argc, char* argv[]) {
     spdlog::info("Using custom output path: {}", GLBs.OUTPUT_PATH.value().string());
   }
 
-  if (!toolCheck()) { return 1; }
+  if (const auto toolRes = toolCheck(); !toolRes) {
+    spdlog::error("Tool check failed: {}", toolRes.error());
+    return 1;
+  }
 
   GLBs.INPUT_PATH = fs::path{boost::trim_copy(vm.at("input").as<std::string>())};
 

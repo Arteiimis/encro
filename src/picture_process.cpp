@@ -11,6 +11,7 @@
 #include "packer.h"
 #include "globals.h"
 #include "utils.h"
+#include "picture_process.h"
 
 namespace fs = std::filesystem;
 using namespace indicators;
@@ -95,7 +96,7 @@ auto packAllPicsToZipParallel(
           packRes.error()
         );
         spdlog::error(errMsg);
-        packResults[index] = eh::makeError(errMsg);
+        packResults[index] = eh::makeError("{}", errMsg);
         return;
       }
 

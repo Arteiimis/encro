@@ -68,37 +68,35 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
   pool.detach_task([&videoPath, &returnCode]() {
     returnCode = encodeToHevc(videoPath);
   });
+
+  using namespace std::chrono_literals;
+
   pool.detach_task([&progressBar, &videoPath] {
     while (true) {
+      auto progressFilePath = fs::path{};
       try {
-        const auto progressFilePath       = GLBs.PROGRESS_FILES.at(videoPath);
-        const auto [currentFrame, status] = parseProgressFile(progressFilePath);
-        const auto  totalFrames           = getVidTotalFrames(videoPath);
-        const float progressPercent = ((float)currentFrame / totalFrames) * 100.0;
-
-        spdlog::debug(
-          "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
-          videoPath.string(),
-          currentFrame,
-          totalFrames,
-          progressPercent
-        );
-
-        progressBar->set_progress(progressPercent);
-
-        if (currentFrame >= totalFrames || status == "end") { break; }
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      } catch (const std::exception& e) {
-        spdlog::debug(
-          "Error updating progress for video {}: {}",
-          videoPath.string(),
-          e.what()
-        );
-        spdlog::debug("Call stack:\n{}", std::stacktrace::current());
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        progressFilePath = GLBs.PROGRESS_FILES.at(videoPath);
+      } catch (...) {
+        std::this_thread::sleep_for(500ms);
         continue;
       }
+
+      const auto [currentFrame, status] = parseProgressFile(progressFilePath);
+      const auto  totalFrames           = getVidTotalFrames(videoPath);
+      const float progressPercent = ((float)currentFrame / totalFrames) * 100.0;
+
+      spdlog::debug(
+        "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
+        videoPath.string(),
+        currentFrame,
+        totalFrames,
+        progressPercent
+      );
+
+      progressBar->set_progress(progressPercent);
+
+      if (currentFrame >= totalFrames || status == "end") { break; }
+      std::this_thread::sleep_for(500ms);
     }
   });
 
@@ -171,38 +169,34 @@ auto monitorEncodingProgress(
   const std::unordered_map<fs::path, std::size_t>&      progressBarIndexs,
   const fs::path&                                       vidPath
 ) -> void {
+  using namespace std::chrono_literals;
+
   const auto totalFrames = getVidTotalFrames(vidPath);
   while (true) {
+    auto progressFilePath = fs::path{};
     try {
-      const auto progressFilePath = GLBs.PROGRESS_FILES.at(vidPath);
-
-      const auto [frameCount, status] = parseProgressFile(progressFilePath);
-      const float progressPercent     = ((float)frameCount / totalFrames) * 100.0;
-
-      spdlog::debug(
-        "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
-        vidPath.string(),
-        frameCount,
-        totalFrames,
-        progressPercent
-      );
-
-      progressManager[progressBarIndexs.at(vidPath)].set_progress(progressPercent);
-
-      if (frameCount >= totalFrames || status == "end") { break; }
-
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    } catch (const std::exception& e) {
-      spdlog::debug(
-        "Error updating progress for video {}: {}",
-        vidPath.string(),
-        e.what()
-      );
-      spdlog::debug("Call stack:\n{}", std::stacktrace::current());
-
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      progressFilePath = GLBs.PROGRESS_FILES.at(vidPath);
+    } catch (...) {
+      std::this_thread::sleep_for(500ms);
       continue;
     }
+
+    const auto [frameCount, status] = parseProgressFile(progressFilePath);
+    const float progressPercent     = ((float)frameCount / totalFrames) * 100.0;
+
+    spdlog::debug(
+      "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
+      vidPath.string(),
+      frameCount,
+      totalFrames,
+      progressPercent
+    );
+
+    progressManager[progressBarIndexs.at(vidPath)].set_progress(progressPercent);
+
+    if (frameCount >= totalFrames || status == "end") { break; }
+
+    std::this_thread::sleep_for(500ms);
   }
 }
 

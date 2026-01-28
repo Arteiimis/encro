@@ -93,25 +93,23 @@ auto find7zip() -> std::optional<fs::path> {
   return std::nullopt;
 }
 
-bool toolCheck() {
+auto toolCheck() -> eh::Result<void> {
   if (GLBs.FFMPEG_PATH = findFFmpeg(); !GLBs.FFMPEG_PATH.has_value()) {
-    spdlog::error(
+    return eh::makeError(
       "FFmpeg not found. Please ensure FFmpeg is installed and accessible."
     );
-    return false;
   }
 
   if (GLBs.FFPROBE_PATH = findFFprobe(); !GLBs.FFPROBE_PATH.has_value()) {
-    spdlog::error(
+    return eh::makeError(
       "FFprobe not found. Please ensure FFprobe is installed and accessible."
     );
-    return false;
   }
 
   spdlog::debug("Using FFmpeg at: {}", GLBs.FFMPEG_PATH.value().string());
   spdlog::debug("Using FFprobe at: {}", GLBs.FFPROBE_PATH.value().string());
 
-  return true;
+  return {};
 }
 
 std::string getUUID() {
@@ -152,4 +150,8 @@ void cursorToggleVisibility(bool visible) {
     std::print("\033[?25l");
   }
 #endif
+}
+
+auto getTrimedPath(const std::string& pathStr) -> fs::path {
+  return fs::path{boost::trim_copy(pathStr)};
 }
