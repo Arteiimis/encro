@@ -19,16 +19,13 @@ int main(int argc, char* argv[]) {
   }
 
   if (vm.count("type")) {
-    const auto typeStr = boost::trim_copy(vm.at("type").as<std::string>());
+    const auto typeStr = getParamStr(vm, "type");
     if (typeStr == std::string("video")) {
       GLBs.PROCESS_TYPE = "video";
     } else if (typeStr == std::string("picture")) {
       GLBs.PROCESS_TYPE = "picture";
     } else {
-      spdlog::error(
-        "Invalid process type specified: {}",
-        boost::trim_copy(vm.at("type").as<std::string>())
-      );
+      spdlog::error("Invalid process type specified: {}", getParamStr(vm, "type"));
       return 1;
     }
   } else {
@@ -51,7 +48,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (vm.count("ffmpeg-path")) {
-    const auto iptPath = getTrimedPath(vm.at("ffmpeg-path").as<std::string>());
+    const auto iptPath = fs::path{getParamStr(vm, "ffmpeg-path")};
 
     if (!fs::is_directory(iptPath) && !fs::is_regular_file(iptPath)) {
       spdlog::error("The specified FFmpeg path is invalid: {}", iptPath.string());
@@ -73,7 +70,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (vm.count("output")) {
-    GLBs.OUTPUT_PATH = getTrimedPath(vm.at("output").as<std::string>());
+    GLBs.OUTPUT_PATH = fs::path{getParamStr(vm, "output")};
 
     if (!fs::is_directory(GLBs.OUTPUT_PATH.value())) {
       spdlog::error(
@@ -91,7 +88,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  GLBs.INPUT_PATH = fs::path{boost::trim_copy(vm.at("input").as<std::string>())};
+  GLBs.INPUT_PATH = fs::path{getParamStr(vm, "input")};
 
   if (!fs::exists(GLBs.INPUT_PATH)) {
     spdlog::error(

@@ -32,4 +32,7 @@ auto getProgressBar(std::string_view promptText)
 
 void cursorToggleVisibility(bool visible);
 
-auto getTrimedPath(const std::string& pathStr) -> fs::path;
+auto getParamStr(
+  const boost::program_options::variables_map& vm,
+  std::string_view                             paramName
+) -> std::string;

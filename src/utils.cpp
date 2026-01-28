@@ -152,6 +152,9 @@ void cursorToggleVisibility(bool visible) {
 #endif
 }
 
-auto getTrimedPath(const std::string& pathStr) -> fs::path {
-  return fs::path{boost::trim_copy(pathStr)};
+auto getParamStr(
+  const boost::program_options::variables_map& vm,
+  std::string_view                             paramName
+) -> std::string {
+  return boost::trim_copy(vm.at(paramName.data()).as<std::string>());
 }
