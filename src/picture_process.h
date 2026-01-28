@@ -6,6 +6,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include "error_handle.h"
+
 template<class Iter>
 auto readAllPicsImpl(const std::filesystem::path& dirPath)
   -> std::vector<std::filesystem::path>;
@@ -16,4 +18,4 @@ auto readAllPics(const std::filesystem::path& dirPath)
 auto packAllPicsToZipParallel(
   const std::filesystem::path& dirPath,
   const std::filesystem::path& zipFileDir
-) -> std::expected<void, std::string>;
+) -> eh::Result<void>;

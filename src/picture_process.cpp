@@ -11,6 +11,7 @@
 #include "packer.h"
 #include "globals.h"
 #include "utils.h"
+#include "picture_process.h"
 
 namespace fs = std::filesystem;
 using namespace indicators;
@@ -57,7 +58,7 @@ auto readAllPics(const fs::path& dirPath) -> std::vector<fs::path> {
 auto packAllPicsToZipParallel(
   const std::filesystem::path& dirPath,
   const std::filesystem::path& zipFileDir
-) -> std::expected<void, std::string> {
+) -> eh::Result<void> {
   namespace view = std::views;
 
   const auto groupedPics = groupFilesBySize(readAllPics(dirPath));
@@ -97,7 +98,7 @@ auto packAllPicsToZipParallel(
           packRes.error()
         );
         spdlog::error(errMsg);
-        packResults[index] = std::unexpected{errMsg};
+        packResults[index] = eh::makeError("{}", errMsg);
         return;
       }
 

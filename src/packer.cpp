@@ -8,6 +8,8 @@
 #include <indicators/progress_bar.hpp>
 #include <indicators/dynamic_progress.hpp>
 
+#include "packer.h"
+
 namespace fs = std::filesystem;
 
 auto packFilesToZip(
@@ -15,7 +17,7 @@ auto packFilesToZip(
   const fs::path&                                       zipFilePath,
   indicators::DynamicProgress<indicators::ProgressBar>& progressBarManager,
   size_t                                                progressBarIndex
-) -> std::expected<void, std::string> try {
+) -> eh::Result<void> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());
   auto fileCount = filePaths.size();
 
@@ -37,14 +39,16 @@ auto packFilesToZip(
   return {};
 } catch (const std::exception& e) {
 
-  return std::unexpected(
-    std::format("Failed to create zip archive {}: {}", zipFilePath.string(), e.what())
+  return eh::makeError(
+    "Exception while packing files to zip {}: {}",
+    zipFilePath.string(),
+    e.what()
   );
 }
 
 auto groupFilesBySize(
   const std::vector<fs::path>& filePaths,
-  std::uintmax_t               maxGroupSize = 490 * 1024 * 1024
+  std::uintmax_t               maxGroupSize
 ) -> std::vector<std::vector<fs::path>> {
   auto groupedFiles = std::vector<std::vector<fs::path>>{};
   auto currentGroup = std::vector<fs::path>{};
