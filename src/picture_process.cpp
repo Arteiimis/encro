@@ -55,29 +55,24 @@ auto readAllPics(const fs::path& dirPath) -> std::vector<fs::path> {
   }
 }
 
-auto packAllPicsToZipParallel(
-  const std::filesystem::path& dirPath,
-  const std::filesystem::path& zipFileDir
-) -> eh::Result<void> {
+auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDir)
+  -> eh::Result<void> {
   namespace view = std::views;
 
   const auto groupedPics = groupFilesBySize(readAllPics(dirPath));
   auto pool = BS::pause_thread_pool{groupedPics.size()};
-  pool.pause();
   auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
   auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
+  auto packResults = std::vector<eh::Result<void>>(groupedPics.size());
 
-  for (const auto& [index, _]: view::enumerate(groupedPics)) {
+  pool.pause();
+  for (const auto& [index, group]: view::enumerate(groupedPics)) {
     bars.emplace_back(getProgressBar(
       std::format("Packing: {}_part{}.zip", dirPath.filename().string(), index + 1)
     ));
     progressManager.push_back(*bars.back());
-  }
 
-  auto packResults = std::vector<eh::Result<void>>(groupedPics.size());
-
-  for (const auto& [index, group]: view::enumerate(groupedPics)) {
-    pool.detach_task([&, index, group] {
+    const auto doPack = [&, index, group] {
       const auto zipFileName = std::format(
         "{}_part{}.zip",
         dirPath.filename().string(),
@@ -101,7 +96,8 @@ auto packAllPicsToZipParallel(
       }
 
       packResults[index] = {};
-    });
+    };
+    pool.detach_task(doPack);
   }
 
   cursorToggleVisibility(false);
