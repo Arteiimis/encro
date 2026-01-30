@@ -206,19 +206,19 @@ int handlePathEncoding(const fs::path& inputPath) {
 
   auto vidsRunRes = std::unordered_map<fs::path, bool>{};
   auto pool = BS::pause_thread_pool{vids.size() * 2};
-  pool.pause();
-
   auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
   auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
   auto progressBarIndexs = std::unordered_map<fs::path, std::size_t>{};
+
+  pool.pause();
   for (const auto& vidPath: vids) {
+    // Initialize progress bar for this video
     bars.emplace_back(
       getProgressBar(std::format("Encoding: {}", vidPath.filename().string()))
     );
     progressBarIndexs[vidPath] = progressManager.push_back(*bars.back());
-  }
 
-  for (const auto& vidPath: vids) {
+    // Schedule encoding task
     pool.detach_task([&vidsRunRes, vidPath]() {
       vidsRunRes[vidPath] = encodeToHevc(vidPath);
     });
