@@ -13,7 +13,12 @@
 
 namespace fs = std::filesystem;
 
-auto exec2(std::string_view cmd) -> std::pair<int, std::string>;
+struct ExecResult {
+  int exitCode;
+  std::string output;
+};
+
+auto exec2(std::string_view cmd) -> ExecResult;
 
 bool readUserIpt();
 

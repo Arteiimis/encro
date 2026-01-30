@@ -12,12 +12,12 @@
 namespace fs = std::filesystem;
 
 auto packFilesToZip(
-  const std::vector<fs::path>&                          filePaths,
-  const fs::path&                                       zipFilePath,
+  const std::vector<fs::path>& filePaths,
+  const fs::path& zipFilePath,
   indicators::DynamicProgress<indicators::ProgressBar>& progressBarManager,
-  size_t                                                progressBarIndex
+  size_t progressBarIndex
 ) -> eh::Result<void> try {
-  auto zip       = libzippp::ZipArchive(zipFilePath.string());
+  auto zip = libzippp::ZipArchive(zipFilePath.string());
   auto fileCount = filePaths.size();
 
   zip.open(libzippp::ZipArchive::New);
@@ -47,11 +47,11 @@ auto packFilesToZip(
 
 auto groupFilesBySize(
   const std::vector<fs::path>& filePaths,
-  std::uintmax_t               maxGroupSize
+  std::uintmax_t maxGroupSize
 ) -> std::vector<std::vector<fs::path>> {
   auto groupedFiles = std::vector<std::vector<fs::path>>{};
   auto currentGroup = std::vector<fs::path>{};
-  auto currentSize  = std::uintmax_t{0};
+  auto currentSize = std::uintmax_t{0};
 
   for (const auto& filePath: filePaths) {
     const auto fileSize = fs::file_size(filePath);

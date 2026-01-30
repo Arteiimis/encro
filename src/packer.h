@@ -9,13 +9,13 @@
 #include "error_handle.h"
 
 auto packFilesToZip(
-  const std::vector<std::filesystem::path>&             filePaths,
-  const std::filesystem::path&                          zipFilePath,
+  const std::vector<std::filesystem::path>& filePaths,
+  const std::filesystem::path& zipFilePath,
   indicators::DynamicProgress<indicators::ProgressBar>& progressBarManager,
-  size_t                                                progressBarIndex
+  size_t progressBarIndex
 ) -> eh::Result<void>;
 
 auto groupFilesBySize(
   const std::vector<std::filesystem::path>& filePaths,
-  std::uintmax_t                            maxGroupSize = 490 * 1024 * 1024
+  std::uintmax_t maxGroupSize = 490 * 1024 * 1024
 ) -> std::vector<std::vector<std::filesystem::path>>;

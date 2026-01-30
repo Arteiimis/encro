@@ -62,9 +62,9 @@ auto packAllPicsToZipParallel(
   namespace view = std::views;
 
   const auto groupedPics = groupFilesBySize(readAllPics(dirPath));
-  auto       pool        = BS::pause_thread_pool{groupedPics.size()};
+  auto pool = BS::pause_thread_pool{groupedPics.size()};
   pool.pause();
-  auto bars            = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
+  auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
   auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
 
   for (const auto& [index, _]: view::enumerate(groupedPics)) {

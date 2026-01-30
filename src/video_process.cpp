@@ -19,7 +19,7 @@ using namespace boost::lambda2;
 using namespace indicators;
 
 bool encodeToHevc(const fs::path& inputVidPath) {
-  const auto outputVidDir  = GLBs.OUTPUT_PATH.value_or(inputVidPath.parent_path());
+  const auto outputVidDir = GLBs.OUTPUT_PATH.value_or(inputVidPath.parent_path());
   const auto outputVidPath = outputVidDir
                            / std::format("{}.hevc.mp4", inputVidPath.stem().string());
   const auto progressFilePath = fs::temp_directory_path()
@@ -57,8 +57,8 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
     return 0;
   }
 
-  auto returnCode  = 0;
-  auto pool        = BS::pause_thread_pool{2};
+  auto returnCode = 0;
+  auto pool = BS::pause_thread_pool{2};
   auto progressBar = getProgressBar(
     std::format("Encoding: {}", videoPath.filename().string())
   );
@@ -81,7 +81,7 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
       }
 
       const auto [currentFrame, status] = parseProgressFile(progressFilePath);
-      const auto  totalFrames           = getVidTotalFrames(videoPath);
+      const auto totalFrames = getVidTotalFrames(videoPath);
       const float progressPercent = ((float)currentFrame / totalFrames) * 100.0;
 
       spdlog::debug(
@@ -107,20 +107,20 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
 
 auto readLastNLines(const fs::path& filePath, std::size_t n)
   -> std::vector<std::string> {
-  auto file  = std::ifstream(filePath.string(), std::ios::ate);
+  auto file = std::ifstream(filePath.string(), std::ios::ate);
   auto lines = std::vector<std::string>{};
   lines.reserve(n);
 
   if (!file.is_open()) { return lines; }
 
   auto fileSize = file.tellg();
-  auto buffer   = std::vector<char>(fileSize);
+  auto buffer = std::vector<char>(fileSize);
 
   file.seekg(0, std::ios::beg);
   file.read(buffer.data(), fileSize);
 
   auto count = 0;
-  auto it    = buffer.rbegin();
+  auto it = buffer.rbegin();
 
   while (it != buffer.rend() && count < n) {
     if (*it == '\n' && count > 0) { ++count; }
@@ -128,8 +128,8 @@ auto readLastNLines(const fs::path& filePath, std::size_t n)
   }
 
   auto lastPart = std::string(it.base(), buffer.end());
-  auto stream   = std::istringstream(lastPart);
-  auto line     = std::string{};
+  auto stream = std::istringstream(lastPart);
+  auto line = std::string{};
 
   while (std::getline(stream, line)) { lines.push_back(line); }
 
@@ -142,21 +142,21 @@ auto parseProgressFile(const fs::path& progressFilePath)
   -> std::pair<uint64_t, std::string> {
   namespace bp = boost::parser;
 
-  const auto lines          = readLastNLines(progressFilePath, 12);
-  auto       frameCount     = uint64_t{0};
-  auto       progressStatus = std::string{};
+  const auto lines = readLastNLines(progressFilePath, 12);
+  auto frameCount = uint64_t{0};
+  auto progressStatus = std::string{};
 
-  const auto frameParser    = bp::string("frame=") >> bp::uint_;
+  const auto frameParser = bp::string("frame=") >> bp::uint_;
   const auto progressParser = bp::string("progress=") >> *bp::char_;
 
   for (const auto& line: lines) {
     if (const auto& res = bp::parse(line, frameParser); res.has_value()) {
       auto [_, _frameCount] = res.value();
-      frameCount            = _frameCount;
+      frameCount = _frameCount;
     }
     if (const auto& res = bp::parse(line, progressParser); res.has_value()) {
       auto [_, _progressStatus] = res.value();
-      progressStatus            = _progressStatus;
+      progressStatus = _progressStatus;
     }
   }
 
@@ -165,8 +165,8 @@ auto parseProgressFile(const fs::path& progressFilePath)
 
 auto monitorEncodingProgress(
   indicators::DynamicProgress<indicators::ProgressBar>& progressManager,
-  const std::unordered_map<fs::path, std::size_t>&      progressBarIndexs,
-  const fs::path&                                       vidPath
+  const std::unordered_map<fs::path, std::size_t>& progressBarIndexs,
+  const fs::path& vidPath
 ) -> void {
   using namespace std::chrono_literals;
 
@@ -181,7 +181,7 @@ auto monitorEncodingProgress(
     }
 
     const auto [frameCount, status] = parseProgressFile(progressFilePath);
-    const float progressPercent     = ((float)frameCount / totalFrames) * 100.0;
+    const float progressPercent = ((float)frameCount / totalFrames) * 100.0;
 
     spdlog::debug(
       "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
@@ -205,11 +205,11 @@ int handlePathEncoding(const fs::path& inputPath) {
   const auto vids = readAllVids(inputPath);
 
   auto vidsRunRes = std::unordered_map<fs::path, bool>{};
-  auto pool       = BS::pause_thread_pool{vids.size() * 2};
+  auto pool = BS::pause_thread_pool{vids.size() * 2};
   pool.pause();
 
-  auto bars              = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
-  auto progressManager   = indicators::DynamicProgress<indicators::ProgressBar>{};
+  auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
+  auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
   auto progressBarIndexs = std::unordered_map<fs::path, std::size_t>{};
   for (const auto& vidPath: vids) {
     bars.emplace_back(
