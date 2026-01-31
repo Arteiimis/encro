@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
   if (vm.count("ffmpeg-path")) {
     const auto iptPath = fs::path{getParamStr(vm, "ffmpeg-path")};
 
-    if (!fs::is_directory(iptPath) && !fs::is_regular_file(iptPath)) {
+    if (!fs::is_directory(iptPath)) {
       spdlog::error("The specified FFmpeg path is invalid: {}", iptPath.string());
       return 1;
     }

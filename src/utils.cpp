@@ -38,52 +38,36 @@ bool readUserIpt() {
 }
 
 auto findFFprobe() -> std::optional<fs::path> {
-  if (!GLBs.FFMPEG_INSTALL_DIR.has_value()
-      && exec2("ffprobe -version").exitCode == 0) {
-    return fs::path{"ffprobe"};
-  }
+  const auto hasInstallDir = GLBs.FFMPEG_INSTALL_DIR.has_value();
+  const auto systemFFprobeAvailable = exec2("ffprobe -version").exitCode == 0;
 
-  if (fs::is_regular_file(GLBs.FFMPEG_INSTALL_DIR.value())
-      && GLBs.FFMPEG_INSTALL_DIR.value().filename() == "ffprobe") {
-    const auto cmd = std::format(
-      "\"{}\" -version",
-      GLBs.FFMPEG_INSTALL_DIR.value().string()
-    );
+  if (!hasInstallDir && systemFFprobeAvailable) { return fs::path{"ffprobe"}; }
 
-    if (exec2(cmd).exitCode == 0) { return GLBs.FFMPEG_INSTALL_DIR; }
-  }
+  auto pathIter = fs::recursive_directory_iterator{GLBs.FFMPEG_INSTALL_DIR.value()};
 
-  if (fs::is_directory(GLBs.FFMPEG_INSTALL_DIR.value())) {
-    auto path = GLBs.FFMPEG_INSTALL_DIR.value() / "ffprobe";
-    auto cmd = std::format("\"{}\" -version", path.string());
-
-    if (exec2(cmd).exitCode == 0) { return path; }
+  for (const auto& entry: pathIter) {
+    if (entry.is_regular_file() && entry.path().filename() == "ffprobe") {
+      auto cmd = std::format("\"{}\" -version", entry.path().string());
+      if (exec2(cmd).exitCode == 0) { return entry.path(); }
+    }
   }
 
   return std::nullopt;
 }
 
 auto findFFmpeg() -> std::optional<fs::path> {
-  if (!GLBs.FFMPEG_INSTALL_DIR.has_value()
-      && exec2("ffmpeg -version").exitCode == 0) {
-    return fs::path{"ffmpeg"};
-  }
+  const auto hasInstallDir = GLBs.FFMPEG_INSTALL_DIR.has_value();
+  const auto systemFFmpegAvailable = exec2("ffmpeg -version").exitCode == 0;
 
-  if (fs::is_regular_file(GLBs.FFMPEG_INSTALL_DIR.value())
-      && GLBs.FFMPEG_INSTALL_DIR.value().filename() == "ffmpeg") {
-    auto cmd = std::format(
-      "\"{}\" -version",
-      GLBs.FFMPEG_INSTALL_DIR.value().string()
-    );
+  if (!hasInstallDir && systemFFmpegAvailable) { return fs::path{"ffmpeg"}; }
 
-    if (exec2(cmd).exitCode == 0) { return GLBs.FFMPEG_INSTALL_DIR; }
-  }
+  auto pathIter = fs::recursive_directory_iterator{GLBs.FFMPEG_INSTALL_DIR.value()};
 
-  if (fs::is_directory(GLBs.FFMPEG_INSTALL_DIR.value())) {
-    auto path = GLBs.FFMPEG_INSTALL_DIR.value() / "ffmpeg";
-    auto cmd = std::format("\"{}\" -version", path.string());
-
-    if (exec2(cmd).exitCode == 0) { return path; }
+  for (const auto& entry: pathIter) {
+    if (entry.is_regular_file() && entry.path().filename() == "ffmpeg") {
+      auto cmd = std::format("\"{}\" -version", entry.path().string());
+      if (exec2(cmd).exitCode == 0) { return entry.path(); }
+    }
   }
 
   return std::nullopt;
@@ -108,8 +92,8 @@ auto toolCheck() -> eh::Result<void> {
     );
   }
 
-  spdlog::debug("Using FFmpeg at: {}", GLBs.FFMPEG_PATH.value().string());
-  spdlog::debug("Using FFprobe at: {}", GLBs.FFPROBE_PATH.value().string());
+  spdlog::info("Using FFmpeg at: {}", GLBs.FFMPEG_PATH.value().string());
+  spdlog::info("Using FFprobe at: {}", GLBs.FFPROBE_PATH.value().string());
 
   return {};
 }
