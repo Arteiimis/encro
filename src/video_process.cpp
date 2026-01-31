@@ -72,10 +72,9 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
 
   pool.detach_task([&progressBar, &videoPath] {
     while (true) {
-      auto progressFilePath = fs::path{};
-      try {
-        progressFilePath = GLBs.PROGRESS_FILES.at(videoPath);
-      } catch (...) {
+      const auto progressFilePath = GLBs.PROGRESS_FILES[videoPath];
+
+      if (!fs::exists(progressFilePath)) {
         std::this_thread::sleep_for(500ms);
         continue;
       }
