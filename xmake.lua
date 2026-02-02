@@ -4,8 +4,13 @@ set_policy("build.optimization.lto", true)
 
 set_languages("c++23")
 add_cxxflags("-std=c++23")
-set_toolchains("clang-cl")
-set_toolset("ld", "lld-link")
+
+if is_subhost("windows") then
+  set_toolchains("clang-cl")
+  set_toolset("ld", "lld-link")
+else 
+  set_toolchains("clang")
+end
 
 add_cxxflags("-Wno-c++26-extensions")
 add_cxxflags("-ftrivial-auto-var-init=pattern")

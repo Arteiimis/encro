@@ -3,6 +3,7 @@
 
 #include <boost/uuid.hpp>
 #include <boost/lexical_cast.hpp>
+#include <boost/process/v1.hpp>
 #include <spdlog/spdlog.h>
 
 #include "globals.h"
