@@ -2,14 +2,20 @@
 
 #include <filesystem>
 
-bool encodeToHevc(const std::filesystem::path& inputVidPath);
+namespace fs = std::filesystem;
 
-int handleSingleFileEncoding(const std::filesystem::path& videoPath);
+auto encodeToHevc(const fs::path& inputVidPath) -> bool;
 
-auto readLastNLines(const std::filesystem::path& filePath, std::size_t n)
+auto handleSingleFileEncoding(const fs::path& videoPath) -> int;
+
+auto readLastNLines(const fs::path& filePath, std::size_t n)
   -> std::vector<std::string>;
 
-auto parseProgressFile(const std::filesystem::path& progressFilePath)
-  -> std::pair<uint64_t, std::string>;
+struct ProgressData {
+  uint64_t frameCount;
+  std::string status;
+};
 
-int handlePathEncoding(const std::filesystem::path& inputPath);
+auto parseProgressFile(const fs::path& progressFilePath) -> ProgressData;
+
+auto handlePathEncoding(const fs::path& inputPath) -> int;

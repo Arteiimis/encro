@@ -137,8 +137,7 @@ auto readLastNLines(const fs::path& filePath, std::size_t n)
   return lines;
 }
 
-auto parseProgressFile(const fs::path& progressFilePath)
-  -> std::pair<uint64_t, std::string> {
+auto parseProgressFile(const fs::path& progressFilePath) -> ProgressData {
   namespace bp = boost::parser;
 
   const auto lines = readLastNLines(progressFilePath, 12);
