@@ -4,8 +4,15 @@
 
 namespace po = boost::program_options;
 
-constexpr auto commandLineInit(int argc, char* argv[])
-  -> std::pair<po::options_description, po::variables_map> {
+struct CmdParserResult {
+  po::options_description desc;
+  po::variables_map vm;
+};
+
+constexpr auto commandLineInit(
+  int argc,
+  char* argv[]
+) -> CmdParserResult {
   namespace po = boost::program_options;
 
   auto desc = po::options_description("Allowed options");
@@ -26,5 +33,5 @@ constexpr auto commandLineInit(int argc, char* argv[])
   po::store(po::parse_command_line(argc, argv, desc), vm);
   po::notify(vm);
 
-  return std::pair{desc, vm};
+  return {desc, vm};
 }
