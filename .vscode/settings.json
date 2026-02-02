@@ -1,5 +1,0 @@
-{
-  "xmake.debuggingTargetsArguments": {
-    "video_encoder": ["-i D:\\BaiduNetdiskDownload\\pixiv\\131746938", "-t picture"]
-  }
-}
