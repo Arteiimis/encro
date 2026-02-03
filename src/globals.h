@@ -10,7 +10,6 @@ namespace fs = std::filesystem;
 namespace json = boost::json;
 
 struct Globals {
-
   template<class Ty>
   using path_map = std::unordered_map<fs::path, Ty>;
 

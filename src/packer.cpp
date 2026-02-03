@@ -10,11 +10,12 @@
 #include "packer.h"
 
 namespace fs = std::filesystem;
+using namespace indicators;
 
 auto packFilesToZip(
   const std::vector<fs::path>& filePaths,
   const fs::path& zipFilePath,
-  indicators::DynamicProgress<indicators::ProgressBar>& progressBarManager,
+  DynamicProgress<ProgressBar>& progressBarManager,
   size_t progressBarIndex
 ) -> eh::Result<void> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());

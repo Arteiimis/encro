@@ -51,7 +51,7 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
   }
 
   std::println("Found video file: {}", videoPath.string());
-
+  std::print("do you want to encode the video to HEVC format? (y/N): ");
   if (const auto proceed = readUserIpt(); !proceed) {
     std::println("Encoding task canceled by user.");
     return 0;

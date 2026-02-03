@@ -28,8 +28,6 @@ auto exec2(std::string_view cmd) -> ExecResult {
 bool readUserIpt() {
   if (GLBs.YES_TO_ALL) { return true; }
 
-  std::print("do you want to encode the video to HEVC format? (y/N): ");
-
   auto response = 'n';
   auto input = std::string{};
   std::getline(std::cin, input);

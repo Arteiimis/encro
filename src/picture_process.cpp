@@ -2,6 +2,7 @@
 #include <array>
 #include <expected>
 #include <ranges>
+#include <print>
 
 #include <BS_thread_pool.hpp>
 #include <indicators/progress_bar.hpp>
@@ -64,6 +65,25 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
   auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
   auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
   auto packResults = std::vector<eh::Result<void>>(groupedPics.size());
+  auto packResultsMtx = std::mutex{};
+
+  const auto picCount = [&] {
+    auto count = std::size_t{0};
+    for (const auto& group: groupedPics) { count += group.size(); }
+    return count;
+  }();
+
+  std::println(
+    "Found {} pictures to pack in directory: {}, packing into {} zip files.",
+    picCount,
+    dirPath.string(),
+    groupedPics.size()
+  );
+  std::print("do you want to proceed with packing the pictures? (y/N): ");
+  if (const auto proceed = readUserIpt(); !proceed) {
+    std::println("Packing task canceled by user.");
+    return eh::makeError("Packing task canceled by user.");
+  }
 
   pool.pause();
   for (const auto& [index, group]: view::enumerate(groupedPics)) {
@@ -72,7 +92,7 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
     ));
     progressManager.push_back(*bars.back());
 
-    const auto doPack = [&, index, group] {
+    pool.detach_task([&, index, group] {
       const auto zipFileName = std::format(
         "{}_part{}.zip",
         dirPath.filename().string(),
@@ -82,6 +102,8 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
       fs::create_directory(zipFileDir);
 
       const auto packRes = packFilesToZip(group, zipFilePath, progressManager, index);
+
+      auto _ = std::scoped_lock{packResultsMtx};
       if (!packRes) {
         fs::remove(zipFilePath);
 
@@ -96,8 +118,7 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
       }
 
       packResults[index] = {};
-    };
-    pool.detach_task(doPack);
+    });
   }
 
   cursorToggleVisibility(false);
