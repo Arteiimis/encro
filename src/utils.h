@@ -19,7 +19,7 @@ struct ExecResult {
 
 auto exec2(std::string_view cmd) -> ExecResult;
 
-bool readUserIpt();
+bool readUserIpt(std::string_view prompt);
 
 auto findFFprobe() -> std::optional<fs::path>;
 

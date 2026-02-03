@@ -79,8 +79,10 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
     dirPath.string(),
     groupedPics.size()
   );
-  std::print("do you want to proceed with packing the pictures? (y/N): ");
-  if (const auto proceed = readUserIpt(); !proceed) {
+  const auto proceed = readUserIpt(
+    "do you want to proceed with packing the pictures? (y/N): "
+  );
+  if (!proceed) {
     std::println("Packing task canceled by user.");
     return eh::makeError("Packing task canceled by user.");
   }

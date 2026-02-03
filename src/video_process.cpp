@@ -51,8 +51,11 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
   }
 
   std::println("Found video file: {}", videoPath.string());
-  std::print("do you want to encode the video to HEVC format? (y/N): ");
-  if (const auto proceed = readUserIpt(); !proceed) {
+
+  const auto proceed = readUserIpt(
+    "do you want to encode the video to HEVC format? (y/N): "
+  );
+  if (!proceed) {
     std::println("Encoding task canceled by user.");
     return 0;
   }
@@ -170,10 +173,9 @@ auto monitorEncodingProgress(
 
   const auto totalFrames = getVidTotalFrames(vidPath);
   while (true) {
-    auto progressFilePath = fs::path{};
-    try {
-      progressFilePath = GLBs.PROGRESS_FILES.at(vidPath);
-    } catch (...) {
+    const auto progressFilePath = GLBs.PROGRESS_FILES[vidPath];
+
+    if (!fs::exists(progressFilePath)) {
       std::this_thread::sleep_for(500ms);
       continue;
     }
@@ -226,8 +228,10 @@ int handlePathEncoding(const fs::path& inputPath) {
   }
 
   std::println("found {} video(s) in directory: {}", vids.size(), inputPath.string());
-
-  if (const auto proceed = readUserIpt(); !proceed) {
+  const auto proceed = readUserIpt(
+    "do you want to encode the video to HEVC format? (y/N): "
+  );
+  if (!proceed) {
     std::println("Encoding tasks canceled by user.");
     return 0;
   }

@@ -1,4 +1,5 @@
 #include <iostream>
+#include <print>
 
 #include <boost/uuid.hpp>
 #include <boost/lexical_cast.hpp>
@@ -24,8 +25,10 @@ auto exec2(std::string_view cmd) -> ExecResult {
   return {process.exit_code(), result};
 }
 
-bool readUserIpt() {
+bool readUserIpt(std::string_view prompt) {
   if (GLBs.YES_TO_ALL) { return true; }
+
+  if (!prompt.empty()) { std::print("{}", prompt); }
 
   auto response = 'n';
   auto input = std::string{};
