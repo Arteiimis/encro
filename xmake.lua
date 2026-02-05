@@ -4,13 +4,7 @@ set_policy("build.optimization.lto", true)
 
 set_languages("c++23")
 add_cxxflags("-std=c++23")
-
-if is_subhost("windows") then
-  set_toolchains("clang-cl")
-  set_toolset("ld", "lld-link")
-else 
-  set_toolchains("clang")
-end
+set_toolchains("clang")
 
 add_cxxflags("-Wno-c++26-extensions")
 add_cxxflags("-ftrivial-auto-var-init=pattern")
@@ -25,7 +19,7 @@ add_requires("boost[all]")
 add_requires("thread-pool")
 add_requires("spdlog[std_format]")
 add_requires("indicators")
-add_requires("libzippp[zstd]")
+add_requires("libzippp[zstd,toolchains=clang-cl]")
 add_requires("catch2")
 
 target("video_encoder")
@@ -36,7 +30,6 @@ target("video_encoder")
   add_includedirs("src")
   add_files("src/*.cpp")
 target_end()
-
 
 target("tests")
   set_kind("binary")
