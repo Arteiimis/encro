@@ -38,5 +38,5 @@ void cursorToggleVisibility(bool visible);
 
 auto getParamStr(
   const boost::program_options::variables_map& vm,
-  std::string_view                             paramName
+  std::string_view paramName
 ) -> std::string;
