@@ -14,22 +14,21 @@ int main(int argc, char* argv[]) {
   spdlog::set_pattern("[%^%l%$] %v");
 
   if (vm.count("help")) {
-    std::cout << desc << "\n";
+    desc.print(std::cout);
     return 0;
   }
 
   if (vm.count("type")) {
     const auto typeStr = getParamStr(vm, "type");
-    if (typeStr == std::string("video")) {
-      GLBs.PROCESS_TYPE = "video";
-    } else if (typeStr == std::string("picture")) {
-      GLBs.PROCESS_TYPE = "picture";
-    } else {
-      spdlog::error("Invalid process type specified: {}", getParamStr(vm, "type"));
+    constexpr auto validTypes = std::array{"video", "picture"};
+    if (!std::ranges::contains(validTypes, typeStr)) {
+      spdlog::error(
+        "Invalid process type: {}. Valid types are: video, picture.",
+        typeStr
+      );
       return 1;
     }
-  } else {
-    GLBs.PROCESS_TYPE = "video";
+    GLBs.PROCESS_TYPE = typeStr;
   }
 
   if (vm.count("verbose")) {

@@ -74,6 +74,12 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
   using namespace std::chrono_literals;
 
   pool.detach_task([&progressBar, &videoPath] {
+    const auto totalFrames = getVidTotalFrames(videoPath);
+    if (!totalFrames.has_value()) {
+      spdlog::error("Failed to get total frames for video: {}", videoPath.string());
+      return;
+    }
+
     while (true) {
       const auto progressFilePath = GLBs.PROGRESS_FILES[videoPath];
 
@@ -83,20 +89,20 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
       }
 
       const auto [currentFrame, status] = parseProgressFile(progressFilePath);
-      const auto totalFrames = getVidTotalFrames(videoPath);
-      const float progressPercent = ((float)currentFrame / totalFrames) * 100.0;
+      const float progressPercent = ((float)currentFrame / totalFrames.value())
+                                  * 100.0;
 
       spdlog::debug(
         "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
         videoPath.string(),
         currentFrame,
-        totalFrames,
+        totalFrames.value(),
         progressPercent
       );
 
       progressBar->set_progress(progressPercent);
 
-      if (currentFrame >= totalFrames || status == "end") { break; }
+      if (currentFrame >= totalFrames.value() || status == "end") { break; }
       std::this_thread::sleep_for(500ms);
     }
   });
@@ -172,6 +178,11 @@ auto monitorEncodingProgress(
   using namespace std::chrono_literals;
 
   const auto totalFrames = getVidTotalFrames(vidPath);
+  if (!totalFrames.has_value()) {
+    spdlog::error("Failed to get total frames for video: {}", vidPath.string());
+    return;
+  }
+
   while (true) {
     const auto progressFilePath = GLBs.PROGRESS_FILES[vidPath];
 
@@ -181,19 +192,19 @@ auto monitorEncodingProgress(
     }
 
     const auto [frameCount, status] = parseProgressFile(progressFilePath);
-    const float progressPercent = ((float)frameCount / totalFrames) * 100.0;
+    const float progressPercent = ((float)frameCount / totalFrames.value()) * 100.0;
 
     spdlog::debug(
       "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
       vidPath.string(),
       frameCount,
-      totalFrames,
+      totalFrames.value(),
       progressPercent
     );
 
     progressManager[progressBarIndexs.at(vidPath)].set_progress(progressPercent);
 
-    if (frameCount >= totalFrames || status == "end") { break; }
+    if (frameCount >= totalFrames.value() || status == "end") { break; }
 
     std::this_thread::sleep_for(500ms);
   }

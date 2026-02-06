@@ -3,15 +3,24 @@
 #include <boost/program_options.hpp>
 
 namespace po = boost::program_options;
+using namespace std::literals;
 
 struct CmdParserResult {
   po::options_description desc;
   po::variables_map vm;
 };
 
-constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParserResult {
-  namespace po = boost::program_options;
+template<class Ty>
+const auto pv = boost::program_options::value<Ty>();
 
+template<class Ty>
+auto pvDefault(Ty&& defaultValue) {
+  return boost::program_options::value<Ty>()->default_value(
+    std::forward<Ty>(defaultValue)
+  );
+}
+
+constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParserResult {
   auto general = po::options_description("General options");
   general.add_options()                     //
     ("help,h", "produce help message")      //
@@ -20,17 +29,17 @@ constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParserResult {
     ;
 
   auto io = po::options_description("Input/Output options");
-  io.add_options()                                                            //
-    ("input,i", po::value<std::string>(), "input file or directory path")     //
-    ("output,o", po::value<std::string>(), "custom output directory path")    //
-    ("output-format,ofmt", po::value<std::string>(), "custom output format")  //
-    ("recursive,R", "recursively search for video files in directories")      //
+  io.add_options()                                                        //
+    ("input,i", pv<std::string>, "input file or directory path")          //
+    ("output,o", pv<std::string>, "custom output directory path")         //
+    ("output-format,ofmt", pvDefault("mp4"s), "custom output format")     //
+    ("recursive,R", "recursively search for media files in directories")  //
     ;
 
   auto processing = po::options_description("Processing options");
-  processing.add_options()                                                    //
-    ("type,t", po::value<std::string>(), "process type: video or picture")    //
-    ("ffmpeg-path,f", po::value<std::string>(), "custom ffmpeg binary path")  //
+  processing.add_options()                                             //
+    ("type,t", pvDefault("video"s), "process type: video or picture")  //
+    ("ffmpeg-path,f", pv<std::string>, "custom ffmpeg install path")   //
     ;
 
   auto fileop = po::options_description("File operation options");

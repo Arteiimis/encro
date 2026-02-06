@@ -22,7 +22,7 @@ auto getVidInfo(const fs::path& videoPath) -> boost::json::value {
   return json::parse(output);
 }
 
-auto getVidTotalFrames(const fs::path& videoPath) -> int64_t {
+auto getVidTotalFrames(const fs::path& videoPath) -> eh::Result<int64_t> {
   const auto vidInfo = GLBs.VIDEO_INFO_CACHE.at(videoPath);
 
   for (const auto& stream: vidInfo.at("streams").as_array()) {
@@ -31,8 +31,9 @@ auto getVidTotalFrames(const fs::path& videoPath) -> int64_t {
     }
   }
 
-  throw std::runtime_error(
-    std::format("Failed to get total frames for video: {}", videoPath.string())
+  return eh::makeError(
+    "Failed to retrieve total frames for video: {}",
+    videoPath.string()
   );
 }
 
@@ -40,9 +41,9 @@ bool isHevcEncoded(const fs::path& videoPath) {
   const auto vidInfo = getVidInfo(videoPath);
 
   for (const auto& stream: vidInfo.at("streams").as_array()) {
-    if (stream.at("codec_type").as_string() == "video") {
-      if (stream.at("codec_name").as_string() == "hevc") { return true; }
-    }
+    const auto isVideo = stream.at("codec_type").as_string() == "video";
+    const auto isHevc = stream.at("codec_name").as_string() == "hevc";
+    if (isVideo && isHevc) { return true; }
   }
 
   return false;
