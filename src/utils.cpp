@@ -12,6 +12,8 @@
 auto exec2(std::string_view cmd) -> ExecResult {
   namespace bp = boost::process::v1;
 
+  spdlog::debug("Executing command: {}", cmd);
+
   auto pipeStream = bp::ipstream{};
   auto process = bp::child(cmd.data(), bp::std_out > pipeStream);
   auto line = std::string{};

@@ -1,13 +1,17 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
 
-auto encodeToHevc(const fs::path& inputVidPath) -> bool;
+auto encodeToHevc(
+  fs::path const& inputVidPath,
+  std::function<void(std::string const&)> const& statusUpdater = {}
+) -> bool;
 
 auto handleSingleFileEncoding(const fs::path& videoPath) -> int;
 

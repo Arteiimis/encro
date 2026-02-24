@@ -35,6 +35,12 @@ auto monitorEncodingProgress(
 
 namespace {
 
+constexpr auto kWebpTargetMaxSize = std::uintmax_t{20ULL * 1024ULL * 1024ULL};
+constexpr auto kWebpMinQuality = 20;
+constexpr auto kWebpQualityStep = 10;
+constexpr auto kWebpFineQualityStep = 5;
+constexpr auto kWebpSmallGapThreshold = std::uintmax_t{3ULL * 1024ULL * 1024ULL};
+
 auto truncateForProgressLabel(
   std::string const& text,
   std::size_t maxLen = 48
@@ -54,6 +60,89 @@ void printNoEncodableVideosMessage(fs::path const& inputPath) {
   } else {
     std::println("No encodable videos found in path: {}", inputPath.string());
   }
+}
+
+auto encodeWebpWithTargetSize(
+  fs::path const& inputVidPath,
+  std::optional<fs::path> const& outputPath,
+  fs::path const& progressFilePath,
+  std::function<void(std::string const&)> const& statusUpdater
+) -> bool {
+  auto const buildCfg = [&](int quality) {
+    return EncodeConfig{
+      .ffmpegPath = GLBs.FFMPEG_PATH,
+      .inputPath = inputVidPath,
+      .outputPath = outputPath,
+      .outputFormat = GLBs.OUTPUT_FORMAT,
+      .webpQuality = quality,
+      .progressFilePath = progressFilePath
+    };
+  };
+
+  auto const outputFile = buildCfg(80).buildOutputPath();
+
+  auto const clearStaleFiles = [&] {
+    auto ec = std::error_code{};
+    if (fs::exists(progressFilePath, ec)) { fs::remove(progressFilePath, ec); }
+    if (fs::exists(outputFile, ec)) { fs::remove(outputFile, ec); }
+  };
+
+  auto const qualityStepForSize = [](std::uintmax_t outputSize) {
+    auto const sizeGap = outputSize - kWebpTargetMaxSize;
+    return sizeGap <= kWebpSmallGapThreshold ? kWebpFineQualityStep
+                                             : kWebpQualityStep;
+  };
+
+  auto lastExitCode = -1;
+  auto quality = 80;
+  while (quality >= kWebpMinQuality) {
+    if (statusUpdater) { statusUpdater(std::format("encoding q={}", quality)); }
+    clearStaleFiles();
+
+    auto const cfg = buildCfg(quality);
+
+    auto const validationResult = cfg.validate();
+    if (!validationResult) {
+      spdlog::error(validationResult.error());
+      return false;
+    }
+
+    auto const [exitCode, _] = exec2(cfg.buildCMD());
+    lastExitCode = exitCode;
+    if (exitCode != 0) { continue; }
+    if (!fs::exists(outputFile)) { continue; }
+
+    auto const outputSize = fs::file_size(outputFile);
+    if (outputSize < kWebpTargetMaxSize) {
+      spdlog::debug(
+        "WebP encoded under target size: {} ({} bytes, q={})",
+        outputFile.string(),
+        outputSize,
+        quality
+      );
+      return true;
+    }
+
+    auto const step = qualityStepForSize(outputSize);
+    auto const nextQuality = quality - step;
+    if (statusUpdater && nextQuality >= kWebpMinQuality) {
+      auto const outputSizeMB = static_cast<double>(outputSize) / 1024.0 / 1024.0;
+      statusUpdater(std::format("retry q={} ({:.1f}MB)", nextQuality, outputSizeMB));
+    }
+
+    quality -= step;
+  }
+
+  if (lastExitCode == 0 && fs::exists(outputFile)) {
+    if (statusUpdater) {
+      auto const outputSizeMB =
+        static_cast<double>(fs::file_size(outputFile)) / 1024.0 / 1024.0;
+      statusUpdater(std::format("min-q reached ({:.1f}MB)", outputSizeMB));
+    }
+    return true;
+  }
+
+  return false;
 }
 
 auto runEncodingBatches(std::vector<fs::path> const& vids)
@@ -135,15 +224,15 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
         slotTaskPaths[slot] = vidPath;
       }
 
+      auto const fileLabel = truncateForProgressLabel(vidPath.filename().string());
+      progressCtx.setPostfixText(barIndex, std::format("Encoding: {}", fileLabel));
+      progressCtx.setProgress(barIndex, 0.0f);
+      auto const result = encodeToHevc(vidPath, [&](std::string const& status) {
         progressCtx.setPostfixText(
           barIndex,
-          std::format(
-            "Encoding: {}",
-            truncateForProgressLabel(vidPath.filename().string())
-          )
+          std::format("Encoding: {} | {}", fileLabel, status)
         );
-      progressCtx.setProgress(barIndex, 0.0f);
-      auto const result = encodeToHevc(vidPath);
+      });
 
       {
         auto _ = std::scoped_lock{vidsRunResMtx};
@@ -151,10 +240,10 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
       }
 
       progressCtx.setProgress(barIndex, 100.0f);
-        progressCtx.setPostfixText(
-          barIndex,
-          std::format("Encoding: [idle-{}]", slot + 1)
-        );
+      progressCtx.setPostfixText(
+        barIndex,
+        std::format("Encoding: [idle-{}]", slot + 1)
+      );
 
       {
         auto lock = std::scoped_lock{slotTaskPathsMtx};
@@ -172,7 +261,7 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
 
 auto collectEncodedOutputFiles(std::unordered_map<fs::path, bool> const& vidsRunRes)
   -> std::vector<fs::path> {
-  constexpr auto kWebpPackMaxSize = std::uintmax_t{20 * 1024 * 1024};
+  constexpr auto kWebpPackMaxSize = std::uintmax_t{20ULL * 1024ULL * 1024ULL};
 
   auto encodedOutputFiles = std::vector<fs::path>{};
   encodedOutputFiles.reserve(vidsRunRes.size());
@@ -338,7 +427,10 @@ auto splitIntoBatches(std::size_t total, std::size_t batchSize)
   return batches;
 }
 
-bool encodeToHevc(fs::path const& inputVidPath) {
+bool encodeToHevc(
+  fs::path const& inputVidPath,
+  std::function<void(std::string const&)> const& statusUpdater
+) {
   auto const progressFilePath =
     fs::temp_directory_path() / std::format("progress_{}.txt", getUUID());
 
@@ -361,12 +453,18 @@ bool encodeToHevc(fs::path const& inputVidPath) {
     return false;
   }
 
-  spdlog::debug("Executing command: {}", cfg.buildCMD());
-
   spdlog::debug("Encoding video: {}", inputVidPath.string());
 
-  auto const [exitCode, _] = exec2(cfg.buildCMD());
+  if (GLBs.OUTPUT_FORMAT == "webp") {
+    return encodeWebpWithTargetSize(
+      inputVidPath,
+      outputPath,
+      progressFilePath,
+      statusUpdater
+    );
+  }
 
+  auto const [exitCode, _] = exec2(cfg.buildCMD());
   return exitCode == 0;
 }
 
@@ -430,15 +528,6 @@ auto monitorEncodingProgress(
 
   auto const [frameCount, _status] = parseProgressFile(progressFilePath);
   float const progressPercent = ((float)frameCount / totalFrames.value()) * 100.0f;
-
-  spdlog::debug(
-    "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
-    vidPath.string(),
-    frameCount,
-    totalFrames.value(),
-    progressPercent
-  );
-
   progressCtx.setProgress(barIndex, progressPercent);
 }
 

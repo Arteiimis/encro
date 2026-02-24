@@ -207,3 +207,20 @@ TEST_CASE("EncodeConfig webp output filename does not include codec tag", "[enco
   CHECK(cmd.find(expectedOutput) != std::string::npos);
   CHECK(cmd.find(".h264.webp") == std::string::npos);
 }
+
+TEST_CASE("EncodeConfig uses custom webp quality", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.outputFormat = "webp";
+  cfg.webpQuality = 55;
+
+  auto const validation = cfg.validate();
+  REQUIRE(validation);
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-c:v libwebp") != std::string::npos);
+  CHECK(cmd.find("-q:v 55") != std::string::npos);
+}
