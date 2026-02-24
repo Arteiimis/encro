@@ -145,6 +145,9 @@ auto packEncodedVideos(std::unordered_map<fs::path, bool> const& vidsRunRes) -> 
   fs::create_directories(zipOutputDir);
 
   auto progressCtx = progress::ProgressContext{};
+  auto packResults = std::vector<eh::Result<void>>(groupedFiles.size());
+  auto zippedFiles = std::vector<fs::path>(groupedFiles.size());
+  auto resultMtx = std::mutex{};
 
   std::println(
     "Packing {} encoded video(s) into {} archive(s)...",
@@ -152,22 +155,41 @@ auto packEncodedVideos(std::unordered_map<fs::path, bool> const& vidsRunRes) -> 
     groupedFiles.size()
   );
 
-  for (auto const& [index, group]: std::views::enumerate(groupedFiles)) {
-    auto const zipPath =
-      zipOutputDir / std::format("encoded_videos_part{}.zip", index + 1);
+  auto _ = progress::CursorGuard{};
+  parallel::runIndexedTasks(
+    groupedFiles.size(),
+    groupedFiles.size(),
+    [&](std::size_t index) {
+      auto const zipPath =
+        zipOutputDir / std::format("encoded_videos_part{}.zip", index + 1);
 
-    auto const packRes = packFilesToZip(
-      group,
-      zipPath,
-      progressCtx,
-      std::format("Packing: {}", zipPath.filename().string())
-    );
-    if (!packRes) {
-      spdlog::error("Failed to pack encoded videos: {}", packRes.error());
+      auto const packRes = packFilesToZip(
+        groupedFiles[index],
+        zipPath,
+        progressCtx,
+        std::format("Packing: {}", zipPath.filename().string())
+      );
+
+      auto lock = std::scoped_lock{resultMtx};
+      if (!packRes) {
+        packResults[index] = packRes;
+        return;
+      }
+
+      packResults[index] = {};
+      zippedFiles[index] = zipPath;
+    }
+  );
+
+  for (auto const& res: packResults) {
+    if (!res) {
+      spdlog::error("Failed to pack encoded videos: {}", res.error());
       return 1;
     }
+  }
 
-    std::println("Packed archive: {}", zipPath.string());
+  for (auto const& zipPath: zippedFiles) {
+    if (!zipPath.empty()) { std::println("Packed archive: {}", zipPath.string()); }
   }
 
   return 0;
