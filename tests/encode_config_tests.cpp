@@ -94,6 +94,10 @@ TEST_CASE("EncodeConfig builds webp command", "[encode-config]") {
 
   auto const cmd = cfg.buildCMD();
   CHECK(cmd.find("-c:v libwebp") != std::string::npos);
+  CHECK(
+    cmd.find("-vf \"scale=-2:960:force_original_aspect_ratio=decrease\"")
+    != std::string::npos
+  );
   CHECK(cmd.find("-crf") == std::string::npos);
 
   auto const expectedOutput =

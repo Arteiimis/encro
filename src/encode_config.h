@@ -73,7 +73,8 @@ struct EncodeConfig {
     auto const format = outputFormat.value_or("mp4");
     auto const codec = videoCodec.value_or("hevc_nvenc");
     if (format == "webp") {
-      cmd += " -c:v libwebp -q:v 70 -loop 0";
+      cmd += " -vf \"scale=-2:960:force_original_aspect_ratio=decrease\""
+             " -c:v libwebp -q:v 80 -loop 0";
     } else {
       cmd += std::format(" -c:v {} -crf {}", codec, crf.value_or(20));
     }

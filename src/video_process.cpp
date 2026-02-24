@@ -156,14 +156,13 @@ auto packEncodedVideos(std::unordered_map<fs::path, bool> const& vidsRunRes) -> 
     auto const zipPath =
       zipOutputDir / std::format("encoded_videos_part{}.zip", index + 1);
 
-    if (auto const packRes =
-          packFilesToZip(
-            group,
-            zipPath,
-            progressCtx,
-            std::format("Packing: {}", zipPath.filename().string())
-          );
-        !packRes) {
+    auto const packRes = packFilesToZip(
+      group,
+      zipPath,
+      progressCtx,
+      std::format("Packing: {}", zipPath.filename().string())
+    );
+    if (!packRes) {
       spdlog::error("Failed to pack encoded videos: {}", packRes.error());
       return 1;
     }

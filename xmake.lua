@@ -44,7 +44,6 @@ target("tests")
   set_kind("binary")
   set_default(false)
 
-  add_deps("video_encoder")
   add_packages("catch2", "boost", "thread-pool", "indicators", "spdlog", "libzippp")
   add_includedirs("src")
   add_files("tests/*.cpp")
