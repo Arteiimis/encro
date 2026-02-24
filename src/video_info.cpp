@@ -20,6 +20,7 @@ constexpr auto kVideoTypes = std::array{
   ".flv",
   ".wmv"
 };
+constexpr std::uintmax_t kWebpInputMaxSize = 30ULL * 1024ULL * 1024ULL;
 
 auto tryCollectVideo(fs::path const& filePath, std::vector<fs::path>& vids) -> void {
   namespace rng = std::ranges;
@@ -33,7 +34,7 @@ auto tryCollectVideo(fs::path const& filePath, std::vector<fs::path>& vids) -> v
   if (!rng::contains(kVideoTypes, vidsExt)) { return; }
 
   auto const fileSize = fs::file_size(filePath);
-  if (fileSize > 20 * 1024 * 1024 && GLBs.OUTPUT_FORMAT == "webp") {
+  if (fileSize >= kWebpInputMaxSize && GLBs.OUTPUT_FORMAT == "webp") {
     spdlog::debug(
       "Skipping large video file for webp output: {} ({} bytes)",
       filePath.string(),

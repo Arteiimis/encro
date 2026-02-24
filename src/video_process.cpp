@@ -172,6 +172,8 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
 
 auto collectEncodedOutputFiles(std::unordered_map<fs::path, bool> const& vidsRunRes)
   -> std::vector<fs::path> {
+  constexpr auto kWebpPackMaxSize = std::uintmax_t{20 * 1024 * 1024};
+
   auto encodedOutputFiles = std::vector<fs::path>{};
   encodedOutputFiles.reserve(vidsRunRes.size());
 
@@ -187,7 +189,21 @@ auto collectEncodedOutputFiles(std::unordered_map<fs::path, bool> const& vidsRun
     };
 
     auto const outFile = cfg.buildOutputPath();
-    if (fs::exists(outFile)) { encodedOutputFiles.emplace_back(outFile); }
+    if (!fs::exists(outFile)) { continue; }
+
+    if (
+      GLBs.OUTPUT_FORMAT == "webp"
+      && fs::file_size(outFile) >= kWebpPackMaxSize
+    ) {
+      std::println(
+        "Skipping oversized webp for packing: {} ({} bytes)",
+        outFile.string(),
+        fs::file_size(outFile)
+      );
+      continue;
+    }
+
+    encodedOutputFiles.emplace_back(outFile);
   }
 
   return encodedOutputFiles;
