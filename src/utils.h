@@ -1,14 +1,14 @@
 #pragma once
 
-#include <filesystem>
-#include <optional>
+#include "error_handle.h"
 
 #include <boost/json.hpp>
 #include <boost/program_options/variables_map.hpp>
 #include <boost/static_string.hpp>
-#include <indicators/progress_bar.hpp>
 
-#include "error_handle.h"
+#include <filesystem>
+#include <optional>
+
 
 namespace fs = std::filesystem;
 
@@ -30,11 +30,6 @@ auto find7zip() -> std::optional<fs::path>;
 auto toolCheck() -> eh::Result<void>;
 
 std::string getUUID();
-
-auto getProgressBar(std::string_view promptText)
-  -> std::unique_ptr<indicators::ProgressBar>;
-
-void cursorToggleVisibility(bool visible);
 
 auto getParamStr(
   const boost::program_options::variables_map& vm,

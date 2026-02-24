@@ -103,42 +103,6 @@ std::string getUUID() {
   return boost::lexical_cast<std::string>(boost::uuids::random_generator{}());
 }
 
-auto getProgressBar(std::string_view promptText)
-  -> std::unique_ptr<indicators::ProgressBar> {
-  using namespace indicators;
-  return std::make_unique<ProgressBar>(
-    option::BarWidth{50},
-    option::Start{"["},
-    option::End{"]"},
-    option::PostfixText{promptText},
-    option::ForegroundColor{Color::white},
-    option::ShowElapsedTime{true},
-    option::ShowRemainingTime{true},
-    option::MaxProgress{100}
-  );
-}
-
-#if defined(_WIN32) || defined(_WIN64)
-  #include <windows.h>
-#endif
-
-void cursorToggleVisibility(bool visible) {
-#if defined(_WIN32) || defined(_WIN64)
-  HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-  CONSOLE_CURSOR_INFO cursorInfo;
-
-  GetConsoleCursorInfo(hConsole, &cursorInfo);
-  cursorInfo.bVisible = visible;
-  SetConsoleCursorInfo(hConsole, &cursorInfo);
-#else
-  if (visible) {
-    std::print("\033[?25h");
-  } else {
-    std::print("\033[?25l");
-  }
-#endif
-}
-
 auto getParamStr(
   const boost::program_options::variables_map& vm,
   std::string_view paramName

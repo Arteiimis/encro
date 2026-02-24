@@ -1,5 +1,7 @@
 #include "packer.h"
 
+#include "progress.h"
+
 #include <indicators/dynamic_progress.hpp>
 #include <indicators/progress_bar.hpp>
 #include <libzippp/libzippp.h>
@@ -8,6 +10,7 @@
 #include <cmath>
 #include <filesystem>
 #include <ranges>
+
 
 namespace fs = std::filesystem;
 using namespace indicators;
@@ -106,15 +109,16 @@ auto packAllFilesInDirectory(
   fs::create_directories(zipFileDir);
 
   auto progressManager = DynamicProgress<ProgressBar>{};
-  auto bars = std::vector<std::unique_ptr<ProgressBar>>{};
+  auto bars = progress::BarCollection{};
 
+  auto _ = progress::CursorGuard{};
   for (auto const& [index, group]: std::views::enumerate(groupedFiles)) {
     auto const fileName =
       std::format("{}_part{}.zip", dirPath.filename().string(), index + 1);
     auto const zipPath = zipFileDir / fileName;
 
-    bars.emplace_back(std::make_unique<ProgressBar>(option::MaxProgress{100}));
-    auto const barIndex = progressManager.push_back(*bars.back());
+    auto const barIndex =
+      progress::addBar(progressManager, bars, std::format("Packing: {}", fileName));
 
     if (auto const packRes =
           packFilesToZip(group, zipPath, progressManager, barIndex);

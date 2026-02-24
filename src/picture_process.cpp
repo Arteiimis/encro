@@ -1,18 +1,21 @@
-#include <filesystem>
-#include <array>
-#include <expected>
-#include <ranges>
-#include <print>
+#include "picture_process.h"
+
+#include "globals.h"
+#include "packer.h"
+#include "progress.h"
+#include "utils.h"
 
 #include <BS_thread_pool.hpp>
-#include <indicators/progress_bar.hpp>
 #include <indicators/dynamic_progress.hpp>
+#include <indicators/progress_bar.hpp>
 #include <spdlog/spdlog.h>
 
-#include "packer.h"
-#include "globals.h"
-#include "utils.h"
-#include "picture_process.h"
+#include <array>
+#include <expected>
+#include <filesystem>
+#include <print>
+#include <ranges>
+
 
 namespace fs = std::filesystem;
 using namespace indicators;
@@ -89,10 +92,11 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
 
   pool.pause();
   for (const auto& [index, group]: view::enumerate(groupedPics)) {
-    bars.emplace_back(getProgressBar(
+    progress::addBar(
+      progressManager,
+      bars,
       std::format("Packing: {}_part{}.zip", dirPath.filename().string(), index + 1)
-    ));
-    progressManager.push_back(*bars.back());
+    );
 
     pool.detach_task([&, index, group] {
       const auto zipFileName = std::format(
@@ -123,10 +127,9 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
     });
   }
 
-  cursorToggleVisibility(false);
+  auto _ = progress::CursorGuard{};
   pool.unpause();
   pool.wait();
-  cursorToggleVisibility(true);
 
   for (const auto& res: packResults) {
     if (!res) { return res; }

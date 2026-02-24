@@ -3,6 +3,7 @@
 #include "encode_config.h"
 #include "globals.h"
 #include "packer.h"
+#include "progress.h"
 #include "utils.h"
 #include "video_info.h"
 
@@ -59,7 +60,7 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
     return std::nullopt;
   }
 
-  cursorToggleVisibility(false);
+  auto _ = progress::CursorGuard{};
 
   auto const batches = splitIntoBatches(vids.size(), kBatchSize);
   auto const totalBatchCount = batches.size();
@@ -86,10 +87,11 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
     for (auto i = start; i < end; ++i) {
       auto const& vidPath = vids[i];
 
-      bars.emplace_back(
-        getProgressBar(std::format("Encoding: {}", vidPath.filename().string()))
+      progressBarIndexs[vidPath] = progress::addBar(
+        progressManager,
+        bars,
+        std::format("Encoding: {}", vidPath.filename().string())
       );
-      progressBarIndexs[vidPath] = progressManager.push_back(*bars.back());
 
       pool.detach_task([&vidsRunRes, &vidsRunResMtx, vidPath] {
         auto const result = encodeToHevc(vidPath);
@@ -105,8 +107,6 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
     pool.unpause();
     pool.wait();
   }
-
-  cursorToggleVisibility(true);
 
   return vidsRunRes;
 }
@@ -159,10 +159,11 @@ auto packEncodedVideos(std::unordered_map<fs::path, bool> const& vidsRunRes) -> 
     auto const zipPath =
       zipOutputDir / std::format("encoded_videos_part{}.zip", index + 1);
 
-    bars.emplace_back(
-      getProgressBar(std::format("Packing: {}", zipPath.filename().string()))
+    auto const barIndex = progress::addBar(
+      progressManager,
+      bars,
+      std::format("Packing: {}", zipPath.filename().string())
     );
-    auto const barIndex = progressManager.push_back(*bars.back());
 
     if (auto const packRes =
           packFilesToZip(group, zipPath, progressManager, barIndex);
