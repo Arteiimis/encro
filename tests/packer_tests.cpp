@@ -1,13 +1,12 @@
 #include "packer.h"
+#include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
 #include <indicators/dynamic_progress.hpp>
 #include <indicators/progress_bar.hpp>
 #include <libzippp/libzippp.h>
 
-#include <chrono>
 #include <filesystem>
-#include <format>
 #include <fstream>
 #include <string>
 #include <string_view>
@@ -15,25 +14,6 @@
 
 namespace fs = std::filesystem;
 using namespace indicators;
-
-struct TempDir {
-  fs::path path;
-
-  TempDir() {
-    auto const base = fs::temp_directory_path();
-    path = base
-         / std::format(
-             "packer_tests_{}",
-             std::chrono::steady_clock::now().time_since_epoch().count()
-         );
-    fs::create_directories(path);
-  }
-
-  ~TempDir() {
-    std::error_code ec;
-    fs::remove_all(path, ec);
-  }
-};
 
 static auto
 createSizedFile(fs::path const& dir, std::string_view name, std::size_t sizeBytes) {

@@ -1,33 +1,14 @@
+#include "test_utils.h"
 #include "video_process.h"
 
 #include <catch2/catch_all.hpp>
 
-#include <chrono>
 #include <filesystem>
-#include <format>
 #include <fstream>
 #include <vector>
 
+
 namespace fs = std::filesystem;
-
-struct TempDir {
-  fs::path path;
-
-  TempDir() {
-    auto const base = fs::temp_directory_path();
-    path = base;
-    path /= std::format(
-      "video_process_tests_{}",
-      std::chrono::steady_clock::now().time_since_epoch().count()
-    );
-    fs::create_directories(path);
-  }
-
-  ~TempDir() {
-    std::error_code ec;
-    fs::remove_all(path, ec);
-  }
-};
 
 TEST_CASE("readLastNLines returns tail of file", "[video-process][readLastNLines]") {
   TempDir temp;

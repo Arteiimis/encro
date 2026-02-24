@@ -1,33 +1,14 @@
 #include "encode_config.h"
+#include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
 
-#include <chrono>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <string>
 
 namespace fs = std::filesystem;
-
-struct TempDir {
-  fs::path path;
-
-  TempDir() {
-    auto const base = fs::temp_directory_path();
-    path = base
-         / std::format(
-             "video_encoder_tests_{}",
-             std::chrono::steady_clock::now().time_since_epoch().count()
-         );
-    fs::create_directories(path);
-  }
-
-  ~TempDir() {
-    std::error_code ec;
-    fs::remove_all(path, ec);
-  }
-};
 
 static auto createTempFile(fs::path const& dir, std::string_view name) {
   auto const filePath = dir / name;

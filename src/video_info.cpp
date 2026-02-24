@@ -1,10 +1,49 @@
-#include <spdlog/spdlog.h>
-
 #include "video_info.h"
+
 #include "globals.h"
 #include "utils.h"
 
+#include <spdlog/spdlog.h>
+
+#include <array>
+#include <ranges>
+
+
 namespace fs = std::filesystem;
+
+namespace {
+
+constexpr auto kVideoTypes = std::array{
+  // Common video file extensions
+  ".mp4",
+  ".mkv",
+  ".avi",
+  ".mov",
+  ".flv",
+  ".wmv"
+};
+
+auto tryCollectVideo(fs::path const& filePath, std::vector<fs::path>& vids) -> void {
+  namespace rng = std::ranges;
+
+  if (!fs::is_regular_file(filePath)) {
+    spdlog::debug("Skipping non-regular file: {}", filePath.string());
+    return;
+  }
+
+  auto const vidsExt = filePath.extension().string();
+  if (!rng::contains(kVideoTypes, vidsExt)) { return; }
+
+  if (isHevcEncoded(filePath)) {
+    spdlog::debug("Skipping already HEVC encoded file: {}", filePath.string());
+    return;
+  }
+
+  GLBs.VIDEO_INFO_CACHE[filePath] = getVidInfo(filePath);
+  vids.emplace_back(filePath);
+}
+
+}  // namespace
 
 auto getVidInfo(const fs::path& videoPath) -> boost::json::value {
   namespace json = boost::json;
@@ -54,38 +93,26 @@ bool isHevcEncoded(const fs::path& videoPath) {
 template<class Iter>
   requires std::same_as<Iter, fs::directory_iterator>
         || std::same_as<Iter, fs::recursive_directory_iterator>
-auto readAllVidsImpl(const fs::path& dirPath) -> std::vector<fs::path> {
-  namespace rng = std::ranges;
-
-  constexpr auto videoTypes = std::array{
-    // Common video file extensions
-    ".mp4",
-    ".mkv",
-    ".avi",
-    ".mov",
-    ".flv",
-    ".wmv"
-  };
-
+auto readAllVidsImpl(fs::path const& dirPath) -> std::vector<fs::path> {
   auto vids = std::vector<fs::path>{};
 
-  for (const auto& entry: Iter(dirPath)) {
-    if (!entry.is_regular_file()) {
-      spdlog::debug("Skipping non-regular file: {}", entry.path().string());
-      continue;
-    }
-
-    const auto vidsExt = entry.path().extension().string();
-    if (rng::contains(videoTypes, vidsExt) && !isHevcEncoded(entry.path())) {
-      vids.emplace_back(entry.path());
-      GLBs.VIDEO_INFO_CACHE[entry.path()] = getVidInfo(entry.path());
-    }
-  }
+  for (auto const& entry: Iter(dirPath)) { tryCollectVideo(entry.path(), vids); }
 
   return vids;
 }
 
-auto readAllVids(const fs::path& dirPath) -> std::vector<fs::path> {
+auto readAllVids(fs::path const& dirPath) -> std::vector<fs::path> {
+  if (fs::is_regular_file(dirPath)) {
+    auto vids = std::vector<fs::path>{};
+    tryCollectVideo(dirPath, vids);
+    return vids;
+  }
+
+  if (!fs::is_directory(dirPath)) {
+    spdlog::warn("Provided path is not a file or directory: {}", dirPath.string());
+    return {};
+  }
+
   if (GLBs.RECURSIVE) {
     return readAllVidsImpl<fs::recursive_directory_iterator>(dirPath);
   } else {

@@ -50,72 +50,7 @@ bool encodeToHevc(const fs::path& inputVidPath) {
 }
 
 int handleSingleFileEncoding(const fs::path& videoPath) {
-  if (isHevcEncoded(videoPath)) {
-    std::println("Video is already HEVC encoded: {}", videoPath.string());
-    return 0;
-  }
-
-  std::println("Found video file: {}", videoPath.string());
-
-  const auto proceed = readUserIpt(
-    "do you want to encode the video to HEVC format? (y/N): "
-  );
-  if (!proceed) {
-    std::println("Encoding task canceled by user.");
-    return 0;
-  }
-
-  auto returnCode = 0;
-  auto pool = BS::pause_thread_pool{2};
-  auto progressBar = getProgressBar(
-    std::format("Encoding: {}", videoPath.filename().string())
-  );
-
-  pool.pause();
-  pool.detach_task([&videoPath, &returnCode]() {
-    returnCode = encodeToHevc(videoPath);
-  });
-
-  using namespace std::chrono_literals;
-
-  pool.detach_task([&progressBar, &videoPath] {
-    const auto totalFrames = getVidTotalFrames(videoPath);
-    if (!totalFrames.has_value()) {
-      spdlog::error("Failed to get total frames for video: {}", videoPath.string());
-      return;
-    }
-
-    while (true) {
-      const auto progressFilePath = GLBs.PROGRESS_FILES[videoPath];
-
-      if (!fs::exists(progressFilePath)) {
-        std::this_thread::sleep_for(500ms);
-        continue;
-      }
-
-      const auto [currentFrame, status] = parseProgressFile(progressFilePath);
-      const float progressPercent = ((float)currentFrame / totalFrames.value())
-                                  * 100.0;
-
-      spdlog::debug(
-        "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
-        videoPath.string(),
-        currentFrame,
-        totalFrames.value(),
-        progressPercent
-      );
-
-      progressBar->set_progress(progressPercent);
-
-      if (currentFrame >= totalFrames.value() || status == "end") { break; }
-      std::this_thread::sleep_for(500ms);
-    }
-  });
-
-  pool.unpause();
-  pool.wait();
-
-  return returnCode;
+  return handlePathEncoding(videoPath);
 }
 
 auto readLastNLines(const fs::path& filePath, std::size_t n)
@@ -202,6 +137,19 @@ int handlePathEncoding(const fs::path& inputPath) {
   namespace rng = std::ranges;
 
   const auto vids = readAllVids(inputPath);
+
+  if (vids.empty()) {
+    if (fs::is_regular_file(inputPath)) {
+      if (isHevcEncoded(inputPath)) {
+        std::println("Video is already HEVC encoded: {}", inputPath.string());
+      } else {
+        std::println("No encodable videos found for file: {}", inputPath.string());
+      }
+    } else {
+      std::println("No encodable videos found in path: {}", inputPath.string());
+    }
+    return 0;
+  }
 
   auto vidsRunRes = std::unordered_map<fs::path, bool>{};
   auto pool = BS::pause_thread_pool{vids.size() * 2};
