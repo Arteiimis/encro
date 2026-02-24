@@ -59,7 +59,12 @@ auto readAllPics(const fs::path& dirPath) -> std::vector<fs::path> {
 
 auto packAllPicsToZipParallel(fs::path const& dirPath, fs::path const& zipFileDir)
   -> eh::Result<void> {
+  std::println("Scanning input path for pictures: {} ...", dirPath.string());
   auto const groupedPics = groupFilesBySize(readAllPics(dirPath));
+  std::println(
+    "Picture scan completed, grouped into {} package batch(es).",
+    groupedPics.size()
+  );
   auto progressCtx = progress::ProgressContext{};
   auto packResults = std::vector<eh::Result<void>>(groupedPics.size());
   auto packResultsMtx = std::mutex{};
@@ -70,12 +75,6 @@ auto packAllPicsToZipParallel(fs::path const& dirPath, fs::path const& zipFileDi
     return count;
   }();
 
-  std::println(
-    "Found {} pictures to pack in directory: {}, packing into {} zip files.",
-    picCount,
-    dirPath.string(),
-    groupedPics.size()
-  );
   const auto proceed = readUserIpt(
     "do you want to proceed with packing the pictures? (y/N): "
   );

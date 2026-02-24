@@ -11,6 +11,7 @@
 #include <cmath>
 #include <filesystem>
 #include <mutex>
+#include <print>
 #include <ranges>
 
 namespace fs = std::filesystem;
@@ -90,6 +91,12 @@ auto packAllFilesInDirectory(
 
   auto allFiles = std::vector<fs::path>{};
 
+  std::println(
+    "Scanning input path for files: {} (recursive={})...",
+    dirPath.string(),
+    recursive ? "true" : "false"
+  );
+
   if (recursive) {
     for (auto const& entry: fs::recursive_directory_iterator(dirPath)) {
       if (entry.is_regular_file()) { allFiles.emplace_back(entry.path()); }
@@ -106,6 +113,8 @@ auto packAllFilesInDirectory(
       dirPath.string()
     );
   }
+
+  std::println("File scan completed, found {} file(s).", allFiles.size());
 
   auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
   fs::create_directories(zipFileDir);

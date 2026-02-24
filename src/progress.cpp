@@ -7,6 +7,14 @@ auto ProgressContext::addBar(std::string_view promptText) -> std::size_t {
   return progress::addBar(manager_, bars_, promptText);
 }
 
+void ProgressContext::setPostfixText(
+  std::size_t barIndex,
+  std::string_view promptText
+) {
+  auto lock = std::scoped_lock{mtx_};
+  manager_[barIndex].set_option(indicators::option::PostfixText{promptText});
+}
+
 void ProgressContext::setProgress(std::size_t barIndex, float progress) {
   auto lock = std::scoped_lock{mtx_};
   manager_[barIndex].set_progress(progress);

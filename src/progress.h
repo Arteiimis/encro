@@ -19,6 +19,7 @@ using BarCollection = std::vector<BarPtr>;
 class ProgressContext {
 public:
   auto addBar(std::string_view promptText) -> std::size_t;
+  void setPostfixText(std::size_t barIndex, std::string_view promptText);
   void setProgress(std::size_t barIndex, float progress);
 
   auto manager() -> Manager&;

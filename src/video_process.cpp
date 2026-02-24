@@ -35,6 +35,15 @@ auto monitorEncodingProgress(
 
 namespace {
 
+auto truncateForProgressLabel(
+  std::string const& text,
+  std::size_t maxLen = 48
+) -> std::string {
+  if (text.size() <= maxLen) { return text; }
+  if (maxLen <= 3) { return text.substr(0, maxLen); }
+  return std::format("{}...", text.substr(0, maxLen - 3));
+}
+
 void printNoEncodableVideosMessage(fs::path const& inputPath) {
   if (fs::is_regular_file(inputPath)) {
     if (GLBs.OUTPUT_FORMAT == "mp4" && isHevcEncoded(inputPath)) {
@@ -67,15 +76,24 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
   auto _ = progress::CursorGuard{};
 
   auto progressCtx = progress::ProgressContext{};
-  auto progressBarIndexs = std::unordered_map<fs::path, std::size_t>{};
-  auto progressBarIndexsMtx = std::mutex{};
   auto finishedCount = std::atomic_size_t{0};
+  auto nextTaskIndex = std::atomic_size_t{0};
+
+  auto const workerCount = std::min(vids.size(), kMaxConcurrentJobs);
+  auto slotTaskPaths = std::vector<std::optional<fs::path>>(workerCount);
+  auto slotTaskPathsMtx = std::mutex{};
+  auto slotBarIndexes = std::vector<std::size_t>(workerCount);
 
   std::println(
     "Scheduling {} video(s) with max {} concurrent encode job(s)...",
     vids.size(),
-    std::min(vids.size(), kMaxConcurrentJobs)
+    workerCount
   );
+
+  for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
+    slotBarIndexes[slot] =
+      progressCtx.addBar(std::format("Encoding: [idle-{}]", slot + 1));
+  }
 
   auto monitorThread = std::jthread([&] {
     using namespace std::chrono_literals;
@@ -83,10 +101,15 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
     while (finishedCount.load(std::memory_order_acquire) < vids.size()) {
       auto activeBars = std::vector<std::pair<fs::path, std::size_t>>{};
       {
-        auto lock = std::scoped_lock{progressBarIndexsMtx};
-        activeBars.reserve(progressBarIndexs.size());
-        for (auto const& [vidPath, barIndex]: progressBarIndexs) {
-          activeBars.emplace_back(vidPath, barIndex);
+        auto lock = std::scoped_lock{slotTaskPathsMtx};
+        activeBars.reserve(slotTaskPaths.size());
+        for (auto slot = std::size_t{0}; slot < slotTaskPaths.size(); ++slot) {
+          if (slotTaskPaths[slot].has_value()) {
+            activeBars.emplace_back(
+              slotTaskPaths[slot].value(),
+              slotBarIndexes[slot]
+            );
+          }
         }
       }
 
@@ -94,28 +117,32 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
         monitorEncodingProgress(progressCtx, vidPath, barIndex);
       }
 
-      std::this_thread::sleep_for(300ms);
+      std::this_thread::sleep_for(100ms);
     }
   });
 
-  parallel::runIndexedTasks(
-    vids.size(),
-    std::min(vids.size(), kMaxConcurrentJobs),
-    [&](std::size_t index) {
-      auto const& vidPath = vids[index];
-      auto barIndex = std::size_t{0};
+  parallel::runIndexedTasks(workerCount, workerCount, [&](std::size_t slot) {
+    auto const barIndex = slotBarIndexes[slot];
+
+    while (true) {
+      auto const taskIndex = nextTaskIndex.fetch_add(1, std::memory_order_acq_rel);
+      if (taskIndex >= vids.size()) { break; }
+
+      auto const& vidPath = vids[taskIndex];
 
       {
-        auto lock = std::scoped_lock{progressBarIndexsMtx};
-        auto [iter, inserted] = progressBarIndexs.try_emplace(vidPath, 0);
-        if (inserted) {
-          iter->second = progressCtx.addBar(
-            std::format("Encoding: {}", vidPath.filename().string())
-          );
-        }
-        barIndex = iter->second;
+        auto lock = std::scoped_lock{slotTaskPathsMtx};
+        slotTaskPaths[slot] = vidPath;
       }
 
+        progressCtx.setPostfixText(
+          barIndex,
+          std::format(
+            "Encoding: {}",
+            truncateForProgressLabel(vidPath.filename().string())
+          )
+        );
+      progressCtx.setProgress(barIndex, 0.0f);
       auto const result = encodeToHevc(vidPath);
 
       {
@@ -124,9 +151,19 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
       }
 
       progressCtx.setProgress(barIndex, 100.0f);
+        progressCtx.setPostfixText(
+          barIndex,
+          std::format("Encoding: [idle-{}]", slot + 1)
+        );
+
+      {
+        auto lock = std::scoped_lock{slotTaskPathsMtx};
+        slotTaskPaths[slot].reset();
+      }
+
       finishedCount.fetch_add(1, std::memory_order_release);
     }
-  );
+  });
 
   monitorThread.join();
 
@@ -390,18 +427,14 @@ auto monitorEncodingProgress(
 }
 
 int handlePathEncoding(fs::path const& inputPath) {
+  std::println("Scanning input path for videos: {} ...", inputPath.string());
   auto const vids = readAllVids(inputPath);
+  std::println("Video scan completed, found {} candidate file(s).", vids.size());
 
   if (vids.empty()) {
     printNoEncodableVideosMessage(inputPath);
     return 0;
   }
-
-  std::println(
-    "found {} video(s) in directory: {}",
-    vids.size(),
-    inputPath.string()
-  );
 
   auto const runRes = runEncodingBatches(vids);
   if (!runRes.has_value()) { return 0; }
