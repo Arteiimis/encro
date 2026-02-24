@@ -2,10 +2,10 @@
 
 #include "globals.h"
 #include "packer.h"
+#include "parallel.h"
 #include "progress.h"
 #include "utils.h"
 
-#include <BS_thread_pool.hpp>
 #include <indicators/dynamic_progress.hpp>
 #include <indicators/progress_bar.hpp>
 #include <spdlog/spdlog.h>
@@ -15,7 +15,6 @@
 #include <filesystem>
 #include <print>
 #include <ranges>
-
 
 namespace fs = std::filesystem;
 using namespace indicators;
@@ -63,8 +62,7 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
   -> eh::Result<void> {
   namespace view = std::views;
 
-  const auto groupedPics = groupFilesBySize(readAllPics(dirPath));
-  auto pool = BS::pause_thread_pool{groupedPics.size()};
+  auto const groupedPics = groupFilesBySize(readAllPics(dirPath));
   auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
   auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
   auto packResults = std::vector<eh::Result<void>>(groupedPics.size());
@@ -90,15 +88,20 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
     return eh::makeError("Packing task canceled by user.");
   }
 
-  pool.pause();
   for (const auto& [index, group]: view::enumerate(groupedPics)) {
     progress::addBar(
       progressManager,
       bars,
       std::format("Packing: {}_part{}.zip", dirPath.filename().string(), index + 1)
     );
+  }
 
-    pool.detach_task([&, index, group] {
+  auto _ = progress::CursorGuard{};
+  parallel::runIndexedTasks(
+    groupedPics.size(),
+    groupedPics.size(),
+    [&](std::size_t index) {
+      auto const& group = groupedPics[index];
       const auto zipFileName = std::format(
         "{}_part{}.zip",
         dirPath.filename().string(),
@@ -107,9 +110,10 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
       const auto zipFilePath = zipFileDir / zipFileName;
       fs::create_directory(zipFileDir);
 
-      const auto packRes = packFilesToZip(group, zipFilePath, progressManager, index);
+      auto const packRes =
+        packFilesToZip(group, zipFilePath, progressManager, index);
 
-      auto _ = std::scoped_lock{packResultsMtx};
+      auto lock = std::scoped_lock{packResultsMtx};
       if (!packRes) {
         fs::remove(zipFilePath);
 
@@ -124,12 +128,8 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
       }
 
       packResults[index] = {};
-    });
-  }
-
-  auto _ = progress::CursorGuard{};
-  pool.unpause();
-  pool.wait();
+    }
+  );
 
   for (const auto& res: packResults) {
     if (!res) { return res; }

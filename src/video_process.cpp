@@ -2,12 +2,12 @@
 
 #include "encode_config.h"
 #include "globals.h"
+#include "parallel.h"
 #include "packer.h"
 #include "progress.h"
 #include "utils.h"
 #include "video_info.h"
 
-#include <BS_thread_pool.hpp>
 #include <boost/lambda2.hpp>
 #include <boost/parser/parser.hpp>
 #include <indicators/dynamic_progress.hpp>
@@ -77,12 +77,9 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
       batchSize
     );
 
-    auto pool = BS::pause_thread_pool{std::min(batchSize, kBatchSize) * 2};
     auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
     auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
     auto progressBarIndexs = std::unordered_map<fs::path, std::size_t>{};
-
-    pool.pause();
 
     for (auto i = start; i < end; ++i) {
       auto const& vidPath = vids[i];
@@ -92,20 +89,25 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
         bars,
         std::format("Encoding: {}", vidPath.filename().string())
       );
-
-      pool.detach_task([&vidsRunRes, &vidsRunResMtx, vidPath] {
-        auto const result = encodeToHevc(vidPath);
-        auto _ = std::scoped_lock{vidsRunResMtx};
-        vidsRunRes[vidPath] = result;
-      });
-
-      pool.detach_task([&progressManager, &progressBarIndexs, vidPath] {
-        monitorEncodingProgress(progressManager, progressBarIndexs, vidPath);
-      });
     }
 
-    pool.unpause();
-    pool.wait();
+    parallel::runIndexedTasks(
+      batchSize * 2,
+      std::max<std::size_t>(1, std::min(batchSize, kBatchSize) * 2),
+      [&](std::size_t taskIndex) {
+        auto const localIndex = taskIndex / 2;
+        auto const vidPath = vids[start + localIndex];
+
+        if (taskIndex % 2 == 0) {
+          auto const result = encodeToHevc(vidPath);
+          auto _ = std::scoped_lock{vidsRunResMtx};
+          vidsRunRes[vidPath] = result;
+          return;
+        }
+
+        monitorEncodingProgress(progressManager, progressBarIndexs, vidPath);
+      }
+    );
   }
 
   return vidsRunRes;

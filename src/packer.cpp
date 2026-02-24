@@ -1,5 +1,6 @@
 #include "packer.h"
 
+#include "parallel.h"
 #include "progress.h"
 
 #include <indicators/dynamic_progress.hpp>
@@ -9,8 +10,8 @@
 
 #include <cmath>
 #include <filesystem>
+#include <mutex>
 #include <ranges>
-
 
 namespace fs = std::filesystem;
 using namespace indicators;
@@ -110,6 +111,8 @@ auto packAllFilesInDirectory(
 
   auto progressManager = DynamicProgress<ProgressBar>{};
   auto bars = progress::BarCollection{};
+  auto packResults = std::vector<eh::Result<void>>(groupedFiles.size());
+  auto packResultsMtx = std::mutex{};
 
   auto _ = progress::CursorGuard{};
   for (auto const& [index, group]: std::views::enumerate(groupedFiles)) {
@@ -119,12 +122,31 @@ auto packAllFilesInDirectory(
 
     auto const barIndex =
       progress::addBar(progressManager, bars, std::format("Packing: {}", fileName));
+  }
 
-    if (auto const packRes =
-          packFilesToZip(group, zipPath, progressManager, barIndex);
-        !packRes) {
-      return packRes;
+  parallel::runIndexedTasks(
+    groupedFiles.size(),
+    groupedFiles.size(),
+    [&](std::size_t index) {
+      auto const fileName =
+        std::format("{}_part{}.zip", dirPath.filename().string(), index + 1);
+      auto const zipPath = zipFileDir / fileName;
+
+      auto const packRes =
+        packFilesToZip(groupedFiles[index], zipPath, progressManager, index);
+
+      auto lock = std::scoped_lock{packResultsMtx};
+      if (!packRes) {
+        packResults[index] = packRes;
+        return;
+      }
+
+      packResults[index] = {};
     }
+  );
+
+  for (auto const& res: packResults) {
+    if (!res) { return res; }
   }
 
   return {};
