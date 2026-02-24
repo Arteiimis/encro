@@ -6,8 +6,6 @@
 #include <spdlog/spdlog.h>
 
 #include <array>
-#include <ranges>
-
 
 namespace fs = std::filesystem;
 

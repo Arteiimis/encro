@@ -7,9 +7,6 @@
 #include <fstream>
 #include <vector>
 
-
-namespace fs = std::filesystem;
-
 TEST_CASE("readLastNLines returns tail of file", "[video-process][readLastNLines]") {
   TempDir temp;
   auto const filePath = temp.path / "progress.log";
