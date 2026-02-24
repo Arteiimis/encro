@@ -72,3 +72,56 @@ auto groupFilesBySize(
 
   return groupedFiles;
 }
+
+auto packAllFilesInDirectory(
+  fs::path const& dirPath,
+  fs::path const& zipFileDir,
+  std::uintmax_t maxGroupSize,
+  bool recursive
+) -> eh::Result<void> {
+  if (!fs::is_directory(dirPath)) {
+    return eh::makeError("Input path is not a directory: {}", dirPath.string());
+  }
+
+  auto allFiles = std::vector<fs::path>{};
+
+  if (recursive) {
+    for (auto const& entry: fs::recursive_directory_iterator(dirPath)) {
+      if (entry.is_regular_file()) { allFiles.emplace_back(entry.path()); }
+    }
+  } else {
+    for (auto const& entry: fs::directory_iterator(dirPath)) {
+      if (entry.is_regular_file()) { allFiles.emplace_back(entry.path()); }
+    }
+  }
+
+  if (allFiles.empty()) {
+    return eh::makeError(
+      "No files found to pack in directory: {}",
+      dirPath.string()
+    );
+  }
+
+  auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
+  fs::create_directories(zipFileDir);
+
+  auto progressManager = DynamicProgress<ProgressBar>{};
+  auto bars = std::vector<std::unique_ptr<ProgressBar>>{};
+
+  for (auto const& [index, group]: std::views::enumerate(groupedFiles)) {
+    auto const fileName =
+      std::format("{}_part{}.zip", dirPath.filename().string(), index + 1);
+    auto const zipPath = zipFileDir / fileName;
+
+    bars.emplace_back(std::make_unique<ProgressBar>(option::MaxProgress{100}));
+    auto const barIndex = progressManager.push_back(*bars.back());
+
+    if (auto const packRes =
+          packFilesToZip(group, zipPath, progressManager, barIndex);
+        !packRes) {
+      return packRes;
+    }
+  }
+
+  return {};
+}

@@ -43,9 +43,10 @@ constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ;
 
   auto fileop = po::options_description("File operation options");
-  fileop.add_options()                                        //
-    ("pack,p", "pack encoded video outputs into zip files")   //
-    ("overwrite", "overwrite existing files without prompt")  //
+  fileop.add_options()                                              //
+    ("pack,p", "pack encoded video outputs into zip files")         //
+    ("pack-only,P", "pack only: zip all files in input directory")  //
+    ("overwrite", "overwrite existing files without prompt")        //
     ;
 
   auto all = po::options_description("Allowed options");

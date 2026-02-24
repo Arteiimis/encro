@@ -80,3 +80,58 @@ TEST_CASE(
   CHECK(entryNames == expectedNames);
   zip.close();
 }
+
+TEST_CASE(
+  "packAllFilesInDirectory packs all files with size grouping",
+  "[packer][packAllFilesInDirectory]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  auto const outputDir = temp.path / "packed";
+  fs::create_directories(inputDir);
+
+  auto const f1 = createSizedFile(inputDir, "a.bin", 150);
+  auto const f2 = createSizedFile(inputDir, "b.bin", 150);
+  auto const f3 = createSizedFile(inputDir, "c.bin", 60);
+
+  auto const packRes = packAllFilesInDirectory(inputDir, outputDir, 300, true);
+
+  REQUIRE(packRes);
+  REQUIRE(fs::exists(outputDir / "input_part1.zip"));
+  REQUIRE(fs::exists(outputDir / "input_part2.zip"));
+
+  libzippp::ZipArchive zip1{(outputDir / "input_part1.zip").string()};
+  zip1.open(libzippp::ZipArchive::ReadOnly);
+  CHECK(zip1.getEntries().size() == 2);
+  zip1.close();
+
+  libzippp::ZipArchive zip2{(outputDir / "input_part2.zip").string()};
+  zip2.open(libzippp::ZipArchive::ReadOnly);
+  CHECK(zip2.getEntries().size() == 1);
+  zip2.close();
+}
+
+TEST_CASE(
+  "packAllFilesInDirectory respects non-recursive option",
+  "[packer][packAllFilesInDirectory]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  auto const nestedDir = inputDir / "nested";
+  auto const outputDir = temp.path / "packed";
+  fs::create_directories(nestedDir);
+
+  auto const topFile = createSizedFile(inputDir, "top.bin", 64);
+  auto const nestedFile = createSizedFile(nestedDir, "nested.bin", 64);
+
+  auto const packRes = packAllFilesInDirectory(inputDir, outputDir, 300, false);
+
+  REQUIRE(packRes);
+  libzippp::ZipArchive zip{(outputDir / "input_part1.zip").string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  REQUIRE(entries.size() == 1);
+  CHECK(entries.front().getName() == topFile.filename().string());
+  CHECK(entries.front().getName() != nestedFile.filename().string());
+  zip.close();
+}

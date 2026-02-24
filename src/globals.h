@@ -17,6 +17,7 @@ struct Globals {
   bool YES_TO_ALL;
   bool RECURSIVE;
   bool PACK_OUTPUT;
+  bool PACK_ONLY;
   std::string PROCESS_TYPE;
   std::string OUTPUT_FORMAT;
   fs::path INPUT_PATH;

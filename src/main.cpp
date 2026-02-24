@@ -1,19 +1,22 @@
-#include <iostream>
-#include <print>
+#include "cmd.h"
+#include "globals.h"
+#include "packer.h"
+#include "picture_process.h"
+#include "utils.h"
+#include "video_process.h"
 
 #include <spdlog/spdlog.h>
 
-#include "cmd.h"
-#include "globals.h"
-#include "utils.h"
-#include "video_process.h"
-#include "picture_process.h"
+#include <iostream>
+#include <print>
+
 
 int main(int argc, char* argv[]) {
   auto [desc, vm] = commandLineInit(argc, argv);
   spdlog::set_pattern("[%^%l%$] %v");
   GLBs.OUTPUT_FORMAT = "mp4";
   GLBs.PACK_OUTPUT = false;
+  GLBs.PACK_ONLY = false;
 
   if (vm.count("help")) {
     desc.print(std::cout);
@@ -51,6 +54,11 @@ int main(int argc, char* argv[]) {
   if (vm.count("pack")) {
     GLBs.PACK_OUTPUT = true;
     spdlog::info("Pack output enabled for video processing.");
+  }
+
+  if (vm.count("pack-only")) {
+    GLBs.PACK_ONLY = true;
+    spdlog::info("Pack-only mode enabled.");
   }
 
   if (vm.count("ffmpeg-path")) {
@@ -104,11 +112,6 @@ int main(int argc, char* argv[]) {
     GLBs.OUTPUT_FORMAT = outputFormat;
   }
 
-  if (const auto toolRes = toolCheck(); !toolRes) {
-    spdlog::error("Tool check failed: {}", toolRes.error());
-    return 1;
-  }
-
   GLBs.INPUT_PATH = fs::path{getParamStr(vm, "input")};
 
   if (!fs::exists(GLBs.INPUT_PATH)) {
@@ -116,6 +119,39 @@ int main(int argc, char* argv[]) {
       "The specified path/file does not exist: {}",
       GLBs.INPUT_PATH.string()
     );
+    return 1;
+  }
+
+  if (GLBs.PACK_ONLY) {
+    if (GLBs.PROCESS_TYPE != "video") {
+      spdlog::error("pack-only option is only supported when --type is video.");
+      return 1;
+    }
+
+    if (!fs::is_directory(GLBs.INPUT_PATH)) {
+      spdlog::error("pack-only mode requires input to be a directory.");
+      return 1;
+    }
+
+    auto const zipOutputDir = GLBs.OUTPUT_PATH.value_or(GLBs.INPUT_PATH / "packed");
+    auto const packRes = packAllFilesInDirectory(
+      GLBs.INPUT_PATH,
+      zipOutputDir,
+      500 * 1024 * 1024,
+      true
+    );
+
+    if (!packRes) {
+      spdlog::error("Failed to pack files: {}", packRes.error());
+      return 1;
+    }
+
+    std::println("All files packed successfully to: {}", zipOutputDir.string());
+    return 0;
+  }
+
+  if (auto const toolRes = toolCheck(); !toolRes) {
+    spdlog::error("Tool check failed: {}", toolRes.error());
     return 1;
   }
 
