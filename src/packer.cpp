@@ -1,20 +1,20 @@
+#include "packer.h"
+
+#include <indicators/dynamic_progress.hpp>
+#include <indicators/progress_bar.hpp>
+#include <libzippp/libzippp.h>
+#include <spdlog/spdlog.h>
+
+#include <cmath>
 #include <filesystem>
 #include <ranges>
-#include <cmath>
-
-#include <spdlog/spdlog.h>
-#include <libzippp/libzippp.h>
-#include <indicators/progress_bar.hpp>
-#include <indicators/dynamic_progress.hpp>
-
-#include "packer.h"
 
 namespace fs = std::filesystem;
 using namespace indicators;
 
 auto packFilesToZip(
-  const std::vector<fs::path>& filePaths,
-  const fs::path& zipFilePath,
+  std::vector<fs::path> const& filePaths,
+  fs::path const& zipFilePath,
   DynamicProgress<ProgressBar>& progressBarManager,
   size_t progressBarIndex
 ) -> eh::Result<void> try {
@@ -23,8 +23,9 @@ auto packFilesToZip(
 
   zip.open(libzippp::ZipArchive::New);
 
-  for (const auto& [index, filePath]: std::views::enumerate(filePaths)) {
-    const auto progress = (size_t)std::round((index + 1) / (float)fileCount * 100.0f);
+  for (auto const& [index, filePath]: std::views::enumerate(filePaths)) {
+    auto const progress =
+      (size_t)std::round((index + 1) / (float)fileCount * 100.0f);
 
     if (fs::is_regular_file(filePath)) {
       zip.addFile(filePath.filename().string(), filePath.string());
@@ -37,7 +38,7 @@ auto packFilesToZip(
   zip.close();
 
   return {};
-} catch (const std::exception& e) {
+} catch (std::exception const& e) {
 
   return eh::makeError(
     "Exception while packing files to zip {}: {}",
@@ -47,15 +48,15 @@ auto packFilesToZip(
 }
 
 auto groupFilesBySize(
-  const std::vector<fs::path>& filePaths,
+  std::vector<fs::path> const& filePaths,
   std::uintmax_t maxGroupSize
 ) -> std::vector<std::vector<fs::path>> {
   auto groupedFiles = std::vector<std::vector<fs::path>>{};
   auto currentGroup = std::vector<fs::path>{};
   auto currentSize = std::uintmax_t{0};
 
-  for (const auto& filePath: filePaths) {
-    const auto fileSize = fs::file_size(filePath);
+  for (auto const& filePath: filePaths) {
+    auto const fileSize = fs::file_size(filePath);
 
     if (currentSize + fileSize > maxGroupSize && !currentGroup.empty()) {
       groupedFiles.emplace_back(currentGroup);

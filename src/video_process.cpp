@@ -9,6 +9,7 @@
 #include <indicators/dynamic_progress.hpp>
 #include <spdlog/spdlog.h>
 
+#include "encode_config.h"
 #include "video_process.h"
 #include "video_info.h"
 #include "globals.h"
@@ -19,27 +20,28 @@ using namespace boost::lambda2;
 using namespace indicators;
 
 bool encodeToHevc(const fs::path& inputVidPath) {
-  const auto outputVidDir = GLBs.OUTPUT_PATH.value_or(inputVidPath.parent_path());
-  const auto outputVidPath = outputVidDir
-                           / std::format("{}.hevc.mp4", inputVidPath.stem().string());
   const auto progressFilePath = fs::temp_directory_path()
                               / std::format("progress_{}.txt", getUUID());
 
   GLBs.PROGRESS_FILES[inputVidPath] = progressFilePath;
 
-  const auto cmd = std::format(
-    "{} -i \"{}\" -c:v hevc_nvenc -crf 20 \"{}\" -progress \"{}\"",
-    GLBs.FFMPEG_PATH.value().string(),
-    inputVidPath.string(),
-    outputVidPath.string(),
-    progressFilePath.string()
-  );
+  const auto cfg = EncodeConfig{
+    .ffmpegPath = GLBs.FFMPEG_PATH,
+    .inputPath = inputVidPath,
+    .progressFilePath = progressFilePath
+  };
 
-  spdlog::debug("Executing command: {}", cmd);
+  auto const validationResult = cfg.validate();
+  if (!validationResult) {
+    spdlog::error(validationResult.error());
+    return false;
+  }
+
+  spdlog::debug("Executing command: {}", cfg.buildCMD());
 
   std::println("Encoding video: {}", inputVidPath.string());
 
-  const auto [exitCode, output] = exec2(cmd);
+  const auto [exitCode, _] = exec2(cfg.buildCMD());
 
   return exitCode == 0;
 }

@@ -41,9 +41,11 @@ bool isHevcEncoded(const fs::path& videoPath) {
   const auto vidInfo = getVidInfo(videoPath);
 
   for (const auto& stream: vidInfo.at("streams").as_array()) {
-    const auto isVideo = stream.at("codec_type").as_string() == "video";
-    const auto isHevc = stream.at("codec_name").as_string() == "hevc";
-    if (isVideo && isHevc) { return true; }
+    try {
+      auto const isVideo = stream.at("codec_type").as_string() == "video";
+      auto const isHevc = stream.at("codec_name").as_string() == "hevc";
+      if (isVideo && isHevc) { return true; }
+    } catch (...) { continue; }
   }
 
   return false;

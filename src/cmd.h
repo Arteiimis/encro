@@ -5,7 +5,7 @@
 namespace po = boost::program_options;
 using namespace std::literals;
 
-struct CmdParserResult {
+struct CmdParseResult {
   po::options_description desc;
   po::variables_map vm;
 };
@@ -20,7 +20,7 @@ auto pvDefault(Ty&& defaultValue) {
   );
 }
 
-constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParserResult {
+constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   auto general = po::options_description("General options");
   general.add_options()                     //
     ("help,h", "produce help message")      //
@@ -51,8 +51,8 @@ constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParserResult {
   all.add(general).add(io).add(processing).add(fileop);
 
   auto vm = po::variables_map{};
-  po::store(po::parse_command_line(argc, argv, all), vm);
-  po::notify(vm);
+  store(parse_command_line(argc, argv, all), vm);
+  notify(vm);
 
   return {all, vm};
 }

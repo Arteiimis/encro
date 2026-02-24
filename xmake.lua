@@ -8,7 +8,7 @@ set_toolchains("clang")
 add_cxxflags("-Wno-c++26-extensions")
 add_cxxflags("-ftrivial-auto-var-init=pattern")
 
-if is_subhost("windows") then
+if is_plat("windows") then
   add_defines("NOMINMAX")
   add_defines("WIN32_LEAN_AND_MEAN")
   add_defines("_MSVC_STL_HARDENING=1")
@@ -18,7 +18,11 @@ add_requires("boost[all]")
 add_requires("thread-pool")
 add_requires("spdlog[std_format]")
 add_requires("indicators")
-add_requires("libzippp[zstd,toolchains=clang-cl]")
+if is_plat("windows") then
+  add_requires("libzippp[toolchains=clang-cl]")
+else
+  add_requires("libzippp")
+end
 add_requires("catch2")
 
 target("video_encoder")
