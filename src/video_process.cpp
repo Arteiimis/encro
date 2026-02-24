@@ -2,8 +2,8 @@
 
 #include "encode_config.h"
 #include "globals.h"
-#include "parallel.h"
 #include "packer.h"
+#include "parallel.h"
 #include "progress.h"
 #include "utils.h"
 #include "video_info.h"
@@ -14,10 +14,14 @@
 #include <indicators/progress_bar.hpp>
 #include <spdlog/spdlog.h>
 
+#include <atomic>
+#include <chrono>
 #include <deque>
 #include <fstream>
 #include <print>
 #include <ranges>
+#include <thread>
+
 
 namespace fs = std::filesystem;
 using namespace boost::lambda2;
@@ -25,8 +29,8 @@ using namespace indicators;
 
 auto monitorEncodingProgress(
   progress::ProgressContext& progressCtx,
-  std::unordered_map<fs::path, std::size_t> const& progressBarIndexs,
-  fs::path const& vidPath
+  fs::path const& vidPath,
+  std::size_t barIndex
 ) -> void;
 
 namespace {
@@ -47,7 +51,7 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
   -> std::optional<std::unordered_map<fs::path, bool>> {
   auto vidsRunRes = std::unordered_map<fs::path, bool>{};
   auto vidsRunResMtx = std::mutex{};
-  constexpr auto kBatchSize = std::size_t{10};
+  constexpr auto kMaxConcurrentJobs = std::size_t{10};
 
   auto const proceed = readUserIpt(
     std::format(
@@ -62,49 +66,69 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
 
   auto _ = progress::CursorGuard{};
 
-  auto const batches = splitIntoBatches(vids.size(), kBatchSize);
-  auto const totalBatchCount = batches.size();
+  auto progressCtx = progress::ProgressContext{};
+  auto progressBarIndexs = std::unordered_map<fs::path, std::size_t>{};
+  auto progressBarIndexsMtx = std::mutex{};
+  auto finishedCount = std::atomic_size_t{0};
 
-  for (auto batchIndex = std::size_t{0}; batchIndex < totalBatchCount;
-       ++batchIndex) {
-    auto const [start, end] = batches[batchIndex];
-    auto const batchSize = end - start;
+  std::println(
+    "Scheduling {} video(s) with max {} concurrent encode job(s)...",
+    vids.size(),
+    std::min(vids.size(), kMaxConcurrentJobs)
+  );
 
-    std::println(
-      "Processing batch {}/{} ({} video(s))...",
-      batchIndex + 1,
-      totalBatchCount,
-      batchSize
-    );
+  auto monitorThread = std::jthread([&] {
+    using namespace std::chrono_literals;
 
-    auto progressCtx = progress::ProgressContext{};
-    auto progressBarIndexs = std::unordered_map<fs::path, std::size_t>{};
-
-    for (auto i = start; i < end; ++i) {
-      auto const& vidPath = vids[i];
-
-      progressBarIndexs[vidPath] =
-        progressCtx.addBar(std::format("Encoding: {}", vidPath.filename().string()));
-    }
-
-    parallel::runIndexedTasks(
-      batchSize * 2,
-      std::max<std::size_t>(1, std::min(batchSize, kBatchSize) * 2),
-      [&](std::size_t taskIndex) {
-        auto const localIndex = taskIndex / 2;
-        auto const vidPath = vids[start + localIndex];
-
-        if (taskIndex % 2 == 0) {
-          auto const result = encodeToHevc(vidPath);
-          auto _ = std::scoped_lock{vidsRunResMtx};
-          vidsRunRes[vidPath] = result;
-          return;
+    while (finishedCount.load(std::memory_order_acquire) < vids.size()) {
+      auto activeBars = std::vector<std::pair<fs::path, std::size_t>>{};
+      {
+        auto lock = std::scoped_lock{progressBarIndexsMtx};
+        activeBars.reserve(progressBarIndexs.size());
+        for (auto const& [vidPath, barIndex]: progressBarIndexs) {
+          activeBars.emplace_back(vidPath, barIndex);
         }
-
-        monitorEncodingProgress(progressCtx, progressBarIndexs, vidPath);
       }
-    );
-  }
+
+      for (auto const& [vidPath, barIndex]: activeBars) {
+        monitorEncodingProgress(progressCtx, vidPath, barIndex);
+      }
+
+      std::this_thread::sleep_for(300ms);
+    }
+  });
+
+  parallel::runIndexedTasks(
+    vids.size(),
+    std::min(vids.size(), kMaxConcurrentJobs),
+    [&](std::size_t index) {
+      auto const& vidPath = vids[index];
+      auto barIndex = std::size_t{0};
+
+      {
+        auto lock = std::scoped_lock{progressBarIndexsMtx};
+        auto [iter, inserted] = progressBarIndexs.try_emplace(vidPath, 0);
+        if (inserted) {
+          iter->second = progressCtx.addBar(
+            std::format("Encoding: {}", vidPath.filename().string())
+          );
+        }
+        barIndex = iter->second;
+      }
+
+      auto const result = encodeToHevc(vidPath);
+
+      {
+        auto _ = std::scoped_lock{vidsRunResMtx};
+        vidsRunRes[vidPath] = result;
+      }
+
+      progressCtx.setProgress(barIndex, 100.0f);
+      finishedCount.fetch_add(1, std::memory_order_release);
+    }
+  );
+
+  monitorThread.join();
 
   return vidsRunRes;
 }
@@ -339,42 +363,30 @@ auto parseProgressFile(fs::path const& progressFilePath) -> ProgressData {
 
 auto monitorEncodingProgress(
   progress::ProgressContext& progressCtx,
-  std::unordered_map<fs::path, std::size_t> const& progressBarIndexs,
-  fs::path const& vidPath
+  fs::path const& vidPath,
+  std::size_t barIndex
 ) -> void {
-  using namespace std::chrono_literals;
-
   auto const totalFrames = getVidTotalFrames(vidPath);
   if (!totalFrames.has_value()) {
     spdlog::error("Failed to get total frames for video: {}", vidPath.string());
     return;
   }
 
-  while (true) {
-    auto const progressFilePath = GLBs.PROGRESS_FILES[vidPath];
+  auto const progressFilePath = GLBs.PROGRESS_FILES[vidPath];
+  if (!fs::exists(progressFilePath)) { return; }
 
-    if (!fs::exists(progressFilePath)) {
-      std::this_thread::sleep_for(500ms);
-      continue;
-    }
+  auto const [frameCount, _status] = parseProgressFile(progressFilePath);
+  float const progressPercent = ((float)frameCount / totalFrames.value()) * 100.0f;
 
-    auto const [frameCount, status] = parseProgressFile(progressFilePath);
-    float const progressPercent = ((float)frameCount / totalFrames.value()) * 100.0;
+  spdlog::debug(
+    "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
+    vidPath.string(),
+    frameCount,
+    totalFrames.value(),
+    progressPercent
+  );
 
-    spdlog::debug(
-      "Video: {}, Frame: {}, Total: {}, Progress: {:.2f}%",
-      vidPath.string(),
-      frameCount,
-      totalFrames.value(),
-      progressPercent
-    );
-
-    progressCtx.setProgress(progressBarIndexs.at(vidPath), progressPercent);
-
-    if (frameCount >= totalFrames.value() || status == "end") { break; }
-
-    std::this_thread::sleep_for(500ms);
-  }
+  progressCtx.setProgress(barIndex, progressPercent);
 }
 
 int handlePathEncoding(fs::path const& inputPath) {
