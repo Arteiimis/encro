@@ -32,6 +32,16 @@ auto tryCollectVideo(fs::path const& filePath, std::vector<fs::path>& vids) -> v
   auto const vidsExt = filePath.extension().string();
   if (!rng::contains(kVideoTypes, vidsExt)) { return; }
 
+  auto const fileSize = fs::file_size(filePath);
+  if (fileSize > 20 * 1024 * 1024 && GLBs.OUTPUT_FORMAT == "webp") {
+    spdlog::debug(
+      "Skipping large video file for webp output: {} ({} bytes)",
+      filePath.string(),
+      fileSize
+    );
+    return;
+  }
+
   if (GLBs.OUTPUT_FORMAT == "mp4" && isHevcEncoded(filePath)) {
     spdlog::debug("Skipping already HEVC encoded file: {}", filePath.string());
     return;

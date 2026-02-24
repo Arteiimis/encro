@@ -22,15 +22,29 @@ namespace fs = std::filesystem;
 using namespace boost::lambda2;
 using namespace indicators;
 
+auto resolveVideoOutputPath(fs::path const& inputPath) -> std::optional<fs::path> {
+  if (GLBs.OUTPUT_PATH.has_value()) { return GLBs.OUTPUT_PATH; }
+
+  if (GLBs.OUTPUT_FORMAT != "webp") { return std::nullopt; }
+
+  auto const basePath =
+    fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
+  return basePath / "encoded_webp";
+}
+
 bool encodeToHevc(const fs::path& inputVidPath) {
   const auto progressFilePath = fs::temp_directory_path()
                               / std::format("progress_{}.txt", getUUID());
 
   GLBs.PROGRESS_FILES[inputVidPath] = progressFilePath;
 
+  auto const outputPath = resolveVideoOutputPath(GLBs.INPUT_PATH);
+  if (outputPath.has_value()) { fs::create_directories(outputPath.value()); }
+
   auto const cfg = EncodeConfig{
     .ffmpegPath = GLBs.FFMPEG_PATH,
     .inputPath = inputVidPath,
+    .outputPath = outputPath,
     .outputFormat = GLBs.OUTPUT_FORMAT,
     .progressFilePath = progressFilePath
   };

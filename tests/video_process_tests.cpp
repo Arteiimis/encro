@@ -1,3 +1,4 @@
+#include "globals.h"
 #include "test_utils.h"
 #include "video_process.h"
 
@@ -69,4 +70,71 @@ TEST_CASE(
 
   CHECK(frameCount == 25);
   CHECK(status == "end");
+}
+
+TEST_CASE(
+  "resolveVideoOutputPath returns webp subfolder when output path is not provided",
+  "[video-process][resolve-output-path]"
+) {
+  TempDir temp;
+
+  GLBs.OUTPUT_PATH.reset();
+  GLBs.OUTPUT_FORMAT = "webp";
+
+  auto const outputPath = resolveVideoOutputPath(temp.path);
+
+  REQUIRE(outputPath.has_value());
+  CHECK(outputPath.value() == temp.path / "encoded_webp");
+}
+
+TEST_CASE(
+  "resolveVideoOutputPath uses file parent when input is file and format is webp",
+  "[video-process][resolve-output-path]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "sample.mp4";
+
+  {
+    std::ofstream out{filePath};
+    out << "x";
+  }
+
+  GLBs.OUTPUT_PATH.reset();
+  GLBs.OUTPUT_FORMAT = "webp";
+
+  auto const outputPath = resolveVideoOutputPath(filePath);
+
+  REQUIRE(outputPath.has_value());
+  CHECK(outputPath.value() == temp.path / "encoded_webp");
+}
+
+TEST_CASE(
+  "resolveVideoOutputPath returns user output path when provided",
+  "[video-process][resolve-output-path]"
+) {
+  TempDir temp;
+  auto const customOutput = temp.path / "custom_output";
+  fs::create_directory(customOutput);
+
+  GLBs.OUTPUT_PATH = customOutput;
+  GLBs.OUTPUT_FORMAT = "webp";
+
+  auto const outputPath = resolveVideoOutputPath(temp.path);
+
+  REQUIRE(outputPath.has_value());
+  CHECK(outputPath.value() == customOutput);
+}
+
+TEST_CASE(
+  "resolveVideoOutputPath returns no value for non-webp without custom output",
+  "[video-process][resolve-output-path]"
+) {
+  TempDir temp;
+
+  GLBs.OUTPUT_PATH.reset();
+  GLBs.OUTPUT_FORMAT = "mp4";
+
+  auto const outputPath = resolveVideoOutputPath(temp.path);
+
+  CHECK_FALSE(outputPath.has_value());
 }

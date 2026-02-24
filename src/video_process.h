@@ -18,4 +18,6 @@ struct ProgressData {
 
 auto parseProgressFile(const fs::path& progressFilePath) -> ProgressData;
 
+auto resolveVideoOutputPath(fs::path const& inputPath) -> std::optional<fs::path>;
+
 auto handlePathEncoding(const fs::path& inputPath) -> int;
