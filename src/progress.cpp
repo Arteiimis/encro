@@ -4,6 +4,24 @@
 
 namespace progress {
 
+auto ProgressContext::addBar(std::string_view promptText) -> std::size_t {
+  auto lock = std::scoped_lock{mtx_};
+  return progress::addBar(manager_, bars_, promptText);
+}
+
+void ProgressContext::setProgress(std::size_t barIndex, float progress) {
+  auto lock = std::scoped_lock{mtx_};
+  manager_[barIndex].set_progress(progress);
+}
+
+auto ProgressContext::manager() -> Manager& {
+  return manager_;
+}
+
+auto ProgressContext::manager() const -> Manager const& {
+  return manager_;
+}
+
 auto makeBar(std::string_view promptText) -> BarPtr {
   using namespace indicators;
 

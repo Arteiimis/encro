@@ -2,8 +2,6 @@
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
-#include <indicators/dynamic_progress.hpp>
-#include <indicators/progress_bar.hpp>
 #include <libzippp/libzippp.h>
 
 #include <filesystem>
@@ -55,11 +53,10 @@ TEST_CASE(
   auto const f2 = createSizedFile(srcDir, "b.txt", 128);
   auto const zipPath = outDir / "bundle.zip";
 
-  DynamicProgress<ProgressBar> progressManager;
-  ProgressBar bar(option::MaxProgress{100});
-  progressManager.push_back(bar);
+  progress::ProgressContext progressCtx;
 
-  auto const result = packFilesToZip({f1, f2}, zipPath, progressManager, 0);
+  auto const result =
+    packFilesToZip({f1, f2}, zipPath, progressCtx, "Packing: bundle.zip");
 
   REQUIRE(result);
   REQUIRE(fs::exists(zipPath));

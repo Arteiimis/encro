@@ -24,7 +24,7 @@ using namespace boost::lambda2;
 using namespace indicators;
 
 auto monitorEncodingProgress(
-  indicators::DynamicProgress<indicators::ProgressBar>& progressManager,
+  progress::ProgressContext& progressCtx,
   std::unordered_map<fs::path, std::size_t> const& progressBarIndexs,
   fs::path const& vidPath
 ) -> void;
@@ -77,18 +77,14 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
       batchSize
     );
 
-    auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
-    auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
+    auto progressCtx = progress::ProgressContext{};
     auto progressBarIndexs = std::unordered_map<fs::path, std::size_t>{};
 
     for (auto i = start; i < end; ++i) {
       auto const& vidPath = vids[i];
 
-      progressBarIndexs[vidPath] = progress::addBar(
-        progressManager,
-        bars,
-        std::format("Encoding: {}", vidPath.filename().string())
-      );
+      progressBarIndexs[vidPath] =
+        progressCtx.addBar(std::format("Encoding: {}", vidPath.filename().string()));
     }
 
     parallel::runIndexedTasks(
@@ -105,7 +101,7 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
           return;
         }
 
-        monitorEncodingProgress(progressManager, progressBarIndexs, vidPath);
+        monitorEncodingProgress(progressCtx, progressBarIndexs, vidPath);
       }
     );
   }
@@ -148,8 +144,7 @@ auto packEncodedVideos(std::unordered_map<fs::path, bool> const& vidsRunRes) -> 
 
   fs::create_directories(zipOutputDir);
 
-  auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
-  auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
+  auto progressCtx = progress::ProgressContext{};
 
   std::println(
     "Packing {} encoded video(s) into {} archive(s)...",
@@ -161,14 +156,13 @@ auto packEncodedVideos(std::unordered_map<fs::path, bool> const& vidsRunRes) -> 
     auto const zipPath =
       zipOutputDir / std::format("encoded_videos_part{}.zip", index + 1);
 
-    auto const barIndex = progress::addBar(
-      progressManager,
-      bars,
-      std::format("Packing: {}", zipPath.filename().string())
-    );
-
     if (auto const packRes =
-          packFilesToZip(group, zipPath, progressManager, barIndex);
+          packFilesToZip(
+            group,
+            zipPath,
+            progressCtx,
+            std::format("Packing: {}", zipPath.filename().string())
+          );
         !packRes) {
       spdlog::error("Failed to pack encoded videos: {}", packRes.error());
       return 1;
@@ -323,7 +317,7 @@ auto parseProgressFile(fs::path const& progressFilePath) -> ProgressData {
 }
 
 auto monitorEncodingProgress(
-  indicators::DynamicProgress<indicators::ProgressBar>& progressManager,
+  progress::ProgressContext& progressCtx,
   std::unordered_map<fs::path, std::size_t> const& progressBarIndexs,
   fs::path const& vidPath
 ) -> void {
@@ -354,7 +348,7 @@ auto monitorEncodingProgress(
       progressPercent
     );
 
-    progressManager[progressBarIndexs.at(vidPath)].set_progress(progressPercent);
+    progressCtx.setProgress(progressBarIndexs.at(vidPath), progressPercent);
 
     if (frameCount >= totalFrames.value() || status == "end") { break; }
 

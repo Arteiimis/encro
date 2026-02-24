@@ -3,16 +3,14 @@
 #include <filesystem>
 #include <vector>
 
-#include <indicators/progress_bar.hpp>
-#include <indicators/dynamic_progress.hpp>
-
 #include "error_handle.h"
+#include "progress.h"
 
 auto packFilesToZip(
   const std::vector<std::filesystem::path>& filePaths,
   const std::filesystem::path& zipFilePath,
-  indicators::DynamicProgress<indicators::ProgressBar>& progressBarManager,
-  size_t progressBarIndex
+  progress::ProgressContext& progressCtx,
+  std::string_view progressText
 ) -> eh::Result<void>;
 
 auto groupFilesBySize(

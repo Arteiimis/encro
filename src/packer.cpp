@@ -19,11 +19,12 @@ using namespace indicators;
 auto packFilesToZip(
   std::vector<fs::path> const& filePaths,
   fs::path const& zipFilePath,
-  DynamicProgress<ProgressBar>& progressBarManager,
-  size_t progressBarIndex
+  progress::ProgressContext& progressCtx,
+  std::string_view progressText
 ) -> eh::Result<void> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());
   auto fileCount = filePaths.size();
+  auto const progressBarIndex = progressCtx.addBar(progressText);
 
   zip.open(libzippp::ZipArchive::New);
 
@@ -33,7 +34,7 @@ auto packFilesToZip(
 
     if (fs::is_regular_file(filePath)) {
       zip.addFile(filePath.filename().string(), filePath.string());
-      progressBarManager[progressBarIndex].set_progress(progress);
+      progressCtx.setProgress(progressBarIndex, static_cast<float>(progress));
     }
 
     spdlog::debug("Packing progress: {}%, File: {}", progress, filePath.string());
@@ -109,21 +110,11 @@ auto packAllFilesInDirectory(
   auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
   fs::create_directories(zipFileDir);
 
-  auto progressManager = DynamicProgress<ProgressBar>{};
-  auto bars = progress::BarCollection{};
+  auto progressCtx = progress::ProgressContext{};
   auto packResults = std::vector<eh::Result<void>>(groupedFiles.size());
   auto packResultsMtx = std::mutex{};
 
   auto _ = progress::CursorGuard{};
-  for (auto const& [index, group]: std::views::enumerate(groupedFiles)) {
-    auto const fileName =
-      std::format("{}_part{}.zip", dirPath.filename().string(), index + 1);
-    auto const zipPath = zipFileDir / fileName;
-
-    auto const barIndex =
-      progress::addBar(progressManager, bars, std::format("Packing: {}", fileName));
-  }
-
   parallel::runIndexedTasks(
     groupedFiles.size(),
     groupedFiles.size(),
@@ -133,7 +124,12 @@ auto packAllFilesInDirectory(
       auto const zipPath = zipFileDir / fileName;
 
       auto const packRes =
-        packFilesToZip(groupedFiles[index], zipPath, progressManager, index);
+        packFilesToZip(
+          groupedFiles[index],
+          zipPath,
+          progressCtx,
+          std::format("Packing: {}", fileName)
+        );
 
       auto lock = std::scoped_lock{packResultsMtx};
       if (!packRes) {

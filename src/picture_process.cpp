@@ -63,8 +63,7 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
   namespace view = std::views;
 
   auto const groupedPics = groupFilesBySize(readAllPics(dirPath));
-  auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
-  auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
+  auto progressCtx = progress::ProgressContext{};
   auto packResults = std::vector<eh::Result<void>>(groupedPics.size());
   auto packResultsMtx = std::mutex{};
 
@@ -88,14 +87,6 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
     return eh::makeError("Packing task canceled by user.");
   }
 
-  for (const auto& [index, group]: view::enumerate(groupedPics)) {
-    progress::addBar(
-      progressManager,
-      bars,
-      std::format("Packing: {}_part{}.zip", dirPath.filename().string(), index + 1)
-    );
-  }
-
   auto _ = progress::CursorGuard{};
   parallel::runIndexedTasks(
     groupedPics.size(),
@@ -110,8 +101,12 @@ auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDi
       const auto zipFilePath = zipFileDir / zipFileName;
       fs::create_directory(zipFileDir);
 
-      auto const packRes =
-        packFilesToZip(group, zipFilePath, progressManager, index);
+      auto const packRes = packFilesToZip(
+        group,
+        zipFilePath,
+        progressCtx,
+        std::format("Packing: {}", zipFileName)
+      );
 
       auto lock = std::scoped_lock{packResultsMtx};
       if (!packRes) {
