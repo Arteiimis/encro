@@ -32,7 +32,7 @@ auto tryCollectVideo(fs::path const& filePath, std::vector<fs::path>& vids) -> v
   auto const vidsExt = filePath.extension().string();
   if (!rng::contains(kVideoTypes, vidsExt)) { return; }
 
-  if (isHevcEncoded(filePath)) {
+  if (GLBs.OUTPUT_FORMAT == "mp4" && isHevcEncoded(filePath)) {
     spdlog::debug("Skipping already HEVC encoded file: {}", filePath.string());
     return;
   }

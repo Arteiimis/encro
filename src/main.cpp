@@ -12,6 +12,7 @@
 int main(int argc, char* argv[]) {
   auto [desc, vm] = commandLineInit(argc, argv);
   spdlog::set_pattern("[%^%l%$] %v");
+  GLBs.OUTPUT_FORMAT = "mp4";
 
   if (vm.count("help")) {
     desc.print(std::cout);
@@ -80,6 +81,21 @@ int main(int argc, char* argv[]) {
     }
 
     spdlog::info("Using custom output path: {}", GLBs.OUTPUT_PATH.value().string());
+  }
+
+  if (vm.count("output-format")) {
+    auto const outputFormat = getParamStr(vm, "output-format");
+    constexpr auto validFormats = std::array{"mp4", "webp"};
+
+    if (!std::ranges::contains(validFormats, outputFormat)) {
+      spdlog::error(
+        "Invalid output format: {}. Valid formats are: mp4, webp.",
+        outputFormat
+      );
+      return 1;
+    }
+
+    GLBs.OUTPUT_FORMAT = outputFormat;
   }
 
   if (const auto toolRes = toolCheck(); !toolRes) {

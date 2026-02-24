@@ -17,6 +17,7 @@ struct Globals {
   bool YES_TO_ALL;
   bool RECURSIVE;
   std::string PROCESS_TYPE;
+  std::string OUTPUT_FORMAT;
   fs::path INPUT_PATH;
   std::optional<fs::path> FFMPEG_INSTALL_DIR;
   std::optional<fs::path> FFMPEG_PATH;

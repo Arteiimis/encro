@@ -1,10 +1,11 @@
 #pragma once
 
+#include "error_handle.h"
+
+#include <array>
 #include <filesystem>
 #include <format>
 #include <optional>
-
-#include "error_handle.h"
 
 namespace fs = std::filesystem;
 
@@ -12,7 +13,7 @@ struct EncodeConfig {
   std::optional<fs::path> ffmpegPath = "ffmpeg";
   std::optional<fs::path> inputPath;
   std::optional<fs::path> outputPath;
-  std::optional<fs::path> outputFormat = "mp4";
+  std::optional<std::string> outputFormat = "mp4";
   std::optional<std::string> videoCodec = "hevc_nvenc";
   std::optional<int> crf = 20;
   std::optional<fs::path> progressFilePath;
@@ -24,6 +25,11 @@ struct EncodeConfig {
     }
     if (outputFormat.has_value() && outputFormat->empty()) {
       return eh::makeError("Output format cannot be an empty string.");
+    }
+    constexpr auto validOutputFormats = std::array{"mp4", "webp"};
+    if (outputFormat.has_value()
+        && !std::ranges::contains(validOutputFormats, outputFormat.value())) {
+      return eh::makeError("Output format must be one of: mp4, webp.");
     }
     if (crf.has_value() && (crf < 0 || crf > 51)) {
       return eh::makeError("CRF value must be between 0 and 51.");
@@ -39,15 +45,29 @@ struct EncodeConfig {
     }
     cmd += std::format(" -i \"{}\"", inputPath->string());
 
-    cmd += std::format(
-      " -c:v {} -crf {}",
-      videoCodec.value_or("hevc_nvenc"),
-      crf.value_or(20)
-    );
+    auto const format = outputFormat.value_or("mp4");
+    auto const codec = videoCodec.value_or("hevc_nvenc");
+    if (format == "webp") {
+      cmd += " -c:v libwebp -q:v 70 -loop 0";
+    } else {
+      cmd += std::format(" -c:v {} -crf {}", codec, crf.value_or(20));
+    }
+
+    auto const codecTag = [&codec] {
+      auto const splitPos = codec.find('_');
+      if (splitPos == 0) { return codec; }
+      if (splitPos == std::string::npos) { return codec; }
+      return codec.substr(0, splitPos);
+    }();
 
     const auto outputVidDir = outputPath.value_or(inputPath->parent_path());
-    const auto outputVidPath = outputVidDir
-                             / std::format("{}.hevc.mp4", inputPath->stem().string());
+    auto const outputVidPath = outputVidDir / [this, format, codecTag] {
+      if (format == "webp") {
+        return std::format("{}.{}", inputPath->stem().string(), format);
+      }
+
+      return std::format("{}.{}.{}", inputPath->stem().string(), codecTag, format);
+    }();
 
     cmd += std::format(" \"{}\"", outputVidPath.string());
 

@@ -28,9 +28,10 @@ bool encodeToHevc(const fs::path& inputVidPath) {
 
   GLBs.PROGRESS_FILES[inputVidPath] = progressFilePath;
 
-  const auto cfg = EncodeConfig{
+  auto const cfg = EncodeConfig{
     .ffmpegPath = GLBs.FFMPEG_PATH,
     .inputPath = inputVidPath,
+    .outputFormat = GLBs.OUTPUT_FORMAT,
     .progressFilePath = progressFilePath
   };
 
@@ -140,7 +141,7 @@ int handlePathEncoding(const fs::path& inputPath) {
 
   if (vids.empty()) {
     if (fs::is_regular_file(inputPath)) {
-      if (isHevcEncoded(inputPath)) {
+      if (GLBs.OUTPUT_FORMAT == "mp4" && isHevcEncoded(inputPath)) {
         std::println("Video is already HEVC encoded: {}", inputPath.string());
       } else {
         std::println("No encodable videos found for file: {}", inputPath.string());
@@ -152,7 +153,7 @@ int handlePathEncoding(const fs::path& inputPath) {
   }
 
   auto vidsRunRes = std::unordered_map<fs::path, bool>{};
-  auto pool = BS::pause_thread_pool{vids.size() * 2};
+  auto pool = BS::pause_thread_pool{std::min(vids.size(), 10ull) * 2};
   auto bars = std::vector<std::unique_ptr<indicators::ProgressBar>>{};
   auto progressManager = indicators::DynamicProgress<indicators::ProgressBar>{};
   auto progressBarIndexs = std::unordered_map<fs::path, std::size_t>{};
@@ -175,8 +176,11 @@ int handlePathEncoding(const fs::path& inputPath) {
   }
 
   std::println("found {} video(s) in directory: {}", vids.size(), inputPath.string());
-  const auto proceed = readUserIpt(
-    "do you want to encode the video to HEVC format? (y/N): "
+  auto const proceed = readUserIpt(
+    std::format(
+      "do you want to encode the video to {} format? (y/N): ",
+      GLBs.OUTPUT_FORMAT
+    )
   );
   if (!proceed) {
     std::println("Encoding tasks canceled by user.");
