@@ -14,7 +14,6 @@
 #include <expected>
 #include <filesystem>
 #include <print>
-#include <ranges>
 
 namespace fs = std::filesystem;
 using namespace indicators;
@@ -58,10 +57,8 @@ auto readAllPics(const fs::path& dirPath) -> std::vector<fs::path> {
   }
 }
 
-auto packAllPicsToZipParallel(const fs::path& dirPath, const fs::path& zipFileDir)
+auto packAllPicsToZipParallel(fs::path const& dirPath, fs::path const& zipFileDir)
   -> eh::Result<void> {
-  namespace view = std::views;
-
   auto const groupedPics = groupFilesBySize(readAllPics(dirPath));
   auto progressCtx = progress::ProgressContext{};
   auto packResults = std::vector<eh::Result<void>>(groupedPics.size());

@@ -1,7 +1,5 @@
 #include "progress.h"
 
-#include <print>
-
 namespace progress {
 
 auto ProgressContext::addBar(std::string_view promptText) -> std::size_t {
