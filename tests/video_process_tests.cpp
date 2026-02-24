@@ -4,9 +4,28 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <vector>
+
+namespace {
+
+void createSizedSparseFile(fs::path const& filePath, std::uintmax_t sizeInBytes) {
+  auto out = std::ofstream{filePath, std::ios::binary};
+  REQUIRE(out.is_open());
+
+  if (sizeInBytes == 0) {
+    out.flush();
+    return;
+  }
+
+  out.seekp(static_cast<std::streamoff>(sizeInBytes - 1));
+  out.put('\0');
+  out.flush();
+}
+
+}  // namespace
 
 TEST_CASE("readLastNLines returns tail of file", "[video-process][readLastNLines]") {
   TempDir temp;
@@ -137,4 +156,85 @@ TEST_CASE(
   auto const outputPath = resolveVideoOutputPath(temp.path);
 
   CHECK_FALSE(outputPath.has_value());
+}
+
+TEST_CASE("splitIntoBatches splits exactly by 10", "[video-process][batch]") {
+  auto const batches = splitIntoBatches(10, 10);
+
+  REQUIRE(batches.size() == 1);
+  CHECK(batches[0] == std::pair<std::size_t, std::size_t>{0, 10});
+}
+
+TEST_CASE("splitIntoBatches creates tail batch", "[video-process][batch]") {
+  auto const batches = splitIntoBatches(11, 10);
+
+  REQUIRE(batches.size() == 2);
+  CHECK(batches[0] == std::pair<std::size_t, std::size_t>{0, 10});
+  CHECK(batches[1] == std::pair<std::size_t, std::size_t>{10, 11});
+}
+
+TEST_CASE(
+  "splitIntoBatches handles multiple full and partial batches",
+  "[video-process][batch]"
+) {
+  auto const batches = splitIntoBatches(25, 10);
+
+  REQUIRE(batches.size() == 3);
+  CHECK(batches[0] == std::pair<std::size_t, std::size_t>{0, 10});
+  CHECK(batches[1] == std::pair<std::size_t, std::size_t>{10, 20});
+  CHECK(batches[2] == std::pair<std::size_t, std::size_t>{20, 25});
+}
+
+TEST_CASE("splitIntoBatches handles empty input", "[video-process][batch]") {
+  auto const batches = splitIntoBatches(0, 10);
+  CHECK(batches.empty());
+}
+
+TEST_CASE(
+  "resolveVideoPackOutputPath uses encoded_webp subdir when webp has no custom "
+  "output",
+  "[video-process][pack]"
+) {
+  TempDir temp;
+
+  GLBs.OUTPUT_PATH.reset();
+  GLBs.OUTPUT_FORMAT = "webp";
+
+  auto const packPath = resolveVideoPackOutputPath(temp.path);
+  CHECK(packPath == temp.path / "encoded_webp" / "packed");
+}
+
+TEST_CASE(
+  "resolveVideoPackOutputPath uses custom output path when provided",
+  "[video-process][pack]"
+) {
+  TempDir temp;
+  auto const customOutput = temp.path / "out";
+  fs::create_directory(customOutput);
+
+  GLBs.OUTPUT_PATH = customOutput;
+  GLBs.OUTPUT_FORMAT = "mp4";
+
+  auto const packPath = resolveVideoPackOutputPath(temp.path);
+  CHECK(packPath == customOutput / "packed");
+}
+
+TEST_CASE(
+  "groupEncodedVideosForPack splits groups at 500MB",
+  "[video-process][pack]"
+) {
+  TempDir temp;
+  auto const v1 = temp.path / "v1.mp4";
+  auto const v2 = temp.path / "v2.mp4";
+  auto const v3 = temp.path / "v3.mp4";
+
+  createSizedSparseFile(v1, 300ULL * 1024ULL * 1024ULL);
+  createSizedSparseFile(v2, 300ULL * 1024ULL * 1024ULL);
+  createSizedSparseFile(v3, 100ULL * 1024ULL * 1024ULL);
+
+  auto const grouped = groupEncodedVideosForPack({v1, v2, v3});
+
+  REQUIRE(grouped.size() == 2);
+  CHECK(grouped[0] == std::vector{v1});
+  CHECK(grouped[1] == std::vector{v2, v3});
 }

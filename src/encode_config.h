@@ -37,6 +37,31 @@ struct EncodeConfig {
     return {};
   }
 
+  fs::path buildOutputPath() const {
+    if (!inputPath.has_value()) {
+      throw std::runtime_error("Input path is required to build output path.");
+    }
+
+    auto const format = outputFormat.value_or("mp4");
+    auto const codec = videoCodec.value_or("hevc_nvenc");
+
+    auto const codecTag = [&codec] {
+      auto const splitPos = codec.find('_');
+      if (splitPos == 0) { return codec; }
+      if (splitPos == std::string::npos) { return codec; }
+      return codec.substr(0, splitPos);
+    }();
+
+    auto const outputVidDir = outputPath.value_or(inputPath->parent_path());
+
+    if (format == "webp") {
+      return outputVidDir / std::format("{}.{}", inputPath->stem().string(), format);
+    }
+
+    return outputVidDir
+         / std::format("{}.{}.{}", inputPath->stem().string(), codecTag, format);
+  }
+
   std::string buildCMD() const {
     auto cmd = std::string{ffmpegPath.value().string()};
 
@@ -53,21 +78,7 @@ struct EncodeConfig {
       cmd += std::format(" -c:v {} -crf {}", codec, crf.value_or(20));
     }
 
-    auto const codecTag = [&codec] {
-      auto const splitPos = codec.find('_');
-      if (splitPos == 0) { return codec; }
-      if (splitPos == std::string::npos) { return codec; }
-      return codec.substr(0, splitPos);
-    }();
-
-    const auto outputVidDir = outputPath.value_or(inputPath->parent_path());
-    auto const outputVidPath = outputVidDir / [this, format, codecTag] {
-      if (format == "webp") {
-        return std::format("{}.{}", inputPath->stem().string(), format);
-      }
-
-      return std::format("{}.{}.{}", inputPath->stem().string(), codecTag, format);
-    }();
+    auto const outputVidPath = buildOutputPath();
 
     cmd += std::format(" \"{}\"", outputVidPath.string());
 

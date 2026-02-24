@@ -29,11 +29,11 @@ constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ;
 
   auto io = po::options_description("Input/Output options");
-  io.add_options()                                                           //
-    ("input,i", pv<std::string>, "input file or directory path")             //
-    ("output,o", pv<std::string>, "custom output directory path")            //
-    ("output-format,ofmt", pvDefault("mp4"s), "target format: mp4 or webp")  //
-    ("recursive,R", "recursively search for media files in directories")     //
+  io.add_options()                                                        //
+    ("input,i", pv<std::string>, "input file or directory path")          //
+    ("output,o", pv<std::string>, "custom output directory path")         //
+    ("output-format,F", pvDefault("mp4"s), "target format: mp4 or webp")  //
+    ("recursive,R", "recursively search for media files in directories")  //
     ;
 
   auto processing = po::options_description("Processing options");
@@ -44,6 +44,7 @@ constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
 
   auto fileop = po::options_description("File operation options");
   fileop.add_options()                                        //
+    ("pack,p", "pack encoded video outputs into zip files")   //
     ("overwrite", "overwrite existing files without prompt")  //
     ;
 

@@ -13,6 +13,7 @@ int main(int argc, char* argv[]) {
   auto [desc, vm] = commandLineInit(argc, argv);
   spdlog::set_pattern("[%^%l%$] %v");
   GLBs.OUTPUT_FORMAT = "mp4";
+  GLBs.PACK_OUTPUT = false;
 
   if (vm.count("help")) {
     desc.print(std::cout);
@@ -45,6 +46,11 @@ int main(int argc, char* argv[]) {
   if (vm.count("recursive")) {
     GLBs.RECURSIVE = true;
     spdlog::info("Recursive directory search enabled.");
+  }
+
+  if (vm.count("pack")) {
+    GLBs.PACK_OUTPUT = true;
+    spdlog::info("Pack output enabled for video processing.");
   }
 
   if (vm.count("ffmpeg-path")) {

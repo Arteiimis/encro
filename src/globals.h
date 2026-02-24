@@ -16,6 +16,7 @@ struct Globals {
   // Add any global configurations or constants here if needed
   bool YES_TO_ALL;
   bool RECURSIVE;
+  bool PACK_OUTPUT;
   std::string PROCESS_TYPE;
   std::string OUTPUT_FORMAT;
   fs::path INPUT_PATH;
