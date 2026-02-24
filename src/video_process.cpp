@@ -1,19 +1,22 @@
-#include <print>
-#include <fstream>
-#include <ranges>
+#include "video_process.h"
+
+#include "encode_config.h"
+#include "globals.h"
+#include "utils.h"
+#include "video_info.h"
 
 #include <BS_thread_pool.hpp>
 #include <boost/lambda2.hpp>
 #include <boost/parser/parser.hpp>
-#include <indicators/progress_bar.hpp>
 #include <indicators/dynamic_progress.hpp>
+#include <indicators/progress_bar.hpp>
 #include <spdlog/spdlog.h>
 
-#include "encode_config.h"
-#include "video_process.h"
-#include "video_info.h"
-#include "globals.h"
-#include "utils.h"
+#include <deque>
+#include <fstream>
+#include <print>
+#include <ranges>
+
 
 namespace fs = std::filesystem;
 using namespace boost::lambda2;
@@ -117,35 +120,18 @@ int handleSingleFileEncoding(const fs::path& videoPath) {
 
 auto readLastNLines(const fs::path& filePath, std::size_t n)
   -> std::vector<std::string> {
-  auto file = std::ifstream(filePath.string(), std::ios::ate);
-  auto lines = std::vector<std::string>{};
-  lines.reserve(n);
+  auto file = std::ifstream{filePath};
+  if (!file.is_open() || n == 0) { return {}; }
 
-  if (!file.is_open()) { return lines; }
-
-  auto fileSize = file.tellg();
-  auto buffer = std::vector<char>(fileSize);
-
-  file.seekg(0, std::ios::beg);
-  file.read(buffer.data(), fileSize);
-
-  auto count = 0;
-  auto it = buffer.rbegin();
-
-  while (it != buffer.rend() && count < n) {
-    if (*it == '\n' && count > 0) { ++count; }
-    ++it;
-  }
-
-  auto lastPart = std::string(it.base(), buffer.end());
-  auto stream = std::istringstream(lastPart);
+  auto tail = std::deque<std::string>{};
   auto line = std::string{};
 
-  while (std::getline(stream, line)) { lines.push_back(line); }
+  while (std::getline(file, line)) {
+    if (tail.size() == n) { tail.pop_front(); }
+    tail.push_back(line);
+  }
 
-  if (lines.size() > n) { lines.erase(lines.begin(), lines.end() - n); }
-
-  return lines;
+  return {tail.begin(), tail.end()};
 }
 
 auto parseProgressFile(const fs::path& progressFilePath) -> ProgressData {
