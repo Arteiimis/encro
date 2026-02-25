@@ -5,7 +5,6 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
-#include <utility>
 #include <vector>
 
 
@@ -43,8 +42,5 @@ auto resolveVideoPackOutputPath(
 
 auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
   -> std::vector<std::vector<fs::path>>;
-
-auto splitIntoBatches(std::size_t total, std::size_t batchSize)
-  -> std::vector<std::pair<std::size_t, std::size_t>>;
 
 auto handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) -> int;

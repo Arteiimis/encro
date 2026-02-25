@@ -1,15 +1,12 @@
 #include "cmd/cmd.h"
 #include "core/app_context.h"
+#include "core/pipeline.h"
 #include "core/toolchain.h"
-#include "pack/packer.h"
-#include "pack/picture_process.h"
 #include "utils/utils.h"
-#include "video/video_process.h"
 
 #include <spdlog/spdlog.h>
 
 #include <iostream>
-#include <print>
 
 int main(int argc, char* argv[]) {
   auto [desc, vm] = commandLineInit(argc, argv);
@@ -122,70 +119,25 @@ int main(int argc, char* argv[]) {
 
   auto ctx = appctx::AppContext{.config = config};
 
-  if (ctx.config.packOnly) {
-    if (ctx.config.processType != "video") {
-      spdlog::error("pack-only option is only supported when --type is video.");
+  if (!ctx.config.packOnly) {
+    if (auto const toolRes = toolchain::resolve(ctx.config, ctx.toolchain);
+        !toolRes) {
+      spdlog::error("Tool check failed: {}", toolRes.error());
       return 1;
     }
-
-    if (!fs::is_directory(ctx.config.inputPath)) {
-      spdlog::error("pack-only mode requires input to be a directory.");
-      return 1;
-    }
-
-    auto const zipOutputDir =
-      ctx.config.outputPath.value_or(ctx.config.inputPath / "packed");
-    auto const packRes = packAllFilesInDirectory(
-      ctx.config.inputPath,
-      zipOutputDir,
-      500 * 1024 * 1024,
-      true
-    );
-
-    if (!packRes) {
-      spdlog::error("Failed to pack files: {}", packRes.error());
-      return 1;
-    }
-
-    std::println("All files packed successfully to: {}", zipOutputDir.string());
-    return 0;
   }
 
-  if (auto const toolRes = toolchain::resolve(ctx.config, ctx.toolchain); !toolRes) {
-    spdlog::error("Tool check failed: {}", toolRes.error());
+  auto pipelineRes = pipeline::selectPipeline(ctx);
+  if (!pipelineRes) {
+    spdlog::error("Pipeline selection failed: {}", pipelineRes.error());
     return 1;
   }
 
-  if (ctx.config.processType == "video" && fs::is_directory(ctx.config.inputPath)) {
-    return handlePathEncoding(ctx, ctx.config.inputPath);
+  auto runRes = pipelineRes.value()->run(ctx);
+  if (!runRes) {
+    spdlog::error("Pipeline failed: {}", runRes.error());
+    return 1;
   }
 
-  if (ctx.config.processType == "video"
-      && fs::is_regular_file(ctx.config.inputPath)) {
-    return handleSingleFileEncoding(ctx, ctx.config.inputPath);
-  }
-
-  if (ctx.config.processType == "picture"
-      && fs::is_directory(ctx.config.inputPath)) {
-    auto const outputDir =
-      ctx.config.outputPath.value_or(ctx.config.inputPath) / "packed";
-    auto const packRes =
-      packAllPicsToZipParallel(ctx.config, ctx.config.inputPath, outputDir);
-
-    if (!packRes) {
-      spdlog::error("Failed to pack pictures: {}", packRes.error());
-      return 1;
-    }
-
-    std::println("All pictures packed successfully to: {}", outputDir.string());
-
-    return 0;
-  }
-
-  spdlog::error(
-    "The specified path is neither a directory nor a regular file: {}",
-    ctx.config.inputPath.string()
-  );
-
-  return 1;
+  return runRes.value();
 }

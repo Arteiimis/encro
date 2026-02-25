@@ -88,12 +88,6 @@ auto findFFmpeg(std::optional<fs::path> const& installDir)
   return std::nullopt;
 }
 
-auto find7zip() -> std::optional<fs::path> {
-  if (exec2("7z").exitCode == 0) { return fs::path{"7z"}; }
-
-  return std::nullopt;
-}
-
 std::string getUUID() {
   return boost::lexical_cast<std::string>(boost::uuids::random_generator{}());
 }

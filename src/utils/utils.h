@@ -1,8 +1,6 @@
 #pragma once
 
-#include <boost/json.hpp>
 #include <boost/program_options/variables_map.hpp>
-#include <boost/static_string.hpp>
 
 #include <filesystem>
 #include <optional>
@@ -24,8 +22,6 @@ auto findFFprobe(std::optional<fs::path> const& installDir)
 
 auto findFFmpeg(std::optional<fs::path> const& installDir)
   -> std::optional<fs::path>;
-
-auto find7zip() -> std::optional<fs::path>;
 
 std::string getUUID();
 

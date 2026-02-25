@@ -580,19 +580,6 @@ auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
   return groupFilesBySize(filePaths, kMaxZipSize);
 }
 
-auto splitIntoBatches(std::size_t total, std::size_t batchSize)
-  -> std::vector<std::pair<std::size_t, std::size_t>> {
-  auto batches = std::vector<std::pair<std::size_t, std::size_t>>{};
-  if (total == 0 || batchSize == 0) { return batches; }
-
-  for (auto start = std::size_t{0}; start < total; start += batchSize) {
-    auto const end = std::min(start + batchSize, total);
-    batches.emplace_back(start, end);
-  }
-
-  return batches;
-}
-
 bool encodeToHevc(
   appctx::AppContext& ctx,
   fs::path const& inputVidPath,

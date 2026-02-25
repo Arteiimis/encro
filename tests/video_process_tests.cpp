@@ -162,38 +162,6 @@ TEST_CASE(
   CHECK_FALSE(outputPath.has_value());
 }
 
-TEST_CASE("splitIntoBatches splits exactly by 10", "[video-process][batch]") {
-  auto const batches = splitIntoBatches(10, 10);
-
-  REQUIRE(batches.size() == 1);
-  CHECK(batches[0] == std::pair<std::size_t, std::size_t>{0, 10});
-}
-
-TEST_CASE("splitIntoBatches creates tail batch", "[video-process][batch]") {
-  auto const batches = splitIntoBatches(11, 10);
-
-  REQUIRE(batches.size() == 2);
-  CHECK(batches[0] == std::pair<std::size_t, std::size_t>{0, 10});
-  CHECK(batches[1] == std::pair<std::size_t, std::size_t>{10, 11});
-}
-
-TEST_CASE(
-  "splitIntoBatches handles multiple full and partial batches",
-  "[video-process][batch]"
-) {
-  auto const batches = splitIntoBatches(25, 10);
-
-  REQUIRE(batches.size() == 3);
-  CHECK(batches[0] == std::pair<std::size_t, std::size_t>{0, 10});
-  CHECK(batches[1] == std::pair<std::size_t, std::size_t>{10, 20});
-  CHECK(batches[2] == std::pair<std::size_t, std::size_t>{20, 25});
-}
-
-TEST_CASE("splitIntoBatches handles empty input", "[video-process][batch]") {
-  auto const batches = splitIntoBatches(0, 10);
-  CHECK(batches.empty());
-}
-
 TEST_CASE(
   "resolveVideoPackOutputPath uses encoded_webp subdir when webp has no custom "
   "output",
