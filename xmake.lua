@@ -89,6 +89,7 @@ task("coverage")
 
     local report_args = {"report", tests_bin, "-instr-profile", merged}
     if option.get("summary") then table.insert(report_args, "--summary-only") end
+    os.execv("xmake", {"f", "-m", "release", "-c"})
     os.execv("llvm-cov", report_args)
   end)
 task_end()
