@@ -32,21 +32,21 @@ constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   io.add_options()                                                        //
     ("input,i", pv<std::string>, "input file or directory path")          //
     ("output,o", pv<std::string>, "custom output directory path")         //
-    ("output-format,F", pvDefault("mp4"s), "target format: mp4 or webp")  //
-    ("recursive,R", "recursively search for media files in directories")  //
+    ("output-format,f", pvDefault("mp4"s), "target format: mp4 or webp")  //
+    ("recursive,r", "recursively search for media files in directories")  //
     ;
 
   auto processing = po::options_description("Processing options");
   processing.add_options()                                             //
     ("type,t", pvDefault("video"s), "process type: video or picture")  //
-    ("ffmpeg-path,f", pv<std::string>, "custom ffmpeg install path")   //
+    ("ffmpeg-path,x", pv<std::string>, "custom ffmpeg install path")   //
     ;
 
   auto fileop = po::options_description("File operation options");
   fileop.add_options()                                              //
     ("pack,p", "pack encoded video outputs into zip files")         //
-    ("pack-only,P", "pack only: zip all files in input directory")  //
-    ("overwrite", "overwrite existing files without prompt")        //
+    ("pack-only,z", "pack only: zip all files in input directory")  //
+    ("overwrite,w", "overwrite existing files without prompt")      //
     ;
 
   auto all = po::options_description("Allowed options");
