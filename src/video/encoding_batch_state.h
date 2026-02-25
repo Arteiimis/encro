@@ -1,6 +1,6 @@
 #pragma once
 
-#include "progress.h"
+#include "core/progress.h"
 
 #include <atomic>
 #include <filesystem>

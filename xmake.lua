@@ -37,7 +37,7 @@ target("video_encoder")
   add_packages("boost", "thread-pool", "indicators", "spdlog", "libzippp")
 
   add_includedirs("src")
-  add_files("src/*.cpp")
+  add_files("src/**.cpp")
 target_end()
 
 target("tests")
@@ -47,7 +47,7 @@ target("tests")
   add_packages("catch2", "boost", "thread-pool", "indicators", "spdlog", "libzippp")
   add_includedirs("src")
   add_files("tests/*.cpp")
-  add_files("src/*.cpp|main.cpp")
+  add_files("src/**.cpp|src/app/main.cpp")
 target_end()
 
 task("coverage")

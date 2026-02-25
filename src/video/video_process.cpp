@@ -1,13 +1,13 @@
-#include "video_process.h"
+#include "video/video_process.h"
 
-#include "encode_config.h"
-#include "encoding_batch_state.h"
-#include "globals.h"
-#include "packer.h"
-#include "parallel.h"
-#include "progress.h"
-#include "utils.h"
-#include "video_info.h"
+#include "encode/encode_config.h"
+#include "video/encoding_batch_state.h"
+#include "core/globals.h"
+#include "pack/packer.h"
+#include "core/parallel.h"
+#include "core/progress.h"
+#include "utils/utils.h"
+#include "video/video_info.h"
 
 #include <boost/lambda2.hpp>
 #include <boost/parser/parser.hpp>

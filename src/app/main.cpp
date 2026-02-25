@@ -1,9 +1,9 @@
-#include "cmd.h"
-#include "globals.h"
-#include "packer.h"
-#include "picture_process.h"
-#include "utils.h"
-#include "video_process.h"
+#include "app/cmd.h"
+#include "core/globals.h"
+#include "pack/packer.h"
+#include "pack/picture_process.h"
+#include "utils/utils.h"
+#include "video/video_process.h"
 
 #include <spdlog/spdlog.h>
 

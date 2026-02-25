@@ -1,6 +1,6 @@
-#include "globals.h"
+#include "core/globals.h"
 #include "test_utils.h"
-#include "video_process.h"
+#include "video/video_process.h"
 
 #include <catch2/catch_all.hpp>
 

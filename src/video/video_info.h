@@ -5,7 +5,7 @@
 
 #include <boost/json.hpp>
 
-#include "error_handle.h"
+#include "core/error_handle.h"
 
 auto getVidInfo(const std::filesystem::path& videoPath) -> boost::json::value;
 
