@@ -1,24 +1,27 @@
 #include "video/video_info.h"
 
 #include "core/globals.h"
+#include "core/media_scanner.h"
 #include "utils/utils.h"
 
 #include <spdlog/spdlog.h>
 
 #include <array>
+#include <string_view>
 
 namespace fs = std::filesystem;
+using namespace std::literals;
 
 namespace {
 
 constexpr auto kVideoTypes = std::array{
   // Common video file extensions
-  ".mp4",
-  ".mkv",
-  ".avi",
-  ".mov",
-  ".flv",
-  ".wmv"
+  ".mp4"sv,
+  ".mkv"sv,
+  ".avi"sv,
+  ".mov"sv,
+  ".flv"sv,
+  ".wmv"sv
 };
 constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 
@@ -99,17 +102,6 @@ bool isHevcEncoded(const fs::path& videoPath) {
   return false;
 }
 
-template<class Iter>
-  requires std::same_as<Iter, fs::directory_iterator>
-        || std::same_as<Iter, fs::recursive_directory_iterator>
-auto readAllVidsImpl(fs::path const& dirPath) -> std::vector<fs::path> {
-  auto vids = std::vector<fs::path>{};
-
-  for (auto const& entry: Iter(dirPath)) { tryCollectVideo(entry.path(), vids); }
-
-  return vids;
-}
-
 auto readAllVids(fs::path const& dirPath) -> std::vector<fs::path> {
   if (fs::is_regular_file(dirPath)) {
     auto vids = std::vector<fs::path>{};
@@ -122,9 +114,11 @@ auto readAllVids(fs::path const& dirPath) -> std::vector<fs::path> {
     return {};
   }
 
-  if (GLBs.RECURSIVE) {
-    return readAllVidsImpl<fs::recursive_directory_iterator>(dirPath);
-  } else {
-    return readAllVidsImpl<fs::directory_iterator>(dirPath);
-  }
+  auto vids = std::vector<fs::path>{};
+  auto const candidates =
+    media::scanByExtensions(dirPath, kVideoTypes, GLBs.RECURSIVE);
+
+  for (auto const& candidate: candidates) { tryCollectVideo(candidate, vids); }
+
+  return vids;
 }
