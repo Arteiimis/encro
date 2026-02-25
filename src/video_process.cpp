@@ -31,7 +31,7 @@ auto monitorEncodingProgress(
   progress::ProgressContext& progressCtx,
   fs::path const& vidPath,
   std::size_t barIndex
-) -> void;
+) -> std::optional<float>;
 
 namespace {
 
@@ -41,6 +41,12 @@ constexpr auto kWebpQualityStep = 10;
 constexpr auto kWebpFineQualityStep = 5;
 constexpr auto kWebpSmallGapThreshold = std::uintmax_t{3ULL * 1024ULL * 1024ULL};
 
+struct ActiveBar {
+  fs::path vidPath;
+  std::size_t barIndex;
+  std::size_t slot;
+};
+
 auto truncateForProgressLabel(
   std::string const& text,
   std::size_t maxLen = 48
@@ -48,6 +54,82 @@ auto truncateForProgressLabel(
   if (text.size() <= maxLen) { return text; }
   if (maxLen <= 3) { return text.substr(0, maxLen); }
   return std::format("{}...", text.substr(0, maxLen - 3));
+}
+
+auto createOverallBar(
+  progress::ProgressContext& progressCtx,
+  std::size_t totalTasks,
+  std::size_t workerCount
+) -> std::optional<std::size_t> {
+  if (totalTasks <= workerCount) { return std::nullopt; }
+  return progressCtx.addBar(std::format("Overall: 0/{}", totalTasks));
+}
+
+auto makeSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCount)
+  -> std::vector<std::size_t> {
+  auto barIndexes = std::vector<std::size_t>(workerCount);
+  for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
+    barIndexes[slot] =
+      progressCtx.addBar(std::format("Encoding: [idle-{}]", slot + 1));
+  }
+  return barIndexes;
+}
+
+void resetSlotProgress(
+  std::vector<float>& slotProgress,
+  std::mutex& slotProgressMtx,
+  std::size_t slot
+) {
+  auto lock = std::scoped_lock{slotProgressMtx};
+  slotProgress[slot] = 0.0f;
+}
+
+auto buildActiveBars(
+  std::vector<std::optional<fs::path>> const& slotTaskPaths,
+  std::mutex& slotTaskPathsMtx,
+  std::vector<std::size_t> const& slotBarIndexes
+) -> std::vector<ActiveBar> {
+  auto activeBars = std::vector<ActiveBar>{};
+  auto lock = std::scoped_lock{slotTaskPathsMtx};
+  activeBars.reserve(slotTaskPaths.size());
+  for (auto slot = std::size_t{0}; slot < slotTaskPaths.size(); ++slot) {
+    if (slotTaskPaths[slot].has_value()) {
+      activeBars.push_back(
+        ActiveBar{slotTaskPaths[slot].value(), slotBarIndexes[slot], slot}
+      );
+    }
+  }
+  return activeBars;
+}
+
+void updateOverallBar(
+  progress::ProgressContext& progressCtx,
+  std::optional<std::size_t> overallBarIndex,
+  std::atomic_size_t& finishedCount,
+  std::size_t totalTasks,
+  std::vector<float> const& slotProgress,
+  std::mutex& slotProgressMtx
+) {
+  if (!overallBarIndex.has_value()) { return; }
+
+  auto activeProgress = 0.0f;
+  {
+    auto lock = std::scoped_lock{slotProgressMtx};
+    for (auto const progress: slotProgress) { activeProgress += progress / 100.0f; }
+  }
+
+  auto const completed = finishedCount.load(std::memory_order_acquire);
+  auto const total = static_cast<float>(totalTasks);
+  auto overallPercent = 0.0f;
+  if (total > 0.0f) {
+    overallPercent = std::min(100.0f, (completed + activeProgress) / total * 100.0f);
+  }
+
+  progressCtx.setProgress(overallBarIndex.value(), overallPercent);
+  progressCtx.setPostfixText(
+    overallBarIndex.value(),
+    std::format("Overall: {}/{}", completed, totalTasks)
+  );
 }
 
 void printNoEncodableVideosMessage(fs::path const& inputPath) {
@@ -169,9 +251,12 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
   auto nextTaskIndex = std::atomic_size_t{0};
 
   auto const workerCount = std::min(vids.size(), kMaxConcurrentJobs);
+  auto overallBarIndex = createOverallBar(progressCtx, vids.size(), workerCount);
   auto slotTaskPaths = std::vector<std::optional<fs::path>>(workerCount);
   auto slotTaskPathsMtx = std::mutex{};
-  auto slotBarIndexes = std::vector<std::size_t>(workerCount);
+  auto slotBarIndexes = makeSlotBars(progressCtx, workerCount);
+  auto slotProgress = std::vector<float>(workerCount, 0.0f);
+  auto slotProgressMtx = std::mutex{};
 
   std::println(
     "Scheduling {} video(s) with max {} concurrent encode job(s)...",
@@ -179,35 +264,55 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
     workerCount
   );
 
-  for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
-    slotBarIndexes[slot] =
-      progressCtx.addBar(std::format("Encoding: [idle-{}]", slot + 1));
-  }
+  updateOverallBar(
+    progressCtx,
+    overallBarIndex,
+    finishedCount,
+    vids.size(),
+    slotProgress,
+    slotProgressMtx
+  );
 
   auto monitorThread = std::jthread([&] {
     using namespace std::chrono_literals;
 
     while (finishedCount.load(std::memory_order_acquire) < vids.size()) {
-      auto activeBars = std::vector<std::pair<fs::path, std::size_t>>{};
-      {
-        auto lock = std::scoped_lock{slotTaskPathsMtx};
-        activeBars.reserve(slotTaskPaths.size());
-        for (auto slot = std::size_t{0}; slot < slotTaskPaths.size(); ++slot) {
-          if (slotTaskPaths[slot].has_value()) {
-            activeBars.emplace_back(
-              slotTaskPaths[slot].value(),
-              slotBarIndexes[slot]
-            );
-          }
+      auto const activeBars =
+        buildActiveBars(slotTaskPaths, slotTaskPathsMtx, slotBarIndexes);
+
+      for (auto const& activeBar: activeBars) {
+        auto const progress = monitorEncodingProgress(
+          progressCtx,
+          activeBar.vidPath,
+          activeBar.barIndex
+        );
+
+        if (progress.has_value()) {
+          auto lock = std::scoped_lock{slotProgressMtx};
+          slotProgress[activeBar.slot] = progress.value();
         }
       }
 
-      for (auto const& [vidPath, barIndex]: activeBars) {
-        monitorEncodingProgress(progressCtx, vidPath, barIndex);
-      }
+      updateOverallBar(
+        progressCtx,
+        overallBarIndex,
+        finishedCount,
+        vids.size(),
+        slotProgress,
+        slotProgressMtx
+      );
 
       std::this_thread::sleep_for(100ms);
     }
+
+    updateOverallBar(
+      progressCtx,
+      overallBarIndex,
+      finishedCount,
+      vids.size(),
+      slotProgress,
+      slotProgressMtx
+    );
   });
 
   parallel::runIndexedTasks(workerCount, workerCount, [&](std::size_t slot) {
@@ -223,6 +328,7 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
         auto lock = std::scoped_lock{slotTaskPathsMtx};
         slotTaskPaths[slot] = vidPath;
       }
+      resetSlotProgress(slotProgress, slotProgressMtx, slot);
 
       auto const fileLabel = truncateForProgressLabel(vidPath.filename().string());
       progressCtx.setPostfixText(barIndex, std::format("Encoding: {}", fileLabel));
@@ -249,8 +355,17 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
         auto lock = std::scoped_lock{slotTaskPathsMtx};
         slotTaskPaths[slot].reset();
       }
+      resetSlotProgress(slotProgress, slotProgressMtx, slot);
 
       finishedCount.fetch_add(1, std::memory_order_release);
+      updateOverallBar(
+        progressCtx,
+        overallBarIndex,
+        finishedCount,
+        vids.size(),
+        slotProgress,
+        slotProgressMtx
+      );
     }
   });
 
@@ -516,19 +631,20 @@ auto monitorEncodingProgress(
   progress::ProgressContext& progressCtx,
   fs::path const& vidPath,
   std::size_t barIndex
-) -> void {
+) -> std::optional<float> {
   auto const totalFrames = getVidTotalFrames(vidPath);
   if (!totalFrames.has_value()) {
     spdlog::error("Failed to get total frames for video: {}", vidPath.string());
-    return;
+    return std::nullopt;
   }
 
   auto const progressFilePath = GLBs.PROGRESS_FILES[vidPath];
-  if (!fs::exists(progressFilePath)) { return; }
+  if (!fs::exists(progressFilePath)) { return std::nullopt; }
 
   auto const [frameCount, _status] = parseProgressFile(progressFilePath);
   float const progressPercent = ((float)frameCount / totalFrames.value()) * 100.0f;
   progressCtx.setProgress(barIndex, progressPercent);
+  return progressPercent;
 }
 
 int handlePathEncoding(fs::path const& inputPath) {
