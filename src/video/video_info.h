@@ -1,18 +1,32 @@
 #pragma once
 
-#include <filesystem>
-#include <vector>
+#include "core/app_context.h"
+#include "core/error_handle.h"
 
 #include <boost/json.hpp>
 
-#include "core/error_handle.h"
+#include <filesystem>
+#include <vector>
 
-auto getVidInfo(const std::filesystem::path& videoPath) -> boost::json::value;
 
-auto getVidTotalFrames(const std::filesystem::path& videoPath)
-  -> eh::Result<int64_t>;
+auto getVidInfo(
+  appctx::ToolchainPaths const& toolchain,
+  std::filesystem::path const& videoPath
+) -> boost::json::value;
 
-bool isHevcEncoded(const std::filesystem::path& videoPath);
+auto getVidTotalFrames(
+  appctx::RuntimeContext const& runtime,
+  std::filesystem::path const& videoPath
+) -> eh::Result<int64_t>;
 
-auto readAllVids(const std::filesystem::path& dirPath)
-  -> std::vector<std::filesystem::path>;
+bool isHevcEncoded(
+  appctx::ToolchainPaths const& toolchain,
+  std::filesystem::path const& videoPath
+);
+
+auto readAllVids(
+  appctx::AppConfig const& config,
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  std::filesystem::path const& dirPath
+) -> std::vector<std::filesystem::path>;

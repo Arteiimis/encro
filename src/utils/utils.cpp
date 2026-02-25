@@ -1,13 +1,13 @@
+#include "utils/utils.h"
+
+#include <boost/lexical_cast.hpp>
+#include <boost/process/v1.hpp>
+#include <boost/uuid.hpp>
+#include <spdlog/spdlog.h>
+
 #include <iostream>
 #include <print>
 
-#include <boost/uuid.hpp>
-#include <boost/lexical_cast.hpp>
-#include <boost/process/v1.hpp>
-#include <spdlog/spdlog.h>
-
-#include "core/globals.h"
-#include "utils/utils.h"
 
 auto exec2(std::string_view cmd) -> ExecResult {
   namespace bp = boost::process::v1;
@@ -27,8 +27,8 @@ auto exec2(std::string_view cmd) -> ExecResult {
   return {process.exit_code(), result};
 }
 
-bool readUserIpt(std::string_view prompt) {
-  if (GLBs.YES_TO_ALL) { return true; }
+bool readUserIpt(bool yesToAll, std::string_view prompt) {
+  if (yesToAll) { return true; }
 
   if (!prompt.empty()) { std::print("{}", prompt); }
 
@@ -64,10 +64,6 @@ auto findFFprobe(std::optional<fs::path> const& installDir)
   return std::nullopt;
 }
 
-auto findFFprobe() -> std::optional<fs::path> {
-  return findFFprobe(GLBs.FFMPEG_INSTALL_DIR);
-}
-
 auto findFFmpeg(std::optional<fs::path> const& installDir)
   -> std::optional<fs::path> {
   const auto systemFFmpegAvailable = exec2("ffmpeg -version").exitCode == 0;
@@ -92,33 +88,10 @@ auto findFFmpeg(std::optional<fs::path> const& installDir)
   return std::nullopt;
 }
 
-auto findFFmpeg() -> std::optional<fs::path> {
-  return findFFmpeg(GLBs.FFMPEG_INSTALL_DIR);
-}
-
 auto find7zip() -> std::optional<fs::path> {
   if (exec2("7z").exitCode == 0) { return fs::path{"7z"}; }
 
   return std::nullopt;
-}
-
-auto toolCheck() -> eh::Result<void> {
-  if (GLBs.FFMPEG_PATH = findFFmpeg(); !GLBs.FFMPEG_PATH.has_value()) {
-    return eh::makeError(
-      "FFmpeg not found. Please ensure FFmpeg is installed and accessible."
-    );
-  }
-
-  if (GLBs.FFPROBE_PATH = findFFprobe(); !GLBs.FFPROBE_PATH.has_value()) {
-    return eh::makeError(
-      "FFprobe not found. Please ensure FFprobe is installed and accessible."
-    );
-  }
-
-  spdlog::info("Using FFmpeg at: {}", GLBs.FFMPEG_PATH.value().string());
-  spdlog::info("Using FFprobe at: {}", GLBs.FFPROBE_PATH.value().string());
-
-  return {};
 }
 
 std::string getUUID() {

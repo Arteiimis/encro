@@ -1,12 +1,20 @@
 #pragma once
 
-#include "core/globals.h"
+#include <boost/json.hpp>
 
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
+
 
 namespace appctx {
+
+namespace fs = std::filesystem;
+namespace json = boost::json;
+
+template<class Ty>
+using path_map = std::unordered_map<fs::path, Ty>;
 
 struct AppConfig {
   bool yesToAll = false;
@@ -15,31 +23,25 @@ struct AppConfig {
   bool packOnly = false;
   std::string processType = "video";
   std::string outputFormat = "mp4";
-  std::filesystem::path inputPath;
-  std::optional<std::filesystem::path> outputPath;
-  std::optional<std::filesystem::path> ffmpegInstallDir;
+  fs::path inputPath;
+  std::optional<fs::path> outputPath;
+  std::optional<fs::path> ffmpegInstallDir;
 };
 
 struct ToolchainPaths {
-  std::optional<std::filesystem::path> ffmpegPath;
-  std::optional<std::filesystem::path> ffprobePath;
+  std::optional<fs::path> ffmpegPath;
+  std::optional<fs::path> ffprobePath;
 };
 
 struct RuntimeContext {
-  Globals::path_map<json::value> videoInfoCache;
-  Globals::path_map<std::filesystem::path> progressFiles;
+  path_map<json::value> videoInfoCache;
+  path_map<fs::path> progressFiles;
 };
 
-inline auto toGlobals(AppConfig const& config, Globals& globals) -> void {
-  globals.YES_TO_ALL = config.yesToAll;
-  globals.RECURSIVE = config.recursive;
-  globals.PACK_OUTPUT = config.packOutput;
-  globals.PACK_ONLY = config.packOnly;
-  globals.PROCESS_TYPE = config.processType;
-  globals.OUTPUT_FORMAT = config.outputFormat;
-  globals.INPUT_PATH = config.inputPath;
-  globals.OUTPUT_PATH = config.outputPath;
-  globals.FFMPEG_INSTALL_DIR = config.ffmpegInstallDir;
-}
+struct AppContext {
+  AppConfig config;
+  ToolchainPaths toolchain;
+  RuntimeContext runtime;
+};
 
 }  // namespace appctx

@@ -1,15 +1,18 @@
 #pragma once
 
+#include "core/app_context.h"
 #include "core/error_handle.h"
 
 #include <filesystem>
 #include <vector>
 
-
-auto readAllPics(const std::filesystem::path& dirPath)
-  -> std::vector<std::filesystem::path>;
+auto readAllPics(
+  appctx::AppConfig const& config,
+  std::filesystem::path const& dirPath
+) -> std::vector<std::filesystem::path>;
 
 auto packAllPicsToZipParallel(
-  const std::filesystem::path& dirPath,
-  const std::filesystem::path& zipFileDir
+  appctx::AppConfig const& config,
+  std::filesystem::path const& dirPath,
+  std::filesystem::path const& zipFileDir
 ) -> eh::Result<void>;

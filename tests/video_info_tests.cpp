@@ -1,4 +1,4 @@
-#include "core/globals.h"
+#include "core/app_context.h"
 #include "test_utils.h"
 #include "video/video_info.h"
 
@@ -32,11 +32,13 @@ TEST_CASE("readAllVids skips files at or above 32MB for webp", "[video-info]") {
   auto const largeVideo = temp.path / "large.mp4";
   createFileWithSize(largeVideo, 32ULL * 1024ULL * 1024ULL);
 
-  GLBs.OUTPUT_FORMAT = "webp";
-  GLBs.RECURSIVE = false;
-  GLBs.VIDEO_INFO_CACHE.clear();
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.recursive = false;
+  auto toolchain = appctx::ToolchainPaths{};
+  auto runtime = appctx::RuntimeContext{};
 
-  auto const vids = readAllVids(largeVideo);
+  auto const vids = readAllVids(config, toolchain, runtime, largeVideo);
 
   REQUIRE(vids.empty());
 }
@@ -46,11 +48,13 @@ TEST_CASE("readAllVids allows files just below 32MB for webp", "[video-info]") {
   auto const boundaryVideo = temp.path / "boundary.mp4";
   createFileWithSize(boundaryVideo, 32ULL * 1024ULL * 1024ULL - 1ULL);
 
-  GLBs.OUTPUT_FORMAT = "webp";
-  GLBs.RECURSIVE = false;
-  GLBs.VIDEO_INFO_CACHE.clear();
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.recursive = false;
+  auto toolchain = appctx::ToolchainPaths{};
+  auto runtime = appctx::RuntimeContext{};
 
-  auto const vids = readAllVids(boundaryVideo);
+  auto const vids = readAllVids(config, toolchain, runtime, boundaryVideo);
 
   REQUIRE(vids.size() == 1);
   CHECK(vids.front() == boundaryVideo);
@@ -66,11 +70,13 @@ TEST_CASE(
   createFileWithSize(smallVideo, 1024ULL);
   createFileWithSize(largeVideo, 32ULL * 1024ULL * 1024ULL);
 
-  GLBs.OUTPUT_FORMAT = "webp";
-  GLBs.RECURSIVE = false;
-  GLBs.VIDEO_INFO_CACHE.clear();
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.recursive = false;
+  auto toolchain = appctx::ToolchainPaths{};
+  auto runtime = appctx::RuntimeContext{};
 
-  auto const vids = readAllVids(temp.path);
+  auto const vids = readAllVids(config, toolchain, runtime, temp.path);
 
   REQUIRE(vids.size() == 1);
   CHECK(vids.front() == smallVideo);

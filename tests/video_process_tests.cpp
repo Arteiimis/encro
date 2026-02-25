@@ -1,4 +1,4 @@
-#include "core/globals.h"
+#include "core/app_context.h"
 #include "test_utils.h"
 #include "video/video_process.h"
 
@@ -97,10 +97,11 @@ TEST_CASE(
 ) {
   TempDir temp;
 
-  GLBs.OUTPUT_PATH.reset();
-  GLBs.OUTPUT_FORMAT = "webp";
+  auto config = appctx::AppConfig{};
+  config.outputPath.reset();
+  config.outputFormat = "webp";
 
-  auto const outputPath = resolveVideoOutputPath(temp.path);
+  auto const outputPath = resolveVideoOutputPath(config, temp.path);
 
   REQUIRE(outputPath.has_value());
   CHECK(outputPath.value() == temp.path / "encoded_webp");
@@ -118,10 +119,11 @@ TEST_CASE(
     out << "x";
   }
 
-  GLBs.OUTPUT_PATH.reset();
-  GLBs.OUTPUT_FORMAT = "webp";
+  auto config = appctx::AppConfig{};
+  config.outputPath.reset();
+  config.outputFormat = "webp";
 
-  auto const outputPath = resolveVideoOutputPath(filePath);
+  auto const outputPath = resolveVideoOutputPath(config, filePath);
 
   REQUIRE(outputPath.has_value());
   CHECK(outputPath.value() == temp.path / "encoded_webp");
@@ -135,10 +137,11 @@ TEST_CASE(
   auto const customOutput = temp.path / "custom_output";
   fs::create_directory(customOutput);
 
-  GLBs.OUTPUT_PATH = customOutput;
-  GLBs.OUTPUT_FORMAT = "webp";
+  auto config = appctx::AppConfig{};
+  config.outputPath = customOutput;
+  config.outputFormat = "webp";
 
-  auto const outputPath = resolveVideoOutputPath(temp.path);
+  auto const outputPath = resolveVideoOutputPath(config, temp.path);
 
   REQUIRE(outputPath.has_value());
   CHECK(outputPath.value() == customOutput);
@@ -150,10 +153,11 @@ TEST_CASE(
 ) {
   TempDir temp;
 
-  GLBs.OUTPUT_PATH.reset();
-  GLBs.OUTPUT_FORMAT = "mp4";
+  auto config = appctx::AppConfig{};
+  config.outputPath.reset();
+  config.outputFormat = "mp4";
 
-  auto const outputPath = resolveVideoOutputPath(temp.path);
+  auto const outputPath = resolveVideoOutputPath(config, temp.path);
 
   CHECK_FALSE(outputPath.has_value());
 }
@@ -197,10 +201,11 @@ TEST_CASE(
 ) {
   TempDir temp;
 
-  GLBs.OUTPUT_PATH.reset();
-  GLBs.OUTPUT_FORMAT = "webp";
+  auto config = appctx::AppConfig{};
+  config.outputPath.reset();
+  config.outputFormat = "webp";
 
-  auto const packPath = resolveVideoPackOutputPath(temp.path);
+  auto const packPath = resolveVideoPackOutputPath(config, temp.path);
   CHECK(packPath == temp.path / "encoded_webp" / "packed");
 }
 
@@ -216,10 +221,11 @@ TEST_CASE(
     out << "x";
   }
 
-  GLBs.OUTPUT_PATH.reset();
-  GLBs.OUTPUT_FORMAT = "webp";
+  auto config = appctx::AppConfig{};
+  config.outputPath.reset();
+  config.outputFormat = "webp";
 
-  auto const packPath = resolveVideoPackOutputPath(filePath);
+  auto const packPath = resolveVideoPackOutputPath(config, filePath);
   CHECK(packPath == temp.path / "encoded_webp" / "packed");
 }
 
@@ -235,10 +241,11 @@ TEST_CASE(
     out << "x";
   }
 
-  GLBs.OUTPUT_PATH.reset();
-  GLBs.OUTPUT_FORMAT = "mp4";
+  auto config = appctx::AppConfig{};
+  config.outputPath.reset();
+  config.outputFormat = "mp4";
 
-  auto const packPath = resolveVideoPackOutputPath(filePath);
+  auto const packPath = resolveVideoPackOutputPath(config, filePath);
   CHECK(packPath == temp.path / "packed");
 }
 
@@ -250,10 +257,11 @@ TEST_CASE(
   auto const customOutput = temp.path / "out";
   fs::create_directory(customOutput);
 
-  GLBs.OUTPUT_PATH = customOutput;
-  GLBs.OUTPUT_FORMAT = "mp4";
+  auto config = appctx::AppConfig{};
+  config.outputPath = customOutput;
+  config.outputFormat = "mp4";
 
-  auto const packPath = resolveVideoPackOutputPath(temp.path);
+  auto const packPath = resolveVideoPackOutputPath(config, temp.path);
   CHECK(packPath == customOutput / "packed");
 }
 

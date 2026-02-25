@@ -1,6 +1,5 @@
 #include "video/video_process.h"
 
-#include "core/globals.h"
 #include "core/parallel.h"
 #include "core/progress.h"
 #include "encode/encode_config.h"
@@ -31,6 +30,7 @@ using namespace boost::lambda2;
 using namespace indicators;
 
 auto monitorEncodingProgress(
+  appctx::AppContext& ctx,
   progress::ProgressContext& progressCtx,
   fs::path const& vidPath,
   std::size_t barIndex
@@ -62,7 +62,11 @@ struct WebpEncodeStep {
   std::optional<std::uintmax_t> outputSize;
 };
 
-auto packEncodedVideos(std::unordered_map<fs::path, bool> const& vidsRunRes) -> int;
+auto packEncodedVideos(
+  appctx::AppContext& ctx,
+  fs::path const& inputPath,
+  std::unordered_map<fs::path, bool> const& vidsRunRes
+) -> int;
 
 auto truncateForProgressLabel(
   std::string const& text,
@@ -164,9 +168,13 @@ void updateOverallBar(EncodingBatchState& state) {
   );
 }
 
-void printNoEncodableVideosMessage(fs::path const& inputPath) {
+void printNoEncodableVideosMessage(
+  appctx::AppConfig const& config,
+  appctx::ToolchainPaths const& toolchain,
+  fs::path const& inputPath
+) {
   if (fs::is_regular_file(inputPath)) {
-    if (GLBs.OUTPUT_FORMAT == "mp4" && isHevcEncoded(inputPath)) {
+    if (config.outputFormat == "mp4" && isHevcEncoded(toolchain, inputPath)) {
       std::println("Video is already HEVC encoded: {}", inputPath.string());
     } else {
       std::println("No encodable videos found for file: {}", inputPath.string());
@@ -186,6 +194,8 @@ void clearWebpStaleFiles(
 }
 
 auto runWebpEncodingStep(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::AppConfig const& config,
   WebpEncodeContext const& ctx,
   int quality,
   fs::path const& outputFile
@@ -193,10 +203,10 @@ auto runWebpEncodingStep(
   clearWebpStaleFiles(ctx.progressFilePath, outputFile);
 
   auto const cfg = EncodeConfig{
-    .ffmpegPath = GLBs.FFMPEG_PATH,
+    .ffmpegPath = toolchain.ffmpegPath,
     .inputPath = ctx.inputVidPath,
     .outputPath = ctx.outputPath,
-    .outputFormat = GLBs.OUTPUT_FORMAT,
+    .outputFormat = config.outputFormat,
     .webpQuality = quality,
     .progressFilePath = ctx.progressFilePath
   };
@@ -214,13 +224,17 @@ auto runWebpEncodingStep(
   return {exitCode, fs::file_size(outputFile)};
 }
 
-auto encodeWebpWithTargetSize(WebpEncodeContext const& ctx) -> bool {
+auto encodeWebpWithTargetSize(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::AppConfig const& config,
+  WebpEncodeContext const& ctx
+) -> bool {
   auto const outputFile =
     EncodeConfig{
-      .ffmpegPath = GLBs.FFMPEG_PATH,
+      .ffmpegPath = toolchain.ffmpegPath,
       .inputPath = ctx.inputVidPath,
       .outputPath = ctx.outputPath,
-      .outputFormat = GLBs.OUTPUT_FORMAT,
+      .outputFormat = config.outputFormat,
       .webpQuality = 80,
       .progressFilePath = ctx.progressFilePath
     }
@@ -238,7 +252,8 @@ auto encodeWebpWithTargetSize(WebpEncodeContext const& ctx) -> bool {
     if (ctx.statusUpdater) {
       ctx.statusUpdater(std::format("encoding q={}", quality));
     }
-    auto const stepRes = runWebpEncodingStep(ctx, quality, outputFile);
+    auto const stepRes =
+      runWebpEncodingStep(toolchain, config, ctx, quality, outputFile);
     lastExitCode = stepRes.exitCode;
     if (!stepRes.outputSize.has_value()) { continue; }
 
@@ -284,14 +299,16 @@ auto tryReadProgressData(fs::path const& progressFilePath)
 }
 
 auto tryGetEncodedOutputFile(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::AppConfig const& config,
   fs::path const& vidPath,
   std::optional<fs::path> const& outputPath
 ) -> std::optional<fs::path> {
   auto const cfg = EncodeConfig{
-    .ffmpegPath = GLBs.FFMPEG_PATH,
+    .ffmpegPath = toolchain.ffmpegPath,
     .inputPath = vidPath,
     .outputPath = outputPath,
-    .outputFormat = GLBs.OUTPUT_FORMAT
+    .outputFormat = config.outputFormat
   };
 
   auto const outFile = cfg.buildOutputPath();
@@ -299,26 +316,32 @@ auto tryGetEncodedOutputFile(
   return outFile;
 }
 
-auto scanInputVideos(fs::path const& inputPath) -> std::vector<fs::path> {
+auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
+  -> std::vector<fs::path> {
   std::println("Scanning input path for videos: {} ...", inputPath.string());
-  auto vids = readAllVids(inputPath);
+  auto vids = readAllVids(ctx.config, ctx.toolchain, ctx.runtime, inputPath);
   std::println("Video scan completed, found {} candidate file(s).", vids.size());
   return vids;
 }
 
-auto maybePackOutputs(std::unordered_map<fs::path, bool> const& vidsRunRes) -> int {
-  if (!GLBs.PACK_OUTPUT) { return 0; }
-  return packEncodedVideos(vidsRunRes);
+auto maybePackOutputs(
+  appctx::AppContext& ctx,
+  fs::path const& inputPath,
+  std::unordered_map<fs::path, bool> const& vidsRunRes
+) -> int {
+  if (!ctx.config.packOutput) { return 0; }
+  return packEncodedVideos(ctx, inputPath, vidsRunRes);
 }
 
-auto runEncodingBatches(std::vector<fs::path> const& vids)
+auto runEncodingBatches(appctx::AppContext& ctx, std::vector<fs::path> const& vids)
   -> std::optional<std::unordered_map<fs::path, bool>> {
   constexpr auto kMaxConcurrentJobs = std::size_t{10};
 
   auto const proceed = readUserIpt(
+    ctx.config.yesToAll,
     std::format(
       "do you want to encode the video to {} format? (y/N): ",
-      GLBs.OUTPUT_FORMAT
+      ctx.config.outputFormat
     )
   );
   if (!proceed) {
@@ -352,6 +375,7 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
 
       for (auto const& activeBar: activeBars) {
         auto const progress = monitorEncodingProgress(
+          ctx,
           state.progressCtx,
           activeBar.vidPath,
           activeBar.barIndex
@@ -387,7 +411,7 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
 
       auto const fileLabel = makeSlotLabel(vidPath);
       setSlotBarEncodingStart(state, slot, fileLabel);
-      auto const result = encodeToHevc(vidPath, [&](std::string const& status) {
+      auto const result = encodeToHevc(ctx, vidPath, [&](std::string const& status) {
         setSlotBarEncodingStatus(state, slot, fileLabel, status);
       });
 
@@ -414,21 +438,25 @@ auto runEncodingBatches(std::vector<fs::path> const& vids)
   return std::move(state.results.map);
 }
 
-auto collectEncodedOutputFiles(std::unordered_map<fs::path, bool> const& vidsRunRes)
-  -> std::vector<fs::path> {
+auto collectEncodedOutputFiles(
+  appctx::AppContext& ctx,
+  fs::path const& inputPath,
+  std::unordered_map<fs::path, bool> const& vidsRunRes
+) -> std::vector<fs::path> {
   constexpr auto kWebpPackMaxSize = std::uintmax_t{20ULL * 1024ULL * 1024ULL};
 
   auto encodedOutputFiles = std::vector<fs::path>{};
   encodedOutputFiles.reserve(vidsRunRes.size());
 
-  auto const outputPath = resolveVideoOutputPath(GLBs.INPUT_PATH);
+  auto const outputPath = resolveVideoOutputPath(ctx.config, inputPath);
   for (auto const& [vidPath, success]: vidsRunRes) {
     if (!success) { continue; }
 
-    auto const outFile = tryGetEncodedOutputFile(vidPath, outputPath);
+    auto const outFile =
+      tryGetEncodedOutputFile(ctx.toolchain, ctx.config, vidPath, outputPath);
     if (!outFile.has_value()) { continue; }
 
-    if (GLBs.OUTPUT_FORMAT == "webp"
+    if (ctx.config.outputFormat == "webp"
         && fs::file_size(outFile.value()) >= kWebpPackMaxSize) {
       std::println(
         "Skipping oversized webp for packing: {} ({} bytes)",
@@ -444,15 +472,20 @@ auto collectEncodedOutputFiles(std::unordered_map<fs::path, bool> const& vidsRun
   return encodedOutputFiles;
 }
 
-auto packEncodedVideos(std::unordered_map<fs::path, bool> const& vidsRunRes) -> int {
-  auto const encodedOutputFiles = collectEncodedOutputFiles(vidsRunRes);
+auto packEncodedVideos(
+  appctx::AppContext& ctx,
+  fs::path const& inputPath,
+  std::unordered_map<fs::path, bool> const& vidsRunRes
+) -> int {
+  auto const encodedOutputFiles =
+    collectEncodedOutputFiles(ctx, inputPath, vidsRunRes);
   if (encodedOutputFiles.empty()) {
     std::println("No encoded output files found to pack.");
     return 0;
   }
 
   auto const groupedFiles = groupEncodedVideosForPack(encodedOutputFiles);
-  auto const zipOutputDir = resolveVideoPackOutputPath(GLBs.INPUT_PATH);
+  auto const zipOutputDir = resolveVideoPackOutputPath(ctx.config, inputPath);
 
   fs::create_directories(zipOutputDir);
 
@@ -514,18 +547,24 @@ void printEncodingSummary(
 
 }  // namespace
 
-auto resolveVideoOutputPath(fs::path const& inputPath) -> std::optional<fs::path> {
-  if (GLBs.OUTPUT_PATH.has_value()) { return GLBs.OUTPUT_PATH; }
+auto resolveVideoOutputPath(
+  appctx::AppConfig const& config,
+  fs::path const& inputPath
+) -> std::optional<fs::path> {
+  if (config.outputPath.has_value()) { return config.outputPath; }
 
-  if (GLBs.OUTPUT_FORMAT != "webp") { return std::nullopt; }
+  if (config.outputFormat != "webp") { return std::nullopt; }
 
   auto const basePath =
     fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
   return basePath / "encoded_webp";
 }
 
-auto resolveVideoPackOutputPath(fs::path const& inputPath) -> fs::path {
-  if (auto const outputPath = resolveVideoOutputPath(inputPath);
+auto resolveVideoPackOutputPath(
+  appctx::AppConfig const& config,
+  fs::path const& inputPath
+) -> fs::path {
+  if (auto const outputPath = resolveVideoOutputPath(config, inputPath);
       outputPath.has_value()) {
     return outputPath.value() / "packed";
   }
@@ -554,20 +593,24 @@ auto splitIntoBatches(std::size_t total, std::size_t batchSize)
   return batches;
 }
 
-bool encodeToHevc(fs::path const& inputVidPath, function_ref statusUpdater) {
+bool encodeToHevc(
+  appctx::AppContext& ctx,
+  fs::path const& inputVidPath,
+  function_ref statusUpdater
+) {
   auto const progressFilePath =
     fs::temp_directory_path() / std::format("progress_{}.txt", getUUID());
 
-  GLBs.PROGRESS_FILES[inputVidPath] = progressFilePath;
+  ctx.runtime.progressFiles[inputVidPath] = progressFilePath;
 
-  auto const outputPath = resolveVideoOutputPath(inputVidPath);
+  auto const outputPath = resolveVideoOutputPath(ctx.config, inputVidPath);
   if (outputPath.has_value()) { fs::create_directories(outputPath.value()); }
 
   auto const cfg = EncodeConfig{
-    .ffmpegPath = GLBs.FFMPEG_PATH,
+    .ffmpegPath = ctx.toolchain.ffmpegPath,
     .inputPath = inputVidPath,
     .outputPath = outputPath,
-    .outputFormat = GLBs.OUTPUT_FORMAT,
+    .outputFormat = ctx.config.outputFormat,
     .progressFilePath = progressFilePath
   };
 
@@ -579,8 +622,10 @@ bool encodeToHevc(fs::path const& inputVidPath, function_ref statusUpdater) {
 
   spdlog::debug("Encoding video: {}", inputVidPath.string());
 
-  if (GLBs.OUTPUT_FORMAT == "webp") {
+  if (ctx.config.outputFormat == "webp") {
     return encodeWebpWithTargetSize(
+      ctx.toolchain,
+      ctx.config,
       WebpEncodeContext{
         .inputVidPath = inputVidPath,
         .outputPath = outputPath,
@@ -594,8 +639,8 @@ bool encodeToHevc(fs::path const& inputVidPath, function_ref statusUpdater) {
   return exitCode == 0;
 }
 
-int handleSingleFileEncoding(fs::path const& videoPath) {
-  return handlePathEncoding(videoPath);
+int handleSingleFileEncoding(appctx::AppContext& ctx, fs::path const& videoPath) {
+  return handlePathEncoding(ctx, videoPath);
 }
 
 auto readLastNLines(fs::path const& filePath, std::size_t n)
@@ -639,17 +684,18 @@ auto parseProgressFile(fs::path const& progressFilePath) -> ProgressData {
 }
 
 auto monitorEncodingProgress(
+  appctx::AppContext& ctx,
   progress::ProgressContext& progressCtx,
   fs::path const& vidPath,
   std::size_t barIndex
 ) -> std::optional<float> {
-  auto const totalFrames = getVidTotalFrames(vidPath);
+  auto const totalFrames = getVidTotalFrames(ctx.runtime, vidPath);
   if (!totalFrames.has_value()) {
     spdlog::error("Failed to get total frames for video: {}", vidPath.string());
     return std::nullopt;
   }
 
-  auto const progressFilePath = GLBs.PROGRESS_FILES[vidPath];
+  auto const progressFilePath = ctx.runtime.progressFiles[vidPath];
   auto const progressData = tryReadProgressData(progressFilePath);
   if (!progressData.has_value()) { return std::nullopt; }
 
@@ -659,20 +705,21 @@ auto monitorEncodingProgress(
   return progressPercent;
 }
 
-int handlePathEncoding(fs::path const& inputPath) {
-  auto const vids = scanInputVideos(inputPath);
+int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
+  auto const vids = scanInputVideos(ctx, inputPath);
 
   if (vids.empty()) {
-    printNoEncodableVideosMessage(inputPath);
+    printNoEncodableVideosMessage(ctx.config, ctx.toolchain, inputPath);
     return 0;
   }
 
-  auto const runRes = runEncodingBatches(vids);
+  auto const runRes = runEncodingBatches(ctx, vids);
   if (!runRes.has_value()) { return 0; }
 
   auto const& vidsRunRes = runRes.value();
 
-  if (auto const packRes = maybePackOutputs(vidsRunRes); packRes != 0) {
+  if (auto const packRes = maybePackOutputs(ctx, inputPath, vidsRunRes);
+      packRes != 0) {
     return packRes;
   }
 

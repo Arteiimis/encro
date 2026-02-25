@@ -1,6 +1,5 @@
 #include "video/video_info.h"
 
-#include "core/globals.h"
 #include "core/media_scanner.h"
 #include "utils/utils.h"
 
@@ -24,7 +23,13 @@ constexpr auto kVideoTypes = std::array{
 };
 constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 
-auto tryCollectVideo(fs::path const& filePath, std::vector<fs::path>& vids) -> void {
+auto tryCollectVideo(
+  appctx::AppConfig const& config,
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  fs::path const& filePath,
+  std::vector<fs::path>& vids
+) -> void {
   namespace rng = std::ranges;
 
   if (!fs::is_regular_file(filePath)) {
@@ -36,7 +41,7 @@ auto tryCollectVideo(fs::path const& filePath, std::vector<fs::path>& vids) -> v
   if (!rng::contains(kVideoTypes, vidsExt)) { return; }
 
   auto const fileSize = fs::file_size(filePath);
-  if (fileSize >= kWebpInputMaxSize && GLBs.OUTPUT_FORMAT == "webp") {
+  if (fileSize >= kWebpInputMaxSize && config.outputFormat == "webp") {
     spdlog::debug(
       "Skipping large video file for webp output: {} ({} bytes)",
       filePath.string(),
@@ -45,23 +50,24 @@ auto tryCollectVideo(fs::path const& filePath, std::vector<fs::path>& vids) -> v
     return;
   }
 
-  if (GLBs.OUTPUT_FORMAT == "mp4" && isHevcEncoded(filePath)) {
+  if (config.outputFormat == "mp4" && isHevcEncoded(toolchain, filePath)) {
     spdlog::debug("Skipping already HEVC encoded file: {}", filePath.string());
     return;
   }
 
-  GLBs.VIDEO_INFO_CACHE[filePath] = getVidInfo(filePath);
+  runtime.videoInfoCache[filePath] = getVidInfo(toolchain, filePath);
   vids.emplace_back(filePath);
 }
 
 }  // namespace
 
-auto getVidInfo(const fs::path& videoPath) -> boost::json::value {
+auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPath)
+  -> boost::json::value {
   namespace json = boost::json;
 
-  const auto cmd = std::format(
+  auto const cmd = std::format(
     "{} -v quiet -print_format json -show_format -show_streams \"{}\"",
-    GLBs.FFPROBE_PATH.value_or("ffprobe").string(),
+    toolchain.ffprobePath.value_or("ffprobe").string(),
     videoPath.string()
   );
 
@@ -72,8 +78,11 @@ auto getVidInfo(const fs::path& videoPath) -> boost::json::value {
   return json::parse(output);
 }
 
-auto getVidTotalFrames(const fs::path& videoPath) -> eh::Result<int64_t> {
-  const auto vidInfo = GLBs.VIDEO_INFO_CACHE.at(videoPath);
+auto getVidTotalFrames(
+  appctx::RuntimeContext const& runtime,
+  fs::path const& videoPath
+) -> eh::Result<int64_t> {
+  auto const vidInfo = runtime.videoInfoCache.at(videoPath);
 
   for (const auto& stream: vidInfo.at("streams").as_array()) {
     if (stream.at("codec_type").as_string() == "video") {
@@ -87,8 +96,11 @@ auto getVidTotalFrames(const fs::path& videoPath) -> eh::Result<int64_t> {
   );
 }
 
-bool isHevcEncoded(const fs::path& videoPath) {
-  const auto vidInfo = getVidInfo(videoPath);
+bool isHevcEncoded(
+  appctx::ToolchainPaths const& toolchain,
+  fs::path const& videoPath
+) {
+  auto const vidInfo = getVidInfo(toolchain, videoPath);
 
   for (const auto& stream: vidInfo.at("streams").as_array()) {
     try {
@@ -101,10 +113,15 @@ bool isHevcEncoded(const fs::path& videoPath) {
   return false;
 }
 
-auto readAllVids(fs::path const& dirPath) -> std::vector<fs::path> {
+auto readAllVids(
+  appctx::AppConfig const& config,
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  fs::path const& dirPath
+) -> std::vector<fs::path> {
   if (fs::is_regular_file(dirPath)) {
     auto vids = std::vector<fs::path>{};
-    tryCollectVideo(dirPath, vids);
+    tryCollectVideo(config, toolchain, runtime, dirPath, vids);
     return vids;
   }
 
@@ -115,9 +132,11 @@ auto readAllVids(fs::path const& dirPath) -> std::vector<fs::path> {
 
   auto vids = std::vector<fs::path>{};
   auto const candidates =
-    media::scanByExtensions(dirPath, kVideoTypes, GLBs.RECURSIVE);
+    media::scanByExtensions(dirPath, kVideoTypes, config.recursive);
 
-  for (auto const& candidate: candidates) { tryCollectVideo(candidate, vids); }
+  for (auto const& candidate: candidates) {
+    tryCollectVideo(config, toolchain, runtime, candidate, vids);
+  }
 
   return vids;
 }
