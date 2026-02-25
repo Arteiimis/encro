@@ -25,10 +25,7 @@ TEST_CASE("pack-only pipeline rejects non-video type", "[pipeline]") {
   ctx.config.processType = "picture";
   ctx.config.inputPath = temp.path;
 
-  auto pipelineRes = pipeline::selectPipeline(ctx);
-  REQUIRE(pipelineRes);
-
-  auto runRes = pipelineRes.value()->run(ctx);
+  auto runRes = pipeline::run(ctx);
   REQUIRE_FALSE(runRes);
   CHECK(runRes.error().find("pack-only option") != std::string::npos);
 }
@@ -44,10 +41,7 @@ TEST_CASE("pack-only pipeline packs directory", "[pipeline]") {
   ctx.config.processType = "video";
   ctx.config.inputPath = inputDir;
 
-  auto pipelineRes = pipeline::selectPipeline(ctx);
-  REQUIRE(pipelineRes);
-
-  auto runRes = pipelineRes.value()->run(ctx);
+  auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
   CHECK(fs::exists(inputDir / "packed" / "input_part1.zip"));
@@ -64,10 +58,7 @@ TEST_CASE("picture pipeline packs directory", "[pipeline]") {
   ctx.config.yesToAll = true;
   ctx.config.inputPath = inputDir;
 
-  auto pipelineRes = pipeline::selectPipeline(ctx);
-  REQUIRE(pipelineRes);
-
-  auto runRes = pipelineRes.value()->run(ctx);
+  auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
   CHECK(fs::exists(inputDir / "packed" / "pics_part1.zip"));
