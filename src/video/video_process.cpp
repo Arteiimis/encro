@@ -571,16 +571,13 @@ auto splitIntoBatches(std::size_t total, std::size_t batchSize)
   return batches;
 }
 
-bool encodeToHevc(
-  fs::path const& inputVidPath,
-  std::function<void(std::string const&)> const& statusUpdater
-) {
+bool encodeToHevc(fs::path const& inputVidPath, function_ref statusUpdater) {
   auto const progressFilePath =
     fs::temp_directory_path() / std::format("progress_{}.txt", getUUID());
 
   GLBs.PROGRESS_FILES[inputVidPath] = progressFilePath;
 
-  auto const outputPath = resolveVideoOutputPath(GLBs.INPUT_PATH);
+  auto const outputPath = resolveVideoOutputPath(inputVidPath);
   if (outputPath.has_value()) { fs::create_directories(outputPath.value()); }
 
   auto const cfg = EncodeConfig{
@@ -645,11 +642,11 @@ auto parseProgressFile(fs::path const& progressFilePath) -> ProgressData {
   auto const progressParser = bp::string("progress=") >> *bp::char_;
 
   for (auto const& line: lines) {
-    if (auto const& res = bp::parse(line, frameParser); res.has_value()) {
+    if (auto const& res = parse(line, frameParser); res.has_value()) {
       auto [_, _frameCount] = res.value();
       frameCount = _frameCount;
     }
-    if (auto const& res = bp::parse(line, progressParser); res.has_value()) {
+    if (auto const& res = parse(line, progressParser); res.has_value()) {
       auto [_, _progressStatus] = res.value();
       progressStatus = _progressStatus;
     }

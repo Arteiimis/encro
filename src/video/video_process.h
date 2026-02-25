@@ -8,10 +8,8 @@
 
 namespace fs = std::filesystem;
 
-auto encodeToHevc(
-  fs::path const& inputVidPath,
-  std::function<void(std::string const&)> const& statusUpdater = {}
-) -> bool;
+using function_ref = std::function<void(std::string const&)> const&;
+bool encodeToHevc(fs::path const& inputVidPath, function_ref statusUpdater = {});
 
 auto handleSingleFileEncoding(const fs::path& videoPath) -> int;
 
