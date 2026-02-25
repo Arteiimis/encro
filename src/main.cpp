@@ -1,6 +1,7 @@
 #include "cmd/cmd.h"
 #include "core/app_context.h"
 #include "core/globals.h"
+#include "core/toolchain.h"
 #include "pack/packer.h"
 #include "pack/picture_process.h"
 #include "utils/utils.h"
@@ -150,10 +151,14 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  if (auto const toolRes = toolCheck(); !toolRes) {
+  auto toolchainPaths = appctx::ToolchainPaths{};
+  if (auto const toolRes = toolchain::resolve(config, toolchainPaths); !toolRes) {
     spdlog::error("Tool check failed: {}", toolRes.error());
     return 1;
   }
+
+  GLBs.FFMPEG_PATH = toolchainPaths.ffmpegPath;
+  GLBs.FFPROBE_PATH = toolchainPaths.ffprobePath;
 
   if (GLBs.PROCESS_TYPE == "video" && fs::is_directory(GLBs.INPUT_PATH)) {
     return handlePathEncoding(GLBs.INPUT_PATH);
