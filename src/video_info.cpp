@@ -20,7 +20,7 @@ constexpr auto kVideoTypes = std::array{
   ".flv",
   ".wmv"
 };
-constexpr std::uintmax_t kWebpInputMaxSize = 30ULL * 1024ULL * 1024ULL;
+constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 
 auto tryCollectVideo(fs::path const& filePath, std::vector<fs::path>& vids) -> void {
   namespace rng = std::ranges;
