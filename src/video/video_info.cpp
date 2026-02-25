@@ -1,7 +1,7 @@
-#include "video_info.h"
+#include "video/video_info.h"
 
-#include "globals.h"
-#include "utils.h"
+#include "core/globals.h"
+#include "utils/utils.h"
 
 #include <spdlog/spdlog.h>
 

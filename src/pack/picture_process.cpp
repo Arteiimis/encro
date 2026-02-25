@@ -1,10 +1,10 @@
-#include "picture_process.h"
+#include "pack/picture_process.h"
 
-#include "globals.h"
-#include "packer.h"
-#include "parallel.h"
-#include "progress.h"
-#include "utils.h"
+#include "core/globals.h"
+#include "core/parallel.h"
+#include "core/progress.h"
+#include "pack/packer.h"
+#include "utils/utils.h"
 
 #include <indicators/dynamic_progress.hpp>
 #include <indicators/progress_bar.hpp>

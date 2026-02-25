@@ -6,8 +6,8 @@
 #include <boost/process/v1.hpp>
 #include <spdlog/spdlog.h>
 
-#include "globals.h"
-#include "utils.h"
+#include "core/globals.h"
+#include "utils/utils.h"
 
 auto exec2(std::string_view cmd) -> ExecResult {
   namespace bp = boost::process::v1;

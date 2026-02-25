@@ -3,8 +3,8 @@
 #include <filesystem>
 #include <vector>
 
-#include "error_handle.h"
-#include "progress.h"
+#include "core/error_handle.h"
+#include "core/progress.h"
 
 auto packFilesToZip(
   const std::vector<std::filesystem::path>& filePaths,

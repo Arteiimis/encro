@@ -1,4 +1,4 @@
-#include "encode_config.h"
+#include "encode/encode_config.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>

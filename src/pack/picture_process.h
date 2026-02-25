@@ -5,7 +5,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include "error_handle.h"
+#include "core/error_handle.h"
 
 template<class Iter>
 auto readAllPicsImpl(const std::filesystem::path& dirPath)
