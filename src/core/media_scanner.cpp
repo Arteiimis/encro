@@ -1,7 +1,5 @@
 #include "core/media_scanner.h"
 
-#include <ranges>
-
 namespace media {
 
 namespace {

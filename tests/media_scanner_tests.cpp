@@ -6,7 +6,6 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
-#include <ranges>
 
 namespace fs = std::filesystem;
 using namespace std::literals;

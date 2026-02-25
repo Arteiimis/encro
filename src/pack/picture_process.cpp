@@ -2,13 +2,10 @@
 
 #include "core/globals.h"
 #include "core/media_scanner.h"
-#include "core/parallel.h"
-#include "core/progress.h"
+#include "pack/pack_service.h"
 #include "pack/packer.h"
 #include "utils/utils.h"
 
-#include <indicators/dynamic_progress.hpp>
-#include <indicators/progress_bar.hpp>
 #include <spdlog/spdlog.h>
 
 #include <array>
@@ -18,7 +15,6 @@
 #include <string_view>
 
 namespace fs = std::filesystem;
-using namespace indicators;
 using namespace std::literals;
 
 auto readAllPics(fs::path const& dirPath) -> std::vector<fs::path> {
@@ -45,16 +41,6 @@ auto packAllPicsToZipParallel(fs::path const& dirPath, fs::path const& zipFileDi
     "Picture scan completed, grouped into {} package batch(es).",
     groupedPics.size()
   );
-  auto progressCtx = progress::ProgressContext{};
-  auto packResults = std::vector<eh::Result<void>>(groupedPics.size());
-  auto packResultsMtx = std::mutex{};
-
-  const auto picCount = [&] {
-    auto count = std::size_t{0};
-    for (const auto& group: groupedPics) { count += group.size(); }
-    return count;
-  }();
-
   const auto proceed = readUserIpt(
     "do you want to proceed with packing the pictures? (y/N): "
   );
@@ -63,47 +49,29 @@ auto packAllPicsToZipParallel(fs::path const& dirPath, fs::path const& zipFileDi
     return eh::makeError("Packing task canceled by user.");
   }
 
-  auto _ = progress::CursorGuard{};
-  parallel::runIndexedTasks(
-    groupedPics.size(),
-    groupedPics.size(),
-    [&](std::size_t index) {
-      auto const& group = groupedPics[index];
-      const auto zipFileName = std::format(
-        "{}_part{}.zip",
-        dirPath.filename().string(),
-        index + 1
-      );
-      const auto zipFilePath = zipFileDir / zipFileName;
-      fs::create_directory(zipFileDir);
+  auto const plan = pack::PackPlan{
+    .groups = groupedPics,
+    .outputDir = zipFileDir,
+    .zipNameForIndex =
+      [dirName = dirPath.filename().string()](std::size_t index) {
+        return std::format("{}_part{}.zip", dirName, index + 1);
+      },
+    .progressLabelForIndex =
+      [dirName = dirPath.filename().string()](std::size_t index) {
+        return std::format("Packing: {}_part{}.zip", dirName, index + 1);
+      },
+    .removeOnFailure = true
+  };
 
-      auto const packRes = packFilesToZip(
-        group,
-        zipFilePath,
-        progressCtx,
-        std::format("Packing: {}", zipFileName)
-      );
-
-      auto lock = std::scoped_lock{packResultsMtx};
-      if (!packRes) {
-        fs::remove(zipFilePath);
-
-        const auto errMsg = std::format(
-          "Failed to pack pictures to {}: {}",
-          zipFilePath.string(),
-          packRes.error()
-        );
-        spdlog::error(errMsg);
-        packResults[index] = eh::makeError("{}", errMsg);
-        return;
-      }
-
-      packResults[index] = {};
-    }
-  );
-
-  for (const auto& res: packResults) {
-    if (!res) { return res; }
+  auto const packRes = pack::packGroupsParallel(plan);
+  if (!packRes) {
+    auto const errMsg = std::format(
+      "Failed to pack pictures in {}: {}",
+      zipFileDir.string(),
+      packRes.error()
+    );
+    spdlog::error(errMsg);
+    return eh::makeError("{}", errMsg);
   }
 
   return {};
