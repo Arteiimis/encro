@@ -40,13 +40,19 @@ bool readUserIpt(std::string_view prompt) {
   return response == 'y' || response == 'Y';
 }
 
-auto findFFprobe() -> std::optional<fs::path> {
-  const auto hasInstallDir = GLBs.FFMPEG_INSTALL_DIR.has_value();
+auto findFFprobe(std::optional<fs::path> const& installDir)
+  -> std::optional<fs::path> {
   const auto systemFFprobeAvailable = exec2("ffprobe -version").exitCode == 0;
 
-  if (!hasInstallDir && systemFFprobeAvailable) { return fs::path{"ffprobe"}; }
+  if (!installDir.has_value() && systemFFprobeAvailable) {
+    return fs::path{"ffprobe"};
+  }
 
-  auto pathIter = fs::recursive_directory_iterator{GLBs.FFMPEG_INSTALL_DIR.value()};
+  if (!installDir.has_value() || !fs::is_directory(installDir.value())) {
+    return std::nullopt;
+  }
+
+  auto pathIter = fs::recursive_directory_iterator{installDir.value()};
 
   for (const auto& entry: pathIter) {
     if (entry.is_regular_file() && entry.path().filename() == "ffprobe") {
@@ -58,13 +64,23 @@ auto findFFprobe() -> std::optional<fs::path> {
   return std::nullopt;
 }
 
-auto findFFmpeg() -> std::optional<fs::path> {
-  const auto hasInstallDir = GLBs.FFMPEG_INSTALL_DIR.has_value();
+auto findFFprobe() -> std::optional<fs::path> {
+  return findFFprobe(GLBs.FFMPEG_INSTALL_DIR);
+}
+
+auto findFFmpeg(std::optional<fs::path> const& installDir)
+  -> std::optional<fs::path> {
   const auto systemFFmpegAvailable = exec2("ffmpeg -version").exitCode == 0;
 
-  if (!hasInstallDir && systemFFmpegAvailable) { return fs::path{"ffmpeg"}; }
+  if (!installDir.has_value() && systemFFmpegAvailable) {
+    return fs::path{"ffmpeg"};
+  }
 
-  auto pathIter = fs::recursive_directory_iterator{GLBs.FFMPEG_INSTALL_DIR.value()};
+  if (!installDir.has_value() || !fs::is_directory(installDir.value())) {
+    return std::nullopt;
+  }
+
+  auto pathIter = fs::recursive_directory_iterator{installDir.value()};
 
   for (const auto& entry: pathIter) {
     if (entry.is_regular_file() && entry.path().filename() == "ffmpeg") {
@@ -74,6 +90,10 @@ auto findFFmpeg() -> std::optional<fs::path> {
   }
 
   return std::nullopt;
+}
+
+auto findFFmpeg() -> std::optional<fs::path> {
+  return findFFmpeg(GLBs.FFMPEG_INSTALL_DIR);
 }
 
 auto find7zip() -> std::optional<fs::path> {
