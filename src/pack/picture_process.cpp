@@ -1,6 +1,5 @@
 #include "pack/picture_process.h"
 
-#include "core/globals.h"
 #include "core/media_scanner.h"
 #include "pack/pack_service.h"
 #include "pack/packer.h"
@@ -17,7 +16,8 @@
 namespace fs = std::filesystem;
 using namespace std::literals;
 
-auto readAllPics(fs::path const& dirPath) -> std::vector<fs::path> {
+auto readAllPics(appctx::AppConfig const& config, fs::path const& dirPath)
+  -> std::vector<fs::path> {
   constexpr auto pictureTypes = std::array{
     // Common picture file extensions
     ".jpg"sv,
@@ -30,18 +30,22 @@ auto readAllPics(fs::path const& dirPath) -> std::vector<fs::path> {
     ".heic"sv
   };
 
-  return media::scanByExtensions(dirPath, pictureTypes, GLBs.RECURSIVE);
+  return media::scanByExtensions(dirPath, pictureTypes, config.recursive);
 }
 
-auto packAllPicsToZipParallel(fs::path const& dirPath, fs::path const& zipFileDir)
-  -> eh::Result<void> {
+auto packAllPicsToZipParallel(
+  appctx::AppConfig const& config,
+  fs::path const& dirPath,
+  fs::path const& zipFileDir
+) -> eh::Result<void> {
   std::println("Scanning input path for pictures: {} ...", dirPath.string());
-  auto const groupedPics = groupFilesBySize(readAllPics(dirPath));
+  auto const groupedPics = groupFilesBySize(readAllPics(config, dirPath));
   std::println(
     "Picture scan completed, grouped into {} package batch(es).",
     groupedPics.size()
   );
-  const auto proceed = readUserIpt(
+  auto const proceed = readUserIpt(
+    config.yesToAll,
     "do you want to proceed with packing the pictures? (y/N): "
   );
   if (!proceed) {

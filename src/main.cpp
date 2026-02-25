@@ -1,6 +1,5 @@
 #include "cmd/cmd.h"
 #include "core/app_context.h"
-#include "core/globals.h"
 #include "core/toolchain.h"
 #include "pack/packer.h"
 #include "pack/picture_process.h"
@@ -121,22 +120,23 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  appctx::toGlobals(config, GLBs);
+  auto ctx = appctx::AppContext{.config = config};
 
-  if (GLBs.PACK_ONLY) {
-    if (GLBs.PROCESS_TYPE != "video") {
+  if (ctx.config.packOnly) {
+    if (ctx.config.processType != "video") {
       spdlog::error("pack-only option is only supported when --type is video.");
       return 1;
     }
 
-    if (!fs::is_directory(GLBs.INPUT_PATH)) {
+    if (!fs::is_directory(ctx.config.inputPath)) {
       spdlog::error("pack-only mode requires input to be a directory.");
       return 1;
     }
 
-    auto const zipOutputDir = GLBs.OUTPUT_PATH.value_or(GLBs.INPUT_PATH / "packed");
+    auto const zipOutputDir =
+      ctx.config.outputPath.value_or(ctx.config.inputPath / "packed");
     auto const packRes = packAllFilesInDirectory(
-      GLBs.INPUT_PATH,
+      ctx.config.inputPath,
       zipOutputDir,
       500 * 1024 * 1024,
       true
@@ -151,26 +151,26 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  auto toolchainPaths = appctx::ToolchainPaths{};
-  if (auto const toolRes = toolchain::resolve(config, toolchainPaths); !toolRes) {
+  if (auto const toolRes = toolchain::resolve(ctx.config, ctx.toolchain); !toolRes) {
     spdlog::error("Tool check failed: {}", toolRes.error());
     return 1;
   }
 
-  GLBs.FFMPEG_PATH = toolchainPaths.ffmpegPath;
-  GLBs.FFPROBE_PATH = toolchainPaths.ffprobePath;
-
-  if (GLBs.PROCESS_TYPE == "video" && fs::is_directory(GLBs.INPUT_PATH)) {
-    return handlePathEncoding(GLBs.INPUT_PATH);
+  if (ctx.config.processType == "video" && fs::is_directory(ctx.config.inputPath)) {
+    return handlePathEncoding(ctx, ctx.config.inputPath);
   }
 
-  if (GLBs.PROCESS_TYPE == "video" && fs::is_regular_file(GLBs.INPUT_PATH)) {
-    return handleSingleFileEncoding(GLBs.INPUT_PATH);
+  if (ctx.config.processType == "video"
+      && fs::is_regular_file(ctx.config.inputPath)) {
+    return handleSingleFileEncoding(ctx, ctx.config.inputPath);
   }
 
-  if (GLBs.PROCESS_TYPE == "picture" && fs::is_directory(GLBs.INPUT_PATH)) {
-    auto const outputDir = GLBs.OUTPUT_PATH.value_or(GLBs.INPUT_PATH) / "packed";
-    auto const packRes = packAllPicsToZipParallel(GLBs.INPUT_PATH, outputDir);
+  if (ctx.config.processType == "picture"
+      && fs::is_directory(ctx.config.inputPath)) {
+    auto const outputDir =
+      ctx.config.outputPath.value_or(ctx.config.inputPath) / "packed";
+    auto const packRes =
+      packAllPicsToZipParallel(ctx.config, ctx.config.inputPath, outputDir);
 
     if (!packRes) {
       spdlog::error("Failed to pack pictures: {}", packRes.error());
@@ -184,7 +184,7 @@ int main(int argc, char* argv[]) {
 
   spdlog::error(
     "The specified path is neither a directory nor a regular file: {}",
-    GLBs.INPUT_PATH.string()
+    ctx.config.inputPath.string()
   );
 
   return 1;
