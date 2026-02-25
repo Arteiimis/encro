@@ -3,9 +3,8 @@
 #include <string>
 #include <utility>
 
-
 template<class Ty>
-auto const pv = boost::program_options::value<Ty>();
+inline auto const pv = [] { return boost::program_options::value<Ty>(); };
 
 template<class Ty>
 auto pvDefault(Ty&& defaultValue) {
@@ -26,16 +25,16 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
 
   auto io = po::options_description("Input/Output options");
   io.add_options()                                                        //
-    ("input,i", pv<std::string>, "input file or directory path")          //
-    ("output,o", pv<std::string>, "custom output directory path")         //
+    ("input,i", pv<std::string>(), "input file or directory path")        //
+    ("output,o", pv<std::string>(), "custom output directory path")       //
     ("output-format,f", pvDefault("mp4"s), "target format: mp4 or webp")  //
     ("recursive,r", "recursively search for media files in directories")  //
     ;
 
   auto processing = po::options_description("Processing options");
-  processing.add_options()                                             //
-    ("type,t", pvDefault("video"s), "process type: video or picture")  //
-    ("ffmpeg-path,x", pv<std::string>, "custom ffmpeg install path")   //
+  processing.add_options()                                              //
+    ("type,t", pvDefault("video"s), "process type: video or picture")   //
+    ("ffmpeg-path,x", pv<std::string>(), "custom ffmpeg install path")  //
     ;
 
   auto fileop = po::options_description("File operation options");
