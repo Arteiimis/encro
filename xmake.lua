@@ -47,7 +47,7 @@ target("tests")
   add_packages("catch2", "boost", "thread-pool", "indicators", "spdlog", "libzippp")
   add_includedirs("src")
   add_files("tests/*.cpp")
-  add_files("src/**.cpp|src/app/main.cpp")
+  add_files("src/**.cpp|main.cpp")
 target_end()
 
 task("coverage")

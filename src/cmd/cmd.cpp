@@ -1,17 +1,11 @@
-#pragma once
+#include "cmd/cmd.h"
 
-#include <boost/program_options.hpp>
+#include <string>
+#include <utility>
 
-namespace po = boost::program_options;
-using namespace std::literals;
-
-struct CmdParseResult {
-  po::options_description desc;
-  po::variables_map vm;
-};
 
 template<class Ty>
-const auto pv = boost::program_options::value<Ty>();
+auto const pv = boost::program_options::value<Ty>();
 
 template<class Ty>
 auto pvDefault(Ty&& defaultValue) {
@@ -20,7 +14,9 @@ auto pvDefault(Ty&& defaultValue) {
   );
 }
 
-constexpr auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
+using namespace std::literals;
+
+auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   auto general = po::options_description("General options");
   general.add_options()                     //
     ("help,h", "produce help message")      //

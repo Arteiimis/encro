@@ -1,4 +1,4 @@
-#include "app/cmd.h"
+#include "cmd/cmd.h"
 #include "core/globals.h"
 #include "pack/packer.h"
 #include "pack/picture_process.h"
@@ -9,7 +9,6 @@
 
 #include <iostream>
 #include <print>
-
 
 int main(int argc, char* argv[]) {
   auto [desc, vm] = commandLineInit(argc, argv);
@@ -24,7 +23,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (vm.count("type")) {
-    const auto typeStr = getParamStr(vm, "type");
+    auto const typeStr = getParamStr(vm, "type");
     constexpr auto validTypes = std::array{"video", "picture"};
     if (!std::ranges::contains(validTypes, typeStr)) {
       spdlog::error(
@@ -62,7 +61,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (vm.count("ffmpeg-path")) {
-    const auto iptPath = fs::path{getParamStr(vm, "ffmpeg-path")};
+    auto const iptPath = fs::path{getParamStr(vm, "ffmpeg-path")};
 
     if (!fs::is_directory(iptPath)) {
       spdlog::error("The specified FFmpeg path is invalid: {}", iptPath.string());
@@ -164,8 +163,8 @@ int main(int argc, char* argv[]) {
   }
 
   if (GLBs.PROCESS_TYPE == "picture" && fs::is_directory(GLBs.INPUT_PATH)) {
-    const auto outputDir = GLBs.OUTPUT_PATH.value_or(GLBs.INPUT_PATH) / "packed";
-    const auto packRes = packAllPicsToZipParallel(GLBs.INPUT_PATH, outputDir);
+    auto const outputDir = GLBs.OUTPUT_PATH.value_or(GLBs.INPUT_PATH) / "packed";
+    auto const packRes = packAllPicsToZipParallel(GLBs.INPUT_PATH, outputDir);
 
     if (!packRes) {
       spdlog::error("Failed to pack pictures: {}", packRes.error());
