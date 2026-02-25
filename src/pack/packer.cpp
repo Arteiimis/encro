@@ -1,16 +1,13 @@
 #include "pack/packer.h"
 
-#include "core/parallel.h"
 #include "core/progress.h"
+#include "pack/pack_service.h"
 
-#include <indicators/dynamic_progress.hpp>
-#include <indicators/progress_bar.hpp>
 #include <libzippp/libzippp.h>
 #include <spdlog/spdlog.h>
 
 #include <cmath>
 #include <filesystem>
-#include <mutex>
 #include <print>
 #include <ranges>
 
@@ -117,42 +114,21 @@ auto packAllFilesInDirectory(
   std::println("File scan completed, found {} file(s).", allFiles.size());
 
   auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
-  fs::create_directories(zipFileDir);
-
-  auto progressCtx = progress::ProgressContext{};
-  auto packResults = std::vector<eh::Result<void>>(groupedFiles.size());
-  auto packResultsMtx = std::mutex{};
-
-  auto _ = progress::CursorGuard{};
-  parallel::runIndexedTasks(
-    groupedFiles.size(),
-    groupedFiles.size(),
-    [&](std::size_t index) {
-      auto const fileName =
-        std::format("{}_part{}.zip", dirPath.filename().string(), index + 1);
-      auto const zipPath = zipFileDir / fileName;
-
-      auto const packRes =
-        packFilesToZip(
-          groupedFiles[index],
-          zipPath,
-          progressCtx,
-          std::format("Packing: {}", fileName)
-        );
-
-      auto lock = std::scoped_lock{packResultsMtx};
-      if (!packRes) {
-        packResults[index] = packRes;
-        return;
+  auto const plan = pack::PackPlan{
+    .groups = groupedFiles,
+    .outputDir = zipFileDir,
+    .zipNameForIndex =
+      [dirName = dirPath.filename().string()](std::size_t index) {
+        return std::format("{}_part{}.zip", dirName, index + 1);
+      },
+    .progressLabelForIndex =
+      [dirName = dirPath.filename().string()](std::size_t index) {
+        return std::format("Packing: {}_part{}.zip", dirName, index + 1);
       }
+  };
 
-      packResults[index] = {};
-    }
-  );
-
-  for (auto const& res: packResults) {
-    if (!res) { return res; }
-  }
+  auto const packRes = pack::packGroupsParallel(plan);
+  if (!packRes) { return eh::makeError("{}", packRes.error()); }
 
   return {};
 }

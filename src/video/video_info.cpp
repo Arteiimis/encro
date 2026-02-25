@@ -7,7 +7,6 @@
 #include <spdlog/spdlog.h>
 
 #include <array>
-#include <string_view>
 
 namespace fs = std::filesystem;
 using namespace std::literals;

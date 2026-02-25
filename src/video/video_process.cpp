@@ -1,12 +1,13 @@
 #include "video/video_process.h"
 
-#include "encode/encode_config.h"
-#include "video/encoding_batch_state.h"
 #include "core/globals.h"
-#include "pack/packer.h"
 #include "core/parallel.h"
 #include "core/progress.h"
+#include "encode/encode_config.h"
+#include "pack/pack_service.h"
+#include "pack/packer.h"
 #include "utils/utils.h"
+#include "video/encoding_batch_state.h"
 #include "video/video_info.h"
 
 #include <boost/lambda2.hpp>
@@ -23,6 +24,7 @@
 #include <ranges>
 #include <thread>
 #include <unordered_map>
+
 
 namespace fs = std::filesystem;
 using namespace boost::lambda2;
@@ -454,51 +456,32 @@ auto packEncodedVideos(std::unordered_map<fs::path, bool> const& vidsRunRes) -> 
 
   fs::create_directories(zipOutputDir);
 
-  auto progressCtx = progress::ProgressContext{};
-  auto packResults = std::vector<eh::Result<void>>(groupedFiles.size());
-  auto zippedFiles = std::vector<fs::path>(groupedFiles.size());
-  auto resultMtx = std::mutex{};
-
   std::println(
     "Packing {} encoded video(s) into {} archive(s)...",
     encodedOutputFiles.size(),
     groupedFiles.size()
   );
 
-  auto _ = progress::CursorGuard{};
-  parallel::runIndexedTasks(
-    groupedFiles.size(),
-    groupedFiles.size(),
-    [&](std::size_t index) {
-      auto const zipPath =
-        zipOutputDir / std::format("encoded_videos_part{}.zip", index + 1);
-
-      auto const packRes = packFilesToZip(
-        groupedFiles[index],
-        zipPath,
-        progressCtx,
-        std::format("Packing: {}", zipPath.filename().string())
-      );
-
-      auto lock = std::scoped_lock{resultMtx};
-      if (!packRes) {
-        packResults[index] = packRes;
-        return;
+  auto const plan = pack::PackPlan{
+    .groups = groupedFiles,
+    .outputDir = zipOutputDir,
+    .zipNameForIndex =
+      [](std::size_t index) {
+        return std::format("encoded_videos_part{}.zip", index + 1);
+      },
+    .progressLabelForIndex =
+      [](std::size_t index) {
+        return std::format("Packing: encoded_videos_part{}.zip", index + 1);
       }
+  };
 
-      packResults[index] = {};
-      zippedFiles[index] = zipPath;
-    }
-  );
-
-  for (auto const& res: packResults) {
-    if (!res) {
-      spdlog::error("Failed to pack encoded videos: {}", res.error());
-      return 1;
-    }
+  auto const packRes = pack::packGroupsParallel(plan);
+  if (!packRes) {
+    spdlog::error("Failed to pack encoded videos: {}", packRes.error());
+    return 1;
   }
 
-  for (auto const& zipPath: zippedFiles) {
+  for (auto const& zipPath: packRes.value()) {
     if (!zipPath.empty()) { std::println("Packed archive: {}", zipPath.string()); }
   }
 
