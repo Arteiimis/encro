@@ -1,6 +1,7 @@
 #include "pack/picture_process.h"
 
 #include "core/globals.h"
+#include "core/media_scanner.h"
 #include "core/parallel.h"
 #include "core/progress.h"
 #include "pack/packer.h"
@@ -14,47 +15,26 @@
 #include <expected>
 #include <filesystem>
 #include <print>
+#include <string_view>
 
 namespace fs = std::filesystem;
 using namespace indicators;
+using namespace std::literals;
 
-template<class Iter>
-auto readAllPicsImpl(const fs::path& dirPath) -> std::vector<fs::path> {
-  namespace rng = std::ranges;
-
+auto readAllPics(fs::path const& dirPath) -> std::vector<fs::path> {
   constexpr auto pictureTypes = std::array{
     // Common picture file extensions
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".bmp",
-    ".tiff",
-    ".gif",
-    ".webp",
-    ".heic"
+    ".jpg"sv,
+    ".jpeg"sv,
+    ".png"sv,
+    ".bmp"sv,
+    ".tiff"sv,
+    ".gif"sv,
+    ".webp"sv,
+    ".heic"sv
   };
 
-  auto pics = std::vector<fs::path>{};
-
-  for (const auto& entry: Iter{dirPath}) {
-    if (!fs::is_regular_file(entry.path())) {
-      spdlog::debug("Skipping non-regular file: {}", entry.path().string());
-      continue;
-    }
-
-    const auto ext = entry.path().extension().string();
-    if (rng::contains(pictureTypes, ext)) { pics.emplace_back(entry.path()); }
-  }
-
-  return pics;
-}
-
-auto readAllPics(const fs::path& dirPath) -> std::vector<fs::path> {
-  if (GLBs.RECURSIVE) {
-    return readAllPicsImpl<fs::recursive_directory_iterator>(dirPath);
-  } else {
-    return readAllPicsImpl<fs::directory_iterator>(dirPath);
-  }
+  return media::scanByExtensions(dirPath, pictureTypes, GLBs.RECURSIVE);
 }
 
 auto packAllPicsToZipParallel(fs::path const& dirPath, fs::path const& zipFileDir)

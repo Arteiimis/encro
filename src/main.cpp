@@ -1,4 +1,5 @@
 #include "cmd/cmd.h"
+#include "core/app_context.h"
 #include "core/globals.h"
 #include "pack/packer.h"
 #include "pack/picture_process.h"
@@ -13,9 +14,7 @@
 int main(int argc, char* argv[]) {
   auto [desc, vm] = commandLineInit(argc, argv);
   spdlog::set_pattern("[%^%l%$] %v");
-  GLBs.OUTPUT_FORMAT = "mp4";
-  GLBs.PACK_OUTPUT = false;
-  GLBs.PACK_ONLY = false;
+  auto config = appctx::AppConfig{};
 
   if (vm.count("help")) {
     desc.print(std::cout);
@@ -32,7 +31,7 @@ int main(int argc, char* argv[]) {
       );
       return 1;
     }
-    GLBs.PROCESS_TYPE = typeStr;
+    config.processType = typeStr;
   }
 
   if (vm.count("verbose")) {
@@ -41,22 +40,22 @@ int main(int argc, char* argv[]) {
   }
 
   if (vm.count("yes")) {
-    GLBs.YES_TO_ALL = true;
+    config.yesToAll = true;
     spdlog::info("Automatic 'yes to all' enabled.");
   }
 
   if (vm.count("recursive")) {
-    GLBs.RECURSIVE = true;
+    config.recursive = true;
     spdlog::info("Recursive directory search enabled.");
   }
 
   if (vm.count("pack")) {
-    GLBs.PACK_OUTPUT = true;
+    config.packOutput = true;
     spdlog::info("Pack output enabled for video processing.");
   }
 
   if (vm.count("pack-only")) {
-    GLBs.PACK_ONLY = true;
+    config.packOnly = true;
     spdlog::info("Pack-only mode enabled.");
   }
 
@@ -68,11 +67,11 @@ int main(int argc, char* argv[]) {
       return 1;
     }
 
-    GLBs.FFMPEG_INSTALL_DIR = iptPath;
+    config.ffmpegInstallDir = iptPath;
 
     spdlog::info(
       "Using custom FFmpeg install directory: {}",
-      GLBs.FFMPEG_INSTALL_DIR.value().string()
+      config.ffmpegInstallDir.value().string()
     );
   }
 
@@ -83,17 +82,17 @@ int main(int argc, char* argv[]) {
   }
 
   if (vm.count("output")) {
-    GLBs.OUTPUT_PATH = fs::path{getParamStr(vm, "output")};
+    config.outputPath = fs::path{getParamStr(vm, "output")};
 
-    if (!fs::is_directory(GLBs.OUTPUT_PATH.value())) {
+    if (!fs::is_directory(config.outputPath.value())) {
       spdlog::error(
         "The specified output path is not a directory: {}",
-        GLBs.OUTPUT_PATH.value().string()
+        config.outputPath.value().string()
       );
       return 1;
     }
 
-    spdlog::info("Using custom output path: {}", GLBs.OUTPUT_PATH.value().string());
+    spdlog::info("Using custom output path: {}", config.outputPath.value().string());
   }
 
   if (vm.count("output-format")) {
@@ -108,18 +107,20 @@ int main(int argc, char* argv[]) {
       return 1;
     }
 
-    GLBs.OUTPUT_FORMAT = outputFormat;
+    config.outputFormat = outputFormat;
   }
 
-  GLBs.INPUT_PATH = fs::path{getParamStr(vm, "input")};
+  config.inputPath = fs::path{getParamStr(vm, "input")};
 
-  if (!fs::exists(GLBs.INPUT_PATH)) {
+  if (!fs::exists(config.inputPath)) {
     spdlog::error(
       "The specified path/file does not exist: {}",
-      GLBs.INPUT_PATH.string()
+      config.inputPath.string()
     );
     return 1;
   }
+
+  appctx::toGlobals(config, GLBs);
 
   if (GLBs.PACK_ONLY) {
     if (GLBs.PROCESS_TYPE != "video") {
