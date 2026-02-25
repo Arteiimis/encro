@@ -205,6 +205,44 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "resolveVideoPackOutputPath uses file parent for webp input file",
+  "[video-process][pack]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "sample.mp4";
+
+  {
+    std::ofstream out{filePath};
+    out << "x";
+  }
+
+  GLBs.OUTPUT_PATH.reset();
+  GLBs.OUTPUT_FORMAT = "webp";
+
+  auto const packPath = resolveVideoPackOutputPath(filePath);
+  CHECK(packPath == temp.path / "encoded_webp" / "packed");
+}
+
+TEST_CASE(
+  "resolveVideoPackOutputPath uses file parent for non-webp input file",
+  "[video-process][pack]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "sample.mp4";
+
+  {
+    std::ofstream out{filePath};
+    out << "x";
+  }
+
+  GLBs.OUTPUT_PATH.reset();
+  GLBs.OUTPUT_FORMAT = "mp4";
+
+  auto const packPath = resolveVideoPackOutputPath(filePath);
+  CHECK(packPath == temp.path / "packed");
+}
+
+TEST_CASE(
   "resolveVideoPackOutputPath uses custom output path when provided",
   "[video-process][pack]"
 ) {

@@ -27,10 +27,10 @@ void createFileWithSize(fs::path const& filePath, std::uintmax_t sizeInBytes) {
 
 }  // namespace
 
-TEST_CASE("readAllVids skips files at or above 30MB for webp", "[video-info]") {
+TEST_CASE("readAllVids skips files at or above 32MB for webp", "[video-info]") {
   TempDir temp;
   auto const largeVideo = temp.path / "large.mp4";
-  createFileWithSize(largeVideo, 30ULL * 1024ULL * 1024ULL);
+  createFileWithSize(largeVideo, 32ULL * 1024ULL * 1024ULL);
 
   GLBs.OUTPUT_FORMAT = "webp";
   GLBs.RECURSIVE = false;
@@ -41,10 +41,10 @@ TEST_CASE("readAllVids skips files at or above 30MB for webp", "[video-info]") {
   REQUIRE(vids.empty());
 }
 
-TEST_CASE("readAllVids allows files just below 30MB for webp", "[video-info]") {
+TEST_CASE("readAllVids allows files just below 32MB for webp", "[video-info]") {
   TempDir temp;
   auto const boundaryVideo = temp.path / "boundary.mp4";
-  createFileWithSize(boundaryVideo, 30ULL * 1024ULL * 1024ULL - 1ULL);
+  createFileWithSize(boundaryVideo, 32ULL * 1024ULL * 1024ULL - 1ULL);
 
   GLBs.OUTPUT_FORMAT = "webp";
   GLBs.RECURSIVE = false;
@@ -57,14 +57,14 @@ TEST_CASE("readAllVids allows files just below 30MB for webp", "[video-info]") {
 }
 
 TEST_CASE(
-  "readAllVids keeps only <30MB videos for webp in directory",
+  "readAllVids keeps only <32MB videos for webp in directory",
   "[video-info]"
 ) {
   TempDir temp;
   auto const smallVideo = temp.path / "small.mp4";
   auto const largeVideo = temp.path / "large.mp4";
   createFileWithSize(smallVideo, 1024ULL);
-  createFileWithSize(largeVideo, 30ULL * 1024ULL * 1024ULL);
+  createFileWithSize(largeVideo, 32ULL * 1024ULL * 1024ULL);
 
   GLBs.OUTPUT_FORMAT = "webp";
   GLBs.RECURSIVE = false;
