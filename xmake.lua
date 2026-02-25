@@ -31,7 +31,7 @@ else
 end
 add_requires("catch2")
 
-target("video_encoder")
+target("encro")
   set_kind("binary")
 
   add_packages("boost", "thread-pool", "indicators", "spdlog", "libzippp")
