@@ -8,7 +8,6 @@
 #include <iostream>
 #include <print>
 
-
 auto exec2(std::string_view cmd) -> ExecResult {
   namespace bp = boost::process::v1;
 
