@@ -1,7 +1,6 @@
 #include "cmd/config_builder.h"
 #include "test_utils.h"
 
-#include <boost/any.hpp>
 #include <boost/program_options/variables_map.hpp>
 #include <catch2/catch_all.hpp>
 

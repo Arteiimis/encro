@@ -2,7 +2,7 @@ add_rules("plugin.compile_commands.autoupdate", { outputdir = "./build" })
 add_rules("mode.debug", "mode.release", "mode.releasedbg", "mode.coverage")
 set_policy("build.optimization.lto", true)
 
-set_languages("c++23")
+set_languages("c++latest")
 set_toolchains("clang")
 
 add_cxxflags("-Wno-c++26-extensions")
