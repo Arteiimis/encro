@@ -24,17 +24,12 @@
 #include <thread>
 #include <unordered_map>
 
-
 namespace fs = std::filesystem;
 using namespace boost::lambda2;
 using namespace indicators;
 
-auto monitorEncodingProgress(
-  appctx::AppContext& ctx,
-  progress::ProgressContext& progressCtx,
-  fs::path const& vidPath,
-  std::size_t barIndex
-) -> std::optional<float>;
+auto getEncodingProgress(appctx::AppContext& ctx, fs::path const& vidPath)
+  -> std::optional<float>;
 
 namespace {
 
@@ -68,10 +63,8 @@ auto packEncodedVideos(
   std::unordered_map<fs::path, bool> const& vidsRunRes
 ) -> int;
 
-auto truncateForProgressLabel(
-  std::string const& text,
-  std::size_t maxLen = 48
-) -> std::string {
+auto truncateForProgressLabel(std::string const& text, std::size_t maxLen = 48)
+  -> std::string {
   if (text.size() <= maxLen) { return text; }
   if (maxLen <= 3) { return text.substr(0, maxLen); }
   return std::format("{}...", text.substr(0, maxLen - 3));
@@ -84,7 +77,7 @@ auto makeSlotLabel(fs::path const& vidPath) -> std::string {
 void setSlotBarEncodingStart(
   EncodingBatchState& state,
   std::size_t slot,
-  std::string const& fileLabel
+  std::string_view fileLabel
 ) {
   auto const barIndex = state.slots.barIndexes[slot];
   state.progressCtx.setPostfixText(barIndex, std::format("Encoding: {}", fileLabel));
@@ -94,8 +87,8 @@ void setSlotBarEncodingStart(
 void setSlotBarEncodingStatus(
   EncodingBatchState& state,
   std::size_t slot,
-  std::string const& fileLabel,
-  std::string const& status
+  std::string_view fileLabel,
+  std::string_view status
 ) {
   auto const barIndex = state.slots.barIndexes[slot];
   state.progressCtx.setPostfixText(
@@ -122,18 +115,18 @@ void resetSlotProgress(
   slotProgress[slot] = 0.0f;
 }
 
-auto buildActiveBars(
-  std::vector<std::optional<fs::path>> const& slotTaskPaths,
-  std::mutex& slotTaskPathsMtx,
-  std::vector<std::size_t> const& slotBarIndexes
-) -> std::vector<ActiveBar> {
+auto buildActiveBars(EncodingBatchState& state) -> std::vector<ActiveBar> {
   auto activeBars = std::vector<ActiveBar>{};
-  auto lock = std::scoped_lock{slotTaskPathsMtx};
-  activeBars.reserve(slotTaskPaths.size());
-  for (auto slot = std::size_t{0}; slot < slotTaskPaths.size(); ++slot) {
-    if (slotTaskPaths[slot].has_value()) {
+  auto lock = std::scoped_lock{state.slots.taskPathsMtx};
+  activeBars.reserve(state.slots.taskPaths.size());
+  for (auto slot = std::size_t{0}; slot < state.slots.taskPaths.size(); ++slot) {
+    if (state.slots.taskPaths[slot].has_value()) {
       activeBars.push_back(
-        ActiveBar{slotTaskPaths[slot].value(), slotBarIndexes[slot], slot}
+        ActiveBar{
+          state.slots.taskPaths[slot].value(),
+          state.slots.barIndexes[slot],
+          slot
+        }
       );
     }
   }
@@ -194,21 +187,20 @@ void clearWebpStaleFiles(
 }
 
 auto runWebpEncodingStep(
-  appctx::ToolchainPaths const& toolchain,
-  appctx::AppConfig const& config,
-  WebpEncodeContext const& ctx,
-  int quality,
+  appctx::AppContext const& appCtx,
+  WebpEncodeContext const& encodeCtx,
+  uint8_t quality,
   fs::path const& outputFile
 ) -> WebpEncodeStep {
-  clearWebpStaleFiles(ctx.progressFilePath, outputFile);
+  clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
 
   auto const cfg = EncodeConfig{
-    .ffmpegPath = toolchain.ffmpegPath,
-    .inputPath = ctx.inputVidPath,
-    .outputPath = ctx.outputPath,
-    .outputFormat = config.outputFormat,
+    .ffmpegPath = appCtx.toolchain.ffmpegPath,
+    .inputPath = encodeCtx.inputVidPath,
+    .outputPath = encodeCtx.outputPath,
+    .outputFormat = appCtx.config.outputFormat,
     .webpQuality = quality,
-    .progressFilePath = ctx.progressFilePath
+    .progressFilePath = encodeCtx.progressFilePath
   };
 
   auto const validationResult = cfg.validate();
@@ -225,18 +217,17 @@ auto runWebpEncodingStep(
 }
 
 auto encodeWebpWithTargetSize(
-  appctx::ToolchainPaths const& toolchain,
-  appctx::AppConfig const& config,
-  WebpEncodeContext const& ctx
+  appctx::AppContext const& appCtx,
+  WebpEncodeContext const& encodeCtx
 ) -> bool {
   auto const outputFile =
     EncodeConfig{
-      .ffmpegPath = toolchain.ffmpegPath,
-      .inputPath = ctx.inputVidPath,
-      .outputPath = ctx.outputPath,
-      .outputFormat = config.outputFormat,
+      .ffmpegPath = appCtx.toolchain.ffmpegPath,
+      .inputPath = encodeCtx.inputVidPath,
+      .outputPath = encodeCtx.outputPath,
+      .outputFormat = appCtx.config.outputFormat,
       .webpQuality = 80,
-      .progressFilePath = ctx.progressFilePath
+      .progressFilePath = encodeCtx.progressFilePath
     }
       .buildOutputPath();
 
@@ -247,13 +238,12 @@ auto encodeWebpWithTargetSize(
   };
 
   auto lastExitCode = -1;
-  auto quality = 80;
+  auto quality = 80u;
   while (quality >= kWebpMinQuality) {
-    if (ctx.statusUpdater) {
-      ctx.statusUpdater(std::format("encoding q={}", quality));
+    if (encodeCtx.statusUpdater) {
+      encodeCtx.statusUpdater(std::format("q={}", quality));
     }
-    auto const stepRes =
-      runWebpEncodingStep(toolchain, config, ctx, quality, outputFile);
+    auto const stepRes = runWebpEncodingStep(appCtx, encodeCtx, quality, outputFile);
     lastExitCode = stepRes.exitCode;
     if (!stepRes.outputSize.has_value()) { continue; }
 
@@ -270,9 +260,9 @@ auto encodeWebpWithTargetSize(
 
     auto const step = qualityStepForSize(outputSize);
     auto const nextQuality = quality - step;
-    if (ctx.statusUpdater && nextQuality >= kWebpMinQuality) {
+    if (encodeCtx.statusUpdater && nextQuality >= kWebpMinQuality) {
       auto const outputSizeMB = static_cast<double>(outputSize) / 1024.0 / 1024.0;
-      ctx.statusUpdater(
+      encodeCtx.statusUpdater(
         std::format("retry q={} ({:.1f}MB)", nextQuality, outputSizeMB)
       );
     }
@@ -281,10 +271,10 @@ auto encodeWebpWithTargetSize(
   }
 
   if (lastExitCode == 0 && fs::exists(outputFile)) {
-    if (ctx.statusUpdater) {
+    if (encodeCtx.statusUpdater) {
       auto const outputSizeMB =
         static_cast<double>(fs::file_size(outputFile)) / 1024.0 / 1024.0;
-      ctx.statusUpdater(std::format("min-q reached ({:.1f}MB)", outputSizeMB));
+      encodeCtx.statusUpdater(std::format("min-q reached ({:.1f}MB)", outputSizeMB));
     }
     return true;
   }
@@ -365,23 +355,16 @@ auto runEncodingBatches(appctx::AppContext& ctx, std::vector<fs::path> const& vi
   auto monitorThread = std::jthread([&] {
     using namespace std::chrono_literals;
 
-    while (state.counters.finished.load(std::memory_order_acquire)
-           < state.counters.total) {
-      auto const activeBars = buildActiveBars(
-        state.slots.taskPaths,
-        state.slots.taskPathsMtx,
-        state.slots.barIndexes
-      );
+    auto const finishedCount =
+      state.counters.finished.load(std::memory_order_acquire);
+    while (finishedCount < state.counters.total) {
+      auto const activeBars = buildActiveBars(state);
 
       for (auto const& activeBar: activeBars) {
-        auto const progress = monitorEncodingProgress(
-          ctx,
-          state.progressCtx,
-          activeBar.vidPath,
-          activeBar.barIndex
-        );
+        auto const progress = getEncodingProgress(ctx, activeBar.vidPath);
 
         if (progress.has_value()) {
+          state.progressCtx.setProgress(activeBar.barIndex, progress.value());
           auto lock = std::scoped_lock{state.slots.progressMtx};
           state.slots.progress[activeBar.slot] = progress.value();
         }
@@ -389,7 +372,7 @@ auto runEncodingBatches(appctx::AppContext& ctx, std::vector<fs::path> const& vi
 
       updateOverallBar(state);
 
-      std::this_thread::sleep_for(100ms);
+      std::this_thread::sleep_for(20ms);
     }
 
     updateOverallBar(state);
@@ -522,14 +505,14 @@ auto packEncodedVideos(
 }
 
 void printEncodingSummary(
-  std::vector<fs::path> const& vids,
+  std::span<fs::path const> vids,
   std::unordered_map<fs::path, bool> const& vidsRunRes
 ) {
   namespace rng = std::ranges;
 
   std::println("All encoding tasks completed.");
   std::println("Summary:");
-  std::println("\tTotal videos found: {}", rng::distance(vids));
+  std::println("\tTotal videos found: {}", vids.size());
 
   auto const successCount = rng::count_if(vidsRunRes, _1->*second);
   auto const failureCount = vidsRunRes.size() - successCount;
@@ -611,8 +594,7 @@ bool encodeToHevc(
 
   if (ctx.config.outputFormat == "webp") {
     return encodeWebpWithTargetSize(
-      ctx.toolchain,
-      ctx.config,
+      ctx,
       WebpEncodeContext{
         .inputVidPath = inputVidPath,
         .outputPath = outputPath,
@@ -670,12 +652,8 @@ auto parseProgressFile(fs::path const& progressFilePath) -> ProgressData {
   return {frameCount, progressStatus};
 }
 
-auto monitorEncodingProgress(
-  appctx::AppContext& ctx,
-  progress::ProgressContext& progressCtx,
-  fs::path const& vidPath,
-  std::size_t barIndex
-) -> std::optional<float> {
+auto getEncodingProgress(appctx::AppContext& ctx, fs::path const& vidPath)
+  -> std::optional<float> {
   auto const totalFrames = getVidTotalFrames(ctx.runtime, vidPath);
   if (!totalFrames.has_value()) {
     spdlog::error("Failed to get total frames for video: {}", vidPath.string());
@@ -688,7 +666,6 @@ auto monitorEncodingProgress(
 
   auto const frameCount = progressData->frameCount;
   float const progressPercent = ((float)frameCount / totalFrames.value()) * 100.0f;
-  progressCtx.setProgress(barIndex, progressPercent);
   return progressPercent;
 }
 
@@ -704,11 +681,8 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
   if (!runRes.has_value()) { return 0; }
 
   auto const& vidsRunRes = runRes.value();
-
-  if (auto const packRes = maybePackOutputs(ctx, inputPath, vidsRunRes);
-      packRes != 0) {
-    return packRes;
-  }
+  auto const packRes = maybePackOutputs(ctx, inputPath, vidsRunRes);
+  if (packRes != 0) { return packRes; }
 
   printEncodingSummary(vids, vidsRunRes);
 
