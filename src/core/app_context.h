@@ -7,7 +7,6 @@
 #include <string>
 #include <unordered_map>
 
-
 namespace appctx {
 
 namespace fs = std::filesystem;
