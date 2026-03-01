@@ -20,6 +20,11 @@ bool encodeToHevc(
 auto handleSingleFileEncoding(appctx::AppContext& ctx, fs::path const& videoPath)
   -> int;
 
+auto handleMultiFileEncoding(
+  appctx::AppContext& ctx,
+  std::vector<fs::path> const& inputPaths
+) -> int;
+
 auto readLastNLines(const fs::path& filePath, std::size_t n)
   -> std::vector<std::string>;
 

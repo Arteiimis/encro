@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -29,6 +30,19 @@ auto requireExists(fs::path const& path, std::string_view label)
   if (!fs::exists(path)) {
     return eh::makeError(
       "The specified {} path/file does not exist: {}",
+      label,
+      path.string()
+    );
+  }
+
+  return {};
+}
+
+auto requireRegularFile(fs::path const& path, std::string_view label)
+  -> eh::Result<void> {
+  if (!fs::is_regular_file(path)) {
+    return eh::makeError(
+      "The specified {} path is not a file: {}",
       label,
       path.string()
     );
@@ -98,11 +112,47 @@ auto buildConfig(boost::program_options::variables_map const& vm)
     config.ffmpegInstallDir = iptPath;
   }
 
-  if (!vm.count("input")) { return eh::makeError("Input path is required."); }
+  auto const hasSingleInput = vm.count("input") > 0;
+  auto const hasMultiInputs = vm.count("inputs") > 0;
 
-  config.inputPath = fs::path{getParamStr(vm, "input")};
-  if (auto const exists = requireExists(config.inputPath, "input"); !exists) {
-    return eh::makeError("{}", exists.error());
+  if (hasSingleInput && hasMultiInputs) {
+    return eh::makeError("Use either -i/--input or -I/--inputs, not both.");
+  }
+
+  if (!hasSingleInput && !hasMultiInputs) {
+    return eh::makeError("Input path is required.");
+  }
+
+  if (hasMultiInputs) {
+    if (config.processType != "video") {
+      return eh::makeError("-I/--inputs is only supported for video type.");
+    }
+
+    if (config.packOnly) {
+      return eh::makeError("-I/--inputs is not supported with pack-only.");
+    }
+
+    auto const inputs = vm.at("inputs").as<std::vector<std::string>>();
+    if (inputs.empty()) {
+      return eh::makeError("Input path is required.");
+    }
+
+    config.inputPaths.reserve(inputs.size());
+    for (auto const& input: inputs) {
+      auto const path = fs::absolute(fs::path{input}).lexically_normal();
+      if (auto const exists = requireExists(path, "input"); !exists) {
+        return eh::makeError("{}", exists.error());
+      }
+      if (auto const regular = requireRegularFile(path, "input"); !regular) {
+        return eh::makeError("{}", regular.error());
+      }
+      config.inputPaths.emplace_back(path);
+    }
+  } else {
+    config.inputPath = fs::absolute(fs::path{getParamStr(vm, "input")}).lexically_normal();
+    if (auto const exists = requireExists(config.inputPath, "input"); !exists) {
+      return eh::makeError("{}", exists.error());
+    }
   }
 
   if (vm.count("output")) {
