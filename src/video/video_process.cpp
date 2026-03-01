@@ -313,7 +313,7 @@ auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
 
 auto scanInputVideosFromFiles(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& inputPaths
+  std::span<fs::path const> inputPaths
 ) -> std::vector<fs::path> {
   std::println(
     "Scanning input files for videos: {} file(s) ...",
@@ -326,7 +326,7 @@ auto scanInputVideosFromFiles(
 
 auto resolveMultiInputBasePath(
   appctx::AppConfig const& config,
-  std::vector<fs::path> const& inputPaths
+  std::span<fs::path const> inputPaths
 ) -> std::optional<fs::path> {
   if (inputPaths.empty()) { return std::nullopt; }
 
@@ -719,7 +719,7 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
 
 int handleMultiFileEncoding(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& inputPaths
+  std::span<fs::path const> inputPaths
 ) {
   auto const vids = scanInputVideosFromFiles(ctx, inputPaths);
 
@@ -734,7 +734,8 @@ int handleMultiFileEncoding(
   auto const basePath = resolveMultiInputBasePath(ctx.config, inputPaths);
   if (!basePath.has_value()) {
     spdlog::error(
-      "Multiple input files must share the same parent directory or specify --output."
+      "Multiple input files must share the same parent directory or specify "
+      "--output/-o."
     );
     return 1;
   }
