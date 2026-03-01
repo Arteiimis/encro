@@ -6,6 +6,7 @@
 #include <boost/json.hpp>
 
 #include <filesystem>
+#include <span>
 #include <vector>
 
 
@@ -35,5 +36,5 @@ auto readAllVidsFromFiles(
   appctx::AppConfig const& config,
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
-  std::vector<std::filesystem::path> const& filePaths
+  std::span<std::filesystem::path const> filePaths
 ) -> std::vector<std::filesystem::path>;
