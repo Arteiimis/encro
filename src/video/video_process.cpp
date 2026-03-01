@@ -696,9 +696,7 @@ auto getEncodingProgress(appctx::AppContext& ctx, fs::path const& vidPath)
   auto const progressData = tryReadProgressData(progressFilePath);
   if (!progressData.has_value()) { return std::nullopt; }
 
-  auto const frameCount = progressData->frameCount;
-  float const progressPercent = ((float)frameCount / totalFrames.value()) * 100.0f;
-  return progressPercent;
+  return ((float)progressData->frameCount / totalFrames.value()) * 100.0f;
 }
 
 int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
