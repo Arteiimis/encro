@@ -30,3 +30,10 @@ auto readAllVids(
   appctx::RuntimeContext& runtime,
   std::filesystem::path const& dirPath
 ) -> std::vector<std::filesystem::path>;
+
+auto readAllVidsFromFiles(
+  appctx::AppConfig const& config,
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  std::vector<std::filesystem::path> const& filePaths
+) -> std::vector<std::filesystem::path>;

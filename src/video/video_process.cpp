@@ -313,6 +313,35 @@ auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
   return vids;
 }
 
+auto scanInputVideosFromFiles(
+  appctx::AppContext& ctx,
+  std::vector<fs::path> const& inputPaths
+) -> std::vector<fs::path> {
+  std::println(
+    "Scanning input files for videos: {} file(s) ...",
+    inputPaths.size()
+  );
+  auto vids = readAllVidsFromFiles(ctx.config, ctx.toolchain, ctx.runtime, inputPaths);
+  std::println("Video scan completed, found {} candidate file(s).", vids.size());
+  return vids;
+}
+
+auto resolveMultiInputBasePath(
+  appctx::AppConfig const& config,
+  std::vector<fs::path> const& inputPaths
+) -> std::optional<fs::path> {
+  if (inputPaths.empty()) { return std::nullopt; }
+
+  if (config.outputPath.has_value()) { return config.outputPath.value(); }
+
+  auto const basePath = inputPaths.front().parent_path();
+  for (auto const& inputPath: inputPaths) {
+    if (inputPath.parent_path() != basePath) { return std::nullopt; }
+  }
+
+  return basePath;
+}
+
 auto maybePackOutputs(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
@@ -354,9 +383,10 @@ auto runEncodingBatches(appctx::AppContext& ctx, std::vector<fs::path> const& vi
   auto monitorThread = std::jthread([&] {
     using namespace std::chrono_literals;
 
-    auto const finishedCount =
-      state.counters.finished.load(std::memory_order_acquire);
-    while (finishedCount < state.counters.total) {
+    while (
+      state.counters.finished.load(std::memory_order_acquire)
+      < state.counters.total
+    ) {
       auto const activeBars = buildActiveBars(state);
 
       for (auto const& activeBar: activeBars) {
@@ -684,6 +714,37 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
 
   auto const& vidsRunRes = runRes.value();
   auto const packRes = maybePackOutputs(ctx, inputPath, vidsRunRes);
+  if (packRes != 0) { return packRes; }
+
+  printEncodingSummary(vids, vidsRunRes);
+
+  return 0;
+}
+
+int handleMultiFileEncoding(
+  appctx::AppContext& ctx,
+  std::vector<fs::path> const& inputPaths
+) {
+  auto const vids = scanInputVideosFromFiles(ctx, inputPaths);
+
+  if (vids.empty()) {
+    std::println("No encodable videos found in provided files.");
+    return 0;
+  }
+
+  auto const runRes = runEncodingBatches(ctx, vids);
+  if (!runRes.has_value()) { return 0; }
+
+  auto const basePath = resolveMultiInputBasePath(ctx.config, inputPaths);
+  if (!basePath.has_value()) {
+    spdlog::error(
+      "Multiple input files must share the same parent directory or specify --output."
+    );
+    return 1;
+  }
+
+  auto const& vidsRunRes = runRes.value();
+  auto const packRes = maybePackOutputs(ctx, basePath.value(), vidsRunRes);
   if (packRes != 0) { return packRes; }
 
   printEncodingSummary(vids, vidsRunRes);

@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace appctx {
 
@@ -23,6 +24,7 @@ struct AppConfig {
   std::string processType = "video";
   std::string outputFormat = "mp4";
   fs::path inputPath;
+  std::vector<fs::path> inputPaths;
   std::optional<fs::path> outputPath;
   std::optional<fs::path> ffmpegInstallDir;
 };
