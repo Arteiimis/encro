@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <span>
 #include <vector>
 
 
@@ -22,7 +23,7 @@ auto handleSingleFileEncoding(appctx::AppContext& ctx, fs::path const& videoPath
 
 auto handleMultiFileEncoding(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& inputPaths
+  std::span<fs::path const> inputPaths
 ) -> int;
 
 auto readLastNLines(const fs::path& filePath, std::size_t n)

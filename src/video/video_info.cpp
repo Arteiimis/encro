@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <mutex>
+#include <optional>
 #include <thread>
 
 namespace fs = std::filesystem;
@@ -39,20 +40,17 @@ auto isHevcEncodedInfo(boost::json::value const& vidInfo) -> bool {
   return false;
 }
 
-auto tryCollectVideo(
-  appctx::AppConfig const& config,
-  fs::path const& filePath,
-  std::vector<fs::path>& vids
-) -> void {
+auto tryCollectVideo(appctx::AppConfig const& config, fs::path const& filePath)
+  -> std::optional<fs::path> {
   namespace rng = std::ranges;
 
   if (!fs::is_regular_file(filePath)) {
     spdlog::debug("Skipping non-regular file: {}", filePath.string());
-    return;
+    return std::nullopt;
   }
 
   auto const vidsExt = filePath.extension().string();
-  if (!rng::contains(kVideoTypes, vidsExt)) { return; }
+  if (!rng::contains(kVideoTypes, vidsExt)) { return std::nullopt; }
 
   auto const fileSize = fs::file_size(filePath);
   if (fileSize >= kWebpInputMaxSize && config.outputFormat == "webp") {
@@ -61,19 +59,19 @@ auto tryCollectVideo(
       filePath.string(),
       fileSize
     );
-    return;
+    return std::nullopt;
   }
 
-  vids.emplace_back(filePath);
+  return filePath;
 }
 
 auto finalizeVideoList(
   appctx::AppConfig const& config,
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
-  std::vector<fs::path>& vids
+  std::span<fs::path const> vids
 ) -> std::vector<fs::path> {
-  if (vids.empty()) { return vids; }
+  if (vids.empty()) { return {}; }
 
   auto const workerCount =
     std::min<std::size_t>(vids.size(), std::thread::hardware_concurrency());
@@ -118,7 +116,7 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
     videoPath.string()
   );
 
-  const auto [exitCode, output] = exec2(cmd);
+  auto const [exitCode, output] = exec2(cmd);
 
   if (exitCode != 0) { return json::object{}; }
 
@@ -131,7 +129,7 @@ auto getVidTotalFrames(
 ) -> eh::Result<int64_t> {
   auto const vidInfo = runtime.videoInfoCache.at(videoPath);
 
-  for (const auto& stream: vidInfo.at("streams").as_array()) {
+  for (auto const& stream: vidInfo.at("streams").as_array()) {
     if (stream.at("codec_type").as_string() == "video") {
       return std::stoll(stream.at("nb_frames").as_string().c_str());
     }
@@ -157,20 +155,25 @@ auto readAllVids(
   appctx::RuntimeContext& runtime,
   fs::path const& dirPath
 ) -> std::vector<fs::path> {
-  auto vids = std::vector<fs::path>{};
-  if (fs::is_regular_file(dirPath)) {
-    tryCollectVideo(config, dirPath, vids);
-  } else {
-    if (!fs::is_directory(dirPath)) {
-      spdlog::warn("Provided path is not a file or directory: {}", dirPath.string());
-      return {};
-    }
+  if (!fs::is_directory(dirPath) && !fs::is_regular_file(dirPath)) {
+    spdlog::warn("Provided path is not a file or directory: {}", dirPath.string());
+    return {};
+  }
 
+  auto vids = std::vector<fs::path>{};
+
+  if (fs::is_regular_file(dirPath)) {
+    if (auto collected = tryCollectVideo(config, dirPath)) {
+      vids.emplace_back(collected.value());
+    }
+  } else {
     auto const candidates =
       media::scanByExtensions(dirPath, kVideoTypes, config.recursive);
 
     for (auto const& candidate: candidates) {
-      tryCollectVideo(config, candidate, vids);
+      if (auto collected = tryCollectVideo(config, candidate)) {
+        vids.emplace_back(collected.value());
+      }
     }
   }
 
@@ -183,13 +186,15 @@ auto readAllVidsFromFiles(
   appctx::AppConfig const& config,
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
-  std::vector<fs::path> const& filePaths
+  std::span<fs::path const> filePaths
 ) -> std::vector<fs::path> {
   auto vids = std::vector<fs::path>{};
   vids.reserve(filePaths.size());
 
   for (auto const& filePath: filePaths) {
-    tryCollectVideo(config, filePath, vids);
+    if (auto collected = tryCollectVideo(config, filePath)) {
+      vids.emplace_back(collected.value());
+    }
   }
 
   return finalizeVideoList(config, toolchain, runtime, vids);
