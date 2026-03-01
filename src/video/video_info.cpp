@@ -1,11 +1,15 @@
 #include "video/video_info.h"
 
 #include "core/media_scanner.h"
+#include "core/parallel.h"
 #include "utils/utils.h"
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <array>
+#include <mutex>
+#include <thread>
 
 namespace fs = std::filesystem;
 using namespace std::literals;
@@ -23,10 +27,20 @@ constexpr auto kVideoTypes = std::array{
 };
 constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 
+auto isHevcEncodedInfo(boost::json::value const& vidInfo) -> bool {
+  for (auto const& stream: vidInfo.at("streams").as_array()) {
+    try {
+      auto const isVideo = stream.at("codec_type").as_string() == "video";
+      auto const isHevc = stream.at("codec_name").as_string() == "hevc";
+      if (isVideo && isHevc) { return true; }
+    } catch (...) { continue; }
+  }
+
+  return false;
+}
+
 auto tryCollectVideo(
   appctx::AppConfig const& config,
-  appctx::ToolchainPaths const& toolchain,
-  appctx::RuntimeContext& runtime,
   fs::path const& filePath,
   std::vector<fs::path>& vids
 ) -> void {
@@ -50,12 +64,6 @@ auto tryCollectVideo(
     return;
   }
 
-  if (config.outputFormat == "mp4" && isHevcEncoded(toolchain, filePath)) {
-    spdlog::debug("Skipping already HEVC encoded file: {}", filePath.string());
-    return;
-  }
-
-  runtime.videoInfoCache[filePath] = getVidInfo(toolchain, filePath);
   vids.emplace_back(filePath);
 }
 
@@ -101,16 +109,7 @@ bool isHevcEncoded(
   fs::path const& videoPath
 ) {
   auto const vidInfo = getVidInfo(toolchain, videoPath);
-
-  for (const auto& stream: vidInfo.at("streams").as_array()) {
-    try {
-      auto const isVideo = stream.at("codec_type").as_string() == "video";
-      auto const isHevc = stream.at("codec_name").as_string() == "hevc";
-      if (isVideo && isHevc) { return true; }
-    } catch (...) { continue; }
-  }
-
-  return false;
+  return isHevcEncodedInfo(vidInfo);
 }
 
 auto readAllVids(
@@ -119,24 +118,52 @@ auto readAllVids(
   appctx::RuntimeContext& runtime,
   fs::path const& dirPath
 ) -> std::vector<fs::path> {
-  if (fs::is_regular_file(dirPath)) {
-    auto vids = std::vector<fs::path>{};
-    tryCollectVideo(config, toolchain, runtime, dirPath, vids);
-    return vids;
-  }
-
-  if (!fs::is_directory(dirPath)) {
-    spdlog::warn("Provided path is not a file or directory: {}", dirPath.string());
-    return {};
-  }
-
   auto vids = std::vector<fs::path>{};
-  auto const candidates =
-    media::scanByExtensions(dirPath, kVideoTypes, config.recursive);
+  if (fs::is_regular_file(dirPath)) {
+    tryCollectVideo(config, dirPath, vids);
+  } else {
+    if (!fs::is_directory(dirPath)) {
+      spdlog::warn("Provided path is not a file or directory: {}", dirPath.string());
+      return {};
+    }
 
-  for (auto const& candidate: candidates) {
-    tryCollectVideo(config, toolchain, runtime, candidate, vids);
+    auto const candidates =
+      media::scanByExtensions(dirPath, kVideoTypes, config.recursive);
+
+    for (auto const& candidate: candidates) {
+      tryCollectVideo(config, candidate, vids);
+    }
   }
 
-  return vids;
+  if (vids.empty()) { return vids; }
+
+  auto const workerCount =
+    std::min<std::size_t>(vids.size(), std::thread::hardware_concurrency());
+
+  auto keep = std::vector<char>(vids.size(), 0);
+  auto cacheMtx = std::mutex{};
+
+  parallel::runIndexedTasks(vids.size(), workerCount, [&](std::size_t index) {
+    auto const& vidPath = vids[index];
+    auto const vidInfo = getVidInfo(toolchain, vidPath);
+
+    if (config.outputFormat == "mp4" && isHevcEncodedInfo(vidInfo)) {
+      spdlog::debug("Skipping already HEVC encoded file: {}", vidPath.string());
+      return;
+    }
+
+    {
+      auto lock = std::scoped_lock{cacheMtx};
+      runtime.videoInfoCache[vidPath] = vidInfo;
+    }
+    keep[index] = 1;
+  });
+
+  auto filtered = std::vector<fs::path>{};
+  filtered.reserve(vids.size());
+  for (auto index = std::size_t{0}; index < vids.size(); ++index) {
+    if (keep[index] == 1) { filtered.emplace_back(vids[index]); }
+  }
+
+  return filtered;
 }
