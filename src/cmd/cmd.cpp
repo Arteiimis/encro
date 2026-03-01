@@ -34,7 +34,7 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("inputs,I", pvm<std::vector<std::string>>(), "input video file paths")  //
     ("output,o", pv<std::string>(), "custom output directory path")          //
     ("output-format,f", pvDefault("mp4"s), "target format: mp4 or webp")     //
-    ("recursive,r", "recursively search for media files in directories")     //
+    ("recursive,r", "enable recursively search")                             //
     ;
 
   auto processing = po::options_description("Processing options");
