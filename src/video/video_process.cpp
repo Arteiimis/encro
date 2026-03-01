@@ -116,19 +116,18 @@ void resetSlotProgress(
 }
 
 auto buildActiveBars(EncodingBatchState& state) -> std::vector<ActiveBar> {
+  using namespace std::views;
+
   auto activeBars = std::vector<ActiveBar>{};
   auto lock = std::scoped_lock{state.slots.taskPathsMtx};
   activeBars.reserve(state.slots.taskPaths.size());
-  for (auto slot = std::size_t{0}; slot < state.slots.taskPaths.size(); ++slot) {
-    if (state.slots.taskPaths[slot].has_value()) {
+  for (auto const& [slot, taskPathOpt]: enumerate(state.slots.taskPaths)) {
+    taskPathOpt.and_then([&](auto const& vidPath) {
       activeBars.push_back(
-        ActiveBar{
-          state.slots.taskPaths[slot].value(),
-          state.slots.barIndexes[slot],
-          slot
-        }
+        ActiveBar{vidPath, state.slots.barIndexes[slot], (std::size_t)slot}
       );
-    }
+      return std::optional<fs::path>{};
+    });
   }
   return activeBars;
 }
@@ -203,9 +202,8 @@ auto runWebpEncodingStep(
     .progressFilePath = encodeCtx.progressFilePath
   };
 
-  auto const validationResult = cfg.validate();
-  if (!validationResult) {
-    spdlog::error(validationResult.error());
+  if (auto const res = cfg.validate(); !res) {
+    spdlog::error(res.error());
     return {-1, std::nullopt};
   }
 
