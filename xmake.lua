@@ -1,6 +1,7 @@
 add_rules("plugin.compile_commands.autoupdate", { outputdir = "./build" })
 add_rules("mode.debug", "mode.release", "mode.releasedbg", "mode.coverage")
 set_policy("build.optimization.lto", true)
+set_version("0.1.5")
 
 set_languages("c++latest")
 set_toolchains("clang")
@@ -49,6 +50,17 @@ target("tests")
   add_files("tests/*.cpp")
   add_files("src/**.cpp|main.cpp")
 target_end()
+
+includes("@builtin/xpack")
+
+xpack("encro")
+  set_formats("nsis", "srczip", "srctargz", "zip", "targz")
+  set_title("Encro")
+  set_author("Artemiss")
+  set_description("encro: Universal video encoder/converter/packer")
+  add_targets("encro")
+  add_sourcefiles("(src/**.h)", "(src/**.cpp)")
+xpack_end()
 
 task("coverage")
   set_category("plugin")

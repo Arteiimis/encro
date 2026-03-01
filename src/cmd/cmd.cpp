@@ -54,8 +54,13 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   all.add(general).add(io).add(processing).add(fileop);
 
   auto vm = po::variables_map{};
-  store(parse_command_line(argc, argv, all), vm);
-  notify(vm);
+  auto error = std::optional<std::string>{};
+  try {
+    store(parse_command_line(argc, argv, all), vm);
+    notify(vm);
+  } catch (const po::error& ex) {
+    error = ex.what();
+  }
 
-  return {all, vm};
+  return {all, vm, error};
 }
