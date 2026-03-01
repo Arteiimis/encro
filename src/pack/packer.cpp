@@ -6,10 +6,16 @@
 #include <libzippp/libzippp.h>
 #include <spdlog/spdlog.h>
 
+#include <array>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <print>
 #include <ranges>
+#include <stop_token>
+#include <thread>
 
 namespace fs = std::filesystem;
 using namespace indicators;
@@ -38,7 +44,29 @@ auto packFilesToZip(
     spdlog::debug("Packing progress: {}%, File: {}", progress, filePath.string());
   }
 
+  progressCtx.setProgress(progressBarIndex, 100.0f);
+
+  std::atomic<bool> finalizing{true};
+  auto spinnerThread = std::jthread([&](std::stop_token stopToken) {
+    using namespace std::chrono_literals;
+    auto const frames = std::array{'|', '/', '-', '\\'};
+    auto frameIndex = std::size_t{0};
+    while (!stopToken.stop_requested()
+           && finalizing.load(std::memory_order_acquire)) {
+      progressCtx.setPostfixText(
+        progressBarIndex,
+        std::format("{} | Finalizing {}", progressText, frames[frameIndex])
+      );
+      frameIndex = (frameIndex + 1) % frames.size();
+      std::this_thread::sleep_for(120ms);
+    }
+  });
+
   zip.close();
+
+  finalizing.store(false, std::memory_order_release);
+  spinnerThread.join();
+  progressCtx.setPostfixText(progressBarIndex, progressText);
 
   return {};
 } catch (std::exception const& e) {
