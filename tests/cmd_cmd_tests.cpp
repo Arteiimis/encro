@@ -51,3 +51,10 @@ TEST_CASE("commandLineInit parses multi-input values", "[cmd]") {
   CHECK(inputs[1] == "b.mkv");
   CHECK(inputs[2] == "c.mov");
 }
+
+TEST_CASE("commandLineInit reports unknown options", "[cmd]") {
+  auto const result = parseArgs({"encro", "--nope"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("unrecognised option") != std::string::npos);
+}

@@ -9,8 +9,14 @@
 #include <iostream>
 
 int main(int argc, char* argv[]) {
-  auto [desc, vm] = commandLineInit(argc, argv);
+  auto [desc, vm, error] = commandLineInit(argc, argv);
   spdlog::set_pattern("[%^%l%$] %v");
+
+  if (error.has_value()) {
+    spdlog::error("Invalid arguments: {}", error.value());
+    std::cout << desc << "\n";
+    return 1;
+  }
 
   if (vm.count("help")) {
     desc.print(std::cout);
