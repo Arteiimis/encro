@@ -28,8 +28,10 @@ struct EncodeConfig {
       return eh::makeError("Output format cannot be an empty string.");
     }
     constexpr auto validOutputFormats = std::array{"mp4", "webp"};
-    if (outputFormat.has_value()
-        && !std::ranges::contains(validOutputFormats, outputFormat.value())) {
+    if (
+      outputFormat.has_value()
+      && !std::ranges::contains(validOutputFormats, outputFormat.value())
+    ) {
       return eh::makeError("Output format must be one of: mp4, webp.");
     }
     if (crf.has_value() && (crf < 0 || crf > 51)) {

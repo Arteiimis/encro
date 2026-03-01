@@ -9,7 +9,6 @@
 #include <string_view>
 #include <vector>
 
-
 namespace progress {
 
 using Manager = indicators::DynamicProgress<indicators::ProgressBar>;

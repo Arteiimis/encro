@@ -289,16 +289,15 @@ auto tryReadProgressData(fs::path const& progressFilePath)
 }
 
 auto tryGetEncodedOutputFile(
-  appctx::ToolchainPaths const& toolchain,
-  appctx::AppConfig const& config,
+  appctx::AppContext const& appCtx,
   fs::path const& vidPath,
   std::optional<fs::path> const& outputPath
 ) -> std::optional<fs::path> {
   auto const cfg = EncodeConfig{
-    .ffmpegPath = toolchain.ffmpegPath,
+    .ffmpegPath = appCtx.toolchain.ffmpegPath,
     .inputPath = vidPath,
     .outputPath = outputPath,
-    .outputFormat = config.outputFormat
+    .outputFormat = appCtx.config.outputFormat
   };
 
   auto const outFile = cfg.buildOutputPath();
@@ -435,12 +434,13 @@ auto collectEncodedOutputFiles(
   for (auto const& [vidPath, success]: vidsRunRes) {
     if (!success) { continue; }
 
-    auto const outFile =
-      tryGetEncodedOutputFile(ctx.toolchain, ctx.config, vidPath, outputPath);
+    auto const outFile = tryGetEncodedOutputFile(ctx, vidPath, outputPath);
     if (!outFile.has_value()) { continue; }
 
-    if (ctx.config.outputFormat == "webp"
-        && fs::file_size(outFile.value()) >= kWebpPackMaxSize) {
+    if (
+      ctx.config.outputFormat == "webp"
+      && fs::file_size(outFile.value()) >= kWebpPackMaxSize
+    ) {
       std::println(
         "Skipping oversized webp for packing: {} ({} bytes)",
         outFile.value().string(),
@@ -547,8 +547,10 @@ auto resolveVideoPackOutputPath(
   appctx::AppConfig const& config,
   fs::path const& inputPath
 ) -> fs::path {
-  if (auto const outputPath = resolveVideoOutputPath(config, inputPath);
-      outputPath.has_value()) {
+  if (
+    auto const outputPath = resolveVideoOutputPath(config, inputPath);
+    outputPath.has_value()
+  ) {
     return outputPath.value() / "packed";
   }
 
