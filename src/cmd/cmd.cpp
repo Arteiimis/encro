@@ -2,9 +2,14 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
 template<class Ty>
 inline auto const pv = [] { return boost::program_options::value<Ty>(); };
+
+template<class Ty>
+inline auto const pvm =
+  [] { return boost::program_options::value<Ty>()->multitoken(); };
 
 template<class Ty>
 auto pvDefault(Ty&& defaultValue) {
@@ -24,11 +29,12 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ;
 
   auto io = po::options_description("Input/Output options");
-  io.add_options()                                                        //
-    ("input,i", pv<std::string>(), "input file or directory path")        //
-    ("output,o", pv<std::string>(), "custom output directory path")       //
-    ("output-format,f", pvDefault("mp4"s), "target format: mp4 or webp")  //
-    ("recursive,r", "recursively search for media files in directories")  //
+  io.add_options()                                                           //
+    ("input,i", pv<std::string>(), "input file or directory path")           //
+    ("inputs,I", pvm<std::vector<std::string>>(), "input video file paths")  //
+    ("output,o", pv<std::string>(), "custom output directory path")          //
+    ("output-format,f", pvDefault("mp4"s), "target format: mp4 or webp")     //
+    ("recursive,r", "recursively search for media files in directories")     //
     ;
 
   auto processing = po::options_description("Processing options");

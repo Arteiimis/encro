@@ -40,3 +40,14 @@ TEST_CASE("commandLineInit parses flags", "[cmd]") {
   CHECK(result.vm.count("pack-only") == 1);
   CHECK(result.vm.count("verbose") == 1);
 }
+
+TEST_CASE("commandLineInit parses multi-input values", "[cmd]") {
+  auto const result = parseArgs({"encro", "-I", "a.mp4", "b.mkv", "c.mov"});
+
+  REQUIRE(result.vm.count("inputs") == 1);
+  auto const inputs = result.vm["inputs"].as<std::vector<std::string>>();
+  CHECK(inputs.size() == 3);
+  CHECK(inputs[0] == "a.mp4");
+  CHECK(inputs[1] == "b.mkv");
+  CHECK(inputs[2] == "c.mov");
+}

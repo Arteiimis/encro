@@ -40,6 +40,10 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
 }
 
 auto runVideo(appctx::AppContext& ctx) -> eh::Result<int> {
+  if (!ctx.config.inputPaths.empty()) {
+    return handleMultiFileEncoding(ctx, ctx.config.inputPaths);
+  }
+
   auto const& inputPath = ctx.config.inputPath;
 
   if (fs::is_directory(inputPath)) { return handlePathEncoding(ctx, inputPath); }
