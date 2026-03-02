@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/app_context.h"
 #include "core/progress.h"
 
 #include <atomic>
@@ -22,11 +23,9 @@ struct EncodingBatchState {
   } counters;
 
   struct Slots {
-    std::vector<std::optional<fs::path>> taskPaths;
-    std::mutex taskPathsMtx;
+    appctx::EncodingStateList active;
+    std::mutex activeMtx;
     std::vector<std::size_t> barIndexes;
-    std::vector<float> progress;
-    std::mutex progressMtx;
   } slots;
 
   struct Results {
@@ -37,13 +36,17 @@ struct EncodingBatchState {
   progress::ProgressContext progressCtx;
 
   EncodingBatchState(std::size_t total, std::size_t workers)
-    : counters{std::atomic_size_t{0}, std::atomic_size_t{0}, total, workers, std::nullopt},
+    : counters{
+        std::atomic_size_t{0},
+        std::atomic_size_t{0},
+        total,
+        workers,
+        std::nullopt
+      },
       slots{
-        std::vector<std::optional<fs::path>>(workers),
+        appctx::EncodingStateList(workers),
         std::mutex{},
         std::vector<std::size_t>{},
-        std::vector<float>(workers, 0.0f),
-        std::mutex{}
       },
       results{},
       progressCtx{} {

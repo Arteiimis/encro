@@ -14,7 +14,7 @@ namespace fs = std::filesystem;
 using function_ref = std::function<void(std::string const&)> const&;
 bool encodeToHevc(
   appctx::AppContext& ctx,
-  fs::path const& inputVidPath,
+  appctx::EncodingState& state,
   function_ref statusUpdater = {}
 );
 

@@ -2,11 +2,15 @@
 
 #include <boost/json.hpp>
 
+#include <chrono>
 #include <filesystem>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 
 namespace appctx {
 
@@ -36,8 +40,33 @@ struct ToolchainPaths {
 
 struct RuntimeContext {
   path_map<json::value> videoInfoCache;
-  path_map<fs::path> progressFiles;
+
+  struct EncodingVideoState {
+    fs::path inputPath;
+    std::optional<fs::path> outputPath;
+    std::optional<fs::path> outputFile;
+    std::optional<fs::path> progressFilePath;
+    std::optional<std::size_t> barIndex;
+    std::optional<std::chrono::steady_clock::time_point> startTime;
+    std::optional<std::chrono::steady_clock::time_point> endTime;
+    std::optional<float> lastProgress;
+    std::optional<uint64_t> lastFrameCount;
+    std::optional<std::string> lastStatus;
+    std::optional<std::string> lastError;
+    bool finished = false;
+    bool success = false;
+    std::mutex mtx;
+  };
+
+  struct EncodingStateStore {
+    path_map<std::shared_ptr<EncodingVideoState>> map;
+    std::mutex mtx;
+  } encodingStates;
 };
+
+using EncodingState = RuntimeContext::EncodingVideoState;
+using EncodingStatePtr = std::shared_ptr<EncodingState>;
+using EncodingStateList = std::vector<EncodingStatePtr>;
 
 struct AppContext {
   AppConfig config;
