@@ -16,6 +16,7 @@
 #include <spdlog/spdlog.h>
 
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <deque>
 #include <fstream>
@@ -219,8 +220,40 @@ auto truncateForProgressLabel(std::string const& text, std::size_t maxLen = 48)
   return std::format("{}...", text.substr(0, maxLen - 3));
 }
 
+auto containsCaseInsensitive(std::string_view text, std::string_view needle)
+  -> bool {
+  if (needle.empty()) { return true; }
+  if (text.size() < needle.size()) { return false; }
+
+  for (std::size_t i = 0; i + needle.size() <= text.size(); ++i) {
+    auto match = true;
+    for (std::size_t j = 0; j < needle.size(); ++j) {
+      auto const tc = static_cast<unsigned char>(text[i + j]);
+      auto const nc = static_cast<unsigned char>(needle[j]);
+      if (std::tolower(tc) != std::tolower(nc)) {
+        match = false;
+        break;
+      }
+    }
+    if (match) { return true; }
+  }
+
+  return false;
+}
+
+auto isLikelyFfmpegErrorLine(std::string_view line) -> bool {
+  return containsCaseInsensitive(line, "error")
+      || containsCaseInsensitive(line, "failed")
+      || containsCaseInsensitive(line, "invalid")
+      || containsCaseInsensitive(line, "not found");
+}
+
 auto makeSlotLabel(fs::path const& vidPath) -> std::string {
   return truncateForProgressLabel(vidPath.filename().string());
+}
+
+auto getStateLabel(appctx::EncodingState const& state) -> std::string {
+  return truncateForProgressLabel(state.inputPath.filename().string());
 }
 
 void registerEncodingState(
@@ -258,7 +291,34 @@ auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
         if (!activeState) { continue; }
 
         auto const progress = getEncodingProgress(batchCtx.app, *activeState);
-        if (!progress.has_value()) { continue; }
+        if (!progress.has_value()) {
+          auto barIndex = std::optional<std::size_t>{};
+          auto lastError = std::optional<std::string>{};
+          auto lastStatus = std::optional<std::string>{};
+          {
+            auto lock = std::scoped_lock{activeState->mtx};
+            barIndex = activeState->barIndex;
+            lastError = activeState->lastError;
+            lastStatus = activeState->lastStatus;
+          }
+
+          if (barIndex.has_value()) {
+            auto const fileLabel = getStateLabel(*activeState);
+            if (lastError.has_value()) {
+              batchCtx.progress().setPostfixText(
+                barIndex.value(),
+                std::format("Encoding: {} | {}", fileLabel, lastError.value())
+              );
+            } else if (lastStatus.has_value()) {
+              batchCtx.progress().setPostfixText(
+                barIndex.value(),
+                std::format("Encoding: {} | {}", fileLabel, lastStatus.value())
+              );
+            }
+          }
+
+          continue;
+        }
 
         auto barIndex = std::optional<std::size_t>{};
         {
@@ -361,7 +421,10 @@ auto runWebpEncodingStep(
     return {-1, std::nullopt};
   }
 
-  auto const [exitCode, _] = exec2(cfg.buildCMD());
+  auto const [exitCode, _] = exec2(cfg.buildCMD(), [&](std::string_view line) {
+    if (!encodeCtx.statusUpdater || !isLikelyFfmpegErrorLine(line)) { return; }
+    encodeCtx.statusUpdater(truncateForProgressLabel(std::string{line}, 72));
+  });
   if (exitCode != 0) { return {exitCode, std::nullopt}; }
   if (!fs::exists(outputFile)) { return {exitCode, std::nullopt}; }
 
@@ -740,7 +803,10 @@ bool encodeToHevc(
     );
   }
 
-  auto const [exitCode, _] = exec2(cfg.buildCMD());
+  auto const [exitCode, _] = exec2(cfg.buildCMD(), [&](std::string_view line) {
+    if (!statusUpdater || !isLikelyFfmpegErrorLine(line)) { return; }
+    statusUpdater(truncateForProgressLabel(std::string{line}, 72));
+  });
   return exitCode == 0;
 }
 
@@ -792,10 +858,8 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
   -> std::optional<float> {
   auto const totalFrames = getVidTotalFrames(ctx.runtime, state.inputPath);
   if (!totalFrames.has_value()) {
-    spdlog::error(
-      "Failed to get total frames for video: {}",
-      state.inputPath.string()
-    );
+    auto lock = std::scoped_lock{state.mtx};
+    state.lastError = totalFrames.error();
     return std::nullopt;
   }
 
