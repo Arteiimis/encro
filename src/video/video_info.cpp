@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <exception>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -29,12 +30,28 @@ constexpr auto kVideoTypes = std::array{
 constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 
 auto isHevcEncodedInfo(boost::json::value const& vidInfo) -> bool {
-  for (auto const& stream: vidInfo.at("streams").as_array()) {
-    try {
-      auto const isVideo = stream.at("codec_type").as_string() == "video";
-      auto const isHevc = stream.at("codec_name").as_string() == "hevc";
-      if (isVideo && isHevc) { return true; }
-    } catch (...) { continue; }
+  if (!vidInfo.is_object()) { return false; }
+
+  auto const& obj = vidInfo.as_object();
+  auto const streamsIt = obj.find("streams");
+  if (streamsIt == obj.end() || !streamsIt->value().is_array()) { return false; }
+
+  for (auto const& streamVal: streamsIt->value().as_array()) {
+    if (!streamVal.is_object()) { continue; }
+    auto const& stream = streamVal.as_object();
+
+    auto const codecTypeIt = stream.find("codec_type");
+    if (codecTypeIt == stream.end() || !codecTypeIt->value().is_string()) {
+      continue;
+    }
+    auto const codecNameIt = stream.find("codec_name");
+    if (codecNameIt == stream.end() || !codecNameIt->value().is_string()) {
+      continue;
+    }
+
+    auto const isVideo = codecTypeIt->value().as_string() == "video";
+    auto const isHevc = codecNameIt->value().as_string() == "hevc";
+    if (isVideo && isHevc) { return true; }
   }
 
   return false;
@@ -116,29 +133,67 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
     videoPath.string()
   );
 
-  auto const [exitCode, output] = exec2(cmd);
+  auto const [exitCode, output] = exec2(cmd, false);
 
   if (exitCode != 0) { return json::object{}; }
 
-  return json::parse(output);
+  try {
+    return json::parse(output);
+  } catch (std::exception const& ex) {
+    spdlog::debug(
+      "Failed to parse ffprobe output for {}: {}",
+      videoPath.string(),
+      ex.what()
+    );
+    return json::object{};
+  }
 }
 
 auto getVidTotalFrames(
   appctx::RuntimeContext const& runtime,
   fs::path const& videoPath
 ) -> eh::Result<int64_t> {
-  auto const vidInfo = runtime.videoInfoCache.at(videoPath);
+  auto const vidInfoIt = runtime.videoInfoCache.find(videoPath);
+  if (vidInfoIt == runtime.videoInfoCache.end()) {
+    return eh::makeError("Missing cached video info");
+  }
 
-  for (auto const& stream: vidInfo.at("streams").as_array()) {
-    if (stream.at("codec_type").as_string() == "video") {
-      return std::stoll(stream.at("nb_frames").as_string().c_str());
+  auto const& vidInfo = vidInfoIt->second;
+  if (!vidInfo.is_object()) { return eh::makeError("Invalid video info"); }
+
+  auto const& obj = vidInfo.as_object();
+  auto const streamsIt = obj.find("streams");
+  if (streamsIt == obj.end() || !streamsIt->value().is_array()) {
+    return eh::makeError("Missing stream info");
+  }
+
+  for (auto const& streamVal: streamsIt->value().as_array()) {
+    if (!streamVal.is_object()) { continue; }
+    auto const& stream = streamVal.as_object();
+
+    auto const codecTypeIt = stream.find("codec_type");
+    if (codecTypeIt == stream.end() || !codecTypeIt->value().is_string()) {
+      continue;
+    }
+    if (codecTypeIt->value().as_string() != "video") { continue; }
+
+    auto const nbFramesIt = stream.find("nb_frames");
+    if (nbFramesIt == stream.end()) { continue; }
+
+    auto const& nbFramesVal = nbFramesIt->value();
+    if (nbFramesVal.is_int64()) { return nbFramesVal.as_int64(); }
+    if (nbFramesVal.is_uint64()) {
+      return static_cast<int64_t>(nbFramesVal.as_uint64());
+    }
+    if (nbFramesVal.is_string()) {
+      auto const nbFramesStr = nbFramesVal.as_string();
+      if (!nbFramesStr.empty() && nbFramesStr != "N/A") {
+        return std::stoll(std::string{nbFramesStr});
+      }
     }
   }
 
-  return eh::makeError(
-    "Failed to retrieve total frames for video: {}",
-    videoPath.string()
-  );
+  return eh::makeError("Failed to retrieve total frames");
 }
 
 bool isHevcEncoded(
