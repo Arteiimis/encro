@@ -8,9 +8,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <exception>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 
 namespace fs = std::filesystem;
@@ -28,6 +30,69 @@ constexpr auto kVideoTypes = std::array{
   ".wmv"sv
 };
 constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
+
+auto jsonValToString(boost::json::value const& val) -> std::string {
+  if (val.is_string()) { return std::string{val.as_string()}; }
+  if (val.is_int64()) { return std::to_string(val.as_int64()); }
+  if (val.is_uint64()) { return std::to_string(val.as_uint64()); }
+  if (val.is_double()) { return std::to_string(val.as_double()); }
+  if (val.is_bool()) { return val.as_bool() ? "true" : "false"; }
+  if (val.is_null()) { return "null"; }
+  return "<object>";
+}
+
+auto parseDouble(std::string_view text) -> std::optional<double> {
+  try {
+    return std::stod(std::string{text});
+  } catch (...) { return std::nullopt; }
+}
+
+auto parseFraction(std::string_view text) -> std::optional<double> {
+  auto const slashPos = text.find('/');
+  if (slashPos == std::string_view::npos) { return parseDouble(text); }
+
+  auto const num = text.substr(0, slashPos);
+  auto const den = text.substr(slashPos + 1);
+  auto const n = parseDouble(num);
+  auto const d = parseDouble(den);
+  if (!n.has_value() || !d.has_value() || d.value() == 0.0) { return std::nullopt; }
+  return n.value() / d.value();
+}
+
+auto getFormatDurationValue(
+  boost::json::object const& obj,
+  std::string& formatDuration
+) -> std::optional<double> {
+  auto const formatIt = obj.find("format");
+  if (formatIt == obj.end() || !formatIt->value().is_object()) {
+    return std::nullopt;
+  }
+
+  auto const& formatObj = formatIt->value().as_object();
+  auto const durationIt = formatObj.find("duration");
+  if (durationIt == formatObj.end()) { return std::nullopt; }
+
+  formatDuration = jsonValToString(durationIt->value());
+  return parseDouble(formatDuration);
+}
+
+auto readStreamValue(boost::json::object const& stream, std::string_view key)
+  -> std::string {
+  if (auto const it = stream.find(key); it != stream.end()) {
+    return jsonValToString(it->value());
+  }
+  return "<missing>";
+}
+
+auto tryParseNbFrames(boost::json::value const& val) -> std::optional<int64_t> {
+  if (val.is_int64()) { return val.as_int64(); }
+  if (val.is_uint64()) { return static_cast<int64_t>(val.as_uint64()); }
+  if (val.is_string()) {
+    auto const text = std::string{val.as_string()};
+    if (!text.empty() && text != "N/A") { return std::stoll(text); }
+  }
+  return std::nullopt;
+}
 
 auto isHevcEncodedInfo(boost::json::value const& vidInfo) -> bool {
   if (!vidInfo.is_object()) { return false; }
@@ -135,7 +200,15 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
 
   auto const [exitCode, output] = exec2(cmd, false);
 
-  if (exitCode != 0) { return json::object{}; }
+  if (exitCode != 0) {
+    spdlog::debug(
+      "ffprobe exit code {} for {} (output bytes: {})",
+      exitCode,
+      videoPath.string(),
+      output.size()
+    );
+    return json::object{};
+  }
 
   try {
     return json::parse(output);
@@ -164,8 +237,21 @@ auto getVidTotalFrames(
   auto const& obj = vidInfo.as_object();
   auto const streamsIt = obj.find("streams");
   if (streamsIt == obj.end() || !streamsIt->value().is_array()) {
+    spdlog::debug("Missing stream info for {}", videoPath.string());
     return eh::makeError("Missing stream info");
   }
+
+  auto formatDuration = std::string{"<missing>"};
+  auto const formatDurationValue = getFormatDurationValue(obj, formatDuration);
+
+  struct DebugInfo {
+    bool hasVideoStream = false;
+    std::string avgRate = "<missing>";
+    std::string rRate = "<missing>";
+    std::string duration = "<missing>";
+    std::string durationTs = "<missing>";
+    std::string timeBase = "<missing>";
+  } debug;
 
   for (auto const& streamVal: streamsIt->value().as_array()) {
     if (!streamVal.is_object()) { continue; }
@@ -177,19 +263,53 @@ auto getVidTotalFrames(
     }
     if (codecTypeIt->value().as_string() != "video") { continue; }
 
-    auto const nbFramesIt = stream.find("nb_frames");
-    if (nbFramesIt == stream.end()) { continue; }
+    debug.hasVideoStream = true;
 
-    auto const& nbFramesVal = nbFramesIt->value();
-    if (nbFramesVal.is_int64()) { return nbFramesVal.as_int64(); }
-    if (nbFramesVal.is_uint64()) {
-      return static_cast<int64_t>(nbFramesVal.as_uint64());
-    }
-    if (nbFramesVal.is_string()) {
-      auto const nbFramesStr = nbFramesVal.as_string();
-      if (!nbFramesStr.empty() && nbFramesStr != "N/A") {
-        return std::stoll(std::string{nbFramesStr});
+    auto const nbFramesIt = stream.find("nb_frames");
+    if (nbFramesIt != stream.end()) {
+      if (auto const frames = tryParseNbFrames(nbFramesIt->value())) {
+        return frames.value();
       }
+    }
+
+    debug.avgRate = readStreamValue(stream, "avg_frame_rate");
+    debug.rRate = readStreamValue(stream, "r_frame_rate");
+    debug.duration = readStreamValue(stream, "duration");
+    debug.durationTs = readStreamValue(stream, "duration_ts");
+    debug.timeBase = readStreamValue(stream, "time_base");
+  }
+
+  if (!debug.hasVideoStream) {
+    spdlog::debug(
+      "No video stream found for {} (streams: {})",
+      videoPath.string(),
+      streamsIt->value().as_array().size()
+    );
+    return eh::makeError("Failed to retrieve total frames");
+  }
+
+  spdlog::debug(
+    "No nb_frames for {}. format.duration={}, avg_frame_rate={}, r_frame_rate={}, "
+    "duration={}, duration_ts={}, time_base={}",
+    videoPath.string(),
+    formatDuration,
+    debug.avgRate,
+    debug.rRate,
+    debug.duration,
+    debug.durationTs,
+    debug.timeBase
+  );
+
+  if (formatDurationValue.has_value()) {
+    if (auto const rate = parseFraction(debug.avgRate); rate.has_value()) {
+      return static_cast<int64_t>(
+        std::llround(formatDurationValue.value() * rate.value())
+      );
+    }
+    if (auto const rate = parseFraction(debug.rRate); rate.has_value()) {
+      return static_cast<int64_t>(
+        std::llround(formatDurationValue.value() * rate.value())
+      );
     }
   }
 
