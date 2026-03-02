@@ -8,22 +8,55 @@
 #include <iostream>
 #include <print>
 
-auto exec2(std::string_view cmd) -> ExecResult {
+namespace {
+
+auto exec2Impl(
+  std::string_view cmd,
+  std::function<void(std::string_view)> const* onLine,
+  bool mergeStdErr
+) -> ExecResult {
   namespace bp = boost::process::v1;
 
   spdlog::debug("Executing command: {}", cmd);
 
   auto pipeStream = bp::ipstream{};
-  auto process = bp::child(cmd.data(), bp::std_out > pipeStream);
+  auto process =
+    mergeStdErr
+      ? bp::child(cmd.data(), bp::std_out > pipeStream, bp::std_err > pipeStream)
+      : bp::child(cmd.data(), bp::std_out > pipeStream, bp::std_err > bp::null);
   auto line = std::string{};
   auto result = std::string{};
 
   while (std::getline(pipeStream, line)) {
+    if (onLine && *onLine) { (*onLine)(line); }
     std::format_to(std::back_inserter(result), "{}\n", line);
   }
   process.wait();
 
   return {process.exit_code(), result};
+}
+
+}  // namespace
+
+auto exec2(std::string_view cmd) -> ExecResult {
+  return exec2Impl(cmd, nullptr, true);
+}
+
+auto exec2(std::string_view cmd, std::function<void(std::string_view)> const& onLine)
+  -> ExecResult {
+  return exec2Impl(cmd, &onLine, true);
+}
+
+auto exec2(std::string_view cmd, bool mergeStdErr) -> ExecResult {
+  return exec2Impl(cmd, nullptr, mergeStdErr);
+}
+
+auto exec2(
+  std::string_view cmd,
+  std::function<void(std::string_view)> const& onLine,
+  bool mergeStdErr
+) -> ExecResult {
+  return exec2Impl(cmd, &onLine, mergeStdErr);
 }
 
 bool readUserIpt(bool yesToAll, std::string_view prompt) {
@@ -41,7 +74,7 @@ bool readUserIpt(bool yesToAll, std::string_view prompt) {
 
 auto findFFprobe(std::optional<fs::path> const& installDir)
   -> std::optional<fs::path> {
-  const auto systemFFprobeAvailable = exec2("ffprobe -version").exitCode == 0;
+  auto const systemFFprobeAvailable = exec2("ffprobe -version").exitCode == 0;
 
   if (!installDir.has_value() && systemFFprobeAvailable) {
     return fs::path{"ffprobe"};
@@ -53,7 +86,7 @@ auto findFFprobe(std::optional<fs::path> const& installDir)
 
   auto pathIter = fs::recursive_directory_iterator{installDir.value()};
 
-  for (const auto& entry: pathIter) {
+  for (auto const& entry: pathIter) {
     if (entry.is_regular_file() && entry.path().filename() == "ffprobe") {
       auto cmd = std::format("\"{}\" -version", entry.path().string());
       if (exec2(cmd).exitCode == 0) { return entry.path(); }
@@ -65,7 +98,7 @@ auto findFFprobe(std::optional<fs::path> const& installDir)
 
 auto findFFmpeg(std::optional<fs::path> const& installDir)
   -> std::optional<fs::path> {
-  const auto systemFFmpegAvailable = exec2("ffmpeg -version").exitCode == 0;
+  auto const systemFFmpegAvailable = exec2("ffmpeg -version").exitCode == 0;
 
   if (!installDir.has_value() && systemFFmpegAvailable) {
     return fs::path{"ffmpeg"};
@@ -77,7 +110,7 @@ auto findFFmpeg(std::optional<fs::path> const& installDir)
 
   auto pathIter = fs::recursive_directory_iterator{installDir.value()};
 
-  for (const auto& entry: pathIter) {
+  for (auto const& entry: pathIter) {
     if (entry.is_regular_file() && entry.path().filename() == "ffmpeg") {
       auto cmd = std::format("\"{}\" -version", entry.path().string());
       if (exec2(cmd).exitCode == 0) { return entry.path(); }
@@ -92,7 +125,7 @@ std::string getUUID() {
 }
 
 auto getParamStr(
-  const boost::program_options::variables_map& vm,
+  boost::program_options::variables_map const& vm,
   std::string_view paramName
 ) -> std::string {
   return boost::trim_copy(vm.at(paramName.data()).as<std::string>());
