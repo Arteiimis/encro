@@ -51,6 +51,14 @@ struct WebpEncodeStep {
   std::optional<std::uintmax_t> outputSize;
 };
 
+struct OutputContext {
+  appctx::AppContext const& app;
+  std::optional<fs::path> outputPath;
+};
+
+auto tryGetEncodedOutputFile(OutputContext const& outputCtx, fs::path const& vidPath)
+  -> std::optional<fs::path>;
+
 struct BatchContext {
   appctx::AppContext& app;
   EncodingBatchState& batch;
@@ -160,11 +168,39 @@ struct BatchContext {
       std::format("Overall: {}/{}", completed, total())
     );
   }
-};
 
-struct OutputContext {
-  appctx::AppContext const& app;
-  std::optional<fs::path> outputPath;
+  void recordResult(appctx::EncodingState const& vidState, bool result) {
+    auto lock = std::scoped_lock{batch.results.mtx};
+    batch.results.map[vidState.inputPath] = result;
+  }
+
+  void finalizeState(
+    OutputContext const& outputCtx,
+    appctx::EncodingStatePtr const& vidState,
+    bool result
+  ) {
+    if (result) {
+      auto const outFile = tryGetEncodedOutputFile(outputCtx, vidState->inputPath);
+      auto lock = std::scoped_lock{vidState->mtx};
+      vidState->outputFile = outFile;
+    }
+
+    {
+      auto lock = std::scoped_lock{vidState->mtx};
+      vidState->finished = true;
+      vidState->success = result;
+      vidState->endTime = std::chrono::steady_clock::now();
+      vidState->lastProgress = 100.0f;
+    }
+
+    {
+      auto lock = std::scoped_lock{vidState->mtx};
+      if (vidState->progressFilePath.has_value()) {
+        auto ec = std::error_code{};
+        fs::remove(vidState->progressFilePath.value(), ec);
+      }
+    }
+  }
 };
 
 auto packEncodedVideos(
@@ -196,7 +232,7 @@ void registerEncodingState(
 }
 
 auto createEncodingState(
-  appctx::AppContext& ctx,
+  BatchContext& batchCtx,
   fs::path const& vidPath,
   std::size_t barIndex
 ) -> appctx::EncodingStatePtr {
@@ -206,46 +242,9 @@ auto createEncodingState(
   vidState->startTime = std::chrono::steady_clock::now();
   vidState->progressFilePath =
     fs::temp_directory_path() / std::format("progress_{}.txt", getUUID());
-  vidState->outputPath = resolveVideoOutputPath(ctx.config, vidPath);
-  registerEncodingState(ctx.runtime, vidState);
+  vidState->outputPath = resolveVideoOutputPath(batchCtx.app.config, vidPath);
+  registerEncodingState(batchCtx.app.runtime, vidState);
   return vidState;
-}
-
-void recordEncodingResult(
-  EncodingBatchState& state,
-  appctx::EncodingState const& vidState,
-  bool result
-) {
-  auto lock = std::scoped_lock{state.results.mtx};
-  state.results.map[vidState.inputPath] = result;
-}
-
-void finalizeEncodingState(
-  OutputContext const& outputCtx,
-  appctx::EncodingStatePtr const& vidState,
-  bool result
-) {
-  if (result) {
-    auto const outFile = tryGetEncodedOutputFile(outputCtx, vidState->inputPath);
-    auto lock = std::scoped_lock{vidState->mtx};
-    vidState->outputFile = outFile;
-  }
-
-  {
-    auto lock = std::scoped_lock{vidState->mtx};
-    vidState->finished = true;
-    vidState->success = result;
-    vidState->endTime = std::chrono::steady_clock::now();
-    vidState->lastProgress = 100.0f;
-  }
-
-  {
-    auto lock = std::scoped_lock{vidState->mtx};
-    if (vidState->progressFilePath.has_value()) {
-      auto ec = std::error_code{};
-      fs::remove(vidState->progressFilePath.value(), ec);
-    }
-  }
 }
 
 auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
@@ -289,7 +288,7 @@ void runEncodingSlot(BatchContext& batchCtx, std::size_t slot) {
 
     auto const& vidPath = batchCtx.vids[taskIndex];
     auto const barIndex = batchCtx.barIndex(slot);
-    auto vidState = createEncodingState(batchCtx.app, vidPath, barIndex);
+    auto vidState = createEncodingState(batchCtx, vidPath, barIndex);
     batchCtx.setActive(slot, vidState);
 
     auto const fileLabel = makeSlotLabel(vidPath);
@@ -301,8 +300,8 @@ void runEncodingSlot(BatchContext& batchCtx, std::size_t slot) {
         vidState->lastStatus = status;
       });
 
-    recordEncodingResult(batchCtx.batch, *vidState, result);
-    finalizeEncodingState(
+    batchCtx.recordResult(*vidState, result);
+    batchCtx.finalizeState(
       OutputContext{batchCtx.app, vidState->outputPath},
       vidState,
       result
