@@ -59,6 +59,13 @@ TEST_CASE("commandLineInit parses multi-input values", "[cmd]") {
   CHECK(inputs[2] == "c.mov");
 }
 
+TEST_CASE("commandLineInit parses jobs option", "[cmd]") {
+  auto const result = parseArgs({"encro", "--jobs", "4"});
+
+  REQUIRE(result.vm.count("jobs") == 1);
+  CHECK(result.vm["jobs"].as<std::size_t>() == 4);
+}
+
 TEST_CASE("commandLineInit reports unknown options", "[cmd]") {
   auto const result = parseArgs({"encro", "--nope"});
 

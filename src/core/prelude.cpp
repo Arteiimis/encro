@@ -159,6 +159,13 @@ void logConfigSummary(appctx::AppConfig const& config) {
   if (config.outputPath.has_value()) {
     spdlog::info("Using custom output path: {}", config.outputPath.value().string());
   }
+
+  if (config.maxParallelJobs.has_value()) {
+    spdlog::info(
+      "Using custom max parallel jobs: {}",
+      config.maxParallelJobs.value()
+    );
+  }
 }
 
 }  // namespace prelude

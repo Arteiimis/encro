@@ -15,6 +15,7 @@
 #include <indicators/progress_bar.hpp>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -712,7 +713,11 @@ auto runEncodingBatches(appctx::AppContext& ctx, std::vector<fs::path> const& vi
 
   auto _ = progress::CursorGuard{};
 
-  auto const workerCount = std::min(vids.size(), kMaxConcurrentJobs);
+  auto const maxConcurrentJobs = std::max<std::size_t>(
+    1,
+    ctx.config.maxParallelJobs.value_or(kMaxConcurrentJobs)
+  );
+  auto const workerCount = std::min(vids.size(), maxConcurrentJobs);
   auto state = EncodingBatchState{vids.size(), workerCount};
 
   std::println(
@@ -822,7 +827,8 @@ auto packEncodedVideos(
     .progressLabelForIndex =
       [](std::size_t index) {
         return std::format("Packing: encoded_videos_part{}.zip", index + 1);
-      }
+      },
+    .maxParallelJobs = ctx.config.maxParallelJobs
   };
 
   auto const packRes = pack::packGroupsParallel(plan);

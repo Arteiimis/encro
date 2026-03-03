@@ -3,6 +3,7 @@
 #include <boost/json.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -10,7 +11,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
 
 namespace appctx {
 
@@ -27,6 +27,7 @@ struct AppConfig {
   bool packOnly = false;
   bool verbose = false;
   bool verboseEcho = false;
+  std::optional<std::size_t> maxParallelJobs;
   std::string processType = "video";
   std::string outputFormat = "mp4";
   fs::path inputPath;

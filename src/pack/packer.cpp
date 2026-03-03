@@ -108,7 +108,8 @@ auto packAllFilesInDirectory(
   fs::path const& dirPath,
   fs::path const& zipFileDir,
   std::uintmax_t maxGroupSize,
-  bool recursive
+  bool recursive,
+  std::optional<std::size_t> maxParallelJobs
 ) -> eh::Result<void> {
   if (!fs::is_directory(dirPath)) {
     return eh::makeError("Input path is not a directory: {}", dirPath.string());
@@ -152,7 +153,8 @@ auto packAllFilesInDirectory(
     .progressLabelForIndex =
       [dirName = dirPath.filename().string()](std::size_t index) {
         return std::format("Packing: {}_part{}.zip", dirName, index + 1);
-      }
+      },
+    .maxParallelJobs = maxParallelJobs
   };
 
   auto const packRes = pack::packGroupsParallel(plan);
