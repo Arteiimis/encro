@@ -54,6 +54,8 @@ TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config
   CHECK_FALSE(config.recursive);
   CHECK_FALSE(config.packOutput);
   CHECK_FALSE(config.packOnly);
+  CHECK_FALSE(config.verbose);
+  CHECK_FALSE(config.verboseEcho);
   CHECK(config.inputPath == inputPath);
   CHECK(config.inputPath.is_absolute());
 }
@@ -263,7 +265,7 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
      {"output", outputDir.string()},
      {"type", "picture"},
      {"output-format", "webp"}},
-    {"yes", "recursive", "pack", "pack-only"}
+    {"yes", "recursive", "pack", "pack-only", "verbose", "verbose-echo"}
   );
   auto const configRes = cmd::buildConfig(vm);
 
@@ -275,5 +277,7 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
   CHECK(config.recursive);
   CHECK(config.packOutput);
   CHECK(config.packOnly);
+  CHECK(config.verbose);
+  CHECK(config.verboseEcho);
   CHECK(config.outputPath == outputDir);
 }

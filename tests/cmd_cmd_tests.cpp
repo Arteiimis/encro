@@ -31,7 +31,13 @@ TEST_CASE("commandLineInit exposes defaults", "[cmd]") {
 
 TEST_CASE("commandLineInit parses flags", "[cmd]") {
   auto const result = parseArgs(
-    {"encro", "--yes", "--recursive", "--pack", "--pack-only", "--verbose"}
+    {"encro",
+     "--yes",
+     "--recursive",
+     "--pack",
+     "--pack-only",
+     "--verbose",
+     "--verbose-echo"}
   );
 
   CHECK(result.vm.count("yes") == 1);
@@ -39,6 +45,7 @@ TEST_CASE("commandLineInit parses flags", "[cmd]") {
   CHECK(result.vm.count("pack") == 1);
   CHECK(result.vm.count("pack-only") == 1);
   CHECK(result.vm.count("verbose") == 1);
+  CHECK(result.vm.count("verbose-echo") == 1);
 }
 
 TEST_CASE("commandLineInit parses multi-input values", "[cmd]") {
