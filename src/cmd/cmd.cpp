@@ -22,10 +22,11 @@ using namespace std::literals;
 
 auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   auto general = po::options_description("General options");
-  general.add_options()                     //
-    ("help,h", "produce help message")      //
-    ("verbose,v", "enable verbose output")  //
-    ("yes,y", "automatic yes to prompts")   //
+  general.add_options()                                                         //
+    ("help,h", "produce help message")                                          //
+    ("verbose,v", "enable verbose output")                                      //
+    ("verbose-echo,e", "echo verbose logs to console (disable progress bars)")  //
+    ("yes,y", "automatic yes to prompts")                                       //
     ;
 
   auto io = po::options_description("Input/Output options");
@@ -58,9 +59,7 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   try {
     store(parse_command_line(argc, argv, all), vm);
     notify(vm);
-  } catch (const po::error& ex) {
-    error = ex.what();
-  }
+  } catch (po::error const& ex) { error = ex.what(); }
 
   return {all, vm, error};
 }

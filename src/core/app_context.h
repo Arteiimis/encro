@@ -25,6 +25,8 @@ struct AppConfig {
   bool recursive = false;
   bool packOutput = false;
   bool packOnly = false;
+  bool verbose = false;
+  bool verboseEcho = false;
   std::string processType = "video";
   std::string outputFormat = "mp4";
   fs::path inputPath;
