@@ -28,7 +28,8 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
     ctx.config.inputPath,
     zipOutputDir,
     500 * 1024 * 1024,
-    true
+    true,
+    ctx.config.maxParallelJobs
   );
 
   if (!packRes) {

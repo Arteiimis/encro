@@ -79,7 +79,7 @@ auto resolveLayout(std::size_t columns) -> ProgressLayout {
 
 auto splitPostfixParts(std::string_view text) -> std::vector<std::string> {
   auto parts = std::vector<std::string>{};
-  auto start = std::size_t{0};
+  auto start = 0ull;
   while (start <= text.size()) {
     auto const pos = text.find('|', start);
     if (pos == std::string_view::npos) {
@@ -106,12 +106,12 @@ auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
   auto contentBudget = budget - delimTotal;
   auto alloc = std::vector<std::size_t>(parts.size(), 0);
 
-  auto totalLen = std::size_t{0};
+  auto totalLen = 0ull;
   for (auto const& part: parts) { totalLen += part.size(); }
   if (totalLen == 0) { return truncateWithEllipsis(trimCopy(text), budget); }
 
-  auto allocated = std::size_t{0};
-  for (auto i = std::size_t{0}; i < parts.size(); ++i) {
+  auto allocated = 0ull;
+  for (auto i = 0ull; i < parts.size(); ++i) {
     auto share = (parts[i].size() * contentBudget) / totalLen;
     auto const minShare = std::size_t{4};
     alloc[i] = std::min(parts[i].size(), std::max(share, minShare));
@@ -120,8 +120,7 @@ auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
 
   while (allocated > contentBudget) {
     auto reduced = false;
-    for (auto i = std::size_t{0}; i < alloc.size() && allocated > contentBudget;
-         ++i) {
+    for (auto i = 0ull; i < alloc.size() && allocated > contentBudget; ++i) {
       if (alloc[i] > 4) {
         --alloc[i];
         --allocated;
@@ -133,8 +132,7 @@ auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
 
   while (allocated < contentBudget) {
     auto grown = false;
-    for (auto i = std::size_t{0}; i < alloc.size() && allocated < contentBudget;
-         ++i) {
+    for (auto i = 0ull; i < alloc.size() && allocated < contentBudget; ++i) {
       if (alloc[i] < parts[i].size()) {
         ++alloc[i];
         ++allocated;
@@ -145,7 +143,7 @@ auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
   }
 
   auto out = std::string{};
-  for (auto i = std::size_t{0}; i < parts.size(); ++i) {
+  for (auto i = 0ull; i < parts.size(); ++i) {
     if (i > 0) { out += delim; }
     out += truncateWithEllipsis(parts[i], alloc[i]);
   }

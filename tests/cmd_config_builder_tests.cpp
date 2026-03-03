@@ -123,6 +123,30 @@ TEST_CASE("buildConfig rejects invalid process type", "[cmd][config]") {
   CHECK(configRes.error().find("Invalid process type") != std::string::npos);
 }
 
+TEST_CASE("buildConfig maps vid alias to video", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm = makeVm({{"input", inputPath.string()}, {"type", "vid"}});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  CHECK(configRes->processType == "video");
+}
+
+TEST_CASE("buildConfig maps pic alias to picture", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm = makeVm({{"input", inputPath.string()}, {"type", "pic"}});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  CHECK(configRes->processType == "picture");
+}
+
 TEST_CASE("buildConfig rejects multi-input for picture type", "[cmd][config]") {
   namespace po = boost::program_options;
 
@@ -280,4 +304,37 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
   CHECK(config.verbose);
   CHECK(config.verboseEcho);
   CHECK(config.outputPath == outputDir);
+}
+
+TEST_CASE("buildConfig reads custom max parallel jobs", "[cmd][config]") {
+  namespace po = boost::program_options;
+
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto vm = makeVm({{"input", inputPath.string()}});
+  vm.insert({"jobs", po::variable_value(boost::any{std::size_t{4}}, false)});
+
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  REQUIRE(configRes->maxParallelJobs.has_value());
+  CHECK(configRes->maxParallelJobs.value() == 4);
+}
+
+TEST_CASE("buildConfig rejects jobs = 0", "[cmd][config]") {
+  namespace po = boost::program_options;
+
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto vm = makeVm({{"input", inputPath.string()}});
+  vm.insert({"jobs", po::variable_value(boost::any{std::size_t{0}}, false)});
+
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(configRes.error().find("--jobs must be >= 1") != std::string::npos);
 }

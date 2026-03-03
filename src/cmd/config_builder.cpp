@@ -56,6 +56,9 @@ auto readProcessType(boost::program_options::variables_map const& vm)
   if (!vm.count("type")) { return std::string{"video"}; }
 
   auto const typeStr = getParamStr(vm, "type");
+  if (typeStr == "vid") { return std::string{"video"}; }
+  if (typeStr == "pic") { return std::string{"picture"}; }
+
   constexpr auto validTypes = std::array{"video", "picture"};
   if (!std::ranges::contains(validTypes, typeStr)) {
     return eh::makeError(
@@ -83,6 +86,18 @@ auto readOutputFormat(boost::program_options::variables_map const& vm)
   return outputFormat;
 }
 
+auto readMaxParallelJobs(boost::program_options::variables_map const& vm)
+  -> eh::Result<std::optional<std::size_t>> {
+  if (!vm.count("jobs")) { return std::nullopt; }
+
+  auto const jobs = vm.at("jobs").as<std::size_t>();
+  if (jobs == 0) {
+    return eh::makeError("Invalid jobs value: 0. --jobs must be >= 1.");
+  }
+
+  return jobs;
+}
+
 }  // namespace
 
 namespace cmd {
@@ -98,6 +113,10 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   auto formatRes = readOutputFormat(vm);
   if (!formatRes) { return eh::makeError("{}", formatRes.error()); }
   config.outputFormat = formatRes.value();
+
+  auto jobsRes = readMaxParallelJobs(vm);
+  if (!jobsRes) { return eh::makeError("{}", jobsRes.error()); }
+  config.maxParallelJobs = jobsRes.value();
 
   config.yesToAll = vm.count("yes") > 0;
   config.recursive = vm.count("recursive") > 0;
