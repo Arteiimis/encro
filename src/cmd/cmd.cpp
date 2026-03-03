@@ -22,11 +22,11 @@ using namespace std::literals;
 
 auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   auto general = po::options_description("General options");
-  general.add_options()                                                         //
-    ("help,h", "produce help message")                                          //
-    ("verbose,v", "enable verbose output")                                      //
-    ("verbose-echo,e", "echo verbose logs to console (disable progress bars)")  //
-    ("yes,y", "automatic yes to prompts")                                       //
+  general.add_options()                                                            //
+    ("help,h", "produce help message")                                             //
+    ("verbose,v", "enable verbose output")                                         //
+    ("verbose-echo,e", "echo verbose logs to console\n  (disable progress bars)")  //
+    ("yes,y", "automatic yes to prompts")                                          //
     ;
 
   auto io = po::options_description("Input/Output options");
@@ -39,9 +39,10 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ;
 
   auto processing = po::options_description("Processing options");
-  processing.add_options()                                              //
-    ("type,t", pvDefault("video"s), "process type: video or picture")   //
-    ("ffmpeg-path,x", pv<std::string>(), "custom ffmpeg install path")  //
+  processing.add_options()                                                    //
+    ("type,t", pvDefault("video"s), "process type: video(vid)|picture(pic)")  //
+    ("jobs,j", pvDefault(10ull), "max parallel jobs (>=1, default=10)")       //
+    ("ffmpeg-path,x", pv<std::string>(), "custom ffmpeg install path")        //
     ;
 
   auto fileop = po::options_description("File operation options");

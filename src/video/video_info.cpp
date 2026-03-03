@@ -155,8 +155,11 @@ auto finalizeVideoList(
 ) -> std::vector<fs::path> {
   if (vids.empty()) { return {}; }
 
-  auto const workerCount =
-    std::min<std::size_t>(vids.size(), std::thread::hardware_concurrency());
+  auto const configuredOrDetected = config.maxParallelJobs.value_or(
+    static_cast<std::size_t>(std::thread::hardware_concurrency())
+  );
+  auto const maxParallelJobs = std::max<std::size_t>(1, configuredOrDetected);
+  auto const workerCount = std::min<std::size_t>(vids.size(), maxParallelJobs);
 
   auto keep = std::vector<char>(vids.size(), 0);
   auto cacheMtx = std::mutex{};

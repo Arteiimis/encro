@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@ struct PackPlan {
   fs::path outputDir;
   std::function<std::string(std::size_t)> zipNameForIndex;
   std::function<std::string(std::size_t)> progressLabelForIndex;
+  std::optional<std::size_t> maxParallelJobs;
   bool removeOnFailure = false;
 };
 

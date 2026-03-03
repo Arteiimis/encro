@@ -26,7 +26,6 @@ auto readAllPics(appctx::AppConfig const& config, fs::path const& dirPath)
     ".bmp"sv,
     ".tiff"sv,
     ".gif"sv,
-    ".webp"sv,
     ".heic"sv
   };
 
@@ -39,9 +38,12 @@ auto packAllPicsToZipParallel(
   fs::path const& zipFileDir
 ) -> eh::Result<void> {
   std::println("Scanning input path for pictures: {} ...", dirPath.string());
-  auto const groupedPics = groupFilesBySize(readAllPics(config, dirPath));
+  auto const scannedPics = readAllPics(config, dirPath);
+  auto const groupedPics = groupFilesBySize(scannedPics);
   std::println(
-    "Picture scan completed, grouped into {} package batch(es).",
+    "Picture scan completed, {} picture(s) found, grouped into {} package "
+    "batch(es).",
+    scannedPics.size(),
     groupedPics.size()
   );
   auto const proceed = readUserIpt(
@@ -64,6 +66,7 @@ auto packAllPicsToZipParallel(
       [dirName = dirPath.filename().string()](std::size_t index) {
         return std::format("Packing: {}_part{}.zip", dirName, index + 1);
       },
+    .maxParallelJobs = config.maxParallelJobs,
     .removeOnFailure = true
   };
 
