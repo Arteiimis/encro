@@ -7,15 +7,9 @@
 #include <string>
 
 TEST_CASE("exec2 runs a simple command", "[utils]") {
-#if defined(_WIN32)
-  auto const result = exec2("cmd /c echo hello");
-  REQUIRE(result.exitCode == 0);
-  CHECK(result.output.find("hello") != std::string::npos);
-#else
   auto const result = exec2("echo hello");
   REQUIRE(result.exitCode == 0);
   CHECK(result.output.find("hello") != std::string::npos);
-#endif
 }
 
 TEST_CASE("readUserIpt returns true when yesToAll", "[utils]") {
