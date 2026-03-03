@@ -54,7 +54,7 @@ target_end()
 includes("@builtin/xpack")
 
 xpack("encro")
-  set_formats("nsis", "srczip", "srctargz", "zip", "targz")
+  set_formats("nsis", "srczip", "srctarxz", "zip", "tarxz")
   set_title("Encro")
   set_author("Artemiss")
   set_description("encro: Universal video encoder/converter/packer")
