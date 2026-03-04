@@ -3,10 +3,9 @@ add_rules("mode.debug", "mode.release", "mode.releasedbg", "mode.coverage")
 set_policy("build.optimization.lto", true)
 set_version("0.1.5")
 
-set_languages("c++latest")
+set_languages("c++26")
 set_toolchains("clang")
 
-add_cxxflags("-Wno-c++26-extensions")
 add_cxxflags("-ftrivial-auto-var-init=pattern")
 
 if is_mode("coverage") then
@@ -36,6 +35,11 @@ target("encro")
   set_kind("binary")
 
   add_packages("boost", "thread-pool", "indicators", "spdlog", "libzippp")
+  if is_plat("windows") then
+    add_syslinks("dbghelp")
+  else
+    add_syslinks("dl")
+  end
 
   add_includedirs("src")
   add_files("src/**.cpp")
@@ -46,6 +50,11 @@ target("tests")
   set_default(false)
 
   add_packages("catch2", "boost", "thread-pool", "indicators", "spdlog", "libzippp")
+  if is_plat("windows") then
+    add_syslinks("dbghelp")
+  else
+    add_syslinks("dl")
+  end
   add_includedirs("src")
   add_files("tests/*.cpp")
   add_files("src/**.cpp|main.cpp")
