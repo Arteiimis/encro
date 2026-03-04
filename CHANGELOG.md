@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-05
+
+### Added
+
+- A crash prints a stack trace and exits with a message instead of disappearing.
+- `-j` / `--jobs` sets how many files are processed in parallel.
+- `-v` / `--verbose` and `-e` / `--verbose-echo` control how much of the progress is repeated to the terminal.
+
+### Changed
+
+- Process-type aliases (`vid` / `pic`) are accepted alongside the full names.
+
 ## [0.1.5] - 2026-03-02
 
 ### Added
@@ -26,6 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v0.1.5...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Arteiimis/encro/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/Arteiimis/encro/compare/v0.1.0...v0.1.5
 [0.1.0]: https://github.com/Arteiimis/encro/releases/tag/v0.1.0
