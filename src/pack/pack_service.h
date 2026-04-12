@@ -17,6 +17,7 @@ struct PackPlan {
   fs::path outputDir;
   std::function<std::string(std::size_t)> zipNameForIndex;
   std::function<std::string(std::size_t)> progressLabelForIndex;
+  std::function<std::string(fs::path const&)> zipEntryNameForFile;
   std::optional<std::size_t> maxParallelJobs;
   bool removeOnFailure = false;
 };

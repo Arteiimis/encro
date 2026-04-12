@@ -4,15 +4,21 @@
 #include "core/progress.h"
 
 #include <filesystem>
+#include <functional>
 #include <optional>
+#include <string>
 #include <vector>
 
+
+using ZipEntryNameResolver =
+  std::function<std::string(std::filesystem::path const&)>;
 
 auto packFilesToZip(
   const std::vector<std::filesystem::path>& filePaths,
   const std::filesystem::path& zipFilePath,
   progress::ProgressContext& progressCtx,
-  std::string_view progressText
+  std::string_view progressText,
+  ZipEntryNameResolver entryNameForFile = {}
 ) -> eh::Result<void>;
 
 auto groupFilesBySize(
