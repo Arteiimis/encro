@@ -54,7 +54,7 @@ TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config
   CHECK_FALSE(config.recursive);
   CHECK_FALSE(config.packOutput);
   CHECK_FALSE(config.packOnly);
-  CHECK_FALSE(config.forceNameConflictHandling);
+  CHECK(config.forceNameConflictHandling);
   CHECK_FALSE(config.verbose);
   CHECK_FALSE(config.verboseEcho);
   CHECK(config.outputLayout == appctx::OutputLayout::Flat);
@@ -79,12 +79,41 @@ TEST_CASE("buildConfig reads forced conflict handling flag", "[cmd][config]") {
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm =
-    makeVm({{"input", inputPath.string()}}, {"force-conflict-handling"});
+  auto const vm = makeVm(
+    {{"input", inputPath.string()}, {"force-conflict-handling", "y"}}
+  );
   auto const configRes = cmd::buildConfig(vm);
 
   REQUIRE(configRes);
   CHECK(configRes->forceNameConflictHandling);
+}
+
+TEST_CASE("buildConfig reads disabled conflict handling flag", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm = makeVm(
+    {{"input", inputPath.string()}, {"force-conflict-handling", "n"}}
+  );
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  CHECK_FALSE(configRes->forceNameConflictHandling);
+}
+
+TEST_CASE("buildConfig rejects invalid conflict-handling value", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm = makeVm(
+    {{"input", inputPath.string()}, {"force-conflict-handling", "maybe"}}
+  );
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(configRes.error().find("must be set to y or n") != std::string::npos);
 }
 
 TEST_CASE("buildConfig rejects conflicting output layouts", "[cmd][config]") {
