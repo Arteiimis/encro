@@ -66,7 +66,7 @@ TEST_CASE("picture pipeline packs directory", "[pipeline]") {
 }
 
 TEST_CASE(
-  "pack-only pipeline can force collision-safe file names",
+  "pack-only pipeline defaults to collision-safe file names",
   "[pipeline]"
 ) {
   TempDir temp;
@@ -81,7 +81,6 @@ TEST_CASE(
   auto ctx = appctx::AppContext{};
   ctx.config.packOnly = true;
   ctx.config.processType = "video";
-  ctx.config.forceNameConflictHandling = true;
   ctx.config.inputPath = inputDir;
 
   auto runRes = pipeline::run(ctx);
@@ -105,6 +104,48 @@ TEST_CASE(
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0].starts_with("a__alpha__"));
   CHECK(entryNames[1].starts_with("b__beta__"));
+  zip.close();
+}
+
+TEST_CASE(
+  "pack-only pipeline can disable collision-safe file names",
+  "[pipeline]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+  touchFile(dirA / "alpha.bin");
+  touchFile(dirB / "beta.bin");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.packOnly = true;
+  ctx.config.processType = "video";
+  ctx.config.forceNameConflictHandling = false;
+  ctx.config.inputPath = inputDir;
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  REQUIRE(runRes.value() == 0);
+
+  auto const zipPath = inputDir / "packed" / "input_part1_1-2_items2.zip";
+  REQUIRE(fs::exists(zipPath));
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  auto entryNames = std::vector<std::string>{};
+  entryNames.reserve(entries.size());
+  for (auto const& entry: entries) {
+    if (entry.getName().ends_with('/')) { continue; }
+    entryNames.emplace_back(entry.getName());
+  }
+  std::ranges::sort(entryNames);
+
+  REQUIRE(entryNames.size() == 2);
+  CHECK(entryNames == std::vector<std::string>{"alpha.bin", "beta.bin"});
   zip.close();
 }
 
@@ -156,7 +197,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "picture pipeline can force collision-safe names for unique files",
+  "picture pipeline defaults to collision-safe names for unique files",
   "[pipeline]"
 ) {
   TempDir temp;
@@ -172,7 +213,6 @@ TEST_CASE(
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
   ctx.config.recursive = true;
-  ctx.config.forceNameConflictHandling = true;
   ctx.config.inputPath = inputDir;
 
   auto runRes = pipeline::run(ctx);
@@ -196,6 +236,49 @@ TEST_CASE(
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0].starts_with("a__alpha__"));
   CHECK(entryNames[1].starts_with("b__beta__"));
+  zip.close();
+}
+
+TEST_CASE(
+  "picture pipeline can disable collision-safe names for unique files",
+  "[pipeline]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+  touchFile(dirA / "alpha.jpg");
+  touchFile(dirB / "beta.jpg");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.recursive = true;
+  ctx.config.forceNameConflictHandling = false;
+  ctx.config.inputPath = inputDir;
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  REQUIRE(runRes.value() == 0);
+
+  auto const zipPath = inputDir / "packed" / "pics_part1_1-2_items2.zip";
+  REQUIRE(fs::exists(zipPath));
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  auto entryNames = std::vector<std::string>{};
+  entryNames.reserve(entries.size());
+  for (auto const& entry: entries) {
+    if (entry.getName().ends_with('/')) { continue; }
+    entryNames.emplace_back(entry.getName());
+  }
+  std::ranges::sort(entryNames);
+
+  REQUIRE(entryNames.size() == 2);
+  CHECK(entryNames == std::vector<std::string>{"alpha.jpg", "beta.jpg"});
   zip.close();
 }
 

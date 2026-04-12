@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -112,6 +113,21 @@ auto readOutputLayout(boost::program_options::variables_map const& vm)
   return appctx::OutputLayout::Flat;
 }
 
+auto readForceNameConflictHandling(boost::program_options::variables_map const& vm)
+  -> eh::Result<bool> {
+  if (!vm.count("force-conflict-handling")) { return true; }
+
+  auto value = getParamStr(vm, "force-conflict-handling");
+  std::ranges::transform(value, value.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+
+  if (value == "y") { return true; }
+  if (value == "n") { return false; }
+
+  return eh::makeError("--force-conflict-handling must be set to y or n.");
+}
+
 }  // namespace
 
 namespace cmd {
@@ -136,11 +152,14 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   if (!layoutRes) { return eh::makeError("{}", layoutRes.error()); }
   config.outputLayout = layoutRes.value();
 
+  auto forceNamingRes = readForceNameConflictHandling(vm);
+  if (!forceNamingRes) { return eh::makeError("{}", forceNamingRes.error()); }
+  config.forceNameConflictHandling = forceNamingRes.value();
+
   config.yesToAll = vm.count("yes") > 0;
   config.recursive = vm.count("recursive") > 0;
   config.packOutput = vm.count("pack") > 0;
   config.packOnly = vm.count("pack-only") > 0;
-  config.forceNameConflictHandling = vm.count("force-conflict-handling") > 0;
   config.verbose = vm.count("verbose") > 0;
   config.verboseEcho = vm.count("verbose-echo") > 0;
 
