@@ -65,6 +65,7 @@ struct BatchContext {
   appctx::AppContext& app;
   EncodingBatchState& batch;
   std::span<fs::path const> vids;
+  fs::path outputBaseInputPath;
 
   auto& counters() { return batch.counters; }
   auto const& counters() const { return batch.counters; }
@@ -276,7 +277,9 @@ auto createEncodingState(
   vidState->startTime = std::chrono::steady_clock::now();
   vidState->progressFilePath =
     fs::temp_directory_path() / std::format("progress_{}.txt", getUUID());
-  vidState->outputPath = resolveVideoOutputPath(batchCtx.app.config, vidPath);
+  // Keep a single default webp output directory for the whole request.
+  vidState->outputPath =
+    resolveVideoOutputPath(batchCtx.app.config, batchCtx.outputBaseInputPath);
   registerEncodingState(batchCtx.app.runtime, vidState);
   return vidState;
 }
@@ -651,7 +654,8 @@ auto maybePackOutputs(
 
 auto runEncodingWithoutProgress(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& vids
+  std::vector<fs::path> const& vids,
+  fs::path const& outputBaseInputPath
 ) -> std::unordered_map<fs::path, bool> {
   auto vidsRunRes = std::unordered_map<fs::path, bool>{};
   vidsRunRes.reserve(vids.size());
@@ -664,7 +668,8 @@ auto runEncodingWithoutProgress(
   for (auto const& vidPath: vids) {
     auto state = appctx::EncodingState{};
     state.inputPath = vidPath;
-    auto const outputPath = resolveVideoOutputPath(ctx.config, vidPath);
+    auto const outputPath =
+      resolveVideoOutputPath(ctx.config, outputBaseInputPath);
     state.outputPath = outputPath;
 
     spdlog::debug("Start encoding (no-progress): {}", vidPath.string());
@@ -681,8 +686,11 @@ auto runEncodingWithoutProgress(
   return vidsRunRes;
 }
 
-auto runEncodingBatches(appctx::AppContext& ctx, std::vector<fs::path> const& vids)
-  -> std::optional<std::unordered_map<fs::path, bool>> {
+auto runEncodingBatches(
+  appctx::AppContext& ctx,
+  std::vector<fs::path> const& vids,
+  fs::path const& outputBaseInputPath
+) -> std::optional<std::unordered_map<fs::path, bool>> {
   constexpr auto kMaxConcurrentJobs = std::size_t{10};
 
   spdlog::info(
@@ -708,7 +716,7 @@ auto runEncodingBatches(appctx::AppContext& ctx, std::vector<fs::path> const& vi
   if (ctx.config.verbose && ctx.config.verboseEcho) {
     std::println("Verbose echo enabled: progress bars are disabled.");
     spdlog::debug("Progress bars disabled due to verbose echo mode.");
-    return runEncodingWithoutProgress(ctx, vids);
+    return runEncodingWithoutProgress(ctx, vids, outputBaseInputPath);
   }
 
   auto _ = progress::CursorGuard{};
@@ -731,7 +739,7 @@ auto runEncodingBatches(appctx::AppContext& ctx, std::vector<fs::path> const& vi
     vids.size()
   );
 
-  auto batchCtx = BatchContext{ctx, state, vids};
+  auto batchCtx = BatchContext{ctx, state, vids, outputBaseInputPath};
   batchCtx.updateOverall();
   auto monitorThread = startEncodingMonitor(batchCtx);
 
@@ -1072,7 +1080,7 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
     return 0;
   }
 
-  auto const runRes = runEncodingBatches(ctx, vids);
+  auto const runRes = runEncodingBatches(ctx, vids, inputPath);
   if (!runRes.has_value()) { return 0; }
 
   auto const& vidsRunRes = runRes.value();
@@ -1097,11 +1105,11 @@ int handleMultiFileEncoding(
     return 0;
   }
 
-  auto const runRes = runEncodingBatches(ctx, vids);
-  if (!runRes.has_value()) { return 0; }
-
   auto const basePath = resolveMultiInputBasePath(ctx.config, inputPaths);
-  if (!basePath.has_value()) {
+  if (
+    ctx.config.outputFormat == "webp" && !ctx.config.outputPath.has_value()
+    && !basePath.has_value()
+  ) {
     spdlog::error(
       "Multiple input files must share the same parent directory or specify "
       "--output/-o."
@@ -1109,9 +1117,23 @@ int handleMultiFileEncoding(
     return 1;
   }
 
+  auto const outputBaseInputPath = basePath.value_or(inputPaths.front());
+  auto const runRes = runEncodingBatches(ctx, vids, outputBaseInputPath);
+  if (!runRes.has_value()) { return 0; }
+
   auto const& vidsRunRes = runRes.value();
-  auto const packRes = maybePackOutputs(ctx, basePath.value(), vidsRunRes);
-  if (packRes != 0) { return packRes; }
+  if (ctx.config.packOutput) {
+    if (!basePath.has_value()) {
+      spdlog::error(
+        "Multiple input files must share the same parent directory or specify "
+        "--output/-o."
+      );
+      return 1;
+    }
+
+    auto const packRes = maybePackOutputs(ctx, basePath.value(), vidsRunRes);
+    if (packRes != 0) { return packRes; }
+  }
 
   printEncodingSummary(vids, vidsRunRes);
   spdlog::info("Multi-file encoding done: input-count={}", inputPaths.size());

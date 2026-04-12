@@ -130,6 +130,33 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "recursive webp scans must use the requested root directory as output base",
+  "[video-process][resolve-output-path]"
+) {
+  TempDir temp;
+  auto const nestedDir = temp.path / "level1" / "level2";
+  auto const nestedFile = nestedDir / "sample.mp4";
+  fs::create_directories(nestedDir);
+
+  {
+    std::ofstream out{nestedFile};
+    out << "x";
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputPath.reset();
+  config.outputFormat = "webp";
+
+  auto const rootOutputPath = resolveVideoOutputPath(config, temp.path);
+  auto const nestedFileOutputPath = resolveVideoOutputPath(config, nestedFile);
+
+  REQUIRE(rootOutputPath.has_value());
+  REQUIRE(nestedFileOutputPath.has_value());
+  CHECK(rootOutputPath.value() == temp.path / "encoded_webp");
+  CHECK(nestedFileOutputPath.value() == nestedDir / "encoded_webp");
+}
+
+TEST_CASE(
   "resolveVideoOutputPath returns user output path when provided",
   "[video-process][resolve-output-path]"
 ) {
