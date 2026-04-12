@@ -35,6 +35,9 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("inputs,I", pvm<std::vector<std::string>>(), "input video file paths")  //
     ("output,o", pv<std::string>(), "custom output directory path")          //
     ("output-format,f", pvDefault("mp4"s), "target format: mp4 or webp")     //
+    ("flat", "flatten output names inside the output directory (default)")   //
+    ("keep",
+     "preserve relative input subdirectories inside the output directory")   //
     ("recursive,r", "enable recursively search")                             //
     ;
 

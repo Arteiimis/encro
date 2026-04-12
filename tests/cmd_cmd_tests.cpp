@@ -36,6 +36,8 @@ TEST_CASE("commandLineInit parses flags", "[cmd]") {
      "--recursive",
      "--pack",
      "--pack-only",
+     "--flat",
+     "--keep",
      "--verbose",
      "--verbose-echo"}
   );
@@ -44,6 +46,8 @@ TEST_CASE("commandLineInit parses flags", "[cmd]") {
   CHECK(result.vm.count("recursive") == 1);
   CHECK(result.vm.count("pack") == 1);
   CHECK(result.vm.count("pack-only") == 1);
+  CHECK(result.vm.count("flat") == 1);
+  CHECK(result.vm.count("keep") == 1);
   CHECK(result.vm.count("verbose") == 1);
   CHECK(result.vm.count("verbose-echo") == 1);
 }

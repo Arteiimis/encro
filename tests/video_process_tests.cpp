@@ -175,6 +175,137 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "planVideoOutputFiles keeps default flat layout and disambiguates duplicate names",
+  "[video-process][plan-output]"
+) {
+  TempDir temp;
+  auto const dirA = temp.path / "a" / "x";
+  auto const dirB = temp.path / "b" / "y";
+  auto const fileA = dirA / "sample.mp4";
+  auto const fileB = dirB / "sample.mp4";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  {
+    std::ofstream out{fileA};
+    out << "x";
+  }
+  {
+    std::ofstream out{fileB};
+    out << "x";
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.outputLayout = appctx::OutputLayout::Flat;
+
+  auto const plannedRes =
+    planVideoOutputFiles(config, std::vector{fileA, fileB}, temp.path);
+
+  REQUIRE(plannedRes);
+  auto const& planned = plannedRes.value();
+  REQUIRE(planned.contains(fileA));
+  REQUIRE(planned.contains(fileB));
+  CHECK(planned.at(fileA).parent_path() == temp.path / "encoded_webp");
+  CHECK(planned.at(fileB).parent_path() == temp.path / "encoded_webp");
+  CHECK(planned.at(fileA).filename() != planned.at(fileB).filename());
+  CHECK(planned.at(fileA).filename().string().find("__") != std::string::npos);
+  CHECK(planned.at(fileB).filename().string().find("__") != std::string::npos);
+}
+
+TEST_CASE(
+  "planVideoOutputFiles preserves relative directories in keep layout",
+  "[video-process][plan-output]"
+) {
+  TempDir temp;
+  auto const nestedDir = temp.path / "level1" / "level2";
+  auto const nestedFile = nestedDir / "sample.mp4";
+  fs::create_directories(nestedDir);
+
+  {
+    std::ofstream out{nestedFile};
+    out << "x";
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.outputLayout = appctx::OutputLayout::Keep;
+
+  auto const plannedRes =
+    planVideoOutputFiles(config, std::vector{nestedFile}, temp.path);
+
+  REQUIRE(plannedRes);
+  REQUIRE(plannedRes->contains(nestedFile));
+  CHECK(
+    plannedRes->at(nestedFile)
+    == temp.path / "encoded_webp" / "level1" / "level2" / "sample.webp"
+  );
+}
+
+TEST_CASE(
+  "planVideoOutputFiles rejects keep layout without shared source root",
+  "[video-process][plan-output]"
+) {
+  TempDir temp;
+  auto const outputDir = temp.path / "out";
+  auto const fileA = temp.path / "a.mp4";
+  auto const fileB = temp.path / "b.mp4";
+  fs::create_directories(outputDir);
+
+  {
+    std::ofstream out{fileA};
+    out << "x";
+  }
+  {
+    std::ofstream out{fileB};
+    out << "x";
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.outputLayout = appctx::OutputLayout::Keep;
+  config.outputPath = outputDir;
+
+  auto const plannedRes =
+    planVideoOutputFiles(config, std::vector{fileA, fileB}, std::nullopt);
+
+  REQUIRE_FALSE(plannedRes);
+  CHECK(plannedRes.error().find("--keep") != std::string::npos);
+}
+
+TEST_CASE(
+  "planVideoOutputFiles disambiguates same-stem files in keep layout",
+  "[video-process][plan-output]"
+) {
+  TempDir temp;
+  auto const fileA = temp.path / "sample.mp4";
+  auto const fileB = temp.path / "sample.mkv";
+
+  {
+    std::ofstream out{fileA};
+    out << "x";
+  }
+  {
+    std::ofstream out{fileB};
+    out << "x";
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.outputLayout = appctx::OutputLayout::Keep;
+
+  auto const plannedRes =
+    planVideoOutputFiles(config, std::vector{fileA, fileB}, temp.path);
+
+  REQUIRE(plannedRes);
+  REQUIRE(plannedRes->contains(fileA));
+  REQUIRE(plannedRes->contains(fileB));
+  CHECK(plannedRes->at(fileA).parent_path() == temp.path / "encoded_webp");
+  CHECK(plannedRes->at(fileB).parent_path() == temp.path / "encoded_webp");
+  CHECK(plannedRes->at(fileA).filename() != plannedRes->at(fileB).filename());
+}
+
+TEST_CASE(
   "resolveVideoOutputPath returns no value for non-webp without custom output",
   "[video-process][resolve-output-path]"
 ) {

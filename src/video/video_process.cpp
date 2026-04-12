@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <fstream>
 #include <print>
@@ -43,7 +44,7 @@ constexpr auto kWebpSmallGapThreshold = std::uintmax_t{3ULL * 1024ULL * 1024ULL}
 
 struct WebpEncodeContext {
   fs::path inputVidPath;
-  std::optional<fs::path> outputPath;
+  fs::path outputFilePath;
   fs::path progressFilePath;
   std::function<void(std::string const&)> statusUpdater;
 };
@@ -53,19 +54,11 @@ struct WebpEncodeStep {
   std::optional<std::uintmax_t> outputSize;
 };
 
-struct OutputContext {
-  appctx::AppContext const& app;
-  std::optional<fs::path> outputPath;
-};
-
-auto tryGetEncodedOutputFile(OutputContext const& outputCtx, fs::path const& vidPath)
-  -> std::optional<fs::path>;
-
 struct BatchContext {
   appctx::AppContext& app;
   EncodingBatchState& batch;
   std::span<fs::path const> vids;
-  fs::path outputBaseInputPath;
+  appctx::path_map<fs::path> const& plannedOutputFiles;
 
   auto& counters() { return batch.counters; }
   auto const& counters() const { return batch.counters; }
@@ -178,14 +171,17 @@ struct BatchContext {
   }
 
   void finalizeState(
-    OutputContext const& outputCtx,
     appctx::EncodingStatePtr const& vidState,
     bool result
   ) {
     if (result) {
-      auto const outFile = tryGetEncodedOutputFile(outputCtx, vidState->inputPath);
       auto lock = std::scoped_lock{vidState->mtx};
-      vidState->outputFile = outFile;
+      if (
+        vidState->plannedOutputFile.has_value()
+        && fs::exists(vidState->plannedOutputFile.value())
+      ) {
+        vidState->outputFile = vidState->plannedOutputFile;
+      }
     }
 
     {
@@ -209,11 +205,9 @@ struct BatchContext {
 auto packEncodedVideos(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
+  appctx::path_map<fs::path> const& plannedOutputFiles,
   std::unordered_map<fs::path, bool> const& vidsRunRes
 ) -> int;
-
-auto tryGetEncodedOutputFile(OutputContext const& outputCtx, fs::path const& vidPath)
-  -> std::optional<fs::path>;
 
 auto truncateForProgressLabel(std::string const& text, std::size_t maxLen = 48)
   -> std::string {
@@ -258,6 +252,170 @@ auto getStateLabel(appctx::EncodingState const& state) -> std::string {
   return truncateForProgressLabel(state.inputPath.filename().string());
 }
 
+auto normalizeSourceRootDir(fs::path const& inputPath) -> fs::path {
+  return fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
+}
+
+auto stablePathString(fs::path const& path) -> std::string {
+  auto normalized = path.lexically_normal().generic_string();
+  std::ranges::transform(normalized, normalized.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return normalized;
+}
+
+auto fnv1a32(std::string_view text) -> std::uint32_t {
+  auto hash = std::uint32_t{2166136261u};
+  for (auto const ch: text) {
+    hash ^= static_cast<unsigned char>(ch);
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+auto shortPathHash(fs::path const& path) -> std::string {
+  return std::format("{:08x}", fnv1a32(stablePathString(path)));
+}
+
+auto sanitizeLabel(std::string_view text) -> std::string {
+  auto sanitized = std::string{};
+  sanitized.reserve(text.size());
+
+  auto lastWasSeparator = false;
+  for (auto const ch: text) {
+    if (std::isalnum(static_cast<unsigned char>(ch))) {
+      sanitized.push_back(static_cast<char>(std::tolower(ch)));
+      lastWasSeparator = false;
+      continue;
+    }
+
+    if (!lastWasSeparator) {
+      sanitized.push_back('_');
+      lastWasSeparator = true;
+    }
+  }
+
+  while (!sanitized.empty() && sanitized.front() == '_') {
+    sanitized.erase(sanitized.begin());
+  }
+  while (!sanitized.empty() && sanitized.back() == '_') { sanitized.pop_back(); }
+
+  return sanitized;
+}
+
+auto relativeParentPath(
+  std::optional<fs::path> const& sourceRootDir,
+  fs::path const& inputPath
+) -> std::optional<fs::path> {
+  if (!sourceRootDir.has_value()) { return std::nullopt; }
+
+  auto const relativePath =
+    inputPath.parent_path().lexically_relative(sourceRootDir.value());
+  if (relativePath.empty() || relativePath == fs::path{"."}) {
+    return std::nullopt;
+  }
+
+  return relativePath;
+}
+
+auto buildCollisionLabel(
+  std::optional<fs::path> const& sourceRootDir,
+  fs::path const& inputPath
+) -> std::string {
+  auto label = std::string{};
+  if (auto const relativePath = relativeParentPath(sourceRootDir, inputPath);
+      relativePath.has_value()) {
+    label = sanitizeLabel(relativePath->generic_string());
+  }
+
+  if (label.empty() && inputPath.has_extension()) {
+    auto const extension = inputPath.extension().string();
+    auto const extensionView = std::string_view{extension}.substr(
+      extension.starts_with('.') ? 1 : 0
+    );
+    label = sanitizeLabel(extensionView);
+  }
+
+  if (label.empty()) { label = "src"; }
+
+  return std::format("{}_{}", label, shortPathHash(inputPath));
+}
+
+auto resolveOutputRootDir(
+  appctx::AppConfig const& config,
+  std::optional<fs::path> const& sourceRootDir
+) -> std::optional<fs::path> {
+  if (config.outputPath.has_value()) { return config.outputPath.value(); }
+  if (config.outputFormat != "webp" || !sourceRootDir.has_value()) {
+    return std::nullopt;
+  }
+
+  return sourceRootDir.value() / "encoded_webp";
+}
+
+auto resolvePlannedOutputDir(
+  appctx::AppConfig const& config,
+  fs::path const& inputPath,
+  std::optional<fs::path> const& sourceRootDir,
+  std::optional<fs::path> const& outputRootDir
+) -> fs::path {
+  if (!outputRootDir.has_value()) { return inputPath.parent_path(); }
+
+  auto outputDir = outputRootDir.value();
+  if (config.outputLayout != appctx::OutputLayout::Keep) { return outputDir; }
+
+  if (auto const relativePath = relativeParentPath(sourceRootDir, inputPath);
+      relativePath.has_value()) {
+    outputDir /= relativePath.value();
+  }
+
+  return outputDir;
+}
+
+auto ensureUniqueOutputPaths(appctx::path_map<fs::path>& plannedOutputFiles)
+  -> void {
+  while (true) {
+    auto duplicateGroups = appctx::path_map<std::vector<fs::path>>{};
+    duplicateGroups.reserve(plannedOutputFiles.size());
+
+    for (auto const& [inputPath, outputPath]: plannedOutputFiles) {
+      duplicateGroups[outputPath].push_back(inputPath);
+    }
+
+    auto hadDuplicates = false;
+    for (auto const& [outputPath, inputPaths]: duplicateGroups) {
+      if (inputPaths.size() < 2) { continue; }
+
+      hadDuplicates = true;
+      auto const stem = outputPath.stem().string();
+      auto const extension = outputPath.extension().string();
+      for (auto const& inputPath: inputPaths) {
+        plannedOutputFiles[inputPath] = outputPath.parent_path()
+                                     / std::format(
+                                         "{}__{}{}",
+                                         stem,
+                                         shortPathHash(inputPath),
+                                         extension
+                                       );
+      }
+    }
+
+    if (!hadDuplicates) { return; }
+  }
+}
+
+auto lookupPlannedOutputFile(
+  appctx::path_map<fs::path> const& plannedOutputFiles,
+  fs::path const& inputPath
+) -> std::optional<fs::path> {
+  if (auto const it = plannedOutputFiles.find(inputPath);
+      it != plannedOutputFiles.end()) {
+    return it->second;
+  }
+
+  return std::nullopt;
+}
+
 void registerEncodingState(
   appctx::RuntimeContext& runtime,
   appctx::EncodingStatePtr const& state
@@ -277,9 +435,11 @@ auto createEncodingState(
   vidState->startTime = std::chrono::steady_clock::now();
   vidState->progressFilePath =
     fs::temp_directory_path() / std::format("progress_{}.txt", getUUID());
-  // Keep a single default webp output directory for the whole request.
-  vidState->outputPath =
-    resolveVideoOutputPath(batchCtx.app.config, batchCtx.outputBaseInputPath);
+  vidState->plannedOutputFile =
+    lookupPlannedOutputFile(batchCtx.plannedOutputFiles, vidPath);
+  if (vidState->plannedOutputFile.has_value()) {
+    vidState->outputPath = vidState->plannedOutputFile->parent_path();
+  }
   registerEncodingState(batchCtx.app.runtime, vidState);
   return vidState;
 }
@@ -372,11 +532,7 @@ void runEncodingSlot(BatchContext& batchCtx, std::size_t slot) {
       });
 
     batchCtx.recordResult(*vidState, result);
-    batchCtx.finalizeState(
-      OutputContext{batchCtx.app, vidState->outputPath},
-      vidState,
-      result
-    );
+    batchCtx.finalizeState(vidState, result);
 
     auto outputFile = std::optional<fs::path>{};
     auto elapsedMs = int64_t{0};
@@ -462,7 +618,7 @@ auto runWebpEncodingStep(
   auto const cfg = EncodeConfig{
     .ffmpegPath = appCtx.toolchain.ffmpegPath,
     .inputPath = encodeCtx.inputVidPath,
-    .outputPath = encodeCtx.outputPath,
+    .outputFilePath = outputFile,
     .outputFormat = appCtx.config.outputFormat,
     .webpQuality = quality,
     .progressFilePath = encodeCtx.progressFilePath
@@ -502,16 +658,7 @@ auto encodeWebpWithTargetSize(
   appctx::AppContext const& appCtx,
   WebpEncodeContext const& encodeCtx
 ) -> bool {
-  auto const outputFile =
-    EncodeConfig{
-      .ffmpegPath = appCtx.toolchain.ffmpegPath,
-      .inputPath = encodeCtx.inputVidPath,
-      .outputPath = encodeCtx.outputPath,
-      .outputFormat = appCtx.config.outputFormat,
-      .webpQuality = 80,
-      .progressFilePath = encodeCtx.progressFilePath
-    }
-      .buildOutputPath();
+  auto const outputFile = encodeCtx.outputFilePath;
 
   spdlog::debug(
     "WebP adaptive encoding start: input={} output={} target={} bytes",
@@ -590,20 +737,6 @@ auto tryReadProgressData(fs::path const& progressFilePath)
   return parseProgressFile(progressFilePath);
 }
 
-auto tryGetEncodedOutputFile(OutputContext const& outputCtx, fs::path const& vidPath)
-  -> std::optional<fs::path> {
-  auto const cfg = EncodeConfig{
-    .ffmpegPath = outputCtx.app.toolchain.ffmpegPath,
-    .inputPath = vidPath,
-    .outputPath = outputCtx.outputPath,
-    .outputFormat = outputCtx.app.config.outputFormat
-  };
-
-  auto const outFile = cfg.buildOutputPath();
-  if (!fs::exists(outFile)) { return std::nullopt; }
-  return outFile;
-}
-
 auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
   -> std::vector<fs::path> {
   std::println("Scanning input path for videos: {} ...", inputPath.string());
@@ -646,16 +779,17 @@ auto resolveMultiInputBasePath(
 auto maybePackOutputs(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
+  appctx::path_map<fs::path> const& plannedOutputFiles,
   std::unordered_map<fs::path, bool> const& vidsRunRes
 ) -> int {
   if (!ctx.config.packOutput) { return 0; }
-  return packEncodedVideos(ctx, inputPath, vidsRunRes);
+  return packEncodedVideos(ctx, inputPath, plannedOutputFiles, vidsRunRes);
 }
 
 auto runEncodingWithoutProgress(
   appctx::AppContext& ctx,
   std::vector<fs::path> const& vids,
-  fs::path const& outputBaseInputPath
+  appctx::path_map<fs::path> const& plannedOutputFiles
 ) -> std::unordered_map<fs::path, bool> {
   auto vidsRunRes = std::unordered_map<fs::path, bool>{};
   vidsRunRes.reserve(vids.size());
@@ -668,9 +802,10 @@ auto runEncodingWithoutProgress(
   for (auto const& vidPath: vids) {
     auto state = appctx::EncodingState{};
     state.inputPath = vidPath;
-    auto const outputPath =
-      resolveVideoOutputPath(ctx.config, outputBaseInputPath);
-    state.outputPath = outputPath;
+    state.plannedOutputFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
+    if (state.plannedOutputFile.has_value()) {
+      state.outputPath = state.plannedOutputFile->parent_path();
+    }
 
     spdlog::debug("Start encoding (no-progress): {}", vidPath.string());
 
@@ -689,7 +824,7 @@ auto runEncodingWithoutProgress(
 auto runEncodingBatches(
   appctx::AppContext& ctx,
   std::vector<fs::path> const& vids,
-  fs::path const& outputBaseInputPath
+  appctx::path_map<fs::path> const& plannedOutputFiles
 ) -> std::optional<std::unordered_map<fs::path, bool>> {
   constexpr auto kMaxConcurrentJobs = std::size_t{10};
 
@@ -716,7 +851,7 @@ auto runEncodingBatches(
   if (ctx.config.verbose && ctx.config.verboseEcho) {
     std::println("Verbose echo enabled: progress bars are disabled.");
     spdlog::debug("Progress bars disabled due to verbose echo mode.");
-    return runEncodingWithoutProgress(ctx, vids, outputBaseInputPath);
+    return runEncodingWithoutProgress(ctx, vids, plannedOutputFiles);
   }
 
   auto _ = progress::CursorGuard{};
@@ -739,7 +874,7 @@ auto runEncodingBatches(
     vids.size()
   );
 
-  auto batchCtx = BatchContext{ctx, state, vids, outputBaseInputPath};
+  auto batchCtx = BatchContext{ctx, state, vids, plannedOutputFiles};
   batchCtx.updateOverall();
   auto monitorThread = startEncodingMonitor(batchCtx);
 
@@ -756,26 +891,22 @@ auto runEncodingBatches(
 
 auto collectEncodedOutputFiles(
   appctx::AppContext& ctx,
-  fs::path const& inputPath,
+  appctx::path_map<fs::path> const& plannedOutputFiles,
   std::unordered_map<fs::path, bool> const& vidsRunRes
 ) -> std::vector<fs::path> {
   constexpr auto kWebpPackMaxSize = std::uintmax_t{20ULL * 1024ULL * 1024ULL};
 
   auto encodedOutputFiles = std::vector<fs::path>{};
   encodedOutputFiles.reserve(vidsRunRes.size());
-
-  auto const outputPath = resolveVideoOutputPath(ctx.config, inputPath);
-  auto const outputCtx = OutputContext{ctx, outputPath};
   spdlog::debug(
-    "Collecting encoded outputs for packing: input={} success-map-size={}",
-    inputPath.string(),
+    "Collecting encoded outputs for packing: success-map-size={}",
     vidsRunRes.size()
   );
   for (auto const& [vidPath, success]: vidsRunRes) {
     if (!success) { continue; }
 
-    auto const outFile = tryGetEncodedOutputFile(outputCtx, vidPath);
-    if (!outFile.has_value()) { continue; }
+    auto const outFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
+    if (!outFile.has_value() || !fs::exists(outFile.value())) { continue; }
 
     if (
       ctx.config.outputFormat == "webp"
@@ -798,11 +929,12 @@ auto collectEncodedOutputFiles(
 auto packEncodedVideos(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
+  appctx::path_map<fs::path> const& plannedOutputFiles,
   std::unordered_map<fs::path, bool> const& vidsRunRes
 ) -> int {
   spdlog::info("Packing encoded outputs for input: {}", inputPath.string());
   auto const encodedOutputFiles =
-    collectEncodedOutputFiles(ctx, inputPath, vidsRunRes);
+    collectEncodedOutputFiles(ctx, plannedOutputFiles, vidsRunRes);
   if (encodedOutputFiles.empty()) {
     std::println("No encoded output files found to pack.");
     return 0;
@@ -887,6 +1019,69 @@ void printEncodingSummary(
 
 }  // namespace
 
+auto planVideoOutputFiles(
+  appctx::AppConfig const& config,
+  std::span<fs::path const> inputPaths,
+  std::optional<fs::path> sourceRootDir
+) -> eh::Result<appctx::path_map<fs::path>> {
+  auto plannedOutputFiles = appctx::path_map<fs::path>{};
+  plannedOutputFiles.reserve(inputPaths.size());
+
+  if (inputPaths.empty()) { return plannedOutputFiles; }
+
+  auto const outputRootDir = resolveOutputRootDir(config, sourceRootDir);
+  auto const usesSharedOutputRoot = outputRootDir.has_value();
+
+  if (
+    usesSharedOutputRoot && config.outputLayout == appctx::OutputLayout::Keep
+    && !sourceRootDir.has_value()
+  ) {
+    return eh::makeError(
+      "--keep requires input files to share a common parent directory."
+    );
+  }
+
+  auto groupedCandidates = appctx::path_map<std::vector<fs::path>>{};
+  groupedCandidates.reserve(inputPaths.size());
+
+  for (auto const& inputPath: inputPaths) {
+    auto const outputDir =
+      resolvePlannedOutputDir(config, inputPath, sourceRootDir, outputRootDir);
+    auto const fileName =
+      EncodeConfig{.inputPath = inputPath, .outputFormat = config.outputFormat}
+        .buildOutputFileName();
+    groupedCandidates[outputDir / fileName].push_back(inputPath);
+  }
+
+  for (auto const& [candidatePath, groupedInputs]: groupedCandidates) {
+    if (groupedInputs.size() == 1) {
+      plannedOutputFiles[groupedInputs.front()] = candidatePath;
+      continue;
+    }
+
+    auto sortedInputs = groupedInputs;
+    std::ranges::sort(sortedInputs, [](fs::path const& lhs, fs::path const& rhs) {
+      return stablePathString(lhs) < stablePathString(rhs);
+    });
+
+    auto const stem = candidatePath.stem().string();
+    auto const extension = candidatePath.extension().string();
+    for (auto const& inputPath: sortedInputs) {
+      plannedOutputFiles[inputPath] = candidatePath.parent_path()
+                                   / std::format(
+                                       "{}__{}{}",
+                                       stem,
+                                       buildCollisionLabel(sourceRootDir, inputPath),
+                                       extension
+                                     );
+    }
+  }
+
+  ensureUniqueOutputPaths(plannedOutputFiles);
+
+  return plannedOutputFiles;
+}
+
 auto resolveVideoOutputPath(
   appctx::AppConfig const& config,
   fs::path const& inputPath
@@ -929,6 +1124,7 @@ bool encodeToHevc(
 ) {
   auto progressFilePath = fs::path{};
   auto outputPath = std::optional<fs::path>{};
+  auto plannedOutputFile = std::optional<fs::path>{};
   {
     auto lock = std::scoped_lock{state.mtx};
     if (!state.progressFilePath.has_value()) {
@@ -937,6 +1133,20 @@ bool encodeToHevc(
     }
     progressFilePath = state.progressFilePath.value();
     outputPath = state.outputPath;
+    plannedOutputFile = state.plannedOutputFile;
+  }
+
+  if (!plannedOutputFile.has_value()) {
+    auto const error = std::format(
+      "Failed to resolve output file for input: {}",
+      state.inputPath.string()
+    );
+    {
+      auto lock = std::scoped_lock{state.mtx};
+      state.lastError = error;
+    }
+    spdlog::error(error);
+    return false;
   }
 
   {
@@ -944,21 +1154,22 @@ bool encodeToHevc(
     fs::remove(progressFilePath, ec);
   }
 
-  if (outputPath.has_value()) { fs::create_directories(outputPath.value()); }
+  fs::create_directories(plannedOutputFile->parent_path());
 
   auto const cfg = EncodeConfig{
     .ffmpegPath = ctx.toolchain.ffmpegPath,
     .inputPath = state.inputPath,
     .outputPath = outputPath,
+    .outputFilePath = plannedOutputFile,
     .outputFormat = ctx.config.outputFormat,
     .progressFilePath = progressFilePath
   };
 
   spdlog::debug(
-    "Encode config: input={} output-format={} output-dir={} progress-file={}",
+    "Encode config: input={} output-format={} output-file={} progress-file={}",
     state.inputPath.string(),
     ctx.config.outputFormat,
-    outputPath.has_value() ? outputPath->string() : std::string{"<input-dir>"},
+    plannedOutputFile->string(),
     progressFilePath.string()
   );
 
@@ -979,7 +1190,7 @@ bool encodeToHevc(
       ctx,
       WebpEncodeContext{
         .inputVidPath = state.inputPath,
-        .outputPath = outputPath,
+        .outputFilePath = plannedOutputFile.value(),
         .progressFilePath = progressFilePath,
         .statusUpdater = statusUpdater
       }
@@ -1080,11 +1291,24 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
     return 0;
   }
 
-  auto const runRes = runEncodingBatches(ctx, vids, inputPath);
+  auto const sourceRootDir = normalizeSourceRootDir(inputPath);
+  auto const plannedOutputFilesRes =
+    planVideoOutputFiles(ctx.config, vids, sourceRootDir);
+  if (!plannedOutputFilesRes) {
+    spdlog::error(plannedOutputFilesRes.error());
+    return 1;
+  }
+
+  auto const runRes = runEncodingBatches(ctx, vids, plannedOutputFilesRes.value());
   if (!runRes.has_value()) { return 0; }
 
   auto const& vidsRunRes = runRes.value();
-  auto const packRes = maybePackOutputs(ctx, inputPath, vidsRunRes);
+  auto const packRes = maybePackOutputs(
+    ctx,
+    inputPath,
+    plannedOutputFilesRes.value(),
+    vidsRunRes
+  );
   if (packRes != 0) { return packRes; }
 
   printEncodingSummary(vids, vidsRunRes);
@@ -1117,8 +1341,24 @@ int handleMultiFileEncoding(
     return 1;
   }
 
-  auto const outputBaseInputPath = basePath.value_or(inputPaths.front());
-  auto const runRes = runEncodingBatches(ctx, vids, outputBaseInputPath);
+  if (
+    ctx.config.outputLayout == appctx::OutputLayout::Keep
+    && ctx.config.outputPath.has_value() && !basePath.has_value()
+  ) {
+    spdlog::error(
+      "--keep requires multiple input files to share the same parent directory."
+    );
+    return 1;
+  }
+
+  auto const plannedOutputFilesRes = planVideoOutputFiles(ctx.config, vids, basePath);
+  if (!plannedOutputFilesRes) {
+    spdlog::error(plannedOutputFilesRes.error());
+    return 1;
+  }
+
+  auto const runRes =
+    runEncodingBatches(ctx, vids, plannedOutputFilesRes.value());
   if (!runRes.has_value()) { return 0; }
 
   auto const& vidsRunRes = runRes.value();
@@ -1131,7 +1371,12 @@ int handleMultiFileEncoding(
       return 1;
     }
 
-    auto const packRes = maybePackOutputs(ctx, basePath.value(), vidsRunRes);
+    auto const packRes = maybePackOutputs(
+      ctx,
+      basePath.value(),
+      plannedOutputFilesRes.value(),
+      vidsRunRes
+    );
     if (packRes != 0) { return packRes; }
   }
 

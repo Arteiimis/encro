@@ -20,6 +20,11 @@ namespace json = boost::json;
 template<class Ty>
 using path_map = std::unordered_map<fs::path, Ty>;
 
+enum class OutputLayout {
+  Flat,
+  Keep,
+};
+
 struct AppConfig {
   bool yesToAll = false;
   bool recursive = false;
@@ -28,6 +33,7 @@ struct AppConfig {
   bool verbose = false;
   bool verboseEcho = false;
   std::optional<std::size_t> maxParallelJobs;
+  OutputLayout outputLayout = OutputLayout::Flat;
   std::string processType = "video";
   std::string outputFormat = "mp4";
   fs::path inputPath;
@@ -47,6 +53,7 @@ struct RuntimeContext {
   struct EncodingVideoState {
     fs::path inputPath;
     std::optional<fs::path> outputPath;
+    std::optional<fs::path> plannedOutputFile;
     std::optional<fs::path> outputFile;
     std::optional<fs::path> progressFilePath;
     std::optional<std::size_t> barIndex;

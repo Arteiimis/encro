@@ -187,6 +187,23 @@ TEST_CASE("EncodeConfig respects custom output directory", "[encode-config]") {
   CHECK(cmd.find(expectedOutput) != std::string::npos);
 }
 
+TEST_CASE("EncodeConfig respects explicit output file path", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const outputFile = temp.path / "nested" / "sample.custom.webp";
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.outputFormat = "webp";
+  cfg.outputFilePath = outputFile;
+
+  auto const validation = cfg.validate();
+  REQUIRE(validation);
+
+  CHECK(cfg.buildOutputPath() == outputFile);
+  CHECK(cfg.buildCMD().find(outputFile.string()) != std::string::npos);
+}
+
 TEST_CASE("EncodeConfig webp output filename does not include codec tag", "[encode-config]") {
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "sample.mp4");
