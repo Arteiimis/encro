@@ -13,6 +13,7 @@ struct EncodeConfig {
   std::optional<fs::path> ffmpegPath = "ffmpeg";
   std::optional<fs::path> inputPath;
   std::optional<fs::path> outputPath;
+  std::optional<fs::path> outputFilePath;
   std::optional<std::string> outputFormat = "mp4";
   std::optional<std::string> videoCodec = "hevc_nvenc";
   std::optional<int> crf = 20;
@@ -43,7 +44,7 @@ struct EncodeConfig {
     return {};
   }
 
-  fs::path buildOutputPath() const {
+  std::string buildOutputFileName() const {
     if (!inputPath.has_value()) {
       throw std::runtime_error("Input path is required to build output path.");
     }
@@ -58,14 +59,23 @@ struct EncodeConfig {
       return codec.substr(0, splitPos);
     }();
 
-    auto const outputVidDir = outputPath.value_or(inputPath->parent_path());
-
     if (format == "webp") {
-      return outputVidDir / std::format("{}.{}", inputPath->stem().string(), format);
+      return std::format("{}.{}", inputPath->stem().string(), format);
     }
 
-    return outputVidDir
-         / std::format("{}.{}.{}", inputPath->stem().string(), codecTag, format);
+    return std::format("{}.{}.{}", inputPath->stem().string(), codecTag, format);
+  }
+
+  fs::path buildOutputPath() const {
+    if (!inputPath.has_value()) {
+      throw std::runtime_error("Input path is required to build output path.");
+    }
+
+    if (outputFilePath.has_value()) { return outputFilePath.value(); }
+
+    auto const outputVidDir = outputPath.value_or(inputPath->parent_path());
+
+    return outputVidDir / buildOutputFileName();
   }
 
   std::string buildCMD() const {
