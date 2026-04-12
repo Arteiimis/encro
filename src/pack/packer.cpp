@@ -283,16 +283,26 @@ auto packAllFilesInDirectory(
   std::println("File scan completed, found {} file(s).", allFiles.size());
 
   auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
+  auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedFiles);
   auto const plan = pack::PackPlan{
     .groups = groupedFiles,
     .outputDir = zipFileDir,
     .zipNameForIndex =
-      [dirName = dirPath.filename().string()](std::size_t index) {
-        return std::format("{}_part{}.zip", dirName, index + 1);
+      [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
+        return pack::appendOrdinalRangeSuffix(
+          std::format("{}_part{}.zip", dirName, index + 1),
+          ordinalRanges.at(index)
+        );
       },
     .progressLabelForIndex =
-      [dirName = dirPath.filename().string()](std::size_t index) {
-        return std::format("Packing: {}_part{}.zip", dirName, index + 1);
+      [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
+        return std::format(
+          "Packing: {}",
+          pack::appendOrdinalRangeSuffix(
+            std::format("{}_part{}.zip", dirName, index + 1),
+            ordinalRanges.at(index)
+          )
+        );
       },
     .zipEntryNameForFile =
       forceNameConflictHandling

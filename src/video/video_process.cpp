@@ -974,16 +974,27 @@ auto packEncodedVideos(
     zipOutputDir.string()
   );
 
+  auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedFiles);
+
   auto const plan = pack::PackPlan{
     .groups = groupedFiles,
     .outputDir = zipOutputDir,
     .zipNameForIndex =
-      [](std::size_t index) {
-        return std::format("encoded_videos_part{}.zip", index + 1);
+      [ordinalRanges](std::size_t index) {
+        return pack::appendOrdinalRangeSuffix(
+          std::format("encoded_videos_part{}.zip", index + 1),
+          ordinalRanges.at(index)
+        );
       },
     .progressLabelForIndex =
-      [](std::size_t index) {
-        return std::format("Packing: encoded_videos_part{}.zip", index + 1);
+      [ordinalRanges](std::size_t index) {
+        return std::format(
+          "Packing: {}",
+          pack::appendOrdinalRangeSuffix(
+            std::format("encoded_videos_part{}.zip", index + 1),
+            ordinalRanges.at(index)
+          )
+        );
       },
     .maxParallelJobs = ctx.config.maxParallelJobs
   };

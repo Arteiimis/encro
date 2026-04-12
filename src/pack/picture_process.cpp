@@ -197,6 +197,7 @@ auto packAllPicsToZipParallel(
   auto const plannedEntryNames =
     planPictureZipEntryNames(config, dirPath, scannedPics);
   auto const groupedPics = groupFilesBySize(scannedPics);
+  auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedPics);
   std::println(
     "Picture scan completed, {} picture(s) found, grouped into {} package "
     "batch(es).",
@@ -216,12 +217,21 @@ auto packAllPicsToZipParallel(
     .groups = groupedPics,
     .outputDir = zipFileDir,
     .zipNameForIndex =
-      [dirName = dirPath.filename().string()](std::size_t index) {
-        return std::format("{}_part{}.zip", dirName, index + 1);
+      [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
+        return pack::appendOrdinalRangeSuffix(
+          std::format("{}_part{}.zip", dirName, index + 1),
+          ordinalRanges.at(index)
+        );
       },
     .progressLabelForIndex =
-      [dirName = dirPath.filename().string()](std::size_t index) {
-        return std::format("Packing: {}_part{}.zip", dirName, index + 1);
+      [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
+        return std::format(
+          "Packing: {}",
+          pack::appendOrdinalRangeSuffix(
+            std::format("{}_part{}.zip", dirName, index + 1),
+            ordinalRanges.at(index)
+          )
+        );
       },
     .zipEntryNameForFile =
       [plannedEntryNames](fs::path const& filePath) {

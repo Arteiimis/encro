@@ -68,3 +68,24 @@ TEST_CASE("packGroupsParallel packs grouped files", "[pack-service]") {
   CHECK(zip.getEntries().size() == 2);
   zip.close();
 }
+
+TEST_CASE("pack range helpers append cumulative ordinal suffixes", "[pack-service]") {
+  auto const groups = std::vector{
+    std::vector<fs::path>{fs::path{"a"}, fs::path{"b"}},
+    std::vector<fs::path>{fs::path{"c"}}
+  };
+
+  auto const ranges = pack::buildGroupOrdinalRanges(groups);
+
+  REQUIRE(ranges.size() == 2);
+  CHECK(ranges[0].first == 1);
+  CHECK(ranges[0].last == 2);
+  CHECK(ranges[0].count == 2);
+  CHECK(ranges[1].first == 3);
+  CHECK(ranges[1].last == 3);
+  CHECK(ranges[1].count == 1);
+  CHECK(
+    pack::appendOrdinalRangeSuffix("bundle_part1.zip", ranges[0])
+    == "bundle_part1_1-2_items2.zip"
+  );
+}
