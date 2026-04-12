@@ -365,8 +365,8 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "resolveVideoPackOutputPath uses encoded_webp subdir when webp has no custom "
-  "output",
+  "resolveVideoPackOutputPath is sibling of encoded_webp when webp has no "
+  "custom output",
   "[video-process][pack]"
 ) {
   TempDir temp;
@@ -376,11 +376,11 @@ TEST_CASE(
   config.outputFormat = "webp";
 
   auto const packPath = resolveVideoPackOutputPath(config, temp.path);
-  CHECK(packPath == temp.path / "encoded_webp" / "packed");
+  CHECK(packPath == temp.path / "packed");
 }
 
 TEST_CASE(
-  "resolveVideoPackOutputPath uses file parent for webp input file",
+  "resolveVideoPackOutputPath uses input parent sibling for webp input file",
   "[video-process][pack]"
 ) {
   TempDir temp;
@@ -396,7 +396,7 @@ TEST_CASE(
   config.outputFormat = "webp";
 
   auto const packPath = resolveVideoPackOutputPath(config, filePath);
-  CHECK(packPath == temp.path / "encoded_webp" / "packed");
+  CHECK(packPath == temp.path / "packed");
 }
 
 TEST_CASE(
