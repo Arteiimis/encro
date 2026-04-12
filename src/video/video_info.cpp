@@ -4,8 +4,6 @@
 #include "core/parallel.h"
 #include "utils/utils.h"
 
-#include <spdlog/spdlog.h>
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -14,6 +12,8 @@
 #include <optional>
 #include <string>
 #include <thread>
+
+#include <spdlog/spdlog.h>
 
 namespace fs = std::filesystem;
 using namespace std::literals;
