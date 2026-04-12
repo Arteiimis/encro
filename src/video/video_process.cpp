@@ -337,6 +337,28 @@ auto buildCollisionGroupLabel(
   return label;
 }
 
+auto shouldForceConflictNaming(appctx::AppConfig const& config) -> bool {
+  return config.forceNameConflictHandling
+      && config.outputLayout == appctx::OutputLayout::Flat;
+}
+
+auto buildConflictHandledOutputPath(
+  std::optional<fs::path> const& sourceRootDir,
+  fs::path const& inputPath,
+  fs::path const& candidatePath
+) -> fs::path {
+  auto const stem = candidatePath.stem().string();
+  auto const extension = candidatePath.extension().string();
+  return candidatePath.parent_path()
+       / std::format(
+           "{}__{}__{}{}",
+           buildCollisionGroupLabel(sourceRootDir, inputPath),
+           stem,
+           shortPathHash(inputPath),
+           extension
+         );
+}
+
 auto resolveOutputRootDir(
   appctx::AppConfig const& config,
   std::optional<fs::path> const& sourceRootDir
@@ -1039,6 +1061,7 @@ auto planVideoOutputFiles(
 
   auto groupedCandidates = appctx::path_map<std::vector<fs::path>>{};
   groupedCandidates.reserve(inputPaths.size());
+  auto const forceConflictNaming = shouldForceConflictNaming(config);
 
   for (auto const& inputPath: inputPaths) {
     auto const outputDir =
@@ -1050,7 +1073,7 @@ auto planVideoOutputFiles(
   }
 
   for (auto const& [candidatePath, groupedInputs]: groupedCandidates) {
-    if (groupedInputs.size() == 1) {
+    if (groupedInputs.size() == 1 && !forceConflictNaming) {
       plannedOutputFiles[groupedInputs.front()] = candidatePath;
       continue;
     }
@@ -1063,14 +1086,11 @@ auto planVideoOutputFiles(
     auto const stem = candidatePath.stem().string();
     auto const extension = candidatePath.extension().string();
     for (auto const& inputPath: sortedInputs) {
-      plannedOutputFiles[inputPath] = candidatePath.parent_path()
-        / std::format(
-            "{}__{}__{}{}",
-            buildCollisionGroupLabel(sourceRootDir, inputPath),
-            stem,
-            shortPathHash(inputPath),
-            extension
-          );
+      plannedOutputFiles[inputPath] = buildConflictHandledOutputPath(
+        sourceRootDir,
+        inputPath,
+        candidatePath
+      );
     }
   }
 

@@ -45,6 +45,75 @@ auto shortPathHash(fs::path const& path) -> std::string {
   return std::format("{:08x}", fnv1a32(stablePathString(path)));
 }
 
+auto sanitizeLabel(std::string_view text) -> std::string {
+  auto sanitized = std::string{};
+  sanitized.reserve(text.size());
+
+  auto lastWasSeparator = false;
+  for (auto const ch: text) {
+    if (std::isalnum(static_cast<unsigned char>(ch))) {
+      sanitized.push_back(static_cast<char>(std::tolower(ch)));
+      lastWasSeparator = false;
+      continue;
+    }
+
+    if (!lastWasSeparator) {
+      sanitized.push_back('_');
+      lastWasSeparator = true;
+    }
+  }
+
+  while (!sanitized.empty() && sanitized.front() == '_') {
+    sanitized.erase(sanitized.begin());
+  }
+  while (!sanitized.empty() && sanitized.back() == '_') { sanitized.pop_back(); }
+
+  return sanitized;
+}
+
+auto relativeParentPath(fs::path const& rootDir, fs::path const& filePath)
+  -> std::optional<fs::path> {
+  auto const relativePath = filePath.parent_path().lexically_relative(rootDir);
+  if (relativePath.empty() || relativePath == fs::path{"."}) {
+    return std::nullopt;
+  }
+
+  return relativePath;
+}
+
+auto buildPackCollisionGroupLabel(fs::path const& dirPath, fs::path const& filePath)
+  -> std::string {
+  auto label = std::string{};
+  if (auto const relativePath = relativeParentPath(dirPath, filePath);
+      relativePath.has_value()) {
+    label = sanitizeLabel(relativePath->generic_string());
+  }
+
+  if (label.empty() && filePath.has_extension()) {
+    auto const extension = filePath.extension().string();
+    auto const extensionView =
+      std::string_view{extension}.substr(extension.starts_with('.') ? 1 : 0);
+    label = sanitizeLabel(extensionView);
+  }
+
+  if (label.empty()) { label = "src"; }
+
+  return label;
+}
+
+auto buildConflictHandledPackEntryName(
+  fs::path const& dirPath,
+  fs::path const& filePath
+) -> std::string {
+  return std::format(
+    "{}__{}__{}{}",
+    buildPackCollisionGroupLabel(dirPath, filePath),
+    filePath.stem().string(),
+    shortPathHash(filePath),
+    filePath.extension().string()
+  );
+}
+
 auto normalizeZipEntryName(std::string const& entryName) -> std::string {
   auto normalized = fs::path{entryName}.generic_string();
   while (!normalized.empty() && normalized.front() == '/') {
@@ -179,6 +248,7 @@ auto packAllFilesInDirectory(
   fs::path const& zipFileDir,
   std::uintmax_t maxGroupSize,
   bool recursive,
+  bool forceNameConflictHandling,
   std::optional<std::size_t> maxParallelJobs
 ) -> eh::Result<void> {
   if (!fs::is_directory(dirPath)) {
@@ -224,6 +294,12 @@ auto packAllFilesInDirectory(
       [dirName = dirPath.filename().string()](std::size_t index) {
         return std::format("Packing: {}_part{}.zip", dirName, index + 1);
       },
+    .zipEntryNameForFile =
+      forceNameConflictHandling
+        ? ZipEntryNameResolver{[dirPath](fs::path const& filePath) {
+            return buildConflictHandledPackEntryName(dirPath, filePath);
+          }}
+        : ZipEntryNameResolver{},
     .maxParallelJobs = maxParallelJobs
   };
 

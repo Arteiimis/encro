@@ -258,6 +258,36 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "planVideoOutputFiles can force collision-safe names for unique flat outputs",
+  "[video-process][plan-output]"
+) {
+  TempDir temp;
+  auto const dirA = temp.path / "a";
+  auto const dirB = temp.path / "b";
+  auto const fileA = dirA / "alpha.mp4";
+  auto const fileB = dirB / "beta.mp4";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  for (auto const& filePath: {fileA, fileB}) {
+    std::ofstream out{filePath};
+    out << "x";
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.outputLayout = appctx::OutputLayout::Flat;
+  config.forceNameConflictHandling = true;
+
+  auto const plannedRes =
+    planVideoOutputFiles(config, std::vector{fileA, fileB}, temp.path);
+
+  REQUIRE(plannedRes);
+  CHECK(plannedRes->at(fileA).filename().string().starts_with("a__alpha__"));
+  CHECK(plannedRes->at(fileB).filename().string().starts_with("b__beta__"));
+}
+
+TEST_CASE(
   "planVideoOutputFiles preserves relative directories in keep layout",
   "[video-process][plan-output]"
 ) {

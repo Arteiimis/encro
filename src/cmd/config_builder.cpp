@@ -140,6 +140,7 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   config.recursive = vm.count("recursive") > 0;
   config.packOutput = vm.count("pack") > 0;
   config.packOnly = vm.count("pack-only") > 0;
+  config.forceNameConflictHandling = vm.count("force-conflict-handling") > 0;
   config.verbose = vm.count("verbose") > 0;
   config.verboseEcho = vm.count("verbose-echo") > 0;
 
