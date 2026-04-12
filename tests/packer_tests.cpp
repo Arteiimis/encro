@@ -79,6 +79,96 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "packFilesToZip disambiguates duplicate entry names by default",
+  "[packer][packFilesToZip]"
+) {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const dirA = srcDir / "a";
+  auto const dirB = srcDir / "b";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+  fs::create_directories(outDir);
+
+  auto const f1 = createSizedFile(dirA, "same.txt", 64);
+  auto const f2 = createSizedFile(dirB, "same.txt", 128);
+  auto const zipPath = outDir / "bundle.zip";
+
+  progress::ProgressContext progressCtx;
+
+  auto const result =
+    packFilesToZip({f1, f2}, zipPath, progressCtx, "Packing: bundle.zip");
+
+  REQUIRE(result);
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  REQUIRE(entries.size() == 2);
+  auto entryNames = std::vector<std::string>{};
+  entryNames.reserve(entries.size());
+  for (auto const& entry: entries) { entryNames.emplace_back(entry.getName()); }
+
+  CHECK(std::ranges::count(entryNames, std::string{"same.txt"}) == 1);
+  CHECK(
+    std::ranges::count_if(entryNames, [](std::string const& name) {
+      return name != "same.txt" && name.starts_with("same__")
+          && name.ends_with(".txt");
+    })
+    == 1
+  );
+  zip.close();
+}
+
+TEST_CASE(
+  "packFilesToZip preserves relative entry names when resolver is provided",
+  "[packer][packFilesToZip]"
+) {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const dirA = srcDir / "a";
+  auto const dirB = srcDir / "b";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+  fs::create_directories(outDir);
+
+  auto const f1 = createSizedFile(dirA, "same.txt", 64);
+  auto const f2 = createSizedFile(dirB, "same.txt", 128);
+  auto const zipPath = outDir / "bundle.zip";
+
+  progress::ProgressContext progressCtx;
+
+  auto const result = packFilesToZip(
+    {f1, f2},
+    zipPath,
+    progressCtx,
+    "Packing: bundle.zip",
+    [srcDir](fs::path const& filePath) {
+      return filePath.lexically_relative(srcDir).generic_string();
+    }
+  );
+
+  REQUIRE(result);
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  auto entryNames = std::vector<std::string>{};
+  entryNames.reserve(entries.size());
+  for (auto const& entry: entries) {
+    if (entry.getName().ends_with('/')) { continue; }
+    entryNames.emplace_back(entry.getName());
+  }
+  REQUIRE(entryNames.size() == 2);
+  std::ranges::sort(entryNames);
+
+  CHECK(entryNames == std::vector<std::string>{"a/same.txt", "b/same.txt"});
+  zip.close();
+}
+
+TEST_CASE(
   "packAllFilesInDirectory packs all files with size grouping",
   "[packer][packAllFilesInDirectory]"
 ) {

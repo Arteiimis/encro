@@ -7,14 +7,155 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <array>
-#include <expected>
+#include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <print>
 #include <string_view>
+#include <unordered_map>
 
 namespace fs = std::filesystem;
 using namespace std::literals;
+
+namespace {
+
+using PictureEntryPlan = std::unordered_map<fs::path, std::string>;
+
+auto stablePathString(fs::path const& path) -> std::string {
+  auto normalized = path.lexically_normal().generic_string();
+  std::ranges::transform(normalized, normalized.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return normalized;
+}
+
+auto fnv1a32(std::string_view text) -> std::uint32_t {
+  auto hash = std::uint32_t{2166136261u};
+  for (auto const ch: text) {
+    hash ^= static_cast<unsigned char>(ch);
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+auto shortPathHash(fs::path const& path) -> std::string {
+  return std::format("{:08x}", fnv1a32(stablePathString(path)));
+}
+
+auto sanitizeLabel(std::string_view text) -> std::string {
+  auto sanitized = std::string{};
+  sanitized.reserve(text.size());
+
+  auto lastWasSeparator = false;
+  for (auto const ch: text) {
+    if (std::isalnum(static_cast<unsigned char>(ch))) {
+      sanitized.push_back(static_cast<char>(std::tolower(ch)));
+      lastWasSeparator = false;
+      continue;
+    }
+
+    if (!lastWasSeparator) {
+      sanitized.push_back('_');
+      lastWasSeparator = true;
+    }
+  }
+
+  while (!sanitized.empty() && sanitized.front() == '_') {
+    sanitized.erase(sanitized.begin());
+  }
+  while (!sanitized.empty() && sanitized.back() == '_') { sanitized.pop_back(); }
+
+  return sanitized;
+}
+
+auto relativeParentPath(fs::path const& rootDir, fs::path const& filePath)
+  -> std::optional<fs::path> {
+  auto const relativePath = filePath.parent_path().lexically_relative(rootDir);
+  if (relativePath.empty() || relativePath == fs::path{"."}) {
+    return std::nullopt;
+  }
+
+  return relativePath;
+}
+
+auto buildPictureCollisionGroupLabel(
+  fs::path const& dirPath,
+  fs::path const& filePath
+) -> std::string {
+  auto label = std::string{};
+  if (auto const relativePath = relativeParentPath(dirPath, filePath);
+      relativePath.has_value()) {
+    label = sanitizeLabel(relativePath->generic_string());
+  }
+
+  if (label.empty() && filePath.has_extension()) {
+    auto const extension = filePath.extension().string();
+    auto const extensionView =
+      std::string_view{extension}.substr(extension.starts_with('.') ? 1 : 0);
+    label = sanitizeLabel(extensionView);
+  }
+
+  if (label.empty()) { label = "src"; }
+
+  return label;
+}
+
+auto planPictureZipEntryNames(
+  appctx::AppConfig const& config,
+  fs::path const& dirPath,
+  std::vector<fs::path> const& filePaths
+) -> PictureEntryPlan {
+  auto plannedEntries = PictureEntryPlan{};
+  plannedEntries.reserve(filePaths.size());
+
+  if (config.outputLayout == appctx::OutputLayout::Keep) {
+    for (auto const& filePath: filePaths) {
+      auto const relativePath = filePath.lexically_relative(dirPath);
+      plannedEntries[filePath] =
+        (relativePath.empty() || relativePath == fs::path{"."})
+          ? filePath.filename().generic_string()
+          : relativePath.generic_string();
+    }
+    return plannedEntries;
+  }
+
+  auto groupedCandidates = std::unordered_map<std::string, std::vector<fs::path>>{};
+  groupedCandidates.reserve(filePaths.size());
+  for (auto const& filePath: filePaths) {
+    groupedCandidates[filePath.filename().generic_string()].push_back(filePath);
+  }
+
+  for (auto const& [fileName, groupedPaths]: groupedCandidates) {
+    if (groupedPaths.size() == 1) {
+      plannedEntries[groupedPaths.front()] = fileName;
+      continue;
+    }
+
+    auto sortedPaths = groupedPaths;
+    std::ranges::sort(sortedPaths, [](fs::path const& lhs, fs::path const& rhs) {
+      return stablePathString(lhs) < stablePathString(rhs);
+    });
+
+    auto const fileNamePath = fs::path{fileName};
+    auto const stem = fileNamePath.stem().string();
+    auto const extension = fileNamePath.extension().string();
+    for (auto const& filePath: sortedPaths) {
+      plannedEntries[filePath] = std::format(
+        "{}__{}__{}{}",
+        buildPictureCollisionGroupLabel(dirPath, filePath),
+        stem,
+        shortPathHash(filePath),
+        extension
+      );
+    }
+  }
+
+  return plannedEntries;
+}
+
+}  // namespace
 
 auto readAllPics(appctx::AppConfig const& config, fs::path const& dirPath)
   -> std::vector<fs::path> {
@@ -39,6 +180,8 @@ auto packAllPicsToZipParallel(
 ) -> eh::Result<void> {
   std::println("Scanning input path for pictures: {} ...", dirPath.string());
   auto const scannedPics = readAllPics(config, dirPath);
+  auto const plannedEntryNames =
+    planPictureZipEntryNames(config, dirPath, scannedPics);
   auto const groupedPics = groupFilesBySize(scannedPics);
   std::println(
     "Picture scan completed, {} picture(s) found, grouped into {} package "
@@ -65,6 +208,14 @@ auto packAllPicsToZipParallel(
     .progressLabelForIndex =
       [dirName = dirPath.filename().string()](std::size_t index) {
         return std::format("Packing: {}_part{}.zip", dirName, index + 1);
+      },
+    .zipEntryNameForFile =
+      [plannedEntryNames](fs::path const& filePath) {
+        if (auto const it = plannedEntryNames.find(filePath);
+            it != plannedEntryNames.end()) {
+          return it->second;
+        }
+        return filePath.filename().generic_string();
       },
     .maxParallelJobs = config.maxParallelJobs,
     .removeOnFailure = true

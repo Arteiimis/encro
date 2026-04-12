@@ -10,25 +10,91 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <print>
 #include <ranges>
+#include <unordered_set>
 #include <stop_token>
 #include <thread>
 
 namespace fs = std::filesystem;
 using namespace indicators;
 
+namespace {
+
+auto stablePathString(fs::path const& path) -> std::string {
+  auto normalized = path.lexically_normal().generic_string();
+  std::ranges::transform(normalized, normalized.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return normalized;
+}
+
+auto fnv1a32(std::string_view text) -> std::uint32_t {
+  auto hash = std::uint32_t{2166136261u};
+  for (auto const ch: text) {
+    hash ^= static_cast<unsigned char>(ch);
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+auto shortPathHash(fs::path const& path) -> std::string {
+  return std::format("{:08x}", fnv1a32(stablePathString(path)));
+}
+
+auto normalizeZipEntryName(std::string const& entryName) -> std::string {
+  auto normalized = fs::path{entryName}.generic_string();
+  while (!normalized.empty() && normalized.front() == '/') {
+    normalized.erase(normalized.begin());
+  }
+  return normalized;
+}
+
+auto makeUniqueZipEntryName(
+  std::string const& preferredEntryName,
+  fs::path const& filePath,
+  std::unordered_set<std::string>& usedEntryNames
+) -> std::string {
+  auto const normalizedEntryName = normalizeZipEntryName(preferredEntryName);
+  if (usedEntryNames.insert(normalizedEntryName).second) {
+    return normalizedEntryName;
+  }
+
+  auto const entryPath = fs::path{normalizedEntryName};
+  auto const suffix = std::format("__{}", shortPathHash(filePath));
+  auto const parentPath = entryPath.parent_path();
+  auto const stem = entryPath.stem().string();
+  auto const extension = entryPath.extension().string();
+
+  auto candidate = (parentPath / std::format("{}{}{}", stem, suffix, extension))
+                     .generic_string();
+  auto duplicateIndex = std::size_t{1};
+  while (!usedEntryNames.insert(candidate).second) {
+    candidate =
+      (parentPath
+       / std::format("{}{}_{}{}", stem, suffix, duplicateIndex++, extension))
+          .generic_string();
+  }
+
+  return candidate;
+}
+
+}  // namespace
+
 auto packFilesToZip(
   std::vector<fs::path> const& filePaths,
   fs::path const& zipFilePath,
   progress::ProgressContext& progressCtx,
-  std::string_view progressText
+  std::string_view progressText,
+  ZipEntryNameResolver entryNameForFile
 ) -> eh::Result<void> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());
   auto fileCount = filePaths.size();
   auto const progressBarIndex = progressCtx.addBar(progressText);
+  auto usedEntryNames = std::unordered_set<std::string>{};
 
   zip.open(libzippp::ZipArchive::New);
 
@@ -37,7 +103,11 @@ auto packFilesToZip(
       (size_t)std::round((index + 1) / (float)fileCount * 100.0f);
 
     if (fs::is_regular_file(filePath)) {
-      zip.addFile(filePath.filename().string(), filePath.string());
+      auto const preferredEntryName =
+        entryNameForFile ? entryNameForFile(filePath) : filePath.filename().string();
+      auto const entryName =
+        makeUniqueZipEntryName(preferredEntryName, filePath, usedEntryNames);
+      zip.addFile(entryName, filePath.string());
       progressCtx.setProgress(progressBarIndex, static_cast<float>(progress));
     }
 
