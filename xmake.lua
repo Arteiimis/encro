@@ -4,7 +4,7 @@ set_policy("build.optimization.lto", true)
 set_version("0.1.5")
 
 set_languages("c++26")
-set_toolchains("clang")
+set_toolchains("clang-cl")
 
 add_cxxflags("-ftrivial-auto-var-init=pattern")
 
