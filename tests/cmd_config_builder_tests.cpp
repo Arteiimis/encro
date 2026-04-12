@@ -54,6 +54,7 @@ TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config
   CHECK_FALSE(config.recursive);
   CHECK_FALSE(config.packOutput);
   CHECK_FALSE(config.packOnly);
+  CHECK_FALSE(config.forceNameConflictHandling);
   CHECK_FALSE(config.verbose);
   CHECK_FALSE(config.verboseEcho);
   CHECK(config.outputLayout == appctx::OutputLayout::Flat);
@@ -71,6 +72,19 @@ TEST_CASE("buildConfig reads keep output layout", "[cmd][config]") {
 
   REQUIRE(configRes);
   CHECK(configRes->outputLayout == appctx::OutputLayout::Keep);
+}
+
+TEST_CASE("buildConfig reads forced conflict handling flag", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm =
+    makeVm({{"input", inputPath.string()}}, {"force-conflict-handling"});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  CHECK(configRes->forceNameConflictHandling);
 }
 
 TEST_CASE("buildConfig rejects conflicting output layouts", "[cmd][config]") {

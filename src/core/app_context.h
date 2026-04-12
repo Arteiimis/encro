@@ -30,6 +30,7 @@ struct AppConfig {
   bool recursive = false;
   bool packOutput = false;
   bool packOnly = false;
+  bool forceNameConflictHandling = false;
   bool verbose = false;
   bool verboseEcho = false;
   std::optional<std::size_t> maxParallelJobs;
