@@ -10,6 +10,46 @@
 
 namespace pack {
 
+auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
+  -> std::vector<FileOrdinalRange> {
+  auto ranges = std::vector<FileOrdinalRange>{};
+  ranges.reserve(groups.size());
+
+  auto nextOrdinal = std::size_t{1};
+  for (auto const& group: groups) {
+    if (group.empty()) {
+      ranges.push_back({});
+      continue;
+    }
+
+    auto const first = nextOrdinal;
+    auto const last = first + group.size() - 1;
+    ranges.push_back({first, last, group.size()});
+    nextOrdinal = last + 1;
+  }
+
+  return ranges;
+}
+
+auto appendOrdinalRangeSuffix(
+  std::string_view fileName,
+  FileOrdinalRange const& range
+) -> std::string {
+  if (range.first == 0 || range.last == 0 || range.count == 0) {
+    return std::string{fileName};
+  }
+
+  auto const filePath = fs::path{fileName};
+  auto const suffix =
+    std::format("_{}-{}_items{}", range.first, range.last, range.count);
+  return std::format(
+    "{}{}{}",
+    filePath.stem().string(),
+    suffix,
+    filePath.extension().string()
+  );
+}
+
 auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   if (plan.groups.empty()) { return std::vector<fs::path>{}; }
 
