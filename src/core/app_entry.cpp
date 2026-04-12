@@ -8,11 +8,63 @@
 
 #include <spdlog/spdlog.h>
 
+#include <array>
 #include <format>
 #include <iostream>
 #include <optional>
+#include <string>
+#include <string_view>
 
 namespace {
+
+auto parseDecimal(std::string_view text) -> int {
+  auto value = 0;
+  for (char const ch: text) {
+    if (ch == ' ') { continue; }
+    value = value * 10 + (ch - '0');
+  }
+  return value;
+}
+
+auto monthNumber(std::string_view month) -> int {
+  using namespace std::literals;
+  constexpr auto months = std::array{
+    "Jan"sv,
+    "Feb"sv,
+    "Mar"sv,
+    "Apr"sv,
+    "May"sv,
+    "Jun"sv,
+    "Jul"sv,
+    "Aug"sv,
+    "Sep"sv,
+    "Oct"sv,
+    "Nov"sv,
+    "Dec"sv,
+  };
+
+  for (auto index = std::size_t{0}; index < months.size(); ++index) {
+    if (months[index] == month) { return static_cast<int>(index) + 1; }
+  }
+
+  return 0;
+}
+
+auto compileTimestamp() -> std::string {
+  constexpr auto buildDate = std::string_view{__DATE__};
+  constexpr auto buildTime = std::string_view{__TIME__};
+
+  auto const year = parseDecimal(buildDate.substr(7, 4));
+  auto const month = monthNumber(buildDate.substr(0, 3));
+  auto const day = parseDecimal(buildDate.substr(4, 2));
+
+  return std::format("{:04d}-{:02d}-{:02d} {}", year, month, day, buildTime);
+}
+
+auto printHelp(std::ostream& out, CmdParseResult const& cmd) -> void {
+  out << appentry::helpIntroLine() << "\n\n";
+  cmd.desc.print(out);
+}
 
 auto failWithHint(
   prelude::StartupContext const& startup,
@@ -25,7 +77,7 @@ auto failWithHint(
     std::cout << "Error: " << message << "\n";
   }
   prelude::printVerboseLogDirHint(startup.verboseLogFilePath);
-  if (showHelp) { startup.cmd.desc.print(std::cout); }
+  if (showHelp) { printHelp(std::cout, startup.cmd); }
   return 1;
 }
 
@@ -42,7 +94,7 @@ auto handleParseAndHelp(prelude::StartupContext const& startup)
   }
 
   if (vm.count("help")) {
-    desc.print(std::cout);
+    printHelp(std::cout, startup.cmd);
     return 0;
   }
 
@@ -92,6 +144,13 @@ auto runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& star
 }  // namespace
 
 namespace appentry {
+
+auto helpIntroLine() -> std::string {
+  return std::format(
+    "encro: Universal video encoder/converter/packer | build: {}",
+    compileTimestamp()
+  );
+}
 
 auto run(int argc, char* argv[]) -> int {
   auto const startup = prelude::initStartup(argc, argv);
