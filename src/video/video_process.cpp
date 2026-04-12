@@ -1096,12 +1096,7 @@ auto resolveVideoPackOutputPath(
   appctx::AppConfig const& config,
   fs::path const& inputPath
 ) -> fs::path {
-  if (
-    auto const outputPath = resolveVideoOutputPath(config, inputPath);
-    outputPath.has_value()
-  ) {
-    return outputPath.value() / "packed";
-  }
+  if (config.outputPath.has_value()) { return config.outputPath.value() / "packed"; }
 
   auto const basePath =
     fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
