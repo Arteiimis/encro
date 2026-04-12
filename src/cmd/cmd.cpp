@@ -38,6 +38,8 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("flat", "flatten output names inside the output directory (default)")   //
     ("keep",
      "preserve relative input subdirectories inside the output directory")   //
+    ("force-conflict-handling",
+     "always apply collision-safe file names, even without duplicates")      //
     ("recursive,r", "enable recursively search")                             //
     ;
 

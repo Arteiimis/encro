@@ -102,6 +102,26 @@ auto buildPictureCollisionGroupLabel(
   return label;
 }
 
+auto shouldForcePictureConflictNaming(appctx::AppConfig const& config) -> bool {
+  return config.forceNameConflictHandling
+      && config.outputLayout == appctx::OutputLayout::Flat;
+}
+
+auto buildConflictHandledPictureEntryName(
+  fs::path const& dirPath,
+  fs::path const& filePath
+) -> std::string {
+  auto const stem = filePath.stem().string();
+  auto const extension = filePath.extension().string();
+  return std::format(
+    "{}__{}__{}{}",
+    buildPictureCollisionGroupLabel(dirPath, filePath),
+    stem,
+    shortPathHash(filePath),
+    extension
+  );
+}
+
 auto planPictureZipEntryNames(
   appctx::AppConfig const& config,
   fs::path const& dirPath,
@@ -123,12 +143,13 @@ auto planPictureZipEntryNames(
 
   auto groupedCandidates = std::unordered_map<std::string, std::vector<fs::path>>{};
   groupedCandidates.reserve(filePaths.size());
+  auto const forceConflictNaming = shouldForcePictureConflictNaming(config);
   for (auto const& filePath: filePaths) {
     groupedCandidates[filePath.filename().generic_string()].push_back(filePath);
   }
 
   for (auto const& [fileName, groupedPaths]: groupedCandidates) {
-    if (groupedPaths.size() == 1) {
+    if (groupedPaths.size() == 1 && !forceConflictNaming) {
       plannedEntries[groupedPaths.front()] = fileName;
       continue;
     }
@@ -139,16 +160,9 @@ auto planPictureZipEntryNames(
     });
 
     auto const fileNamePath = fs::path{fileName};
-    auto const stem = fileNamePath.stem().string();
-    auto const extension = fileNamePath.extension().string();
     for (auto const& filePath: sortedPaths) {
-      plannedEntries[filePath] = std::format(
-        "{}__{}__{}{}",
-        buildPictureCollisionGroupLabel(dirPath, filePath),
-        stem,
-        shortPathHash(filePath),
-        extension
-      );
+      plannedEntries[filePath] =
+        buildConflictHandledPictureEntryName(dirPath, filePath);
     }
   }
 

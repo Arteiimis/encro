@@ -149,6 +149,10 @@ void logConfigSummary(appctx::AppConfig const& config) {
 
   if (config.packOnly) { spdlog::info("Pack-only mode enabled."); }
 
+  if (config.forceNameConflictHandling) {
+    spdlog::info("Forced collision-safe file naming enabled.");
+  }
+
   if (config.ffmpegInstallDir.has_value()) {
     spdlog::info(
       "Using custom FFmpeg install directory: {}",

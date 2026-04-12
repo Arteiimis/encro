@@ -38,6 +38,7 @@ TEST_CASE("commandLineInit parses flags", "[cmd]") {
      "--pack-only",
      "--flat",
      "--keep",
+     "--force-conflict-handling",
      "--verbose",
      "--verbose-echo"}
   );
@@ -48,6 +49,7 @@ TEST_CASE("commandLineInit parses flags", "[cmd]") {
   CHECK(result.vm.count("pack-only") == 1);
   CHECK(result.vm.count("flat") == 1);
   CHECK(result.vm.count("keep") == 1);
+  CHECK(result.vm.count("force-conflict-handling") == 1);
   CHECK(result.vm.count("verbose") == 1);
   CHECK(result.vm.count("verbose-echo") == 1);
 }
