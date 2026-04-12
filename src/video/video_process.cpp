@@ -170,10 +170,7 @@ struct BatchContext {
     batch.results.map[vidState.inputPath] = result;
   }
 
-  void finalizeState(
-    appctx::EncodingStatePtr const& vidState,
-    bool result
-  ) {
+  void finalizeState(appctx::EncodingStatePtr const& vidState, bool result) {
     if (result) {
       auto lock = std::scoped_lock{vidState->mtx};
       if (
@@ -311,9 +308,7 @@ auto relativeParentPath(
 
   auto const relativePath =
     inputPath.parent_path().lexically_relative(sourceRootDir.value());
-  if (relativePath.empty() || relativePath == fs::path{"."}) {
-    return std::nullopt;
-  }
+  if (relativePath.empty() || relativePath == fs::path{"."}) { return std::nullopt; }
 
   return relativePath;
 }
@@ -323,16 +318,17 @@ auto buildCollisionLabel(
   fs::path const& inputPath
 ) -> std::string {
   auto label = std::string{};
-  if (auto const relativePath = relativeParentPath(sourceRootDir, inputPath);
-      relativePath.has_value()) {
+  if (
+    auto const relativePath = relativeParentPath(sourceRootDir, inputPath);
+    relativePath.has_value()
+  ) {
     label = sanitizeLabel(relativePath->generic_string());
   }
 
   if (label.empty() && inputPath.has_extension()) {
     auto const extension = inputPath.extension().string();
-    auto const extensionView = std::string_view{extension}.substr(
-      extension.starts_with('.') ? 1 : 0
-    );
+    auto const extensionView =
+      std::string_view{extension}.substr(extension.starts_with('.') ? 1 : 0);
     label = sanitizeLabel(extensionView);
   }
 
@@ -364,8 +360,10 @@ auto resolvePlannedOutputDir(
   auto outputDir = outputRootDir.value();
   if (config.outputLayout != appctx::OutputLayout::Keep) { return outputDir; }
 
-  if (auto const relativePath = relativeParentPath(sourceRootDir, inputPath);
-      relativePath.has_value()) {
+  if (
+    auto const relativePath = relativeParentPath(sourceRootDir, inputPath);
+    relativePath.has_value()
+  ) {
     outputDir /= relativePath.value();
   }
 
@@ -391,12 +389,7 @@ auto ensureUniqueOutputPaths(appctx::path_map<fs::path>& plannedOutputFiles)
       auto const extension = outputPath.extension().string();
       for (auto const& inputPath: inputPaths) {
         plannedOutputFiles[inputPath] = outputPath.parent_path()
-                                     / std::format(
-                                         "{}__{}{}",
-                                         stem,
-                                         shortPathHash(inputPath),
-                                         extension
-                                       );
+          / std::format("{}__{}{}", stem, shortPathHash(inputPath), extension);
       }
     }
 
@@ -408,8 +401,10 @@ auto lookupPlannedOutputFile(
   appctx::path_map<fs::path> const& plannedOutputFiles,
   fs::path const& inputPath
 ) -> std::optional<fs::path> {
-  if (auto const it = plannedOutputFiles.find(inputPath);
-      it != plannedOutputFiles.end()) {
+  if (
+    auto const it = plannedOutputFiles.find(inputPath);
+    it != plannedOutputFiles.end()
+  ) {
     return it->second;
   }
 
@@ -1033,7 +1028,8 @@ auto planVideoOutputFiles(
   auto const usesSharedOutputRoot = outputRootDir.has_value();
 
   if (
-    usesSharedOutputRoot && config.outputLayout == appctx::OutputLayout::Keep
+    usesSharedOutputRoot
+    && config.outputLayout == appctx::OutputLayout::Keep
     && !sourceRootDir.has_value()
   ) {
     return eh::makeError(
@@ -1068,12 +1064,10 @@ auto planVideoOutputFiles(
     auto const extension = candidatePath.extension().string();
     for (auto const& inputPath: sortedInputs) {
       plannedOutputFiles[inputPath] = candidatePath.parent_path()
-                                   / std::format(
-                                       "{}__{}{}",
-                                       stem,
-                                       buildCollisionLabel(sourceRootDir, inputPath),
-                                       extension
-                                     );
+        / std::format("{}__{}{}",
+                      stem,
+                      buildCollisionLabel(sourceRootDir, inputPath),
+                      extension);
     }
   }
 
@@ -1303,12 +1297,8 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
   if (!runRes.has_value()) { return 0; }
 
   auto const& vidsRunRes = runRes.value();
-  auto const packRes = maybePackOutputs(
-    ctx,
-    inputPath,
-    plannedOutputFilesRes.value(),
-    vidsRunRes
-  );
+  auto const packRes =
+    maybePackOutputs(ctx, inputPath, plannedOutputFilesRes.value(), vidsRunRes);
   if (packRes != 0) { return packRes; }
 
   printEncodingSummary(vids, vidsRunRes);
@@ -1343,7 +1333,8 @@ int handleMultiFileEncoding(
 
   if (
     ctx.config.outputLayout == appctx::OutputLayout::Keep
-    && ctx.config.outputPath.has_value() && !basePath.has_value()
+    && ctx.config.outputPath.has_value()
+    && !basePath.has_value()
   ) {
     spdlog::error(
       "--keep requires multiple input files to share the same parent directory."
@@ -1351,14 +1342,14 @@ int handleMultiFileEncoding(
     return 1;
   }
 
-  auto const plannedOutputFilesRes = planVideoOutputFiles(ctx.config, vids, basePath);
+  auto const plannedOutputFilesRes =
+    planVideoOutputFiles(ctx.config, vids, basePath);
   if (!plannedOutputFilesRes) {
     spdlog::error(plannedOutputFilesRes.error());
     return 1;
   }
 
-  auto const runRes =
-    runEncodingBatches(ctx, vids, plannedOutputFilesRes.value());
+  auto const runRes = runEncodingBatches(ctx, vids, plannedOutputFilesRes.value());
   if (!runRes.has_value()) { return 0; }
 
   auto const& vidsRunRes = runRes.value();
