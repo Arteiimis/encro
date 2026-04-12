@@ -313,7 +313,7 @@ auto relativeParentPath(
   return relativePath;
 }
 
-auto buildCollisionLabel(
+auto buildCollisionGroupLabel(
   std::optional<fs::path> const& sourceRootDir,
   fs::path const& inputPath
 ) -> std::string {
@@ -334,7 +334,7 @@ auto buildCollisionLabel(
 
   if (label.empty()) { label = "src"; }
 
-  return std::format("{}_{}", label, shortPathHash(inputPath));
+  return label;
 }
 
 auto resolveOutputRootDir(
@@ -1064,10 +1064,13 @@ auto planVideoOutputFiles(
     auto const extension = candidatePath.extension().string();
     for (auto const& inputPath: sortedInputs) {
       plannedOutputFiles[inputPath] = candidatePath.parent_path()
-        / std::format("{}__{}{}",
-                      stem,
-                      buildCollisionLabel(sourceRootDir, inputPath),
-                      extension);
+        / std::format(
+            "{}__{}__{}{}",
+            buildCollisionGroupLabel(sourceRootDir, inputPath),
+            stem,
+            shortPathHash(inputPath),
+            extension
+          );
     }
   }
 

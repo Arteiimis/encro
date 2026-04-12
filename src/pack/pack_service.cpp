@@ -34,7 +34,13 @@ auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path
                        : std::format("Packing: {}", zipName);
 
     auto const packRes =
-      packFilesToZip(plan.groups[index], zipPath, progressCtx, label);
+      packFilesToZip(
+        plan.groups[index],
+        zipPath,
+        progressCtx,
+        label,
+        plan.zipEntryNameForFile
+      );
 
     auto lock = std::scoped_lock{resultMtx};
     if (!packRes) {

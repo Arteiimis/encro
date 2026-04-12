@@ -2,6 +2,7 @@
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
+#include <libzippp/libzippp.h>
 
 #include <filesystem>
 #include <fstream>
@@ -62,4 +63,91 @@ TEST_CASE("picture pipeline packs directory", "[pipeline]") {
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
   CHECK(fs::exists(inputDir / "packed" / "pics_part1.zip"));
+}
+
+TEST_CASE(
+  "picture pipeline keeps same-folder files grouped in flat mode",
+  "[pipeline]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+  touchFile(dirA / "alpha.jpg");
+  touchFile(dirA / "beta.jpg");
+  touchFile(dirB / "alpha.jpg");
+  touchFile(dirB / "beta.jpg");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.recursive = true;
+  ctx.config.inputPath = inputDir;
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  REQUIRE(runRes.value() == 0);
+
+  auto const zipPath = inputDir / "packed" / "pics_part1.zip";
+  REQUIRE(fs::exists(zipPath));
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  auto entryNames = std::vector<std::string>{};
+  entryNames.reserve(entries.size());
+  for (auto const& entry: entries) {
+    if (entry.getName().ends_with('/')) { continue; }
+    entryNames.emplace_back(entry.getName());
+  }
+  std::ranges::sort(entryNames);
+
+  REQUIRE(entryNames.size() == 4);
+  CHECK(entryNames[0].starts_with("a__alpha__"));
+  CHECK(entryNames[1].starts_with("a__beta__"));
+  CHECK(entryNames[2].starts_with("b__alpha__"));
+  CHECK(entryNames[3].starts_with("b__beta__"));
+  zip.close();
+}
+
+TEST_CASE("picture pipeline keeps relative paths in keep mode", "[pipeline]") {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+  touchFile(dirA / "same.jpg");
+  touchFile(dirB / "same.jpg");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.recursive = true;
+  ctx.config.outputLayout = appctx::OutputLayout::Keep;
+  ctx.config.inputPath = inputDir;
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  REQUIRE(runRes.value() == 0);
+
+  auto const zipPath = inputDir / "packed" / "pics_part1.zip";
+  REQUIRE(fs::exists(zipPath));
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  auto entryNames = std::vector<std::string>{};
+  entryNames.reserve(entries.size());
+  for (auto const& entry: entries) {
+    if (entry.getName().ends_with('/')) { continue; }
+    entryNames.emplace_back(entry.getName());
+  }
+  REQUIRE(entryNames.size() == 2);
+  std::ranges::sort(entryNames);
+
+  CHECK(entryNames == std::vector<std::string>{"a/same.jpg", "b/same.jpg"});
+  zip.close();
 }

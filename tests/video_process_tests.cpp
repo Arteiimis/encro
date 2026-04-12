@@ -209,8 +209,52 @@ TEST_CASE(
   CHECK(planned.at(fileA).parent_path() == temp.path / "encoded_webp");
   CHECK(planned.at(fileB).parent_path() == temp.path / "encoded_webp");
   CHECK(planned.at(fileA).filename() != planned.at(fileB).filename());
-  CHECK(planned.at(fileA).filename().string().find("__") != std::string::npos);
-  CHECK(planned.at(fileB).filename().string().find("__") != std::string::npos);
+  CHECK(planned.at(fileA).filename().string().starts_with("a_x__sample__"));
+  CHECK(planned.at(fileB).filename().string().starts_with("b_y__sample__"));
+}
+
+TEST_CASE(
+  "flat collision names keep files from the same folder grouped when sorted",
+  "[video-process][plan-output]"
+) {
+  TempDir temp;
+  auto const dirA = temp.path / "a";
+  auto const dirB = temp.path / "b";
+  auto const alphaA = dirA / "alpha.mp4";
+  auto const betaA = dirA / "beta.mp4";
+  auto const alphaB = dirB / "alpha.mp4";
+  auto const betaB = dirB / "beta.mp4";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  for (auto const& filePath: {alphaA, betaA, alphaB, betaB}) {
+    std::ofstream out{filePath};
+    out << "x";
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.outputLayout = appctx::OutputLayout::Flat;
+
+  auto const plannedRes = planVideoOutputFiles(
+    config,
+    std::vector{alphaA, betaA, alphaB, betaB},
+    temp.path
+  );
+
+  REQUIRE(plannedRes);
+  auto sortedNames = std::vector<std::string>{};
+  sortedNames.reserve(plannedRes->size());
+  for (auto const& [_, outputPath]: plannedRes.value()) {
+    sortedNames.emplace_back(outputPath.filename().string());
+  }
+  std::ranges::sort(sortedNames);
+
+  REQUIRE(sortedNames.size() == 4);
+  CHECK(sortedNames[0].starts_with("a__alpha__"));
+  CHECK(sortedNames[1].starts_with("a__beta__"));
+  CHECK(sortedNames[2].starts_with("b__alpha__"));
+  CHECK(sortedNames[3].starts_with("b__beta__"));
 }
 
 TEST_CASE(
