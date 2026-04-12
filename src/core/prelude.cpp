@@ -149,8 +149,8 @@ void logConfigSummary(appctx::AppConfig const& config) {
 
   if (config.packOnly) { spdlog::info("Pack-only mode enabled."); }
 
-  if (config.forceNameConflictHandling) {
-    spdlog::info("Forced collision-safe file naming enabled.");
+  if (!config.forceNameConflictHandling) {
+    spdlog::info("Collision-safe file naming disabled for unique flat outputs.");
   }
 
   if (config.ffmpegInstallDir.has_value()) {
