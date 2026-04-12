@@ -56,8 +56,33 @@ TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config
   CHECK_FALSE(config.packOnly);
   CHECK_FALSE(config.verbose);
   CHECK_FALSE(config.verboseEcho);
+  CHECK(config.outputLayout == appctx::OutputLayout::Flat);
   CHECK(config.inputPath == inputPath);
   CHECK(config.inputPath.is_absolute());
+}
+
+TEST_CASE("buildConfig reads keep output layout", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm = makeVm({{"input", inputPath.string()}}, {"keep"});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  CHECK(configRes->outputLayout == appctx::OutputLayout::Keep);
+}
+
+TEST_CASE("buildConfig rejects conflicting output layouts", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm = makeVm({{"input", inputPath.string()}}, {"flat", "keep"});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(configRes.error().find("--flat and --keep") != std::string::npos);
 }
 
 TEST_CASE("buildConfig supports multiple inputs", "[cmd][config]") {
@@ -303,6 +328,7 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
   CHECK(config.packOnly);
   CHECK(config.verbose);
   CHECK(config.verboseEcho);
+  CHECK(config.outputLayout == appctx::OutputLayout::Flat);
   CHECK(config.outputPath == outputDir);
 }
 

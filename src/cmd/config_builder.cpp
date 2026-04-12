@@ -98,6 +98,20 @@ auto readMaxParallelJobs(boost::program_options::variables_map const& vm)
   return jobs;
 }
 
+auto readOutputLayout(boost::program_options::variables_map const& vm)
+  -> eh::Result<appctx::OutputLayout> {
+  auto const useFlat = vm.count("flat") > 0;
+  auto const useKeep = vm.count("keep") > 0;
+
+  if (useFlat && useKeep) {
+    return eh::makeError("--flat and --keep cannot be used together.");
+  }
+
+  if (useKeep) { return appctx::OutputLayout::Keep; }
+
+  return appctx::OutputLayout::Flat;
+}
+
 }  // namespace
 
 namespace cmd {
@@ -117,6 +131,10 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   auto jobsRes = readMaxParallelJobs(vm);
   if (!jobsRes) { return eh::makeError("{}", jobsRes.error()); }
   config.maxParallelJobs = jobsRes.value();
+
+  auto layoutRes = readOutputLayout(vm);
+  if (!layoutRes) { return eh::makeError("{}", layoutRes.error()); }
+  config.outputLayout = layoutRes.value();
 
   config.yesToAll = vm.count("yes") > 0;
   config.recursive = vm.count("recursive") > 0;
