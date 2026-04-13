@@ -36,7 +36,9 @@ auto groupFilesBySize(
 auto groupPackFiles(
   const std::vector<PackGroupInput>& filePaths,
   std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
-  std::optional<std::size_t> maxFilesPerGroup = std::nullopt
+  std::optional<std::size_t> maxFilesPerGroup = std::nullopt,
+  std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed =
+    std::nullopt
 ) -> std::vector<std::vector<std::filesystem::path>>;
 
 auto packAllFilesInDirectory(
