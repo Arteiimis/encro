@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-13
+
+### Added
+
+- Output layout options, with `-o` accepting `+` / `input://` and `=` / `common://` aliases for the input root and the common root.
+- `--force-conflict-handling` decides what happens to same-name files in a flat output directory.
+- Zips are grouped by size and file count, and files from one source directory stay together across a split.
+- Sequential ordinal names for split archives, so parts are ordered by name.
+- The help header names the build it came from.
+
+### Fixed
+
+- Duplicate entry names inside a single archive are resolved instead of producing an unreadable zip.
+
 ## [0.2.0] - 2026-03-05
 
 ### Added
@@ -38,7 +52,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Arteiimis/encro/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Arteiimis/encro/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/Arteiimis/encro/compare/v0.1.0...v0.1.5
 [0.1.0]: https://github.com/Arteiimis/encro/releases/tag/v0.1.0

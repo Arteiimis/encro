@@ -1149,7 +1149,10 @@ auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
   return groupPackFiles(packInputs, kMaxZipSize);
 }
 
-auto groupEncodedVideosForPack(std::vector<EncodedVideoPackFile> const& filePaths)
+auto groupEncodedVideosForPack(
+  std::vector<EncodedVideoPackFile> const& filePaths,
+  std::size_t keepSourceDirsTogetherWhenTotalFilesExceed
+)
   -> std::vector<std::vector<fs::path>> {
   constexpr auto kMaxZipSize = std::uintmax_t{500 * 1024 * 1024};
   auto packInputs = std::vector<PackGroupInput>{};
@@ -1160,7 +1163,12 @@ auto groupEncodedVideosForPack(std::vector<EncodedVideoPackFile> const& filePath
     );
   }
 
-  return groupPackFiles(packInputs, kMaxZipSize);
+  return groupPackFiles(
+    packInputs,
+    kMaxZipSize,
+    std::nullopt,
+    keepSourceDirsTogetherWhenTotalFilesExceed
+  );
 }
 
 bool encodeToHevc(

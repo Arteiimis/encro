@@ -40,8 +40,8 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "groupFilesBySize keeps source directories intact when advancing groups",
-  "[packer][groupFilesBySize]"
+  "groupPackFiles keeps source directories intact after threshold is exceeded",
+  "[packer][groupPackFiles]"
 ) {
   TempDir temp;
   auto const dirA = temp.path / "a";
@@ -54,11 +54,53 @@ TEST_CASE(
   auto const b1 = createSizedFile(dirB, "b1.bin", 90);
   auto const b2 = createSizedFile(dirB, "b2.bin", 90);
 
-  auto const grouped = groupFilesBySize({a1, a2, b1, b2}, 300);
+  auto const grouped = groupPackFiles(
+    {
+      PackGroupInput{a1, dirA},
+      PackGroupInput{a2, dirA},
+      PackGroupInput{b1, dirB},
+      PackGroupInput{b2, dirB},
+    },
+    300,
+    std::nullopt,
+    3
+  );
 
   REQUIRE(grouped.size() == 2);
   CHECK(grouped[0] == std::vector{a1, a2});
   CHECK(grouped[1] == std::vector{b1, b2});
+}
+
+TEST_CASE(
+  "groupPackFiles stays sequential before folder carry-over threshold",
+  "[packer][groupPackFiles]"
+) {
+  TempDir temp;
+  auto const dirA = temp.path / "a";
+  auto const dirB = temp.path / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  auto const a1 = createSizedFile(dirA, "a1.bin", 100);
+  auto const a2 = createSizedFile(dirA, "a2.bin", 100);
+  auto const b1 = createSizedFile(dirB, "b1.bin", 90);
+  auto const b2 = createSizedFile(dirB, "b2.bin", 90);
+
+  auto const grouped = groupPackFiles(
+    {
+      PackGroupInput{a1, dirA},
+      PackGroupInput{a2, dirA},
+      PackGroupInput{b1, dirB},
+      PackGroupInput{b2, dirB},
+    },
+    300,
+    std::nullopt,
+    10
+  );
+
+  REQUIRE(grouped.size() == 2);
+  CHECK(grouped[0] == std::vector{a1, a2, b1});
+  CHECK(grouped[1] == std::vector{b2});
 }
 
 TEST_CASE(
