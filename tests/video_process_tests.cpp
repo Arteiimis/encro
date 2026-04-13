@@ -25,6 +25,23 @@ void createSizedSparseFile(fs::path const& filePath, std::uintmax_t sizeInBytes)
   out.flush();
 }
 
+auto hasCollisionSafePrefix(
+  std::string const& entryName,
+  std::string_view dirLabel,
+  std::string_view stem
+) -> bool {
+  return entryName.starts_with(std::format("{}__", dirLabel))
+      && entryName.find(std::format("__{}__", stem)) != std::string::npos;
+}
+
+auto collisionGroupPrefix(std::string const& entryName) -> std::string {
+  auto const lastSep = entryName.rfind("__");
+  if (lastSep == std::string::npos) { return entryName; }
+  auto const stemSep = entryName.rfind("__", lastSep - 1);
+  if (stemSep == std::string::npos) { return entryName.substr(0, lastSep); }
+  return entryName.substr(0, stemSep);
+}
+
 }  // namespace
 
 TEST_CASE("readLastNLines returns tail of file", "[video-process][readLastNLines]") {
@@ -209,8 +226,8 @@ TEST_CASE(
   CHECK(planned.at(fileA).parent_path() == temp.path / "encoded_webp");
   CHECK(planned.at(fileB).parent_path() == temp.path / "encoded_webp");
   CHECK(planned.at(fileA).filename() != planned.at(fileB).filename());
-  CHECK(planned.at(fileA).filename().string().starts_with("a_x__sample__"));
-  CHECK(planned.at(fileB).filename().string().starts_with("b_y__sample__"));
+  CHECK(hasCollisionSafePrefix(planned.at(fileA).filename().string(), "a_x", "sample"));
+  CHECK(hasCollisionSafePrefix(planned.at(fileB).filename().string(), "b_y", "sample"));
 }
 
 TEST_CASE(
@@ -251,10 +268,10 @@ TEST_CASE(
   std::ranges::sort(sortedNames);
 
   REQUIRE(sortedNames.size() == 4);
-  CHECK(sortedNames[0].starts_with("a__alpha__"));
-  CHECK(sortedNames[1].starts_with("a__beta__"));
-  CHECK(sortedNames[2].starts_with("b__alpha__"));
-  CHECK(sortedNames[3].starts_with("b__beta__"));
+  CHECK(hasCollisionSafePrefix(sortedNames[0], "a", "alpha"));
+  CHECK(hasCollisionSafePrefix(sortedNames[1], "a", "beta"));
+  CHECK(hasCollisionSafePrefix(sortedNames[2], "b", "alpha"));
+  CHECK(hasCollisionSafePrefix(sortedNames[3], "b", "beta"));
 }
 
 TEST_CASE(
@@ -282,8 +299,55 @@ TEST_CASE(
     planVideoOutputFiles(config, std::vector{fileA, fileB}, temp.path);
 
   REQUIRE(plannedRes);
-  CHECK(plannedRes->at(fileA).filename().string().starts_with("a__alpha__"));
-  CHECK(plannedRes->at(fileB).filename().string().starts_with("b__beta__"));
+  CHECK(hasCollisionSafePrefix(plannedRes->at(fileA).filename().string(), "a", "alpha"));
+  CHECK(hasCollisionSafePrefix(plannedRes->at(fileB).filename().string(), "b", "beta"));
+}
+
+TEST_CASE(
+  "flat collision names stay grouped for weakly-sanitized directory labels",
+  "[video-process][plan-output]"
+) {
+  TempDir temp;
+  auto const dirA = temp.path / "丹花イブキ(110p + 音声あり動画)";
+  auto const dirB = temp.path / "天川そら(110p + 音声あり動画)";
+  auto const alphaA = dirA / "alpha.mp4";
+  auto const betaA = dirA / "beta.mp4";
+  auto const alphaB = dirB / "alpha.mp4";
+  auto const betaB = dirB / "beta.mp4";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  for (auto const& filePath: {alphaA, betaA, alphaB, betaB}) {
+    std::ofstream out{filePath};
+    out << "x";
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.outputLayout = appctx::OutputLayout::Flat;
+
+  auto const plannedRes = planVideoOutputFiles(
+    config,
+    std::vector{alphaA, betaA, alphaB, betaB},
+    temp.path
+  );
+
+  REQUIRE(plannedRes);
+  auto sortedNames = std::vector<std::string>{};
+  sortedNames.reserve(plannedRes->size());
+  for (auto const& [_, outputPath]: plannedRes.value()) {
+    sortedNames.emplace_back(outputPath.filename().string());
+  }
+  std::ranges::sort(sortedNames);
+
+  REQUIRE(sortedNames.size() == 4);
+  CHECK(collisionGroupPrefix(sortedNames[0]) == collisionGroupPrefix(sortedNames[1]));
+  CHECK(collisionGroupPrefix(sortedNames[2]) == collisionGroupPrefix(sortedNames[3]));
+  CHECK(collisionGroupPrefix(sortedNames[0]) != collisionGroupPrefix(sortedNames[2]));
+  CHECK(sortedNames[0].find("__alpha__") != std::string::npos);
+  CHECK(sortedNames[1].find("__beta__") != std::string::npos);
+  CHECK(sortedNames[2].find("__alpha__") != std::string::npos);
+  CHECK(sortedNames[3].find("__beta__") != std::string::npos);
 }
 
 TEST_CASE(
