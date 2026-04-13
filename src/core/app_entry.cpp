@@ -62,7 +62,7 @@ auto compileTimestamp() -> std::string {
 }
 
 auto printHelp(std::ostream& out, CmdParseResult const& cmd) -> void {
-  out << appentry::helpIntroLine() << "\n\n";
+  std::print(out, "{}\n\n", appentry::helpIntroLine());
   cmd.desc.print(out);
 }
 
