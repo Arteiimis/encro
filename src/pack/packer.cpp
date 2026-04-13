@@ -6,8 +6,10 @@
 #include <libzippp/libzippp.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -151,6 +153,86 @@ auto makeUniqueZipEntryName(
   return candidate;
 }
 
+struct PreparedPackFile {
+  fs::path filePath;
+  std::string sourceKey;
+  std::string fileKey;
+  std::uintmax_t fileSize = 0;
+};
+
+struct PreparedPackChunk {
+  std::vector<fs::path> filePaths;
+  std::uintmax_t totalSize = 0;
+  std::size_t fileCount = 0;
+};
+
+auto wouldExceedGroupLimits(
+  std::uintmax_t currentSize,
+  std::size_t currentCount,
+  std::uintmax_t additionalSize,
+  std::size_t additionalCount,
+  std::uintmax_t maxGroupSize,
+  std::optional<std::size_t> maxFilesPerGroup
+) -> bool {
+  if (currentSize + additionalSize > maxGroupSize) { return true; }
+  return maxFilesPerGroup.has_value()
+      && currentCount + additionalCount > maxFilesPerGroup.value();
+}
+
+void flushPreparedChunk(
+  PreparedPackChunk& currentChunk,
+  std::vector<PreparedPackChunk>& chunks
+) {
+  if (currentChunk.filePaths.empty()) { return; }
+  chunks.emplace_back(std::move(currentChunk));
+  currentChunk = {};
+}
+
+void flushGroupedFiles(
+  std::vector<fs::path>& currentGroup,
+  std::uintmax_t& currentSize,
+  std::size_t& currentCount,
+  std::vector<std::vector<fs::path>>& groupedFiles
+) {
+  if (currentGroup.empty()) { return; }
+  groupedFiles.emplace_back(std::move(currentGroup));
+  currentGroup = {};
+  currentSize = 0;
+  currentCount = 0;
+}
+
+auto splitSourceDirectoryEntries(
+  std::vector<PreparedPackFile> const& entries,
+  std::uintmax_t maxGroupSize,
+  std::optional<std::size_t> maxFilesPerGroup
+) -> std::vector<PreparedPackChunk> {
+  auto chunks = std::vector<PreparedPackChunk>{};
+  auto currentChunk = PreparedPackChunk{};
+
+  for (auto const& entry: entries) {
+    if (
+      !currentChunk.filePaths.empty()
+      && wouldExceedGroupLimits(
+        currentChunk.totalSize,
+        currentChunk.fileCount,
+        entry.fileSize,
+        1,
+        maxGroupSize,
+        maxFilesPerGroup
+      )
+    ) {
+      flushPreparedChunk(currentChunk, chunks);
+    }
+
+    currentChunk.filePaths.emplace_back(entry.filePath);
+    currentChunk.totalSize += entry.fileSize;
+    ++currentChunk.fileCount;
+  }
+
+  flushPreparedChunk(currentChunk, chunks);
+  return chunks;
+}
+
 }  // namespace
 
 auto packFilesToZip(
@@ -219,26 +301,91 @@ auto packFilesToZip(
 
 auto groupFilesBySize(
   std::vector<fs::path> const& filePaths,
-  std::uintmax_t maxGroupSize
+  std::uintmax_t maxGroupSize,
+  std::optional<std::size_t> maxFilesPerGroup
 ) -> std::vector<std::vector<fs::path>> {
+  auto packInputs = std::vector<PackGroupInput>{};
+  packInputs.reserve(filePaths.size());
+  for (auto const& filePath: filePaths) {
+    packInputs.emplace_back(PackGroupInput{filePath, filePath.parent_path()});
+  }
+
+  return groupPackFiles(packInputs, maxGroupSize, maxFilesPerGroup);
+}
+
+auto groupPackFiles(
+  std::vector<PackGroupInput> const& filePaths,
+  std::uintmax_t maxGroupSize,
+  std::optional<std::size_t> maxFilesPerGroup
+) -> std::vector<std::vector<fs::path>> {
+  if (filePaths.empty()) { return {}; }
+
+  auto preparedFiles = std::vector<PreparedPackFile>{};
+  preparedFiles.reserve(filePaths.size());
+  for (auto const& file: filePaths) {
+    preparedFiles.emplace_back(PreparedPackFile{
+      .filePath = file.filePath,
+      .sourceKey = stablePathString(file.sourceDir),
+      .fileKey = stablePathString(file.filePath),
+      .fileSize = fs::file_size(file.filePath),
+    });
+  }
+
+  std::ranges::sort(preparedFiles, [](PreparedPackFile const& lhs, PreparedPackFile const& rhs) {
+    if (lhs.sourceKey != rhs.sourceKey) { return lhs.sourceKey < rhs.sourceKey; }
+    return lhs.fileKey < rhs.fileKey;
+  });
+
   auto groupedFiles = std::vector<std::vector<fs::path>>{};
   auto currentGroup = std::vector<fs::path>{};
   auto currentSize = std::uintmax_t{0};
+  auto currentCount = std::size_t{0};
 
-  for (auto const& filePath: filePaths) {
-    auto const fileSize = fs::file_size(filePath);
+  auto currentSourceEntries = std::vector<PreparedPackFile>{};
+  auto currentSourceKey = std::string{};
 
-    if (currentSize + fileSize > maxGroupSize && !currentGroup.empty()) {
-      groupedFiles.emplace_back(currentGroup);
-      currentGroup.clear();
-      currentSize = 0;
+  auto packSourceEntries = [&](std::vector<PreparedPackFile> const& entries) {
+    auto const sourceChunks =
+      splitSourceDirectoryEntries(entries, maxGroupSize, maxFilesPerGroup);
+    for (auto const& chunk: sourceChunks) {
+      if (
+        !currentGroup.empty()
+        && wouldExceedGroupLimits(
+          currentSize,
+          currentCount,
+          chunk.totalSize,
+          chunk.fileCount,
+          maxGroupSize,
+          maxFilesPerGroup
+        )
+      ) {
+        flushGroupedFiles(currentGroup, currentSize, currentCount, groupedFiles);
+      }
+
+      currentGroup.insert(
+        currentGroup.end(),
+        chunk.filePaths.begin(),
+        chunk.filePaths.end()
+      );
+      currentSize += chunk.totalSize;
+      currentCount += chunk.fileCount;
+    }
+  };
+
+  for (auto const& entry: preparedFiles) {
+    if (currentSourceEntries.empty()) {
+      currentSourceKey = entry.sourceKey;
+    } else if (entry.sourceKey != currentSourceKey) {
+      packSourceEntries(currentSourceEntries);
+      currentSourceEntries.clear();
+      currentSourceKey = entry.sourceKey;
     }
 
-    currentGroup.emplace_back(filePath);
-    currentSize += fileSize;
+    currentSourceEntries.emplace_back(entry);
   }
 
-  if (!currentGroup.empty()) { groupedFiles.emplace_back(currentGroup); }
+  packSourceEntries(currentSourceEntries);
+  flushGroupedFiles(currentGroup, currentSize, currentCount, groupedFiles);
 
   return groupedFiles;
 }

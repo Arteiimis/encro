@@ -910,10 +910,10 @@ auto collectEncodedOutputFiles(
   appctx::AppContext& ctx,
   appctx::path_map<fs::path> const& plannedOutputFiles,
   std::unordered_map<fs::path, bool> const& vidsRunRes
-) -> std::vector<fs::path> {
+) -> std::vector<EncodedVideoPackFile> {
   constexpr auto kWebpPackMaxSize = std::uintmax_t{20ULL * 1024ULL * 1024ULL};
 
-  auto encodedOutputFiles = std::vector<fs::path>{};
+  auto encodedOutputFiles = std::vector<EncodedVideoPackFile>{};
   encodedOutputFiles.reserve(vidsRunRes.size());
   spdlog::debug(
     "Collecting encoded outputs for packing: success-map-size={}",
@@ -937,7 +937,10 @@ auto collectEncodedOutputFiles(
       continue;
     }
 
-    encodedOutputFiles.emplace_back(outFile.value());
+    encodedOutputFiles.emplace_back(EncodedVideoPackFile{
+      .sourcePath = vidPath,
+      .outputPath = outFile.value(),
+    });
   }
 
   return encodedOutputFiles;
@@ -1137,7 +1140,27 @@ auto resolveVideoPackOutputPath(
 auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
   -> std::vector<std::vector<fs::path>> {
   constexpr auto kMaxZipSize = std::uintmax_t{500 * 1024 * 1024};
-  return groupFilesBySize(filePaths, kMaxZipSize);
+  auto packInputs = std::vector<PackGroupInput>{};
+  packInputs.reserve(filePaths.size());
+  for (auto const& filePath: filePaths) {
+    packInputs.emplace_back(PackGroupInput{filePath, filePath.parent_path()});
+  }
+
+  return groupPackFiles(packInputs, kMaxZipSize);
+}
+
+auto groupEncodedVideosForPack(std::vector<EncodedVideoPackFile> const& filePaths)
+  -> std::vector<std::vector<fs::path>> {
+  constexpr auto kMaxZipSize = std::uintmax_t{500 * 1024 * 1024};
+  auto packInputs = std::vector<PackGroupInput>{};
+  packInputs.reserve(filePaths.size());
+  for (auto const& file: filePaths) {
+    packInputs.emplace_back(
+      PackGroupInput{file.outputPath, file.sourcePath.parent_path()}
+    );
+  }
+
+  return groupPackFiles(packInputs, kMaxZipSize);
 }
 
 bool encodeToHevc(

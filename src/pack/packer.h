@@ -3,6 +3,7 @@
 #include "core/error_handle.h"
 #include "core/progress.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -12,6 +13,11 @@
 
 using ZipEntryNameResolver =
   std::function<std::string(std::filesystem::path const&)>;
+
+struct PackGroupInput {
+  std::filesystem::path filePath;
+  std::filesystem::path sourceDir;
+};
 
 auto packFilesToZip(
   const std::vector<std::filesystem::path>& filePaths,
@@ -23,7 +29,14 @@ auto packFilesToZip(
 
 auto groupFilesBySize(
   const std::vector<std::filesystem::path>& filePaths,
-  std::uintmax_t maxGroupSize = 490 * 1024 * 1024
+  std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
+  std::optional<std::size_t> maxFilesPerGroup = std::nullopt
+) -> std::vector<std::vector<std::filesystem::path>>;
+
+auto groupPackFiles(
+  const std::vector<PackGroupInput>& filePaths,
+  std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
+  std::optional<std::size_t> maxFilesPerGroup = std::nullopt
 ) -> std::vector<std::vector<std::filesystem::path>>;
 
 auto packAllFilesInDirectory(
