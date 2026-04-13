@@ -12,6 +12,11 @@
 
 namespace fs = std::filesystem;
 
+struct EncodedVideoPackFile {
+  fs::path sourcePath;
+  fs::path outputPath;
+};
+
 using function_ref = std::function<void(std::string const&)> const&;
 bool encodeToHevc(
   appctx::AppContext& ctx,
@@ -54,6 +59,9 @@ auto resolveVideoPackOutputPath(
 ) -> fs::path;
 
 auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
+  -> std::vector<std::vector<fs::path>>;
+
+auto groupEncodedVideosForPack(std::vector<EncodedVideoPackFile> const& filePaths)
   -> std::vector<std::vector<fs::path>>;
 
 auto handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) -> int;
