@@ -194,13 +194,23 @@ auto packAllPicsToZipParallel(
 ) -> eh::Result<void> {
   constexpr auto kMaxPicturePackSize = std::uintmax_t{500ULL * 1024ULL * 1024ULL};
   constexpr auto kMaxPicturesPerPack = std::size_t{2000};
+  constexpr auto kFolderCarryOverThreshold = std::size_t{2000};
 
   std::println("Scanning input path for pictures: {} ...", dirPath.string());
   auto const scannedPics = readAllPics(config, dirPath);
   auto const plannedEntryNames =
     planPictureZipEntryNames(config, dirPath, scannedPics);
-  auto const groupedPics =
-    groupFilesBySize(scannedPics, kMaxPicturePackSize, kMaxPicturesPerPack);
+  auto packInputs = std::vector<PackGroupInput>{};
+  packInputs.reserve(scannedPics.size());
+  for (auto const& picPath: scannedPics) {
+    packInputs.emplace_back(PackGroupInput{picPath, picPath.parent_path()});
+  }
+  auto const groupedPics = groupPackFiles(
+    packInputs,
+    kMaxPicturePackSize,
+    kMaxPicturesPerPack,
+    kFolderCarryOverThreshold
+  );
   auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedPics);
   std::println(
     "Picture scan completed, {} picture(s) found, grouped into {} package "

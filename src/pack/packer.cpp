@@ -173,6 +173,56 @@ auto wouldExceedGroupLimits(
   std::size_t additionalCount,
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup
+) -> bool;
+
+void flushGroupedFiles(
+  std::vector<fs::path>& currentGroup,
+  std::uintmax_t& currentSize,
+  std::size_t& currentCount,
+  std::vector<std::vector<fs::path>>& groupedFiles
+);
+
+auto groupPreparedFilesSequentially(
+  std::vector<PreparedPackFile> const& preparedFiles,
+  std::uintmax_t maxGroupSize,
+  std::optional<std::size_t> maxFilesPerGroup
+) -> std::vector<std::vector<fs::path>> {
+  auto groupedFiles = std::vector<std::vector<fs::path>>{};
+  auto currentGroup = std::vector<fs::path>{};
+  auto currentSize = std::uintmax_t{0};
+  auto currentCount = std::size_t{0};
+
+  for (auto const& file: preparedFiles) {
+    if (
+      !currentGroup.empty()
+      && wouldExceedGroupLimits(
+        currentSize,
+        currentCount,
+        file.fileSize,
+        1,
+        maxGroupSize,
+        maxFilesPerGroup
+      )
+    ) {
+      flushGroupedFiles(currentGroup, currentSize, currentCount, groupedFiles);
+    }
+
+    currentGroup.emplace_back(file.filePath);
+    currentSize += file.fileSize;
+    ++currentCount;
+  }
+
+  flushGroupedFiles(currentGroup, currentSize, currentCount, groupedFiles);
+  return groupedFiles;
+}
+
+auto wouldExceedGroupLimits(
+  std::uintmax_t currentSize,
+  std::size_t currentCount,
+  std::uintmax_t additionalSize,
+  std::size_t additionalCount,
+  std::uintmax_t maxGroupSize,
+  std::optional<std::size_t> maxFilesPerGroup
 ) -> bool {
   if (currentSize + additionalSize > maxGroupSize) { return true; }
   return maxFilesPerGroup.has_value()
@@ -304,19 +354,29 @@ auto groupFilesBySize(
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup
 ) -> std::vector<std::vector<fs::path>> {
-  auto packInputs = std::vector<PackGroupInput>{};
-  packInputs.reserve(filePaths.size());
+  auto preparedFiles = std::vector<PreparedPackFile>{};
+  preparedFiles.reserve(filePaths.size());
   for (auto const& filePath: filePaths) {
-    packInputs.emplace_back(PackGroupInput{filePath, filePath.parent_path()});
+    preparedFiles.emplace_back(PreparedPackFile{
+      .filePath = filePath,
+      .sourceKey = {},
+      .fileKey = {},
+      .fileSize = fs::file_size(filePath),
+    });
   }
 
-  return groupPackFiles(packInputs, maxGroupSize, maxFilesPerGroup);
+  return groupPreparedFilesSequentially(
+    preparedFiles,
+    maxGroupSize,
+    maxFilesPerGroup
+  );
 }
 
 auto groupPackFiles(
   std::vector<PackGroupInput> const& filePaths,
   std::uintmax_t maxGroupSize,
-  std::optional<std::size_t> maxFilesPerGroup
+  std::optional<std::size_t> maxFilesPerGroup,
+  std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed
 ) -> std::vector<std::vector<fs::path>> {
   if (filePaths.empty()) { return {}; }
 
@@ -329,6 +389,17 @@ auto groupPackFiles(
       .fileKey = stablePathString(file.filePath),
       .fileSize = fs::file_size(file.filePath),
     });
+  }
+
+  if (
+    !keepSourceDirsTogetherWhenTotalFilesExceed.has_value()
+    || filePaths.size() <= keepSourceDirsTogetherWhenTotalFilesExceed.value()
+  ) {
+    return groupPreparedFilesSequentially(
+      preparedFiles,
+      maxGroupSize,
+      maxFilesPerGroup
+    );
   }
 
   std::ranges::sort(preparedFiles, [](PreparedPackFile const& lhs, PreparedPackFile const& rhs) {

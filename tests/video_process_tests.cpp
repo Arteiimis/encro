@@ -515,7 +515,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "groupEncodedVideosForPack keeps same source directory outputs together",
+  "groupEncodedVideosForPack keeps same source directory outputs together after threshold",
   "[video-process][pack]"
 ) {
   TempDir temp;
@@ -534,7 +534,7 @@ TEST_CASE(
     EncodedVideoPackFile{temp.path / "src" / "a" / "one.mov", out1},
     EncodedVideoPackFile{temp.path / "src" / "b" / "two.mov", out2},
     EncodedVideoPackFile{temp.path / "src" / "b" / "three.mov", out3},
-  });
+  }, 2);
 
   REQUIRE(grouped.size() == 2);
   CHECK(grouped[0] == std::vector{out1});
@@ -544,4 +544,31 @@ TEST_CASE(
   std::ranges::sort(groupedSecond);
   std::ranges::sort(expectedSecond);
   CHECK(groupedSecond == expectedSecond);
+}
+
+TEST_CASE(
+  "groupEncodedVideosForPack stays sequential when threshold is not exceeded",
+  "[video-process][pack]"
+) {
+  TempDir temp;
+  auto const outputDir = temp.path / "encoded";
+  fs::create_directories(outputDir);
+
+  auto const out1 = outputDir / "a__one.mp4";
+  auto const out2 = outputDir / "b__two.mp4";
+  auto const out3 = outputDir / "b__three.mp4";
+
+  createSizedSparseFile(out1, 300ULL * 1024ULL * 1024ULL);
+  createSizedSparseFile(out2, 150ULL * 1024ULL * 1024ULL);
+  createSizedSparseFile(out3, 60ULL * 1024ULL * 1024ULL);
+
+  auto const grouped = groupEncodedVideosForPack({
+    EncodedVideoPackFile{temp.path / "src" / "a" / "one.mov", out1},
+    EncodedVideoPackFile{temp.path / "src" / "b" / "two.mov", out2},
+    EncodedVideoPackFile{temp.path / "src" / "b" / "three.mov", out3},
+  }, 10);
+
+  REQUIRE(grouped.size() == 2);
+  CHECK(grouped[0] == std::vector{out1, out2});
+  CHECK(grouped[1] == std::vector{out3});
 }
