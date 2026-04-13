@@ -40,6 +40,48 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "groupFilesBySize keeps source directories intact when advancing groups",
+  "[packer][groupFilesBySize]"
+) {
+  TempDir temp;
+  auto const dirA = temp.path / "a";
+  auto const dirB = temp.path / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  auto const a1 = createSizedFile(dirA, "a1.bin", 100);
+  auto const a2 = createSizedFile(dirA, "a2.bin", 100);
+  auto const b1 = createSizedFile(dirB, "b1.bin", 90);
+  auto const b2 = createSizedFile(dirB, "b2.bin", 90);
+
+  auto const grouped = groupFilesBySize({a1, a2, b1, b2}, 300);
+
+  REQUIRE(grouped.size() == 2);
+  CHECK(grouped[0] == std::vector{a1, a2});
+  CHECK(grouped[1] == std::vector{b1, b2});
+}
+
+TEST_CASE(
+  "groupFilesBySize respects maximum file count per group",
+  "[packer][groupFilesBySize]"
+) {
+  TempDir temp;
+
+  auto const f1 = createSizedFile(temp.path, "a.bin", 8);
+  auto const f2 = createSizedFile(temp.path, "b.bin", 8);
+  auto const f3 = createSizedFile(temp.path, "c.bin", 8);
+  auto const f4 = createSizedFile(temp.path, "d.bin", 8);
+  auto const f5 = createSizedFile(temp.path, "e.bin", 8);
+
+  auto const grouped = groupFilesBySize({f1, f2, f3, f4, f5}, 300, 2);
+
+  REQUIRE(grouped.size() == 3);
+  CHECK(grouped[0] == std::vector{f1, f2});
+  CHECK(grouped[1] == std::vector{f3, f4});
+  CHECK(grouped[2] == std::vector{f5});
+}
+
+TEST_CASE(
   "packFilesToZip archives files and reports progress",
   "[packer][packFilesToZip]"
 ) {

@@ -513,3 +513,35 @@ TEST_CASE(
   CHECK(grouped[0] == std::vector{v1});
   CHECK(grouped[1] == std::vector{v2, v3});
 }
+
+TEST_CASE(
+  "groupEncodedVideosForPack keeps same source directory outputs together",
+  "[video-process][pack]"
+) {
+  TempDir temp;
+  auto const outputDir = temp.path / "encoded";
+  fs::create_directories(outputDir);
+
+  auto const out1 = outputDir / "a__one.mp4";
+  auto const out2 = outputDir / "b__two.mp4";
+  auto const out3 = outputDir / "b__three.mp4";
+
+  createSizedSparseFile(out1, 300ULL * 1024ULL * 1024ULL);
+  createSizedSparseFile(out2, 150ULL * 1024ULL * 1024ULL);
+  createSizedSparseFile(out3, 60ULL * 1024ULL * 1024ULL);
+
+  auto const grouped = groupEncodedVideosForPack({
+    EncodedVideoPackFile{temp.path / "src" / "a" / "one.mov", out1},
+    EncodedVideoPackFile{temp.path / "src" / "b" / "two.mov", out2},
+    EncodedVideoPackFile{temp.path / "src" / "b" / "three.mov", out3},
+  });
+
+  REQUIRE(grouped.size() == 2);
+  CHECK(grouped[0] == std::vector{out1});
+
+  auto groupedSecond = grouped[1];
+  auto expectedSecond = std::vector{out2, out3};
+  std::ranges::sort(groupedSecond);
+  std::ranges::sort(expectedSecond);
+  CHECK(groupedSecond == expectedSecond);
+}
