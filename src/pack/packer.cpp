@@ -1,5 +1,6 @@
 #include "pack/packer.h"
 
+#include "core/collision_naming.h"
 #include "core/progress.h"
 #include "pack/pack_service.h"
 
@@ -9,7 +10,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -23,95 +23,18 @@
 
 namespace fs = std::filesystem;
 using namespace indicators;
+namespace naming = collisionnaming;
 
 namespace {
-
-auto stablePathString(fs::path const& path) -> std::string {
-  auto normalized = path.lexically_normal().generic_string();
-  std::ranges::transform(normalized, normalized.begin(), [](unsigned char ch) {
-    return static_cast<char>(std::tolower(ch));
-  });
-  return normalized;
-}
-
-auto fnv1a32(std::string_view text) -> std::uint32_t {
-  auto hash = std::uint32_t{2166136261u};
-  for (auto const ch: text) {
-    hash ^= static_cast<unsigned char>(ch);
-    hash *= 16777619u;
-  }
-  return hash;
-}
-
-auto shortPathHash(fs::path const& path) -> std::string {
-  return std::format("{:08x}", fnv1a32(stablePathString(path)));
-}
-
-auto sanitizeLabel(std::string_view text) -> std::string {
-  auto sanitized = std::string{};
-  sanitized.reserve(text.size());
-
-  auto lastWasSeparator = false;
-  for (auto const ch: text) {
-    if (std::isalnum(static_cast<unsigned char>(ch))) {
-      sanitized.push_back(static_cast<char>(std::tolower(ch)));
-      lastWasSeparator = false;
-      continue;
-    }
-
-    if (!lastWasSeparator) {
-      sanitized.push_back('_');
-      lastWasSeparator = true;
-    }
-  }
-
-  while (!sanitized.empty() && sanitized.front() == '_') {
-    sanitized.erase(sanitized.begin());
-  }
-  while (!sanitized.empty() && sanitized.back() == '_') { sanitized.pop_back(); }
-
-  return sanitized;
-}
-
-auto relativeParentPath(fs::path const& rootDir, fs::path const& filePath)
-  -> std::optional<fs::path> {
-  auto const relativePath = filePath.parent_path().lexically_relative(rootDir);
-  if (relativePath.empty() || relativePath == fs::path{"."}) {
-    return std::nullopt;
-  }
-
-  return relativePath;
-}
-
-auto buildPackCollisionGroupLabel(fs::path const& dirPath, fs::path const& filePath)
-  -> std::string {
-  auto label = std::string{};
-  if (auto const relativePath = relativeParentPath(dirPath, filePath);
-      relativePath.has_value()) {
-    label = sanitizeLabel(relativePath->generic_string());
-  }
-
-  if (label.empty() && filePath.has_extension()) {
-    auto const extension = filePath.extension().string();
-    auto const extensionView =
-      std::string_view{extension}.substr(extension.starts_with('.') ? 1 : 0);
-    label = sanitizeLabel(extensionView);
-  }
-
-  if (label.empty()) { label = "src"; }
-
-  return label;
-}
 
 auto buildConflictHandledPackEntryName(
   fs::path const& dirPath,
   fs::path const& filePath
 ) -> std::string {
-  return std::format(
-    "{}__{}__{}{}",
-    buildPackCollisionGroupLabel(dirPath, filePath),
+  return naming::buildConflictHandledFlatName(
+    dirPath,
+    filePath,
     filePath.stem().string(),
-    shortPathHash(filePath),
     filePath.extension().string()
   );
 }
@@ -135,7 +58,7 @@ auto makeUniqueZipEntryName(
   }
 
   auto const entryPath = fs::path{normalizedEntryName};
-  auto const suffix = std::format("__{}", shortPathHash(filePath));
+  auto const suffix = std::format("__{}", naming::shortPathHash(filePath));
   auto const parentPath = entryPath.parent_path();
   auto const stem = entryPath.stem().string();
   auto const extension = entryPath.extension().string();
@@ -385,8 +308,8 @@ auto groupPackFiles(
   for (auto const& file: filePaths) {
     preparedFiles.emplace_back(PreparedPackFile{
       .filePath = file.filePath,
-      .sourceKey = stablePathString(file.sourceDir),
-      .fileKey = stablePathString(file.filePath),
+      .sourceKey = naming::stablePathString(file.sourceDir),
+      .fileKey = naming::stablePathString(file.filePath),
       .fileSize = fs::file_size(file.filePath),
     });
   }

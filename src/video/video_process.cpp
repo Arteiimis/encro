@@ -1,5 +1,6 @@
 #include "video/video_process.h"
 
+#include "core/collision_naming.h"
 #include "core/parallel.h"
 #include "core/progress.h"
 #include "encode/encode_config.h"
@@ -17,7 +18,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -30,6 +30,7 @@
 namespace fs = std::filesystem;
 using namespace boost::lambda2;
 using namespace indicators;
+namespace naming = collisionnaming;
 
 auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
   -> std::optional<float>;
@@ -253,90 +254,6 @@ auto normalizeSourceRootDir(fs::path const& inputPath) -> fs::path {
   return fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
 }
 
-auto stablePathString(fs::path const& path) -> std::string {
-  auto normalized = path.lexically_normal().generic_string();
-  std::ranges::transform(normalized, normalized.begin(), [](unsigned char ch) {
-    return static_cast<char>(std::tolower(ch));
-  });
-  return normalized;
-}
-
-auto fnv1a32(std::string_view text) -> std::uint32_t {
-  auto hash = std::uint32_t{2166136261u};
-  for (auto const ch: text) {
-    hash ^= static_cast<unsigned char>(ch);
-    hash *= 16777619u;
-  }
-  return hash;
-}
-
-auto shortPathHash(fs::path const& path) -> std::string {
-  return std::format("{:08x}", fnv1a32(stablePathString(path)));
-}
-
-auto sanitizeLabel(std::string_view text) -> std::string {
-  auto sanitized = std::string{};
-  sanitized.reserve(text.size());
-
-  auto lastWasSeparator = false;
-  for (auto const ch: text) {
-    if (std::isalnum(static_cast<unsigned char>(ch))) {
-      sanitized.push_back(static_cast<char>(std::tolower(ch)));
-      lastWasSeparator = false;
-      continue;
-    }
-
-    if (!lastWasSeparator) {
-      sanitized.push_back('_');
-      lastWasSeparator = true;
-    }
-  }
-
-  while (!sanitized.empty() && sanitized.front() == '_') {
-    sanitized.erase(sanitized.begin());
-  }
-  while (!sanitized.empty() && sanitized.back() == '_') { sanitized.pop_back(); }
-
-  return sanitized;
-}
-
-auto relativeParentPath(
-  std::optional<fs::path> const& sourceRootDir,
-  fs::path const& inputPath
-) -> std::optional<fs::path> {
-  if (!sourceRootDir.has_value()) { return std::nullopt; }
-
-  auto const relativePath =
-    inputPath.parent_path().lexically_relative(sourceRootDir.value());
-  if (relativePath.empty() || relativePath == fs::path{"."}) { return std::nullopt; }
-
-  return relativePath;
-}
-
-auto buildCollisionGroupLabel(
-  std::optional<fs::path> const& sourceRootDir,
-  fs::path const& inputPath
-) -> std::string {
-  auto label = std::string{};
-  if (
-    auto const relativePath = relativeParentPath(sourceRootDir, inputPath);
-    relativePath.has_value()
-  ) {
-    label = sanitizeLabel(relativePath->generic_string());
-  }
-
-  if (label.empty() && inputPath.has_extension()) {
-    auto const extension = inputPath.extension().string();
-    auto const extensionView =
-      std::string_view{extension}.substr(extension.starts_with('.') ? 1 : 0);
-    label = sanitizeLabel(extensionView);
-  }
-
-  if (label.empty()) { label = "src"; }
-
-  return label;
-}
-
 auto shouldForceConflictNaming(appctx::AppConfig const& config) -> bool {
   return config.forceNameConflictHandling
       && config.outputLayout == appctx::OutputLayout::Flat;
@@ -347,16 +264,13 @@ auto buildConflictHandledOutputPath(
   fs::path const& inputPath,
   fs::path const& candidatePath
 ) -> fs::path {
-  auto const stem = candidatePath.stem().string();
-  auto const extension = candidatePath.extension().string();
   return candidatePath.parent_path()
-       / std::format(
-           "{}__{}__{}{}",
-           buildCollisionGroupLabel(sourceRootDir, inputPath),
-           stem,
-           shortPathHash(inputPath),
-           extension
-         );
+       / naming::buildConflictHandledFlatName(
+         sourceRootDir,
+         inputPath,
+         candidatePath.stem().string(),
+         candidatePath.extension().string()
+       );
 }
 
 auto resolveOutputRootDir(
@@ -383,7 +297,7 @@ auto resolvePlannedOutputDir(
   if (config.outputLayout != appctx::OutputLayout::Keep) { return outputDir; }
 
   if (
-    auto const relativePath = relativeParentPath(sourceRootDir, inputPath);
+    auto const relativePath = naming::relativeParentPath(sourceRootDir, inputPath);
     relativePath.has_value()
   ) {
     outputDir /= relativePath.value();
@@ -411,7 +325,12 @@ auto ensureUniqueOutputPaths(appctx::path_map<fs::path>& plannedOutputFiles)
       auto const extension = outputPath.extension().string();
       for (auto const& inputPath: inputPaths) {
         plannedOutputFiles[inputPath] = outputPath.parent_path()
-          / std::format("{}__{}{}", stem, shortPathHash(inputPath), extension);
+          / std::format(
+            "{}__{}{}",
+            stem,
+            naming::shortPathHash(inputPath),
+            extension
+          );
       }
     }
 
@@ -1094,7 +1013,7 @@ auto planVideoOutputFiles(
 
     auto sortedInputs = groupedInputs;
     std::ranges::sort(sortedInputs, [](fs::path const& lhs, fs::path const& rhs) {
-      return stablePathString(lhs) < stablePathString(rhs);
+      return naming::stablePathString(lhs) < naming::stablePathString(rhs);
     });
 
     auto const stem = candidatePath.stem().string();

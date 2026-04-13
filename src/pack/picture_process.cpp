@@ -1,5 +1,6 @@
 #include "pack/picture_process.h"
 
+#include "core/collision_naming.h"
 #include "core/media_scanner.h"
 #include "pack/pack_service.h"
 #include "pack/packer.h"
@@ -9,98 +10,18 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <print>
-#include <string_view>
 #include <unordered_map>
 
 namespace fs = std::filesystem;
 using namespace std::literals;
+namespace naming = collisionnaming;
 
 namespace {
 
 using PictureEntryPlan = std::unordered_map<fs::path, std::string>;
-
-auto stablePathString(fs::path const& path) -> std::string {
-  auto normalized = path.lexically_normal().generic_string();
-  std::ranges::transform(normalized, normalized.begin(), [](unsigned char ch) {
-    return static_cast<char>(std::tolower(ch));
-  });
-  return normalized;
-}
-
-auto fnv1a32(std::string_view text) -> std::uint32_t {
-  auto hash = std::uint32_t{2166136261u};
-  for (auto const ch: text) {
-    hash ^= static_cast<unsigned char>(ch);
-    hash *= 16777619u;
-  }
-  return hash;
-}
-
-auto shortPathHash(fs::path const& path) -> std::string {
-  return std::format("{:08x}", fnv1a32(stablePathString(path)));
-}
-
-auto sanitizeLabel(std::string_view text) -> std::string {
-  auto sanitized = std::string{};
-  sanitized.reserve(text.size());
-
-  auto lastWasSeparator = false;
-  for (auto const ch: text) {
-    if (std::isalnum(static_cast<unsigned char>(ch))) {
-      sanitized.push_back(static_cast<char>(std::tolower(ch)));
-      lastWasSeparator = false;
-      continue;
-    }
-
-    if (!lastWasSeparator) {
-      sanitized.push_back('_');
-      lastWasSeparator = true;
-    }
-  }
-
-  while (!sanitized.empty() && sanitized.front() == '_') {
-    sanitized.erase(sanitized.begin());
-  }
-  while (!sanitized.empty() && sanitized.back() == '_') { sanitized.pop_back(); }
-
-  return sanitized;
-}
-
-auto relativeParentPath(fs::path const& rootDir, fs::path const& filePath)
-  -> std::optional<fs::path> {
-  auto const relativePath = filePath.parent_path().lexically_relative(rootDir);
-  if (relativePath.empty() || relativePath == fs::path{"."}) {
-    return std::nullopt;
-  }
-
-  return relativePath;
-}
-
-auto buildPictureCollisionGroupLabel(
-  fs::path const& dirPath,
-  fs::path const& filePath
-) -> std::string {
-  auto label = std::string{};
-  if (auto const relativePath = relativeParentPath(dirPath, filePath);
-      relativePath.has_value()) {
-    label = sanitizeLabel(relativePath->generic_string());
-  }
-
-  if (label.empty() && filePath.has_extension()) {
-    auto const extension = filePath.extension().string();
-    auto const extensionView =
-      std::string_view{extension}.substr(extension.starts_with('.') ? 1 : 0);
-    label = sanitizeLabel(extensionView);
-  }
-
-  if (label.empty()) { label = "src"; }
-
-  return label;
-}
 
 auto shouldForcePictureConflictNaming(appctx::AppConfig const& config) -> bool {
   return config.forceNameConflictHandling
@@ -111,14 +32,11 @@ auto buildConflictHandledPictureEntryName(
   fs::path const& dirPath,
   fs::path const& filePath
 ) -> std::string {
-  auto const stem = filePath.stem().string();
-  auto const extension = filePath.extension().string();
-  return std::format(
-    "{}__{}__{}{}",
-    buildPictureCollisionGroupLabel(dirPath, filePath),
-    stem,
-    shortPathHash(filePath),
-    extension
+  return naming::buildConflictHandledFlatName(
+    dirPath,
+    filePath,
+    filePath.stem().string(),
+    filePath.extension().string()
   );
 }
 
@@ -156,7 +74,7 @@ auto planPictureZipEntryNames(
 
     auto sortedPaths = groupedPaths;
     std::ranges::sort(sortedPaths, [](fs::path const& lhs, fs::path const& rhs) {
-      return stablePathString(lhs) < stablePathString(rhs);
+      return naming::stablePathString(lhs) < naming::stablePathString(rhs);
     });
 
     auto const fileNamePath = fs::path{fileName};
