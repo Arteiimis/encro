@@ -9,7 +9,6 @@
 #include <span>
 #include <vector>
 
-
 auto getVidInfo(
   appctx::ToolchainPaths const& toolchain,
   std::filesystem::path const& videoPath

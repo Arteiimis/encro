@@ -70,8 +70,8 @@ auto resolveLayout(std::size_t columns) -> ProgressLayout {
   auto barWidth = std::clamp(clampedColumns / 3, kMinBarWidth, kMaxBarWidth);
 
   auto postfixBudget = clampedColumns > barWidth + kReservedLayoutWidth
-                       ? clampedColumns - barWidth - kReservedLayoutWidth
-                       : kMinPostfixBudget;
+    ? clampedColumns - barWidth - kReservedLayoutWidth
+    : kMinPostfixBudget;
 
   postfixBudget = std::max(postfixBudget, kMinPostfixBudget);
   return {barWidth, postfixBudget};

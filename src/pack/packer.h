@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-
 using ZipEntryNameResolver =
   std::function<std::string(std::filesystem::path const&)>;
 
@@ -20,21 +19,21 @@ struct PackGroupInput {
 };
 
 auto packFilesToZip(
-  const std::vector<std::filesystem::path>& filePaths,
-  const std::filesystem::path& zipFilePath,
+  std::vector<std::filesystem::path> const& filePaths,
+  std::filesystem::path const& zipFilePath,
   progress::ProgressContext& progressCtx,
   std::string_view progressText,
   ZipEntryNameResolver entryNameForFile = {}
 ) -> eh::Result<void>;
 
 auto groupFilesBySize(
-  const std::vector<std::filesystem::path>& filePaths,
+  std::vector<std::filesystem::path> const& filePaths,
   std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
   std::optional<std::size_t> maxFilesPerGroup = std::nullopt
 ) -> std::vector<std::vector<std::filesystem::path>>;
 
 auto groupPackFiles(
-  const std::vector<PackGroupInput>& filePaths,
+  std::vector<PackGroupInput> const& filePaths,
   std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
   std::optional<std::size_t> maxFilesPerGroup = std::nullopt,
   std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed =

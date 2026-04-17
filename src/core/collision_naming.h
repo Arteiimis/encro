@@ -68,9 +68,7 @@ inline auto relativeParentPath(
 
   auto const relativePath =
     inputPath.parent_path().lexically_relative(sourceRootDir.value());
-  if (relativePath.empty() || relativePath == fs::path{"."}) {
-    return std::nullopt;
-  }
+  if (relativePath.empty() || relativePath == fs::path{"."}) { return std::nullopt; }
 
   return relativePath;
 }
@@ -106,7 +104,8 @@ inline auto buildCollisionGroupLabel(
   return label;
 }
 
-inline auto buildCollisionGroupLabel(fs::path const& rootDir, fs::path const& inputPath)
+inline auto
+buildCollisionGroupLabel(fs::path const& rootDir, fs::path const& inputPath)
   -> std::string {
   return buildCollisionGroupLabel(std::optional<fs::path>{rootDir}, inputPath);
 }
@@ -125,10 +124,9 @@ inline auto buildCollisionGroupIdentity(
   return inputPath.parent_path();
 }
 
-inline auto buildCollisionGroupIdentity(
-  fs::path const& rootDir,
-  fs::path const& inputPath
-) -> fs::path {
+inline auto
+buildCollisionGroupIdentity(fs::path const& rootDir, fs::path const& inputPath)
+  -> fs::path {
   return buildCollisionGroupIdentity(std::optional<fs::path>{rootDir}, inputPath);
 }
 
@@ -143,7 +141,8 @@ inline auto buildCollisionGroupPrefix(
   );
 }
 
-inline auto buildCollisionGroupPrefix(fs::path const& rootDir, fs::path const& inputPath)
+inline auto
+buildCollisionGroupPrefix(fs::path const& rootDir, fs::path const& inputPath)
   -> std::string {
   return buildCollisionGroupPrefix(std::optional<fs::path>{rootDir}, inputPath);
 }

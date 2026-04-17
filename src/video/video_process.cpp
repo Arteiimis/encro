@@ -237,9 +237,9 @@ auto containsCaseInsensitive(std::string_view text, std::string_view needle)
 
 auto isLikelyFfmpegErrorLine(std::string_view line) -> bool {
   return containsCaseInsensitive(line, "error")
-      || containsCaseInsensitive(line, "failed")
-      || containsCaseInsensitive(line, "invalid")
-      || containsCaseInsensitive(line, "not found");
+    || containsCaseInsensitive(line, "failed")
+    || containsCaseInsensitive(line, "invalid")
+    || containsCaseInsensitive(line, "not found");
 }
 
 auto makeSlotLabel(fs::path const& vidPath) -> std::string {
@@ -256,7 +256,7 @@ auto normalizeSourceRootDir(fs::path const& inputPath) -> fs::path {
 
 auto shouldForceConflictNaming(appctx::AppConfig const& config) -> bool {
   return config.forceNameConflictHandling
-      && config.outputLayout == appctx::OutputLayout::Flat;
+    && config.outputLayout == appctx::OutputLayout::Flat;
 }
 
 auto buildConflictHandledOutputPath(
@@ -265,12 +265,12 @@ auto buildConflictHandledOutputPath(
   fs::path const& candidatePath
 ) -> fs::path {
   return candidatePath.parent_path()
-       / naming::buildConflictHandledFlatName(
-         sourceRootDir,
-         inputPath,
-         candidatePath.stem().string(),
-         candidatePath.extension().string()
-       );
+    / naming::buildConflictHandledFlatName(
+           sourceRootDir,
+           inputPath,
+           candidatePath.stem().string(),
+           candidatePath.extension().string()
+    );
 }
 
 auto resolveOutputRootDir(
@@ -325,12 +325,10 @@ auto ensureUniqueOutputPaths(appctx::path_map<fs::path>& plannedOutputFiles)
       auto const extension = outputPath.extension().string();
       for (auto const& inputPath: inputPaths) {
         plannedOutputFiles[inputPath] = outputPath.parent_path()
-          / std::format(
-            "{}__{}{}",
-            stem,
-            naming::shortPathHash(inputPath),
-            extension
-          );
+          / std::format("{}__{}{}",
+                        stem,
+                        naming::shortPathHash(inputPath),
+                        extension);
       }
     }
 
@@ -856,10 +854,12 @@ auto collectEncodedOutputFiles(
       continue;
     }
 
-    encodedOutputFiles.emplace_back(EncodedVideoPackFile{
-      .sourcePath = vidPath,
-      .outputPath = outFile.value(),
-    });
+    encodedOutputFiles.emplace_back(
+      EncodedVideoPackFile{
+        .sourcePath = vidPath,
+        .outputPath = outFile.value(),
+      }
+    );
   }
 
   return encodedOutputFiles;
@@ -1019,11 +1019,8 @@ auto planVideoOutputFiles(
     auto const stem = candidatePath.stem().string();
     auto const extension = candidatePath.extension().string();
     for (auto const& inputPath: sortedInputs) {
-      plannedOutputFiles[inputPath] = buildConflictHandledOutputPath(
-        sourceRootDir,
-        inputPath,
-        candidatePath
-      );
+      plannedOutputFiles[inputPath] =
+        buildConflictHandledOutputPath(sourceRootDir, inputPath, candidatePath);
     }
   }
 
@@ -1071,8 +1068,7 @@ auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
 auto groupEncodedVideosForPack(
   std::vector<EncodedVideoPackFile> const& filePaths,
   std::size_t keepSourceDirsTogetherWhenTotalFilesExceed
-)
-  -> std::vector<std::vector<fs::path>> {
+) -> std::vector<std::vector<fs::path>> {
   constexpr auto kMaxZipSize = std::uintmax_t{500 * 1024 * 1024};
   auto packInputs = std::vector<PackGroupInput>{};
   packInputs.reserve(filePaths.size());
@@ -1300,7 +1296,8 @@ int handleMultiFileEncoding(
 
   auto const basePath = resolveMultiInputBasePath(ctx.config, inputPaths);
   if (
-    ctx.config.outputFormat == "webp" && !ctx.config.outputPath.has_value()
+    ctx.config.outputFormat == "webp"
+    && !ctx.config.outputPath.has_value()
     && !basePath.has_value()
   ) {
     spdlog::error(

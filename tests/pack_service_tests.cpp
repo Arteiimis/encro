@@ -40,10 +40,8 @@ TEST_CASE("packGroupsParallel packs grouped files", "[pack-service]") {
   auto const f2 = createFile(srcDir, "b.txt");
   auto const f3 = createFile(srcDir, "c.txt");
 
-  auto const groups = std::vector{
-    std::vector<fs::path>{f1, f2},
-    std::vector<fs::path>{f3}
-  };
+  auto const groups =
+    std::vector{std::vector<fs::path>{f1, f2}, std::vector<fs::path>{f3}};
 
   auto const plan = pack::PackPlan{
     .groups = groups,
@@ -69,7 +67,10 @@ TEST_CASE("packGroupsParallel packs grouped files", "[pack-service]") {
   zip.close();
 }
 
-TEST_CASE("pack range helpers append cumulative ordinal suffixes", "[pack-service]") {
+TEST_CASE(
+  "pack range helpers append cumulative ordinal suffixes",
+  "[pack-service]"
+) {
   auto const groups = std::vector{
     std::vector<fs::path>{fs::path{"a"}, fs::path{"b"}},
     std::vector<fs::path>{fs::path{"c"}}

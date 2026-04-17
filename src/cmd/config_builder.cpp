@@ -192,9 +192,7 @@ auto buildConfig(boost::program_options::variables_map const& vm)
     }
 
     auto const inputs = vm.at("inputs").as<std::vector<std::string>>();
-    if (inputs.empty()) {
-      return eh::makeError("Input path is required.");
-    }
+    if (inputs.empty()) { return eh::makeError("Input path is required."); }
 
     config.inputPaths.reserve(inputs.size());
     for (auto const& input: inputs) {
@@ -208,7 +206,8 @@ auto buildConfig(boost::program_options::variables_map const& vm)
       config.inputPaths.emplace_back(path);
     }
   } else {
-    config.inputPath = fs::absolute(fs::path{getParamStr(vm, "input")}).lexically_normal();
+    config.inputPath =
+      fs::absolute(fs::path{getParamStr(vm, "input")}).lexically_normal();
     if (auto const exists = requireExists(config.inputPath, "input"); !exists) {
       return eh::makeError("{}", exists.error());
     }
@@ -216,8 +215,10 @@ auto buildConfig(boost::program_options::variables_map const& vm)
 
   if (vm.count("output")) {
     config.outputPath = fs::path{getParamStr(vm, "output")};
-    if (auto const validDir = requireDir(config.outputPath.value(), "output");
-        !validDir) {
+    if (
+      auto const validDir = requireDir(config.outputPath.value(), "output");
+      !validDir
+    ) {
       return eh::makeError("{}", validDir.error());
     }
   }
