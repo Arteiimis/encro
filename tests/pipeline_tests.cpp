@@ -23,7 +23,7 @@ auto hasCollisionSafePrefix(
   std::string_view stem
 ) -> bool {
   return entryName.starts_with(std::format("{}__", dirLabel))
-      && entryName.find(std::format("__{}__", stem)) != std::string::npos;
+    && entryName.find(std::format("__{}__", stem)) != std::string::npos;
 }
 
 auto collisionGroupPrefix(std::string const& entryName) -> std::string {
@@ -82,10 +82,7 @@ TEST_CASE("picture pipeline packs directory", "[pipeline]") {
   CHECK(fs::exists(inputDir / "packed" / "pics_part1_1-1_items1.zip"));
 }
 
-TEST_CASE(
-  "pack-only pipeline defaults to collision-safe file names",
-  "[pipeline]"
-) {
+TEST_CASE("pack-only pipeline defaults to collision-safe file names", "[pipeline]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";
   auto const dirA = inputDir / "a";
@@ -124,10 +121,7 @@ TEST_CASE(
   zip.close();
 }
 
-TEST_CASE(
-  "pack-only pipeline can disable collision-safe file names",
-  "[pipeline]"
-) {
+TEST_CASE("pack-only pipeline can disable collision-safe file names", "[pipeline]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";
   auto const dirA = inputDir / "a";

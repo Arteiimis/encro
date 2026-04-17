@@ -123,7 +123,10 @@ TEST_CASE("EncodeConfig rejects unsupported output format", "[encode-config]") {
   );
 }
 
-TEST_CASE("EncodeConfig uses codec prefix in non-webp output filename", "[encode-config]") {
+TEST_CASE(
+  "EncodeConfig uses codec prefix in non-webp output filename",
+  "[encode-config]"
+) {
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "sample.mov");
 
@@ -204,7 +207,10 @@ TEST_CASE("EncodeConfig respects explicit output file path", "[encode-config]") 
   CHECK(cfg.buildCMD().find(outputFile.string()) != std::string::npos);
 }
 
-TEST_CASE("EncodeConfig webp output filename does not include codec tag", "[encode-config]") {
+TEST_CASE(
+  "EncodeConfig webp output filename does not include codec tag",
+  "[encode-config]"
+) {
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "sample.mp4");
 

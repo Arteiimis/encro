@@ -31,7 +31,7 @@ auto hasCollisionSafePrefix(
   std::string_view stem
 ) -> bool {
   return entryName.starts_with(std::format("{}__", dirLabel))
-      && entryName.find(std::format("__{}__", stem)) != std::string::npos;
+    && entryName.find(std::format("__{}__", stem)) != std::string::npos;
 }
 
 auto collisionGroupPrefix(std::string const& entryName) -> std::string {
@@ -226,8 +226,12 @@ TEST_CASE(
   CHECK(planned.at(fileA).parent_path() == temp.path / "encoded_webp");
   CHECK(planned.at(fileB).parent_path() == temp.path / "encoded_webp");
   CHECK(planned.at(fileA).filename() != planned.at(fileB).filename());
-  CHECK(hasCollisionSafePrefix(planned.at(fileA).filename().string(), "a_x", "sample"));
-  CHECK(hasCollisionSafePrefix(planned.at(fileB).filename().string(), "b_y", "sample"));
+  CHECK(
+    hasCollisionSafePrefix(planned.at(fileA).filename().string(), "a_x", "sample")
+  );
+  CHECK(
+    hasCollisionSafePrefix(planned.at(fileB).filename().string(), "b_y", "sample")
+  );
 }
 
 TEST_CASE(
@@ -299,8 +303,12 @@ TEST_CASE(
     planVideoOutputFiles(config, std::vector{fileA, fileB}, temp.path);
 
   REQUIRE(plannedRes);
-  CHECK(hasCollisionSafePrefix(plannedRes->at(fileA).filename().string(), "a", "alpha"));
-  CHECK(hasCollisionSafePrefix(plannedRes->at(fileB).filename().string(), "b", "beta"));
+  CHECK(
+    hasCollisionSafePrefix(plannedRes->at(fileA).filename().string(), "a", "alpha")
+  );
+  CHECK(
+    hasCollisionSafePrefix(plannedRes->at(fileB).filename().string(), "b", "beta")
+  );
 }
 
 TEST_CASE(
@@ -341,9 +349,15 @@ TEST_CASE(
   std::ranges::sort(sortedNames);
 
   REQUIRE(sortedNames.size() == 4);
-  CHECK(collisionGroupPrefix(sortedNames[0]) == collisionGroupPrefix(sortedNames[1]));
-  CHECK(collisionGroupPrefix(sortedNames[2]) == collisionGroupPrefix(sortedNames[3]));
-  CHECK(collisionGroupPrefix(sortedNames[0]) != collisionGroupPrefix(sortedNames[2]));
+  CHECK(
+    collisionGroupPrefix(sortedNames[0]) == collisionGroupPrefix(sortedNames[1])
+  );
+  CHECK(
+    collisionGroupPrefix(sortedNames[2]) == collisionGroupPrefix(sortedNames[3])
+  );
+  CHECK(
+    collisionGroupPrefix(sortedNames[0]) != collisionGroupPrefix(sortedNames[2])
+  );
   CHECK(sortedNames[0].find("__alpha__") != std::string::npos);
   CHECK(sortedNames[1].find("__beta__") != std::string::npos);
   CHECK(sortedNames[2].find("__alpha__") != std::string::npos);
@@ -579,7 +593,8 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "groupEncodedVideosForPack keeps same source directory outputs together after threshold",
+  "groupEncodedVideosForPack keeps same source directory outputs together after "
+  "threshold",
   "[video-process][pack]"
 ) {
   TempDir temp;
@@ -594,11 +609,14 @@ TEST_CASE(
   createSizedSparseFile(out2, 150ULL * 1024ULL * 1024ULL);
   createSizedSparseFile(out3, 60ULL * 1024ULL * 1024ULL);
 
-  auto const grouped = groupEncodedVideosForPack({
-    EncodedVideoPackFile{temp.path / "src" / "a" / "one.mov", out1},
-    EncodedVideoPackFile{temp.path / "src" / "b" / "two.mov", out2},
-    EncodedVideoPackFile{temp.path / "src" / "b" / "three.mov", out3},
-  }, 2);
+  auto const grouped = groupEncodedVideosForPack(
+    {
+      EncodedVideoPackFile{temp.path / "src" / "a" / "one.mov", out1},
+      EncodedVideoPackFile{temp.path / "src" / "b" / "two.mov", out2},
+      EncodedVideoPackFile{temp.path / "src" / "b" / "three.mov", out3},
+    },
+    2
+  );
 
   REQUIRE(grouped.size() == 2);
   CHECK(grouped[0] == std::vector{out1});
@@ -626,11 +644,14 @@ TEST_CASE(
   createSizedSparseFile(out2, 150ULL * 1024ULL * 1024ULL);
   createSizedSparseFile(out3, 60ULL * 1024ULL * 1024ULL);
 
-  auto const grouped = groupEncodedVideosForPack({
-    EncodedVideoPackFile{temp.path / "src" / "a" / "one.mov", out1},
-    EncodedVideoPackFile{temp.path / "src" / "b" / "two.mov", out2},
-    EncodedVideoPackFile{temp.path / "src" / "b" / "three.mov", out3},
-  }, 10);
+  auto const grouped = groupEncodedVideosForPack(
+    {
+      EncodedVideoPackFile{temp.path / "src" / "a" / "one.mov", out1},
+      EncodedVideoPackFile{temp.path / "src" / "b" / "two.mov", out2},
+      EncodedVideoPackFile{temp.path / "src" / "b" / "three.mov", out3},
+    },
+    10
+  );
 
   REQUIRE(grouped.size() == 2);
   CHECK(grouped[0] == std::vector{out1, out2});

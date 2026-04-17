@@ -20,10 +20,9 @@ auto exec2Impl(
   spdlog::debug("Executing command: {}", cmd);
 
   auto pipeStream = bp::ipstream{};
-  auto process =
-    mergeStdErr
-      ? bp::child(cmd.data(), bp::std_out > pipeStream, bp::std_err > pipeStream)
-      : bp::child(cmd.data(), bp::std_out > pipeStream, bp::std_err > bp::null);
+  auto process = mergeStdErr
+    ? bp::child(cmd.data(), bp::std_out > pipeStream, bp::std_err > pipeStream)
+    : bp::child(cmd.data(), bp::std_out > pipeStream, bp::std_err > bp::null);
   auto line = std::string{};
   auto result = std::string{};
 

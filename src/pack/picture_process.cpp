@@ -25,7 +25,7 @@ using PictureEntryPlan = std::unordered_map<fs::path, std::string>;
 
 auto shouldForcePictureConflictNaming(appctx::AppConfig const& config) -> bool {
   return config.forceNameConflictHandling
-      && config.outputLayout == appctx::OutputLayout::Flat;
+    && config.outputLayout == appctx::OutputLayout::Flat;
 }
 
 auto buildConflictHandledPictureEntryName(
@@ -53,8 +53,8 @@ auto planPictureZipEntryNames(
       auto const relativePath = filePath.lexically_relative(dirPath);
       plannedEntries[filePath] =
         (relativePath.empty() || relativePath == fs::path{"."})
-          ? filePath.filename().generic_string()
-          : relativePath.generic_string();
+        ? filePath.filename().generic_string()
+        : relativePath.generic_string();
     }
     return plannedEntries;
   }
@@ -167,8 +167,10 @@ auto packAllPicsToZipParallel(
       },
     .zipEntryNameForFile =
       [plannedEntryNames](fs::path const& filePath) {
-        if (auto const it = plannedEntryNames.find(filePath);
-            it != plannedEntryNames.end()) {
+        if (
+          auto const it = plannedEntryNames.find(filePath);
+          it != plannedEntryNames.end()
+        ) {
           return it->second;
         }
         return filePath.filename().generic_string();

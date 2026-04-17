@@ -79,9 +79,8 @@ TEST_CASE("buildConfig reads forced conflict handling flag", "[cmd][config]") {
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm(
-    {{"input", inputPath.string()}, {"force-conflict-handling", "y"}}
-  );
+  auto const vm =
+    makeVm({{"input", inputPath.string()}, {"force-conflict-handling", "y"}});
   auto const configRes = cmd::buildConfig(vm);
 
   REQUIRE(configRes);
@@ -93,9 +92,8 @@ TEST_CASE("buildConfig reads disabled conflict handling flag", "[cmd][config]") 
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm(
-    {{"input", inputPath.string()}, {"force-conflict-handling", "n"}}
-  );
+  auto const vm =
+    makeVm({{"input", inputPath.string()}, {"force-conflict-handling", "n"}});
   auto const configRes = cmd::buildConfig(vm);
 
   REQUIRE(configRes);
@@ -107,9 +105,8 @@ TEST_CASE("buildConfig rejects invalid conflict-handling value", "[cmd][config]"
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm(
-    {{"input", inputPath.string()}, {"force-conflict-handling", "maybe"}}
-  );
+  auto const vm =
+    makeVm({{"input", inputPath.string()}, {"force-conflict-handling", "maybe"}});
   auto const configRes = cmd::buildConfig(vm);
 
   REQUIRE_FALSE(configRes);

@@ -14,7 +14,7 @@
 #if defined(_WIN32)
   #include <windows.h>
 #else
-#  include <csignal>
+  #include <csignal>
 #endif
 
 namespace {
@@ -71,8 +71,8 @@ void terminateHandler() {
 #if defined(_WIN32)
 LONG WINAPI unhandledExceptionFilter(EXCEPTION_POINTERS* exceptionInfo) {
   auto code = exceptionInfo == nullptr || exceptionInfo->ExceptionRecord == nullptr
-              ? 0UL
-              : exceptionInfo->ExceptionRecord->ExceptionCode;
+    ? 0UL
+    : exceptionInfo->ExceptionRecord->ExceptionCode;
   writeCrashReport(std::format("unhandled SEH exception code=0x{:08X}", code));
   return EXCEPTION_EXECUTE_HANDLER;
 }
