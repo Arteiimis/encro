@@ -92,7 +92,7 @@ struct EncodeConfig {
     if (format == "webp") {
       auto const quality = webpQuality.value_or(80);
       cmd += " -vf \"scale=-2:960:force_original_aspect_ratio=decrease\""
-           + std::format(" -c:v libwebp -q:v {} -loop 0", quality);
+        + std::format(" -c:v libwebp -q:v {} -loop 0", quality);
     } else {
       cmd += std::format(" -c:v {} -crf {}", codec, crf.value_or(20));
     }

@@ -9,7 +9,6 @@
 #include <span>
 #include <vector>
 
-
 namespace fs = std::filesystem;
 
 struct EncodedVideoPackFile {
@@ -32,7 +31,7 @@ auto handleMultiFileEncoding(
   std::span<fs::path const> inputPaths
 ) -> int;
 
-auto readLastNLines(const fs::path& filePath, std::size_t n)
+auto readLastNLines(fs::path const& filePath, std::size_t n)
   -> std::vector<std::string>;
 
 struct ProgressData {
@@ -40,7 +39,7 @@ struct ProgressData {
   std::string status;
 };
 
-auto parseProgressFile(const fs::path& progressFilePath) -> ProgressData;
+auto parseProgressFile(fs::path const& progressFilePath) -> ProgressData;
 
 auto planVideoOutputFiles(
   appctx::AppConfig const& config,
@@ -64,7 +63,6 @@ auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
 auto groupEncodedVideosForPack(
   std::vector<EncodedVideoPackFile> const& filePaths,
   std::size_t keepSourceDirsTogetherWhenTotalFilesExceed = 2000
-)
-  -> std::vector<std::vector<fs::path>>;
+) -> std::vector<std::vector<fs::path>>;
 
 auto handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) -> int;

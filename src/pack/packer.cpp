@@ -63,14 +63,14 @@ auto makeUniqueZipEntryName(
   auto const stem = entryPath.stem().string();
   auto const extension = entryPath.extension().string();
 
-  auto candidate = (parentPath / std::format("{}{}{}", stem, suffix, extension))
-                     .generic_string();
+  auto candidate =
+    (parentPath / std::format("{}{}{}", stem, suffix, extension)).generic_string();
   auto duplicateIndex = std::size_t{1};
   while (!usedEntryNames.insert(candidate).second) {
     candidate =
       (parentPath
        / std::format("{}{}_{}{}", stem, suffix, duplicateIndex++, extension))
-          .generic_string();
+        .generic_string();
   }
 
   return candidate;
@@ -149,7 +149,7 @@ auto wouldExceedGroupLimits(
 ) -> bool {
   if (currentSize + additionalSize > maxGroupSize) { return true; }
   return maxFilesPerGroup.has_value()
-      && currentCount + additionalCount > maxFilesPerGroup.value();
+    && currentCount + additionalCount > maxFilesPerGroup.value();
 }
 
 void flushPreparedChunk(
@@ -280,12 +280,14 @@ auto groupFilesBySize(
   auto preparedFiles = std::vector<PreparedPackFile>{};
   preparedFiles.reserve(filePaths.size());
   for (auto const& filePath: filePaths) {
-    preparedFiles.emplace_back(PreparedPackFile{
-      .filePath = filePath,
-      .sourceKey = {},
-      .fileKey = {},
-      .fileSize = fs::file_size(filePath),
-    });
+    preparedFiles.emplace_back(
+      PreparedPackFile{
+        .filePath = filePath,
+        .sourceKey = {},
+        .fileKey = {},
+        .fileSize = fs::file_size(filePath),
+      }
+    );
   }
 
   return groupPreparedFilesSequentially(
@@ -306,12 +308,14 @@ auto groupPackFiles(
   auto preparedFiles = std::vector<PreparedPackFile>{};
   preparedFiles.reserve(filePaths.size());
   for (auto const& file: filePaths) {
-    preparedFiles.emplace_back(PreparedPackFile{
-      .filePath = file.filePath,
-      .sourceKey = naming::stablePathString(file.sourceDir),
-      .fileKey = naming::stablePathString(file.filePath),
-      .fileSize = fs::file_size(file.filePath),
-    });
+    preparedFiles.emplace_back(
+      PreparedPackFile{
+        .filePath = file.filePath,
+        .sourceKey = naming::stablePathString(file.sourceDir),
+        .fileKey = naming::stablePathString(file.filePath),
+        .fileSize = fs::file_size(file.filePath),
+      }
+    );
   }
 
   if (
@@ -325,10 +329,13 @@ auto groupPackFiles(
     );
   }
 
-  std::ranges::sort(preparedFiles, [](PreparedPackFile const& lhs, PreparedPackFile const& rhs) {
-    if (lhs.sourceKey != rhs.sourceKey) { return lhs.sourceKey < rhs.sourceKey; }
-    return lhs.fileKey < rhs.fileKey;
-  });
+  std::ranges::sort(
+    preparedFiles,
+    [](PreparedPackFile const& lhs, PreparedPackFile const& rhs) {
+      if (lhs.sourceKey != rhs.sourceKey) { return lhs.sourceKey < rhs.sourceKey; }
+      return lhs.fileKey < rhs.fileKey;
+    }
+  );
 
   auto groupedFiles = std::vector<std::vector<fs::path>>{};
   auto currentGroup = std::vector<fs::path>{};
@@ -356,11 +363,8 @@ auto groupPackFiles(
         flushGroupedFiles(currentGroup, currentSize, currentCount, groupedFiles);
       }
 
-      currentGroup.insert(
-        currentGroup.end(),
-        chunk.filePaths.begin(),
-        chunk.filePaths.end()
-      );
+      currentGroup
+        .insert(currentGroup.end(), chunk.filePaths.begin(), chunk.filePaths.end());
       currentSize += chunk.totalSize;
       currentCount += chunk.fileCount;
     }
@@ -445,12 +449,11 @@ auto packAllFilesInDirectory(
           )
         );
       },
-    .zipEntryNameForFile =
-      forceNameConflictHandling
-        ? ZipEntryNameResolver{[dirPath](fs::path const& filePath) {
-            return buildConflictHandledPackEntryName(dirPath, filePath);
-          }}
-        : ZipEntryNameResolver{},
+    .zipEntryNameForFile = forceNameConflictHandling
+      ? ZipEntryNameResolver{[dirPath](fs::path const& filePath) {
+          return buildConflictHandledPackEntryName(dirPath, filePath);
+        }}
+      : ZipEntryNameResolver{},
     .maxParallelJobs = maxParallelJobs
   };
 

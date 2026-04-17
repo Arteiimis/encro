@@ -70,17 +70,16 @@ auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path
                                               : std::format("part{}.zip", index + 1);
     auto const zipPath = plan.outputDir / zipName;
     auto const label = plan.progressLabelForIndex
-                       ? plan.progressLabelForIndex(index)
-                       : std::format("Packing: {}", zipName);
+      ? plan.progressLabelForIndex(index)
+      : std::format("Packing: {}", zipName);
 
-    auto const packRes =
-      packFilesToZip(
-        plan.groups[index],
-        zipPath,
-        progressCtx,
-        label,
-        plan.zipEntryNameForFile
-      );
+    auto const packRes = packFilesToZip(
+      plan.groups[index],
+      zipPath,
+      progressCtx,
+      label,
+      plan.zipEntryNameForFile
+    );
 
     auto lock = std::scoped_lock{resultMtx};
     if (!packRes) {
