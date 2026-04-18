@@ -17,6 +17,7 @@
 #include <format>
 #include <print>
 #include <ranges>
+#include <unordered_map>
 #include <unordered_set>
 #include <stop_token>
 #include <thread>
@@ -386,6 +387,73 @@ auto groupPackFiles(
   flushGroupedFiles(currentGroup, currentSize, currentCount, groupedFiles);
 
   return groupedFiles;
+}
+
+auto groupPackFilesWithSubparts(
+  std::vector<PackGroupInput> const& filePaths,
+  std::uintmax_t maxGroupSize,
+  std::size_t maxFilesPerPart,
+  std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed
+) -> std::vector<PackGroupPartition> {
+  if (filePaths.empty()) { return {}; }
+
+  auto totalInputSize = std::uintmax_t{0};
+  auto sourceDirByFileKey = std::unordered_map<std::string, fs::path>{};
+  sourceDirByFileKey.reserve(filePaths.size());
+  for (auto const& file: filePaths) {
+    totalInputSize += fs::file_size(file.filePath);
+    sourceDirByFileKey.emplace(naming::stablePathString(file.filePath), file.sourceDir);
+  }
+
+  auto const logicalParts = groupPackFiles(
+    filePaths,
+    totalInputSize,
+    maxFilesPerPart,
+    keepSourceDirsTogetherWhenTotalFilesExceed
+  );
+  auto const forceSourceCarryOverWithinPart =
+    keepSourceDirsTogetherWhenTotalFilesExceed.has_value()
+    && filePaths.size() > keepSourceDirsTogetherWhenTotalFilesExceed.value();
+
+  auto groupedPartitions = std::vector<PackGroupPartition>{};
+  groupedPartitions.reserve(logicalParts.size());
+
+  for (auto partIndex = std::size_t{0}; partIndex < logicalParts.size(); ++partIndex) {
+    auto subgroupInputs = std::vector<PackGroupInput>{};
+    subgroupInputs.reserve(logicalParts[partIndex].size());
+
+    for (auto const& filePath: logicalParts[partIndex]) {
+      auto const fileKey = naming::stablePathString(filePath);
+      auto const sourceDirIt = sourceDirByFileKey.find(fileKey);
+      subgroupInputs.emplace_back(
+        PackGroupInput{
+          filePath,
+          sourceDirIt != sourceDirByFileKey.end() ? sourceDirIt->second
+                                                  : filePath.parent_path()
+        }
+      );
+    }
+
+    auto physicalGroups = groupPackFiles(
+      subgroupInputs,
+      maxGroupSize,
+      std::nullopt,
+      forceSourceCarryOverWithinPart ? std::optional<std::size_t>{0} : std::nullopt
+    );
+
+    for (auto subPartIndex = std::size_t{0}; subPartIndex < physicalGroups.size();
+         ++subPartIndex) {
+      groupedPartitions.emplace_back(
+        PackGroupPartition{
+          .filePaths = std::move(physicalGroups[subPartIndex]),
+          .partIndex = partIndex + 1,
+          .subPartIndex = subPartIndex,
+        }
+      );
+    }
+  }
+
+  return groupedPartitions;
 }
 
 auto packAllFilesInDirectory(

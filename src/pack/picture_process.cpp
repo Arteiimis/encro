@@ -87,6 +87,17 @@ auto planPictureZipEntryNames(
   return plannedEntries;
 }
 
+auto buildPicturePackBaseName(
+  std::string const& dirName,
+  std::size_t partIndex,
+  std::size_t subPartIndex,
+  std::size_t totalSubParts
+) -> std::string {
+  if (totalSubParts <= 1) { return std::format("{}_part{}.zip", dirName, partIndex); }
+
+  return std::format("{}_part{}.{}.zip", dirName, partIndex, subPartIndex + 1);
+}
+
 }  // namespace
 
 auto readAllPics(appctx::AppConfig const& config, fs::path const& dirPath)
@@ -174,44 +185,72 @@ auto buildPicturePackPlan(
   for (auto const& picPath: scannedPics) {
     packInputs.emplace_back(PackGroupInput{picPath, picPath.parent_path()});
   }
-  auto const groupedPics = groupPackFiles(
+  auto const groupedPicPartitions = groupPackFilesWithSubparts(
     packInputs,
     kMaxPicturePackSize,
     kMaxPicturesPerPack,
     kFolderCarryOverThreshold
   );
+  auto groupedPics = std::vector<std::vector<fs::path>>{};
+  auto groupNameParts = std::vector<std::pair<std::size_t, std::size_t>>{};
+  auto subPartCountsByPart = std::vector<std::size_t>{};
+  groupedPics.reserve(groupedPicPartitions.size());
+  groupNameParts.reserve(groupedPicPartitions.size());
+  subPartCountsByPart.reserve(groupedPicPartitions.size());
+  for (auto const& partition: groupedPicPartitions) {
+    groupedPics.emplace_back(partition.filePaths);
+    groupNameParts.emplace_back(partition.partIndex, partition.subPartIndex);
+    if (subPartCountsByPart.size() < partition.partIndex) {
+      subPartCountsByPart.resize(partition.partIndex, 0);
+    }
+    ++subPartCountsByPart[partition.partIndex - 1];
+  }
   auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedPics);
 
   return pack::PackPlan{
     .groups = groupedPics,
     .outputDir = zipFileDir,
     .zipNameForIndex =
-      [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
+      [dirName = dirPath.filename().string(),
+       ordinalRanges,
+       groupNameParts,
+       subPartCountsByPart](std::size_t index) {
+        auto const [partIndex, subPartIndex] = groupNameParts.at(index);
         return pack::appendOrdinalRangeSuffix(
-          std::format("{}_part{}.zip", dirName, index + 1),
+          buildPicturePackBaseName(
+            dirName,
+            partIndex,
+            subPartIndex,
+            subPartCountsByPart.at(partIndex - 1)
+          ),
           ordinalRanges.at(index)
         );
       },
     .progressLabelForIndex =
-      [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
+      [dirName = dirPath.filename().string(),
+       ordinalRanges,
+       groupNameParts,
+       subPartCountsByPart](std::size_t index) {
+        auto const [partIndex, subPartIndex] = groupNameParts.at(index);
         return std::format(
           "Packing: {}",
           pack::appendOrdinalRangeSuffix(
-            std::format("{}_part{}.zip", dirName, index + 1),
+            buildPicturePackBaseName(
+              dirName,
+              partIndex,
+              subPartIndex,
+              subPartCountsByPart.at(partIndex - 1)
+            ),
             ordinalRanges.at(index)
           )
         );
       },
-    .zipEntryNameForFile =
-      [plannedEntryNames](fs::path const& filePath) -> std::string {
-        if (
-          auto const it = plannedEntryNames.find(filePath);
-          it != plannedEntryNames.end()
-        ) {
-          return it->second;
-        }
-        return filePath.filename().generic_string();
-      },
+    .zipEntryNameForFile = [plannedEntryNames](fs::path const& filePath) -> std::string {
+      if (auto const it = plannedEntryNames.find(filePath); it != plannedEntryNames.end()) {
+        return it->second;
+      }
+      return filePath.filename().generic_string();
+    },
     .maxParallelJobs = config.maxParallelJobs,
     .removeOnFailure = true
   };
