@@ -8,7 +8,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <string_view>
 #include <vector>
+
+auto isLikelyFfmpegErrorLine(std::string_view line) -> bool;
 
 namespace {
 
@@ -118,6 +121,25 @@ TEST_CASE(
 
   CHECK(frameCount == 25);
   CHECK(status == "end");
+}
+
+TEST_CASE(
+  "isLikelyFfmpegErrorLine ignores ffmpeg metadata comment payloads",
+  "[video-process][ffmpeg]"
+) {
+  auto const metadataLine = std::string_view{
+    R"(comment         : {"prompt": "lowres, bad anatomy, text, error, low quality"})"
+  };
+
+  CHECK_FALSE(isLikelyFfmpegErrorLine(metadataLine));
+}
+
+TEST_CASE(
+  "isLikelyFfmpegErrorLine keeps real ffmpeg diagnostics",
+  "[video-process][ffmpeg]"
+) {
+  CHECK(isLikelyFfmpegErrorLine("Option foo not found."));
+  CHECK(isLikelyFfmpegErrorLine("[libwebp @ 000001] Error parsing option quality."));
 }
 
 TEST_CASE(
