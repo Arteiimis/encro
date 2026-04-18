@@ -17,7 +17,8 @@ struct EncodingBatchState {
   struct Counters {
     std::atomic_size_t finished;
     std::atomic_size_t nextTask;
-    std::size_t total;
+    std::size_t pendingTotal;
+    std::size_t overallTotal;
     std::size_t workers;
     std::optional<std::size_t> overallBarIndex;
   } counters;
@@ -36,10 +37,19 @@ struct EncodingBatchState {
   progress::ProgressContext progressCtx;
 
   EncodingBatchState(std::size_t total, std::size_t workers)
+    : EncodingBatchState(total, total, 0, workers) { }
+
+  EncodingBatchState(
+    std::size_t pendingTotal,
+    std::size_t overallTotal,
+    std::size_t completedBeforeStart,
+    std::size_t workers
+  )
     : counters{
+        std::atomic_size_t{std::min(completedBeforeStart, overallTotal)},
         std::atomic_size_t{0},
-        std::atomic_size_t{0},
-        total,
+        pendingTotal,
+        overallTotal,
         workers,
         std::nullopt
       },
@@ -50,7 +60,12 @@ struct EncodingBatchState {
       },
       results{},
       progressCtx{} {
-    counters.overallBarIndex = createOverallBar(progressCtx, total, workers);
+    counters.overallBarIndex = createOverallBar(
+      progressCtx,
+      overallTotal,
+      completedBeforeStart,
+      workers
+    );
     slots.barIndexes = makeSlotBars(progressCtx, workers);
   }
 
@@ -58,10 +73,17 @@ private:
   static std::optional<std::size_t> createOverallBar(
     progress::ProgressContext& progressCtx,
     std::size_t totalTasks,
+    std::size_t completedBeforeStart,
     std::size_t workerCount
   ) {
     if (totalTasks <= workerCount) { return std::nullopt; }
-    return progressCtx.addBar(std::format("Overall: 0/{}", totalTasks));
+    return progressCtx.addBar(
+      std::format(
+        "Overall: {}/{}",
+        std::min(completedBeforeStart, totalTasks),
+        totalTasks
+      )
+    );
   }
 
   static std::vector<std::size_t>

@@ -149,6 +149,10 @@ void logConfigSummary(appctx::AppConfig const& config) {
 
   if (config.packOnly) { spdlog::info("Pack-only mode enabled."); }
 
+  if (config.resumeState) { spdlog::info("Resume mode enabled."); }
+
+  if (config.restartState) { spdlog::info("Restart mode enabled."); }
+
   if (!config.forceNameConflictHandling) {
     spdlog::info("Collision-safe file naming disabled for unique flat outputs.");
   }
@@ -162,6 +166,13 @@ void logConfigSummary(appctx::AppConfig const& config) {
 
   if (config.outputPath.has_value()) {
     spdlog::info("Using custom output path: {}", config.outputPath.value().string());
+  }
+
+  if (config.stateFilePath.has_value()) {
+    spdlog::info(
+      "Using custom state file: {}",
+      config.stateFilePath.value().string()
+    );
   }
 
   if (config.maxParallelJobs.has_value()) {

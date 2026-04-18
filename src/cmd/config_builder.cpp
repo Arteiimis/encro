@@ -136,6 +136,13 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   -> eh::Result<appctx::AppConfig> {
   auto config = appctx::AppConfig{};
 
+  config.resumeState = vm.count("resume") > 0;
+  config.restartState = vm.count("restart") > 0;
+
+  if (config.resumeState && config.restartState) {
+    return eh::makeError("--resume and --restart cannot be used together.");
+  }
+
   auto typeRes = readProcessType(vm);
   if (!typeRes) { return eh::makeError("{}", typeRes.error()); }
   config.processType = typeRes.value();
@@ -162,6 +169,11 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   config.packOnly = vm.count("pack-only") > 0;
   config.verbose = vm.count("verbose") > 0;
   config.verboseEcho = vm.count("verbose-echo") > 0;
+
+  if (vm.count("state-file")) {
+    config.stateFilePath =
+      fs::absolute(fs::path{getParamStr(vm, "state-file")}).lexically_normal();
+  }
 
   if (vm.count("ffmpeg-path")) {
     auto const iptPath = fs::path{getParamStr(vm, "ffmpeg-path")};

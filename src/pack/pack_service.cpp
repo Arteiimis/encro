@@ -2,11 +2,12 @@
 
 #include "core/parallel.h"
 #include "core/progress.h"
+#include "core/stop_signal.h"
 #include "pack/packer.h"
 
 #include <algorithm>
+#include <atomic>
 #include <format>
-#include <mutex>
 
 namespace pack {
 
@@ -62,41 +63,68 @@ auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path
   auto progressCtx = progress::ProgressContext{};
   auto packResults = std::vector<eh::Result<void>>(plan.groups.size());
   auto zippedFiles = std::vector<fs::path>(plan.groups.size());
-  auto resultMtx = std::mutex{};
+  auto attempted = std::vector<bool>(plan.groups.size(), false);
+  auto nextIndex = std::atomic<std::size_t>{0};
+  auto processed = std::atomic<std::size_t>{0};
 
   auto _ = progress::CursorGuard{};
-  parallel::runIndexedTasks(plan.groups.size(), workerCount, [&](std::size_t index) {
-    auto const zipName = plan.zipNameForIndex ? plan.zipNameForIndex(index)
-                                              : std::format("part{}.zip", index + 1);
-    auto const zipPath = plan.outputDir / zipName;
-    auto const label = plan.progressLabelForIndex
-      ? plan.progressLabelForIndex(index)
-      : std::format("Packing: {}", zipName);
+  parallel::runIndexedTasks(workerCount, workerCount, [&](std::size_t) {
+    while (true) {
+      if (stopsignal::isStopRequested()) { break; }
 
-    auto const packRes = packFilesToZip(
-      plan.groups[index],
-      zipPath,
-      progressCtx,
-      label,
-      plan.zipEntryNameForFile
-    );
+      auto const index = nextIndex.fetch_add(1);
+      if (index >= plan.groups.size()) { break; }
 
-    auto lock = std::scoped_lock{resultMtx};
-    if (!packRes) {
-      if (plan.removeOnFailure) {
-        auto ec = std::error_code{};
-        fs::remove(zipPath, ec);
+      attempted[index] = true;
+      if (plan.onGroupStart) { plan.onGroupStart(index); }
+
+      auto const zipName = plan.zipNameForIndex ? plan.zipNameForIndex(index)
+                                                : std::format("part{}.zip", index + 1);
+      auto const zipPath = plan.outputDir / zipName;
+      auto const label = plan.progressLabelForIndex
+        ? plan.progressLabelForIndex(index)
+        : std::format("Packing: {}", zipName);
+
+      auto const packRes = packFilesToZip(
+        plan.groups[index],
+        zipPath,
+        progressCtx,
+        label,
+        plan.zipEntryNameForFile
+      );
+
+      if (!packRes) {
+        if (plan.removeOnFailure) {
+          auto ec = std::error_code{};
+          fs::remove(zipPath, ec);
+        }
+        packResults[index] = packRes;
+        if (plan.onGroupFailure) {
+          plan.onGroupFailure(index, packRes.error());
+        }
+        processed.fetch_add(1, std::memory_order_release);
+        continue;
       }
-      packResults[index] = packRes;
-      return;
-    }
 
-    packResults[index] = {};
-    zippedFiles[index] = zipPath;
+      packResults[index] = {};
+      zippedFiles[index] = zipPath;
+      if (plan.onGroupSuccess) { plan.onGroupSuccess(index, zipPath); }
+      processed.fetch_add(1, std::memory_order_release);
+    }
   });
 
-  for (auto const& res: packResults) {
-    if (!res) { return eh::makeError("{}", res.error()); }
+  if (
+    stopsignal::isStopRequested()
+    && processed.load(std::memory_order_acquire) < plan.groups.size()
+  ) {
+    return eh::makeError("Packing canceled by user.");
+  }
+
+  for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
+    if (!attempted[index]) { continue; }
+    if (!packResults[index]) {
+      return eh::makeError("{}", packResults[index].error());
+    }
   }
 
   return zippedFiles;

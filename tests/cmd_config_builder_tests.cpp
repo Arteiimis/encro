@@ -54,6 +54,8 @@ TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config
   CHECK_FALSE(config.recursive);
   CHECK_FALSE(config.packOutput);
   CHECK_FALSE(config.packOnly);
+  CHECK_FALSE(config.resumeState);
+  CHECK_FALSE(config.restartState);
   CHECK(config.forceNameConflictHandling);
   CHECK_FALSE(config.verbose);
   CHECK_FALSE(config.verboseEcho);
@@ -123,6 +125,37 @@ TEST_CASE("buildConfig rejects conflicting output layouts", "[cmd][config]") {
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("--flat and --keep") != std::string::npos);
+}
+
+TEST_CASE("buildConfig reads resume restart and state-file options", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+
+  auto const vm = makeVm(
+    {{"input", inputPath.string()}, {"state-file", statePath.string()}},
+    {"resume"}
+  );
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  CHECK(configRes->resumeState);
+  CHECK_FALSE(configRes->restartState);
+  REQUIRE(configRes->stateFilePath.has_value());
+  CHECK(configRes->stateFilePath.value() == statePath);
+}
+
+TEST_CASE("buildConfig rejects conflicting resume and restart", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm = makeVm({{"input", inputPath.string()}}, {"resume", "restart"});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(configRes.error().find("--resume and --restart") != std::string::npos);
 }
 
 TEST_CASE("buildConfig supports multiple inputs", "[cmd][config]") {
