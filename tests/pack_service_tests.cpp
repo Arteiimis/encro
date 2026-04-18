@@ -86,7 +86,6 @@ TEST_CASE(
   CHECK(ranges[1].last == 3);
   CHECK(ranges[1].count == 1);
   CHECK(
-    pack::appendOrdinalRangeSuffix("bundle_part1.zip", ranges[0])
-    == "bundle_part1_1-2_items2.zip"
+    pack::appendOrdinalRangeSuffix("bundle_part1.zip", ranges[0]) == "bundle_part1[1~2#2p].zip"
   );
 }

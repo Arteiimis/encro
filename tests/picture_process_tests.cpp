@@ -59,6 +59,6 @@ TEST_CASE(
   REQUIRE(planRes->groups.size() == 2);
   CHECK(planRes->groups[0] == std::vector<fs::path>{f1, f2});
   CHECK(planRes->groups[1] == std::vector<fs::path>{f3});
-  CHECK(planRes->zipNameForIndex(0) == "pics_part1.1_1-2_items2.zip");
-  CHECK(planRes->zipNameForIndex(1) == "pics_part1.2_3-3_items1.zip");
+  CHECK(planRes->zipNameForIndex(0) == "pics_part1.1[1~2#2p].zip");
+  CHECK(planRes->zipNameForIndex(1) == "pics_part1.2[3~3#1p].zip");
 }
