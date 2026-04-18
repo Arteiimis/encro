@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <deque>
 #include <fstream>
@@ -245,12 +246,84 @@ auto containsCaseInsensitive(std::string_view text, std::string_view needle)
   return false;
 }
 
-auto isLikelyFfmpegErrorLine(std::string_view line) -> bool {
-  return containsCaseInsensitive(line, "error")
-    || containsCaseInsensitive(line, "failed")
-    || containsCaseInsensitive(line, "invalid")
-    || containsCaseInsensitive(line, "not found");
+auto trimWhitespace(std::string_view text) -> std::string_view {
+  auto const begin = text.find_first_not_of(" \t\r");
+  if (begin == std::string_view::npos) { return {}; }
+  auto const end = text.find_last_not_of(" \t\r");
+  return text.substr(begin, end - begin + 1);
 }
+
+auto startsWithCaseInsensitive(std::string_view text, std::string_view prefix)
+  -> bool {
+  if (text.size() < prefix.size()) { return false; }
+
+  for (std::size_t i = 0; i < prefix.size(); ++i) {
+    auto const tc = static_cast<unsigned char>(text[i]);
+    auto const pc = static_cast<unsigned char>(prefix[i]);
+    if (std::tolower(tc) != std::tolower(pc)) { return false; }
+  }
+
+  return true;
+}
+
+auto isLikelyFfmpegMetadataLine(std::string_view line) -> bool {
+  auto const trimmed = trimWhitespace(line);
+  if (trimmed.empty()) { return false; }
+
+  return startsWithCaseInsensitive(trimmed, "metadata:")
+    || startsWithCaseInsensitive(trimmed, "comment")
+    || startsWithCaseInsensitive(trimmed, "major_brand")
+    || startsWithCaseInsensitive(trimmed, "minor_version")
+    || startsWithCaseInsensitive(trimmed, "compatible_brands")
+    || startsWithCaseInsensitive(trimmed, "encoder")
+    || startsWithCaseInsensitive(trimmed, "handler_name")
+    || startsWithCaseInsensitive(trimmed, "input #")
+    || startsWithCaseInsensitive(trimmed, "output #")
+    || startsWithCaseInsensitive(trimmed, "stream #")
+    || startsWithCaseInsensitive(trimmed, "stream mapping:")
+    || startsWithCaseInsensitive(trimmed, "duration:")
+    || startsWithCaseInsensitive(trimmed, "press [q] to stop");
+}
+
+}  // namespace
+
+auto isLikelyFfmpegErrorLine(std::string_view line) -> bool {
+  auto const trimmed = trimWhitespace(line);
+  if (trimmed.empty() || isLikelyFfmpegMetadataLine(trimmed)) { return false; }
+
+  if (
+    startsWithCaseInsensitive(trimmed, "error")
+    || startsWithCaseInsensitive(trimmed, "failed")
+    || startsWithCaseInsensitive(trimmed, "invalid")
+    || startsWithCaseInsensitive(trimmed, "could not")
+    || startsWithCaseInsensitive(trimmed, "unable to")
+    || startsWithCaseInsensitive(trimmed, "conversion failed")
+  ) {
+    return true;
+  }
+
+  if (
+    containsCaseInsensitive(trimmed, "no such file or directory")
+    || containsCaseInsensitive(trimmed, "permission denied")
+    || containsCaseInsensitive(trimmed, "matches no streams")
+    || containsCaseInsensitive(trimmed, "not found")
+  ) {
+    return true;
+  }
+
+  auto const bracketedDiagnostic = trimmed.starts_with('[')
+    && trimmed.find(']') != std::string_view::npos;
+  if (!bracketedDiagnostic) { return false; }
+
+  return containsCaseInsensitive(trimmed, "] error")
+    || containsCaseInsensitive(trimmed, "] failed")
+    || containsCaseInsensitive(trimmed, "] invalid")
+    || containsCaseInsensitive(trimmed, "] could not")
+    || containsCaseInsensitive(trimmed, "] unable to")
+    || containsCaseInsensitive(trimmed, "] not found");
+}
+
+namespace {
 
 auto makeSlotLabel(fs::path const& vidPath) -> std::string {
   return truncateForProgressLabel(vidPath.filename().string());

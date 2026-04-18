@@ -93,6 +93,9 @@ TEST_CASE("EncodeConfig builds webp command", "[encode-config]") {
   REQUIRE(validation);
 
   auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-hide_banner") != std::string::npos);
+  CHECK(cmd.find("-nostats") != std::string::npos);
+  CHECK(cmd.find("-loglevel error") != std::string::npos);
   CHECK(cmd.find("-c:v libwebp") != std::string::npos);
   CHECK(
     cmd.find("-vf \"scale=-2:960:force_original_aspect_ratio=decrease\"")
@@ -246,4 +249,23 @@ TEST_CASE("EncodeConfig uses custom webp quality", "[encode-config]") {
   auto const cmd = cfg.buildCMD();
   CHECK(cmd.find("-c:v libwebp") != std::string::npos);
   CHECK(cmd.find("-q:v 55") != std::string::npos);
+}
+
+TEST_CASE(
+  "EncodeConfig suppresses ffmpeg banner and info output",
+  "[encode-config]"
+) {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+
+  auto const validation = cfg.validate();
+  REQUIRE(validation);
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-hide_banner") != std::string::npos);
+  CHECK(cmd.find("-nostats") != std::string::npos);
+  CHECK(cmd.find("-loglevel error") != std::string::npos);
 }
