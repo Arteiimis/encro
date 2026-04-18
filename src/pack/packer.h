@@ -19,6 +19,12 @@ struct PackGroupInput {
   std::filesystem::path sourceDir;
 };
 
+struct PackGroupPartition {
+  std::vector<std::filesystem::path> filePaths;
+  std::size_t partIndex = 0;
+  std::size_t subPartIndex = 0;
+};
+
 auto packFilesToZip(
   std::vector<std::filesystem::path> const& filePaths,
   std::filesystem::path const& zipFilePath,
@@ -40,6 +46,13 @@ auto groupPackFiles(
   std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed =
     std::nullopt
 ) -> std::vector<std::vector<std::filesystem::path>>;
+
+auto groupPackFilesWithSubparts(
+  std::vector<PackGroupInput> const& filePaths,
+  std::uintmax_t maxGroupSize,
+  std::size_t maxFilesPerPart,
+  std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed = std::nullopt
+) -> std::vector<PackGroupPartition>;
 
 auto packAllFilesInDirectory(
   std::filesystem::path const& dirPath,

@@ -124,6 +124,44 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "groupPackFilesWithSubparts keeps size overflow in the same logical part",
+  "[packer][groupPackFilesWithSubparts]"
+) {
+  TempDir temp;
+
+  auto const f1 = createSizedFile(temp.path, "a.bin", 2);
+  auto const f2 = createSizedFile(temp.path, "b.bin", 2);
+  auto const f3 = createSizedFile(temp.path, "c.bin", 2);
+  auto const f4 = createSizedFile(temp.path, "d.bin", 2);
+  auto const f5 = createSizedFile(temp.path, "e.bin", 2);
+
+  auto const grouped = groupPackFilesWithSubparts(
+    {
+      PackGroupInput{f1, temp.path},
+      PackGroupInput{f2, temp.path},
+      PackGroupInput{f3, temp.path},
+      PackGroupInput{f4, temp.path},
+      PackGroupInput{f5, temp.path},
+    },
+    5,
+    4
+  );
+
+  REQUIRE(grouped.size() == 3);
+  CHECK(grouped[0].filePaths == std::vector{f1, f2});
+  CHECK(grouped[0].partIndex == 1);
+  CHECK(grouped[0].subPartIndex == 0);
+
+  CHECK(grouped[1].filePaths == std::vector{f3, f4});
+  CHECK(grouped[1].partIndex == 1);
+  CHECK(grouped[1].subPartIndex == 1);
+
+  CHECK(grouped[2].filePaths == std::vector{f5});
+  CHECK(grouped[2].partIndex == 2);
+  CHECK(grouped[2].subPartIndex == 0);
+}
+
+TEST_CASE(
   "packFilesToZip archives files and reports progress",
   "[packer][packFilesToZip]"
 ) {
