@@ -80,7 +80,7 @@ struct EncodeConfig {
 
   std::string buildCMD() const {
     auto cmd = std::string{ffmpegPath.value().string()};
-    cmd += " -y";
+    cmd += " -hide_banner -nostats -loglevel error -y";
 
     if (!inputPath.has_value()) {
       throw std::runtime_error("Input path is required to build ffmpeg command.");
