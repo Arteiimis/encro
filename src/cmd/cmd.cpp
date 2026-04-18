@@ -34,6 +34,7 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("input,i", pv<std::string>(), "input file or directory path")           //
     ("inputs,I", pvm<std::vector<std::string>>(), "input video file paths")  //
     ("output,o", pv<std::string>(), "custom output directory path")          //
+    ("state-file", pv<std::string>(), "custom job state file path")         //
     ("output-format,f", pvDefault("mp4"s), "target format: mp4 or webp")     //
     ("flat", "flatten output names inside the output directory (default)")   //
     ("keep",
@@ -48,6 +49,8 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   processing.add_options()                                                    //
     ("type,t", pvDefault("video"s), "process type: video(vid)|picture(pic)")  //
     ("jobs,j", pvDefault(10ull), "max parallel jobs (>=1, default=10)")       //
+    ("resume", "resume previous unfinished job state when available")         //
+    ("restart", "ignore previous job state and start a fresh run")            //
     ("ffmpeg-path,x", pv<std::string>(), "custom ffmpeg install path")        //
     ;
 

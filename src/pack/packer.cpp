@@ -396,6 +396,31 @@ auto packAllFilesInDirectory(
   bool forceNameConflictHandling,
   std::optional<std::size_t> maxParallelJobs
 ) -> eh::Result<void> {
+  auto const planRes = buildDirectoryPackPlan(
+    dirPath,
+    zipFileDir,
+    maxGroupSize,
+    recursive,
+    forceNameConflictHandling,
+    maxParallelJobs
+  );
+  if (!planRes) { return eh::makeError("{}", planRes.error()); }
+
+  auto const packRes = pack::packGroupsParallel(planRes.value());
+  if (!packRes) { return eh::makeError("{}", packRes.error()); }
+
+  return {};
+}
+
+auto buildDirectoryPackPlan(
+  fs::path const& dirPath,
+  fs::path const& zipFileDir,
+  std::uintmax_t maxGroupSize,
+  bool recursive,
+  bool forceNameConflictHandling,
+  std::optional<std::size_t> maxParallelJobs,
+  std::optional<fs::path> excludedPath
+) -> eh::Result<pack::PackPlan> {
   if (!fs::is_directory(dirPath)) {
     return eh::makeError("Input path is not a directory: {}", dirPath.string());
   }
@@ -410,11 +435,25 @@ auto packAllFilesInDirectory(
 
   if (recursive) {
     for (auto const& entry: fs::recursive_directory_iterator(dirPath)) {
-      if (entry.is_regular_file()) { allFiles.emplace_back(entry.path()); }
+      if (!entry.is_regular_file()) { continue; }
+      if (
+        excludedPath.has_value()
+        && entry.path().lexically_normal() == excludedPath->lexically_normal()
+      ) {
+        continue;
+      }
+      allFiles.emplace_back(entry.path());
     }
   } else {
     for (auto const& entry: fs::directory_iterator(dirPath)) {
-      if (entry.is_regular_file()) { allFiles.emplace_back(entry.path()); }
+      if (!entry.is_regular_file()) { continue; }
+      if (
+        excludedPath.has_value()
+        && entry.path().lexically_normal() == excludedPath->lexically_normal()
+      ) {
+        continue;
+      }
+      allFiles.emplace_back(entry.path());
     }
   }
 
@@ -429,7 +468,7 @@ auto packAllFilesInDirectory(
 
   auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
   auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedFiles);
-  auto const plan = pack::PackPlan{
+  return pack::PackPlan{
     .groups = groupedFiles,
     .outputDir = zipFileDir,
     .zipNameForIndex =
@@ -456,9 +495,4 @@ auto packAllFilesInDirectory(
       : ZipEntryNameResolver{},
     .maxParallelJobs = maxParallelJobs
   };
-
-  auto const packRes = pack::packGroupsParallel(plan);
-  if (!packRes) { return eh::makeError("{}", packRes.error()); }
-
-  return {};
 }

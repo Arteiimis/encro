@@ -12,6 +12,10 @@
 #include <unordered_map>
 #include <vector>
 
+namespace jobstate {
+class Store;
+}
+
 namespace appctx {
 
 namespace fs = std::filesystem;
@@ -30,6 +34,8 @@ struct AppConfig {
   bool recursive = false;
   bool packOutput = false;
   bool packOnly = false;
+  bool resumeState = false;
+  bool restartState = false;
   bool forceNameConflictHandling = true;
   bool verbose = false;
   bool verboseEcho = false;
@@ -40,6 +46,7 @@ struct AppConfig {
   fs::path inputPath;
   std::vector<fs::path> inputPaths;
   std::optional<fs::path> outputPath;
+  std::optional<fs::path> stateFilePath;
   std::optional<fs::path> ffmpegInstallDir;
 };
 
@@ -53,6 +60,7 @@ struct RuntimeContext {
 
   struct EncodingVideoState {
     fs::path inputPath;
+    std::optional<std::string> actionId;
     std::optional<fs::path> outputPath;
     std::optional<fs::path> plannedOutputFile;
     std::optional<fs::path> outputFile;
@@ -73,6 +81,8 @@ struct RuntimeContext {
     path_map<std::shared_ptr<EncodingVideoState>> map;
     std::mutex mtx;
   } encodingStates;
+
+  std::shared_ptr<::jobstate::Store> jobState;
 };
 
 using EncodingState = RuntimeContext::EncodingVideoState;

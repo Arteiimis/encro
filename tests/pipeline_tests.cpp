@@ -1,3 +1,4 @@
+#include "core/job_state.h"
 #include "core/pipeline.h"
 #include "test_utils.h"
 
@@ -65,6 +66,24 @@ TEST_CASE("pack-only pipeline packs directory", "[pipeline]") {
   CHECK(fs::exists(inputDir / "packed" / "input_part1_1-1_items1.zip"));
 }
 
+TEST_CASE("pack-only pipeline skips job state by default", "[pipeline]") {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  fs::create_directories(inputDir);
+  touchFile(inputDir / "a.bin");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.packOnly = true;
+  ctx.config.processType = "video";
+  ctx.config.inputPath = inputDir;
+
+  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config);
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+  CHECK_FALSE(fs::exists(stateFilePath));
+}
+
 TEST_CASE("picture pipeline packs directory", "[pipeline]") {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
@@ -80,6 +99,24 @@ TEST_CASE("picture pipeline packs directory", "[pipeline]") {
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
   CHECK(fs::exists(inputDir / "packed" / "pics_part1_1-1_items1.zip"));
+}
+
+TEST_CASE("picture pipeline skips job state by default", "[pipeline]") {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  touchFile(inputDir / "a.jpg");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.inputPath = inputDir;
+
+  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config);
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+  CHECK_FALSE(fs::exists(stateFilePath));
 }
 
 TEST_CASE("pack-only pipeline defaults to collision-safe file names", "[pipeline]") {
