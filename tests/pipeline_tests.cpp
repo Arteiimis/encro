@@ -63,7 +63,7 @@ TEST_CASE("pack-only pipeline packs directory", "[pipeline]") {
   auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
-  CHECK(fs::exists(inputDir / "packed" / "input_part1_1-1_items1.zip"));
+  CHECK(fs::exists(inputDir / "packed" / "input_part1[1~1#1p].zip"));
 }
 
 TEST_CASE("pack-only pipeline skips job state by default", "[pipeline]") {
@@ -98,7 +98,7 @@ TEST_CASE("picture pipeline packs directory", "[pipeline]") {
   auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
-  CHECK(fs::exists(inputDir / "packed" / "pics_part1_1-1_items1.zip"));
+  CHECK(fs::exists(inputDir / "packed" / "pics_part1[1~1#1p].zip"));
 }
 
 TEST_CASE("picture pipeline skips job state by default", "[pipeline]") {
@@ -138,7 +138,7 @@ TEST_CASE("pack-only pipeline defaults to collision-safe file names", "[pipeline
   REQUIRE(runRes);
   REQUIRE(runRes.value() == 0);
 
-  auto const zipPath = inputDir / "packed" / "input_part1_1-2_items2.zip";
+  auto const zipPath = inputDir / "packed" / "input_part1[1~2#2p].zip";
   REQUIRE(fs::exists(zipPath));
 
   libzippp::ZipArchive zip{zipPath.string()};
@@ -178,7 +178,7 @@ TEST_CASE("pack-only pipeline can disable collision-safe file names", "[pipeline
   REQUIRE(runRes);
   REQUIRE(runRes.value() == 0);
 
-  auto const zipPath = inputDir / "packed" / "input_part1_1-2_items2.zip";
+  auto const zipPath = inputDir / "packed" / "input_part1[1~2#2p].zip";
   REQUIRE(fs::exists(zipPath));
 
   libzippp::ZipArchive zip{zipPath.string()};
@@ -221,7 +221,7 @@ TEST_CASE(
   REQUIRE(runRes);
   REQUIRE(runRes.value() == 0);
 
-  auto const zipPath = inputDir / "packed" / "input_part1_1-4_items4.zip";
+  auto const zipPath = inputDir / "packed" / "input_part1[1~4#4p].zip";
   REQUIRE(fs::exists(zipPath));
 
   libzippp::ZipArchive zip{zipPath.string()};
@@ -271,7 +271,7 @@ TEST_CASE(
   REQUIRE(runRes);
   REQUIRE(runRes.value() == 0);
 
-  auto const zipPath = inputDir / "packed" / "pics_part1_1-4_items4.zip";
+  auto const zipPath = inputDir / "packed" / "pics_part1[1~4#4p].zip";
   REQUIRE(fs::exists(zipPath));
 
   libzippp::ZipArchive zip{zipPath.string()};
@@ -316,7 +316,7 @@ TEST_CASE(
   REQUIRE(runRes);
   REQUIRE(runRes.value() == 0);
 
-  auto const zipPath = inputDir / "packed" / "pics_part1_1-2_items2.zip";
+  auto const zipPath = inputDir / "packed" / "pics_part1[1~2#2p].zip";
   REQUIRE(fs::exists(zipPath));
 
   libzippp::ZipArchive zip{zipPath.string()};
@@ -361,7 +361,7 @@ TEST_CASE(
   REQUIRE(runRes);
   REQUIRE(runRes.value() == 0);
 
-  auto const zipPath = inputDir / "packed" / "pics_part1_1-4_items4.zip";
+  auto const zipPath = inputDir / "packed" / "pics_part1[1~4#4p].zip";
   REQUIRE(fs::exists(zipPath));
 
   libzippp::ZipArchive zip{zipPath.string()};
@@ -410,7 +410,7 @@ TEST_CASE(
   REQUIRE(runRes);
   REQUIRE(runRes.value() == 0);
 
-  auto const zipPath = inputDir / "packed" / "pics_part1_1-2_items2.zip";
+  auto const zipPath = inputDir / "packed" / "pics_part1[1~2#2p].zip";
   REQUIRE(fs::exists(zipPath));
 
   libzippp::ZipArchive zip{zipPath.string()};
@@ -450,7 +450,7 @@ TEST_CASE("picture pipeline keeps relative paths in keep mode", "[pipeline]") {
   REQUIRE(runRes);
   REQUIRE(runRes.value() == 0);
 
-  auto const zipPath = inputDir / "packed" / "pics_part1_1-2_items2.zip";
+  auto const zipPath = inputDir / "packed" / "pics_part1[1~2#2p].zip";
   REQUIRE(fs::exists(zipPath));
 
   libzippp::ZipArchive zip{zipPath.string()};

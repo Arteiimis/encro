@@ -310,15 +310,15 @@ TEST_CASE(
   auto const packRes = packAllFilesInDirectory(inputDir, outputDir, 300, true);
 
   REQUIRE(packRes);
-  REQUIRE(fs::exists(outputDir / "input_part1_1-2_items2.zip"));
-  REQUIRE(fs::exists(outputDir / "input_part2_3-3_items1.zip"));
+  REQUIRE(fs::exists(outputDir / "input_part1[1~2#2p].zip"));
+  REQUIRE(fs::exists(outputDir / "input_part2[3~3#1p].zip"));
 
-  libzippp::ZipArchive zip1{(outputDir / "input_part1_1-2_items2.zip").string()};
+  libzippp::ZipArchive zip1{(outputDir / "input_part1[1~2#2p].zip").string()};
   zip1.open(libzippp::ZipArchive::ReadOnly);
   CHECK(zip1.getEntries().size() == 2);
   zip1.close();
 
-  libzippp::ZipArchive zip2{(outputDir / "input_part2_3-3_items1.zip").string()};
+  libzippp::ZipArchive zip2{(outputDir / "input_part2[3~3#1p].zip").string()};
   zip2.open(libzippp::ZipArchive::ReadOnly);
   CHECK(zip2.getEntries().size() == 1);
   zip2.close();
@@ -340,7 +340,7 @@ TEST_CASE(
   auto const packRes = packAllFilesInDirectory(inputDir, outputDir, 300, false);
 
   REQUIRE(packRes);
-  libzippp::ZipArchive zip{(outputDir / "input_part1_1-1_items1.zip").string()};
+  libzippp::ZipArchive zip{(outputDir / "input_part1[1~1#1p].zip").string()};
   zip.open(libzippp::ZipArchive::ReadOnly);
   auto const entries = zip.getEntries();
   REQUIRE(entries.size() == 1);

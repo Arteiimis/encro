@@ -41,8 +41,7 @@ auto appendOrdinalRangeSuffix(
   }
 
   auto const filePath = fs::path{fileName};
-  auto const suffix =
-    std::format("_{}-{}_items{}", range.first, range.last, range.count);
+  auto const suffix = std::format("[{}~{}#{}p]", range.first, range.last, range.count);
   return std::format(
     "{}{}{}",
     filePath.stem().string(),
