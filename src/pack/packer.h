@@ -2,6 +2,7 @@
 
 #include "core/error_handle.h"
 #include "core/progress.h"
+#include "pack/pack_service.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -48,3 +49,13 @@ auto packAllFilesInDirectory(
   bool forceNameConflictHandling = false,
   std::optional<std::size_t> maxParallelJobs = std::nullopt
 ) -> eh::Result<void>;
+
+auto buildDirectoryPackPlan(
+  std::filesystem::path const& dirPath,
+  std::filesystem::path const& zipFileDir,
+  std::uintmax_t maxGroupSize = 500 * 1024 * 1024,
+  bool recursive = true,
+  bool forceNameConflictHandling = false,
+  std::optional<std::size_t> maxParallelJobs = std::nullopt,
+  std::optional<std::filesystem::path> excludedPath = std::nullopt
+) -> eh::Result<pack::PackPlan>;

@@ -1,8 +1,10 @@
 #include "video/video_process.h"
 
 #include "core/collision_naming.h"
+#include "core/job_state.h"
 #include "core/parallel.h"
 #include "core/progress.h"
+#include "core/stop_signal.h"
 #include "encode/encode_config.h"
 #include "pack/pack_service.h"
 #include "pack/packer.h"
@@ -37,6 +39,11 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
 
 namespace {
 
+auto lookupPlannedOutputFile(
+  appctx::path_map<fs::path> const& plannedOutputFiles,
+  fs::path const& inputPath
+) -> std::optional<fs::path>;
+
 constexpr auto kWebpTargetMaxSize = std::uintmax_t{20ULL * 1024ULL * 1024ULL};
 constexpr auto kWebpMinQuality = 20;
 constexpr auto kWebpQualityStep = 10;
@@ -60,6 +67,7 @@ struct BatchContext {
   EncodingBatchState& batch;
   std::span<fs::path const> vids;
   appctx::path_map<fs::path> const& plannedOutputFiles;
+  std::unordered_map<fs::path, std::string> const& actionIds;
 
   auto& counters() { return batch.counters; }
   auto const& counters() const { return batch.counters; }
@@ -72,7 +80,9 @@ struct BatchContext {
     return counters().nextTask.fetch_add(1, std::memory_order_acq_rel);
   }
 
-  auto total() const { return counters().total; }
+  auto pendingTotal() const { return counters().pendingTotal; }
+
+  auto overallTotal() const { return counters().overallTotal; }
 
   auto finished() const {
     return counters().finished.load(std::memory_order_acquire);
@@ -152,7 +162,7 @@ struct BatchContext {
     }
 
     auto const completed = finished();
-    auto const totalCount = static_cast<float>(total());
+    auto const totalCount = static_cast<float>(overallTotal());
     auto overallPercent = 0.0f;
     if (totalCount > 0.0f) {
       overallPercent =
@@ -162,7 +172,7 @@ struct BatchContext {
     progress().setProgress(counters().overallBarIndex.value(), overallPercent);
     progress().setPostfixText(
       counters().overallBarIndex.value(),
-      std::format("Overall: {}/{}", completed, total())
+      std::format("Overall: {}/{}", completed, overallTotal())
     );
   }
 
@@ -252,6 +262,138 @@ auto getStateLabel(appctx::EncodingState const& state) -> std::string {
 
 auto normalizeSourceRootDir(fs::path const& inputPath) -> fs::path {
   return fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
+}
+
+auto maybeJobState(appctx::AppContext& ctx) -> jobstate::Store* {
+  return ctx.runtime.jobState.get();
+}
+
+void noteStopRequest(appctx::AppContext& ctx) {
+  if (!stopsignal::isStopRequested()) { return; }
+  if (auto* store = maybeJobState(ctx); store != nullptr) { store->requestCancel(); }
+}
+
+struct PreparedEncodeActions {
+  std::vector<fs::path> pendingVids;
+  std::unordered_map<fs::path, std::string> actionIds;
+  std::unordered_map<fs::path, bool> initialResults;
+  std::vector<std::string> pendingActionIds;
+  std::size_t totalActions = 0;
+};
+
+auto buildEncodeActions(
+  std::vector<fs::path> const& vids,
+  appctx::path_map<fs::path> const& plannedOutputFiles
+) -> std::vector<jobstate::ActionRecord> {
+  auto actions = std::vector<jobstate::ActionRecord>{};
+  actions.reserve(vids.size());
+
+  for (auto const& vidPath: vids) {
+    auto const plannedOutputFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
+    if (!plannedOutputFile.has_value()) { continue; }
+    actions.push_back(jobstate::makeEncodeAction(vidPath, plannedOutputFile.value()));
+  }
+
+  return actions;
+}
+
+auto prepareEncodeActions(
+  appctx::AppContext& ctx,
+  std::vector<fs::path> const& vids,
+  appctx::path_map<fs::path> const& plannedOutputFiles
+) -> PreparedEncodeActions {
+  auto prepared = PreparedEncodeActions{};
+  prepared.totalActions = vids.size();
+
+  auto* store = maybeJobState(ctx);
+  if (store == nullptr) {
+    prepared.pendingVids = vids;
+    return prepared;
+  }
+
+  auto const mergedActions = store->mergeActions(buildEncodeActions(vids, plannedOutputFiles));
+  prepared.pendingVids.reserve(mergedActions.size());
+  prepared.pendingActionIds.reserve(mergedActions.size());
+  prepared.initialResults.reserve(mergedActions.size());
+  prepared.actionIds.reserve(mergedActions.size());
+
+  for (auto const& action: mergedActions) {
+    if (!action.inputPath.has_value()) { continue; }
+    prepared.actionIds[action.inputPath.value()] = action.id;
+    if (jobstate::needsExecution(action)) {
+      prepared.pendingVids.push_back(action.inputPath.value());
+      prepared.pendingActionIds.push_back(action.id);
+      continue;
+    }
+
+    prepared.initialResults[action.inputPath.value()] = true;
+  }
+
+  if (!prepared.initialResults.empty()) {
+    std::println(
+      "Recovered {} completed task(s) from saved state/output files, {} remaining.",
+      prepared.initialResults.size(),
+      prepared.pendingVids.size()
+    );
+  }
+
+  return prepared;
+}
+
+auto buildArchiveActions(
+  pack::PackPlan const& plan,
+  std::span<std::size_t const> indexes
+) -> std::vector<jobstate::ActionRecord> {
+  auto actions = std::vector<jobstate::ActionRecord>{};
+  actions.reserve(indexes.size());
+
+  for (auto const index: indexes) {
+    auto const zipName = plan.zipNameForIndex ? plan.zipNameForIndex(index)
+                                              : std::format("part{}.zip", index + 1);
+    auto const label = plan.progressLabelForIndex
+      ? plan.progressLabelForIndex(index)
+      : std::format("Packing: {}", zipName);
+    actions.push_back(
+      jobstate::makeArchiveAction(plan.outputDir / zipName, plan.groups[index], label)
+    );
+  }
+
+  return actions;
+}
+
+auto selectPackPlanIndexes(
+  pack::PackPlan const& plan,
+  std::vector<std::size_t> const& indexes
+) -> pack::PackPlan {
+  auto filteredGroups = std::vector<std::vector<fs::path>>{};
+  filteredGroups.reserve(indexes.size());
+  for (auto const index: indexes) {
+    filteredGroups.push_back(plan.groups[index]);
+  }
+
+  return pack::PackPlan{
+    .groups = std::move(filteredGroups),
+    .outputDir = plan.outputDir,
+    .zipNameForIndex =
+      [base = plan.zipNameForIndex, indexes](std::size_t subsetIndex) {
+        auto const actualIndex = indexes.at(subsetIndex);
+        return base ? base(actualIndex) : std::format("part{}.zip", actualIndex + 1);
+      },
+    .progressLabelForIndex =
+      [base = plan.progressLabelForIndex, zipName = plan.zipNameForIndex, indexes](std::size_t subsetIndex) {
+        auto const actualIndex = indexes.at(subsetIndex);
+        if (base) { return base(actualIndex); }
+        auto const resolvedZipName = zipName ? zipName(actualIndex)
+                                             : std::format("part{}.zip", actualIndex + 1);
+        return std::format("Packing: {}", resolvedZipName);
+      },
+    .zipEntryNameForFile = plan.zipEntryNameForFile,
+    .onGroupStart = {},
+    .onGroupSuccess = {},
+    .onGroupFailure = {},
+    .maxParallelJobs = plan.maxParallelJobs,
+    .removeOnFailure = plan.removeOnFailure,
+  };
 }
 
 auto shouldForceConflictNaming(appctx::AppConfig const& config) -> bool {
@@ -366,6 +508,9 @@ auto createEncodingState(
   auto vidState = std::make_shared<appctx::EncodingState>();
   vidState->inputPath = vidPath;
   vidState->barIndex = barIndex;
+  if (auto const it = batchCtx.actionIds.find(vidPath); it != batchCtx.actionIds.end()) {
+    vidState->actionId = it->second;
+  }
   vidState->startTime = std::chrono::steady_clock::now();
   vidState->progressFilePath =
     fs::temp_directory_path() / std::format("progress_{}.txt", getUUID());
@@ -382,8 +527,16 @@ auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
   return std::jthread([&] {
     using namespace std::chrono_literals;
 
-    while (batchCtx.finished() < batchCtx.total()) {
+    while (true) {
+      noteStopRequest(batchCtx.app);
       auto const activeStates = batchCtx.activeStates();
+
+      if (batchCtx.finished() >= batchCtx.overallTotal()) { break; }
+
+      if (stopsignal::isStopRequested() && activeStates.empty()) {
+        spdlog::info("Encoding monitor exiting after stop request; no active tasks remain.");
+        break;
+      }
 
       for (auto const& activeState: activeStates) {
         if (!activeState) { continue; }
@@ -393,11 +546,13 @@ auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
           auto barIndex = std::optional<std::size_t>{};
           auto lastError = std::optional<std::string>{};
           auto lastStatus = std::optional<std::string>{};
+          auto actionId = std::optional<std::string>{};
           {
             auto lock = std::scoped_lock{activeState->mtx};
             barIndex = activeState->barIndex;
             lastError = activeState->lastError;
             lastStatus = activeState->lastStatus;
+            actionId = activeState->actionId;
           }
 
           if (barIndex.has_value()) {
@@ -415,18 +570,38 @@ auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
             }
           }
 
+          if (
+            auto* store = maybeJobState(batchCtx.app);
+            store != nullptr && actionId.has_value() && lastStatus.has_value()
+          ) {
+            store->markProgress(
+              actionId.value(),
+              std::nullopt,
+              std::nullopt,
+              lastStatus.value()
+            );
+          }
+
           continue;
         }
 
         auto barIndex = std::optional<std::size_t>{};
+        auto actionId = std::optional<std::string>{};
+        auto lastFrameCount = std::optional<std::uint64_t>{};
         {
           auto lock = std::scoped_lock{activeState->mtx};
           activeState->lastProgress = progress.value();
           barIndex = activeState->barIndex;
+          actionId = activeState->actionId;
+          lastFrameCount = activeState->lastFrameCount;
         }
 
         if (barIndex.has_value()) {
           batchCtx.progress().setProgress(barIndex.value(), progress.value());
+        }
+
+        if (auto* store = maybeJobState(batchCtx.app); store != nullptr && actionId.has_value()) {
+          store->markProgress(actionId.value(), progress.value(), lastFrameCount, std::nullopt);
         }
       }
 
@@ -441,15 +616,20 @@ auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
 
 void runEncodingSlot(BatchContext& batchCtx, std::size_t slot) {
   while (true) {
+    if (stopsignal::isStopRequested()) {
+      noteStopRequest(batchCtx.app);
+      break;
+    }
+
     auto const taskIndex = batchCtx.nextTaskIndex();
-    if (taskIndex >= batchCtx.total()) { break; }
+    if (taskIndex >= batchCtx.pendingTotal()) { break; }
 
     auto const& vidPath = batchCtx.vids[taskIndex];
     spdlog::debug(
       "[slot:{} task:{}/{}] start encoding: {}",
       slot + 1,
       taskIndex + 1,
-      batchCtx.total(),
+      batchCtx.pendingTotal(),
       vidPath.string()
     );
     auto const barIndex = batchCtx.barIndex(slot);
@@ -457,12 +637,29 @@ void runEncodingSlot(BatchContext& batchCtx, std::size_t slot) {
     batchCtx.setActive(slot, vidState);
 
     auto const fileLabel = makeSlotLabel(vidPath);
+    {
+      auto lock = std::scoped_lock{vidState->mtx};
+      if (
+        auto* store = maybeJobState(batchCtx.app);
+        store != nullptr && vidState->actionId.has_value()
+      ) {
+        store->markRunning(vidState->actionId.value());
+      }
+    }
     batchCtx.barEncodingStart(*vidState, fileLabel);
     auto const result =
       encodeToHevc(batchCtx.app, *vidState, [&](std::string const& status) {
         batchCtx.barEncodingStatus(*vidState, fileLabel, status);
+        auto actionId = std::optional<std::string>{};
         auto lock = std::scoped_lock{vidState->mtx};
         vidState->lastStatus = status;
+        actionId = vidState->actionId;
+        if (
+          auto* store = maybeJobState(batchCtx.app);
+          store != nullptr && actionId.has_value()
+        ) {
+          store->markProgress(actionId.value(), std::nullopt, std::nullopt, status);
+        }
       });
 
     batchCtx.recordResult(*vidState, result);
@@ -485,7 +682,7 @@ void runEncodingSlot(BatchContext& batchCtx, std::size_t slot) {
         "[slot:{} task:{}/{}] encoded success: {} -> {} ({} ms)",
         slot + 1,
         taskIndex + 1,
-        batchCtx.total(),
+        batchCtx.pendingTotal(),
         vidPath.string(),
         outputFile.has_value() ? outputFile->string() : "<unknown>",
         elapsedMs
@@ -495,7 +692,7 @@ void runEncodingSlot(BatchContext& batchCtx, std::size_t slot) {
         "[slot:{} task:{}/{}] encoded failed: {} ({} ms)",
         slot + 1,
         taskIndex + 1,
-        batchCtx.total(),
+        batchCtx.pendingTotal(),
         vidPath.string(),
         elapsedMs
       );
@@ -723,7 +920,8 @@ auto maybePackOutputs(
 auto runEncodingWithoutProgress(
   appctx::AppContext& ctx,
   std::vector<fs::path> const& vids,
-  appctx::path_map<fs::path> const& plannedOutputFiles
+  appctx::path_map<fs::path> const& plannedOutputFiles,
+  std::unordered_map<fs::path, std::string> const& actionIds
 ) -> std::unordered_map<fs::path, bool> {
   auto vidsRunRes = std::unordered_map<fs::path, bool>{};
   vidsRunRes.reserve(vids.size());
@@ -734,17 +932,38 @@ auto runEncodingWithoutProgress(
   );
 
   for (auto const& vidPath: vids) {
+    if (stopsignal::isStopRequested()) {
+      noteStopRequest(ctx);
+      break;
+    }
+
     auto state = appctx::EncodingState{};
     state.inputPath = vidPath;
+    if (auto const it = actionIds.find(vidPath); it != actionIds.end()) {
+      state.actionId = it->second;
+    }
     state.plannedOutputFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
     if (state.plannedOutputFile.has_value()) {
       state.outputPath = state.plannedOutputFile->parent_path();
     }
 
     spdlog::debug("Start encoding (no-progress): {}", vidPath.string());
+    if (auto* store = maybeJobState(ctx); store != nullptr && state.actionId.has_value()) {
+      store->markRunning(state.actionId.value());
+    }
 
     auto const success = encodeToHevc(ctx, state, {});
     vidsRunRes[vidPath] = success;
+    if (auto* store = maybeJobState(ctx); store != nullptr && state.actionId.has_value()) {
+      if (success) {
+        store->markSucceeded(state.actionId.value());
+      } else {
+        store->markFailed(
+          state.actionId.value(),
+          state.lastError.value_or("encoding failed")
+        );
+      }
+    }
     if (success) {
       spdlog::info("Encoded success (no-progress): {}", vidPath.string());
     } else {
@@ -758,13 +977,20 @@ auto runEncodingWithoutProgress(
 auto runEncodingBatches(
   appctx::AppContext& ctx,
   std::vector<fs::path> const& vids,
-  appctx::path_map<fs::path> const& plannedOutputFiles
+  appctx::path_map<fs::path> const& plannedOutputFiles,
+  std::unordered_map<fs::path, std::string> const& actionIds,
+  std::size_t overallTotalCount,
+  std::size_t initialCompletedCount
 ) -> std::optional<std::unordered_map<fs::path, bool>> {
   constexpr auto kMaxConcurrentJobs = std::size_t{10};
 
+  if (vids.empty()) { return std::unordered_map<fs::path, bool>{}; }
+
   spdlog::info(
-    "Preparing encoding batch: total={} output-format={} pack-output={}",
+    "Preparing encoding batch: pending={} overall={} completed-before-start={} output-format={} pack-output={}",
     vids.size(),
+    overallTotalCount,
+    initialCompletedCount,
     ctx.config.outputFormat,
     ctx.config.packOutput
   );
@@ -785,7 +1011,7 @@ auto runEncodingBatches(
   if (ctx.config.verbose && ctx.config.verboseEcho) {
     std::println("Verbose echo enabled: progress bars are disabled.");
     spdlog::debug("Progress bars disabled due to verbose echo mode.");
-    return runEncodingWithoutProgress(ctx, vids, plannedOutputFiles);
+    return runEncodingWithoutProgress(ctx, vids, plannedOutputFiles, actionIds);
   }
 
   auto _ = progress::CursorGuard{};
@@ -795,7 +1021,12 @@ auto runEncodingBatches(
     ctx.config.maxParallelJobs.value_or(kMaxConcurrentJobs)
   );
   auto const workerCount = std::min(vids.size(), maxConcurrentJobs);
-  auto state = EncodingBatchState{vids.size(), workerCount};
+  auto state = EncodingBatchState{
+    vids.size(),
+    overallTotalCount,
+    initialCompletedCount,
+    workerCount
+  };
 
   std::println(
     "Scheduling {} video(s) with max {} concurrent encode job(s)...",
@@ -803,12 +1034,14 @@ auto runEncodingBatches(
     workerCount
   );
   spdlog::info(
-    "Scheduling encoding workers: workers={} tasks={}",
+    "Scheduling encoding workers: workers={} pending={} overall={} completed-before-start={}",
     workerCount,
-    vids.size()
+    vids.size(),
+    overallTotalCount,
+    initialCompletedCount
   );
 
-  auto batchCtx = BatchContext{ctx, state, vids, plannedOutputFiles};
+  auto batchCtx = BatchContext{ctx, state, vids, plannedOutputFiles, actionIds};
   batchCtx.updateOverall();
   auto monitorThread = startEncodingMonitor(batchCtx);
 
@@ -897,8 +1130,7 @@ auto packEncodedVideos(
   );
 
   auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedFiles);
-
-  auto const plan = pack::PackPlan{
+  auto plan = pack::PackPlan{
     .groups = groupedFiles,
     .outputDir = zipOutputDir,
     .zipNameForIndex =
@@ -920,6 +1152,66 @@ auto packEncodedVideos(
       },
     .maxParallelJobs = ctx.config.maxParallelJobs
   };
+
+  if (auto* store = maybeJobState(ctx); store != nullptr) {
+    auto allIndexes = std::vector<std::size_t>{};
+    allIndexes.reserve(plan.groups.size());
+    for (auto index = std::size_t{0}; index < plan.groups.size(); ++index) {
+      allIndexes.push_back(index);
+    }
+
+    auto const mergedActions = store->mergeActions(buildArchiveActions(plan, allIndexes));
+    auto pendingIndexes = std::vector<std::size_t>{};
+    auto pendingActionIds = std::vector<std::string>{};
+    pendingIndexes.reserve(mergedActions.size());
+    pendingActionIds.reserve(mergedActions.size());
+    for (auto index = std::size_t{0}; index < mergedActions.size(); ++index) {
+      if (!jobstate::needsExecution(mergedActions[index])) { continue; }
+      pendingIndexes.push_back(index);
+      pendingActionIds.push_back(mergedActions[index].id);
+    }
+
+    if (pendingIndexes.empty()) {
+      store->setStage("completed");
+      return 0;
+    }
+
+    store->setStage("packing");
+
+    auto filteredPlan = selectPackPlanIndexes(plan, pendingIndexes);
+    filteredPlan.onGroupStart =
+      [store, mergedActions, pendingIndexes](std::size_t subsetIndex) {
+        store->markRunning(mergedActions[pendingIndexes.at(subsetIndex)].id);
+      };
+    filteredPlan.onGroupSuccess =
+      [store, mergedActions, pendingIndexes](std::size_t subsetIndex, fs::path const&) {
+        store->markSucceeded(mergedActions[pendingIndexes.at(subsetIndex)].id);
+      };
+    filteredPlan.onGroupFailure =
+      [store, mergedActions, pendingIndexes](std::size_t subsetIndex, std::string const& error) {
+        store->markFailed(mergedActions[pendingIndexes.at(subsetIndex)].id, error);
+      };
+
+    auto const packRes = pack::packGroupsParallel(filteredPlan);
+    if (!packRes) {
+      if (stopsignal::isStopRequested()) {
+        store->requestCancel();
+        store->markIncompleteInterrupted(pendingActionIds);
+        return stopsignal::kCanceledExitCode;
+      }
+
+      spdlog::error("Failed to pack encoded videos: {}", packRes.error());
+      return 1;
+    }
+
+    for (auto const& zipPath: packRes.value()) {
+      if (!zipPath.empty()) { std::println("Packed archive: {}", zipPath.string()); }
+    }
+
+    store->setStage("completed");
+    spdlog::info("Packing completed: archive-count={}", packRes.value().size());
+    return 0;
+  }
 
   auto const packRes = pack::packGroupsParallel(plan);
   if (!packRes) {
@@ -1268,13 +1560,42 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
     return 1;
   }
 
-  auto const runRes = runEncodingBatches(ctx, vids, plannedOutputFilesRes.value());
+  if (auto* store = maybeJobState(ctx); store != nullptr) {
+    store->setStage("encoding");
+  }
+
+  auto const prepared =
+    prepareEncodeActions(ctx, vids, plannedOutputFilesRes.value());
+  auto const runRes = runEncodingBatches(
+    ctx,
+    prepared.pendingVids,
+    plannedOutputFilesRes.value(),
+    prepared.actionIds,
+    prepared.totalActions,
+    prepared.initialResults.size()
+  );
   if (!runRes.has_value()) { return 0; }
 
-  auto const& vidsRunRes = runRes.value();
+  auto vidsRunRes = prepared.initialResults;
+  for (auto const& [vidPath, success]: runRes.value()) {
+    vidsRunRes[vidPath] = success;
+  }
+
+  if (stopsignal::isStopRequested()) {
+    if (auto* store = maybeJobState(ctx); store != nullptr) {
+      store->requestCancel();
+      store->markIncompleteInterrupted(prepared.pendingActionIds);
+    }
+    return stopsignal::kCanceledExitCode;
+  }
+
   auto const packRes =
     maybePackOutputs(ctx, inputPath, plannedOutputFilesRes.value(), vidsRunRes);
   if (packRes != 0) { return packRes; }
+
+  if (auto* store = maybeJobState(ctx); store != nullptr) {
+    store->setStage("completed");
+  }
 
   printEncodingSummary(vids, vidsRunRes);
   spdlog::info("Path encoding done: {}", inputPath.string());
@@ -1325,10 +1646,35 @@ int handleMultiFileEncoding(
     return 1;
   }
 
-  auto const runRes = runEncodingBatches(ctx, vids, plannedOutputFilesRes.value());
+  if (auto* store = maybeJobState(ctx); store != nullptr) {
+    store->setStage("encoding");
+  }
+
+  auto const prepared =
+    prepareEncodeActions(ctx, vids, plannedOutputFilesRes.value());
+  auto const runRes = runEncodingBatches(
+    ctx,
+    prepared.pendingVids,
+    plannedOutputFilesRes.value(),
+    prepared.actionIds,
+    prepared.totalActions,
+    prepared.initialResults.size()
+  );
   if (!runRes.has_value()) { return 0; }
 
-  auto const& vidsRunRes = runRes.value();
+  auto vidsRunRes = prepared.initialResults;
+  for (auto const& [vidPath, success]: runRes.value()) {
+    vidsRunRes[vidPath] = success;
+  }
+
+  if (stopsignal::isStopRequested()) {
+    if (auto* store = maybeJobState(ctx); store != nullptr) {
+      store->requestCancel();
+      store->markIncompleteInterrupted(prepared.pendingActionIds);
+    }
+    return stopsignal::kCanceledExitCode;
+  }
+
   if (ctx.config.packOutput) {
     if (!basePath.has_value()) {
       spdlog::error(
@@ -1345,6 +1691,10 @@ int handleMultiFileEncoding(
       vidsRunRes
     );
     if (packRes != 0) { return packRes; }
+  }
+
+  if (auto* store = maybeJobState(ctx); store != nullptr) {
+    store->setStage("completed");
   }
 
   printEncodingSummary(vids, vidsRunRes);

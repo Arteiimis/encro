@@ -38,6 +38,8 @@ TEST_CASE("commandLineInit parses flag and option values", "[cmd]") {
      "--recursive",
      "--pack",
      "--pack-only",
+     "--resume",
+     "--restart",
      "--flat",
      "--keep",
      "--force-conflict-handling=n",
@@ -49,12 +51,22 @@ TEST_CASE("commandLineInit parses flag and option values", "[cmd]") {
   CHECK(result.vm.count("recursive") == 1);
   CHECK(result.vm.count("pack") == 1);
   CHECK(result.vm.count("pack-only") == 1);
+  CHECK(result.vm.count("resume") == 1);
+  CHECK(result.vm.count("restart") == 1);
   CHECK(result.vm.count("flat") == 1);
   CHECK(result.vm.count("keep") == 1);
   CHECK(result.vm.count("force-conflict-handling") == 1);
   CHECK(result.vm["force-conflict-handling"].as<std::string>() == "n");
   CHECK(result.vm.count("verbose") == 1);
   CHECK(result.vm.count("verbose-echo") == 1);
+}
+
+TEST_CASE("commandLineInit parses state-file option", "[cmd]") {
+  auto const result =
+    parseArgs({"encro", "--state-file", "job-state.json", "-i", "input.mp4"});
+
+  REQUIRE(result.vm.count("state-file") == 1);
+  CHECK(result.vm["state-file"].as<std::string>() == "job-state.json");
 }
 
 TEST_CASE("commandLineInit parses multi-input values", "[cmd]") {

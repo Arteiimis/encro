@@ -1,5 +1,6 @@
 #include "core/app_context.h"
 #include "test_utils.h"
+#include "video/encoding_batch_state.h"
 #include "video/video_process.h"
 
 #include <catch2/catch_all.hpp>
@@ -85,6 +86,17 @@ TEST_CASE(
 
   auto const lastLines = readLastNLines(missingPath, 2);
   CHECK(lastLines.empty());
+}
+
+TEST_CASE(
+  "encoding batch state seeds finished count from resumed completions",
+  "[video-process][batch-state]"
+) {
+  auto state = EncodingBatchState{3, 10, 7, 2};
+
+  CHECK(state.counters.pendingTotal == 3);
+  CHECK(state.counters.overallTotal == 10);
+  CHECK(state.counters.finished.load() == 7);
 }
 
 TEST_CASE(

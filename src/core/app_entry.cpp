@@ -4,6 +4,7 @@
 #include "core/app_context.h"
 #include "core/pipeline.h"
 #include "core/prelude.h"
+#include "core/stop_signal.h"
 #include "core/toolchain.h"
 
 #include <spdlog/spdlog.h>
@@ -153,6 +154,9 @@ auto helpIntroLine() -> std::string {
 }
 
 auto run(int argc, char* argv[]) -> int {
+  stopsignal::installHandler();
+  stopsignal::reset();
+
   auto const startup = prelude::initStartup(argc, argv);
 
   if (auto const earlyExit = handleParseAndHelp(startup); earlyExit.has_value()) {

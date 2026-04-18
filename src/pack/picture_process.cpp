@@ -43,7 +43,7 @@ auto buildConflictHandledPictureEntryName(
 auto planPictureZipEntryNames(
   appctx::AppConfig const& config,
   fs::path const& dirPath,
-  std::vector<fs::path> const& filePaths
+  std::span<fs::path const> filePaths
 ) -> PictureEntryPlan {
   auto plannedEntries = PictureEntryPlan{};
   plannedEntries.reserve(filePaths.size());
@@ -110,12 +110,63 @@ auto packAllPicsToZipParallel(
   fs::path const& dirPath,
   fs::path const& zipFileDir
 ) -> eh::Result<void> {
+  std::println("Scanning input path for pictures: {} ...", dirPath.string());
+  auto const scannedPics = readAllPics(config, dirPath);
+  auto const planRes = buildPicturePackPlan(config, dirPath, zipFileDir, scannedPics);
+  if (!planRes) { return eh::makeError("{}", planRes.error()); }
+
+  std::println(
+    "Picture scan completed, {} picture(s) found, grouped into {} package "
+    "batch(es).",
+    scannedPics.size(),
+    planRes->groups.size()
+  );
+  auto const proceed = readUserIpt(
+    config.yesToAll,
+    "do you want to proceed with packing the pictures? (y/N): "
+  );
+  if (!proceed) {
+    std::println("Packing task canceled by user.");
+    return eh::makeError("Packing task canceled by user.");
+  }
+
+  auto const packRes = pack::packGroupsParallel(planRes.value());
+  if (!packRes) {
+    auto const errMsg = std::format(
+      "Failed to pack pictures in {}: {}",
+      zipFileDir.string(),
+      packRes.error()
+    );
+    spdlog::error(errMsg);
+    return eh::makeError("{}", errMsg);
+  }
+
+  return {};
+}
+
+auto buildPicturePackPlan(
+  appctx::AppConfig const& config,
+  fs::path const& dirPath,
+  fs::path const& zipFileDir
+) -> eh::Result<pack::PackPlan> {
+  auto const scannedPics = readAllPics(config, dirPath);
+  return buildPicturePackPlan(config, dirPath, zipFileDir, scannedPics);
+}
+
+auto buildPicturePackPlan(
+  appctx::AppConfig const& config,
+  fs::path const& dirPath,
+  fs::path const& zipFileDir,
+  std::span<fs::path const> scannedPics
+) -> eh::Result<pack::PackPlan> {
   constexpr auto kMaxPicturePackSize = std::uintmax_t{500ULL * 1024ULL * 1024ULL};
   constexpr auto kMaxPicturesPerPack = std::size_t{2000};
   constexpr auto kFolderCarryOverThreshold = std::size_t{2000};
 
-  std::println("Scanning input path for pictures: {} ...", dirPath.string());
-  auto const scannedPics = readAllPics(config, dirPath);
+  if (scannedPics.empty()) {
+    return eh::makeError("No pictures found to pack in directory: {}", dirPath.string());
+  }
+
   auto const plannedEntryNames =
     planPictureZipEntryNames(config, dirPath, scannedPics);
   auto packInputs = std::vector<PackGroupInput>{};
@@ -130,22 +181,8 @@ auto packAllPicsToZipParallel(
     kFolderCarryOverThreshold
   );
   auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedPics);
-  std::println(
-    "Picture scan completed, {} picture(s) found, grouped into {} package "
-    "batch(es).",
-    scannedPics.size(),
-    groupedPics.size()
-  );
-  auto const proceed = readUserIpt(
-    config.yesToAll,
-    "do you want to proceed with packing the pictures? (y/N): "
-  );
-  if (!proceed) {
-    std::println("Packing task canceled by user.");
-    return eh::makeError("Packing task canceled by user.");
-  }
 
-  auto const plan = pack::PackPlan{
+  return pack::PackPlan{
     .groups = groupedPics,
     .outputDir = zipFileDir,
     .zipNameForIndex =
@@ -166,7 +203,7 @@ auto packAllPicsToZipParallel(
         );
       },
     .zipEntryNameForFile =
-      [plannedEntryNames](fs::path const& filePath) {
+      [plannedEntryNames](fs::path const& filePath) -> std::string {
         if (
           auto const it = plannedEntryNames.find(filePath);
           it != plannedEntryNames.end()
@@ -178,17 +215,4 @@ auto packAllPicsToZipParallel(
     .maxParallelJobs = config.maxParallelJobs,
     .removeOnFailure = true
   };
-
-  auto const packRes = pack::packGroupsParallel(plan);
-  if (!packRes) {
-    auto const errMsg = std::format(
-      "Failed to pack pictures in {}: {}",
-      zipFileDir.string(),
-      packRes.error()
-    );
-    spdlog::error(errMsg);
-    return eh::makeError("{}", errMsg);
-  }
-
-  return {};
 }
