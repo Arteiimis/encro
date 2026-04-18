@@ -791,6 +791,16 @@ auto encodeWebpWithTargetSize(
 ) -> bool {
   auto const outputFile = encodeCtx.outputFilePath;
 
+  auto const abortForStopRequest = [&] {
+    clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
+    spdlog::info(
+      "WebP adaptive encoding canceled: input={} output={}",
+      encodeCtx.inputVidPath.string(),
+      outputFile.string()
+    );
+    return false;
+  };
+
   spdlog::debug(
     "WebP adaptive encoding start: input={} output={} target={} bytes",
     encodeCtx.inputVidPath.string(),
@@ -807,11 +817,16 @@ auto encodeWebpWithTargetSize(
   auto lastExitCode = -1;
   auto quality = 80u;
   while (quality >= kWebpMinQuality) {
+    if (stopsignal::isStopRequested()) { return abortForStopRequest(); }
+
     if (encodeCtx.statusUpdater) {
       encodeCtx.statusUpdater(std::format("q={}", quality));
     }
     auto const stepRes = runWebpEncodingStep(appCtx, encodeCtx, quality, outputFile);
     lastExitCode = stepRes.exitCode;
+    if (stopsignal::isStopRequested() || stepRes.exitCode == stopsignal::kCanceledExitCode) {
+      return abortForStopRequest();
+    }
     if (!stepRes.outputSize.has_value()) { continue; }
 
     auto const outputSize = stepRes.outputSize.value();
