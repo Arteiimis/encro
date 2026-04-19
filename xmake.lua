@@ -45,6 +45,13 @@ target("encro")
   add_files("src/**.cpp")
 target_end()
 
+target("encro_e2e_tool")
+  set_kind("binary")
+  set_default(false)
+
+  add_files("tests/e2e/fake_media_tool.cpp")
+target_end()
+
 target("tests")
   set_kind("binary")
   set_default(false)
@@ -58,6 +65,22 @@ target("tests")
   add_includedirs("src")
   add_files("tests/*.cpp")
   add_files("src/**.cpp|main.cpp")
+target_end()
+
+target("e2e_tests")
+  set_kind("binary")
+  set_default(false)
+
+  add_packages("catch2", "boost", "libzippp")
+  add_includedirs("tests")
+  if is_plat("windows") then
+    add_syslinks("dbghelp")
+  else
+    add_syslinks("dl")
+  end
+
+  add_deps("encro", "encro_e2e_tool")
+  add_files("tests/e2e/*.cpp|fake_media_tool.cpp")
 target_end()
 
 includes("@builtin/xpack")
