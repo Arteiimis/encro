@@ -67,10 +67,14 @@ auto printHelp(std::ostream& out, CmdParseResult const& cmd) -> void {
   cmd.desc.print(out);
 }
 
+auto printHelpHint(std::ostream& out) -> void {
+  std::print(out, "Run encro -h/--help to view usage.\n");
+}
+
 auto failWithHint(
   prelude::StartupContext const& startup,
   std::string const& message,
-  bool showHelp = false
+  bool showHelpHint = false
 ) -> int {
   if (startup.verboseLogFilePath.has_value()) {
     spdlog::error("{}", message);
@@ -78,7 +82,7 @@ auto failWithHint(
     std::cout << "Error: " << message << "\n";
   }
   prelude::printVerboseLogDirHint(startup.verboseLogFilePath);
-  if (showHelp) { printHelp(std::cout, startup.cmd); }
+  if (showHelpHint) { printHelpHint(std::cout); }
   return 1;
 }
 
