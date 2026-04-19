@@ -8,7 +8,6 @@
 #include <array>
 #include <cmath>
 #include <exception>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -114,29 +113,76 @@ auto isHevcEncodedInfo(boost::json::value const& vidInfo) -> bool {
   return false;
 }
 
-auto tryCollectVideo(appctx::AppConfig const& config, fs::path const& filePath)
-  -> std::optional<fs::path> {
+auto isKnownVideoExtension(fs::path const& filePath) -> bool {
   namespace rng = std::ranges;
+
+  auto const vidsExt = filePath.extension().string();
+  return rng::contains(kVideoTypes, vidsExt);
+}
+
+auto tryReadFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t> {
+  auto ec = std::error_code{};
+  auto const fileSize = fs::file_size(filePath, ec);
+  if (ec) {
+    spdlog::debug(
+      "Skipping file with unreadable size metadata: {} ({})",
+      filePath.string(),
+      ec.message()
+    );
+    return std::nullopt;
+  }
+
+  return fileSize;
+}
+
+auto keepsWebpInputSizeLimit(appctx::AppConfig const& config, fs::path const& filePath)
+  -> bool {
+  if (config.outputFormat != "webp") { return true; }
+
+  auto const fileSize = tryReadFileSize(filePath);
+  if (!fileSize.has_value()) { return false; }
+  if (fileSize.value() < kWebpInputMaxSize) { return true; }
+
+  spdlog::debug(
+    "Skipping large video file for webp output: {} ({} bytes)",
+    filePath.string(),
+    fileSize.value()
+  );
+  return false;
+}
+
+auto tryCollectVideoInput(appctx::AppConfig const& config, fs::path const& filePath)
+  -> std::optional<fs::path> {
 
   if (!fs::is_regular_file(filePath)) {
     spdlog::debug("Skipping non-regular file: {}", filePath.string());
     return std::nullopt;
   }
 
-  auto const vidsExt = filePath.extension().string();
-  if (!rng::contains(kVideoTypes, vidsExt)) { return std::nullopt; }
+  if (!isKnownVideoExtension(filePath)) { return std::nullopt; }
 
-  auto const fileSize = fs::file_size(filePath);
-  if (fileSize >= kWebpInputMaxSize && config.outputFormat == "webp") {
-    spdlog::debug(
-      "Skipping large video file for webp output: {} ({} bytes)",
-      filePath.string(),
-      fileSize
-    );
-    return std::nullopt;
-  }
+  if (!keepsWebpInputSizeLimit(config, filePath)) { return std::nullopt; }
 
   return filePath;
+}
+
+auto keepScannedVideoCandidate(appctx::AppConfig const& config, fs::path const& filePath)
+  -> bool {
+  return keepsWebpInputSizeLimit(config, filePath);
+}
+
+auto loadCachedOrProbeVideoInfo(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  fs::path const& videoPath
+) -> boost::json::value {
+  if (auto const cached = runtime.videoInfoCache.find(videoPath); cached.has_value()) {
+    return cached.value();
+  }
+
+  auto const vidInfo = getVidInfo(toolchain, videoPath);
+  runtime.videoInfoCache.set(videoPath, vidInfo);
+  return vidInfo;
 }
 
 auto finalizeVideoList(
@@ -213,14 +259,16 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
   }
 }
 
-auto getVidTotalFrames(appctx::RuntimeContext const& runtime, fs::path const& videoPath)
-  -> eh::Result<int64_t> {
-  auto const vidInfo = runtime.videoInfoCache.find(videoPath);
-  if (!vidInfo.has_value()) { return eh::makeError("Missing cached video info"); }
+auto getVidTotalFrames(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  fs::path const& videoPath
+) -> eh::Result<int64_t> {
+  auto const vidInfo = loadCachedOrProbeVideoInfo(toolchain, runtime, videoPath);
 
-  if (!vidInfo->is_object()) { return eh::makeError("Invalid video info"); }
+  if (!vidInfo.is_object()) { return eh::makeError("Invalid video info"); }
 
-  auto const& obj = vidInfo->as_object();
+  auto const& obj = vidInfo.as_object();
   auto const streamsIt = obj.find("streams");
   if (streamsIt == obj.end() || !streamsIt->value().is_array()) {
     spdlog::debug("Missing stream info for {}", videoPath.string());
@@ -319,7 +367,7 @@ auto readAllVids(
   auto vids = std::vector<fs::path>{};
 
   if (fs::is_regular_file(dirPath)) {
-    if (auto collected = tryCollectVideo(config, dirPath)) {
+    if (auto collected = tryCollectVideoInput(config, dirPath)) {
       vids.emplace_back(collected.value());
     }
   } else {
@@ -327,13 +375,13 @@ auto readAllVids(
       media::scanByExtensions(dirPath, kVideoTypes, config.recursive);
 
     for (auto const& candidate: candidates) {
-      if (auto collected = tryCollectVideo(config, candidate)) {
-        vids.emplace_back(collected.value());
-      }
+      if (keepScannedVideoCandidate(config, candidate)) { vids.emplace_back(candidate); }
     }
   }
 
   if (vids.empty()) { return vids; }
+
+  if (config.outputFormat != "mp4") { return vids; }
 
   return finalizeVideoList(config, toolchain, runtime, vids);
 }
@@ -348,10 +396,12 @@ auto readAllVidsFromFiles(
   vids.reserve(filePaths.size());
 
   for (auto const& filePath: filePaths) {
-    if (auto collected = tryCollectVideo(config, filePath)) {
+    if (auto collected = tryCollectVideoInput(config, filePath)) {
       vids.emplace_back(collected.value());
     }
   }
+
+  if (vids.empty() || config.outputFormat != "mp4") { return vids; }
 
   return finalizeVideoList(config, toolchain, runtime, vids);
 }

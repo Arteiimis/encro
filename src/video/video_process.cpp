@@ -1566,7 +1566,7 @@ auto parseProgressFile(fs::path const& progressFilePath) -> ProgressData {
 
 auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
   -> std::optional<float> {
-  auto const totalFrames = getVidTotalFrames(ctx.runtime, state.inputPath);
+  auto const totalFrames = getVidTotalFrames(ctx.toolchain, ctx.runtime, state.inputPath);
   if (!totalFrames.has_value()) {
     auto lock = std::scoped_lock{state.mtx};
     state.lastError = totalFrames.error();
