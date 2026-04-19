@@ -2,6 +2,7 @@
 
 #include "core/archive_plan.h"
 #include "core/collision_naming.h"
+#include "core/display_text.h"
 #include "core/job_state.h"
 #include "core/parallel.h"
 #include "core/progress.h"
@@ -234,9 +235,7 @@ auto packEncodedVideos(
 
 auto truncateForProgressLabel(std::string const& text, std::size_t maxLen = 48)
   -> std::string {
-  if (text.size() <= maxLen) { return text; }
-  if (maxLen <= 3) { return text.substr(0, maxLen); }
-  return std::format("{}...", text.substr(0, maxLen - 3));
+  return displaytext::truncateWithEllipsis(text, maxLen);
 }
 
 auto containsCaseInsensitive(std::string_view text, std::string_view needle) -> bool {
@@ -338,11 +337,13 @@ auto isLikelyFfmpegErrorLine(std::string_view line) -> bool {
 namespace {
 
 auto makeSlotLabel(fs::path const& vidPath) -> std::string {
-  return truncateForProgressLabel(vidPath.filename().string());
+  return truncateForProgressLabel(displaytext::pathToUtf8String(vidPath.filename()));
 }
 
 auto getStateLabel(appctx::EncodingState const& state) -> std::string {
-  return truncateForProgressLabel(state.inputPath.filename().string());
+  return truncateForProgressLabel(
+    displaytext::pathToUtf8String(state.inputPath.filename())
+  );
 }
 
 auto normalizeSourceRootDir(fs::path const& inputPath) -> fs::path {
