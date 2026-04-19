@@ -443,6 +443,69 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "planVideoOutputFiles uses bare hevc names for unique mp4 outputs when not packing",
+  "[video-process][plan-output]"
+) {
+  TempDir temp;
+  auto const dirA = temp.path / "a";
+  auto const dirB = temp.path / "b";
+  auto const fileA = dirA / "alpha.mp4";
+  auto const fileB = dirB / "beta.mkv";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  for (auto const& filePath: {fileA, fileB}) {
+    std::ofstream out{filePath};
+    out << "x";
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "mp4";
+  config.outputLayout = appctx::OutputLayout::Flat;
+
+  auto const plannedRes =
+    planVideoOutputFiles(config, std::vector{fileA, fileB}, temp.path);
+
+  REQUIRE(plannedRes);
+  CHECK(plannedRes->at(fileA).filename() == fs::path{"alpha.hevc.mp4"});
+  CHECK(plannedRes->at(fileB).filename() == fs::path{"beta.hevc.mp4"});
+}
+
+TEST_CASE(
+  "planVideoOutputFiles keeps collision-safe names for unique mp4 outputs when packing",
+  "[video-process][plan-output]"
+) {
+  TempDir temp;
+  auto const dirA = temp.path / "a";
+  auto const dirB = temp.path / "b";
+  auto const fileA = dirA / "alpha.mp4";
+  auto const fileB = dirB / "beta.mkv";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  for (auto const& filePath: {fileA, fileB}) {
+    std::ofstream out{filePath};
+    out << "x";
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "mp4";
+  config.outputLayout = appctx::OutputLayout::Flat;
+  config.packOutput = true;
+
+  auto const plannedRes =
+    planVideoOutputFiles(config, std::vector{fileA, fileB}, temp.path);
+
+  REQUIRE(plannedRes);
+  CHECK(
+    hasCollisionSafePrefix(plannedRes->at(fileA).filename().string(), "a", "alpha.hevc")
+  );
+  CHECK(
+    hasCollisionSafePrefix(plannedRes->at(fileB).filename().string(), "b", "beta.hevc")
+  );
+}
+
+TEST_CASE(
   "planVideoOutputFiles preserves relative directories in keep layout",
   "[video-process][plan-output]"
 ) {
