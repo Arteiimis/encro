@@ -62,6 +62,24 @@ TEST_CASE("readAllVids allows files just below 32MB for webp", "[video-info]") {
   CHECK(vids.front() == boundaryVideo);
 }
 
+TEST_CASE("readAllVids for webp does not prewarm video info cache", "[video-info]") {
+  TempDir temp;
+  auto const boundaryVideo = temp.path / "boundary.mp4";
+  createFileWithSize(boundaryVideo, 1024ULL);
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.recursive = false;
+  auto toolchain = appctx::ToolchainPaths{};
+  auto runtime = appctx::RuntimeContext{};
+
+  auto const vids = readAllVids(config, toolchain, runtime, temp.path);
+
+  REQUIRE(vids.size() == 1);
+  CHECK(vids.front() == boundaryVideo);
+  CHECK(runtime.videoInfoCache.size() == 0);
+}
+
 TEST_CASE("readAllVids keeps only <32MB videos for webp in directory", "[video-info]") {
   TempDir temp;
   auto const smallVideo = temp.path / "small.mp4";
@@ -83,6 +101,7 @@ TEST_CASE("readAllVids keeps only <32MB videos for webp in directory", "[video-i
 
 TEST_CASE("getVidTotalFrames reads cached info from immer snapshot", "[video-info]") {
   auto runtime = appctx::RuntimeContext{};
+  auto toolchain = appctx::ToolchainPaths{};
   auto const videoPath = fs::path{"sample.mp4"};
 
   runtime.videoInfoCache.set(
@@ -90,7 +109,7 @@ TEST_CASE("getVidTotalFrames reads cached info from immer snapshot", "[video-inf
     boost::json::parse(R"({"streams":[{"codec_type":"video","nb_frames":"42"}]})")
   );
 
-  auto const totalFrames = getVidTotalFrames(runtime, videoPath);
+  auto const totalFrames = getVidTotalFrames(toolchain, runtime, videoPath);
 
   REQUIRE(totalFrames);
   CHECK(totalFrames.value() == 42);

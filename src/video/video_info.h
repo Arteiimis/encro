@@ -15,7 +15,8 @@ auto getVidInfo(
 ) -> boost::json::value;
 
 auto getVidTotalFrames(
-  appctx::RuntimeContext const& runtime,
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
   std::filesystem::path const& videoPath
 ) -> eh::Result<int64_t>;
 
