@@ -2,6 +2,8 @@
 #include "test_utils.h"
 #include "video/video_info.h"
 
+#include <boost/json.hpp>
+
 #include <catch2/catch_all.hpp>
 
 #include <cstdint>
@@ -77,4 +79,19 @@ TEST_CASE("readAllVids keeps only <32MB videos for webp in directory", "[video-i
 
   REQUIRE(vids.size() == 1);
   CHECK(vids.front() == smallVideo);
+}
+
+TEST_CASE("getVidTotalFrames reads cached info from immer snapshot", "[video-info]") {
+  auto runtime = appctx::RuntimeContext{};
+  auto const videoPath = fs::path{"sample.mp4"};
+
+  runtime.videoInfoCache.set(
+    videoPath,
+    boost::json::parse(R"({"streams":[{"codec_type":"video","nb_frames":"42"}]})")
+  );
+
+  auto const totalFrames = getVidTotalFrames(runtime, videoPath);
+
+  REQUIRE(totalFrames);
+  CHECK(totalFrames.value() == 42);
 }

@@ -3,17 +3,27 @@
 #include "core/app_context.h"
 #include "core/progress.h"
 
+#include <immer/atom.hpp>
+#include <immer/map.hpp>
+#include <immer/vector.hpp>
+
 #include <atomic>
 #include <filesystem>
 #include <format>
-#include <mutex>
 #include <optional>
-#include <unordered_map>
 #include <vector>
 
 namespace fs = std::filesystem;
 
 struct EncodingBatchState {
+  using ActiveSlots = immer::vector<appctx::EncodingStatePtr>;
+  using ResultsMap = immer::map<fs::path, bool>;
+
+  struct SharedSnapshot {
+    ActiveSlots active;
+    ResultsMap results;
+  };
+
   struct Counters {
     std::atomic_size_t finished;
     std::atomic_size_t nextTask;
@@ -23,16 +33,11 @@ struct EncodingBatchState {
     std::optional<std::size_t> overallBarIndex;
   } counters;
 
+  immer::atom<SharedSnapshot> snapshot;
+
   struct Slots {
-    appctx::EncodingStateList active;
-    std::mutex activeMtx;
     std::vector<std::size_t> barIndexes;
   } slots;
-
-  struct Results {
-    std::unordered_map<fs::path, bool> map;
-    std::mutex mtx;
-  } results;
 
   progress::ProgressContext progressCtx;
 
@@ -53,12 +58,10 @@ struct EncodingBatchState {
         workers,
         std::nullopt
       },
+      snapshot{makeInitialSnapshot(workers)},
       slots{
-        appctx::EncodingStateList(workers),
-        std::mutex{},
         std::vector<std::size_t>{},
       },
-      results{},
       progressCtx{} {
     counters.overallBarIndex =
       createOverallBar(progressCtx, overallTotal, completedBeforeStart, workers);
@@ -66,6 +69,15 @@ struct EncodingBatchState {
   }
 
 private:
+  static auto makeInitialSnapshot(std::size_t workerCount) -> SharedSnapshot {
+    auto active = ActiveSlots{};
+    for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
+      active = active.push_back(appctx::EncodingStatePtr{});
+    }
+
+    return SharedSnapshot{std::move(active), ResultsMap{}};
+  }
+
   static std::optional<std::size_t> createOverallBar(
     progress::ProgressContext& progressCtx,
     std::size_t totalTasks,

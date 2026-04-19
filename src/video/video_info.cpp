@@ -154,7 +154,6 @@ auto finalizeVideoList(
   auto const workerCount = std::min<std::size_t>(vids.size(), maxParallelJobs);
 
   auto keep = std::vector<char>(vids.size(), 0);
-  auto cacheMtx = std::mutex{};
 
   parallel::runIndexedTasks(vids.size(), workerCount, [&](std::size_t index) {
     auto const& vidPath = vids[index];
@@ -165,10 +164,7 @@ auto finalizeVideoList(
       return;
     }
 
-    {
-      auto lock = std::scoped_lock{cacheMtx};
-      runtime.videoInfoCache[vidPath] = vidInfo;
-    }
+    runtime.videoInfoCache.set(vidPath, vidInfo);
     keep[index] = 1;
   });
 
@@ -219,15 +215,12 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
 
 auto getVidTotalFrames(appctx::RuntimeContext const& runtime, fs::path const& videoPath)
   -> eh::Result<int64_t> {
-  auto const vidInfoIt = runtime.videoInfoCache.find(videoPath);
-  if (vidInfoIt == runtime.videoInfoCache.end()) {
-    return eh::makeError("Missing cached video info");
-  }
+  auto const vidInfo = runtime.videoInfoCache.find(videoPath);
+  if (!vidInfo.has_value()) { return eh::makeError("Missing cached video info"); }
 
-  auto const& vidInfo = vidInfoIt->second;
-  if (!vidInfo.is_object()) { return eh::makeError("Invalid video info"); }
+  if (!vidInfo->is_object()) { return eh::makeError("Invalid video info"); }
 
-  auto const& obj = vidInfo.as_object();
+  auto const& obj = vidInfo->as_object();
   auto const streamsIt = obj.find("streams");
   if (streamsIt == obj.end() || !streamsIt->value().is_array()) {
     spdlog::debug("Missing stream info for {}", videoPath.string());
