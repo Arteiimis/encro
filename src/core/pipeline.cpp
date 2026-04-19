@@ -1,5 +1,6 @@
 #include "core/pipeline.h"
 
+#include "core/archive_plan.h"
 #include "core/job_state.h"
 #include "core/stop_signal.h"
 #include "pack/packer.h"
@@ -38,59 +39,6 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
   return {};
 }
 
-auto buildArchiveActions(pack::PackPlan const& plan, std::span<std::size_t const> indexes)
-  -> std::vector<jobstate::ActionRecord> {
-  auto actions = std::vector<jobstate::ActionRecord>{};
-  actions.reserve(indexes.size());
-
-  for (auto const index: indexes) {
-    auto const zipName = plan.zipNameForIndex ? plan.zipNameForIndex(index)
-                                              : std::format("part{}.zip", index + 1);
-    auto const label = plan.progressLabelForIndex ? plan.progressLabelForIndex(index)
-                                                  : std::format("Packing: {}", zipName);
-    actions.push_back(
-      jobstate::makeArchiveAction(plan.outputDir / zipName, plan.groups[index], label)
-    );
-  }
-
-  return actions;
-}
-
-auto selectPackPlanIndexes(
-  pack::PackPlan const& plan,
-  std::vector<std::size_t> const& indexes
-) -> pack::PackPlan {
-  auto filteredGroups = std::vector<std::vector<fs::path>>{};
-  filteredGroups.reserve(indexes.size());
-  for (auto const index: indexes) { filteredGroups.push_back(plan.groups[index]); }
-
-  return pack::PackPlan{
-    .groups = std::move(filteredGroups),
-    .outputDir = plan.outputDir,
-    .zipNameForIndex =
-      [base = plan.zipNameForIndex, indexes](std::size_t subsetIndex) {
-        auto const actualIndex = indexes.at(subsetIndex);
-        return base ? base(actualIndex) : std::format("part{}.zip", actualIndex + 1);
-      },
-    .progressLabelForIndex =
-      [base = plan.progressLabelForIndex,
-       zipName = plan.zipNameForIndex,
-       indexes](std::size_t subsetIndex) {
-        auto const actualIndex = indexes.at(subsetIndex);
-        if (base) { return base(actualIndex); }
-        auto const resolvedZipName =
-          zipName ? zipName(actualIndex) : std::format("part{}.zip", actualIndex + 1);
-        return std::format("Packing: {}", resolvedZipName);
-      },
-    .zipEntryNameForFile = plan.zipEntryNameForFile,
-    .onGroupStart = {},
-    .onGroupSuccess = {},
-    .onGroupFailure = {},
-    .maxParallelJobs = plan.maxParallelJobs,
-    .removeOnFailure = plan.removeOnFailure,
-  };
-}
-
 auto runPackPlan(appctx::AppContext& ctx, pack::PackPlan const& plan) -> eh::Result<int> {
   auto* store = ctx.runtime.jobState.get();
   if (store == nullptr) {
@@ -99,51 +47,19 @@ auto runPackPlan(appctx::AppContext& ctx, pack::PackPlan const& plan) -> eh::Res
     return 0;
   }
 
-  auto allIndexes = std::vector<std::size_t>{};
-  allIndexes.reserve(plan.groups.size());
-  for (auto index = std::size_t{0}; index < plan.groups.size(); ++index) {
-    allIndexes.push_back(index);
-  }
-
-  auto const mergedActions = store->mergeActions(buildArchiveActions(plan, allIndexes));
-  auto pendingIndexes = std::vector<std::size_t>{};
-  auto pendingActionIds = std::vector<std::string>{};
-  pendingIndexes.reserve(mergedActions.size());
-  pendingActionIds.reserve(mergedActions.size());
-  for (auto index = std::size_t{0}; index < mergedActions.size(); ++index) {
-    if (!jobstate::needsExecution(mergedActions[index])) { continue; }
-    pendingIndexes.push_back(index);
-    pendingActionIds.push_back(mergedActions[index].id);
-  }
-
-  if (pendingIndexes.empty()) {
+  auto preparedExecution = archiveplan::prepareResumablePackExecution(*store, plan);
+  if (!preparedExecution.pendingPlan.has_value()) {
     store->setStage("completed");
     return 0;
   }
 
   store->setStage("packing");
 
-  auto filteredPlan = selectPackPlanIndexes(plan, pendingIndexes);
-  filteredPlan.onGroupStart =
-    [store, mergedActions, pendingIndexes](std::size_t subsetIndex) {
-      store->markRunning(mergedActions[pendingIndexes.at(subsetIndex)].id);
-    };
-  filteredPlan.onGroupSuccess =
-    [store, mergedActions, pendingIndexes](std::size_t subsetIndex, fs::path const&) {
-      store->markSucceeded(mergedActions[pendingIndexes.at(subsetIndex)].id);
-    };
-  filteredPlan.onGroupFailure =
-    [store,
-     mergedActions,
-     pendingIndexes](std::size_t subsetIndex, std::string const& error) {
-      store->markFailed(mergedActions[pendingIndexes.at(subsetIndex)].id, error);
-    };
-
-  auto const packRes = pack::packGroupsParallel(filteredPlan);
+  auto const packRes = pack::packGroupsParallel(preparedExecution.pendingPlan.value());
   if (!packRes) {
     if (stopsignal::isStopRequested()) {
       store->requestCancel();
-      store->markIncompleteInterrupted(pendingActionIds);
+      store->markIncompleteInterrupted(preparedExecution.pendingActionIds);
       return stopsignal::kCanceledExitCode;
     }
     return eh::makeError("{}", packRes.error());
