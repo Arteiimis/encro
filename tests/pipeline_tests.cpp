@@ -246,10 +246,7 @@ TEST_CASE(
   zip.close();
 }
 
-TEST_CASE(
-  "picture pipeline keeps same-folder files grouped in flat mode",
-  "[pipeline]"
-) {
+TEST_CASE("picture pipeline keeps same-folder files grouped in flat mode", "[pipeline]") {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   auto const dirA = inputDir / "a";

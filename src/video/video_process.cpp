@@ -77,7 +77,9 @@ struct BatchContext {
   auto& progress() { return batch.progressCtx; }
   auto const& progress() const { return batch.progressCtx; }
 
-  auto nextTaskIndex() { return counters().nextTask.fetch_add(1, std::memory_order_acq_rel); }
+  auto nextTaskIndex() {
+    return counters().nextTask.fetch_add(1, std::memory_order_acq_rel);
+  }
 
   auto pendingTotal() const { return counters().pendingTotal; }
 
@@ -151,7 +153,8 @@ struct BatchContext {
     auto const totalCount = static_cast<float>(overallTotal());
     auto overallPercent = 0.0f;
     if (totalCount > 0.0f) {
-      overallPercent = std::min(100.0f, (completed + activeProgress) / totalCount * 100.0f);
+      overallPercent =
+        std::min(100.0f, (completed + activeProgress) / totalCount * 100.0f);
     }
 
     progress().setProgress(counters().overallBarIndex.value(), overallPercent);
@@ -366,7 +369,8 @@ auto prepareEncodeActions(
     return prepared;
   }
 
-  auto const mergedActions = store->mergeActions(buildEncodeActions(vids, plannedOutputFiles));
+  auto const mergedActions =
+    store->mergeActions(buildEncodeActions(vids, plannedOutputFiles));
   prepared.pendingVids.reserve(mergedActions.size());
   prepared.pendingActionIds.reserve(mergedActions.size());
   prepared.initialResults.reserve(mergedActions.size());
@@ -413,8 +417,10 @@ auto buildArchiveActions(pack::PackPlan const& plan, std::span<std::size_t const
   return actions;
 }
 
-auto selectPackPlanIndexes(pack::PackPlan const& plan, std::vector<std::size_t> const& indexes)
-  -> pack::PackPlan {
+auto selectPackPlanIndexes(
+  pack::PackPlan const& plan,
+  std::vector<std::size_t> const& indexes
+) -> pack::PackPlan {
   auto filteredGroups = std::vector<std::vector<fs::path>>{};
   filteredGroups.reserve(indexes.size());
   for (auto const index: indexes) { filteredGroups.push_back(plan.groups[index]); }
@@ -447,7 +453,8 @@ auto selectPackPlanIndexes(pack::PackPlan const& plan, std::vector<std::size_t> 
 }
 
 auto shouldForceConflictNaming(appctx::AppConfig const& config) -> bool {
-  return config.forceNameConflictHandling && config.outputLayout == appctx::OutputLayout::Flat;
+  return config.forceNameConflictHandling
+    && config.outputLayout == appctx::OutputLayout::Flat;
 }
 
 auto buildConflictHandledOutputPath(
@@ -469,7 +476,9 @@ auto resolveOutputRootDir(
   std::optional<fs::path> const& sourceRootDir
 ) -> std::optional<fs::path> {
   if (config.outputPath.has_value()) { return config.outputPath.value(); }
-  if (config.outputFormat != "webp" || !sourceRootDir.has_value()) { return std::nullopt; }
+  if (config.outputFormat != "webp" || !sourceRootDir.has_value()) {
+    return std::nullopt;
+  }
 
   return sourceRootDir.value() / "encoded_webp";
 }
@@ -525,7 +534,9 @@ auto lookupPlannedOutputFile(
   appctx::path_map<fs::path> const& plannedOutputFiles,
   fs::path const& inputPath
 ) -> std::optional<fs::path> {
-  if (auto const it = plannedOutputFiles.find(inputPath); it != plannedOutputFiles.end()) {
+  if (
+    auto const it = plannedOutputFiles.find(inputPath); it != plannedOutputFiles.end()
+  ) {
     return it->second;
   }
 
@@ -540,8 +551,11 @@ void registerEncodingState(
   runtime.encodingStates.map[state->inputPath] = state;
 }
 
-auto createEncodingState(BatchContext& batchCtx, fs::path const& vidPath, std::size_t barIndex)
-  -> appctx::EncodingStatePtr {
+auto createEncodingState(
+  BatchContext& batchCtx,
+  fs::path const& vidPath,
+  std::size_t barIndex
+) -> appctx::EncodingStatePtr {
   auto vidState = std::make_shared<appctx::EncodingState>();
   vidState->inputPath = vidPath;
   vidState->barIndex = barIndex;
@@ -551,7 +565,8 @@ auto createEncodingState(BatchContext& batchCtx, fs::path const& vidPath, std::s
   vidState->startTime = std::chrono::steady_clock::now();
   vidState->progressFilePath =
     fs::temp_directory_path() / std::format("progress_{}.txt", getUUID());
-  vidState->plannedOutputFile = lookupPlannedOutputFile(batchCtx.plannedOutputFiles, vidPath);
+  vidState->plannedOutputFile =
+    lookupPlannedOutputFile(batchCtx.plannedOutputFiles, vidPath);
   if (vidState->plannedOutputFile.has_value()) {
     vidState->outputPath = vidState->plannedOutputFile->parent_path();
   }
@@ -570,7 +585,9 @@ auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
       if (batchCtx.finished() >= batchCtx.overallTotal()) { break; }
 
       if (stopsignal::isStopRequested() && activeStates.empty()) {
-        spdlog::info("Encoding monitor exiting after stop request; no active tasks remain.");
+        spdlog::info(
+          "Encoding monitor exiting after stop request; no active tasks remain."
+        );
         break;
       }
 
@@ -610,8 +627,12 @@ auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
             auto* store = maybeJobState(batchCtx.app);
             store != nullptr && actionId.has_value() && lastStatus.has_value()
           ) {
-            store
-              ->markProgress(actionId.value(), std::nullopt, std::nullopt, lastStatus.value());
+            store->markProgress(
+              actionId.value(),
+              std::nullopt,
+              std::nullopt,
+              lastStatus.value()
+            );
           }
 
           continue;
@@ -633,10 +654,15 @@ auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
         }
 
         if (
-          auto* store = maybeJobState(batchCtx.app); store != nullptr && actionId.has_value()
+          auto* store = maybeJobState(batchCtx.app);
+          store != nullptr && actionId.has_value()
         ) {
-          store
-            ->markProgress(actionId.value(), progress.value(), lastFrameCount, std::nullopt);
+          store->markProgress(
+            actionId.value(),
+            progress.value(),
+            lastFrameCount,
+            std::nullopt
+          );
         }
       }
 
@@ -682,18 +708,20 @@ void runEncodingSlot(BatchContext& batchCtx, std::size_t slot) {
       }
     }
     batchCtx.barEncodingStart(*vidState, fileLabel);
-    auto const result = encodeToHevc(batchCtx.app, *vidState, [&](std::string const& status) {
-      batchCtx.barEncodingStatus(*vidState, fileLabel, status);
-      auto actionId = std::optional<std::string>{};
-      auto lock = std::scoped_lock{vidState->mtx};
-      vidState->lastStatus = status;
-      actionId = vidState->actionId;
-      if (
-        auto* store = maybeJobState(batchCtx.app); store != nullptr && actionId.has_value()
-      ) {
-        store->markProgress(actionId.value(), std::nullopt, std::nullopt, status);
-      }
-    });
+    auto const result =
+      encodeToHevc(batchCtx.app, *vidState, [&](std::string const& status) {
+        batchCtx.barEncodingStatus(*vidState, fileLabel, status);
+        auto actionId = std::optional<std::string>{};
+        auto lock = std::scoped_lock{vidState->mtx};
+        vidState->lastStatus = status;
+        actionId = vidState->actionId;
+        if (
+          auto* store = maybeJobState(batchCtx.app);
+          store != nullptr && actionId.has_value()
+        ) {
+          store->markProgress(actionId.value(), std::nullopt, std::nullopt, status);
+        }
+      });
 
     batchCtx.recordResult(*vidState, result);
     batchCtx.finalizeState(vidState, result);
@@ -720,7 +748,9 @@ void runEncodingSlot(BatchContext& batchCtx, std::size_t slot) {
       }
     }
 
-    if (auto* store = maybeJobState(batchCtx.app); store != nullptr && actionId.has_value()) {
+    if (
+      auto* store = maybeJobState(batchCtx.app); store != nullptr && actionId.has_value()
+    ) {
       if (result) {
         if (lastStatus.has_value()) {
           store->markSucceeded(actionId.value(), lastStatus.value());
@@ -869,9 +899,13 @@ auto encodeWebpWithTargetSize(
   while (quality >= kWebpMinQuality) {
     if (stopsignal::isStopRequested()) { return abortForStopRequest(); }
 
-    if (encodeCtx.statusUpdater) { encodeCtx.statusUpdater(std::format("q={}", quality)); }
+    if (encodeCtx.statusUpdater) {
+      encodeCtx.statusUpdater(std::format("q={}", quality));
+    }
     auto const stepRes = runWebpEncodingStep(appCtx, encodeCtx, quality, outputFile);
-    if (stopsignal::isStopRequested() || stepRes.exitCode == stopsignal::kCanceledExitCode) {
+    if (
+      stopsignal::isStopRequested() || stepRes.exitCode == stopsignal::kCanceledExitCode
+    ) {
       return abortForStopRequest();
     }
     if (stepRes.exitCode != 0) {
@@ -908,7 +942,9 @@ auto encodeWebpWithTargetSize(
     auto const nextQuality = quality - step;
     if (encodeCtx.statusUpdater && nextQuality >= kWebpMinQuality) {
       auto const outputSizeMB = static_cast<double>(outputSize) / 1024.0 / 1024.0;
-      encodeCtx.statusUpdater(std::format("retry q={} ({:.1f}MB)", nextQuality, outputSizeMB));
+      encodeCtx.statusUpdater(
+        std::format("retry q={} ({:.1f}MB)", nextQuality, outputSizeMB)
+      );
     }
 
     quality -= step;
@@ -939,7 +975,8 @@ auto encodeWebpWithTargetSize(
   return false;
 }
 
-auto tryReadProgressData(fs::path const& progressFilePath) -> std::optional<ProgressData> {
+auto tryReadProgressData(fs::path const& progressFilePath)
+  -> std::optional<ProgressData> {
   if (!fs::exists(progressFilePath)) { return std::nullopt; }
   return parseProgressFile(progressFilePath);
 }
@@ -954,8 +991,10 @@ auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
   return vids;
 }
 
-auto scanInputVideosFromFiles(appctx::AppContext& ctx, std::span<fs::path const> inputPaths)
-  -> std::vector<fs::path> {
+auto scanInputVideosFromFiles(
+  appctx::AppContext& ctx,
+  std::span<fs::path const> inputPaths
+) -> std::vector<fs::path> {
   std::println("Scanning input files for videos: {} file(s) ...", inputPaths.size());
   spdlog::info("Scanning {} provided input file(s)", inputPaths.size());
   auto vids = readAllVidsFromFiles(ctx.config, ctx.toolchain, ctx.runtime, inputPaths);
@@ -1021,17 +1060,24 @@ auto runEncodingWithoutProgress(
     }
 
     spdlog::debug("Start encoding (no-progress): {}", vidPath.string());
-    if (auto* store = maybeJobState(ctx); store != nullptr && state.actionId.has_value()) {
+    if (
+      auto* store = maybeJobState(ctx); store != nullptr && state.actionId.has_value()
+    ) {
       store->markRunning(state.actionId.value());
     }
 
     auto const success = encodeToHevc(ctx, state, {});
     vidsRunRes[vidPath] = success;
-    if (auto* store = maybeJobState(ctx); store != nullptr && state.actionId.has_value()) {
+    if (
+      auto* store = maybeJobState(ctx); store != nullptr && state.actionId.has_value()
+    ) {
       if (success) {
         store->markSucceeded(state.actionId.value());
       } else {
-        store->markFailed(state.actionId.value(), state.lastError.value_or("encoding failed"));
+        store->markFailed(
+          state.actionId.value(),
+          state.lastError.value_or("encoding failed")
+        );
       }
     }
     if (success) {
@@ -1090,8 +1136,12 @@ auto runEncodingBatches(
   auto const maxConcurrentJobs =
     std::max<std::size_t>(1, ctx.config.maxParallelJobs.value_or(kMaxConcurrentJobs));
   auto const workerCount = std::min(vids.size(), maxConcurrentJobs);
-  auto state =
-    EncodingBatchState{vids.size(), overallTotalCount, initialCompletedCount, workerCount};
+  auto state = EncodingBatchState{
+    vids.size(),
+    overallTotalCount,
+    initialCompletedCount,
+    workerCount
+  };
 
   std::println(
     "Scheduling {} video(s) with max {} concurrent encode job(s)...",
@@ -1099,7 +1149,8 @@ auto runEncodingBatches(
     workerCount
   );
   spdlog::info(
-    "Scheduling encoding workers: workers={} pending={} overall={} completed-before-start={}",
+    "Scheduling encoding workers: workers={} pending={} overall={} "
+    "completed-before-start={}",
     workerCount,
     vids.size(),
     overallTotalCount,
@@ -1141,7 +1192,8 @@ auto collectEncodedOutputFiles(
     if (!outFile.has_value() || !fs::exists(outFile.value())) { continue; }
 
     if (
-      ctx.config.outputFormat == "webp" && fs::file_size(outFile.value()) >= kWebpPackMaxSize
+      ctx.config.outputFormat == "webp"
+      && fs::file_size(outFile.value()) >= kWebpPackMaxSize
     ) {
       std::println(
         "Skipping oversized webp for packing: {} ({} bytes)",
@@ -1349,7 +1401,9 @@ auto planVideoOutputFiles(
     && config.outputLayout == appctx::OutputLayout::Keep
     && !sourceRootDir.has_value()
   ) {
-    return eh::makeError("--keep requires input files to share a common parent directory.");
+    return eh::makeError(
+      "--keep requires input files to share a common parent directory."
+    );
   }
 
   auto groupedCandidates = appctx::path_map<std::vector<fs::path>>{};
@@ -1399,8 +1453,10 @@ auto resolveVideoOutputPath(appctx::AppConfig const& config, fs::path const& inp
   return basePath / "encoded_webp";
 }
 
-auto resolveVideoPackOutputPath(appctx::AppConfig const& config, fs::path const& inputPath)
-  -> fs::path {
+auto resolveVideoPackOutputPath(
+  appctx::AppConfig const& config,
+  fs::path const& inputPath
+) -> fs::path {
   if (config.outputPath.has_value()) { return config.outputPath.value() / "packed"; }
 
   auto const basePath = fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
@@ -1427,7 +1483,9 @@ auto groupEncodedVideosForPack(
   auto packInputs = std::vector<PackGroupInput>{};
   packInputs.reserve(filePaths.size());
   for (auto const& file: filePaths) {
-    packInputs.emplace_back(PackGroupInput{file.outputPath, file.sourcePath.parent_path()});
+    packInputs.emplace_back(
+      PackGroupInput{file.outputPath, file.sourcePath.parent_path()}
+    );
   }
 
   return groupPackFiles(
@@ -1458,8 +1516,10 @@ bool encodeToHevc(
   }
 
   if (!plannedOutputFile.has_value()) {
-    auto const error =
-      std::format("Failed to resolve output file for input: {}", state.inputPath.string());
+    auto const error = std::format(
+      "Failed to resolve output file for input: {}",
+      state.inputPath.string()
+    );
     {
       auto lock = std::scoped_lock{state.mtx};
       state.lastError = error;
@@ -1610,7 +1670,8 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
   }
 
   auto const sourceRootDir = normalizeSourceRootDir(inputPath);
-  auto const plannedOutputFilesRes = planVideoOutputFiles(ctx.config, vids, sourceRootDir);
+  auto const plannedOutputFilesRes =
+    planVideoOutputFiles(ctx.config, vids, sourceRootDir);
   if (!plannedOutputFilesRes) {
     spdlog::error(plannedOutputFilesRes.error());
     return 1;
@@ -1644,7 +1705,9 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
     maybePackOutputs(ctx, inputPath, plannedOutputFilesRes.value(), vidsRunRes);
   if (packRes != 0) { return packRes; }
 
-  if (auto* store = maybeJobState(ctx); store != nullptr) { store->setStage("completed"); }
+  if (auto* store = maybeJobState(ctx); store != nullptr) {
+    store->setStage("completed");
+  }
 
   printEncodingSummary(vids, vidsRunRes);
   spdlog::info("Path encoding done: {}", inputPath.string());
@@ -1652,7 +1715,10 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
   return hasEncodingFailures(vidsRunRes) ? 1 : 0;
 }
 
-int handleMultiFileEncoding(appctx::AppContext& ctx, std::span<fs::path const> inputPaths) {
+int handleMultiFileEncoding(
+  appctx::AppContext& ctx,
+  std::span<fs::path const> inputPaths
+) {
   spdlog::info("Handle multi-file encoding: input-count={}", inputPaths.size());
   auto const vids = scanInputVideosFromFiles(ctx, inputPaths);
 
@@ -1679,7 +1745,9 @@ int handleMultiFileEncoding(appctx::AppContext& ctx, std::span<fs::path const> i
     && ctx.config.outputPath.has_value()
     && !basePath.has_value()
   ) {
-    spdlog::error("--keep requires multiple input files to share the same parent directory.");
+    spdlog::error(
+      "--keep requires multiple input files to share the same parent directory."
+    );
     return 1;
   }
 
@@ -1727,7 +1795,9 @@ int handleMultiFileEncoding(appctx::AppContext& ctx, std::span<fs::path const> i
     if (packRes != 0) { return packRes; }
   }
 
-  if (auto* store = maybeJobState(ctx); store != nullptr) { store->setStage("completed"); }
+  if (auto* store = maybeJobState(ctx); store != nullptr) {
+    store->setStage("completed");
+  }
 
   printEncodingSummary(vids, vidsRunRes);
   spdlog::info("Multi-file encoding done: input-count={}", inputPaths.size());

@@ -116,7 +116,9 @@ auto parseFfmpegInvocation(int argc, char* argv[]) -> FfmpegInvocation {
 
     if (arg == "-hide_banner" || arg == "-nostats" || arg == "-y") { continue; }
 
-    if (!arg.empty() && arg.front() != '-') { invocation.outputFile = fs::path{argv[index]}; }
+    if (!arg.empty() && arg.front() != '-') {
+      invocation.outputFile = fs::path{argv[index]};
+    }
   }
 
   return invocation;
@@ -194,7 +196,9 @@ auto runFakeFfmpeg(int argc, char* argv[]) -> int {
 
 int main(int argc, char* argv[]) {
   auto const exeName = fs::path{argv[0]}.filename().string();
-  if (exeName == "ffprobe" || exeName == "ffprobe.exe") { return runFakeFfprobe(argc, argv); }
+  if (exeName == "ffprobe" || exeName == "ffprobe.exe") {
+    return runFakeFfprobe(argc, argv);
+  }
 
   return runFakeFfmpeg(argc, argv);
 }

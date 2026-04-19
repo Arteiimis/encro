@@ -28,10 +28,8 @@ namespace naming = collisionnaming;
 
 namespace {
 
-auto buildConflictHandledPackEntryName(
-  fs::path const& dirPath,
-  fs::path const& filePath
-) -> std::string {
+auto buildConflictHandledPackEntryName(fs::path const& dirPath, fs::path const& filePath)
+  -> std::string {
   return naming::buildConflictHandledFlatName(
     dirPath,
     filePath,
@@ -54,9 +52,7 @@ auto makeUniqueZipEntryName(
   std::unordered_set<std::string>& usedEntryNames
 ) -> std::string {
   auto const normalizedEntryName = normalizeZipEntryName(preferredEntryName);
-  if (usedEntryNames.insert(normalizedEntryName).second) {
-    return normalizedEntryName;
-  }
+  if (usedEntryNames.insert(normalizedEntryName).second) { return normalizedEntryName; }
 
   auto const entryPath = fs::path{normalizedEntryName};
   auto const suffix = std::format("__{}", naming::shortPathHash(filePath));
@@ -69,8 +65,7 @@ auto makeUniqueZipEntryName(
   auto duplicateIndex = std::size_t{1};
   while (!usedEntryNames.insert(candidate).second) {
     candidate =
-      (parentPath
-       / std::format("{}{}_{}{}", stem, suffix, duplicateIndex++, extension))
+      (parentPath / std::format("{}{}_{}{}", stem, suffix, duplicateIndex++, extension))
         .generic_string();
   }
 
@@ -224,8 +219,7 @@ auto packFilesToZip(
   zip.open(libzippp::ZipArchive::New);
 
   for (auto const& [index, filePath]: std::views::enumerate(filePaths)) {
-    auto const progress =
-      (size_t)std::round((index + 1) / (float)fileCount * 100.0f);
+    auto const progress = (size_t)std::round((index + 1) / (float)fileCount * 100.0f);
 
     if (fs::is_regular_file(filePath)) {
       auto const preferredEntryName =
@@ -246,8 +240,7 @@ auto packFilesToZip(
     using namespace std::chrono_literals;
     auto const frames = std::array{'|', '/', '-', '\\'};
     auto frameIndex = std::size_t{0};
-    while (!stopToken.stop_requested()
-           && finalizing.load(std::memory_order_acquire)) {
+    while (!stopToken.stop_requested() && finalizing.load(std::memory_order_acquire)) {
       progressCtx.setPostfixText(
         progressBarIndex,
         std::format("{} | Finalizing {}", progressText, frames[frameIndex])
@@ -291,11 +284,7 @@ auto groupFilesBySize(
     );
   }
 
-  return groupPreparedFilesSequentially(
-    preparedFiles,
-    maxGroupSize,
-    maxFilesPerGroup
-  );
+  return groupPreparedFilesSequentially(preparedFiles, maxGroupSize, maxFilesPerGroup);
 }
 
 auto groupPackFiles(
@@ -323,11 +312,7 @@ auto groupPackFiles(
     !keepSourceDirsTogetherWhenTotalFilesExceed.has_value()
     || filePaths.size() <= keepSourceDirsTogetherWhenTotalFilesExceed.value()
   ) {
-    return groupPreparedFilesSequentially(
-      preparedFiles,
-      maxGroupSize,
-      maxFilesPerGroup
-    );
+    return groupPreparedFilesSequentially(preparedFiles, maxGroupSize, maxFilesPerGroup);
   }
 
   std::ranges::sort(
@@ -526,10 +511,7 @@ auto buildDirectoryPackPlan(
   }
 
   if (allFiles.empty()) {
-    return eh::makeError(
-      "No files found to pack in directory: {}",
-      dirPath.string()
-    );
+    return eh::makeError("No files found to pack in directory: {}", dirPath.string());
   }
 
   std::println("File scan completed, found {} file(s).", allFiles.size());

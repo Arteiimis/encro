@@ -59,14 +59,10 @@ auto parseFraction(std::string_view text) -> std::optional<double> {
   return n.value() / d.value();
 }
 
-auto getFormatDurationValue(
-  boost::json::object const& obj,
-  std::string& formatDuration
-) -> std::optional<double> {
+auto getFormatDurationValue(boost::json::object const& obj, std::string& formatDuration)
+  -> std::optional<double> {
   auto const formatIt = obj.find("format");
-  if (formatIt == obj.end() || !formatIt->value().is_object()) {
-    return std::nullopt;
-  }
+  if (formatIt == obj.end() || !formatIt->value().is_object()) { return std::nullopt; }
 
   auto const& formatObj = formatIt->value().as_object();
   auto const durationIt = formatObj.find("duration");
@@ -106,13 +102,9 @@ auto isHevcEncodedInfo(boost::json::value const& vidInfo) -> bool {
     auto const& stream = streamVal.as_object();
 
     auto const codecTypeIt = stream.find("codec_type");
-    if (codecTypeIt == stream.end() || !codecTypeIt->value().is_string()) {
-      continue;
-    }
+    if (codecTypeIt == stream.end() || !codecTypeIt->value().is_string()) { continue; }
     auto const codecNameIt = stream.find("codec_name");
-    if (codecNameIt == stream.end() || !codecNameIt->value().is_string()) {
-      continue;
-    }
+    if (codecNameIt == stream.end() || !codecNameIt->value().is_string()) { continue; }
 
     auto const isVideo = codecTypeIt->value().as_string() == "video";
     auto const isHevc = codecNameIt->value().as_string() == "hevc";
@@ -225,10 +217,8 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
   }
 }
 
-auto getVidTotalFrames(
-  appctx::RuntimeContext const& runtime,
-  fs::path const& videoPath
-) -> eh::Result<int64_t> {
+auto getVidTotalFrames(appctx::RuntimeContext const& runtime, fs::path const& videoPath)
+  -> eh::Result<int64_t> {
   auto const vidInfoIt = runtime.videoInfoCache.find(videoPath);
   if (vidInfoIt == runtime.videoInfoCache.end()) {
     return eh::makeError("Missing cached video info");
@@ -261,9 +251,7 @@ auto getVidTotalFrames(
     auto const& stream = streamVal.as_object();
 
     auto const codecTypeIt = stream.find("codec_type");
-    if (codecTypeIt == stream.end() || !codecTypeIt->value().is_string()) {
-      continue;
-    }
+    if (codecTypeIt == stream.end() || !codecTypeIt->value().is_string()) { continue; }
     if (codecTypeIt->value().as_string() != "video") { continue; }
 
     debug.hasVideoStream = true;
@@ -319,10 +307,7 @@ auto getVidTotalFrames(
   return eh::makeError("Failed to retrieve total frames");
 }
 
-bool isHevcEncoded(
-  appctx::ToolchainPaths const& toolchain,
-  fs::path const& videoPath
-) {
+bool isHevcEncoded(appctx::ToolchainPaths const& toolchain, fs::path const& videoPath) {
   auto const vidInfo = getVidInfo(toolchain, videoPath);
   return isHevcEncodedInfo(vidInfo);
 }

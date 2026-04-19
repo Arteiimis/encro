@@ -13,7 +13,9 @@
 #include <vector>
 
 namespace jobstate {
+
 class Store;
+
 }
 
 namespace appctx {

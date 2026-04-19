@@ -8,8 +8,7 @@ template<class Ty>
 inline auto const pv = [] { return boost::program_options::value<Ty>(); };
 
 template<class Ty>
-inline auto const pvm =
-  [] { return boost::program_options::value<Ty>()->multitoken(); };
+inline auto const pvm = [] { return boost::program_options::value<Ty>()->multitoken(); };
 
 template<class Ty>
 auto pvDefault(Ty&& defaultValue) {
@@ -34,7 +33,7 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("input,i", pv<std::string>(), "input file or directory path")           //
     ("inputs,I", pvm<std::vector<std::string>>(), "input video file paths")  //
     ("output,o", pv<std::string>(), "custom output directory path")          //
-    ("state-file", pv<std::string>(), "custom job state file path")         //
+    ("state-file", pv<std::string>(), "custom job state file path")          //
     ("output-format,f", pvDefault("mp4"s), "target format: mp4 or webp")     //
     ("flat", "flatten output names inside the output directory (default)")   //
     ("keep",

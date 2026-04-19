@@ -69,7 +69,9 @@ auto setEnvVar(std::string const& key, std::optional<std::string> const& value) 
 
 class ScopedEnvironmentOverrides {
 public:
-  explicit ScopedEnvironmentOverrides(std::map<std::string, std::string> const& overrides) {
+  explicit ScopedEnvironmentOverrides(
+    std::map<std::string, std::string> const& overrides
+  ) {
     originals_.reserve(overrides.size());
     for (auto const& [key, value]: overrides) {
       originals_.emplace_back(key, readEnvVar(key));
@@ -102,7 +104,11 @@ auto runChild(
     auto stdoutReader = std::jthread([&] { stdoutText = readProcessStream(childOut); });
     auto stderrReader = std::jthread([&] { stderrText = readProcessStream(childErr); });
     child.wait();
-    return e2e::ProcessResult{child.exit_code(), std::move(stdoutText), std::move(stderrText)};
+    return e2e::ProcessResult{
+      child.exit_code(),
+      std::move(stdoutText),
+      std::move(stderrText)
+    };
   };
 
   if (workingDir.has_value()) {
@@ -116,8 +122,12 @@ auto runChild(
     return captureStreams(child);
   }
 
-  auto child =
-    bp::child(executableText, bp::args(args), bp::std_out > childOut, bp::std_err > childErr);
+  auto child = bp::child(
+    executableText,
+    bp::args(args),
+    bp::std_out > childOut,
+    bp::std_err > childErr
+  );
   return captureStreams(child);
 }
 

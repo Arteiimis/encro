@@ -60,10 +60,7 @@ TEST_CASE("readAllVids allows files just below 32MB for webp", "[video-info]") {
   CHECK(vids.front() == boundaryVideo);
 }
 
-TEST_CASE(
-  "readAllVids keeps only <32MB videos for webp in directory",
-  "[video-info]"
-) {
+TEST_CASE("readAllVids keeps only <32MB videos for webp in directory", "[video-info]") {
   TempDir temp;
   auto const smallVideo = temp.path / "small.mp4";
   auto const largeVideo = temp.path / "large.mp4";

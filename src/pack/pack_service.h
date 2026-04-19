@@ -34,10 +34,8 @@ struct PackPlan {
 auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
   -> std::vector<FileOrdinalRange>;
 
-auto appendOrdinalRangeSuffix(
-  std::string_view fileName,
-  FileOrdinalRange const& range
-) -> std::string;
+auto appendOrdinalRangeSuffix(std::string_view fileName, FileOrdinalRange const& range)
+  -> std::string;
 
 auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path>>;
 

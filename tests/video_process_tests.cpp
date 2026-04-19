@@ -260,12 +260,8 @@ TEST_CASE(
   CHECK(planned.at(fileA).parent_path() == temp.path / "encoded_webp");
   CHECK(planned.at(fileB).parent_path() == temp.path / "encoded_webp");
   CHECK(planned.at(fileA).filename() != planned.at(fileB).filename());
-  CHECK(
-    hasCollisionSafePrefix(planned.at(fileA).filename().string(), "a_x", "sample")
-  );
-  CHECK(
-    hasCollisionSafePrefix(planned.at(fileB).filename().string(), "b_y", "sample")
-  );
+  CHECK(hasCollisionSafePrefix(planned.at(fileA).filename().string(), "a_x", "sample"));
+  CHECK(hasCollisionSafePrefix(planned.at(fileB).filename().string(), "b_y", "sample"));
 }
 
 TEST_CASE(
@@ -291,11 +287,8 @@ TEST_CASE(
   config.outputFormat = "webp";
   config.outputLayout = appctx::OutputLayout::Flat;
 
-  auto const plannedRes = planVideoOutputFiles(
-    config,
-    std::vector{alphaA, betaA, alphaB, betaB},
-    temp.path
-  );
+  auto const plannedRes =
+    planVideoOutputFiles(config, std::vector{alphaA, betaA, alphaB, betaB}, temp.path);
 
   REQUIRE(plannedRes);
   auto sortedNames = std::vector<std::string>{};
@@ -337,12 +330,8 @@ TEST_CASE(
     planVideoOutputFiles(config, std::vector{fileA, fileB}, temp.path);
 
   REQUIRE(plannedRes);
-  CHECK(
-    hasCollisionSafePrefix(plannedRes->at(fileA).filename().string(), "a", "alpha")
-  );
-  CHECK(
-    hasCollisionSafePrefix(plannedRes->at(fileB).filename().string(), "b", "beta")
-  );
+  CHECK(hasCollisionSafePrefix(plannedRes->at(fileA).filename().string(), "a", "alpha"));
+  CHECK(hasCollisionSafePrefix(plannedRes->at(fileB).filename().string(), "b", "beta"));
 }
 
 TEST_CASE(
@@ -368,11 +357,8 @@ TEST_CASE(
   config.outputFormat = "webp";
   config.outputLayout = appctx::OutputLayout::Flat;
 
-  auto const plannedRes = planVideoOutputFiles(
-    config,
-    std::vector{alphaA, betaA, alphaB, betaB},
-    temp.path
-  );
+  auto const plannedRes =
+    planVideoOutputFiles(config, std::vector{alphaA, betaA, alphaB, betaB}, temp.path);
 
   REQUIRE(plannedRes);
   auto sortedNames = std::vector<std::string>{};
@@ -383,15 +369,9 @@ TEST_CASE(
   std::ranges::sort(sortedNames);
 
   REQUIRE(sortedNames.size() == 4);
-  CHECK(
-    collisionGroupPrefix(sortedNames[0]) == collisionGroupPrefix(sortedNames[1])
-  );
-  CHECK(
-    collisionGroupPrefix(sortedNames[2]) == collisionGroupPrefix(sortedNames[3])
-  );
-  CHECK(
-    collisionGroupPrefix(sortedNames[0]) != collisionGroupPrefix(sortedNames[2])
-  );
+  CHECK(collisionGroupPrefix(sortedNames[0]) == collisionGroupPrefix(sortedNames[1]));
+  CHECK(collisionGroupPrefix(sortedNames[2]) == collisionGroupPrefix(sortedNames[3]));
+  CHECK(collisionGroupPrefix(sortedNames[0]) != collisionGroupPrefix(sortedNames[2]));
   CHECK(sortedNames[0].find("__alpha__") != std::string::npos);
   CHECK(sortedNames[1].find("__beta__") != std::string::npos);
   CHECK(sortedNames[2].find("__alpha__") != std::string::npos);
@@ -606,10 +586,7 @@ TEST_CASE(
   CHECK(packPath == customOutput / "packed");
 }
 
-TEST_CASE(
-  "groupEncodedVideosForPack splits groups at 500MB",
-  "[video-process][pack]"
-) {
+TEST_CASE("groupEncodedVideosForPack splits groups at 500MB", "[video-process][pack]") {
   TempDir temp;
   auto const v1 = temp.path / "v1.mp4";
   auto const v2 = temp.path / "v2.mp4";

@@ -59,7 +59,10 @@ TEST_CASE("job state keeps succeeded encode action when output exists", "[job-st
   CHECK(resumed.front().status == jobstate::ActionStatus::Succeeded);
 }
 
-TEST_CASE("job state resets succeeded encode action when output is missing", "[job-state]") {
+TEST_CASE(
+  "job state resets succeeded encode action when output is missing",
+  "[job-state]"
+) {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";

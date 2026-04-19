@@ -23,16 +23,14 @@ bool encodeToHevc(
   function_ref statusUpdater = {}
 );
 
-auto handleSingleFileEncoding(appctx::AppContext& ctx, fs::path const& videoPath)
-  -> int;
+auto handleSingleFileEncoding(appctx::AppContext& ctx, fs::path const& videoPath) -> int;
 
 auto handleMultiFileEncoding(
   appctx::AppContext& ctx,
   std::span<fs::path const> inputPaths
 ) -> int;
 
-auto readLastNLines(fs::path const& filePath, std::size_t n)
-  -> std::vector<std::string>;
+auto readLastNLines(fs::path const& filePath, std::size_t n) -> std::vector<std::string>;
 
 struct ProgressData {
   uint64_t frameCount;
@@ -47,10 +45,8 @@ auto planVideoOutputFiles(
   std::optional<fs::path> sourceRootDir = std::nullopt
 ) -> eh::Result<appctx::path_map<fs::path>>;
 
-auto resolveVideoOutputPath(
-  appctx::AppConfig const& config,
-  fs::path const& inputPath
-) -> std::optional<fs::path>;
+auto resolveVideoOutputPath(appctx::AppConfig const& config, fs::path const& inputPath)
+  -> std::optional<fs::path>;
 
 auto resolveVideoPackOutputPath(
   appctx::AppConfig const& config,
