@@ -11,8 +11,7 @@
 #include <string>
 #include <vector>
 
-using ZipEntryNameResolver =
-  std::function<std::string(std::filesystem::path const&)>;
+using ZipEntryNameResolver = std::function<std::string(std::filesystem::path const&)>;
 
 struct PackGroupInput {
   std::filesystem::path filePath;
@@ -43,8 +42,7 @@ auto groupPackFiles(
   std::vector<PackGroupInput> const& filePaths,
   std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
   std::optional<std::size_t> maxFilesPerGroup = std::nullopt,
-  std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed =
-    std::nullopt
+  std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed = std::nullopt
 ) -> std::vector<std::vector<std::filesystem::path>>;
 
 auto groupPackFilesWithSubparts(

@@ -4,10 +4,10 @@ namespace media {
 
 namespace {
 
-auto extensionMatches(
+bool extensionMatches(
   fs::path const& filePath,
   std::span<std::string_view const> extensions
-) -> bool {
+) {
   auto const ext = filePath.extension().string();
   return std::ranges::contains(extensions, std::string_view{ext});
 }

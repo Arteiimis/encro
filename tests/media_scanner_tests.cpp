@@ -25,8 +25,7 @@ TEST_CASE("scanByExtensions matches single file", "[media-scanner]") {
   auto const filePath = temp.path / "sample.mp4";
   touchFile(filePath);
 
-  auto const results =
-    media::scanByExtensions(filePath, std::array{".mp4"sv}, false);
+  auto const results = media::scanByExtensions(filePath, std::array{".mp4"sv}, false);
 
   REQUIRE(results.size() == 1);
   CHECK(results.front() == filePath);
@@ -37,8 +36,7 @@ TEST_CASE("scanByExtensions ignores non-matching file", "[media-scanner]") {
   auto const filePath = temp.path / "sample.mov";
   touchFile(filePath);
 
-  auto const results =
-    media::scanByExtensions(filePath, std::array{".mp4"sv}, false);
+  auto const results = media::scanByExtensions(filePath, std::array{".mp4"sv}, false);
 
   CHECK(results.empty());
 }
@@ -52,8 +50,7 @@ TEST_CASE("scanByExtensions respects non-recursive", "[media-scanner]") {
   touchFile(topFile);
   touchFile(nestedFile);
 
-  auto const results =
-    media::scanByExtensions(temp.path, std::array{".mp4"sv}, false);
+  auto const results = media::scanByExtensions(temp.path, std::array{".mp4"sv}, false);
 
   REQUIRE(results.size() == 1);
   CHECK(results.front() == topFile);
@@ -68,8 +65,7 @@ TEST_CASE("scanByExtensions includes recursive matches", "[media-scanner]") {
   touchFile(topFile);
   touchFile(nestedFile);
 
-  auto const results =
-    media::scanByExtensions(temp.path, std::array{".mp4"sv}, true);
+  auto const results = media::scanByExtensions(temp.path, std::array{".mp4"sv}, true);
 
   REQUIRE(results.size() == 2);
   CHECK(std::ranges::find(results, topFile) != results.end());

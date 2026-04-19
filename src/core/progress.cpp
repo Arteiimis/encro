@@ -28,8 +28,7 @@ auto trimCopy(std::string_view text) -> std::string {
   return std::string{text.substr(begin, end - begin + 1)};
 }
 
-auto truncateWithEllipsis(std::string const& text, std::size_t maxLen)
-  -> std::string {
+auto truncateWithEllipsis(std::string const& text, std::size_t maxLen) -> std::string {
   if (maxLen == 0) { return {}; }
   if (text.size() <= maxLen) { return text; }
   if (maxLen <= 3) { return text.substr(0, maxLen); }
@@ -39,9 +38,7 @@ auto truncateWithEllipsis(std::string const& text, std::size_t maxLen)
 auto getConsoleColumns() -> std::size_t {
 #if defined(_WIN32) || defined(_WIN64)
   auto const out = GetStdHandle(STD_OUTPUT_HANDLE);
-  if (out == INVALID_HANDLE_VALUE || out == nullptr) {
-    return kDefaultConsoleColumns;
-  }
+  if (out == INVALID_HANDLE_VALUE || out == nullptr) { return kDefaultConsoleColumns; }
 
   auto info = CONSOLE_SCREEN_BUFFER_INFO{};
   if (!GetConsoleScreenBufferInfo(out, &info)) { return kDefaultConsoleColumns; }
@@ -157,10 +154,7 @@ auto ProgressContext::addBar(std::string_view promptText) -> std::size_t {
   return progress::addBar(manager_, bars_, promptText);
 }
 
-void ProgressContext::setPostfixText(
-  std::size_t barIndex,
-  std::string_view promptText
-) {
+void ProgressContext::setPostfixText(std::size_t barIndex, std::string_view promptText) {
   auto lock = std::scoped_lock{mtx_};
   auto const layout = resolveLayout(getConsoleColumns());
   manager_[barIndex].set_option(indicators::option::BarWidth{layout.barWidth});

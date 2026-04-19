@@ -60,12 +60,8 @@ struct EncodingBatchState {
       },
       results{},
       progressCtx{} {
-    counters.overallBarIndex = createOverallBar(
-      progressCtx,
-      overallTotal,
-      completedBeforeStart,
-      workers
-    );
+    counters.overallBarIndex =
+      createOverallBar(progressCtx, overallTotal, completedBeforeStart, workers);
     slots.barIndexes = makeSlotBars(progressCtx, workers);
   }
 
@@ -90,8 +86,7 @@ private:
   makeSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCount) {
     auto barIndexes = std::vector<std::size_t>(workerCount);
     for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
-      barIndexes[slot] =
-        progressCtx.addBar(std::format("Encoding: [idle-{}]", slot + 1));
+      barIndexes[slot] = progressCtx.addBar(std::format("Encoding: [idle-{}]", slot + 1));
     }
     return barIndexes;
   }

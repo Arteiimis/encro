@@ -32,10 +32,8 @@ auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
   return ranges;
 }
 
-auto appendOrdinalRangeSuffix(
-  std::string_view fileName,
-  FileOrdinalRange const& range
-) -> std::string {
+auto appendOrdinalRangeSuffix(std::string_view fileName, FileOrdinalRange const& range)
+  -> std::string {
   if (range.first == 0 || range.last == 0 || range.count == 0) {
     return std::string{fileName};
   }
@@ -80,9 +78,8 @@ auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path
       auto const zipName = plan.zipNameForIndex ? plan.zipNameForIndex(index)
                                                 : std::format("part{}.zip", index + 1);
       auto const zipPath = plan.outputDir / zipName;
-      auto const label = plan.progressLabelForIndex
-        ? plan.progressLabelForIndex(index)
-        : std::format("Packing: {}", zipName);
+      auto const label = plan.progressLabelForIndex ? plan.progressLabelForIndex(index)
+                                                    : std::format("Packing: {}", zipName);
 
       auto const packRes = packFilesToZip(
         plan.groups[index],
@@ -98,9 +95,7 @@ auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path
           fs::remove(zipPath, ec);
         }
         packResults[index] = packRes;
-        if (plan.onGroupFailure) {
-          plan.onGroupFailure(index, packRes.error());
-        }
+        if (plan.onGroupFailure) { plan.onGroupFailure(index, packRes.error()); }
         processed.fetch_add(1, std::memory_order_release);
         continue;
       }
@@ -121,9 +116,7 @@ auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path
 
   for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
     if (!attempted[index]) { continue; }
-    if (!packResults[index]) {
-      return eh::makeError("{}", packResults[index].error());
-    }
+    if (!packResults[index]) { return eh::makeError("{}", packResults[index].error()); }
   }
 
   return zippedFiles;

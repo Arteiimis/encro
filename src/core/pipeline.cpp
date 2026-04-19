@@ -27,7 +27,8 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
 
   auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config);
   ctx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
-  auto const initRes = ctx.runtime.jobState->initialize(ctx.config, ctx.config.restartState);
+  auto const initRes =
+    ctx.runtime.jobState->initialize(ctx.config, ctx.config.restartState);
   if (!initRes) { return eh::makeError("{}", initRes.error()); }
 
   if (initRes.value()) {
@@ -37,19 +38,16 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
   return {};
 }
 
-auto buildArchiveActions(
-  pack::PackPlan const& plan,
-  std::span<std::size_t const> indexes
-) -> std::vector<jobstate::ActionRecord> {
+auto buildArchiveActions(pack::PackPlan const& plan, std::span<std::size_t const> indexes)
+  -> std::vector<jobstate::ActionRecord> {
   auto actions = std::vector<jobstate::ActionRecord>{};
   actions.reserve(indexes.size());
 
   for (auto const index: indexes) {
     auto const zipName = plan.zipNameForIndex ? plan.zipNameForIndex(index)
                                               : std::format("part{}.zip", index + 1);
-    auto const label = plan.progressLabelForIndex
-      ? plan.progressLabelForIndex(index)
-      : std::format("Packing: {}", zipName);
+    auto const label = plan.progressLabelForIndex ? plan.progressLabelForIndex(index)
+                                                  : std::format("Packing: {}", zipName);
     actions.push_back(
       jobstate::makeArchiveAction(plan.outputDir / zipName, plan.groups[index], label)
     );
@@ -64,9 +62,7 @@ auto selectPackPlanIndexes(
 ) -> pack::PackPlan {
   auto filteredGroups = std::vector<std::vector<fs::path>>{};
   filteredGroups.reserve(indexes.size());
-  for (auto const index: indexes) {
-    filteredGroups.push_back(plan.groups[index]);
-  }
+  for (auto const index: indexes) { filteredGroups.push_back(plan.groups[index]); }
 
   return pack::PackPlan{
     .groups = std::move(filteredGroups),
@@ -77,11 +73,13 @@ auto selectPackPlanIndexes(
         return base ? base(actualIndex) : std::format("part{}.zip", actualIndex + 1);
       },
     .progressLabelForIndex =
-      [base = plan.progressLabelForIndex, zipName = plan.zipNameForIndex, indexes](std::size_t subsetIndex) {
+      [base = plan.progressLabelForIndex,
+       zipName = plan.zipNameForIndex,
+       indexes](std::size_t subsetIndex) {
         auto const actualIndex = indexes.at(subsetIndex);
         if (base) { return base(actualIndex); }
-        auto const resolvedZipName = zipName ? zipName(actualIndex)
-                                             : std::format("part{}.zip", actualIndex + 1);
+        auto const resolvedZipName =
+          zipName ? zipName(actualIndex) : std::format("part{}.zip", actualIndex + 1);
         return std::format("Packing: {}", resolvedZipName);
       },
     .zipEntryNameForFile = plan.zipEntryNameForFile,
@@ -93,8 +91,7 @@ auto selectPackPlanIndexes(
   };
 }
 
-auto runPackPlan(appctx::AppContext& ctx, pack::PackPlan const& plan)
-  -> eh::Result<int> {
+auto runPackPlan(appctx::AppContext& ctx, pack::PackPlan const& plan) -> eh::Result<int> {
   auto* store = ctx.runtime.jobState.get();
   if (store == nullptr) {
     auto const packRes = pack::packGroupsParallel(plan);
@@ -136,7 +133,9 @@ auto runPackPlan(appctx::AppContext& ctx, pack::PackPlan const& plan)
       store->markSucceeded(mergedActions[pendingIndexes.at(subsetIndex)].id);
     };
   filteredPlan.onGroupFailure =
-    [store, mergedActions, pendingIndexes](std::size_t subsetIndex, std::string const& error) {
+    [store,
+     mergedActions,
+     pendingIndexes](std::size_t subsetIndex, std::string const& error) {
       store->markFailed(mergedActions[pendingIndexes.at(subsetIndex)].id, error);
     };
 
@@ -175,9 +174,7 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
     ctx.runtime.jobState ? std::optional<fs::path>{ctx.runtime.jobState->stateFilePath()}
                          : std::nullopt
   );
-  if (!planRes) {
-    return eh::makeError("Failed to pack files: {}", planRes.error());
-  }
+  if (!planRes) { return eh::makeError("Failed to pack files: {}", planRes.error()); }
 
   auto const packRes = runPackPlan(ctx, planRes.value());
   if (!packRes) { return eh::makeError("Failed to pack files: {}", packRes.error()); }
@@ -196,9 +193,7 @@ auto runVideo(appctx::AppContext& ctx) -> eh::Result<int> {
 
   if (fs::is_directory(inputPath)) { return handlePathEncoding(ctx, inputPath); }
 
-  if (fs::is_regular_file(inputPath)) {
-    return handleSingleFileEncoding(ctx, inputPath);
-  }
+  if (fs::is_regular_file(inputPath)) { return handleSingleFileEncoding(ctx, inputPath); }
 
   return eh::makeError(
     "The specified path is neither a directory nor a regular file: {}",
@@ -214,18 +209,12 @@ auto runPicture(appctx::AppContext& ctx) -> eh::Result<int> {
     );
   }
 
-  auto const outputDir =
-    ctx.config.outputPath.value_or(ctx.config.inputPath) / "packed";
-  std::println(
-    "Scanning input path for pictures: {} ...",
-    ctx.config.inputPath.string()
-  );
+  auto const outputDir = ctx.config.outputPath.value_or(ctx.config.inputPath) / "packed";
+  std::println("Scanning input path for pictures: {} ...", ctx.config.inputPath.string());
   auto const scannedPics = readAllPics(ctx.config, ctx.config.inputPath);
   auto const planRes =
     buildPicturePackPlan(ctx.config, ctx.config.inputPath, outputDir, scannedPics);
-  if (!planRes) {
-    return eh::makeError("Failed to pack pictures: {}", planRes.error());
-  }
+  if (!planRes) { return eh::makeError("Failed to pack pictures: {}", planRes.error()); }
 
   std::println(
     "Picture scan completed, {} picture(s) found, grouped into {} package batch(es).",

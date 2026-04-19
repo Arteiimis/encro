@@ -36,8 +36,7 @@ auto readWindowsEnvPath(char const* name) -> std::optional<fs::path> {
 auto resolveCommonLogDir() -> fs::path {
 #if defined(_WIN32) || defined(_WIN64)
   if (
-    auto const localAppData = readWindowsEnvPath("LOCALAPPDATA");
-    localAppData.has_value()
+    auto const localAppData = readWindowsEnvPath("LOCALAPPDATA"); localAppData.has_value()
   ) {
     return localAppData.value() / "encro" / "logs";
   }
@@ -111,9 +110,7 @@ auto setupLogging(po::variables_map const& vm) -> std::optional<fs::path> {
   spdlog::set_level(spdlog::level::debug);
 
   spdlog::debug("Verbose logging enabled.");
-  if (!verboseEchoEnabled) {
-    std::println("Verbose log file: {}", logFilePath.string());
-  }
+  if (!verboseEchoEnabled) { std::println("Verbose log file: {}", logFilePath.string()); }
 
   return logFilePath;
 }
@@ -132,10 +129,7 @@ void printVerboseLogDirHint(
   std::optional<std::filesystem::path> const& verboseLogFilePath
 ) {
   if (!verboseLogFilePath.has_value()) { return; }
-  std::println(
-    "Verbose log directory: {}",
-    verboseLogFilePath->parent_path().string()
-  );
+  std::println("Verbose log directory: {}", verboseLogFilePath->parent_path().string());
 }
 
 void logConfigSummary(appctx::AppConfig const& config) {
@@ -143,9 +137,7 @@ void logConfigSummary(appctx::AppConfig const& config) {
 
   if (config.recursive) { spdlog::info("Recursive directory search enabled."); }
 
-  if (config.packOutput) {
-    spdlog::info("Pack output enabled for video processing.");
-  }
+  if (config.packOutput) { spdlog::info("Pack output enabled for video processing."); }
 
   if (config.packOnly) { spdlog::info("Pack-only mode enabled."); }
 
@@ -169,17 +161,11 @@ void logConfigSummary(appctx::AppConfig const& config) {
   }
 
   if (config.stateFilePath.has_value()) {
-    spdlog::info(
-      "Using custom state file: {}",
-      config.stateFilePath.value().string()
-    );
+    spdlog::info("Using custom state file: {}", config.stateFilePath.value().string());
   }
 
   if (config.maxParallelJobs.has_value()) {
-    spdlog::info(
-      "Using custom max parallel jobs: {}",
-      config.maxParallelJobs.value()
-    );
+    spdlog::info("Using custom max parallel jobs: {}", config.maxParallelJobs.value());
   }
 }
 

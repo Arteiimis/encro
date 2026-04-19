@@ -7,10 +7,7 @@ namespace crash {
 
 void installHandlers();
 
-void reportCaughtException(
-  std::string_view context,
-  std::exception const& exception
-);
+void reportCaughtException(std::string_view context, std::exception const& exception);
 
 void reportUnknownException(std::string_view context);
 

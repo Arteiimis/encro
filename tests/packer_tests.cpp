@@ -22,10 +22,7 @@ createSizedFile(fs::path const& dir, std::string_view name, std::size_t sizeByte
   return filePath;
 }
 
-TEST_CASE(
-  "groupFilesBySize splits sequentially by limit",
-  "[packer][groupFilesBySize]"
-) {
+TEST_CASE("groupFilesBySize splits sequentially by limit", "[packer][groupFilesBySize]") {
   TempDir temp;
   auto const f1 = createSizedFile(temp.path, "a.bin", 100);
   auto const f2 = createSizedFile(temp.path, "b.bin", 150);
@@ -237,9 +234,7 @@ TEST_CASE(
     std::ranges::count_if(
       entryNames,
       [](std::string const& name) {
-        return name != "same.txt"
-          && name.starts_with("same__")
-          && name.ends_with(".txt");
+        return name != "same.txt" && name.starts_with("same__") && name.ends_with(".txt");
       }
     )
     == 1

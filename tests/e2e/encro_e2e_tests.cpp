@@ -152,7 +152,9 @@ auto probeFormatComment(fs::path const& mediaPath) -> std::string {
   }
 
   auto const& format = probed.at("format").as_object();
-  if (format.if_contains("tags") == nullptr || !format.at("tags").is_object()) { return {}; }
+  if (format.if_contains("tags") == nullptr || !format.at("tags").is_object()) {
+    return {};
+  }
 
   auto const& tags = format.at("tags").as_object();
   if (tags.if_contains("comment") == nullptr) { return {}; }
@@ -207,7 +209,10 @@ TEST_CASE("encro pack-only CLI packs a directory", "[e2e][pack-only]") {
   CHECK(containsStemMarker(entries[1], "b"));
 }
 
-TEST_CASE("encro webp CLI can use the fake ffmpeg toolchain", "[e2e][video][fake-toolchain]") {
+TEST_CASE(
+  "encro webp CLI can use the fake ffmpeg toolchain",
+  "[e2e][video][fake-toolchain]"
+) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
   e2e::writeTextFile(inputPath, "fake-video");
@@ -360,7 +365,9 @@ TEST_CASE("encro fails when custom ffmpeg directory has no tools", "[e2e][toolch
   });
 
   REQUIRE(result.exitCode == 1);
-  CHECK(result.stdoutText.find("Tool check failed: FFmpeg not found") != std::string::npos);
+  CHECK(
+    result.stdoutText.find("Tool check failed: FFmpeg not found") != std::string::npos
+  );
 }
 
 TEST_CASE("encro resume requires an existing state file", "[e2e][resume]") {
@@ -380,7 +387,8 @@ TEST_CASE("encro resume requires an existing state file", "[e2e][resume]") {
 
   REQUIRE(result.exitCode == 1);
   CHECK(
-    result.stdoutText.find("Resume requested but no state file was found") != std::string::npos
+    result.stdoutText.find("Resume requested but no state file was found")
+    != std::string::npos
   );
   CHECK_FALSE(fs::exists(statePath));
 }

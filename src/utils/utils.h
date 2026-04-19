@@ -25,11 +25,9 @@ auto exec2(
 
 bool readUserIpt(bool yesToAll, std::string_view prompt);
 
-auto findFFprobe(std::optional<fs::path> const& installDir)
-  -> std::optional<fs::path>;
+auto findFFprobe(std::optional<fs::path> const& installDir) -> std::optional<fs::path>;
 
-auto findFFmpeg(std::optional<fs::path> const& installDir)
-  -> std::optional<fs::path>;
+auto findFFmpeg(std::optional<fs::path> const& installDir) -> std::optional<fs::path>;
 
 std::string getUUID();
 
