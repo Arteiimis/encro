@@ -32,12 +32,15 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   io.add_options()                                                           //
     ("input,i", pv<std::string>(), "input file or directory path")           //
     ("inputs,I", pvm<std::vector<std::string>>(), "input video file paths")  //
-    ("output,o", pv<std::string>(), "custom output directory path")          //
-    ("state-file", pv<std::string>(), "custom job state file path")          //
-    ("output-format,f", pvDefault("mp4"s), "target format: mp4 or webp")     //
-    ("flat", "flatten output names inside the output directory (default)")   //
+    ("output,o",
+     pv<std::string>(),
+     "custom output directory path\n"
+     "  aliases: + or input:// for input root, = or common:// for common root")  //
+    ("state-file", pv<std::string>(), "custom job state file path")              //
+    ("output-format,f", pvDefault("mp4"s), "target format: mp4 or webp")         //
+    ("flat", "flatten output names inside the output directory (default)")       //
     ("keep",
-     "preserve relative input subdirectories inside the output directory")   //
+     "preserve relative input subdirectories inside the output directory")       //
     ("force-conflict-handling",
      pvDefault("y"s),
      "control collision-safe file names for unique flat outputs: y or n")  //

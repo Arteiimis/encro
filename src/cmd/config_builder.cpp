@@ -6,6 +6,7 @@
 #include <array>
 #include <cctype>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,6 +25,12 @@ auto requireDir(fs::path const& path, std::string_view label) -> eh::Result<void
   }
 
   return {};
+}
+
+auto requireDirIfExists(fs::path const& path, std::string_view label)
+  -> eh::Result<void> {
+  if (!fs::exists(path)) { return {}; }
+  return requireDir(path, label);
 }
 
 auto requireExists(fs::path const& path, std::string_view label) -> eh::Result<void> {
@@ -119,6 +126,167 @@ auto readForceNameConflictHandling(boost::program_options::variables_map const& 
   if (value == "n") { return false; }
 
   return eh::makeError("--force-conflict-handling must be set to y or n.");
+}
+
+enum class OutputPathAliasKind {
+  Input,
+  Common,
+};
+
+struct ParsedOutputPathAlias {
+  OutputPathAliasKind kind;
+  std::string suffix;
+};
+
+auto trimLeadingDirectorySeparators(std::string_view text) -> std::string_view {
+  while (!text.empty() && (text.front() == '/' || text.front() == '\\')) {
+    text.remove_prefix(1);
+  }
+  return text;
+}
+
+auto parseOutputPathAlias(std::string_view raw) -> std::optional<ParsedOutputPathAlias> {
+  auto const parseShort = [&](char aliasChar, OutputPathAliasKind kind) {
+    if (raw == std::string_view{&aliasChar, 1}) {
+      return std::optional<ParsedOutputPathAlias>{ParsedOutputPathAlias{kind, ""}};
+    }
+
+    if (
+      raw.size() >= 2 && raw.front() == aliasChar && (raw[1] == '/' || raw[1] == '\\')
+    ) {
+      return std::optional<ParsedOutputPathAlias>{ParsedOutputPathAlias{
+        kind,
+        std::string{trimLeadingDirectorySeparators(raw.substr(2))}
+      }};
+    }
+
+    return std::optional<ParsedOutputPathAlias>{};
+  };
+
+  if (auto parsed = parseShort('+', OutputPathAliasKind::Input); parsed.has_value()) {
+    return parsed;
+  }
+  if (auto parsed = parseShort('=', OutputPathAliasKind::Common); parsed.has_value()) {
+    return parsed;
+  }
+
+  constexpr auto kInputPrefix = std::string_view{"input://"};
+  if (raw.starts_with(kInputPrefix)) {
+    return ParsedOutputPathAlias{
+      OutputPathAliasKind::Input,
+      std::string{trimLeadingDirectorySeparators(raw.substr(kInputPrefix.size()))}
+    };
+  }
+
+  constexpr auto kCommonPrefix = std::string_view{"common://"};
+  if (raw.starts_with(kCommonPrefix)) {
+    return ParsedOutputPathAlias{
+      OutputPathAliasKind::Common,
+      std::string{trimLeadingDirectorySeparators(raw.substr(kCommonPrefix.size()))}
+    };
+  }
+
+  return std::nullopt;
+}
+
+auto normalizeInputRootDir(fs::path const& inputPath) -> fs::path {
+  return fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
+}
+
+auto resolveSharedInputDir(std::span<fs::path const> inputPaths)
+  -> std::optional<fs::path> {
+  if (inputPaths.empty()) { return std::nullopt; }
+
+  auto const sharedDir = normalizeInputRootDir(inputPaths.front());
+  for (auto const& inputPath: inputPaths) {
+    if (normalizeInputRootDir(inputPath) != sharedDir) { return std::nullopt; }
+  }
+
+  return sharedDir;
+}
+
+auto commonAncestorDir(fs::path const& lhs, fs::path const& rhs)
+  -> std::optional<fs::path> {
+  auto const normalizedLhs = lhs.lexically_normal();
+  auto const normalizedRhs = rhs.lexically_normal();
+
+  auto result = fs::path{};
+  auto lhsIt = normalizedLhs.begin();
+  auto rhsIt = normalizedRhs.begin();
+  while (lhsIt != normalizedLhs.end()
+         && rhsIt != normalizedRhs.end()
+         && *lhsIt == *rhsIt) {
+    result /= *lhsIt;
+    ++lhsIt;
+    ++rhsIt;
+  }
+
+  if (result.empty()) { return std::nullopt; }
+  return result.lexically_normal();
+}
+
+auto resolveCommonInputDir(std::span<fs::path const> inputPaths)
+  -> std::optional<fs::path> {
+  if (inputPaths.empty()) { return std::nullopt; }
+
+  auto commonDir = std::optional<fs::path>{normalizeInputRootDir(inputPaths.front())};
+  for (auto const& inputPath: inputPaths) {
+    commonDir = commonAncestorDir(commonDir.value(), normalizeInputRootDir(inputPath));
+    if (!commonDir.has_value()) { return std::nullopt; }
+  }
+
+  return commonDir;
+}
+
+auto resolveOutputAliasBasePath(appctx::AppConfig const& config, OutputPathAliasKind kind)
+  -> eh::Result<fs::path> {
+  if (!config.inputPaths.empty()) {
+    auto const basePath = kind == OutputPathAliasKind::Input
+      ? resolveSharedInputDir(config.inputPaths)
+      : resolveCommonInputDir(config.inputPaths);
+    if (basePath.has_value()) { return basePath.value(); }
+
+    if (kind == OutputPathAliasKind::Input) {
+      return eh::makeError(
+        "Output alias +/input:// requires all input files to share the same parent "
+        "directory."
+      );
+    }
+
+    return eh::makeError(
+      "Output alias =/common:// requires all input files to share a common ancestor "
+      "directory."
+    );
+  }
+
+  if (config.inputPath.empty()) {
+    return eh::makeError("Input path is required before resolving output aliases.");
+  }
+
+  return normalizeInputRootDir(config.inputPath);
+}
+
+auto resolveOutputPathSpec(appctx::AppConfig const& config, std::string_view raw)
+  -> eh::Result<fs::path> {
+  auto const alias = parseOutputPathAlias(raw);
+  if (!alias.has_value()) { return fs::path{raw}; }
+
+  auto basePathRes = resolveOutputAliasBasePath(config, alias->kind);
+  if (!basePathRes) { return eh::makeError("{}", basePathRes.error()); }
+
+  auto resolvedPath = basePathRes.value();
+  if (alias->suffix.empty()) { return resolvedPath.lexically_normal(); }
+
+  auto const suffixPath = fs::path{alias->suffix};
+  if (suffixPath.is_absolute() || suffixPath.has_root_name()) {
+    return eh::makeError(
+      "Output alias suffix must be a relative path: {}",
+      alias->suffix
+    );
+  }
+
+  resolvedPath /= suffixPath;
+  return resolvedPath.lexically_normal();
 }
 
 }  // namespace
@@ -219,9 +387,13 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   }
 
   if (vm.count("output")) {
-    config.outputPath = fs::path{getParamStr(vm, "output")};
+    auto outputPathRes = resolveOutputPathSpec(config, getParamStr(vm, "output"));
+    if (!outputPathRes) { return eh::makeError("{}", outputPathRes.error()); }
+
+    config.outputPath = outputPathRes.value();
     if (
-      auto const validDir = requireDir(config.outputPath.value(), "output"); !validDir
+      auto const validDir = requireDirIfExists(config.outputPath.value(), "output");
+      !validDir
     ) {
       return eh::makeError("{}", validDir.error());
     }
