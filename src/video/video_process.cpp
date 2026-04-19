@@ -425,7 +425,8 @@ auto prepareEncodeActions(
 
 auto shouldForceConflictNaming(appctx::AppConfig const& config) -> bool {
   return config.forceNameConflictHandling
-    && config.outputLayout == appctx::OutputLayout::Flat;
+    && config.outputLayout == appctx::OutputLayout::Flat
+    && (config.outputFormat != "mp4" || config.packOutput);
 }
 
 auto buildConflictHandledOutputPath(
