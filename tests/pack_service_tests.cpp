@@ -49,9 +49,7 @@ TEST_CASE("packGroupsParallel packs grouped files", "[pack-service]") {
     .zipNameForIndex =
       [](std::size_t index) { return std::format("group{}.zip", index + 1); },
     .progressLabelForIndex =
-      [](std::size_t index) {
-        return std::format("Packing: group{}.zip", index + 1);
-      }
+      [](std::size_t index) { return std::format("Packing: group{}.zip", index + 1); }
   };
 
   auto const result = pack::packGroupsParallel(plan);
@@ -67,10 +65,7 @@ TEST_CASE("packGroupsParallel packs grouped files", "[pack-service]") {
   zip.close();
 }
 
-TEST_CASE(
-  "pack range helpers append cumulative ordinal suffixes",
-  "[pack-service]"
-) {
+TEST_CASE("pack range helpers append cumulative ordinal suffixes", "[pack-service]") {
   auto const groups = std::vector{
     std::vector<fs::path>{fs::path{"a"}, fs::path{"b"}},
     std::vector<fs::path>{fs::path{"c"}}
@@ -86,6 +81,7 @@ TEST_CASE(
   CHECK(ranges[1].last == 3);
   CHECK(ranges[1].count == 1);
   CHECK(
-    pack::appendOrdinalRangeSuffix("bundle_part1.zip", ranges[0]) == "bundle_part1[1~2#2p].zip"
+    pack::appendOrdinalRangeSuffix("bundle_part1.zip", ranges[0])
+    == "bundle_part1[1~2#2p].zip"
   );
 }

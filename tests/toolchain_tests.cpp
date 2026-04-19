@@ -45,9 +45,7 @@ TEST_CASE("toolchain resolve succeeds when tools are available", "[toolchain]") 
   auto config = appctx::AppConfig{};
   auto toolchainPaths = appctx::ToolchainPaths{};
 
-  if (
-    !findFFmpeg(std::nullopt).has_value() || !findFFprobe(std::nullopt).has_value()
-  ) {
+  if (!findFFmpeg(std::nullopt).has_value() || !findFFprobe(std::nullopt).has_value()) {
     SUCCEED("FFmpeg/FFprobe not available on PATH; skipping.");
     return;
   }

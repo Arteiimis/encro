@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+style_file='D:/clangformat/.clang-format'
+
+if ! command -v clang-format >/dev/null 2>&1; then
+  echo "pre-commit: clang-format not found in PATH" >&2
+  exit 1
+fi
+
+if [ ! -f "$style_file" ]; then
+  echo "pre-commit: clang-format config not found: $style_file" >&2
+  exit 1
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+declare -a files=()
+while IFS= read -r -d '' file; do
+  if [ -f "$file" ]; then
+    files+=("$file")
+  fi
+done < <(
+  git diff --cached --name-only --diff-filter=ACMR -z -- \
+    '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp' '*.hxx' '*.ipp' '*.inl'
+)
+
+if [ "${#files[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+restore_stash=0
+
+restore_unstaged_changes() {
+  if [ "$restore_stash" -eq 0 ]; then
+    return
+  fi
+
+  if ! git stash pop --quiet >/dev/null 2>&1; then
+    echo "pre-commit: formatted staged files, but failed to restore unstaged changes." >&2
+    echo "pre-commit: recover them with 'git stash list' and 'git stash pop'." >&2
+    exit 1
+  fi
+}
+
+if ! git diff --quiet --ignore-submodules --; then
+  git stash push --quiet --keep-index --message pre-commit-clang-format >/dev/null 2>&1
+  restore_stash=1
+  trap restore_unstaged_changes EXIT
+fi
+
+echo "pre-commit: running clang-format on staged C/C++ files"
+for file in "${files[@]}"; do
+  clang-format -i "-style=file:${style_file}" "$file"
+done
+
+git add -- "${files[@]}"

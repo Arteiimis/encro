@@ -87,7 +87,9 @@ auto exec2Impl(
       if (!::PeekNamedPipe(source, nullptr, 0, nullptr, &available, nullptr)) {
         auto const error = ::GetLastError();
         if (
-          error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA || error == ERROR_INVALID_HANDLE
+          error == ERROR_BROKEN_PIPE
+          || error == ERROR_NO_DATA
+          || error == ERROR_INVALID_HANDLE
         ) {
           return totalRead;
         }
@@ -309,13 +311,10 @@ bool readUserIpt(bool yesToAll, std::string_view prompt) {
   return response == 'y' || response == 'Y';
 }
 
-auto findFFprobe(std::optional<fs::path> const& installDir)
-  -> std::optional<fs::path> {
+auto findFFprobe(std::optional<fs::path> const& installDir) -> std::optional<fs::path> {
   auto const systemFFprobeAvailable = exec2("ffprobe -version").exitCode == 0;
 
-  if (!installDir.has_value() && systemFFprobeAvailable) {
-    return fs::path{"ffprobe"};
-  }
+  if (!installDir.has_value() && systemFFprobeAvailable) { return fs::path{"ffprobe"}; }
 
   if (!installDir.has_value() || !fs::is_directory(installDir.value())) {
     return std::nullopt;
@@ -333,13 +332,10 @@ auto findFFprobe(std::optional<fs::path> const& installDir)
   return std::nullopt;
 }
 
-auto findFFmpeg(std::optional<fs::path> const& installDir)
-  -> std::optional<fs::path> {
+auto findFFmpeg(std::optional<fs::path> const& installDir) -> std::optional<fs::path> {
   auto const systemFFmpegAvailable = exec2("ffmpeg -version").exitCode == 0;
 
-  if (!installDir.has_value() && systemFFmpegAvailable) {
-    return fs::path{"ffmpeg"};
-  }
+  if (!installDir.has_value() && systemFFmpegAvailable) { return fs::path{"ffmpeg"}; }
 
   if (!installDir.has_value() || !fs::is_directory(installDir.value())) {
     return std::nullopt;

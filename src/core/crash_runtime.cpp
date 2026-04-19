@@ -111,10 +111,7 @@ void installHandlers() {
 #endif
 }
 
-void reportCaughtException(
-  std::string_view context,
-  std::exception const& exception
-) {
+void reportCaughtException(std::string_view context, std::exception const& exception) {
   writeCrashReport(std::format("{}: {}", context, exception.what()));
 }
 

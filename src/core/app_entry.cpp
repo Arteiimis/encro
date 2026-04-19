@@ -82,8 +82,7 @@ auto failWithHint(
   return 1;
 }
 
-auto handleParseAndHelp(prelude::StartupContext const& startup)
-  -> std::optional<int> {
+auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional<int> {
   auto const& [desc, vm, error] = startup.cmd;
 
   if (error.has_value()) {
@@ -117,10 +116,8 @@ auto buildAppConfig(prelude::StartupContext const& startup)
   return config;
 }
 
-auto ensureToolchainReady(
-  appctx::AppContext& ctx,
-  prelude::StartupContext const& startup
-) -> bool {
+auto ensureToolchainReady(appctx::AppContext& ctx, prelude::StartupContext const& startup)
+  -> bool {
   if (ctx.config.packOnly) { return true; }
 
   auto const toolRes = toolchain::resolve(ctx.config, ctx.toolchain);

@@ -198,19 +198,14 @@ TEST_CASE("buildConfig rejects both input and inputs", "[cmd][config]") {
   vm.insert(
     std::pair{
       "inputs",
-      po::variable_value(
-        boost::any{std::vector<std::string>{inputPath.string()}},
-        false
-      )
+      po::variable_value(boost::any{std::vector<std::string>{inputPath.string()}}, false)
     }
   );
 
   auto const configRes = cmd::buildConfig(vm);
 
   REQUIRE_FALSE(configRes);
-  CHECK(
-    configRes.error().find("either -i/--input or -I/--inputs") != std::string::npos
-  );
+  CHECK(configRes.error().find("either -i/--input or -I/--inputs") != std::string::npos);
 }
 
 TEST_CASE("buildConfig rejects invalid process type", "[cmd][config]") {
@@ -255,10 +250,7 @@ TEST_CASE("buildConfig rejects multi-input for picture type", "[cmd][config]") {
   auto vm = makeVm({{"type", "picture"}});
   vm.insert(
     {"inputs",
-     po::variable_value(
-       boost::any{std::vector<std::string>{inputPath.string()}},
-       false
-     )}
+     po::variable_value(boost::any{std::vector<std::string>{inputPath.string()}}, false)}
   );
 
   auto const configRes = cmd::buildConfig(vm);
@@ -277,10 +269,7 @@ TEST_CASE("buildConfig rejects multi-input with pack-only", "[cmd][config]") {
   auto vm = makeVm({{"type", "video"}}, {"pack-only"});
   vm.insert(
     {"inputs",
-     po::variable_value(
-       boost::any{std::vector<std::string>{inputPath.string()}},
-       false
-     )}
+     po::variable_value(boost::any{std::vector<std::string>{inputPath.string()}}, false)}
   );
 
   auto const configRes = cmd::buildConfig(vm);
@@ -297,10 +286,7 @@ TEST_CASE("buildConfig rejects multi-input directory path", "[cmd][config]") {
   auto vm = makeVm({{"type", "video"}});
   vm.insert(
     {"inputs",
-     po::variable_value(
-       boost::any{std::vector<std::string>{temp.path.string()}},
-       false
-     )}
+     po::variable_value(boost::any{std::vector<std::string>{temp.path.string()}}, false)}
   );
 
   auto const configRes = cmd::buildConfig(vm);
@@ -337,10 +323,7 @@ TEST_CASE("buildConfig rejects missing input path", "[cmd][config]") {
   CHECK(configRes.error().find("does not exist") != std::string::npos);
 }
 
-TEST_CASE(
-  "buildConfig rejects output path that is not a directory",
-  "[cmd][config]"
-) {
+TEST_CASE("buildConfig rejects output path that is not a directory", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const outputFile = temp.path / "output.txt";
@@ -352,15 +335,10 @@ TEST_CASE(
   auto const configRes = cmd::buildConfig(vm);
 
   REQUIRE_FALSE(configRes);
-  CHECK(
-    configRes.error().find("output path is not a directory") != std::string::npos
-  );
+  CHECK(configRes.error().find("output path is not a directory") != std::string::npos);
 }
 
-TEST_CASE(
-  "buildConfig rejects ffmpeg path that is not a directory",
-  "[cmd][config]"
-) {
+TEST_CASE("buildConfig rejects ffmpeg path that is not a directory", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const ffmpegFile = temp.path / "ffmpeg";

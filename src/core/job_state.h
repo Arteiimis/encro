@@ -139,10 +139,8 @@ auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot;
 
 auto configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) -> bool;
 
-auto makeEncodeAction(
-  fs::path const& inputPath,
-  fs::path const& plannedOutputFile
-) -> ActionRecord;
+auto makeEncodeAction(fs::path const& inputPath, fs::path const& plannedOutputFile)
+  -> ActionRecord;
 
 auto makeArchiveAction(
   fs::path const& archiveFile,

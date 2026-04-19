@@ -59,8 +59,7 @@ TEST_CASE("EncodeConfig rejects invalid CRF", "[encode-config]") {
 
   REQUIRE_FALSE(validation);
   CHECK(
-    validation.error().find("CRF value must be between 0 and 51")
-    != std::string::npos
+    validation.error().find("CRF value must be between 0 and 51") != std::string::npos
   );
 }
 
@@ -251,10 +250,7 @@ TEST_CASE("EncodeConfig uses custom webp quality", "[encode-config]") {
   CHECK(cmd.find("-q:v 55") != std::string::npos);
 }
 
-TEST_CASE(
-  "EncodeConfig suppresses ffmpeg banner and info output",
-  "[encode-config]"
-) {
+TEST_CASE("EncodeConfig suppresses ffmpeg banner and info output", "[encode-config]") {
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "sample.mp4");
 

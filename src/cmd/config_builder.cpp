@@ -26,8 +26,7 @@ auto requireDir(fs::path const& path, std::string_view label) -> eh::Result<void
   return {};
 }
 
-auto requireExists(fs::path const& path, std::string_view label)
-  -> eh::Result<void> {
+auto requireExists(fs::path const& path, std::string_view label) -> eh::Result<void> {
   if (!fs::exists(path)) {
     return eh::makeError(
       "The specified {} path/file does not exist: {}",
@@ -42,11 +41,7 @@ auto requireExists(fs::path const& path, std::string_view label)
 auto requireRegularFile(fs::path const& path, std::string_view label)
   -> eh::Result<void> {
   if (!fs::is_regular_file(path)) {
-    return eh::makeError(
-      "The specified {} path is not a file: {}",
-      label,
-      path.string()
-    );
+    return eh::makeError("The specified {} path is not a file: {}", label, path.string());
   }
 
   return {};
@@ -92,9 +87,7 @@ auto readMaxParallelJobs(boost::program_options::variables_map const& vm)
   if (!vm.count("jobs")) { return std::nullopt; }
 
   auto const jobs = vm.at("jobs").as<std::size_t>();
-  if (jobs == 0) {
-    return eh::makeError("Invalid jobs value: 0. --jobs must be >= 1.");
-  }
+  if (jobs == 0) { return eh::makeError("Invalid jobs value: 0. --jobs must be >= 1."); }
 
   return jobs;
 }
@@ -228,8 +221,7 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   if (vm.count("output")) {
     config.outputPath = fs::path{getParamStr(vm, "output")};
     if (
-      auto const validDir = requireDir(config.outputPath.value(), "output");
-      !validDir
+      auto const validDir = requireDir(config.outputPath.value(), "output"); !validDir
     ) {
       return eh::makeError("{}", validDir.error());
     }

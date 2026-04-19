@@ -13,8 +13,7 @@ void runIndexedTasks(
 ) {
   if (taskCount == 0 || !task) { return; }
 
-  auto const actualWorkers =
-    std::max<std::size_t>(1, std::min(taskCount, workerCount));
+  auto const actualWorkers = std::max<std::size_t>(1, std::min(taskCount, workerCount));
 
   auto pool = BS::pause_thread_pool{actualWorkers};
   pool.pause();

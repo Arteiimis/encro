@@ -177,8 +177,7 @@ auto fromJsonConfig(json::object const& object) -> ConfigSnapshot {
     .processType = optionalStringFrom(object, "processType").value_or("video"),
     .outputFormat = optionalStringFrom(object, "outputFormat").value_or("mp4"),
     .outputLayout = optionalStringFrom(object, "outputLayout").value_or("flat"),
-    .packOutput =
-      object.if_contains("packOutput") && object.at("packOutput").as_bool(),
+    .packOutput = object.if_contains("packOutput") && object.at("packOutput").as_bool(),
     .packOnly = object.if_contains("packOnly") && object.at("packOnly").as_bool(),
     .recursive = object.if_contains("recursive") && object.at("recursive").as_bool(),
     .forceNameConflictHandling = !object.if_contains("forceNameConflictHandling")
@@ -197,8 +196,8 @@ auto toJson(ActionRecord const& action) -> json::object {
   object["attemptCount"] = action.attemptCount;
   object["inputPath"] = pathToJson(action.inputPath);
   object["plannedOutputFile"] = pathToJson(action.plannedOutputFile);
-  object["inputSize"] = action.inputSize.has_value() ? json::value(*action.inputSize)
-                                                     : json::value(nullptr);
+  object["inputSize"] =
+    action.inputSize.has_value() ? json::value(*action.inputSize) : json::value(nullptr);
   object["inputWriteTime"] = action.inputWriteTime.has_value()
     ? json::value(*action.inputWriteTime)
     : json::value(nullptr);
@@ -212,11 +211,10 @@ auto toJson(ActionRecord const& action) -> json::object {
   object["lastFrameCount"] = action.lastFrameCount.has_value()
     ? json::value(*action.lastFrameCount)
     : json::value(nullptr);
-  object["lastStatus"] = action.lastStatus.has_value()
-    ? json::value(*action.lastStatus)
-    : json::value(nullptr);
-  object["lastError"] = action.lastError.has_value() ? json::value(*action.lastError)
-                                                     : json::value(nullptr);
+  object["lastStatus"] = action.lastStatus.has_value() ? json::value(*action.lastStatus)
+                                                       : json::value(nullptr);
+  object["lastError"] =
+    action.lastError.has_value() ? json::value(*action.lastError) : json::value(nullptr);
   object["startedAtMs"] = action.startedAtMs.has_value()
     ? json::value(*action.startedAtMs)
     : json::value(nullptr);
@@ -232,13 +230,10 @@ auto toJson(ActionRecord const& action) -> json::object {
 auto fromJsonAction(json::object const& object) -> ActionRecord {
   return ActionRecord{
     .id = optionalStringFrom(object, "id").value_or({}),
-    .kind =
-      parseActionKind(optionalStringFrom(object, "kind").value_or("encode_video")),
-    .status =
-      parseActionStatus(optionalStringFrom(object, "status").value_or("pending")),
+    .kind = parseActionKind(optionalStringFrom(object, "kind").value_or("encode_video")),
+    .status = parseActionStatus(optionalStringFrom(object, "status").value_or("pending")),
     .label = optionalStringFrom(object, "label").value_or({}),
-    .attemptCount =
-      optionalNumberFrom<std::size_t>(object, "attemptCount").value_or(0),
+    .attemptCount = optionalNumberFrom<std::size_t>(object, "attemptCount").value_or(0),
     .inputPath = optionalPathFrom(object, "inputPath"),
     .plannedOutputFile = optionalPathFrom(object, "plannedOutputFile"),
     .inputSize = optionalNumberFrom<std::uintmax_t>(object, "inputSize"),
@@ -266,17 +261,14 @@ auto toJson(Snapshot const& snapshot) -> json::object {
 
   auto actions = json::array{};
   actions.reserve(snapshot.actions.size());
-  for (auto const& action: snapshot.actions) {
-    actions.emplace_back(toJson(action));
-  }
+  for (auto const& action: snapshot.actions) { actions.emplace_back(toJson(action)); }
   object["actions"] = std::move(actions);
   return object;
 }
 
 auto fromJsonSnapshot(json::object const& object) -> Snapshot {
   auto snapshot = Snapshot{};
-  snapshot.version =
-    optionalNumberFrom<int>(object, "version").value_or(kStateVersion);
+  snapshot.version = optionalNumberFrom<int>(object, "version").value_or(kStateVersion);
   snapshot.jobId = optionalStringFrom(object, "jobId").value_or({});
   snapshot.stage = optionalStringFrom(object, "stage").value_or("planning");
   snapshot.cancelRequested =
@@ -301,26 +293,17 @@ auto loadSnapshot(fs::path const& path) -> eh::Result<Snapshot> {
     return eh::makeError("Failed to open state file: {}", path.string());
   }
 
-  auto content = std::string{
-    std::istreambuf_iterator<char>{input},
-    std::istreambuf_iterator<char>{}
-  };
+  auto content =
+    std::string{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
 
   try {
     auto value = json::parse(content);
     if (!value.is_object()) {
-      return eh::makeError(
-        "State file root must be a JSON object: {}",
-        path.string()
-      );
+      return eh::makeError("State file root must be a JSON object: {}", path.string());
     }
     return fromJsonSnapshot(value.as_object());
   } catch (std::exception const& ex) {
-    return eh::makeError(
-      "Failed to parse state file {}: {}",
-      path.string(),
-      ex.what()
-    );
+    return eh::makeError("Failed to parse state file {}: {}", path.string(), ex.what());
   }
 }
 
@@ -341,8 +324,7 @@ auto inputChanged(ActionRecord const& action) -> bool {
   auto const currentWriteTime = inputWriteTime(action.inputPath.value());
   if (!currentSize.has_value() || !currentWriteTime.has_value()) { return true; }
 
-  return action.inputSize != currentSize
-    || action.inputWriteTime != currentWriteTime;
+  return action.inputSize != currentSize || action.inputWriteTime != currentWriteTime;
 }
 
 void clearExecutionState(ActionRecord& action) {
@@ -604,10 +586,7 @@ void Store::markProgress(
   flushLocked(false);
 }
 
-void Store::markSucceeded(
-  std::string_view id,
-  std::optional<std::string_view> status
-) {
+void Store::markSucceeded(std::string_view id, std::optional<std::string_view> status) {
   auto lock = std::scoped_lock{mtx_};
   auto const index = indexFor(id);
   if (!index.has_value()) { return; }
@@ -643,9 +622,7 @@ void Store::markInterrupted(std::string_view id, std::string_view reason) {
   if (!index.has_value()) { return; }
 
   auto& action = snapshot_.actions[index.value()];
-  if (
-    action.status == ActionStatus::Succeeded || action.status == ActionStatus::Failed
-  ) {
+  if (action.status == ActionStatus::Succeeded || action.status == ActionStatus::Failed) {
     return;
   }
 
@@ -670,8 +647,7 @@ void Store::markIncompleteInterrupted(
 
     auto& action = snapshot_.actions[index.value()];
     if (
-      action.status == ActionStatus::Pending
-      || action.status == ActionStatus::Running
+      action.status == ActionStatus::Pending || action.status == ActionStatus::Running
     ) {
       action.status = ActionStatus::Interrupted;
       action.lastError = std::string{reason};
@@ -745,9 +721,8 @@ auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> fs::path {
   }
 
   if (!config.inputPath.empty()) {
-    auto const base = fs::is_directory(config.inputPath)
-      ? config.inputPath
-      : config.inputPath.parent_path();
+    auto const base = fs::is_directory(config.inputPath) ? config.inputPath
+                                                         : config.inputPath.parent_path();
     return base / "encro.job-state.json";
   }
 
@@ -848,9 +823,7 @@ auto needsExecution(ActionRecord const& action) -> bool {
 
 auto actionTargetExists(ActionRecord const& action) -> bool {
   auto ec = std::error_code{};
-  if (
-    action.kind == ActionKind::EncodeVideo && action.plannedOutputFile.has_value()
-  ) {
+  if (action.kind == ActionKind::EncodeVideo && action.plannedOutputFile.has_value()) {
     return fs::exists(action.plannedOutputFile.value(), ec) && !ec;
   }
   if (action.kind == ActionKind::BuildArchive && action.archiveFile.has_value()) {

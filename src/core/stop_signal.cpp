@@ -42,7 +42,9 @@ void ensureForceExitWatchdogStarted() {
     while (true) {
       auto const deadline = gForceExitDeadlineMs.load(std::memory_order_acquire);
       if (
-        deadline != 0 && gStopRequested.load(std::memory_order_acquire) && nowMs() >= deadline
+        deadline != 0
+        && gStopRequested.load(std::memory_order_acquire)
+        && nowMs() >= deadline
       ) {
         ::ExitProcess(kCanceledExitCode);
       }
@@ -64,11 +66,15 @@ BOOL WINAPI handleConsoleCtrl(DWORD ctrlType) {
       auto const deadline =
         nowMs()
         + static_cast<unsigned long long>(
-          std::chrono::duration_cast<std::chrono::milliseconds>(kForceExitGracePeriod).count()
+          std::chrono::duration_cast<std::chrono::milliseconds>(kForceExitGracePeriod)
+            .count()
         );
       auto expectedDeadline = 0ull;
-      if (!gForceExitDeadlineMs
-             .compare_exchange_strong(expectedDeadline, deadline, std::memory_order_acq_rel)) {
+      if (!gForceExitDeadlineMs.compare_exchange_strong(
+            expectedDeadline,
+            deadline,
+            std::memory_order_acq_rel
+          )) {
         ::ExitProcess(kCanceledExitCode);
       }
 

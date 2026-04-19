@@ -47,8 +47,7 @@ TEST_CASE("reportCaughtException writes crash report to default logger", "[crash
   TempDir temp;
   auto const logPath = temp.path / "crash.log";
 
-  auto sink =
-    std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
   auto logger = std::make_shared<spdlog::logger>("crash-test", sink);
   logger->set_level(spdlog::level::trace);
 
@@ -67,8 +66,7 @@ TEST_CASE("reportUnknownException writes stacktrace section", "[crash]") {
   TempDir temp;
   auto const logPath = temp.path / "unknown.log";
 
-  auto sink =
-    std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
   auto logger = std::make_shared<spdlog::logger>("crash-unknown", sink);
   logger->set_level(spdlog::level::trace);
 

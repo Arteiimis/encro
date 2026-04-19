@@ -51,8 +51,7 @@ auto planPictureZipEntryNames(
   if (config.outputLayout == appctx::OutputLayout::Keep) {
     for (auto const& filePath: filePaths) {
       auto const relativePath = filePath.lexically_relative(dirPath);
-      plannedEntries[filePath] =
-        (relativePath.empty() || relativePath == fs::path{"."})
+      plannedEntries[filePath] = (relativePath.empty() || relativePath == fs::path{"."})
         ? filePath.filename().generic_string()
         : relativePath.generic_string();
     }
@@ -79,8 +78,7 @@ auto planPictureZipEntryNames(
 
     auto const fileNamePath = fs::path{fileName};
     for (auto const& filePath: sortedPaths) {
-      plannedEntries[filePath] =
-        buildConflictHandledPictureEntryName(dirPath, filePath);
+      plannedEntries[filePath] = buildConflictHandledPictureEntryName(dirPath, filePath);
     }
   }
 
@@ -178,8 +176,7 @@ auto buildPicturePackPlan(
     return eh::makeError("No pictures found to pack in directory: {}", dirPath.string());
   }
 
-  auto const plannedEntryNames =
-    planPictureZipEntryNames(config, dirPath, scannedPics);
+  auto const plannedEntryNames = planPictureZipEntryNames(config, dirPath, scannedPics);
   auto packInputs = std::vector<PackGroupInput>{};
   packInputs.reserve(scannedPics.size());
   for (auto const& picPath: scannedPics) {
@@ -246,7 +243,9 @@ auto buildPicturePackPlan(
         );
       },
     .zipEntryNameForFile = [plannedEntryNames](fs::path const& filePath) -> std::string {
-      if (auto const it = plannedEntryNames.find(filePath); it != plannedEntryNames.end()) {
+      if (
+        auto const it = plannedEntryNames.find(filePath); it != plannedEntryNames.end()
+      ) {
         return it->second;
       }
       return filePath.filename().generic_string();
