@@ -2,7 +2,7 @@
 
 #include "core/parallel.h"
 #include "core/progress.h"
-#include "core/stop_signal.h"
+#include "infra/stop_signal.h"
 #include "pack/packer.h"
 
 #include <algorithm>

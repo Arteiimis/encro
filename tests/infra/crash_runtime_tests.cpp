@@ -1,4 +1,4 @@
-#include "core/crash_runtime.h"
+#include "infra/crash_runtime.h"
 #include "test_utils.h"
 
 #include <boost/dll/runtime_symbol_info.hpp>

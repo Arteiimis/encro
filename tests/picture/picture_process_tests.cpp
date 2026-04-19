@@ -1,4 +1,4 @@
-#include "pack/picture_process.h"
+#include "picture/picture_process.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
