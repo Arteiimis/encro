@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-19
+
+### Added
+
+- Packing is resumable: an interrupted zip is continued rather than restarted.
+- `Ctrl-C` requests a stop and lets running work finish cleanly before exiting.
+- Directory packing builds its plan from the directory itself, including subparts, instead of requiring a caller to enumerate files.
+- An invalid command line prints a short hint pointing at `-h`.
+
+### Changed
+
+- Video info and encoding state are cached, so repeated work over the same files skips the expensive steps.
+- MP4 output names account for whether the file will be packed.
+
+### Fixed
+
+- Name collisions across the video and pack paths resolve through one shared set of naming rules instead of two divergent ones.
+
 ## [0.3.0] - 2026-04-13
 
 ### Added
@@ -52,7 +70,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v0.3.0...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Arteiimis/encro/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Arteiimis/encro/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Arteiimis/encro/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/Arteiimis/encro/compare/v0.1.0...v0.1.5

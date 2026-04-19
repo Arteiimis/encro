@@ -191,6 +191,28 @@ TEST_CASE("encro help command exits successfully", "[e2e][cli]") {
   CHECK(result.stdoutText.find("General options") != std::string::npos);
 }
 
+TEST_CASE("encro invalid CLI args print short help hint", "[e2e][cli]") {
+  auto const result = e2e::runEncro({"--nope"});
+
+  CHECK(result.exitCode == 1);
+  CHECK(result.stdoutText.find("Invalid arguments") != std::string::npos);
+  CHECK(
+    result.stdoutText.find("Run encro -h/--help to view usage.") != std::string::npos
+  );
+  CHECK(result.stdoutText.find("General options") == std::string::npos);
+}
+
+TEST_CASE("encro missing input prints short help hint", "[e2e][cli]") {
+  auto const result = e2e::runEncro({});
+
+  CHECK(result.exitCode == 1);
+  CHECK(result.stdoutText.find("Input path is required") != std::string::npos);
+  CHECK(
+    result.stdoutText.find("Run encro -h/--help to view usage.") != std::string::npos
+  );
+  CHECK(result.stdoutText.find("General options") == std::string::npos);
+}
+
 TEST_CASE("encro pack-only CLI packs a directory", "[e2e][pack-only]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";
