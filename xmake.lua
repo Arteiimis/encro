@@ -63,8 +63,12 @@ target("tests")
   else
     add_syslinks("dl")
   end
-  add_includedirs("src")
+  add_includedirs("src", "tests")
   add_files("tests/*.cpp")
+  add_files("tests/app/*.cpp")
+  add_files("tests/infra/*.cpp")
+  add_files("tests/picture/*.cpp")
+  add_files("tests/video/*.cpp")
   add_files("src/**.cpp|main.cpp")
 target_end()
 

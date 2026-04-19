@@ -1,4 +1,4 @@
-#include "core/stacktrace.h"
+#include "infra/stacktrace.h"
 
 #include <catch2/catch_all.hpp>
 

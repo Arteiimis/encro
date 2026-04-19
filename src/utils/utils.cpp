@@ -1,6 +1,6 @@
 #include "utils/utils.h"
 
-#include "core/stop_signal.h"
+#include "infra/stop_signal.h"
 
 #include <boost/lexical_cast.hpp>
 #include <boost/process/v1.hpp>

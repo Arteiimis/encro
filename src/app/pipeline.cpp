@@ -1,10 +1,10 @@
-#include "core/pipeline.h"
+#include "app/pipeline.h"
 
 #include "core/archive_plan.h"
 #include "core/job_state.h"
-#include "core/stop_signal.h"
+#include "infra/stop_signal.h"
 #include "pack/packer.h"
-#include "pack/picture_process.h"
+#include "picture/picture_process.h"
 #include "utils/utils.h"
 #include "video/video_process.h"
 

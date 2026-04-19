@@ -1,4 +1,4 @@
-#include "pack/picture_process.h"
+#include "picture/picture_process.h"
 
 #include "core/collision_naming.h"
 #include "core/media_scanner.h"

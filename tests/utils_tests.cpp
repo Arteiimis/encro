@@ -1,4 +1,4 @@
-#include "core/stop_signal.h"
+#include "infra/stop_signal.h"
 #include "utils/utils.h"
 
 #include <catch2/catch_all.hpp>

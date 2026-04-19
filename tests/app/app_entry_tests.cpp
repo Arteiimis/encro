@@ -1,4 +1,4 @@
-#include "core/app_entry.h"
+#include "app/app_entry.h"
 
 #include <catch2/catch_all.hpp>
 

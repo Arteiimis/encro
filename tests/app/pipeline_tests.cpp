@@ -1,5 +1,5 @@
 #include "core/job_state.h"
-#include "core/pipeline.h"
+#include "app/pipeline.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>

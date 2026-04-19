@@ -1,5 +1,5 @@
-#include "core/app_entry.h"
-#include "core/crash_runtime.h"
+#include "app/app_entry.h"
+#include "infra/crash_runtime.h"
 
 #include <exception>
 
