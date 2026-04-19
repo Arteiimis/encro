@@ -2,6 +2,9 @@
 
 #include <boost/json.hpp>
 
+#include <immer/atom.hpp>
+#include <immer/map.hpp>
+
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
@@ -58,8 +61,6 @@ struct ToolchainPaths {
 };
 
 struct RuntimeContext {
-  path_map<json::value> videoInfoCache;
-
   struct EncodingVideoState {
     fs::path inputPath;
     std::optional<std::string> actionId;
@@ -79,9 +80,64 @@ struct RuntimeContext {
     std::mutex mtx;
   };
 
+  using VideoInfoCacheMap = immer::map<fs::path, json::value>;
+
+  struct VideoInfoCacheStore {
+    void set(fs::path const& path, json::value const& value) {
+      snapshot.update([path, value](VideoInfoCacheMap const& cache) {
+        return cache.set(path, value);
+      });
+    }
+
+    auto find(fs::path const& path) const -> std::optional<json::value> {
+      auto const cache = snapshot.load();
+      if (auto const* value = cache->find(path); value != nullptr) { return *value; }
+      return std::nullopt;
+    }
+
+    auto size() const -> std::size_t { return snapshot.load()->size(); }
+
+    auto load() const { return snapshot.load(); }
+
+  private:
+    immer::atom<VideoInfoCacheMap> snapshot;
+  } videoInfoCache;
+
+  using EncodingStateMap = immer::map<fs::path, std::shared_ptr<EncodingVideoState>>;
+
   struct EncodingStateStore {
-    path_map<std::shared_ptr<EncodingVideoState>> map;
-    std::mutex mtx;
+    void set(std::shared_ptr<EncodingVideoState> const& state) {
+      snapshot.update([state](EncodingStateMap const& states) {
+        return states.set(state->inputPath, state);
+      });
+    }
+
+    void erase(fs::path const& path) {
+      snapshot.update([path](EncodingStateMap const& states) {
+        return states.erase(path);
+      });
+    }
+
+    auto find(fs::path const& path) const -> std::shared_ptr<EncodingVideoState> {
+      auto const states = snapshot.load();
+      if (auto const* state = states->find(path); state != nullptr) { return *state; }
+      return {};
+    }
+
+    auto values() const -> std::vector<std::shared_ptr<EncodingVideoState>> {
+      auto const states = snapshot.load();
+      auto values = std::vector<std::shared_ptr<EncodingVideoState>>{};
+      values.reserve(states->size());
+      for (auto const& entry: *states) { values.push_back(entry.second); }
+      return values;
+    }
+
+    auto size() const -> std::size_t { return snapshot.load()->size(); }
+
+    auto load() const { return snapshot.load(); }
+
+  private:
+    immer::atom<EncodingStateMap> snapshot;
   } encodingStates;
 
   std::shared_ptr<::jobstate::Store> jobState;
