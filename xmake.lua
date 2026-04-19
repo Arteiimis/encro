@@ -24,6 +24,7 @@ add_requires("boost[all]")
 add_requires("thread-pool")
 add_requires("spdlog[std_format]")
 add_requires("indicators")
+add_requires("immer")
 if is_plat("windows") then
   add_requires("libzippp[toolchains=clang-cl]")
 else
@@ -34,7 +35,7 @@ add_requires("catch2")
 target("encro")
   set_kind("binary")
 
-  add_packages("boost", "thread-pool", "indicators", "spdlog", "libzippp")
+  add_packages("boost", "thread-pool", "indicators", "spdlog", "libzippp", "immer")
   if is_plat("windows") then
     add_syslinks("dbghelp")
   else
@@ -56,7 +57,7 @@ target("tests")
   set_kind("binary")
   set_default(false)
 
-  add_packages("catch2", "boost", "thread-pool", "indicators", "spdlog", "libzippp")
+  add_packages("catch2", "boost", "thread-pool", "indicators", "spdlog", "libzippp", "immer")
   if is_plat("windows") then
     add_syslinks("dbghelp")
   else
@@ -71,7 +72,7 @@ target("e2e_tests")
   set_kind("binary")
   set_default(false)
 
-  add_packages("catch2", "boost", "libzippp")
+  add_packages("catch2", "boost", "libzippp", "immer")
   add_includedirs("tests")
   if is_plat("windows") then
     add_syslinks("dbghelp")
