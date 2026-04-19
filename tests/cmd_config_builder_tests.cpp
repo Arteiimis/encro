@@ -338,6 +338,139 @@ TEST_CASE("buildConfig rejects output path that is not a directory", "[cmd][conf
   CHECK(configRes.error().find("output path is not a directory") != std::string::npos);
 }
 
+TEST_CASE("buildConfig accepts output path that does not exist yet", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const outputDir = temp.path / "new_output";
+  writeFile(inputPath);
+
+  auto const vm = makeVm({{"input", inputPath.string()}, {"output", outputDir.string()}});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  REQUIRE(configRes->outputPath.has_value());
+  CHECK(configRes->outputPath.value() == outputDir);
+}
+
+TEST_CASE(
+  "buildConfig resolves + alias to single-file input directory",
+  "[cmd][config]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm = makeVm({{"input", inputPath.string()}, {"output", "+"}});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  REQUIRE(configRes->outputPath.has_value());
+  CHECK(configRes->outputPath.value() == temp.path);
+}
+
+TEST_CASE("buildConfig resolves input alias with relative suffix", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm =
+    makeVm({{"input", inputPath.string()}, {"output", "input://encoded/webp"}});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  REQUIRE(configRes->outputPath.has_value());
+  CHECK(configRes->outputPath.value() == temp.path / "encoded" / "webp");
+}
+
+TEST_CASE(
+  "buildConfig resolves = alias to nearest common ancestor for multi-input",
+  "[cmd][config]"
+) {
+  namespace po = boost::program_options;
+
+  TempDir temp;
+  auto const inputA = temp.path / "group_a" / "clip_a.mp4";
+  auto const inputB = temp.path / "group_b" / "clip_b.mp4";
+  fs::create_directories(inputA.parent_path());
+  fs::create_directories(inputB.parent_path());
+  writeFile(inputA);
+  writeFile(inputB);
+
+  auto vm = makeVm({{"type", "video"}, {"output", "=/encoded"}});
+  vm.insert(
+    {"inputs",
+     po::variable_value(
+       boost::any{std::vector<std::string>{inputA.string(), inputB.string()}},
+       false
+     )}
+  );
+
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  REQUIRE(configRes->outputPath.has_value());
+  CHECK(configRes->outputPath.value() == temp.path / "encoded");
+}
+
+TEST_CASE(
+  "buildConfig rejects input alias for multi-input without shared parent",
+  "[cmd][config]"
+) {
+  namespace po = boost::program_options;
+
+  TempDir temp;
+  auto const inputA = temp.path / "group_a" / "clip_a.mp4";
+  auto const inputB = temp.path / "group_b" / "clip_b.mp4";
+  fs::create_directories(inputA.parent_path());
+  fs::create_directories(inputB.parent_path());
+  writeFile(inputA);
+  writeFile(inputB);
+
+  auto vm = makeVm({{"type", "video"}, {"output", "+/encoded"}});
+  vm.insert(
+    {"inputs",
+     po::variable_value(
+       boost::any{std::vector<std::string>{inputA.string(), inputB.string()}},
+       false
+     )}
+  );
+
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(configRes.error().find("share the same parent directory") != std::string::npos);
+}
+
+TEST_CASE(
+  "buildConfig resolves input alias for multi-input with shared parent",
+  "[cmd][config]"
+) {
+  namespace po = boost::program_options;
+
+  TempDir temp;
+  auto const sharedDir = temp.path / "shared";
+  auto const inputA = sharedDir / "clip_a.mp4";
+  auto const inputB = sharedDir / "clip_b.mp4";
+  fs::create_directories(sharedDir);
+  writeFile(inputA);
+  writeFile(inputB);
+
+  auto vm = makeVm({{"type", "video"}, {"output", "+\\encoded"}});
+  vm.insert(
+    {"inputs",
+     po::variable_value(
+       boost::any{std::vector<std::string>{inputA.string(), inputB.string()}},
+       false
+     )}
+  );
+
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  REQUIRE(configRes->outputPath.has_value());
+  CHECK(configRes->outputPath.value() == sharedDir / "encoded");
+}
+
 TEST_CASE("buildConfig rejects ffmpeg path that is not a directory", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";

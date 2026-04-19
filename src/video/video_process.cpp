@@ -350,6 +350,26 @@ auto normalizeSourceRootDir(fs::path const& inputPath) -> fs::path {
   return fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
 }
 
+auto commonAncestorPath(fs::path const& lhs, fs::path const& rhs)
+  -> std::optional<fs::path> {
+  auto const normalizedLhs = lhs.lexically_normal();
+  auto const normalizedRhs = rhs.lexically_normal();
+
+  auto result = fs::path{};
+  auto lhsIt = normalizedLhs.begin();
+  auto rhsIt = normalizedRhs.begin();
+  while (lhsIt != normalizedLhs.end()
+         && rhsIt != normalizedRhs.end()
+         && *lhsIt == *rhsIt) {
+    result /= *lhsIt;
+    ++lhsIt;
+    ++rhsIt;
+  }
+
+  if (result.empty()) { return std::nullopt; }
+  return result.lexically_normal();
+}
+
 auto maybeJobState(appctx::AppContext& ctx) -> jobstate::Store* {
   return ctx.runtime.jobState.get();
 }
@@ -987,12 +1007,13 @@ auto resolveMultiInputBasePath(
 
   if (config.outputPath.has_value()) { return config.outputPath.value(); }
 
-  auto const basePath = inputPaths.front().parent_path();
+  auto basePath = std::optional<fs::path>{normalizeSourceRootDir(inputPaths.front())};
   for (auto const& inputPath: inputPaths) {
-    if (inputPath.parent_path() != basePath) { return std::nullopt; }
+    basePath = commonAncestorPath(basePath.value(), normalizeSourceRootDir(inputPath));
+    if (!basePath.has_value()) { return std::nullopt; }
   }
 
-  return basePath;
+  return basePath.value();
 }
 
 auto maybePackOutputs(
