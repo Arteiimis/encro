@@ -528,16 +528,6 @@ auto buildDirectoryPackPlan(
           ordinalRanges.at(index)
         );
       },
-    .progressLabelForIndex =
-      [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
-        return std::format(
-          "Packing: {}",
-          pack::appendOrdinalRangeSuffix(
-            std::format("{}_part{}.zip", dirName, index + 1),
-            ordinalRanges.at(index)
-          )
-        );
-      },
     .zipEntryNameForFile = forceNameConflictHandling
       ? ZipEntryNameResolver{[dirPath](fs::path const& filePath) {
           return buildConflictHandledPackEntryName(dirPath, filePath);

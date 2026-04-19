@@ -5,7 +5,9 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -36,6 +38,17 @@ auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
 
 auto appendOrdinalRangeSuffix(std::string_view fileName, FileOrdinalRange const& range)
   -> std::string;
+
+auto defaultZipNameForIndex(std::size_t index) -> std::string;
+
+auto defaultProgressLabelForZipName(std::string_view zipName) -> std::string;
+
+auto resolveZipNameForIndex(PackPlan const& plan, std::size_t index) -> std::string;
+
+auto resolveProgressLabelForIndex(PackPlan const& plan, std::size_t index) -> std::string;
+
+auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> indexes)
+  -> PackPlan;
 
 auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path>>;
 
