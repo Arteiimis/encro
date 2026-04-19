@@ -12,6 +12,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <print>
 #include <unordered_map>
 
@@ -95,6 +96,26 @@ auto buildPicturePackBaseName(
 
   return std::format("{}_part{}.{}.zip", dirName, partIndex, subPartIndex + 1);
 }
+
+struct PicturePackNamingState {
+  std::string dirName;
+  std::vector<pack::FileOrdinalRange> ordinalRanges;
+  std::vector<std::pair<std::size_t, std::size_t>> groupNameParts;
+  std::vector<std::size_t> subPartCountsByPart;
+
+  auto zipNameFor(std::size_t index) const -> std::string {
+    auto const [partIndex, subPartIndex] = groupNameParts.at(index);
+    return pack::appendOrdinalRangeSuffix(
+      buildPicturePackBaseName(
+        dirName,
+        partIndex,
+        subPartIndex,
+        subPartCountsByPart.at(partIndex - 1)
+      ),
+      ordinalRanges.at(index)
+    );
+  }
+};
 
 }  // namespace
 
@@ -203,45 +224,20 @@ auto buildPicturePackPlan(
     ++subPartCountsByPart[partition.partIndex - 1];
   }
   auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedPics);
+  auto picturePackNaming = PicturePackNamingState{};
+  picturePackNaming.dirName = dirPath.filename().string();
+  picturePackNaming.ordinalRanges = ordinalRanges;
+  picturePackNaming.groupNameParts = groupNameParts;
+  picturePackNaming.subPartCountsByPart = subPartCountsByPart;
+  auto const picturePackNamingState =
+    std::make_shared<PicturePackNamingState>(std::move(picturePackNaming));
 
   return pack::PackPlan{
     .groups = groupedPics,
     .outputDir = zipFileDir,
-    .zipNameForIndex =
-      [dirName = dirPath.filename().string(),
-       ordinalRanges,
-       groupNameParts,
-       subPartCountsByPart](std::size_t index) {
-        auto const [partIndex, subPartIndex] = groupNameParts.at(index);
-        return pack::appendOrdinalRangeSuffix(
-          buildPicturePackBaseName(
-            dirName,
-            partIndex,
-            subPartIndex,
-            subPartCountsByPart.at(partIndex - 1)
-          ),
-          ordinalRanges.at(index)
-        );
-      },
-    .progressLabelForIndex =
-      [dirName = dirPath.filename().string(),
-       ordinalRanges,
-       groupNameParts,
-       subPartCountsByPart](std::size_t index) {
-        auto const [partIndex, subPartIndex] = groupNameParts.at(index);
-        return std::format(
-          "Packing: {}",
-          pack::appendOrdinalRangeSuffix(
-            buildPicturePackBaseName(
-              dirName,
-              partIndex,
-              subPartIndex,
-              subPartCountsByPart.at(partIndex - 1)
-            ),
-            ordinalRanges.at(index)
-          )
-        );
-      },
+    .zipNameForIndex = [picturePackNamingState](
+                         std::size_t index
+                       ) { return picturePackNamingState->zipNameFor(index); },
     .zipEntryNameForFile = [plannedEntryNames](fs::path const& filePath) -> std::string {
       if (
         auto const it = plannedEntryNames.find(filePath); it != plannedEntryNames.end()

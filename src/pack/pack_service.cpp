@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <format>
+#include <memory>
 
 namespace pack {
 
@@ -48,6 +49,60 @@ auto appendOrdinalRangeSuffix(std::string_view fileName, FileOrdinalRange const&
   );
 }
 
+auto defaultZipNameForIndex(std::size_t index) -> std::string {
+  return std::format("part{}.zip", index + 1);
+}
+
+auto defaultProgressLabelForZipName(std::string_view zipName) -> std::string {
+  return std::format("Packing: {}", zipName);
+}
+
+auto resolveZipNameForIndex(PackPlan const& plan, std::size_t index) -> std::string {
+  return plan.zipNameForIndex ? plan.zipNameForIndex(index)
+                              : defaultZipNameForIndex(index);
+}
+
+auto resolveProgressLabelForIndex(PackPlan const& plan, std::size_t index)
+  -> std::string {
+  if (plan.progressLabelForIndex) { return plan.progressLabelForIndex(index); }
+
+  return defaultProgressLabelForZipName(resolveZipNameForIndex(plan, index));
+}
+
+auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> indexes)
+  -> PackPlan {
+  auto filteredGroups = std::vector<std::vector<fs::path>>{};
+  filteredGroups.reserve(indexes.size());
+  for (auto const index: indexes) { filteredGroups.push_back(plan.groups[index]); }
+
+  auto const selectedIndexes =
+    std::make_shared<std::vector<std::size_t>>(indexes.begin(), indexes.end());
+
+  return PackPlan{
+    .groups = std::move(filteredGroups),
+    .outputDir = plan.outputDir,
+    .zipNameForIndex =
+      [base = plan.zipNameForIndex, selectedIndexes](std::size_t subsetIndex) {
+        auto const actualIndex = selectedIndexes->at(subsetIndex);
+        return base ? base(actualIndex) : defaultZipNameForIndex(actualIndex);
+      },
+    .progressLabelForIndex = plan.progressLabelForIndex
+      ? std::function<std::string(std::size_t)>{[base = plan.progressLabelForIndex,
+                                                 selectedIndexes](
+                                                  std::size_t subsetIndex
+                                                ) {
+          return base(selectedIndexes->at(subsetIndex));
+        }}
+      : std::function<std::string(std::size_t)>{},
+    .zipEntryNameForFile = plan.zipEntryNameForFile,
+    .onGroupStart = {},
+    .onGroupSuccess = {},
+    .onGroupFailure = {},
+    .maxParallelJobs = plan.maxParallelJobs,
+    .removeOnFailure = plan.removeOnFailure,
+  };
+}
+
 auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   if (plan.groups.empty()) { return std::vector<fs::path>{}; }
 
@@ -75,11 +130,9 @@ auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path
       attempted[index] = true;
       if (plan.onGroupStart) { plan.onGroupStart(index); }
 
-      auto const zipName = plan.zipNameForIndex ? plan.zipNameForIndex(index)
-                                                : std::format("part{}.zip", index + 1);
+      auto const zipName = resolveZipNameForIndex(plan, index);
       auto const zipPath = plan.outputDir / zipName;
-      auto const label = plan.progressLabelForIndex ? plan.progressLabelForIndex(index)
-                                                    : std::format("Packing: {}", zipName);
+      auto const label = resolveProgressLabelForIndex(plan, index);
 
       auto const packRes = packFilesToZip(
         plan.groups[index],
