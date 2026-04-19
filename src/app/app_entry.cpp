@@ -1,11 +1,11 @@
-#include "core/app_entry.h"
+#include "app/app_entry.h"
 
 #include "cmd/config_builder.h"
 #include "core/app_context.h"
-#include "core/pipeline.h"
-#include "core/prelude.h"
-#include "core/stop_signal.h"
-#include "core/toolchain.h"
+#include "app/pipeline.h"
+#include "app/prelude.h"
+#include "infra/stop_signal.h"
+#include "infra/toolchain.h"
 
 #include <spdlog/spdlog.h>
 

@@ -1,4 +1,4 @@
-#include "core/prelude.h"
+#include "app/prelude.h"
 
 #include <spdlog/async.h>
 #include <spdlog/logger.h>
