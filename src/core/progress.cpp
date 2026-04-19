@@ -1,5 +1,7 @@
 #include "progress.h"
 
+#include "core/display_text.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <string>
@@ -29,10 +31,7 @@ auto trimCopy(std::string_view text) -> std::string {
 }
 
 auto truncateWithEllipsis(std::string const& text, std::size_t maxLen) -> std::string {
-  if (maxLen == 0) { return {}; }
-  if (text.size() <= maxLen) { return text; }
-  if (maxLen <= 3) { return text.substr(0, maxLen); }
-  return text.substr(0, maxLen - 3) + "...";
+  return displaytext::truncateWithEllipsis(text, maxLen);
 }
 
 auto getConsoleColumns() -> std::size_t {
@@ -97,21 +96,22 @@ auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
   if (parts.size() == 1) { return truncateWithEllipsis(parts.front(), budget); }
 
   constexpr auto delim = std::string_view{" | "};
-  auto const delimTotal = delim.size() * (parts.size() - 1);
+  auto const delimTotal = displaytext::displayWidth(delim) * (parts.size() - 1);
   if (budget <= delimTotal) { return truncateWithEllipsis(trimCopy(text), budget); }
 
   auto contentBudget = budget - delimTotal;
   auto alloc = std::vector<std::size_t>(parts.size(), 0);
 
   auto totalLen = 0ull;
-  for (auto const& part: parts) { totalLen += part.size(); }
+  for (auto const& part: parts) { totalLen += displaytext::displayWidth(part); }
   if (totalLen == 0) { return truncateWithEllipsis(trimCopy(text), budget); }
 
   auto allocated = 0ull;
   for (auto i = 0ull; i < parts.size(); ++i) {
-    auto share = (parts[i].size() * contentBudget) / totalLen;
+    auto const partWidth = displaytext::displayWidth(parts[i]);
+    auto share = (partWidth * contentBudget) / totalLen;
     auto const minShare = std::size_t{4};
-    alloc[i] = std::min(parts[i].size(), std::max(share, minShare));
+    alloc[i] = std::min(partWidth, std::max(share, minShare));
     allocated += alloc[i];
   }
 
@@ -130,7 +130,7 @@ auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
   while (allocated < contentBudget) {
     auto grown = false;
     for (auto i = 0ull; i < alloc.size() && allocated < contentBudget; ++i) {
-      if (alloc[i] < parts[i].size()) {
+      if (alloc[i] < displaytext::displayWidth(parts[i])) {
         ++alloc[i];
         ++allocated;
         grown = true;
@@ -157,15 +157,17 @@ auto ProgressContext::addBar(std::string_view promptText) -> std::size_t {
 void ProgressContext::setPostfixText(std::size_t barIndex, std::string_view promptText) {
   auto lock = std::scoped_lock{mtx_};
   auto const layout = resolveLayout(getConsoleColumns());
-  manager_[barIndex].set_option(indicators::option::BarWidth{layout.barWidth});
-  manager_[barIndex].set_option(
+  bars_[barIndex]->set_option(indicators::option::BarWidth{layout.barWidth});
+  bars_[barIndex]->set_option(
     indicators::option::PostfixText{fitPostfixText(promptText, layout.postfixBudget)}
   );
+  manager_.print_progress();
 }
 
 void ProgressContext::setProgress(std::size_t barIndex, float progress) {
   auto lock = std::scoped_lock{mtx_};
-  manager_[barIndex].set_progress(progress);
+  bars_[barIndex]->set_progress(static_cast<std::size_t>(progress));
+  manager_.print_progress();
 }
 
 auto ProgressContext::manager() -> Manager& {
