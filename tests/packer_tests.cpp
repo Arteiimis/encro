@@ -290,6 +290,51 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "packFilesToZip can add the same source file under multiple entry names",
+  "[packer][packFilesToZip]"
+) {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+  fs::create_directories(outDir);
+
+  auto const source = createSizedFile(srcDir, "same.txt", 64);
+  auto const zipPath = outDir / "bundle.zip";
+
+  progress::ProgressContext progressCtx;
+
+  auto const result = packFilesToZip(
+    {
+      pack::PackFileEntry{
+        .sourcePath = source,
+        .zipEntryName = "0000__summary__a__same.txt"
+      },
+      pack::PackFileEntry{.sourcePath = source, .zipEntryName = "1000__same.txt"},
+    },
+    zipPath,
+    progressCtx,
+    "Packing: bundle.zip"
+  );
+
+  REQUIRE(result);
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  REQUIRE(entries.size() == 2);
+  auto entryNames = std::vector<std::string>{};
+  entryNames.reserve(entries.size());
+  for (auto const& entry: entries) { entryNames.emplace_back(entry.getName()); }
+  std::ranges::sort(entryNames);
+
+  CHECK(
+    entryNames == std::vector<std::string>{"0000__summary__a__same.txt", "1000__same.txt"}
+  );
+  zip.close();
+}
+
+TEST_CASE(
   "packAllFilesInDirectory packs all files with size grouping",
   "[packer][packAllFilesInDirectory]"
 ) {

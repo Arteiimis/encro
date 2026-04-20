@@ -24,6 +24,19 @@ namespace {
 
 using PictureEntryPlan = std::unordered_map<fs::path, std::string>;
 
+auto buildFlatPictureEntryName(std::string_view entryName) -> std::string {
+  return std::format("1000__{}", entryName);
+}
+
+auto buildSummaryPictureEntryName(fs::path const& dirPath, fs::path const& filePath)
+  -> std::string {
+  return std::format(
+    "0000__summary__{}__{}",
+    naming::buildCollisionGroupPrefix(dirPath, filePath),
+    filePath.filename().generic_string()
+  );
+}
+
 auto shouldForcePictureConflictNaming(appctx::AppConfig const& config) -> bool {
   return config.forceNameConflictHandling
     && config.outputLayout == appctx::OutputLayout::Flat;
@@ -68,7 +81,7 @@ auto planPictureZipEntryNames(
 
   for (auto const& [fileName, groupedPaths]: groupedCandidates) {
     if (groupedPaths.size() == 1 && !forceConflictNaming) {
-      plannedEntries[groupedPaths.front()] = fileName;
+      plannedEntries[groupedPaths.front()] = buildFlatPictureEntryName(fileName);
       continue;
     }
 
@@ -77,13 +90,101 @@ auto planPictureZipEntryNames(
       return naming::stablePathString(lhs) < naming::stablePathString(rhs);
     });
 
-    auto const fileNamePath = fs::path{fileName};
     for (auto const& filePath: sortedPaths) {
-      plannedEntries[filePath] = buildConflictHandledPictureEntryName(dirPath, filePath);
+      plannedEntries[filePath] = buildFlatPictureEntryName(
+        buildConflictHandledPictureEntryName(dirPath, filePath)
+      );
     }
   }
 
   return plannedEntries;
+}
+
+auto collectFolderSummaryPictures(
+  fs::path const& dirPath,
+  std::span<fs::path const> filePaths
+) -> std::vector<fs::path> {
+  auto picturesByDirKey = std::unordered_map<std::string, std::vector<fs::path>>{};
+  picturesByDirKey.reserve(filePaths.size());
+
+  for (auto const& filePath: filePaths) {
+    auto const relativeParent = filePath.parent_path().lexically_relative(dirPath);
+    if (relativeParent.empty() || relativeParent == fs::path{"."}) { continue; }
+
+    auto const dirKey = naming::stablePathString(filePath.parent_path());
+    picturesByDirKey[dirKey].push_back(filePath);
+  }
+
+  auto sortedDirKeys = std::vector<std::string>{};
+  sortedDirKeys.reserve(picturesByDirKey.size());
+  for (auto const& [dirKey, _]: picturesByDirKey) { sortedDirKeys.push_back(dirKey); }
+  std::ranges::sort(sortedDirKeys);
+
+  auto summaryPictures = std::vector<fs::path>{};
+  summaryPictures.reserve(sortedDirKeys.size());
+  for (auto const& dirKey: sortedDirKeys) {
+    auto pictures = picturesByDirKey.at(dirKey);
+    std::ranges::sort(pictures, [](fs::path const& lhs, fs::path const& rhs) {
+      return naming::stablePathString(lhs) < naming::stablePathString(rhs);
+    });
+    summaryPictures.push_back(pictures.front());
+  }
+
+  return summaryPictures;
+}
+
+auto buildPicturePackEntryInputs(
+  appctx::AppConfig const& config,
+  fs::path const& dirPath,
+  std::span<fs::path const> scannedPics,
+  PictureEntryPlan const& plannedEntryNames
+) -> std::vector<PackEntryInput> {
+  auto summaryPics = std::vector<fs::path>{};
+  if (config.pictureFolderSummary) {
+    summaryPics = collectFolderSummaryPictures(dirPath, scannedPics);
+  }
+
+  auto packInputs = std::vector<PackEntryInput>{};
+  packInputs.reserve(scannedPics.size() + summaryPics.size());
+
+  for (auto const& summaryPic: summaryPics) {
+    auto const dirKey = naming::stablePathString(summaryPic.parent_path());
+    packInputs.emplace_back(
+      PackEntryInput{
+        .entry =
+          pack::PackFileEntry{
+            .sourcePath = summaryPic,
+            .zipEntryName = buildSummaryPictureEntryName(dirPath, summaryPic),
+          },
+        .sourceDir = summaryPic.parent_path(),
+        .sourceKey = std::format("0000__{}", dirKey),
+        .fileKey = std::format("0000__{}", dirKey),
+      }
+    );
+  }
+
+  for (auto const& picPath: scannedPics) {
+    auto const plannedNameIt = plannedEntryNames.find(picPath);
+    auto const entryName = plannedNameIt != plannedEntryNames.end()
+      ? plannedNameIt->second
+      : picPath.filename().generic_string();
+    auto const sourceKey =
+      std::format("1000__{}", naming::stablePathString(picPath.parent_path()));
+    packInputs.emplace_back(
+      PackEntryInput{
+        .entry =
+          pack::PackFileEntry{
+            .sourcePath = picPath,
+            .zipEntryName = entryName,
+          },
+        .sourceDir = picPath.parent_path(),
+        .sourceKey = sourceKey,
+        .fileKey = std::format("1000__{}", naming::stablePathString(picPath)),
+      }
+    );
+  }
+
+  return packInputs;
 }
 
 auto buildPicturePackBaseName(
@@ -198,25 +299,22 @@ auto buildPicturePackPlan(
   }
 
   auto const plannedEntryNames = planPictureZipEntryNames(config, dirPath, scannedPics);
-  auto packInputs = std::vector<PackGroupInput>{};
-  packInputs.reserve(scannedPics.size());
-  for (auto const& picPath: scannedPics) {
-    packInputs.emplace_back(PackGroupInput{picPath, picPath.parent_path()});
-  }
-  auto const groupedPicPartitions = groupPackFilesWithSubparts(
+  auto const packInputs =
+    buildPicturePackEntryInputs(config, dirPath, scannedPics, plannedEntryNames);
+  auto const groupedPicPartitions = groupPackEntriesWithSubparts(
     packInputs,
     kMaxPicturePackSize,
     kMaxPicturesPerPack,
     kFolderCarryOverThreshold
   );
-  auto groupedPics = std::vector<std::vector<fs::path>>{};
+  auto groupedPics = std::vector<std::vector<pack::PackFileEntry>>{};
   auto groupNameParts = std::vector<std::pair<std::size_t, std::size_t>>{};
   auto subPartCountsByPart = std::vector<std::size_t>{};
   groupedPics.reserve(groupedPicPartitions.size());
   groupNameParts.reserve(groupedPicPartitions.size());
   subPartCountsByPart.reserve(groupedPicPartitions.size());
   for (auto const& partition: groupedPicPartitions) {
-    groupedPics.emplace_back(partition.filePaths);
+    groupedPics.emplace_back(partition.entries);
     groupNameParts.emplace_back(partition.partIndex, partition.subPartIndex);
     if (subPartCountsByPart.size() < partition.partIndex) {
       subPartCountsByPart.resize(partition.partIndex, 0);
@@ -238,14 +336,6 @@ auto buildPicturePackPlan(
     .zipNameForIndex = [picturePackNamingState](
                          std::size_t index
                        ) { return picturePackNamingState->zipNameFor(index); },
-    .zipEntryNameForFile = [plannedEntryNames](fs::path const& filePath) -> std::string {
-      if (
-        auto const it = plannedEntryNames.find(filePath); it != plannedEntryNames.end()
-      ) {
-        return it->second;
-      }
-      return filePath.filename().generic_string();
-    },
     .maxParallelJobs = config.maxParallelJobs,
     .removeOnFailure = true
   };

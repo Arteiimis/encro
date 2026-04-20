@@ -149,6 +149,10 @@ void logConfigSummary(appctx::AppConfig const& config) {
     spdlog::info("Collision-safe file naming disabled for unique flat outputs.");
   }
 
+  if (config.pictureFolderSummary) {
+    spdlog::info("Picture folder summary images enabled.");
+  }
+
   if (config.ffmpegInstallDir.has_value()) {
     spdlog::info(
       "Using custom FFmpeg install directory: {}",

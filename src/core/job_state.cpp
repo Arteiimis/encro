@@ -167,6 +167,7 @@ auto toJson(ConfigSnapshot const& config) -> json::object {
   object["packOnly"] = config.packOnly;
   object["recursive"] = config.recursive;
   object["forceNameConflictHandling"] = config.forceNameConflictHandling;
+  object["pictureFolderSummary"] = config.pictureFolderSummary;
   object["inputPaths"] = pathsToJson(config.inputPaths);
   object["outputPath"] = pathToJson(config.outputPath);
   return object;
@@ -182,6 +183,8 @@ auto fromJsonConfig(json::object const& object) -> ConfigSnapshot {
     .recursive = object.if_contains("recursive") && object.at("recursive").as_bool(),
     .forceNameConflictHandling = !object.if_contains("forceNameConflictHandling")
       || object.at("forceNameConflictHandling").as_bool(),
+    .pictureFolderSummary = object.if_contains("pictureFolderSummary")
+      && object.at("pictureFolderSummary").as_bool(),
     .inputPaths = optionalStringArrayFrom(object, "inputPaths"),
     .outputPath = optionalPathFrom(object, "outputPath"),
   };
@@ -747,6 +750,7 @@ auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot {
     .packOnly = config.packOnly,
     .recursive = config.recursive,
     .forceNameConflictHandling = config.forceNameConflictHandling,
+    .pictureFolderSummary = config.pictureFolderSummary,
     .inputPaths = std::move(inputPaths),
     .outputPath = config.outputPath,
   };
@@ -760,6 +764,7 @@ auto configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) -> bool
     && lhs.packOnly == rhs.packOnly
     && lhs.recursive == rhs.recursive
     && lhs.forceNameConflictHandling == rhs.forceNameConflictHandling
+    && lhs.pictureFolderSummary == rhs.pictureFolderSummary
     && lhs.inputPaths == rhs.inputPaths
     && lhs.outputPath == rhs.outputPath;
 }

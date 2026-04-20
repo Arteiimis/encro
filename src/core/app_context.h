@@ -42,6 +42,7 @@ struct AppConfig {
   bool resumeState = false;
   bool restartState = false;
   bool forceNameConflictHandling = true;
+  bool pictureFolderSummary = false;
   bool verbose = false;
   bool verboseEcho = false;
   std::optional<std::size_t> maxParallelJobs;
@@ -128,7 +129,7 @@ struct RuntimeContext {
       auto const states = snapshot.load();
       auto values = std::vector<std::shared_ptr<EncodingVideoState>>{};
       values.reserve(states->size());
-      for (auto const& entry: *states) { values.push_back(entry.second); }
+      for (auto const& entry: *states) { values.emplace_back(entry.second); }
       return values;
     }
 

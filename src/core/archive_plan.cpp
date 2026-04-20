@@ -31,8 +31,11 @@ auto buildArchiveActions(pack::PackPlan const& plan, std::span<std::size_t const
   for (auto const index: indexes) {
     auto const zipName = pack::resolveZipNameForIndex(plan, index);
     auto const label = pack::resolveProgressLabelForIndex(plan, index);
+    auto members = std::vector<std::filesystem::path>{};
+    members.reserve(plan.groups[index].size());
+    for (auto const& entry: plan.groups[index]) { members.push_back(entry.sourcePath); }
     actions.push_back(
-      jobstate::makeArchiveAction(plan.outputDir / zipName, plan.groups[index], label)
+      jobstate::makeArchiveAction(plan.outputDir / zipName, members, label)
     );
   }
 

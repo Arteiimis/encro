@@ -128,6 +128,11 @@ auto readForceNameConflictHandling(boost::program_options::variables_map const& 
   return eh::makeError("--force-conflict-handling must be set to y or n.");
 }
 
+auto readPictureFolderSummary(boost::program_options::variables_map const& vm)
+  -> eh::Result<bool> {
+  return vm.count("folder-summary") > 0;
+}
+
 enum class OutputPathAliasKind {
   Input,
   Common,
@@ -323,6 +328,12 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   auto forceNamingRes = readForceNameConflictHandling(vm);
   if (!forceNamingRes) { return eh::makeError("{}", forceNamingRes.error()); }
   config.forceNameConflictHandling = forceNamingRes.value();
+
+  auto pictureFolderSummaryRes = readPictureFolderSummary(vm);
+  if (!pictureFolderSummaryRes) {
+    return eh::makeError("{}", pictureFolderSummaryRes.error());
+  }
+  config.pictureFolderSummary = pictureFolderSummaryRes.value();
 
   config.yesToAll = vm.count("yes") > 0;
   config.recursive = vm.count("recursive") > 0;
