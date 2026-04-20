@@ -90,7 +90,8 @@ private:
         "Overall: {}/{}",
         std::min(completedBeforeStart, totalTasks),
         totalTasks
-      )
+      ),
+      progress::Tone::Overall
     );
   }
 
@@ -98,7 +99,10 @@ private:
   makeSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCount) {
     auto barIndexes = std::vector<std::size_t>(workerCount);
     for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
-      barIndexes[slot] = progressCtx.addBar(std::format("Encoding: [idle-{}]", slot + 1));
+      barIndexes[slot] = progressCtx.addBar(
+        std::format("Encoding: [idle-{}]", slot + 1),
+        progress::Tone::Idle
+      );
     }
     return barIndexes;
   }

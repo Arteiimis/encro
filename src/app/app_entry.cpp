@@ -4,6 +4,7 @@
 #include "core/app_context.h"
 #include "app/pipeline.h"
 #include "app/prelude.h"
+#include "infra/terminal.h"
 #include "infra/stop_signal.h"
 #include "infra/toolchain.h"
 
@@ -15,6 +16,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+
+using enum terminal::MessageKind;
 
 namespace {
 
@@ -62,13 +65,14 @@ auto compileTimestamp() -> std::string {
   return std::format("{:04d}-{:02d}-{:02d} {}", year, month, day, buildTime);
 }
 
-auto printHelp(std::ostream& out, CmdParseResult const& cmd) -> void {
-  std::print(out, "{}\n\n", appentry::helpIntroLine());
-  cmd.desc.print(out);
+auto printHelp(CmdParseResult const& cmd) -> void {
+  terminal::println(Heading, "{}", appentry::helpIntroLine());
+  std::cout << '\n';
+  cmd.desc.print(std::cout);
 }
 
-auto printHelpHint(std::ostream& out) -> void {
-  std::print(out, "Run encro -h/--help to view usage.\n");
+auto printHelpHint() -> void {
+  terminal::println(Hint, "Run encro -h/--help to view usage.");
 }
 
 auto failWithHint(
@@ -79,10 +83,10 @@ auto failWithHint(
   if (startup.verboseLogFilePath.has_value()) {
     spdlog::error("{}", message);
   } else {
-    std::cout << "Error: " << message << "\n";
+    terminal::println(Error, "Error: {}", message);
   }
   prelude::printVerboseLogDirHint(startup.verboseLogFilePath);
-  if (showHelpHint) { printHelpHint(std::cout); }
+  if (showHelpHint) { printHelpHint(); }
   return 1;
 }
 
@@ -98,7 +102,7 @@ auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional
   }
 
   if (vm.count("help")) {
-    printHelp(std::cout, startup.cmd);
+    printHelp(startup.cmd);
     return 0;
   }
 

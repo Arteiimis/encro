@@ -2,6 +2,7 @@
 
 #include "core/collision_naming.h"
 #include "core/progress.h"
+#include "infra/terminal.h"
 #include "pack/pack_service.h"
 
 #include <libzippp/libzippp.h>
@@ -15,7 +16,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <format>
-#include <print>
 #include <ranges>
 #include <unordered_map>
 #include <unordered_set>
@@ -25,6 +25,8 @@
 namespace fs = std::filesystem;
 using namespace indicators;
 namespace naming = collisionnaming;
+
+using enum terminal::MessageKind;
 
 namespace {
 
@@ -337,7 +339,7 @@ auto packFilesToZip(
 ) -> eh::Result<void> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());
   auto fileCount = entries.size();
-  auto const progressBarIndex = progressCtx.addBar(progressText);
+  auto const progressBarIndex = progressCtx.addBar(progressText, progress::Tone::Packing);
   auto usedEntryNames = std::unordered_set<std::string>{};
 
   zip.open(libzippp::ZipArchive::New);
@@ -361,6 +363,7 @@ auto packFilesToZip(
   }
 
   progressCtx.setProgress(progressBarIndex, 100.0f);
+  progressCtx.setTone(progressBarIndex, progress::Tone::Finalizing);
 
   std::atomic<bool> finalizing{true};
   auto spinnerThread = std::jthread([&](std::stop_token stopToken) {
@@ -381,6 +384,7 @@ auto packFilesToZip(
 
   finalizing.store(false, std::memory_order_release);
   spinnerThread.join();
+  progressCtx.setTone(progressBarIndex, progress::Tone::Success);
   progressCtx.setPostfixText(progressBarIndex, progressText);
 
   return {};
@@ -639,10 +643,11 @@ auto buildDirectoryPackPlan(
 
   auto allFiles = std::vector<fs::path>{};
 
-  std::println(
+  terminal::println(
+    Info,
     "Scanning input path for files: {} (recursive={})...",
-    dirPath.string(),
-    recursive ? "true" : "false"
+    terminal::path(dirPath),
+    recursive ? terminal::value("true") : terminal::value("false")
   );
 
   if (recursive) {
@@ -673,7 +678,11 @@ auto buildDirectoryPackPlan(
     return eh::makeError("No files found to pack in directory: {}", dirPath.string());
   }
 
-  std::println("File scan completed, found {} file(s).", allFiles.size());
+  terminal::println(
+    Info,
+    "File scan completed, found {} file(s).",
+    terminal::count(allFiles.size())
+  );
 
   auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
   auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedFiles);
