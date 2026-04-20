@@ -40,8 +40,15 @@ TEST_CASE("packGroupsParallel packs grouped files", "[pack-service]") {
   auto const f2 = createFile(srcDir, "b.txt");
   auto const f3 = createFile(srcDir, "c.txt");
 
-  auto const groups =
-    std::vector{std::vector<fs::path>{f1, f2}, std::vector<fs::path>{f3}};
+  auto const groups = std::vector{
+    std::vector<pack::PackFileEntry>{
+      pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
+      pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
+    },
+    std::vector<pack::PackFileEntry>{
+      pack::PackFileEntry{.sourcePath = f3, .zipEntryName = "c.txt"},
+    }
+  };
 
   auto const plan = pack::PackPlan{
     .groups = groups,

@@ -57,6 +57,7 @@ TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config
   CHECK_FALSE(config.resumeState);
   CHECK_FALSE(config.restartState);
   CHECK(config.forceNameConflictHandling);
+  CHECK_FALSE(config.pictureFolderSummary);
   CHECK_FALSE(config.verbose);
   CHECK_FALSE(config.verboseEcho);
   CHECK(config.outputLayout == appctx::OutputLayout::Flat);
@@ -100,6 +101,18 @@ TEST_CASE("buildConfig reads disabled conflict handling flag", "[cmd][config]") 
 
   REQUIRE(configRes);
   CHECK_FALSE(configRes->forceNameConflictHandling);
+}
+
+TEST_CASE("buildConfig reads enabled folder summary flag", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm = makeVm({{"input", inputPath.string()}}, {"folder-summary"});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  CHECK(configRes->pictureFolderSummary);
 }
 
 TEST_CASE("buildConfig rejects invalid conflict-handling value", "[cmd][config]") {
@@ -498,7 +511,7 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
      {"output", outputDir.string()},
      {"type", "picture"},
      {"output-format", "webp"}},
-    {"yes", "recursive", "pack", "pack-only", "verbose", "verbose-echo"}
+    {"yes", "recursive", "pack", "pack-only", "folder-summary", "verbose", "verbose-echo"}
   );
   auto const configRes = cmd::buildConfig(vm);
 
@@ -512,6 +525,7 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
   CHECK(config.packOnly);
   CHECK(config.verbose);
   CHECK(config.verboseEcho);
+  CHECK(config.pictureFolderSummary);
   CHECK(config.outputLayout == appctx::OutputLayout::Flat);
   CHECK(config.outputPath == outputDir);
 }

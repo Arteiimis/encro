@@ -38,6 +38,7 @@ struct ConfigSnapshot {
   bool packOnly = false;
   bool recursive = false;
   bool forceNameConflictHandling = true;
+  bool pictureFolderSummary = false;
   std::vector<fs::path> inputPaths;
   std::optional<fs::path> outputPath;
 };

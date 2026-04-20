@@ -29,6 +29,7 @@ TEST_CASE("commandLineInit exposes defaults", "[cmd]") {
   CHECK(result.vm["type"].as<std::string>() == "video");
   CHECK(result.vm["output-format"].as<std::string>() == "mp4");
   CHECK(result.vm["force-conflict-handling"].as<std::string>() == "y");
+  CHECK(result.vm.count("folder-summary") == 0);
 }
 
 TEST_CASE("commandLineInit parses flag and option values", "[cmd]") {
@@ -43,6 +44,7 @@ TEST_CASE("commandLineInit parses flag and option values", "[cmd]") {
      "--flat",
      "--keep",
      "--force-conflict-handling=n",
+     "--folder-summary",
      "--verbose",
      "--verbose-echo"}
   );
@@ -57,6 +59,7 @@ TEST_CASE("commandLineInit parses flag and option values", "[cmd]") {
   CHECK(result.vm.count("keep") == 1);
   CHECK(result.vm.count("force-conflict-handling") == 1);
   CHECK(result.vm["force-conflict-handling"].as<std::string>() == "n");
+  CHECK(result.vm.count("folder-summary") == 1);
   CHECK(result.vm.count("verbose") == 1);
   CHECK(result.vm.count("verbose-echo") == 1);
 }
