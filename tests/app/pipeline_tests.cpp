@@ -23,16 +23,20 @@ auto hasCollisionSafePrefix(
   std::string_view dirLabel,
   std::string_view stem
 ) -> bool {
-  return entryName.starts_with(std::format("{}__", dirLabel))
-    && entryName.find(std::format("__{}__", stem)) != std::string::npos;
+  auto const normalized =
+    entryName.starts_with("1000__") ? entryName.substr(6) : entryName;
+  return normalized.starts_with(std::format("{}__", dirLabel))
+    && normalized.find(std::format("__{}__", stem)) != std::string::npos;
 }
 
 auto collisionGroupPrefix(std::string const& entryName) -> std::string {
-  auto const lastSep = entryName.rfind("__");
+  auto const normalized =
+    entryName.starts_with("1000__") ? entryName.substr(6) : entryName;
+  auto const lastSep = normalized.rfind("__");
   if (lastSep == std::string::npos) { return entryName; }
-  auto const stemSep = entryName.rfind("__", lastSep - 1);
-  if (stemSep == std::string::npos) { return entryName.substr(0, lastSep); }
-  return entryName.substr(0, stemSep);
+  auto const stemSep = normalized.rfind("__", lastSep - 1);
+  if (stemSep == std::string::npos) { return normalized.substr(0, lastSep); }
+  return normalized.substr(0, stemSep);
 }
 
 }  // namespace
@@ -262,6 +266,7 @@ TEST_CASE("picture pipeline keeps same-folder files grouped in flat mode", "[pip
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
   ctx.config.recursive = true;
+  ctx.config.pictureFolderSummary = false;
   ctx.config.inputPath = inputDir;
 
   auto runRes = pipeline::run(ctx);
@@ -291,6 +296,59 @@ TEST_CASE("picture pipeline keeps same-folder files grouped in flat mode", "[pip
 }
 
 TEST_CASE(
+  "picture pipeline adds flat summary files ahead of normal files by name",
+  "[pipeline]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+  touchFile(dirA / "alpha.jpg");
+  touchFile(dirA / "beta.jpg");
+  touchFile(dirB / "alpha.jpg");
+  touchFile(dirB / "beta.jpg");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.recursive = true;
+  ctx.config.pictureFolderSummary = true;
+  ctx.config.inputPath = inputDir;
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  REQUIRE(runRes.value() == 0);
+
+  auto const zipPath = inputDir / "packed" / "pics_part1[1~6#6p].zip";
+  REQUIRE(fs::exists(zipPath));
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  auto entryNames = std::vector<std::string>{};
+  entryNames.reserve(entries.size());
+  for (auto const& entry: entries) {
+    if (entry.getName().ends_with('/')) { continue; }
+    entryNames.emplace_back(entry.getName());
+  }
+  REQUIRE(entryNames.size() == 6);
+  std::ranges::sort(entryNames);
+
+  CHECK(entryNames[0].starts_with("0000__summary__"));
+  CHECK(entryNames[1].starts_with("0000__summary__"));
+  CHECK(entryNames[2].starts_with("1000__"));
+  CHECK(entryNames[3].starts_with("1000__"));
+  CHECK(entryNames[4].starts_with("1000__"));
+  CHECK(entryNames[5].starts_with("1000__"));
+  CHECK(std::ranges::none_of(entryNames, [](std::string const& name) {
+    return name.find('/') != std::string::npos;
+  }));
+  zip.close();
+}
+
+TEST_CASE(
   "picture pipeline defaults to collision-safe names for unique files",
   "[pipeline]"
 ) {
@@ -307,6 +365,7 @@ TEST_CASE(
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
   ctx.config.recursive = true;
+  ctx.config.pictureFolderSummary = false;
   ctx.config.inputPath = inputDir;
 
   auto runRes = pipeline::run(ctx);
@@ -352,6 +411,7 @@ TEST_CASE(
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
   ctx.config.recursive = true;
+  ctx.config.pictureFolderSummary = false;
   ctx.config.inputPath = inputDir;
 
   auto runRes = pipeline::run(ctx);
@@ -400,6 +460,7 @@ TEST_CASE(
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
   ctx.config.recursive = true;
+  ctx.config.pictureFolderSummary = false;
   ctx.config.forceNameConflictHandling = false;
   ctx.config.inputPath = inputDir;
 
@@ -422,7 +483,7 @@ TEST_CASE(
   std::ranges::sort(entryNames);
 
   REQUIRE(entryNames.size() == 2);
-  CHECK(entryNames == std::vector<std::string>{"alpha.jpg", "beta.jpg"});
+  CHECK(entryNames == std::vector<std::string>{"1000__alpha.jpg", "1000__beta.jpg"});
   zip.close();
 }
 
@@ -440,6 +501,7 @@ TEST_CASE("picture pipeline keeps relative paths in keep mode", "[pipeline]") {
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
   ctx.config.recursive = true;
+  ctx.config.pictureFolderSummary = false;
   ctx.config.outputLayout = appctx::OutputLayout::Keep;
   ctx.config.inputPath = inputDir;
 

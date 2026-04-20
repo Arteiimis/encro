@@ -1243,8 +1243,24 @@ auto packEncodedVideos(
   );
 
   auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedFiles);
+  auto groupedEntries = std::vector<std::vector<pack::PackFileEntry>>{};
+  groupedEntries.reserve(groupedFiles.size());
+  for (auto const& group: groupedFiles) {
+    auto entries = std::vector<pack::PackFileEntry>{};
+    entries.reserve(group.size());
+    for (auto const& filePath: group) {
+      entries.emplace_back(
+        pack::PackFileEntry{
+          .sourcePath = filePath,
+          .zipEntryName = filePath.filename().generic_string(),
+        }
+      );
+    }
+    groupedEntries.push_back(std::move(entries));
+  }
+
   auto plan = pack::PackPlan{
-    .groups = groupedFiles,
+    .groups = std::move(groupedEntries),
     .outputDir = zipOutputDir,
     .zipNameForIndex =
       [ordinalRanges](std::size_t index) {

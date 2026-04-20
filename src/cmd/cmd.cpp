@@ -43,8 +43,9 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
      "preserve relative input subdirectories inside the output directory")       //
     ("force-conflict-handling",
      pvDefault("y"s),
-     "control collision-safe file names for unique flat outputs: y or n")  //
-    ("recursive,r", "enable recursively search")                           //
+     "control collision-safe file names for unique flat outputs: y or n")          //
+    ("folder-summary", "enable picture-mode folder summary images in flat packs")  //
+    ("recursive,r", "enable recursively search")                                   //
     ;
 
   auto processing = po::options_description("Processing options");

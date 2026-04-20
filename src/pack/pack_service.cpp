@@ -33,6 +33,27 @@ auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
   return ranges;
 }
 
+auto buildGroupOrdinalRanges(std::vector<std::vector<PackFileEntry>> const& groups)
+  -> std::vector<FileOrdinalRange> {
+  auto ranges = std::vector<FileOrdinalRange>{};
+  ranges.reserve(groups.size());
+
+  auto nextOrdinal = std::size_t{1};
+  for (auto const& group: groups) {
+    if (group.empty()) {
+      ranges.push_back({});
+      continue;
+    }
+
+    auto const first = nextOrdinal;
+    auto const last = first + group.size() - 1;
+    ranges.push_back({first, last, group.size()});
+    nextOrdinal = last + 1;
+  }
+
+  return ranges;
+}
+
 auto appendOrdinalRangeSuffix(std::string_view fileName, FileOrdinalRange const& range)
   -> std::string {
   if (range.first == 0 || range.last == 0 || range.count == 0) {
@@ -71,7 +92,7 @@ auto resolveProgressLabelForIndex(PackPlan const& plan, std::size_t index)
 
 auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> indexes)
   -> PackPlan {
-  auto filteredGroups = std::vector<std::vector<fs::path>>{};
+  auto filteredGroups = std::vector<std::vector<PackFileEntry>>{};
   filteredGroups.reserve(indexes.size());
   for (auto const index: indexes) { filteredGroups.push_back(plan.groups[index]); }
 
@@ -94,7 +115,6 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
           return base(selectedIndexes->at(subsetIndex));
         }}
       : std::function<std::string(std::size_t)>{},
-    .zipEntryNameForFile = plan.zipEntryNameForFile,
     .onGroupStart = {},
     .onGroupSuccess = {},
     .onGroupFailure = {},
@@ -134,13 +154,8 @@ auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path
       auto const zipPath = plan.outputDir / zipName;
       auto const label = resolveProgressLabelForIndex(plan, index);
 
-      auto const packRes = packFilesToZip(
-        plan.groups[index],
-        zipPath,
-        progressCtx,
-        label,
-        plan.zipEntryNameForFile
-      );
+      auto const packRes =
+        packFilesToZip(plan.groups[index], zipPath, progressCtx, label);
 
       if (!packRes) {
         if (plan.removeOnFailure) {
