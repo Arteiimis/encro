@@ -2,10 +2,78 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <algorithm>
+#include <cstdlib>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
+
+auto readEnvVar(std::string const& name) -> std::optional<std::string> {
+#if defined(_WIN32) || defined(_WIN64)
+  auto* value = static_cast<char*>(nullptr);
+  auto len = std::size_t{0};
+  if (_dupenv_s(&value, &len, name.c_str()) != 0 || value == nullptr) {
+    return std::nullopt;
+  }
+
+  auto result = std::optional<std::string>{};
+  if (len > 1) { result = std::string{value}; }
+  std::free(value);
+  return result;
+#else
+  if (auto const* value = std::getenv(name.c_str()); value != nullptr) {
+    return std::string{value};
+  }
+  return std::nullopt;
+#endif
+}
+
+class ScopedEnvVar {
+public:
+  ScopedEnvVar(std::string name, std::string value)
+    : name_(std::move(name)), hadOriginal_(false) {
+    if (auto const current = readEnvVar(name_); current.has_value()) {
+      originalValue_ = current.value();
+      hadOriginal_ = true;
+    }
+    set(value);
+  }
+
+  ScopedEnvVar(ScopedEnvVar const&) = delete;
+  auto operator=(ScopedEnvVar const&) -> ScopedEnvVar& = delete;
+
+  ~ScopedEnvVar() {
+    if (hadOriginal_) {
+      set(originalValue_);
+    } else {
+      unset();
+    }
+  }
+
+private:
+  auto set(std::string const& value) -> void {
+#if defined(_WIN32) || defined(_WIN64)
+    _putenv_s(name_.c_str(), value.c_str());
+#else
+    setenv(name_.c_str(), value.c_str(), 1);
+#endif
+  }
+
+  auto unset() -> void {
+#if defined(_WIN32) || defined(_WIN64)
+    _putenv_s(name_.c_str(), "");
+#else
+    unsetenv(name_.c_str());
+#endif
+  }
+
+  std::string name_;
+  std::string originalValue_;
+  bool hadOriginal_;
+};
 
 auto parseArgs(std::vector<std::string> const& args) -> CmdParseResult {
   static thread_local std::vector<std::string> storage;
@@ -16,6 +84,29 @@ auto parseArgs(std::vector<std::string> const& args) -> CmdParseResult {
   argv.push_back(nullptr);
 
   return commandLineInit(static_cast<int>(argv.size() - 1), argv.data());
+}
+
+auto renderHelp(CmdParseResult const& result) -> std::string {
+  auto out = std::ostringstream{};
+  result.desc.print(out);
+  return out.str();
+}
+
+auto longestHelpLine(std::string_view text) -> std::size_t {
+  auto longest = std::size_t{0};
+  auto start = std::size_t{0};
+
+  while (start <= text.size()) {
+    auto const end = text.find('\n', start);
+    auto const lineLength =
+      end == std::string_view::npos ? text.size() - start : end - start;
+    longest = std::max(longest, lineLength);
+
+    if (end == std::string_view::npos) { break; }
+    start = end + 1;
+  }
+
+  return longest;
 }
 
 }  // namespace
@@ -95,4 +186,22 @@ TEST_CASE("commandLineInit reports unknown options", "[cmd]") {
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("unrecognised option") != std::string::npos);
+}
+
+TEST_CASE("commandLineInit caps help output to configured maximum width", "[cmd]") {
+  auto const columnsVar = ScopedEnvVar{"COLUMNS", "200"};
+
+  auto const result = parseArgs({"encro"});
+  auto const help = renderHelp(result);
+
+  CHECK(longestHelpLine(help) <= 120);
+}
+
+TEST_CASE("commandLineInit adapts help output to narrower terminal width", "[cmd]") {
+  auto const columnsVar = ScopedEnvVar{"COLUMNS", "72"};
+
+  auto const result = parseArgs({"encro"});
+  auto const help = renderHelp(result);
+
+  CHECK(longestHelpLine(help) <= 72);
 }
