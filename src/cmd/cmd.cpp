@@ -1,5 +1,7 @@
 #include "cmd/cmd.h"
 
+#include "infra/console_width.h"
+
 #include <string>
 #include <utility>
 #include <vector>
@@ -19,8 +21,36 @@ auto pvDefault(Ty&& defaultValue) {
 
 using namespace std::literals;
 
+namespace {
+
+struct HelpTextLayout {
+  unsigned lineLength;
+  unsigned minDescriptionLength;
+};
+
+auto resolveHelpTextLayout() -> HelpTextLayout {
+  auto const lineLength = static_cast<unsigned>(consolewidth::resolveColumns({
+    .defaultColumns = po::options_description::m_default_line_length,
+    .minColumns = 40,
+    .maxColumns = 120,
+  }));
+
+  return {
+    .lineLength = lineLength,
+    .minDescriptionLength = lineLength / 2,
+  };
+}
+
+}  // namespace
+
 auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
-  auto general = po::options_description("General options");
+  auto const layout = resolveHelpTextLayout();
+
+  auto general = po::options_description(
+    "General options",
+    layout.lineLength,
+    layout.minDescriptionLength
+  );
   general.add_options()                                                            //
     ("help,h", "produce help message")                                             //
     ("verbose,v", "enable verbose output")                                         //
@@ -28,7 +58,11 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("yes,y", "automatic yes to prompts")                                          //
     ;
 
-  auto io = po::options_description("Input/Output options");
+  auto io = po::options_description(
+    "Input/Output options",
+    layout.lineLength,
+    layout.minDescriptionLength
+  );
   io.add_options()                                                           //
     ("input,i", pv<std::string>(), "input file or directory path")           //
     ("inputs,I", pvm<std::vector<std::string>>(), "input video file paths")  //
@@ -48,7 +82,11 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("recursive,r", "enable recursively search")                                   //
     ;
 
-  auto processing = po::options_description("Processing options");
+  auto processing = po::options_description(
+    "Processing options",
+    layout.lineLength,
+    layout.minDescriptionLength
+  );
   processing.add_options()                                                    //
     ("type,t", pvDefault("video"s), "process type: video(vid)|picture(pic)")  //
     ("jobs,j", pvDefault(10ull), "max parallel jobs (>=1, default=10)")       //
@@ -57,14 +95,22 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("ffmpeg-path,x", pv<std::string>(), "custom ffmpeg install path")        //
     ;
 
-  auto fileop = po::options_description("File operation options");
+  auto fileop = po::options_description(
+    "File operation options",
+    layout.lineLength,
+    layout.minDescriptionLength
+  );
   fileop.add_options()                                              //
     ("pack,p", "pack encoded video outputs into zip files")         //
     ("pack-only,z", "pack only: zip all files in input directory")  //
     ("overwrite,w", "overwrite existing files without prompt")      //
     ;
 
-  auto all = po::options_description("Allowed options");
+  auto all = po::options_description(
+    "Allowed options",
+    layout.lineLength,
+    layout.minDescriptionLength
+  );
   all.add(general).add(io).add(processing).add(fileop);
 
   auto vm = po::variables_map{};

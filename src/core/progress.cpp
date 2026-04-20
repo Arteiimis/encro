@@ -1,22 +1,17 @@
 #include "progress.h"
 
 #include "core/display_text.h"
+#include "infra/console_width.h"
 
 #include <algorithm>
-#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#if defined(_WIN32) || defined(_WIN64)
-  #include <windows.h>
-#endif
 
 namespace progress {
 
 namespace {
 
-constexpr auto kDefaultConsoleColumns = std::size_t{120};
 constexpr auto kMinConsoleColumns = std::size_t{60};
 constexpr auto kMinBarWidth = std::size_t{18};
 constexpr auto kMaxBarWidth = std::size_t{52};
@@ -32,28 +27,6 @@ auto trimCopy(std::string_view text) -> std::string {
 
 auto truncateWithEllipsis(std::string const& text, std::size_t maxLen) -> std::string {
   return displaytext::truncateWithEllipsis(text, maxLen);
-}
-
-auto getConsoleColumns() -> std::size_t {
-#if defined(_WIN32) || defined(_WIN64)
-  auto const out = GetStdHandle(STD_OUTPUT_HANDLE);
-  if (out == INVALID_HANDLE_VALUE || out == nullptr) { return kDefaultConsoleColumns; }
-
-  auto info = CONSOLE_SCREEN_BUFFER_INFO{};
-  if (!GetConsoleScreenBufferInfo(out, &info)) { return kDefaultConsoleColumns; }
-
-  auto const width =
-    static_cast<std::size_t>(info.srWindow.Right - info.srWindow.Left + 1);
-  return std::max(width, kMinConsoleColumns);
-#else
-  if (auto const* env = std::getenv("COLUMNS"); env != nullptr) {
-    auto width = std::strtoul(env, nullptr, 10);
-    if (width > 0) {
-      return std::max(static_cast<std::size_t>(width), kMinConsoleColumns);
-    }
-  }
-  return kDefaultConsoleColumns;
-#endif
 }
 
 struct ProgressLayout {
@@ -156,7 +129,12 @@ auto ProgressContext::addBar(std::string_view promptText) -> std::size_t {
 
 void ProgressContext::setPostfixText(std::size_t barIndex, std::string_view promptText) {
   auto lock = std::scoped_lock{mtx_};
-  auto const layout = resolveLayout(getConsoleColumns());
+  auto const layout = resolveLayout(
+    consolewidth::resolveColumns({
+      .defaultColumns = 120,
+      .minColumns = kMinConsoleColumns,
+    })
+  );
   bars_[barIndex]->set_option(indicators::option::BarWidth{layout.barWidth});
   bars_[barIndex]->set_option(
     indicators::option::PostfixText{fitPostfixText(promptText, layout.postfixBudget)}
@@ -181,7 +159,12 @@ auto ProgressContext::manager() const -> Manager const& {
 auto makeBar(std::string_view promptText) -> BarPtr {
   using namespace indicators;
 
-  auto const layout = resolveLayout(getConsoleColumns());
+  auto const layout = resolveLayout(
+    consolewidth::resolveColumns({
+      .defaultColumns = 120,
+      .minColumns = kMinConsoleColumns,
+    })
+  );
 
   return std::make_unique<ProgressBar>(
     option::BarWidth{layout.barWidth},
