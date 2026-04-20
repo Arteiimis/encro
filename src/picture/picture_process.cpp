@@ -2,6 +2,7 @@
 
 #include "core/collision_naming.h"
 #include "core/media_scanner.h"
+#include "infra/terminal.h"
 #include "pack/pack_service.h"
 #include "pack/packer.h"
 #include "utils/utils.h"
@@ -13,12 +14,13 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <print>
 #include <unordered_map>
 
 namespace fs = std::filesystem;
 using namespace std::literals;
 namespace naming = collisionnaming;
+
+using enum terminal::MessageKind;
 
 namespace {
 
@@ -241,23 +243,28 @@ auto packAllPicsToZipParallel(
   fs::path const& dirPath,
   fs::path const& zipFileDir
 ) -> eh::Result<void> {
-  std::println("Scanning input path for pictures: {} ...", dirPath.string());
+  terminal::println(
+    Info,
+    "Scanning input path for pictures: {} ...",
+    terminal::path(dirPath)
+  );
   auto const scannedPics = readAllPics(config, dirPath);
   auto const planRes = buildPicturePackPlan(config, dirPath, zipFileDir, scannedPics);
   if (!planRes) { return eh::makeError("{}", planRes.error()); }
 
-  std::println(
+  terminal::println(
+    Info,
     "Picture scan completed, {} picture(s) found, grouped into {} package "
     "batch(es).",
-    scannedPics.size(),
-    planRes->groups.size()
+    terminal::count(scannedPics.size()),
+    terminal::count(planRes->groups.size())
   );
   auto const proceed = readUserIpt(
     config.yesToAll,
     "do you want to proceed with packing the pictures? (y/N): "
   );
   if (!proceed) {
-    std::println("Packing task canceled by user.");
+    terminal::println(Warning, "Packing task canceled by user.");
     return eh::makeError("Packing task canceled by user.");
   }
 

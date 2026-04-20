@@ -1,5 +1,6 @@
 #include "utils/utils.h"
 
+#include "infra/terminal.h"
 #include "infra/stop_signal.h"
 
 #include <boost/lexical_cast.hpp>
@@ -9,7 +10,6 @@
 
 #include <chrono>
 #include <iostream>
-#include <print>
 #include <thread>
 
 #if defined(_WIN32)
@@ -19,6 +19,8 @@
   #include <future>
   #include <memory>
 #endif
+
+using enum terminal::MessageKind;
 
 namespace {
 
@@ -301,7 +303,7 @@ auto exec2(
 bool readUserIpt(bool yesToAll, std::string_view prompt) {
   if (yesToAll) { return true; }
 
-  if (!prompt.empty()) { std::print("{}", prompt); }
+  if (!prompt.empty()) { terminal::print(Prompt, "{}", prompt); }
 
   auto response = 'n';
   auto input = std::string{};

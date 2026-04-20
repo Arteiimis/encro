@@ -117,9 +117,11 @@ TEST_CASE("commandLineInit exposes defaults", "[cmd]") {
   REQUIRE(result.vm.count("type") == 1);
   REQUIRE(result.vm.count("output-format") == 1);
   REQUIRE(result.vm.count("force-conflict-handling") == 1);
+  REQUIRE(result.vm.count("color") == 1);
   CHECK(result.vm["type"].as<std::string>() == "video");
   CHECK(result.vm["output-format"].as<std::string>() == "mp4");
   CHECK(result.vm["force-conflict-handling"].as<std::string>() == "y");
+  CHECK(result.vm["color"].as<std::string>() == "auto");
   CHECK(result.vm.count("folder-summary") == 0);
 }
 
@@ -136,6 +138,7 @@ TEST_CASE("commandLineInit parses flag and option values", "[cmd]") {
      "--keep",
      "--force-conflict-handling=n",
      "--folder-summary",
+     "--color=always",
      "--verbose",
      "--verbose-echo"}
   );
@@ -151,6 +154,8 @@ TEST_CASE("commandLineInit parses flag and option values", "[cmd]") {
   CHECK(result.vm.count("force-conflict-handling") == 1);
   CHECK(result.vm["force-conflict-handling"].as<std::string>() == "n");
   CHECK(result.vm.count("folder-summary") == 1);
+  CHECK(result.vm.count("color") == 1);
+  CHECK(result.vm["color"].as<std::string>() == "always");
   CHECK(result.vm.count("verbose") == 1);
   CHECK(result.vm.count("verbose-echo") == 1);
 }

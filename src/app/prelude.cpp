@@ -1,19 +1,23 @@
 #include "app/prelude.h"
 
+#include "infra/terminal.h"
+
 #include <spdlog/async.h>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <cstdlib>
 #include <memory>
 #include <mutex>
-#include <print>
 #include <system_error>
 #include <vector>
 
 namespace fs = std::filesystem;
+
+using enum terminal::MessageKind;
 
 namespace {
 
@@ -63,7 +67,10 @@ auto setupLogging(po::variables_map const& vm) -> std::optional<fs::path> {
   if (!verboseEnabled) {
     spdlog::set_level(spdlog::level::off);
     if (verboseEchoEnabled) {
-      std::println("Warning: --verbose-echo requires --verbose; option ignored.");
+      terminal::println(
+        Warning,
+        "Warning: --verbose-echo requires --verbose; option ignored."
+      );
     }
     return std::nullopt;
   }
@@ -89,7 +96,11 @@ auto setupLogging(po::variables_map const& vm) -> std::optional<fs::path> {
   );
 
   if (verboseEchoEnabled) {
-    sinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+    if (terminal::colorsEnabled()) {
+      sinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+    } else {
+      sinks.emplace_back(std::make_shared<spdlog::sinks::stdout_sink_mt>());
+    }
   }
 
   static auto poolInitFlag = std::once_flag{};
@@ -110,7 +121,9 @@ auto setupLogging(po::variables_map const& vm) -> std::optional<fs::path> {
   spdlog::set_level(spdlog::level::debug);
 
   spdlog::debug("Verbose logging enabled.");
-  if (!verboseEchoEnabled) { std::println("Verbose log file: {}", logFilePath.string()); }
+  if (!verboseEchoEnabled) {
+    terminal::println(Hint, "Verbose log file: {}", terminal::path(logFilePath));
+  }
 
   return logFilePath;
 }
@@ -121,6 +134,14 @@ namespace prelude {
 
 auto initStartup(int argc, char* argv[]) -> StartupContext {
   auto cmd = commandLineInit(argc, argv);
+
+  if (
+    auto const terminalError = terminal::configureFromVariablesMap(cmd.vm);
+    terminalError.has_value() && !cmd.error.has_value()
+  ) {
+    cmd.error = terminalError;
+  }
+
   auto verboseLogFilePath = setupLogging(cmd.vm);
   return StartupContext{std::move(cmd), std::move(verboseLogFilePath)};
 }
@@ -129,7 +150,11 @@ void printVerboseLogDirHint(
   std::optional<std::filesystem::path> const& verboseLogFilePath
 ) {
   if (!verboseLogFilePath.has_value()) { return; }
-  std::println("Verbose log directory: {}", verboseLogFilePath->parent_path().string());
+  terminal::println(
+    Hint,
+    "Verbose log directory: {}",
+    terminal::path(verboseLogFilePath->parent_path())
+  );
 }
 
 void logConfigSummary(appctx::AppConfig const& config) {

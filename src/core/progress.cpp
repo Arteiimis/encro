@@ -2,6 +2,7 @@
 
 #include "core/display_text.h"
 #include "infra/console_width.h"
+#include "infra/terminal.h"
 
 #include <algorithm>
 #include <string>
@@ -9,6 +10,25 @@
 #include <vector>
 
 namespace progress {
+
+auto resolveColor(Tone tone, bool colorsEnabled) -> indicators::Color {
+  using indicators::Color;
+
+  if (!colorsEnabled) { return Color::white; }
+
+  switch (tone) {
+    case Tone::Default:
+    case Tone::Active    : return Color::cyan;
+    case Tone::Overall   : return Color::blue;
+    case Tone::Idle      : return Color::white;
+    case Tone::Packing   :
+    case Tone::Finalizing: return Color::yellow;
+    case Tone::Success   : return Color::green;
+    case Tone::Failure   : return Color::red;
+  }
+
+  return Color::white;
+}
 
 namespace {
 
@@ -120,11 +140,17 @@ auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
   return truncateWithEllipsis(out, budget);
 }
 
+void applyTone(indicators::ProgressBar& bar, Tone tone) {
+  bar.set_option(
+    indicators::option::ForegroundColor{resolveColor(tone, terminal::colorsEnabled())}
+  );
+}
+
 }  // namespace
 
-auto ProgressContext::addBar(std::string_view promptText) -> std::size_t {
+auto ProgressContext::addBar(std::string_view promptText, Tone tone) -> std::size_t {
   auto lock = std::scoped_lock{mtx_};
-  return progress::addBar(manager_, bars_, promptText);
+  return progress::addBar(manager_, bars_, tones_, promptText, tone);
 }
 
 void ProgressContext::setPostfixText(std::size_t barIndex, std::string_view promptText) {
@@ -148,6 +174,15 @@ void ProgressContext::setProgress(std::size_t barIndex, float progress) {
   manager_.print_progress();
 }
 
+void ProgressContext::setTone(std::size_t barIndex, Tone tone) {
+  auto lock = std::scoped_lock{mtx_};
+  if (tones_[barIndex] == tone) { return; }
+
+  tones_[barIndex] = tone;
+  applyTone(*bars_[barIndex], tone);
+  manager_.print_progress();
+}
+
 auto ProgressContext::manager() -> Manager& {
   return manager_;
 }
@@ -156,7 +191,7 @@ auto ProgressContext::manager() const -> Manager const& {
   return manager_;
 }
 
-auto makeBar(std::string_view promptText) -> BarPtr {
+auto makeBar(std::string_view promptText, Tone tone) -> BarPtr {
   using namespace indicators;
 
   auto const layout = resolveLayout(
@@ -171,16 +206,22 @@ auto makeBar(std::string_view promptText) -> BarPtr {
     option::Start{"["},
     option::End{"]"},
     option::PostfixText{fitPostfixText(promptText, layout.postfixBudget)},
-    option::ForegroundColor{Color::white},
+    option::ForegroundColor{resolveColor(tone, terminal::colorsEnabled())},
     option::ShowElapsedTime{true},
     option::ShowRemainingTime{true},
     option::MaxProgress{100}
   );
 }
 
-auto addBar(Manager& manager, BarCollection& bars, std::string_view promptText)
-  -> std::size_t {
-  bars.emplace_back(makeBar(promptText));
+auto addBar(
+  Manager& manager,
+  BarCollection& bars,
+  std::vector<Tone>& tones,
+  std::string_view promptText,
+  Tone tone
+) -> std::size_t {
+  bars.emplace_back(makeBar(promptText, tone));
+  tones.push_back(tone);
   return manager.push_back(*bars.back());
 }
 
