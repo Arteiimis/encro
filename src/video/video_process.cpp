@@ -6,6 +6,7 @@
 #include "core/job_state.h"
 #include "core/parallel.h"
 #include "core/progress.h"
+#include "infra/terminal.h"
 #include "infra/stop_signal.h"
 #include "video/encode_config.h"
 #include "pack/pack_service.h"
@@ -28,7 +29,6 @@
 #include <cstdint>
 #include <deque>
 #include <fstream>
-#include <print>
 #include <ranges>
 #include <thread>
 
@@ -36,6 +36,8 @@ namespace fs = std::filesystem;
 using namespace boost::lambda2;
 using namespace indicators;
 namespace naming = collisionnaming;
+
+using enum terminal::MessageKind;
 
 auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
   -> std::optional<float>;
@@ -138,6 +140,7 @@ struct BatchContext {
   void barEncodingStart(appctx::EncodingState& vidState, std::string_view fileLabel) {
     if (!vidState.barIndex.has_value()) { return; }
     auto const index = vidState.barIndex.value();
+    progress().setTone(index, progress::Tone::Active);
     progress().setPostfixText(index, std::format("Encoding: {}", fileLabel));
     progress().setProgress(index, 0.0f);
   }
@@ -149,11 +152,13 @@ struct BatchContext {
   ) {
     if (!vidState.barIndex.has_value()) { return; }
     auto const index = vidState.barIndex.value();
+    progress().setTone(index, progress::Tone::Active);
     progress().setPostfixText(index, std::format("Encoding: {} | {}", fileLabel, status));
   }
 
   void barIdle(std::size_t barIndex, std::size_t slot) {
-    progress().setProgress(barIndex, 100.0f);
+    progress().setTone(barIndex, progress::Tone::Idle);
+    progress().setProgress(barIndex, 0.0f);
     progress().setPostfixText(barIndex, std::format("Encoding: [idle-{}]", slot + 1));
   }
 
@@ -433,10 +438,11 @@ auto prepareEncodeActions(
   }
 
   if (!prepared.initialResults.empty()) {
-    std::println(
+    terminal::println(
+      Info,
       "Recovered {} completed task(s) from saved state/output files, {} remaining.",
-      prepared.initialResults.size(),
-      prepared.pendingVids.size()
+      terminal::count(prepared.initialResults.size()),
+      terminal::count(prepared.pendingVids.size())
     );
   }
 
@@ -606,11 +612,13 @@ auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
           if (barIndex.has_value()) {
             auto const fileLabel = getStateLabel(*activeState);
             if (lastError.has_value()) {
+              batchCtx.progress().setTone(barIndex.value(), progress::Tone::Failure);
               batchCtx.progress().setPostfixText(
                 barIndex.value(),
                 std::format("Encoding: {} | {}", fileLabel, lastError.value())
               );
             } else if (lastStatus.has_value()) {
+              batchCtx.progress().setTone(barIndex.value(), progress::Tone::Active);
               batchCtx.progress().setPostfixText(
                 barIndex.value(),
                 std::format("Encoding: {} | {}", fileLabel, lastStatus.value())
@@ -645,6 +653,7 @@ auto startEncodingMonitor(BatchContext& batchCtx) -> std::jthread {
         }
 
         if (barIndex.has_value()) {
+          batchCtx.progress().setTone(barIndex.value(), progress::Tone::Active);
           batchCtx.progress().setProgress(barIndex.value(), progress.value());
         }
 
@@ -794,12 +803,24 @@ void printNoEncodableVideosMessage(
 ) {
   if (fs::is_regular_file(inputPath)) {
     if (config.outputFormat == "mp4" && isHevcEncoded(toolchain, inputPath)) {
-      std::println("Video is already HEVC encoded: {}", inputPath.string());
+      terminal::println(
+        Hint,
+        "Video is already HEVC encoded: {}",
+        terminal::path(inputPath)
+      );
     } else {
-      std::println("No encodable videos found for file: {}", inputPath.string());
+      terminal::println(
+        Hint,
+        "No encodable videos found for file: {}",
+        terminal::path(inputPath)
+      );
     }
   } else {
-    std::println("No encodable videos found in path: {}", inputPath.string());
+    terminal::println(
+      Hint,
+      "No encodable videos found in path: {}",
+      terminal::path(inputPath)
+    );
   }
 }
 
@@ -979,10 +1000,18 @@ auto tryReadProgressData(fs::path const& progressFilePath)
 
 auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
   -> std::vector<fs::path> {
-  std::println("Scanning input path for videos: {} ...", inputPath.string());
+  terminal::println(
+    Info,
+    "Scanning input path for videos: {} ...",
+    terminal::path(inputPath)
+  );
   spdlog::info("Scanning input path: {}", inputPath.string());
   auto vids = readAllVids(ctx.config, ctx.toolchain, ctx.runtime, inputPath);
-  std::println("Video scan completed, found {} candidate file(s).", vids.size());
+  terminal::println(
+    Info,
+    "Video scan completed, found {} candidate file(s).",
+    terminal::count(vids.size())
+  );
   spdlog::info("Scan completed: {} candidate video(s)", vids.size());
   return vids;
 }
@@ -991,10 +1020,18 @@ auto scanInputVideosFromFiles(
   appctx::AppContext& ctx,
   std::span<fs::path const> inputPaths
 ) -> std::vector<fs::path> {
-  std::println("Scanning input files for videos: {} file(s) ...", inputPaths.size());
+  terminal::println(
+    Info,
+    "Scanning input files for videos: {} file(s) ...",
+    terminal::count(inputPaths.size())
+  );
   spdlog::info("Scanning {} provided input file(s)", inputPaths.size());
   auto vids = readAllVidsFromFiles(ctx.config, ctx.toolchain, ctx.runtime, inputPaths);
-  std::println("Video scan completed, found {} candidate file(s).", vids.size());
+  terminal::println(
+    Info,
+    "Video scan completed, found {} candidate file(s).",
+    terminal::count(vids.size())
+  );
   spdlog::info("Scan completed from files: {} candidate video(s)", vids.size());
   return vids;
 }
@@ -1112,17 +1149,17 @@ auto runEncodingBatches(
     ctx.config.yesToAll,
     std::format(
       "do you want to encode the video to {} format? (y/N): ",
-      ctx.config.outputFormat
+      terminal::value("{}", ctx.config.outputFormat)
     )
   );
   if (!proceed) {
-    std::println("Encoding tasks canceled by user.");
+    terminal::println(Warning, "Encoding tasks canceled by user.");
     spdlog::info("Encoding canceled by user.");
     return std::nullopt;
   }
 
   if (ctx.config.verbose && ctx.config.verboseEcho) {
-    std::println("Verbose echo enabled: progress bars are disabled.");
+    terminal::println(Warning, "Verbose echo enabled: progress bars are disabled.");
     spdlog::debug("Progress bars disabled due to verbose echo mode.");
     return runEncodingWithoutProgress(ctx, vids, plannedOutputFiles, actionIds);
   }
@@ -1139,10 +1176,11 @@ auto runEncodingBatches(
     workerCount
   };
 
-  std::println(
+  terminal::println(
+    Info,
     "Scheduling {} video(s) with max {} concurrent encode job(s)...",
-    vids.size(),
-    workerCount
+    terminal::count(vids.size()),
+    terminal::count(workerCount)
   );
   spdlog::info(
     "Scheduling encoding workers: workers={} pending={} overall={} "
@@ -1192,10 +1230,11 @@ auto collectEncodedOutputFiles(
       ctx.config.outputFormat == "webp"
       && fs::file_size(outFile.value()) >= kWebpPackMaxSize
     ) {
-      std::println(
+      terminal::println(
+        Warning,
         "Skipping oversized webp for packing: {} ({} bytes)",
-        outFile.value().string(),
-        fs::file_size(outFile.value())
+        terminal::path(outFile.value()),
+        terminal::count(fs::file_size(outFile.value()))
       );
       continue;
     }
@@ -1221,7 +1260,7 @@ auto packEncodedVideos(
   auto const encodedOutputFiles =
     collectEncodedOutputFiles(ctx, plannedOutputFiles, vidsRunRes);
   if (encodedOutputFiles.empty()) {
-    std::println("No encoded output files found to pack.");
+    terminal::println(Hint, "No encoded output files found to pack.");
     return 0;
   }
 
@@ -1230,10 +1269,11 @@ auto packEncodedVideos(
 
   fs::create_directories(zipOutputDir);
 
-  std::println(
+  terminal::println(
+    Info,
     "Packing {} encoded video(s) into {} archive(s)...",
-    encodedOutputFiles.size(),
-    groupedFiles.size()
+    terminal::count(encodedOutputFiles.size()),
+    terminal::count(groupedFiles.size())
   );
   spdlog::info(
     "Packing plan: files={} archives={} output-dir={}",
@@ -1294,7 +1334,9 @@ auto packEncodedVideos(
     }
 
     for (auto const& zipPath: packRes.value()) {
-      if (!zipPath.empty()) { std::println("Packed archive: {}", zipPath.string()); }
+      if (!zipPath.empty()) {
+        terminal::println(Success, "Packed archive: {}", terminal::path(zipPath));
+      }
     }
 
     store->setStage("completed");
@@ -1309,7 +1351,9 @@ auto packEncodedVideos(
   }
 
   for (auto const& zipPath: packRes.value()) {
-    if (!zipPath.empty()) { std::println("Packed archive: {}", zipPath.string()); }
+    if (!zipPath.empty()) {
+      terminal::println(Success, "Packed archive: {}", terminal::path(zipPath));
+    }
   }
 
   spdlog::info("Packing completed: archive-count={}", packRes.value().size());
@@ -1321,9 +1365,9 @@ void printEncodingSummary(
   std::span<fs::path const> vids,
   EncodeResultsMap const& vidsRunRes
 ) {
-  std::println("All encoding tasks completed.");
-  std::println("Summary:");
-  std::println("\tTotal videos found: {}", vids.size());
+  terminal::println(Success, "All encoding tasks completed.");
+  terminal::println(Heading, "Summary:");
+  terminal::println(Info, "  Total videos found: {}", terminal::count(vids.size()));
 
   auto const successCount =
     std::ranges::count_if(vidsRunRes, [](auto const& entry) { return entry.second; });
@@ -1336,13 +1380,13 @@ void printEncodingSummary(
     failureCount
   );
 
-  std::println("\tSuccessfully encoded: {}", successCount);
-  std::println("\tFailed to encode: {}", failureCount);
+  terminal::println(Success, "  Successfully encoded: {}", terminal::count(successCount));
+  terminal::println(Warning, "  Failed to encode: {}", terminal::count(failureCount));
 
   if (failureCount > 0) {
-    std::println("Videos that failed to encode:");
+    terminal::println(Warning, "Videos that failed to encode:");
     for (auto const& [vidPath, success]: vidsRunRes) {
-      if (!success) { std::println("\t{}", vidPath.string()); }
+      if (!success) { terminal::println(Error, "  {}", terminal::path(vidPath)); }
     }
   }
 }
@@ -1697,7 +1741,7 @@ int handleMultiFileEncoding(
   auto const vids = scanInputVideosFromFiles(ctx, inputPaths);
 
   if (vids.empty()) {
-    std::println("No encodable videos found in provided files.");
+    terminal::println(Hint, "No encodable videos found in provided files.");
     return 0;
   }
 

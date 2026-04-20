@@ -2,6 +2,7 @@
 
 #include "core/archive_plan.h"
 #include "core/job_state.h"
+#include "infra/terminal.h"
 #include "infra/stop_signal.h"
 #include "pack/packer.h"
 #include "picture/picture_process.h"
@@ -9,9 +10,10 @@
 #include "video/video_process.h"
 
 #include <filesystem>
-#include <print>
 
 namespace fs = std::filesystem;
+
+using enum terminal::MessageKind;
 
 namespace pipeline {
 
@@ -33,7 +35,7 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
   if (!initRes) { return eh::makeError("{}", initRes.error()); }
 
   if (initRes.value()) {
-    std::println("Resuming job state from: {}", stateFilePath.string());
+    terminal::println(Info, "Resuming job state from: {}", terminal::path(stateFilePath));
   }
 
   return {};
@@ -96,7 +98,11 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
   if (!packRes) { return eh::makeError("Failed to pack files: {}", packRes.error()); }
   if (packRes.value() != 0) { return packRes.value(); }
 
-  std::println("All files packed successfully to: {}", zipOutputDir.string());
+  terminal::println(
+    Success,
+    "All files packed successfully to: {}",
+    terminal::path(zipOutputDir)
+  );
   return 0;
 }
 
@@ -126,23 +132,28 @@ auto runPicture(appctx::AppContext& ctx) -> eh::Result<int> {
   }
 
   auto const outputDir = ctx.config.outputPath.value_or(ctx.config.inputPath) / "packed";
-  std::println("Scanning input path for pictures: {} ...", ctx.config.inputPath.string());
+  terminal::println(
+    Info,
+    "Scanning input path for pictures: {} ...",
+    terminal::path(ctx.config.inputPath)
+  );
   auto const scannedPics = readAllPics(ctx.config, ctx.config.inputPath);
   auto const planRes =
     buildPicturePackPlan(ctx.config, ctx.config.inputPath, outputDir, scannedPics);
   if (!planRes) { return eh::makeError("Failed to pack pictures: {}", planRes.error()); }
 
-  std::println(
+  terminal::println(
+    Info,
     "Picture scan completed, {} picture(s) found, grouped into {} package batch(es).",
-    scannedPics.size(),
-    planRes->groups.size()
+    terminal::count(scannedPics.size()),
+    terminal::count(planRes->groups.size())
   );
   auto const proceed = readUserIpt(
     ctx.config.yesToAll,
     "do you want to proceed with packing the pictures? (y/N): "
   );
   if (!proceed) {
-    std::println("Packing task canceled by user.");
+    terminal::println(Warning, "Packing task canceled by user.");
     return 0;
   }
 
@@ -151,7 +162,11 @@ auto runPicture(appctx::AppContext& ctx) -> eh::Result<int> {
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
   if (packRes.value() != 0) { return packRes.value(); }
 
-  std::println("All pictures packed successfully to: {}", outputDir.string());
+  terminal::println(
+    Success,
+    "All pictures packed successfully to: {}",
+    terminal::path(outputDir)
+  );
   return 0;
 }
 
