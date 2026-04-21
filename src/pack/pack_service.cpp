@@ -107,13 +107,13 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
         auto const actualIndex = selectedIndexes->at(subsetIndex);
         return base ? base(actualIndex) : defaultZipNameForIndex(actualIndex);
       },
-    .progressLabelForIndex = plan.progressLabelForIndex
-      ? std::function<std::string(std::size_t)>{[base = plan.progressLabelForIndex,
-                                                 selectedIndexes](
-                                                  std::size_t subsetIndex
-                                                ) {
+    .progressLabelForIndex =  //
+    plan.progressLabelForIndex
+      ? std::function<std::string(std::size_t)>{ //
+        [base = plan.progressLabelForIndex, selectedIndexes](std::size_t subsetIndex) {
           return base(selectedIndexes->at(subsetIndex));
-        }}
+        }
+      }
       : std::function<std::string(std::size_t)>{},
     .onGroupStart = {},
     .onGroupSuccess = {},
