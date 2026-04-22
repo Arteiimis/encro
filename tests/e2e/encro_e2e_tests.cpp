@@ -451,10 +451,10 @@ TEST_CASE(
   REQUIRE(fs::exists(statePath));
 
   auto const state = loadJsonObject(statePath);
-  REQUIRE(state.if_contains("actions") != nullptr);
-  auto const& actions = state.at("actions").as_array();
-  REQUIRE(actions.size() == 1);
-  CHECK(actions.front().as_object().at("status").as_string() == "failed");
+  REQUIRE(state.if_contains("tasks") != nullptr);
+  auto const& tasks = state.at("tasks").as_array();
+  REQUIRE(tasks.size() == 1);
+  CHECK(tasks.front().as_object().at("status").as_string() == "failed");
   CHECK(listRegularFiles(temp.path / "encoded_webp").empty());
 }
 
