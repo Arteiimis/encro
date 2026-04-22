@@ -22,15 +22,15 @@ auto createFile(fs::path const& dir, std::string_view name) -> fs::path {
 
 }  // namespace
 
-TEST_CASE("packGroupsParallel returns empty for empty plan", "[pack-service]") {
+TEST_CASE("packGroups returns empty for empty plan", "[pack-service]") {
   auto const plan = pack::PackPlan{};
-  auto const result = pack::packGroupsParallel(plan);
+  auto const result = pack::packGroups(plan);
 
   REQUIRE(result);
   CHECK(result.value().empty());
 }
 
-TEST_CASE("packGroupsParallel packs grouped files", "[pack-service]") {
+TEST_CASE("packGroups packs grouped files", "[pack-service]") {
   TempDir temp;
   auto const srcDir = temp.path / "src";
   auto const outDir = temp.path / "out";
@@ -59,7 +59,7 @@ TEST_CASE("packGroupsParallel packs grouped files", "[pack-service]") {
       [](std::size_t index) { return std::format("Packing: group{}.zip", index + 1); }
   };
 
-  auto const result = pack::packGroupsParallel(plan);
+  auto const result = pack::packGroups(plan);
 
   REQUIRE(result);
   REQUIRE(result.value().size() == 2);

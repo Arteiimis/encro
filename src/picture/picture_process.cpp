@@ -238,7 +238,7 @@ auto readAllPics(appctx::AppConfig const& config, fs::path const& dirPath)
   return media::scanByExtensions(dirPath, pictureTypes, config.recursive);
 }
 
-auto packAllPicsToZipParallel(
+auto packAllPicsToZip(
   appctx::AppConfig const& config,
   fs::path const& dirPath,
   fs::path const& zipFileDir
@@ -268,7 +268,7 @@ auto packAllPicsToZipParallel(
     return eh::makeError("Packing task canceled by user.");
   }
 
-  auto const packRes = pack::packGroupsParallel(planRes.value());
+  auto const packRes = pack::packGroups(planRes.value());
   if (!packRes) {
     auto const errMsg = std::format(
       "Failed to pack pictures in {}: {}",

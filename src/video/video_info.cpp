@@ -1,7 +1,7 @@
 #include "video/video_info.h"
 
 #include "core/media_scanner.h"
-#include "core/parallel.h"
+#include "core/task_executor.h"
 #include "utils/utils.h"
 
 #include <algorithm>
@@ -197,22 +197,40 @@ auto finalizeVideoList(
     static_cast<std::size_t>(std::thread::hardware_concurrency())
   );
   auto const maxParallelJobs = std::max<std::size_t>(1, configuredOrDetected);
-  auto const workerCount = std::min<std::size_t>(vids.size(), maxParallelJobs);
-
   auto keep = std::vector<char>(vids.size(), 0);
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(vids.size());
 
-  parallel::runIndexedTasks(vids.size(), workerCount, [&](std::size_t index) {
-    auto const& vidPath = vids[index];
-    auto const vidInfo = getVidInfo(toolchain, vidPath);
+  for (auto index = std::size_t{0}; index < vids.size(); ++index) {
+    tasks.push_back(
+      taskexec::TaskSpec{
+        .id = vids[index].string(),
+        .label = vids[index].filename().string(),
+        .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
+          auto const& vidPath = vids[index];
+          auto const vidInfo = getVidInfo(toolchain, vidPath);
 
-    if (config.outputFormat == "mp4" && isHevcEncodedInfo(vidInfo)) {
-      spdlog::debug("Skipping already HEVC encoded file: {}", vidPath.string());
-      return;
+          if (config.outputFormat == "mp4" && isHevcEncodedInfo(vidInfo)) {
+            spdlog::debug("Skipping already HEVC encoded file: {}", vidPath.string());
+            return {};
+          }
+
+          runtime.videoInfoCache.set(vidPath, vidInfo);
+          keep[index] = 1;
+          return {};
+        }
+      }
+    );
+  }
+
+  auto const _ = taskexec::runTasks(
+    taskexec::TaskPlan{
+      .tasks = std::move(tasks),
+      .maxConcurrency = maxParallelJobs,
+      .progress = nullptr,
+      .hideCursor = false,
     }
-
-    runtime.videoInfoCache.set(vidPath, vidInfo);
-    keep[index] = 1;
-  });
+  );
 
   auto filtered = std::vector<fs::path>{};
   filtered.reserve(vids.size());

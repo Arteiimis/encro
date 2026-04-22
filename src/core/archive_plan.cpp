@@ -9,11 +9,11 @@ namespace {
 
 struct PackExecutionState {
   jobstate::Store* store = nullptr;
-  std::vector<jobstate::ActionRecord> mergedActions;
+  std::vector<jobstate::TaskRecord> mergedTasks;
   std::vector<std::size_t> pendingIndexes;
 
   auto actionIdForSubsetIndex(std::size_t subsetIndex) const -> std::string const& {
-    return mergedActions[pendingIndexes.at(subsetIndex)].id;
+    return mergedTasks[pendingIndexes.at(subsetIndex)].id;
   }
 };
 
@@ -24,9 +24,9 @@ auto buildPlanIndexes(std::size_t groupCount) -> std::vector<std::size_t> {
 }
 
 auto buildArchiveActions(pack::PackPlan const& plan, std::span<std::size_t const> indexes)
-  -> std::vector<jobstate::ActionRecord> {
-  auto actions = std::vector<jobstate::ActionRecord>{};
-  actions.reserve(indexes.size());
+  -> std::vector<jobstate::TaskRecord> {
+  auto tasks = std::vector<jobstate::TaskRecord>{};
+  tasks.reserve(indexes.size());
 
   for (auto const index: indexes) {
     auto const zipName = pack::resolveZipNameForIndex(plan, index);
@@ -34,12 +34,10 @@ auto buildArchiveActions(pack::PackPlan const& plan, std::span<std::size_t const
     auto members = std::vector<std::filesystem::path>{};
     members.reserve(plan.groups[index].size());
     for (auto const& entry: plan.groups[index]) { members.push_back(entry.sourcePath); }
-    actions.push_back(
-      jobstate::makeArchiveAction(plan.outputDir / zipName, members, label)
-    );
+    tasks.push_back(jobstate::makeArchiveTask(plan.outputDir / zipName, members, label));
   }
 
-  return actions;
+  return tasks;
 }
 
 }  // namespace
@@ -49,17 +47,15 @@ auto prepareResumablePackExecution(jobstate::Store& store, pack::PackPlan const&
   auto const allIndexes = buildPlanIndexes(plan.groups.size());
   auto executionState = std::make_shared<PackExecutionState>();
   executionState->store = &store;
-  executionState->mergedActions =
-    store.mergeActions(buildArchiveActions(plan, allIndexes));
+  executionState->mergedTasks = store.mergeTasks(buildArchiveActions(plan, allIndexes));
 
   auto pendingActionIds = std::vector<std::string>{};
-  executionState->pendingIndexes.reserve(executionState->mergedActions.size());
-  pendingActionIds.reserve(executionState->mergedActions.size());
-  for (auto index = std::size_t{0}; index < executionState->mergedActions.size();
-       ++index) {
-    if (!jobstate::needsExecution(executionState->mergedActions[index])) { continue; }
+  executionState->pendingIndexes.reserve(executionState->mergedTasks.size());
+  pendingActionIds.reserve(executionState->mergedTasks.size());
+  for (auto index = std::size_t{0}; index < executionState->mergedTasks.size(); ++index) {
+    if (!jobstate::needsExecution(executionState->mergedTasks[index])) { continue; }
     executionState->pendingIndexes.push_back(index);
-    pendingActionIds.push_back(executionState->mergedActions[index].id);
+    pendingActionIds.push_back(executionState->mergedTasks[index].id);
   }
 
   if (executionState->pendingIndexes.empty()) {
