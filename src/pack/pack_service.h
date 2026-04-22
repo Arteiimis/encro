@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/app_context.h"
 #include "core/error_handle.h"
 
 #include <filesystem>
@@ -13,6 +14,11 @@
 namespace fs = std::filesystem;
 
 namespace pack {
+
+struct PackRunResult {
+  int exitCode = 0;
+  std::vector<fs::path> zippedFiles;
+};
 
 struct PackFileEntry {
   fs::path sourcePath;
@@ -58,6 +64,9 @@ auto resolveProgressLabelForIndex(PackPlan const& plan, std::size_t index) -> st
 
 auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> indexes)
   -> PackPlan;
+
+auto runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
+  -> eh::Result<PackRunResult>;
 
 auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>>;
 
