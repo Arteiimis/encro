@@ -4,8 +4,6 @@
 
 #include <catch2/catch_all.hpp>
 
-#include <memory>
-
 namespace fs = std::filesystem;
 
 TEST_CASE("video info cache store reads values from immer snapshot", "[app-context]") {
@@ -22,22 +20,4 @@ TEST_CASE("video info cache store reads values from immer snapshot", "[app-conte
   REQUIRE(cached.has_value());
   CHECK(cached->is_object());
   CHECK(runtime.videoInfoCache.size() == 1);
-}
-
-TEST_CASE("encoding state store erases registered states", "[app-context]") {
-  auto runtime = appctx::RuntimeContext{};
-  auto state = std::make_shared<appctx::EncodingState>();
-  state->inputPath = fs::path{"sample.mp4"};
-
-  runtime.encodingStates.set(state);
-
-  REQUIRE(runtime.encodingStates.size() == 1);
-  CHECK(runtime.encodingStates.find(state->inputPath) == state);
-  REQUIRE(runtime.encodingStates.values().size() == 1);
-
-  runtime.encodingStates.erase(state->inputPath);
-
-  CHECK(runtime.encodingStates.find(state->inputPath) == nullptr);
-  CHECK(runtime.encodingStates.values().empty());
-  CHECK(runtime.encodingStates.size() == 0);
 }

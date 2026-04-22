@@ -1,6 +1,5 @@
 #include "core/app_context.h"
 #include "test_utils.h"
-#include "video/encoding_batch_state.h"
 #include "video/video_process.h"
 
 #include <catch2/catch_all.hpp>
@@ -8,7 +7,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -90,50 +88,6 @@ TEST_CASE(
 
   auto const lastLines = readLastNLines(missingPath, 2);
   CHECK(lastLines.empty());
-}
-
-TEST_CASE(
-  "encoding batch state seeds finished count from resumed completions",
-  "[video-process][batch-state]"
-) {
-  auto state = EncodingBatchState{3, 10, 7, 2};
-
-  CHECK(state.counters.pendingTotal == 3);
-  CHECK(state.counters.overallTotal == 10);
-  CHECK(state.counters.finished.load() == 7);
-}
-
-TEST_CASE(
-  "encoding batch state stores shared snapshot via immer",
-  "[video-process][batch-state]"
-) {
-  auto state = EncodingBatchState{2, 2};
-  auto const initial = state.snapshot.load();
-
-  auto activeState = std::make_shared<appctx::EncodingState>();
-  activeState->inputPath = "sample.mp4";
-
-  state.snapshot.update([activeState](EncodingBatchState::SharedSnapshot const& shared) {
-    return EncodingBatchState::SharedSnapshot{
-      .active = shared.active.set(1, activeState),
-      .results = shared.results.set(activeState->inputPath, true),
-    };
-  });
-
-  auto const current = state.snapshot.load();
-
-  REQUIRE(initial->active.size() == 2);
-  CHECK(initial->active[0] == nullptr);
-  CHECK(initial->active[1] == nullptr);
-  CHECK(initial->results.size() == 0);
-
-  REQUIRE(current->active.size() == 2);
-  CHECK(current->active[0] == nullptr);
-  CHECK(current->active[1] == activeState);
-  CHECK(current->results.size() == 1);
-  CHECK(initial->results.find(activeState->inputPath) == nullptr);
-  REQUIRE(current->results.find(activeState->inputPath) != nullptr);
-  CHECK(*current->results.find(activeState->inputPath));
 }
 
 TEST_CASE(

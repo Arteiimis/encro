@@ -38,15 +38,15 @@ TEST_CASE("job state keeps succeeded encode action when output exists", "[job-st
   writeFile(outputPath);
 
   auto const config = makeConfig(inputPath, statePath);
-  auto const action = jobstate::makeEncodeAction(inputPath, outputPath);
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
 
   auto store = jobstate::Store{statePath};
   auto const initRes = store.initialize(config, false);
   REQUIRE(initRes);
-  auto merged = store.mergeActions(std::array{action});
+  auto merged = store.mergeTasks(std::array{task});
   REQUIRE(merged.size() == 1);
-  store.markRunning(action.id);
-  store.markSucceeded(action.id);
+  store.markRunning(task.id);
+  store.markSucceeded(task.id);
   store.flush();
 
   auto resumedStore = jobstate::Store{statePath};
@@ -54,9 +54,9 @@ TEST_CASE("job state keeps succeeded encode action when output exists", "[job-st
   REQUIRE(resumeRes);
   CHECK(resumeRes.value());
 
-  auto const resumed = resumedStore.mergeActions(std::array{action});
+  auto const resumed = resumedStore.mergeTasks(std::array{task});
   REQUIRE(resumed.size() == 1);
-  CHECK(resumed.front().status == jobstate::ActionStatus::Succeeded);
+  CHECK(resumed.front().status == jobstate::TaskStatus::Succeeded);
 }
 
 TEST_CASE(
@@ -71,14 +71,14 @@ TEST_CASE(
   writeFile(outputPath);
 
   auto const config = makeConfig(inputPath, statePath);
-  auto const action = jobstate::makeEncodeAction(inputPath, outputPath);
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
 
   auto store = jobstate::Store{statePath};
   auto const initRes = store.initialize(config, false);
   REQUIRE(initRes);
-  store.mergeActions(std::array{action});
-  store.markRunning(action.id);
-  store.markSucceeded(action.id);
+  store.mergeTasks(std::array{task});
+  store.markRunning(task.id);
+  store.markSucceeded(task.id);
   store.flush();
 
   fs::remove(outputPath);
@@ -86,9 +86,9 @@ TEST_CASE(
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
-  auto const resumed = resumedStore.mergeActions(std::array{action});
+  auto const resumed = resumedStore.mergeTasks(std::array{task});
   REQUIRE(resumed.size() == 1);
-  CHECK(resumed.front().status == jobstate::ActionStatus::Pending);
+  CHECK(resumed.front().status == jobstate::TaskStatus::Pending);
 }
 
 TEST_CASE("job state turns running actions into interrupted on resume", "[job-state]") {
@@ -99,21 +99,21 @@ TEST_CASE("job state turns running actions into interrupted on resume", "[job-st
   writeFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
-  auto const action = jobstate::makeEncodeAction(inputPath, outputPath);
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
 
   auto store = jobstate::Store{statePath};
   auto const initRes = store.initialize(config, false);
   REQUIRE(initRes);
-  store.mergeActions(std::array{action});
-  store.markRunning(action.id);
+  store.mergeTasks(std::array{task});
+  store.markRunning(task.id);
   store.flush();
 
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
-  auto const resumed = resumedStore.mergeActions(std::array{action});
+  auto const resumed = resumedStore.mergeTasks(std::array{task});
   REQUIRE(resumed.size() == 1);
-  CHECK(resumed.front().status == jobstate::ActionStatus::Interrupted);
+  CHECK(resumed.front().status == jobstate::TaskStatus::Interrupted);
 }
 
 TEST_CASE(
@@ -128,21 +128,93 @@ TEST_CASE(
   writeFile(outputPath);
 
   auto const config = makeConfig(inputPath, statePath);
-  auto const action = jobstate::makeEncodeAction(inputPath, outputPath);
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
 
   auto store = jobstate::Store{statePath};
   auto const initRes = store.initialize(config, false);
   REQUIRE(initRes);
-  store.mergeActions(std::array{action});
-  store.markInterrupted(action.id, "canceled by user");
+  store.mergeTasks(std::array{task});
+  store.markInterrupted(task.id, "canceled by user");
   store.flush();
 
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
-  auto const resumed = resumedStore.mergeActions(std::array{action});
+  auto const resumed = resumedStore.mergeTasks(std::array{task});
   REQUIRE(resumed.size() == 1);
-  CHECK(resumed.front().status == jobstate::ActionStatus::Succeeded);
+  CHECK(resumed.front().status == jobstate::TaskStatus::Succeeded);
   REQUIRE(resumed.front().lastProgress.has_value());
   CHECK(resumed.front().lastProgress.value() == Catch::Approx(100.0f));
+}
+
+TEST_CASE("job state resets encode action when planned target changes", "[job-state]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const oldOutputPath = temp.path / "old.hevc.mp4";
+  auto const newOutputPath = temp.path / "new.hevc.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+  writeFile(oldOutputPath);
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto const oldTask = jobstate::makeEncodeTask(inputPath, oldOutputPath);
+  auto const newTask = jobstate::makeEncodeTask(inputPath, newOutputPath);
+
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(config, false);
+  REQUIRE(initRes);
+  store.mergeTasks(std::array{oldTask});
+  store.markRunning(oldTask.id);
+  store.markSucceeded(oldTask.id);
+  store.flush();
+
+  auto resumedStore = jobstate::Store{statePath};
+  auto const resumeRes = resumedStore.initialize(config, false);
+  REQUIRE(resumeRes);
+  auto const resumed = resumedStore.mergeTasks(std::array{newTask});
+  REQUIRE(resumed.size() == 1);
+  CHECK(resumed.front().status == jobstate::TaskStatus::Pending);
+  REQUIRE(resumed.front().targetPaths.size() == 1);
+  CHECK(resumed.front().targetPaths.front() == newOutputPath);
+}
+
+TEST_CASE("job state resets archive action when member set changes", "[job-state]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input";
+  auto const zipPath = temp.path / "bundle.zip";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const memberA = temp.path / "a.bin";
+  auto const memberB = temp.path / "b.bin";
+  auto const memberC = temp.path / "c.bin";
+  fs::create_directories(inputPath);
+  writeFile(memberA);
+  writeFile(memberB);
+  writeFile(memberC);
+  writeFile(zipPath);
+
+  auto config = makeConfig(inputPath, statePath);
+  config.processType = "picture";
+
+  auto const oldTask =
+    jobstate::makeArchiveTask(zipPath, std::array{memberA, memberB}, "bundle");
+  auto const newTask =
+    jobstate::makeArchiveTask(zipPath, std::array{memberA, memberC}, "bundle");
+
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(config, false);
+  REQUIRE(initRes);
+  store.mergeTasks(std::array{oldTask});
+  store.markRunning(oldTask.id);
+  store.markSucceeded(oldTask.id);
+  store.flush();
+
+  auto resumedStore = jobstate::Store{statePath};
+  auto const resumeRes = resumedStore.initialize(config, false);
+  REQUIRE(resumeRes);
+  auto const resumed = resumedStore.mergeTasks(std::array{newTask});
+  REQUIRE(resumed.size() == 1);
+  CHECK(resumed.front().status == jobstate::TaskStatus::Pending);
+  REQUIRE(resumed.front().sourcePaths.size() == 2);
+  CHECK(resumed.front().sourcePaths[0] == memberA);
+  CHECK(resumed.front().sourcePaths[1] == memberC);
 }

@@ -59,6 +59,6 @@ auto resolveProgressLabelForIndex(PackPlan const& plan, std::size_t index) -> st
 auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> indexes)
   -> PackPlan;
 
-auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path>>;
+auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>>;
 
 }  // namespace pack
