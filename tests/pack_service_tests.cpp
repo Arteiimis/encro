@@ -1,3 +1,4 @@
+#include "core/job_state.h"
 #include "pack/pack_service.h"
 #include "test_utils.h"
 
@@ -91,4 +92,59 @@ TEST_CASE("pack range helpers append cumulative ordinal suffixes", "[pack-servic
     pack::appendOrdinalRangeSuffix("bundle_part1.zip", ranges[0])
     == "bundle_part1[1~2#2p].zip"
   );
+}
+
+TEST_CASE(
+  "runPackPlan skips already completed archive tasks from job state",
+  "[pack-service]"
+) {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  auto const statePath = temp.path / "state.json";
+  fs::create_directories(srcDir);
+
+  auto const f1 = createFile(srcDir, "a.txt");
+  auto const f2 = createFile(srcDir, "b.txt");
+  auto const zipPath = outDir / "group1.zip";
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "video";
+  ctx.config.inputPath = srcDir;
+  ctx.config.stateFilePath = statePath;
+  ctx.runtime.jobState = std::make_shared<jobstate::Store>(statePath);
+
+  auto const initRes = ctx.runtime.jobState->initialize(ctx.config, false);
+  REQUIRE(initRes);
+
+  auto const plan = pack::PackPlan{
+    .groups =
+      {
+        std::vector<pack::PackFileEntry>{
+          pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
+          pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
+        },
+      },
+    .outputDir = outDir,
+    .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
+    .progressLabelForIndex =
+      [](std::size_t) { return std::string{"Packing: group1.zip"}; }
+  };
+
+  auto const firstRun = pack::runPackPlan(ctx, plan);
+
+  REQUIRE(firstRun);
+  REQUIRE(firstRun->exitCode == 0);
+  CHECK(firstRun->zippedFiles == std::vector<fs::path>{zipPath});
+  CHECK(fs::exists(zipPath));
+
+  auto const secondRun = pack::runPackPlan(ctx, plan);
+
+  REQUIRE(secondRun);
+  CHECK(secondRun->exitCode == 0);
+  CHECK(secondRun->zippedFiles.empty());
+
+  auto const tasks = ctx.runtime.jobState->tasks();
+  REQUIRE(tasks.size() == 1);
+  CHECK(tasks.front().status == jobstate::TaskStatus::Succeeded);
 }

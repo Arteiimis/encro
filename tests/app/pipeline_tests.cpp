@@ -1,5 +1,6 @@
 #include "core/job_state.h"
 #include "app/pipeline.h"
+#include "infra/stop_signal.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
@@ -11,6 +12,12 @@
 namespace fs = std::filesystem;
 
 namespace {
+
+struct ScopedStopSignalReset {
+  ScopedStopSignalReset() { stopsignal::reset(); }
+
+  ~ScopedStopSignalReset() { stopsignal::reset(); }
+};
 
 void touchFile(fs::path const& filePath) {
   std::ofstream out{filePath};
@@ -86,6 +93,41 @@ TEST_CASE("pack-only pipeline skips job state by default", "[pipeline]") {
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
   CHECK_FALSE(fs::exists(stateFilePath));
+}
+
+TEST_CASE(
+  "pack-only pipeline marks pending archive task interrupted when canceled with job "
+  "state",
+  "[pipeline]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  auto const stateFilePath = temp.path / "state.json";
+  fs::create_directories(inputDir);
+  touchFile(inputDir / "a.bin");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.packOnly = true;
+  ctx.config.processType = "video";
+  ctx.config.inputPath = inputDir;
+  ctx.config.stateFilePath = stateFilePath;
+
+  stopsignal::requestStop();
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == stopsignal::kCanceledExitCode);
+
+  REQUIRE(ctx.runtime.jobState != nullptr);
+  CHECK(ctx.runtime.jobState->isCancelRequested());
+
+  auto const tasks = ctx.runtime.jobState->tasks();
+  REQUIRE(tasks.size() == 1);
+  CHECK(tasks.front().kind == std::string{jobstate::kBuildArchiveKind});
+  CHECK(tasks.front().status == jobstate::TaskStatus::Interrupted);
+  CHECK(tasks.front().lastError == std::optional<std::string>{"canceled by user"});
+  CHECK_FALSE(fs::exists(inputDir / "packed" / "input_part1[1~1#1p].zip"));
 }
 
 TEST_CASE("picture pipeline packs directory", "[pipeline]") {

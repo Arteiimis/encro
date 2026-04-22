@@ -1,19 +1,17 @@
 #include "core/app_context.h"
 #include "infra/stop_signal.h"
 #include "test_utils.h"
+#include "video/video_output_planning.h"
+#include "video/video_progress_parser.h"
 #include "video/video_process.h"
 
 #include <catch2/catch_all.hpp>
 
-#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string_view>
-#include <thread>
 #include <vector>
-
-auto isLikelyFfmpegErrorLine(std::string_view line) -> bool;
 
 namespace {
 

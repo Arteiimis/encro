@@ -1,9 +1,7 @@
 #include "app/pipeline.h"
 
-#include "core/archive_plan.h"
 #include "core/job_state.h"
 #include "infra/terminal.h"
-#include "infra/stop_signal.h"
 #include "pack/packer.h"
 #include "picture/picture_process.h"
 #include "utils/utils.h"
@@ -41,36 +39,6 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
   return {};
 }
 
-auto runPackPlan(appctx::AppContext& ctx, pack::PackPlan const& plan) -> eh::Result<int> {
-  auto* store = ctx.runtime.jobState.get();
-  if (store == nullptr) {
-    auto const packRes = pack::packGroups(plan);
-    if (!packRes) { return eh::makeError("{}", packRes.error()); }
-    return 0;
-  }
-
-  auto preparedExecution = archiveplan::prepareResumablePackExecution(*store, plan);
-  if (!preparedExecution.pendingPlan.has_value()) {
-    store->setStage("completed");
-    return 0;
-  }
-
-  store->setStage("packing");
-
-  auto const packRes = pack::packGroups(preparedExecution.pendingPlan.value());
-  if (!packRes) {
-    if (stopsignal::isStopRequested()) {
-      store->requestCancel();
-      store->markIncompleteInterrupted(preparedExecution.pendingActionIds);
-      return stopsignal::kCanceledExitCode;
-    }
-    return eh::makeError("{}", packRes.error());
-  }
-
-  store->setStage("completed");
-  return 0;
-}
-
 auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
   if (ctx.config.processType != "video") {
     return eh::makeError("pack-only option is only supported when --type is video.");
@@ -94,9 +62,9 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
   );
   if (!planRes) { return eh::makeError("Failed to pack files: {}", planRes.error()); }
 
-  auto const packRes = runPackPlan(ctx, planRes.value());
+  auto const packRes = pack::runPackPlan(ctx, planRes.value());
   if (!packRes) { return eh::makeError("Failed to pack files: {}", packRes.error()); }
-  if (packRes.value() != 0) { return packRes.value(); }
+  if (packRes->exitCode != 0) { return packRes->exitCode; }
 
   terminal::println(
     Success,
@@ -157,10 +125,10 @@ auto runPicture(appctx::AppContext& ctx) -> eh::Result<int> {
     return 0;
   }
 
-  auto const packRes = runPackPlan(ctx, planRes.value());
+  auto const packRes = pack::runPackPlan(ctx, planRes.value());
 
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
-  if (packRes.value() != 0) { return packRes.value(); }
+  if (packRes->exitCode != 0) { return packRes->exitCode; }
 
   terminal::println(
     Success,
