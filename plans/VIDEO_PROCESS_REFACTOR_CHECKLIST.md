@@ -40,10 +40,10 @@ Exit criteria:
 
 ### Phase 1: Extract Pure Planning Logic
 
-- [ ] Move output-path planning helpers out of `src/video/video_process.cpp` into a dedicated internal module.
-- [ ] Move pack grouping helpers out of `src/video/video_process.cpp` into a dedicated internal module or pack-facing helper.
-- [ ] Keep existing public functions stable unless there is a clear reason to narrow the header surface later.
-- [ ] Re-run existing path-planning and pack-grouping tests after extraction.
+- [x] Move output-path planning helpers out of `src/video/video_process.cpp` into a dedicated internal module.
+- [x] Move pack grouping helpers out of `src/video/video_process.cpp` into a dedicated internal module or pack-facing helper.
+- [x] Keep existing public functions stable unless there is a clear reason to narrow the header surface later.
+- [x] Re-run existing path-planning and pack-grouping tests after extraction.
 
 Target logic:
 
@@ -58,11 +58,17 @@ Exit criteria:
 - Path planning and pack grouping no longer live in the main orchestration file.
 - Existing unit tests pass without behavior changes.
 
+Verified on Windows with:
+
+- `xmake build tests; .\build\windows\x64\release\tests.exe "[video-process][plan-output]"`
+- `.\build\windows\x64\release\tests.exe "[video-process][resolve-output-path]"`
+- `.\build\windows\x64\release\tests.exe "[video-process][pack]"`
+
 ### Phase 2: Extract Progress and ffmpeg Parsing
 
-- [ ] Move progress-file parsing and ffmpeg line classification into a focused internal module.
-- [ ] Keep the parser API small and value-based.
-- [ ] Keep tests centered on pure functions.
+- [x] Move progress-file parsing and ffmpeg line classification into a focused internal module.
+- [x] Keep the parser API small and value-based.
+- [x] Keep tests centered on pure functions.
 
 Target logic:
 
@@ -76,12 +82,18 @@ Exit criteria:
 - Text parsing and progress parsing are isolated from orchestration code.
 - Existing parser tests still pass.
 
+Verified on Windows with:
+
+- `xmake build tests; .\build\windows\x64\release\tests.exe "[video-process][readLastNLines]"`
+- `.\build\windows\x64\release\tests.exe "[video-process][parseProgressFile]"`
+- `.\build\windows\x64\release\tests.exe "[video-process][ffmpeg]"`
+
 ### Phase 3: Unify Entry Orchestration
 
-- [ ] Introduce one internal workflow for: scan -> validate -> plan outputs -> prepare actions -> run encoding -> handle stop -> maybe pack -> summarize.
-- [ ] Keep `handlePathEncoding` and `handleMultiFileEncoding` as thin wrappers.
-- [ ] Pull duplicated stop-handling and result-merging code into shared helpers.
-- [ ] Prefer early returns over nested conditionals.
+- [x] Introduce one internal workflow for: scan -> validate -> plan outputs -> prepare actions -> run encoding -> handle stop -> maybe pack -> summarize.
+- [x] Keep `handlePathEncoding` and `handleMultiFileEncoding` as thin wrappers.
+- [x] Pull duplicated stop-handling and result-merging code into shared helpers.
+- [x] Prefer early returns over nested conditionals.
 
 Target duplication:
 
@@ -92,11 +104,16 @@ Exit criteria:
 - The two public entry points differ only in input acquisition and their unique preconditions.
 - Main flow reads top-down without large repeated blocks.
 
+Verified on Windows with:
+
+- `xmake build tests; .\build\windows\x64\release\tests.exe "[video-process][orchestration]"`
+- `xmake r tests`
+
 ### Phase 4: Extract Encoding Execution
 
-- [ ] Move `encodeToHevc` support logic into a dedicated execution module.
-- [ ] Separate state preparation, config construction, command execution, and WebP adaptive retry logic.
-- [ ] Keep `encodeToHevc` as the stable facade unless callers can be updated cheaply.
+- [x] Move `encodeToHevc` support logic into a dedicated execution module.
+- [x] Separate state preparation, config construction, command execution, and WebP adaptive retry logic.
+- [x] Keep `encodeToHevc` as the stable facade unless callers can be updated cheaply.
 
 Target logic:
 
@@ -109,12 +126,18 @@ Exit criteria:
 - Encoding command execution can be read independently from orchestration and progress UI.
 - WebP-specific logic is no longer interleaved with generic encoding flow.
 
+Verified on Windows with:
+
+- `xmake build tests; .\build\windows\x64\release\tests.exe "[video-process][orchestration]"`
+- `xmake r tests`
+- `xmake r e2e_tests`
+
 ### Phase 5: Extract Batch Execution and Progress UI
 
-- [ ] Move progress state structs and monitor logic into a batch-execution module.
-- [ ] Isolate slot management, progress bars, active-state tracking, and task lifecycle updates.
-- [ ] Keep thread behavior unchanged in the first pass.
-- [ ] Simplify long functions only after extraction preserves behavior.
+- [x] Move progress state structs and monitor logic into a batch-execution module.
+- [x] Isolate slot management, progress bars, active-state tracking, and task lifecycle updates.
+- [x] Keep thread behavior unchanged in the first pass.
+- [x] Simplify long functions only after extraction preserves behavior.
 
 Target logic:
 
@@ -129,16 +152,29 @@ Exit criteria:
 - The main video orchestration file no longer owns thread and progress implementation details.
 - Progress behavior remains unchanged in manual and automated checks.
 
+Verified on Windows with:
+
+- `xmake build tests; .\build\windows\x64\release\tests.exe "[video-process][orchestration]"`
+- `xmake r tests`
+- `xmake r e2e_tests`
+
 ### Phase 6: Remove Cross-Module Duplication
 
-- [ ] Deduplicate resumable pack execution shared with `src/app/pipeline.cpp`.
-- [ ] Move reusable pack execution logic to the pack/app layer instead of keeping a video-only copy.
-- [ ] Narrow `src/video/video_process.h` so it exposes only stable entry points and intentionally public helpers.
+- [x] Deduplicate resumable pack execution shared with `src/app/pipeline.cpp`.
+- [x] Move reusable pack execution logic to the pack/app layer instead of keeping a video-only copy.
+- [x] Narrow `src/video/video_process.h` so it exposes only stable entry points and intentionally public helpers.
 
 Exit criteria:
 
 - Shared pack execution code exists in one place.
 - Public header surface is smaller and more intentional.
+
+Verified on Windows with:
+
+- `xmake build tests; .\build\windows\x64\release\tests.exe "[pack-service],[pipeline],[video-process][pack]"`
+- `xmake build tests; .\build\windows\x64\release\tests.exe "[video-process],[pack-service],[pipeline]"`
+- `xmake r tests`
+- `xmake r e2e_tests`
 
 ## Rules During Refactor
 

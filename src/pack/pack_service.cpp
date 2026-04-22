@@ -1,6 +1,9 @@
 #include "pack/pack_service.h"
 
+#include "core/archive_plan.h"
 #include "core/task_executor.h"
+
+#include "infra/stop_signal.h"
 #include "pack/packer.h"
 
 #include <algorithm>
@@ -118,6 +121,37 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
     .maxParallelJobs = plan.maxParallelJobs,
     .removeOnFailure = plan.removeOnFailure,
   };
+}
+
+auto runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
+  -> eh::Result<PackRunResult> {
+  auto* store = ctx.runtime.jobState.get();
+  if (store == nullptr) {
+    auto const packRes = packGroups(plan);
+    if (!packRes) { return eh::makeError("{}", packRes.error()); }
+    return PackRunResult{.exitCode = 0, .zippedFiles = packRes.value()};
+  }
+
+  auto preparedExecution = archiveplan::prepareResumablePackExecution(*store, plan);
+  if (!preparedExecution.pendingPlan.has_value()) {
+    store->setStage("completed");
+    return PackRunResult{};
+  }
+
+  store->setStage("packing");
+
+  auto const packRes = packGroups(preparedExecution.pendingPlan.value());
+  if (!packRes) {
+    if (stopsignal::isStopRequested()) {
+      store->requestCancel();
+      store->markIncompleteInterrupted(preparedExecution.pendingActionIds);
+      return PackRunResult{.exitCode = stopsignal::kCanceledExitCode};
+    }
+    return eh::makeError("{}", packRes.error());
+  }
+
+  store->setStage("completed");
+  return PackRunResult{.exitCode = 0, .zippedFiles = packRes.value()};
 }
 
 auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
