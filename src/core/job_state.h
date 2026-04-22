@@ -17,12 +17,10 @@ namespace jobstate {
 
 namespace fs = std::filesystem;
 
-enum class ActionKind {
-  EncodeVideo,
-  BuildArchive,
-};
+inline constexpr auto kEncodeVideoKind = std::string_view{"encode_video"};
+inline constexpr auto kBuildArchiveKind = std::string_view{"build_archive"};
 
-enum class ActionStatus {
+enum class TaskStatus {
   Pending,
   Running,
   Succeeded,
@@ -43,18 +41,15 @@ struct ConfigSnapshot {
   std::optional<fs::path> outputPath;
 };
 
-struct ActionRecord {
+struct TaskRecord {
   std::string id;
-  ActionKind kind = ActionKind::EncodeVideo;
-  ActionStatus status = ActionStatus::Pending;
+  std::string kind = std::string{kEncodeVideoKind};
+  TaskStatus status = TaskStatus::Pending;
   std::string label;
   std::size_t attemptCount = 0;
-  std::optional<fs::path> inputPath;
-  std::optional<fs::path> plannedOutputFile;
-  std::optional<std::uintmax_t> inputSize;
-  std::optional<std::int64_t> inputWriteTime;
-  std::optional<fs::path> archiveFile;
-  std::vector<fs::path> archiveMembers;
+  std::string fingerprint;
+  std::vector<fs::path> sourcePaths;
+  std::vector<fs::path> targetPaths;
   std::optional<float> lastProgress;
   std::optional<std::uint64_t> lastFrameCount;
   std::optional<std::string> lastStatus;
@@ -71,7 +66,7 @@ struct Snapshot {
   bool cancelRequested = false;
   std::int64_t updatedAtMs = 0;
   ConfigSnapshot config;
-  std::vector<ActionRecord> actions;
+  std::vector<TaskRecord> tasks;
 };
 
 class Store {
@@ -82,12 +77,11 @@ public:
 
   auto initialize(appctx::AppConfig const& config, bool restart) -> eh::Result<bool>;
 
-  auto mergeActions(std::span<ActionRecord const> plannedActions)
-    -> std::vector<ActionRecord>;
+  auto mergeTasks(std::span<TaskRecord const> plannedTasks) -> std::vector<TaskRecord>;
 
-  auto actions() const -> std::vector<ActionRecord>;
+  auto tasks() const -> std::vector<TaskRecord>;
 
-  auto findAction(std::string_view id) const -> std::optional<ActionRecord>;
+  auto findTask(std::string_view id) const -> std::optional<TaskRecord>;
 
   void setStage(std::string_view stage);
 
@@ -129,7 +123,7 @@ private:
 
   fs::path stateFilePath_;
   Snapshot snapshot_;
-  std::unordered_map<std::string, std::size_t> actionIndex_;
+  std::unordered_map<std::string, std::size_t> taskIndex_;
   mutable std::mutex mtx_;
   std::int64_t lastFlushAtMs_ = 0;
 };
@@ -140,17 +134,21 @@ auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot;
 
 auto configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) -> bool;
 
-auto makeEncodeAction(fs::path const& inputPath, fs::path const& plannedOutputFile)
-  -> ActionRecord;
+auto makeEncodeTask(fs::path const& inputPath, fs::path const& plannedOutputFile)
+  -> TaskRecord;
 
-auto makeArchiveAction(
+auto makeArchiveTask(
   fs::path const& archiveFile,
   std::span<fs::path const> members,
   std::string label
-) -> ActionRecord;
+) -> TaskRecord;
 
-auto needsExecution(ActionRecord const& action) -> bool;
+auto primarySourcePath(TaskRecord const& task) -> std::optional<fs::path>;
 
-auto actionTargetExists(ActionRecord const& action) -> bool;
+auto primaryTargetPath(TaskRecord const& task) -> std::optional<fs::path>;
+
+auto needsExecution(TaskRecord const& task) -> bool;
+
+auto actionTargetExists(TaskRecord const& task) -> bool;
 
 }  // namespace jobstate

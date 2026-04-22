@@ -58,38 +58,24 @@ auto outputLayoutToString(appctx::OutputLayout layout) -> std::string {
   return layout == appctx::OutputLayout::Keep ? "keep" : "flat";
 }
 
-auto actionKindToString(ActionKind kind) -> std::string_view {
-  switch (kind) {
-    case ActionKind::EncodeVideo : return "encode_video";
-    case ActionKind::BuildArchive: return "build_archive";
-  }
-
-  return "encode_video";
-}
-
-auto parseActionKind(std::string_view value) -> ActionKind {
-  if (value == "build_archive") { return ActionKind::BuildArchive; }
-  return ActionKind::EncodeVideo;
-}
-
-auto actionStatusToString(ActionStatus status) -> std::string_view {
+auto taskStatusToString(TaskStatus status) -> std::string_view {
   switch (status) {
-    case ActionStatus::Pending    : return "pending";
-    case ActionStatus::Running    : return "running";
-    case ActionStatus::Succeeded  : return "succeeded";
-    case ActionStatus::Failed     : return "failed";
-    case ActionStatus::Interrupted: return "interrupted";
+    case TaskStatus::Pending    : return "pending";
+    case TaskStatus::Running    : return "running";
+    case TaskStatus::Succeeded  : return "succeeded";
+    case TaskStatus::Failed     : return "failed";
+    case TaskStatus::Interrupted: return "interrupted";
   }
 
   return "pending";
 }
 
-auto parseActionStatus(std::string_view value) -> ActionStatus {
-  if (value == "running") { return ActionStatus::Running; }
-  if (value == "succeeded") { return ActionStatus::Succeeded; }
-  if (value == "failed") { return ActionStatus::Failed; }
-  if (value == "interrupted") { return ActionStatus::Interrupted; }
-  return ActionStatus::Pending;
+auto parseTaskStatus(std::string_view value) -> TaskStatus {
+  if (value == "running") { return TaskStatus::Running; }
+  if (value == "succeeded") { return TaskStatus::Succeeded; }
+  if (value == "failed") { return TaskStatus::Failed; }
+  if (value == "interrupted") { return TaskStatus::Interrupted; }
+  return TaskStatus::Pending;
 }
 
 auto pathToJson(std::optional<fs::path> const& path) -> json::value {
@@ -158,6 +144,96 @@ auto optionalStringArrayFrom(json::object const& object, std::string_view key)
   return values;
 }
 
+auto toFingerprintToken(fs::path const& path) -> std::string {
+  return std::format(
+    "{}#{}#{}",
+    collisionnaming::stablePathString(path),
+    inputSize(path).transform(
+                     [](auto value) { return std::to_string(value); }
+    ).value_or("missing"),
+    inputWriteTime(path).transform(
+                          [](auto value) { return std::to_string(value); }
+    ).value_or("missing")
+  );
+}
+
+auto buildFingerprint(
+  std::string_view kind,
+  std::span<fs::path const> sourcePaths,
+  std::span<fs::path const> targetPaths
+) -> std::string {
+  auto payload = std::string{kind};
+  payload += "|src=";
+  for (auto const& path: sourcePaths) {
+    payload += toFingerprintToken(path);
+    payload += ';';
+  }
+  payload += "|dst=";
+  for (auto const& path: targetPaths) {
+    payload += collisionnaming::stablePathString(path);
+    payload += ';';
+  }
+  return collisionnaming::shortPathHash(payload);
+}
+
+auto legacySourcePathsFrom(json::object const& object) -> std::vector<fs::path> {
+  auto sourcePaths = optionalStringArrayFrom(object, "archiveMembers");
+  if (!sourcePaths.empty()) { return sourcePaths; }
+
+  if (
+    auto const inputPath = optionalPathFrom(object, "inputPath"); inputPath.has_value()
+  ) {
+    sourcePaths.push_back(inputPath.value());
+  }
+
+  return sourcePaths;
+}
+
+auto legacyTargetPathsFrom(json::object const& object) -> std::vector<fs::path> {
+  auto targetPaths = std::vector<fs::path>{};
+
+  if (
+    auto const plannedOutputFile = optionalPathFrom(object, "plannedOutputFile");
+    plannedOutputFile.has_value()
+  ) {
+    targetPaths.push_back(plannedOutputFile.value());
+    return targetPaths;
+  }
+
+  if (
+    auto const archiveFile = optionalPathFrom(object, "archiveFile");
+    archiveFile.has_value()
+  ) {
+    targetPaths.push_back(archiveFile.value());
+  }
+
+  return targetPaths;
+}
+
+auto inferLegacyKind(
+  json::object const& object,
+  std::vector<fs::path> const& sourcePaths,
+  std::vector<fs::path> const& targetPaths
+) -> std::string {
+  if (auto const kind = optionalStringFrom(object, "kind"); kind.has_value()) {
+    return kind.value();
+  }
+
+  if (object.contains("archiveFile") || sourcePaths.size() > 1) {
+    return std::string{kBuildArchiveKind};
+  }
+
+  if (!targetPaths.empty() || !sourcePaths.empty()) {
+    return std::string{kEncodeVideoKind};
+  }
+
+  return std::string{kEncodeVideoKind};
+}
+
+auto currentFingerprint(TaskRecord const& task) -> std::string {
+  return buildFingerprint(task.kind, task.sourcePaths, task.targetPaths);
+}
+
 auto toJson(ConfigSnapshot const& config) -> json::object {
   auto object = json::object{};
   object["processType"] = config.processType;
@@ -190,59 +266,57 @@ auto fromJsonConfig(json::object const& object) -> ConfigSnapshot {
   };
 }
 
-auto toJson(ActionRecord const& action) -> json::object {
+auto toJson(TaskRecord const& task) -> json::object {
   auto object = json::object{};
-  object["id"] = action.id;
-  object["kind"] = actionKindToString(action.kind);
-  object["status"] = actionStatusToString(action.status);
-  object["label"] = action.label;
-  object["attemptCount"] = action.attemptCount;
-  object["inputPath"] = pathToJson(action.inputPath);
-  object["plannedOutputFile"] = pathToJson(action.plannedOutputFile);
-  object["inputSize"] =
-    action.inputSize.has_value() ? json::value(*action.inputSize) : json::value(nullptr);
-  object["inputWriteTime"] = action.inputWriteTime.has_value()
-    ? json::value(*action.inputWriteTime)
+  object["id"] = task.id;
+  object["kind"] = task.kind;
+  object["status"] = taskStatusToString(task.status);
+  object["label"] = task.label;
+  object["attemptCount"] = task.attemptCount;
+  object["fingerprint"] = task.fingerprint;
+  object["sourcePaths"] = pathsToJson(task.sourcePaths);
+  object["targetPaths"] = pathsToJson(task.targetPaths);
+  object["lastProgress"] = task.lastProgress.has_value() ? json::value(*task.lastProgress)
+                                                         : json::value(nullptr);
+  object["lastFrameCount"] = task.lastFrameCount.has_value()
+    ? json::value(*task.lastFrameCount)
     : json::value(nullptr);
-  object["archiveFile"] = pathToJson(action.archiveFile);
-  if (!action.archiveMembers.empty()) {
-    object["archiveMembers"] = pathsToJson(action.archiveMembers);
-  }
-  object["lastProgress"] = action.lastProgress.has_value()
-    ? json::value(*action.lastProgress)
-    : json::value(nullptr);
-  object["lastFrameCount"] = action.lastFrameCount.has_value()
-    ? json::value(*action.lastFrameCount)
-    : json::value(nullptr);
-  object["lastStatus"] = action.lastStatus.has_value() ? json::value(*action.lastStatus)
-                                                       : json::value(nullptr);
+  object["lastStatus"] =
+    task.lastStatus.has_value() ? json::value(*task.lastStatus) : json::value(nullptr);
   object["lastError"] =
-    action.lastError.has_value() ? json::value(*action.lastError) : json::value(nullptr);
-  object["startedAtMs"] = action.startedAtMs.has_value()
-    ? json::value(*action.startedAtMs)
-    : json::value(nullptr);
-  object["updatedAtMs"] = action.updatedAtMs.has_value()
-    ? json::value(*action.updatedAtMs)
-    : json::value(nullptr);
-  object["finishedAtMs"] = action.finishedAtMs.has_value()
-    ? json::value(*action.finishedAtMs)
-    : json::value(nullptr);
+    task.lastError.has_value() ? json::value(*task.lastError) : json::value(nullptr);
+  object["startedAtMs"] =
+    task.startedAtMs.has_value() ? json::value(*task.startedAtMs) : json::value(nullptr);
+  object["updatedAtMs"] =
+    task.updatedAtMs.has_value() ? json::value(*task.updatedAtMs) : json::value(nullptr);
+  object["finishedAtMs"] = task.finishedAtMs.has_value() ? json::value(*task.finishedAtMs)
+                                                         : json::value(nullptr);
   return object;
 }
 
-auto fromJsonAction(json::object const& object) -> ActionRecord {
-  return ActionRecord{
+auto fromJsonTask(json::object const& object) -> TaskRecord {
+  auto sourcePaths = optionalStringArrayFrom(object, "sourcePaths");
+  if (sourcePaths.empty()) { sourcePaths = legacySourcePathsFrom(object); }
+
+  auto targetPaths = optionalStringArrayFrom(object, "targetPaths");
+  if (targetPaths.empty()) { targetPaths = legacyTargetPathsFrom(object); }
+
+  auto kind = inferLegacyKind(object, sourcePaths, targetPaths);
+  auto fingerprint = optionalStringFrom(object, "fingerprint");
+
+  return TaskRecord{
     .id = optionalStringFrom(object, "id").value_or({}),
-    .kind = parseActionKind(optionalStringFrom(object, "kind").value_or("encode_video")),
-    .status = parseActionStatus(optionalStringFrom(object, "status").value_or("pending")),
+    .kind = std::move(kind),
+    .status = parseTaskStatus(optionalStringFrom(object, "status").value_or("pending")),
     .label = optionalStringFrom(object, "label").value_or({}),
     .attemptCount = optionalNumberFrom<std::size_t>(object, "attemptCount").value_or(0),
-    .inputPath = optionalPathFrom(object, "inputPath"),
-    .plannedOutputFile = optionalPathFrom(object, "plannedOutputFile"),
-    .inputSize = optionalNumberFrom<std::uintmax_t>(object, "inputSize"),
-    .inputWriteTime = optionalNumberFrom<std::int64_t>(object, "inputWriteTime"),
-    .archiveFile = optionalPathFrom(object, "archiveFile"),
-    .archiveMembers = optionalStringArrayFrom(object, "archiveMembers"),
+    .fingerprint = fingerprint.value_or(buildFingerprint(
+      inferLegacyKind(object, sourcePaths, targetPaths),
+      sourcePaths,
+      targetPaths
+    )),
+    .sourcePaths = std::move(sourcePaths),
+    .targetPaths = std::move(targetPaths),
     .lastProgress = optionalNumberFrom<float>(object, "lastProgress"),
     .lastFrameCount = optionalNumberFrom<std::uint64_t>(object, "lastFrameCount"),
     .lastStatus = optionalStringFrom(object, "lastStatus"),
@@ -262,10 +336,10 @@ auto toJson(Snapshot const& snapshot) -> json::object {
   object["updatedAtMs"] = snapshot.updatedAtMs;
   object["config"] = toJson(snapshot.config);
 
-  auto actions = json::array{};
-  actions.reserve(snapshot.actions.size());
-  for (auto const& action: snapshot.actions) { actions.emplace_back(toJson(action)); }
-  object["actions"] = std::move(actions);
+  auto tasks = json::array{};
+  tasks.reserve(snapshot.tasks.size());
+  for (auto const& task: snapshot.tasks) { tasks.emplace_back(toJson(task)); }
+  object["tasks"] = std::move(tasks);
   return object;
 }
 
@@ -281,10 +355,15 @@ auto fromJsonSnapshot(json::object const& object) -> Snapshot {
   if (object.if_contains("config") && object.at("config").is_object()) {
     snapshot.config = fromJsonConfig(object.at("config").as_object());
   }
-  if (object.if_contains("actions") && object.at("actions").is_array()) {
-    for (auto const& action: object.at("actions").as_array()) {
-      if (!action.is_object()) { continue; }
-      snapshot.actions.push_back(fromJsonAction(action.as_object()));
+  auto const* storedTasks = object.if_contains("tasks");
+  auto const* legacyActions = object.if_contains("actions");
+  auto const* taskArray = storedTasks != nullptr && storedTasks->is_array() ? storedTasks
+    : legacyActions != nullptr && legacyActions->is_array() ? legacyActions
+                                                            : nullptr;
+  if (taskArray != nullptr) {
+    for (auto const& task: taskArray->as_array()) {
+      if (!task.is_object()) { continue; }
+      snapshot.tasks.push_back(fromJsonTask(task.as_object()));
     }
   }
   return snapshot;
@@ -310,76 +389,61 @@ auto loadSnapshot(fs::path const& path) -> eh::Result<Snapshot> {
   }
 }
 
-auto samePlan(ActionRecord const& lhs, ActionRecord const& rhs) -> bool {
-  return lhs.kind == rhs.kind
-    && lhs.inputPath == rhs.inputPath
-    && lhs.plannedOutputFile == rhs.plannedOutputFile
-    && lhs.archiveFile == rhs.archiveFile
-    && lhs.archiveMembers == rhs.archiveMembers
-    && lhs.inputSize == rhs.inputSize
-    && lhs.inputWriteTime == rhs.inputWriteTime;
+auto fingerprintChanged(TaskRecord const& task) -> bool {
+  return task.fingerprint != currentFingerprint(task);
 }
 
-auto inputChanged(ActionRecord const& action) -> bool {
-  if (!action.inputPath.has_value()) { return false; }
-
-  auto const currentSize = inputSize(action.inputPath.value());
-  auto const currentWriteTime = inputWriteTime(action.inputPath.value());
-  if (!currentSize.has_value() || !currentWriteTime.has_value()) { return true; }
-
-  return action.inputSize != currentSize || action.inputWriteTime != currentWriteTime;
-}
-
-void clearExecutionState(ActionRecord& action) {
-  action.status = ActionStatus::Pending;
-  action.lastProgress.reset();
-  action.lastFrameCount.reset();
-  action.lastStatus.reset();
-  action.lastError.reset();
-  action.startedAtMs.reset();
-  action.updatedAtMs.reset();
-  action.finishedAtMs.reset();
+void clearExecutionState(TaskRecord& task) {
+  task.status = TaskStatus::Pending;
+  task.lastProgress.reset();
+  task.lastFrameCount.reset();
+  task.lastStatus.reset();
+  task.lastError.reset();
+  task.startedAtMs.reset();
+  task.updatedAtMs.reset();
+  task.finishedAtMs.reset();
 }
 
 void markRestoredSucceeded(
-  ActionRecord& action,
+  TaskRecord& task,
   std::string_view status = "restored from existing output"
 ) {
   auto const restoredAt = nowMs();
-  action.status = ActionStatus::Succeeded;
-  action.lastProgress = 100.0f;
-  action.lastError.reset();
-  action.lastStatus = std::string{status};
-  if (!action.finishedAtMs.has_value()) { action.finishedAtMs = restoredAt; }
-  action.updatedAtMs = restoredAt;
+  task.status = TaskStatus::Succeeded;
+  task.lastProgress = 100.0f;
+  task.lastError.reset();
+  task.lastStatus = std::string{status};
+  if (!task.finishedAtMs.has_value()) { task.finishedAtMs = restoredAt; }
+  task.updatedAtMs = restoredAt;
 }
 
-void normalizeExistingAction(ActionRecord& action) {
-  auto const wasRunning = action.status == ActionStatus::Running;
-  if (action.status == ActionStatus::Running) {
-    action.status = ActionStatus::Interrupted;
-    if (!action.lastError.has_value()) {
-      action.lastError = "interrupted during previous run";
+void normalizeExistingTask(TaskRecord& task) {
+  auto const wasRunning = task.status == TaskStatus::Running;
+  if (task.status == TaskStatus::Running) {
+    task.status = TaskStatus::Interrupted;
+    if (!task.lastError.has_value()) {
+      task.lastError = "interrupted during previous run";
     }
   }
 
-  if (inputChanged(action)) {
-    clearExecutionState(action);
+  if (fingerprintChanged(task)) {
+    clearExecutionState(task);
+    task.fingerprint = currentFingerprint(task);
     return;
   }
 
   if (
-    !wasRunning && actionTargetExists(action)
-    && (action.status == ActionStatus::Pending
-      || action.status == ActionStatus::Interrupted
-      || action.status == ActionStatus::Succeeded)
+    !wasRunning && actionTargetExists(task)
+    && (task.status == TaskStatus::Pending
+      || task.status == TaskStatus::Interrupted
+      || task.status == TaskStatus::Succeeded)
   ) {
-    markRestoredSucceeded(action);
+    markRestoredSucceeded(task);
     return;
   }
 
-  if (action.status == ActionStatus::Succeeded && !actionTargetExists(action)) {
-    clearExecutionState(action);
+  if (task.status == TaskStatus::Succeeded && !actionTargetExists(task)) {
+    clearExecutionState(task);
   }
 }
 
@@ -463,7 +527,7 @@ auto Store::initialize(appctx::AppConfig const& config, bool restart)
       snapshot_.config = currentConfig;
       snapshot_.cancelRequested = false;
       snapshot_.updatedAtMs = nowMs();
-      for (auto& action: snapshot_.actions) { normalizeExistingAction(action); }
+      for (auto& task: snapshot_.tasks) { normalizeExistingTask(task); }
       rebuildIndexLocked();
       flushLocked(true);
       return true;
@@ -477,62 +541,64 @@ auto Store::initialize(appctx::AppConfig const& config, bool restart)
     .cancelRequested = false,
     .updatedAtMs = nowMs(),
     .config = currentConfig,
-    .actions = {},
+    .tasks = {},
   };
   rebuildIndexLocked();
   flushLocked(true);
   return false;
 }
 
-auto Store::mergeActions(std::span<ActionRecord const> plannedActions)
-  -> std::vector<ActionRecord> {
+auto Store::mergeTasks(std::span<TaskRecord const> plannedTasks)
+  -> std::vector<TaskRecord> {
   auto lock = std::scoped_lock{mtx_};
-  auto mergedActions = std::vector<ActionRecord>{};
-  mergedActions.reserve(plannedActions.size());
+  auto mergedTasks = std::vector<TaskRecord>{};
+  mergedTasks.reserve(plannedTasks.size());
 
-  for (auto const& plannedAction: plannedActions) {
-    if (auto const index = indexFor(plannedAction.id); index.has_value()) {
-      auto& existing = snapshot_.actions[index.value()];
+  for (auto const& plannedTask: plannedTasks) {
+    if (auto const index = indexFor(plannedTask.id); index.has_value()) {
+      auto& existing = snapshot_.tasks[index.value()];
 
       auto preserved = existing;
-      preserved.kind = plannedAction.kind;
-      preserved.label = plannedAction.label;
-      preserved.inputPath = plannedAction.inputPath;
-      preserved.plannedOutputFile = plannedAction.plannedOutputFile;
-      preserved.inputSize = plannedAction.inputSize;
-      preserved.inputWriteTime = plannedAction.inputWriteTime;
-      preserved.archiveFile = plannedAction.archiveFile;
-      preserved.archiveMembers = plannedAction.archiveMembers;
+      auto const planFingerprintChanged = existing.fingerprint != plannedTask.fingerprint;
+      preserved.kind = plannedTask.kind;
+      preserved.label = plannedTask.label;
+      preserved.fingerprint = plannedTask.fingerprint;
+      preserved.sourcePaths = plannedTask.sourcePaths;
+      preserved.targetPaths = plannedTask.targetPaths;
 
-      normalizeExistingAction(preserved);
+      if (planFingerprintChanged) {
+        clearExecutionState(preserved);
+      } else {
+        normalizeExistingTask(preserved);
+      }
 
       existing = std::move(preserved);
-      mergedActions.push_back(existing);
+      mergedTasks.push_back(existing);
       continue;
     }
 
-    auto action = plannedAction;
-    action.updatedAtMs = nowMs();
-    snapshot_.actions.push_back(std::move(action));
-    actionIndex_[snapshot_.actions.back().id] = snapshot_.actions.size() - 1;
-    mergedActions.push_back(snapshot_.actions.back());
+    auto task = plannedTask;
+    task.updatedAtMs = nowMs();
+    snapshot_.tasks.push_back(std::move(task));
+    taskIndex_[snapshot_.tasks.back().id] = snapshot_.tasks.size() - 1;
+    mergedTasks.push_back(snapshot_.tasks.back());
   }
 
   snapshot_.updatedAtMs = nowMs();
   flushLocked(true);
-  return mergedActions;
+  return mergedTasks;
 }
 
-auto Store::actions() const -> std::vector<ActionRecord> {
+auto Store::tasks() const -> std::vector<TaskRecord> {
   auto lock = std::scoped_lock{mtx_};
-  return snapshot_.actions;
+  return snapshot_.tasks;
 }
 
-auto Store::findAction(std::string_view id) const -> std::optional<ActionRecord> {
+auto Store::findTask(std::string_view id) const -> std::optional<TaskRecord> {
   auto lock = std::scoped_lock{mtx_};
   auto const index = indexFor(id);
   if (!index.has_value()) { return std::nullopt; }
-  return snapshot_.actions[index.value()];
+  return snapshot_.tasks[index.value()];
 }
 
 void Store::setStage(std::string_view stage) {
@@ -560,13 +626,13 @@ void Store::markRunning(std::string_view id) {
   auto const index = indexFor(id);
   if (!index.has_value()) { return; }
 
-  auto& action = snapshot_.actions[index.value()];
-  action.status = ActionStatus::Running;
-  action.attemptCount += 1;
-  action.startedAtMs = nowMs();
-  action.updatedAtMs = action.startedAtMs;
-  action.finishedAtMs.reset();
-  action.lastError.reset();
+  auto& task = snapshot_.tasks[index.value()];
+  task.status = TaskStatus::Running;
+  task.attemptCount += 1;
+  task.startedAtMs = nowMs();
+  task.updatedAtMs = task.startedAtMs;
+  task.finishedAtMs.reset();
+  task.lastError.reset();
   flushLocked(true);
 }
 
@@ -580,12 +646,12 @@ void Store::markProgress(
   auto const index = indexFor(id);
   if (!index.has_value()) { return; }
 
-  auto& action = snapshot_.actions[index.value()];
-  if (progress.has_value()) { action.lastProgress = progress.value(); }
-  if (frameCount.has_value()) { action.lastFrameCount = frameCount.value(); }
-  if (status.has_value()) { action.lastStatus = std::string{status.value()}; }
-  action.updatedAtMs = nowMs();
-  snapshot_.updatedAtMs = action.updatedAtMs.value();
+  auto& task = snapshot_.tasks[index.value()];
+  if (progress.has_value()) { task.lastProgress = progress.value(); }
+  if (frameCount.has_value()) { task.lastFrameCount = frameCount.value(); }
+  if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
+  task.updatedAtMs = nowMs();
+  snapshot_.updatedAtMs = task.updatedAtMs.value();
   flushLocked(false);
 }
 
@@ -594,14 +660,14 @@ void Store::markSucceeded(std::string_view id, std::optional<std::string_view> s
   auto const index = indexFor(id);
   if (!index.has_value()) { return; }
 
-  auto& action = snapshot_.actions[index.value()];
-  action.status = ActionStatus::Succeeded;
-  action.lastProgress = 100.0f;
-  if (status.has_value()) { action.lastStatus = std::string{status.value()}; }
-  action.lastError.reset();
-  action.finishedAtMs = nowMs();
-  action.updatedAtMs = action.finishedAtMs;
-  snapshot_.updatedAtMs = action.finishedAtMs.value();
+  auto& task = snapshot_.tasks[index.value()];
+  task.status = TaskStatus::Succeeded;
+  task.lastProgress = 100.0f;
+  if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
+  task.lastError.reset();
+  task.finishedAtMs = nowMs();
+  task.updatedAtMs = task.finishedAtMs;
+  snapshot_.updatedAtMs = task.finishedAtMs.value();
   flushLocked(true);
 }
 
@@ -610,12 +676,12 @@ void Store::markFailed(std::string_view id, std::string_view error) {
   auto const index = indexFor(id);
   if (!index.has_value()) { return; }
 
-  auto& action = snapshot_.actions[index.value()];
-  action.status = ActionStatus::Failed;
-  action.lastError = std::string{error};
-  action.finishedAtMs = nowMs();
-  action.updatedAtMs = action.finishedAtMs;
-  snapshot_.updatedAtMs = action.finishedAtMs.value();
+  auto& task = snapshot_.tasks[index.value()];
+  task.status = TaskStatus::Failed;
+  task.lastError = std::string{error};
+  task.finishedAtMs = nowMs();
+  task.updatedAtMs = task.finishedAtMs;
+  snapshot_.updatedAtMs = task.finishedAtMs.value();
   flushLocked(true);
 }
 
@@ -624,16 +690,16 @@ void Store::markInterrupted(std::string_view id, std::string_view reason) {
   auto const index = indexFor(id);
   if (!index.has_value()) { return; }
 
-  auto& action = snapshot_.actions[index.value()];
-  if (action.status == ActionStatus::Succeeded || action.status == ActionStatus::Failed) {
+  auto& task = snapshot_.tasks[index.value()];
+  if (task.status == TaskStatus::Succeeded || task.status == TaskStatus::Failed) {
     return;
   }
 
-  action.status = ActionStatus::Interrupted;
-  if (!reason.empty()) { action.lastError = std::string{reason}; }
-  action.finishedAtMs = nowMs();
-  action.updatedAtMs = action.finishedAtMs;
-  snapshot_.updatedAtMs = action.finishedAtMs.value();
+  task.status = TaskStatus::Interrupted;
+  if (!reason.empty()) { task.lastError = std::string{reason}; }
+  task.finishedAtMs = nowMs();
+  task.updatedAtMs = task.finishedAtMs;
+  snapshot_.updatedAtMs = task.finishedAtMs.value();
   flushLocked(true);
 }
 
@@ -648,14 +714,12 @@ void Store::markIncompleteInterrupted(
     auto const index = indexFor(id);
     if (!index.has_value()) { continue; }
 
-    auto& action = snapshot_.actions[index.value()];
-    if (
-      action.status == ActionStatus::Pending || action.status == ActionStatus::Running
-    ) {
-      action.status = ActionStatus::Interrupted;
-      action.lastError = std::string{reason};
-      action.finishedAtMs = now;
-      action.updatedAtMs = now;
+    auto& task = snapshot_.tasks[index.value()];
+    if (task.status == TaskStatus::Pending || task.status == TaskStatus::Running) {
+      task.status = TaskStatus::Interrupted;
+      task.lastError = std::string{reason};
+      task.finishedAtMs = now;
+      task.updatedAtMs = now;
       changed = true;
     }
   }
@@ -674,16 +738,16 @@ void Store::flush() {
 }
 
 auto Store::indexFor(std::string_view id) const -> std::optional<std::size_t> {
-  if (auto const it = actionIndex_.find(std::string{id}); it != actionIndex_.end()) {
+  if (auto const it = taskIndex_.find(std::string{id}); it != taskIndex_.end()) {
     return it->second;
   }
   return std::nullopt;
 }
 
 void Store::rebuildIndexLocked() {
-  actionIndex_.clear();
-  for (auto index = std::size_t{0}; index < snapshot_.actions.size(); ++index) {
-    actionIndex_[snapshot_.actions[index].id] = index;
+  taskIndex_.clear();
+  for (auto index = std::size_t{0}; index < snapshot_.tasks.size(); ++index) {
+    taskIndex_[snapshot_.tasks[index].id] = index;
   }
 }
 
@@ -769,20 +833,20 @@ auto configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) -> bool
     && lhs.outputPath == rhs.outputPath;
 }
 
-auto makeEncodeAction(fs::path const& inputPath, fs::path const& plannedOutputFile)
-  -> ActionRecord {
-  return ActionRecord{
+auto makeEncodeTask(fs::path const& inputPath, fs::path const& plannedOutputFile)
+  -> TaskRecord {
+  auto const sourcePaths = std::vector<fs::path>{inputPath};
+  auto const targetPaths = std::vector<fs::path>{plannedOutputFile};
+
+  return TaskRecord{
     .id = std::format("encode:{}", collisionnaming::stablePathString(inputPath)),
-    .kind = ActionKind::EncodeVideo,
-    .status = ActionStatus::Pending,
+    .kind = std::string{kEncodeVideoKind},
+    .status = TaskStatus::Pending,
     .label = inputPath.filename().string(),
     .attemptCount = 0,
-    .inputPath = inputPath,
-    .plannedOutputFile = plannedOutputFile,
-    .inputSize = inputSize(inputPath),
-    .inputWriteTime = inputWriteTime(inputPath),
-    .archiveFile = std::nullopt,
-    .archiveMembers = {},
+    .fingerprint = buildFingerprint(kEncodeVideoKind, sourcePaths, targetPaths),
+    .sourcePaths = sourcePaths,
+    .targetPaths = targetPaths,
     .lastProgress = std::nullopt,
     .lastFrameCount = std::nullopt,
     .lastStatus = std::nullopt,
@@ -793,25 +857,23 @@ auto makeEncodeAction(fs::path const& inputPath, fs::path const& plannedOutputFi
   };
 }
 
-auto makeArchiveAction(
+auto makeArchiveTask(
   fs::path const& archiveFile,
   std::span<fs::path const> members,
   std::string label
-) -> ActionRecord {
-  (void)members;
+) -> TaskRecord {
+  auto sourcePaths = std::vector<fs::path>{members.begin(), members.end()};
+  auto const targetPaths = std::vector<fs::path>{archiveFile};
 
-  return ActionRecord{
+  return TaskRecord{
     .id = std::format("archive:{}", collisionnaming::stablePathString(archiveFile)),
-    .kind = ActionKind::BuildArchive,
-    .status = ActionStatus::Pending,
+    .kind = std::string{kBuildArchiveKind},
+    .status = TaskStatus::Pending,
     .label = std::move(label),
     .attemptCount = 0,
-    .inputPath = std::nullopt,
-    .plannedOutputFile = std::nullopt,
-    .inputSize = std::nullopt,
-    .inputWriteTime = std::nullopt,
-    .archiveFile = archiveFile,
-    .archiveMembers = {},
+    .fingerprint = buildFingerprint(kBuildArchiveKind, sourcePaths, targetPaths),
+    .sourcePaths = std::move(sourcePaths),
+    .targetPaths = targetPaths,
     .lastProgress = std::nullopt,
     .lastFrameCount = std::nullopt,
     .lastStatus = std::nullopt,
@@ -822,19 +884,27 @@ auto makeArchiveAction(
   };
 }
 
-auto needsExecution(ActionRecord const& action) -> bool {
-  return action.status != ActionStatus::Succeeded;
+auto primarySourcePath(TaskRecord const& task) -> std::optional<fs::path> {
+  if (task.sourcePaths.empty()) { return std::nullopt; }
+  return task.sourcePaths.front();
 }
 
-auto actionTargetExists(ActionRecord const& action) -> bool {
+auto primaryTargetPath(TaskRecord const& task) -> std::optional<fs::path> {
+  if (task.targetPaths.empty()) { return std::nullopt; }
+  return task.targetPaths.front();
+}
+
+auto needsExecution(TaskRecord const& task) -> bool {
+  return task.status != TaskStatus::Succeeded;
+}
+
+auto actionTargetExists(TaskRecord const& task) -> bool {
   auto ec = std::error_code{};
-  if (action.kind == ActionKind::EncodeVideo && action.plannedOutputFile.has_value()) {
-    return fs::exists(action.plannedOutputFile.value(), ec) && !ec;
-  }
-  if (action.kind == ActionKind::BuildArchive && action.archiveFile.has_value()) {
-    return fs::exists(action.archiveFile.value(), ec) && !ec;
-  }
-  return false;
+  if (task.targetPaths.empty()) { return false; }
+
+  return std::ranges::all_of(task.targetPaths, [&](fs::path const& path) {
+    return fs::exists(path, ec) && !ec;
+  });
 }
 
 }  // namespace jobstate

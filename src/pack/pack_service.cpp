@@ -1,12 +1,9 @@
 #include "pack/pack_service.h"
 
-#include "core/parallel.h"
-#include "core/progress.h"
-#include "infra/stop_signal.h"
+#include "core/task_executor.h"
 #include "pack/packer.h"
 
 #include <algorithm>
-#include <atomic>
 #include <format>
 #include <memory>
 
@@ -123,67 +120,68 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
   };
 }
 
-auto packGroupsParallel(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
+auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   if (plan.groups.empty()) { return std::vector<fs::path>{}; }
 
   fs::create_directories(plan.outputDir);
 
   auto const maxParallelJobs =
     std::max<std::size_t>(1, plan.maxParallelJobs.value_or(plan.groups.size()));
-  auto const workerCount = std::min(plan.groups.size(), maxParallelJobs);
-
-  auto progressCtx = progress::ProgressContext{};
   auto packResults = std::vector<eh::Result<void>>(plan.groups.size());
   auto zippedFiles = std::vector<fs::path>(plan.groups.size());
-  auto attempted = std::vector<bool>(plan.groups.size(), false);
-  auto nextIndex = std::atomic<std::size_t>{0};
-  auto processed = std::atomic<std::size_t>{0};
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(plan.groups.size());
 
-  auto _ = progress::CursorGuard{};
-  parallel::runIndexedTasks(workerCount, workerCount, [&](std::size_t) {
-    while (true) {
-      if (stopsignal::isStopRequested()) { break; }
+  for (auto index = std::size_t{0}; index < plan.groups.size(); ++index) {
+    auto const zipName = resolveZipNameForIndex(plan, index);
+    auto const zipPath = plan.outputDir / zipName;
+    auto const label = resolveProgressLabelForIndex(plan, index);
 
-      auto const index = nextIndex.fetch_add(1);
-      if (index >= plan.groups.size()) { break; }
+    tasks.push_back(
+      taskexec::TaskSpec{
+        .id = std::format("pack:{}", index),
+        .label = label,
+        .run =
+          [&, index, zipPath, label](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
+          if (plan.onGroupStart) { plan.onGroupStart(index); }
 
-      attempted[index] = true;
-      if (plan.onGroupStart) { plan.onGroupStart(index); }
+          auto const packRes =
+            packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
 
-      auto const zipName = resolveZipNameForIndex(plan, index);
-      auto const zipPath = plan.outputDir / zipName;
-      auto const label = resolveProgressLabelForIndex(plan, index);
+          if (!packRes) {
+            if (plan.removeOnFailure) {
+              auto ec = std::error_code{};
+              fs::remove(zipPath, ec);
+            }
+            packResults[index] = packRes;
+            if (plan.onGroupFailure) { plan.onGroupFailure(index, packRes.error()); }
+            return eh::makeError("{}", packRes.error());
+          }
 
-      auto const packRes =
-        packFilesToZip(plan.groups[index], zipPath, progressCtx, label);
-
-      if (!packRes) {
-        if (plan.removeOnFailure) {
-          auto ec = std::error_code{};
-          fs::remove(zipPath, ec);
+          packResults[index] = {};
+          zippedFiles[index] = zipPath;
+          if (plan.onGroupSuccess) { plan.onGroupSuccess(index, zipPath); }
+          return {};
         }
-        packResults[index] = packRes;
-        if (plan.onGroupFailure) { plan.onGroupFailure(index, packRes.error()); }
-        processed.fetch_add(1, std::memory_order_release);
-        continue;
       }
+    );
+  }
 
-      packResults[index] = {};
-      zippedFiles[index] = zipPath;
-      if (plan.onGroupSuccess) { plan.onGroupSuccess(index, zipPath); }
-      processed.fetch_add(1, std::memory_order_release);
+  auto const runRes = taskexec::runTasks(
+    taskexec::TaskPlan{
+      .tasks = std::move(tasks),
+      .maxConcurrency = maxParallelJobs,
+      .progress = nullptr,
+      .hideCursor = true,
     }
-  });
+  );
 
-  if (
-    stopsignal::isStopRequested()
-    && processed.load(std::memory_order_acquire) < plan.groups.size()
-  ) {
+  if (runRes.canceled && runRes.attemptedCount < plan.groups.size()) {
     return eh::makeError("Packing canceled by user.");
   }
 
   for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
-    if (!attempted[index]) { continue; }
+    if (runRes.attempted[index] == 0) { continue; }
     if (!packResults[index]) { return eh::makeError("{}", packResults[index].error()); }
   }
 

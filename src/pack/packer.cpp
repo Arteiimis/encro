@@ -622,7 +622,7 @@ auto packAllFilesInDirectory(
   );
   if (!planRes) { return eh::makeError("{}", planRes.error()); }
 
-  auto const packRes = pack::packGroupsParallel(planRes.value());
+  auto const packRes = pack::packGroups(planRes.value());
   if (!packRes) { return eh::makeError("{}", packRes.error()); }
 
   return {};

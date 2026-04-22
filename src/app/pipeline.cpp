@@ -44,7 +44,7 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
 auto runPackPlan(appctx::AppContext& ctx, pack::PackPlan const& plan) -> eh::Result<int> {
   auto* store = ctx.runtime.jobState.get();
   if (store == nullptr) {
-    auto const packRes = pack::packGroupsParallel(plan);
+    auto const packRes = pack::packGroups(plan);
     if (!packRes) { return eh::makeError("{}", packRes.error()); }
     return 0;
   }
@@ -57,7 +57,7 @@ auto runPackPlan(appctx::AppContext& ctx, pack::PackPlan const& plan) -> eh::Res
 
   store->setStage("packing");
 
-  auto const packRes = pack::packGroupsParallel(preparedExecution.pendingPlan.value());
+  auto const packRes = pack::packGroups(preparedExecution.pendingPlan.value());
   if (!packRes) {
     if (stopsignal::isStopRequested()) {
       store->requestCancel();
