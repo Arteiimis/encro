@@ -13,6 +13,12 @@
 
 using ZipEntryNameResolver = std::function<std::string(std::filesystem::path const&)>;
 
+namespace pack {
+
+inline constexpr auto kDefaultMaxArchiveGroupSize = std::uintmax_t{500 * 1024 * 1024};
+
+}
+
 struct PackGroupInput {
   std::filesystem::path filePath;
   std::filesystem::path sourceDir;
@@ -89,16 +95,21 @@ auto groupPackEntriesWithSubparts(
 auto packAllFilesInDirectory(
   std::filesystem::path const& dirPath,
   std::filesystem::path const& zipFileDir,
-  std::uintmax_t maxGroupSize = 500 * 1024 * 1024,
+  std::uintmax_t maxGroupSize = pack::kDefaultMaxArchiveGroupSize,
   bool recursive = true,
   bool forceNameConflictHandling = false,
   std::optional<std::size_t> maxParallelJobs = std::nullopt
 ) -> eh::Result<void>;
 
+auto runDirectoryPackWorkflow(
+  appctx::AppContext& ctx,
+  std::filesystem::path const& dirPath
+) -> eh::Result<int>;
+
 auto buildDirectoryPackPlan(
   std::filesystem::path const& dirPath,
   std::filesystem::path const& zipFileDir,
-  std::uintmax_t maxGroupSize = 500 * 1024 * 1024,
+  std::uintmax_t maxGroupSize = pack::kDefaultMaxArchiveGroupSize,
   bool recursive = true,
   bool forceNameConflictHandling = false,
   std::optional<std::size_t> maxParallelJobs = std::nullopt,

@@ -5,17 +5,11 @@
 
 #include <array>
 #include <filesystem>
-#include <fstream>
 
 namespace fs = std::filesystem;
+using testutils::writeFile;
 
 namespace {
-
-void writeFile(fs::path const& path, std::string_view content = "x") {
-  std::ofstream out{path, std::ios::binary};
-  REQUIRE(out.is_open());
-  out << content;
-}
 
 auto makeConfig(fs::path const& inputPath, fs::path const& statePath)
   -> appctx::AppConfig {
