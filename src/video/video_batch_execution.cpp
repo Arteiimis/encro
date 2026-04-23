@@ -2,6 +2,7 @@
 
 #include "video/video_encode_runner.h"
 #include "video/video_progress_parser.h"
+#include "video/video_workflow_utils.h"
 
 #include "core/display_text.h"
 #include "core/job_state.h"
@@ -25,29 +26,16 @@
 
 namespace fs = std::filesystem;
 using enum terminal::MessageKind;
+using videoworkflow::lookupPlannedOutputFile;
+using videoworkflow::maybeJobState;
+using videoworkflow::withActionJobState;
+using videoworkflow::withJobState;
 
 namespace {
 
-auto maybeJobState(appctx::AppContext& ctx) -> jobstate::Store* {
-  return ctx.runtime.jobState.get();
-}
-
 void noteStopRequest(appctx::AppContext& ctx) {
   if (!stopsignal::isStopRequested()) { return; }
-  if (auto* store = maybeJobState(ctx); store != nullptr) { store->requestCancel(); }
-}
-
-auto lookupPlannedOutputFile(
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  fs::path const& inputPath
-) -> std::optional<fs::path> {
-  if (
-    auto const it = plannedOutputFiles.find(inputPath); it != plannedOutputFiles.end()
-  ) {
-    return it->second;
-  }
-
-  return std::nullopt;
+  withJobState(ctx, [](jobstate::Store& store) { store.requestCancel(); });
 }
 
 auto truncateForProgressLabel(std::string const& text, std::size_t maxLen = 48)
@@ -398,15 +386,18 @@ auto startEncodingMonitor(EncodingExecutionContext& executionCtx) -> std::jthrea
             }
           }
 
-          if (
-            auto* store = maybeJobState(executionCtx.app);
-            store != nullptr && actionId.has_value() && lastStatus.has_value()
-          ) {
-            store->markProgress(
-              actionId.value(),
-              std::nullopt,
-              std::nullopt,
-              lastStatus.value()
+          if (lastStatus.has_value()) {
+            withActionJobState(
+              executionCtx.app,
+              actionId,
+              [&](jobstate::Store& currentStore, std::string const& currentActionId) {
+                currentStore.markProgress(
+                  currentActionId,
+                  std::nullopt,
+                  std::nullopt,
+                  lastStatus.value()
+                );
+              }
             );
           }
 
@@ -429,17 +420,18 @@ auto startEncodingMonitor(EncodingExecutionContext& executionCtx) -> std::jthrea
           executionCtx.progress().setProgress(barIndex.value(), progress.value());
         }
 
-        if (
-          auto* store = maybeJobState(executionCtx.app);
-          store != nullptr && actionId.has_value()
-        ) {
-          store->markProgress(
-            actionId.value(),
-            progress.value(),
-            lastFrameCount,
-            std::nullopt
-          );
-        }
+        withActionJobState(
+          executionCtx.app,
+          actionId,
+          [&](jobstate::Store& currentStore, std::string const& currentActionId) {
+            currentStore.markProgress(
+              currentActionId,
+              progress.value(),
+              lastFrameCount,
+              std::nullopt
+            );
+          }
+        );
       }
 
       executionCtx.updateOverall();
@@ -476,12 +468,13 @@ auto runEncodingTask(
   auto const fileLabel = makeSlotLabel(vidPath);
   {
     auto lock = std::scoped_lock{vidState->mtx};
-    if (
-      auto* store = maybeJobState(executionCtx.app);
-      store != nullptr && vidState->actionId.has_value()
-    ) {
-      store->markRunning(vidState->actionId.value());
-    }
+    withActionJobState(
+      executionCtx.app,
+      vidState->actionId,
+      [](jobstate::Store& store, std::string const& currentActionId) {
+        store.markRunning(currentActionId);
+      }
+    );
   }
   executionCtx.barEncodingStart(*vidState, fileLabel);
   auto const result =
@@ -491,12 +484,13 @@ auto runEncodingTask(
       auto lock = std::scoped_lock{vidState->mtx};
       vidState->lastStatus = status;
       actionId = vidState->actionId;
-      if (
-        auto* store = maybeJobState(executionCtx.app);
-        store != nullptr && actionId.has_value()
-      ) {
-        store->markProgress(actionId.value(), std::nullopt, std::nullopt, status);
-      }
+      withActionJobState(
+        executionCtx.app,
+        actionId,
+        [&](jobstate::Store& store, std::string const& currentActionId) {
+          store.markProgress(currentActionId, std::nullopt, std::nullopt, status);
+        }
+      );
     });
 
   executionCtx.finalizeState(vidState, result);
@@ -523,20 +517,21 @@ auto runEncodingTask(
     }
   }
 
-  if (
-    auto* store = maybeJobState(executionCtx.app);
-    store != nullptr && actionId.has_value()
-  ) {
-    if (result) {
-      if (lastStatus.has_value()) {
-        store->markSucceeded(actionId.value(), lastStatus.value());
+  withActionJobState(
+    executionCtx.app,
+    actionId,
+    [&](jobstate::Store& store, std::string const& currentActionId) {
+      if (result) {
+        if (lastStatus.has_value()) {
+          store.markSucceeded(currentActionId, lastStatus.value());
+        } else {
+          store.markSucceeded(currentActionId);
+        }
       } else {
-        store->markSucceeded(actionId.value());
+        store.markFailed(currentActionId, failureReason);
       }
-    } else {
-      store->markFailed(actionId.value(), failureReason);
     }
-  }
+  );
 
   if (result) {
     spdlog::info(
@@ -599,26 +594,27 @@ auto runEncodingWithoutProgress(
     }
 
     spdlog::debug("Start encoding (no-progress): {}", vidPath.string());
-    if (
-      auto* store = maybeJobState(ctx); store != nullptr && state.actionId.has_value()
-    ) {
-      store->markRunning(state.actionId.value());
-    }
+    withActionJobState(
+      ctx,
+      state.actionId,
+      [](jobstate::Store& store, std::string const& currentActionId) {
+        store.markRunning(currentActionId);
+      }
+    );
 
     auto const success = encodeToHevc(ctx, state, {});
     vidsRunRes = vidsRunRes.set(vidPath, success);
-    if (
-      auto* store = maybeJobState(ctx); store != nullptr && state.actionId.has_value()
-    ) {
-      if (success) {
-        store->markSucceeded(state.actionId.value());
-      } else {
-        store->markFailed(
-          state.actionId.value(),
-          state.lastError.value_or("encoding failed")
-        );
+    withActionJobState(
+      ctx,
+      state.actionId,
+      [&](jobstate::Store& store, std::string const& currentActionId) {
+        if (success) {
+          store.markSucceeded(currentActionId);
+        } else {
+          store.markFailed(currentActionId, state.lastError.value_or("encoding failed"));
+        }
       }
-    }
+    );
     if (success) {
       spdlog::info("Encoded success (no-progress): {}", vidPath.string());
     } else {

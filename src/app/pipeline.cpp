@@ -48,30 +48,7 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
     return eh::makeError("pack-only mode requires input to be a directory.");
   }
 
-  auto const zipOutputDir =
-    ctx.config.outputPath.value_or(ctx.config.inputPath / "packed");
-  auto const planRes = buildDirectoryPackPlan(
-    ctx.config.inputPath,
-    zipOutputDir,
-    500 * 1024 * 1024,
-    true,
-    ctx.config.forceNameConflictHandling,
-    ctx.config.maxParallelJobs,
-    ctx.runtime.jobState ? std::optional<fs::path>{ctx.runtime.jobState->stateFilePath()}
-                         : std::nullopt
-  );
-  if (!planRes) { return eh::makeError("Failed to pack files: {}", planRes.error()); }
-
-  auto const packRes = pack::runPackPlan(ctx, planRes.value());
-  if (!packRes) { return eh::makeError("Failed to pack files: {}", packRes.error()); }
-  if (packRes->exitCode != 0) { return packRes->exitCode; }
-
-  terminal::println(
-    Success,
-    "All files packed successfully to: {}",
-    terminal::path(zipOutputDir)
-  );
-  return 0;
+  return runDirectoryPackWorkflow(ctx, ctx.config.inputPath);
 }
 
 auto runVideo(appctx::AppContext& ctx) -> eh::Result<int> {
@@ -99,43 +76,7 @@ auto runPicture(appctx::AppContext& ctx) -> eh::Result<int> {
     );
   }
 
-  auto const outputDir = ctx.config.outputPath.value_or(ctx.config.inputPath) / "packed";
-  terminal::println(
-    Info,
-    "Scanning input path for pictures: {} ...",
-    terminal::path(ctx.config.inputPath)
-  );
-  auto const scannedPics = readAllPics(ctx.config, ctx.config.inputPath);
-  auto const planRes =
-    buildPicturePackPlan(ctx.config, ctx.config.inputPath, outputDir, scannedPics);
-  if (!planRes) { return eh::makeError("Failed to pack pictures: {}", planRes.error()); }
-
-  terminal::println(
-    Info,
-    "Picture scan completed, {} picture(s) found, grouped into {} package batch(es).",
-    terminal::count(scannedPics.size()),
-    terminal::count(planRes->groups.size())
-  );
-  auto const proceed = readUserIpt(
-    ctx.config.yesToAll,
-    "do you want to proceed with packing the pictures? (y/N): "
-  );
-  if (!proceed) {
-    terminal::println(Warning, "Packing task canceled by user.");
-    return 0;
-  }
-
-  auto const packRes = pack::runPackPlan(ctx, planRes.value());
-
-  if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
-  if (packRes->exitCode != 0) { return packRes->exitCode; }
-
-  terminal::println(
-    Success,
-    "All pictures packed successfully to: {}",
-    terminal::path(outputDir)
-  );
-  return 0;
+  return runPicturePackWorkflow(ctx, ctx.config.inputPath);
 }
 
 }  // namespace

@@ -5,20 +5,10 @@
 
 #include <array>
 #include <filesystem>
-#include <fstream>
 
 namespace fs = std::filesystem;
 using namespace std::literals;
-
-namespace {
-
-void touchFile(fs::path const& filePath) {
-  std::ofstream out{filePath};
-  REQUIRE(out.is_open());
-  out << "x";
-}
-
-}  // namespace
+using testutils::touchFile;
 
 TEST_CASE("scanByExtensions matches single file", "[media-scanner]") {
   TempDir temp;

@@ -174,21 +174,19 @@ auto resolveVideoPackOutputPath(
 
 auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
   -> std::vector<std::vector<fs::path>> {
-  constexpr auto kMaxZipSize = std::uintmax_t{500 * 1024 * 1024};
   auto packInputs = std::vector<PackGroupInput>{};
   packInputs.reserve(filePaths.size());
   for (auto const& filePath: filePaths) {
     packInputs.emplace_back(PackGroupInput{filePath, filePath.parent_path()});
   }
 
-  return groupPackFiles(packInputs, kMaxZipSize);
+  return groupPackFiles(packInputs, pack::kDefaultMaxArchiveGroupSize);
 }
 
 auto groupEncodedVideosForPack(
   std::vector<EncodedVideoPackFile> const& filePaths,
   std::size_t keepSourceDirsTogetherWhenTotalFilesExceed
 ) -> std::vector<std::vector<fs::path>> {
-  constexpr auto kMaxZipSize = std::uintmax_t{500 * 1024 * 1024};
   auto packInputs = std::vector<PackGroupInput>{};
   packInputs.reserve(filePaths.size());
   for (auto const& file: filePaths) {
@@ -199,7 +197,7 @@ auto groupEncodedVideosForPack(
 
   return groupPackFiles(
     packInputs,
-    kMaxZipSize,
+    pack::kDefaultMaxArchiveGroupSize,
     std::nullopt,
     keepSourceDirsTogetherWhenTotalFilesExceed
   );

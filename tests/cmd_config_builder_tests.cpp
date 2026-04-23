@@ -5,19 +5,13 @@
 #include <catch2/catch_all.hpp>
 
 #include <filesystem>
-#include <fstream>
 #include <string>
 #include <vector>
 
 namespace fs = std::filesystem;
+using testutils::writeFile;
 
 namespace {
-
-auto writeFile(fs::path const& path) -> void {
-  std::ofstream out{path};
-  REQUIRE(out.is_open());
-  out << "x";
-}
 
 auto makeVm(
   std::vector<std::pair<std::string, std::string>> const& options,

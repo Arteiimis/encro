@@ -334,6 +334,21 @@ TEST_CASE(
   zip.close();
 }
 
+TEST_CASE("runDirectoryPackWorkflow packs directory", "[packer][workflow]") {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  fs::create_directories(inputDir);
+  createSizedFile(inputDir, "a.bin", 32);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.inputPath = inputDir;
+
+  auto const runRes = runDirectoryPackWorkflow(ctx, inputDir);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+  CHECK(fs::exists(inputDir / "packed" / "input_part1[1~1#1p].zip"));
+}
+
 TEST_CASE(
   "packAllFilesInDirectory packs all files with size grouping",
   "[packer][packAllFilesInDirectory]"

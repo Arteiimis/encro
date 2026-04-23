@@ -1,0 +1,30 @@
+#pragma once
+
+#include "core/job_state.h"
+
+namespace jobstate::detail {
+
+inline constexpr auto kStateVersion = 1;
+
+auto nowMs() -> std::int64_t;
+
+auto outputLayoutToString(appctx::OutputLayout layout) -> std::string;
+
+auto loadSnapshot(fs::path const& path) -> eh::Result<Snapshot>;
+
+void clearExecutionState(TaskRecord& task);
+
+void normalizeExistingTask(TaskRecord& task);
+
+void flushSnapshot(
+  fs::path const& stateFilePath,
+  Snapshot& snapshot,
+  std::int64_t& lastFlushAtMs,
+  bool force
+);
+
+auto buildFallbackStateFilePath(appctx::AppConfig const& config) -> fs::path;
+
+auto commonParent(std::span<fs::path const> paths) -> std::optional<fs::path>;
+
+}  // namespace jobstate::detail

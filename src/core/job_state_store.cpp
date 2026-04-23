@@ -1,0 +1,274 @@
+#include "core/job_state_detail.h"
+
+#include "utils/utils.h"
+
+#include <utility>
+
+namespace jobstate {
+
+Store::Store(fs::path stateFilePath): stateFilePath_(std::move(stateFilePath)) { }
+
+auto Store::stateFilePath() const -> fs::path const& {
+  return stateFilePath_;
+}
+
+auto Store::initialize(appctx::AppConfig const& config, bool restart)
+  -> eh::Result<bool> {
+  auto lock = std::scoped_lock{mtx_};
+  auto ec = std::error_code{};
+  fs::create_directories(stateFilePath_.parent_path(), ec);
+
+  auto const currentConfig = buildConfigSnapshot(config);
+  auto const stateExists = fs::exists(stateFilePath_, ec) && !ec;
+  if (!restart && !stateExists && config.resumeState) {
+    return eh::makeError(
+      "Resume requested but no state file was found: {}",
+      stateFilePath_.string()
+    );
+  }
+
+  if (!restart && stateExists) {
+    auto const loaded = detail::loadSnapshot(stateFilePath_);
+    if (!loaded) { return eh::makeError("{}", loaded.error()); }
+
+    if (!configMatches(loaded->config, currentConfig)) {
+      if (config.resumeState) {
+        return eh::makeError(
+          "State file does not match current command: {}",
+          stateFilePath_.string()
+        );
+      }
+    } else {
+      snapshot_ = loaded.value();
+      snapshot_.config = currentConfig;
+      snapshot_.cancelRequested = false;
+      snapshot_.updatedAtMs = detail::nowMs();
+      for (auto& task: snapshot_.tasks) { detail::normalizeExistingTask(task); }
+      rebuildIndexLocked();
+      flushLocked(true);
+      return true;
+    }
+  }
+
+  snapshot_ = Snapshot{
+    .version = detail::kStateVersion,
+    .jobId = getUUID(),
+    .stage = "planning",
+    .cancelRequested = false,
+    .updatedAtMs = detail::nowMs(),
+    .config = currentConfig,
+    .tasks = {},
+  };
+  rebuildIndexLocked();
+  flushLocked(true);
+  return false;
+}
+
+auto Store::mergeTasks(std::span<TaskRecord const> plannedTasks)
+  -> std::vector<TaskRecord> {
+  auto lock = std::scoped_lock{mtx_};
+  auto mergedTasks = std::vector<TaskRecord>{};
+  mergedTasks.reserve(plannedTasks.size());
+
+  for (auto const& plannedTask: plannedTasks) {
+    if (auto const index = indexFor(plannedTask.id); index.has_value()) {
+      auto& existing = snapshot_.tasks[index.value()];
+
+      auto preserved = existing;
+      auto const planFingerprintChanged = existing.fingerprint != plannedTask.fingerprint;
+      preserved.kind = plannedTask.kind;
+      preserved.label = plannedTask.label;
+      preserved.fingerprint = plannedTask.fingerprint;
+      preserved.sourcePaths = plannedTask.sourcePaths;
+      preserved.targetPaths = plannedTask.targetPaths;
+
+      if (planFingerprintChanged) {
+        detail::clearExecutionState(preserved);
+      } else {
+        detail::normalizeExistingTask(preserved);
+      }
+
+      existing = std::move(preserved);
+      mergedTasks.push_back(existing);
+      continue;
+    }
+
+    auto task = plannedTask;
+    task.updatedAtMs = detail::nowMs();
+    snapshot_.tasks.push_back(std::move(task));
+    taskIndex_[snapshot_.tasks.back().id] = snapshot_.tasks.size() - 1;
+    mergedTasks.push_back(snapshot_.tasks.back());
+  }
+
+  snapshot_.updatedAtMs = detail::nowMs();
+  flushLocked(true);
+  return mergedTasks;
+}
+
+auto Store::tasks() const -> std::vector<TaskRecord> {
+  auto lock = std::scoped_lock{mtx_};
+  return snapshot_.tasks;
+}
+
+auto Store::findTask(std::string_view id) const -> std::optional<TaskRecord> {
+  auto lock = std::scoped_lock{mtx_};
+  auto const index = indexFor(id);
+  if (!index.has_value()) { return std::nullopt; }
+  return snapshot_.tasks[index.value()];
+}
+
+void Store::setStage(std::string_view stage) {
+  auto lock = std::scoped_lock{mtx_};
+  snapshot_.stage = std::string{stage};
+  snapshot_.updatedAtMs = detail::nowMs();
+  flushLocked(true);
+}
+
+void Store::requestCancel() {
+  auto lock = std::scoped_lock{mtx_};
+  snapshot_.cancelRequested = true;
+  snapshot_.stage = "canceling";
+  snapshot_.updatedAtMs = detail::nowMs();
+  flushLocked(true);
+}
+
+auto Store::isCancelRequested() const -> bool {
+  auto lock = std::scoped_lock{mtx_};
+  return snapshot_.cancelRequested;
+}
+
+void Store::markRunning(std::string_view id) {
+  auto lock = std::scoped_lock{mtx_};
+  auto const index = indexFor(id);
+  if (!index.has_value()) { return; }
+
+  auto& task = snapshot_.tasks[index.value()];
+  task.status = TaskStatus::Running;
+  task.attemptCount += 1;
+  task.startedAtMs = detail::nowMs();
+  task.updatedAtMs = task.startedAtMs;
+  task.finishedAtMs.reset();
+  task.lastError.reset();
+  flushLocked(true);
+}
+
+void Store::markProgress(
+  std::string_view id,
+  std::optional<float> progress,
+  std::optional<std::uint64_t> frameCount,
+  std::optional<std::string_view> status
+) {
+  auto lock = std::scoped_lock{mtx_};
+  auto const index = indexFor(id);
+  if (!index.has_value()) { return; }
+
+  auto& task = snapshot_.tasks[index.value()];
+  if (progress.has_value()) { task.lastProgress = progress.value(); }
+  if (frameCount.has_value()) { task.lastFrameCount = frameCount.value(); }
+  if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
+  task.updatedAtMs = detail::nowMs();
+  snapshot_.updatedAtMs = task.updatedAtMs.value();
+  flushLocked(false);
+}
+
+void Store::markSucceeded(std::string_view id, std::optional<std::string_view> status) {
+  auto lock = std::scoped_lock{mtx_};
+  auto const index = indexFor(id);
+  if (!index.has_value()) { return; }
+
+  auto& task = snapshot_.tasks[index.value()];
+  task.status = TaskStatus::Succeeded;
+  task.lastProgress = 100.0f;
+  if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
+  task.lastError.reset();
+  task.finishedAtMs = detail::nowMs();
+  task.updatedAtMs = task.finishedAtMs;
+  snapshot_.updatedAtMs = task.finishedAtMs.value();
+  flushLocked(true);
+}
+
+void Store::markFailed(std::string_view id, std::string_view error) {
+  auto lock = std::scoped_lock{mtx_};
+  auto const index = indexFor(id);
+  if (!index.has_value()) { return; }
+
+  auto& task = snapshot_.tasks[index.value()];
+  task.status = TaskStatus::Failed;
+  task.lastError = std::string{error};
+  task.finishedAtMs = detail::nowMs();
+  task.updatedAtMs = task.finishedAtMs;
+  snapshot_.updatedAtMs = task.finishedAtMs.value();
+  flushLocked(true);
+}
+
+void Store::markInterrupted(std::string_view id, std::string_view reason) {
+  auto lock = std::scoped_lock{mtx_};
+  auto const index = indexFor(id);
+  if (!index.has_value()) { return; }
+
+  auto& task = snapshot_.tasks[index.value()];
+  if (task.status == TaskStatus::Succeeded || task.status == TaskStatus::Failed) {
+    return;
+  }
+
+  task.status = TaskStatus::Interrupted;
+  if (!reason.empty()) { task.lastError = std::string{reason}; }
+  task.finishedAtMs = detail::nowMs();
+  task.updatedAtMs = task.finishedAtMs;
+  snapshot_.updatedAtMs = task.finishedAtMs.value();
+  flushLocked(true);
+}
+
+void Store::markIncompleteInterrupted(
+  std::span<std::string const> ids,
+  std::string_view reason
+) {
+  auto lock = std::scoped_lock{mtx_};
+  auto changed = false;
+  auto const now = detail::nowMs();
+  for (auto const& id: ids) {
+    auto const index = indexFor(id);
+    if (!index.has_value()) { continue; }
+
+    auto& task = snapshot_.tasks[index.value()];
+    if (task.status == TaskStatus::Pending || task.status == TaskStatus::Running) {
+      task.status = TaskStatus::Interrupted;
+      task.lastError = std::string{reason};
+      task.finishedAtMs = now;
+      task.updatedAtMs = now;
+      changed = true;
+    }
+  }
+
+  if (!changed) { return; }
+
+  snapshot_.updatedAtMs = now;
+  snapshot_.stage = "canceled";
+  snapshot_.cancelRequested = true;
+  flushLocked(true);
+}
+
+void Store::flush() {
+  auto lock = std::scoped_lock{mtx_};
+  flushLocked(true);
+}
+
+auto Store::indexFor(std::string_view id) const -> std::optional<std::size_t> {
+  if (auto const it = taskIndex_.find(std::string{id}); it != taskIndex_.end()) {
+    return it->second;
+  }
+  return std::nullopt;
+}
+
+void Store::rebuildIndexLocked() {
+  taskIndex_.clear();
+  for (auto index = std::size_t{0}; index < snapshot_.tasks.size(); ++index) {
+    taskIndex_[snapshot_.tasks[index].id] = index;
+  }
+}
+
+void Store::flushLocked(bool force) {
+  detail::flushSnapshot(stateFilePath_, snapshot_, lastFlushAtMs_, force);
+}
+
+}  // namespace jobstate
