@@ -118,3 +118,20 @@ TEST_CASE(
   CHECK(entryNames[4].starts_with("1000__"));
   CHECK(entryNames[5].starts_with("1000__"));
 }
+
+TEST_CASE("runPicturePackWorkflow packs directory", "[picture-process]") {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  createSparseSizedFile(inputDir, "a.jpg", 32);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.inputPath = inputDir;
+
+  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+  CHECK(fs::exists(inputDir / "packed" / "pics_part1[1~1#1p].zip"));
+}

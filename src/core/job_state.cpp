@@ -1,4 +1,5 @@
 #include "core/job_state.h"
+#include "core/job_state_detail.h"
 
 #include "core/collision_naming.h"
 #include "utils/utils.h"
@@ -17,9 +18,8 @@ namespace jobstate {
 namespace json = boost::json;
 using namespace std::chrono;
 
-namespace {
+namespace detail {
 
-constexpr auto kStateVersion = 1;
 constexpr auto kFlushIntervalMs = std::int64_t{2000};
 
 auto nowMs() -> std::int64_t {
@@ -488,290 +488,34 @@ auto commonParent(std::span<fs::path const> paths) -> std::optional<fs::path> {
   return root;
 }
 
-}  // namespace
-
-Store::Store(fs::path stateFilePath): stateFilePath_(std::move(stateFilePath)) { }
-
-auto Store::stateFilePath() const -> fs::path const& {
-  return stateFilePath_;
-}
-
-auto Store::initialize(appctx::AppConfig const& config, bool restart)
-  -> eh::Result<bool> {
-  auto lock = std::scoped_lock{mtx_};
-  auto ec = std::error_code{};
-  fs::create_directories(stateFilePath_.parent_path(), ec);
-
-  auto const currentConfig = buildConfigSnapshot(config);
-  auto const stateExists = fs::exists(stateFilePath_, ec) && !ec;
-  if (!restart && !stateExists && config.resumeState) {
-    return eh::makeError(
-      "Resume requested but no state file was found: {}",
-      stateFilePath_.string()
-    );
-  }
-
-  if (!restart && stateExists) {
-    auto const loaded = loadSnapshot(stateFilePath_);
-    if (!loaded) { return eh::makeError("{}", loaded.error()); }
-
-    if (!configMatches(loaded->config, currentConfig)) {
-      if (config.resumeState) {
-        return eh::makeError(
-          "State file does not match current command: {}",
-          stateFilePath_.string()
-        );
-      }
-    } else {
-      snapshot_ = loaded.value();
-      snapshot_.config = currentConfig;
-      snapshot_.cancelRequested = false;
-      snapshot_.updatedAtMs = nowMs();
-      for (auto& task: snapshot_.tasks) { normalizeExistingTask(task); }
-      rebuildIndexLocked();
-      flushLocked(true);
-      return true;
-    }
-  }
-
-  snapshot_ = Snapshot{
-    .version = kStateVersion,
-    .jobId = getUUID(),
-    .stage = "planning",
-    .cancelRequested = false,
-    .updatedAtMs = nowMs(),
-    .config = currentConfig,
-    .tasks = {},
-  };
-  rebuildIndexLocked();
-  flushLocked(true);
-  return false;
-}
-
-auto Store::mergeTasks(std::span<TaskRecord const> plannedTasks)
-  -> std::vector<TaskRecord> {
-  auto lock = std::scoped_lock{mtx_};
-  auto mergedTasks = std::vector<TaskRecord>{};
-  mergedTasks.reserve(plannedTasks.size());
-
-  for (auto const& plannedTask: plannedTasks) {
-    if (auto const index = indexFor(plannedTask.id); index.has_value()) {
-      auto& existing = snapshot_.tasks[index.value()];
-
-      auto preserved = existing;
-      auto const planFingerprintChanged = existing.fingerprint != plannedTask.fingerprint;
-      preserved.kind = plannedTask.kind;
-      preserved.label = plannedTask.label;
-      preserved.fingerprint = plannedTask.fingerprint;
-      preserved.sourcePaths = plannedTask.sourcePaths;
-      preserved.targetPaths = plannedTask.targetPaths;
-
-      if (planFingerprintChanged) {
-        clearExecutionState(preserved);
-      } else {
-        normalizeExistingTask(preserved);
-      }
-
-      existing = std::move(preserved);
-      mergedTasks.push_back(existing);
-      continue;
-    }
-
-    auto task = plannedTask;
-    task.updatedAtMs = nowMs();
-    snapshot_.tasks.push_back(std::move(task));
-    taskIndex_[snapshot_.tasks.back().id] = snapshot_.tasks.size() - 1;
-    mergedTasks.push_back(snapshot_.tasks.back());
-  }
-
-  snapshot_.updatedAtMs = nowMs();
-  flushLocked(true);
-  return mergedTasks;
-}
-
-auto Store::tasks() const -> std::vector<TaskRecord> {
-  auto lock = std::scoped_lock{mtx_};
-  return snapshot_.tasks;
-}
-
-auto Store::findTask(std::string_view id) const -> std::optional<TaskRecord> {
-  auto lock = std::scoped_lock{mtx_};
-  auto const index = indexFor(id);
-  if (!index.has_value()) { return std::nullopt; }
-  return snapshot_.tasks[index.value()];
-}
-
-void Store::setStage(std::string_view stage) {
-  auto lock = std::scoped_lock{mtx_};
-  snapshot_.stage = std::string{stage};
-  snapshot_.updatedAtMs = nowMs();
-  flushLocked(true);
-}
-
-void Store::requestCancel() {
-  auto lock = std::scoped_lock{mtx_};
-  snapshot_.cancelRequested = true;
-  snapshot_.stage = "canceling";
-  snapshot_.updatedAtMs = nowMs();
-  flushLocked(true);
-}
-
-auto Store::isCancelRequested() const -> bool {
-  auto lock = std::scoped_lock{mtx_};
-  return snapshot_.cancelRequested;
-}
-
-void Store::markRunning(std::string_view id) {
-  auto lock = std::scoped_lock{mtx_};
-  auto const index = indexFor(id);
-  if (!index.has_value()) { return; }
-
-  auto& task = snapshot_.tasks[index.value()];
-  task.status = TaskStatus::Running;
-  task.attemptCount += 1;
-  task.startedAtMs = nowMs();
-  task.updatedAtMs = task.startedAtMs;
-  task.finishedAtMs.reset();
-  task.lastError.reset();
-  flushLocked(true);
-}
-
-void Store::markProgress(
-  std::string_view id,
-  std::optional<float> progress,
-  std::optional<std::uint64_t> frameCount,
-  std::optional<std::string_view> status
+void flushSnapshot(
+  fs::path const& stateFilePath,
+  Snapshot& snapshot,
+  std::int64_t& lastFlushAtMs,
+  bool force
 ) {
-  auto lock = std::scoped_lock{mtx_};
-  auto const index = indexFor(id);
-  if (!index.has_value()) { return; }
-
-  auto& task = snapshot_.tasks[index.value()];
-  if (progress.has_value()) { task.lastProgress = progress.value(); }
-  if (frameCount.has_value()) { task.lastFrameCount = frameCount.value(); }
-  if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
-  task.updatedAtMs = nowMs();
-  snapshot_.updatedAtMs = task.updatedAtMs.value();
-  flushLocked(false);
-}
-
-void Store::markSucceeded(std::string_view id, std::optional<std::string_view> status) {
-  auto lock = std::scoped_lock{mtx_};
-  auto const index = indexFor(id);
-  if (!index.has_value()) { return; }
-
-  auto& task = snapshot_.tasks[index.value()];
-  task.status = TaskStatus::Succeeded;
-  task.lastProgress = 100.0f;
-  if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
-  task.lastError.reset();
-  task.finishedAtMs = nowMs();
-  task.updatedAtMs = task.finishedAtMs;
-  snapshot_.updatedAtMs = task.finishedAtMs.value();
-  flushLocked(true);
-}
-
-void Store::markFailed(std::string_view id, std::string_view error) {
-  auto lock = std::scoped_lock{mtx_};
-  auto const index = indexFor(id);
-  if (!index.has_value()) { return; }
-
-  auto& task = snapshot_.tasks[index.value()];
-  task.status = TaskStatus::Failed;
-  task.lastError = std::string{error};
-  task.finishedAtMs = nowMs();
-  task.updatedAtMs = task.finishedAtMs;
-  snapshot_.updatedAtMs = task.finishedAtMs.value();
-  flushLocked(true);
-}
-
-void Store::markInterrupted(std::string_view id, std::string_view reason) {
-  auto lock = std::scoped_lock{mtx_};
-  auto const index = indexFor(id);
-  if (!index.has_value()) { return; }
-
-  auto& task = snapshot_.tasks[index.value()];
-  if (task.status == TaskStatus::Succeeded || task.status == TaskStatus::Failed) {
-    return;
-  }
-
-  task.status = TaskStatus::Interrupted;
-  if (!reason.empty()) { task.lastError = std::string{reason}; }
-  task.finishedAtMs = nowMs();
-  task.updatedAtMs = task.finishedAtMs;
-  snapshot_.updatedAtMs = task.finishedAtMs.value();
-  flushLocked(true);
-}
-
-void Store::markIncompleteInterrupted(
-  std::span<std::string const> ids,
-  std::string_view reason
-) {
-  auto lock = std::scoped_lock{mtx_};
-  auto changed = false;
   auto const now = nowMs();
-  for (auto const& id: ids) {
-    auto const index = indexFor(id);
-    if (!index.has_value()) { continue; }
+  if (!force && now - lastFlushAtMs < kFlushIntervalMs) { return; }
 
-    auto& task = snapshot_.tasks[index.value()];
-    if (task.status == TaskStatus::Pending || task.status == TaskStatus::Running) {
-      task.status = TaskStatus::Interrupted;
-      task.lastError = std::string{reason};
-      task.finishedAtMs = now;
-      task.updatedAtMs = now;
-      changed = true;
-    }
-  }
+  snapshot.updatedAtMs = now;
 
-  if (!changed) { return; }
-
-  snapshot_.updatedAtMs = now;
-  snapshot_.stage = "canceled";
-  snapshot_.cancelRequested = true;
-  flushLocked(true);
-}
-
-void Store::flush() {
-  auto lock = std::scoped_lock{mtx_};
-  flushLocked(true);
-}
-
-auto Store::indexFor(std::string_view id) const -> std::optional<std::size_t> {
-  if (auto const it = taskIndex_.find(std::string{id}); it != taskIndex_.end()) {
-    return it->second;
-  }
-  return std::nullopt;
-}
-
-void Store::rebuildIndexLocked() {
-  taskIndex_.clear();
-  for (auto index = std::size_t{0}; index < snapshot_.tasks.size(); ++index) {
-    taskIndex_[snapshot_.tasks[index].id] = index;
-  }
-}
-
-void Store::flushLocked(bool force) {
-  auto const now = nowMs();
-  if (!force && now - lastFlushAtMs_ < kFlushIntervalMs) { return; }
-
-  snapshot_.updatedAtMs = now;
-
-  auto const tempPath = makeTempStatePath(stateFilePath_);
+  auto const tempPath = makeTempStatePath(stateFilePath);
   auto output = std::ofstream{tempPath, std::ios::trunc};
-  output << json::serialize(toJson(snapshot_));
+  output << json::serialize(toJson(snapshot));
   output.flush();
   output.close();
 
   auto ec = std::error_code{};
-  fs::rename(tempPath, stateFilePath_, ec);
+  fs::rename(tempPath, stateFilePath, ec);
   if (ec) {
-    fs::remove(stateFilePath_, ec);
-    fs::rename(tempPath, stateFilePath_, ec);
+    fs::remove(stateFilePath, ec);
+    fs::rename(tempPath, stateFilePath, ec);
   }
 
-  lastFlushAtMs_ = now;
+  lastFlushAtMs = now;
 }
+
+}  // namespace detail
 
 auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> fs::path {
   if (config.stateFilePath.has_value()) { return config.stateFilePath.value(); }
@@ -781,10 +525,10 @@ auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> fs::path {
   }
 
   if (!config.inputPaths.empty()) {
-    if (auto const parent = commonParent(config.inputPaths); parent.has_value()) {
+    if (auto const parent = detail::commonParent(config.inputPaths); parent.has_value()) {
       return parent.value() / "encro.job-state.json";
     }
-    return buildFallbackStateFilePath(config);
+    return detail::buildFallbackStateFilePath(config);
   }
 
   if (!config.inputPath.empty()) {
@@ -793,7 +537,7 @@ auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> fs::path {
     return base / "encro.job-state.json";
   }
 
-  return buildFallbackStateFilePath(config);
+  return detail::buildFallbackStateFilePath(config);
 }
 
 auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot {
@@ -809,7 +553,7 @@ auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot {
   return ConfigSnapshot{
     .processType = config.processType,
     .outputFormat = config.outputFormat,
-    .outputLayout = outputLayoutToString(config.outputLayout),
+    .outputLayout = detail::outputLayoutToString(config.outputLayout),
     .packOutput = config.packOutput,
     .packOnly = config.packOnly,
     .recursive = config.recursive,
@@ -844,7 +588,7 @@ auto makeEncodeTask(fs::path const& inputPath, fs::path const& plannedOutputFile
     .status = TaskStatus::Pending,
     .label = inputPath.filename().string(),
     .attemptCount = 0,
-    .fingerprint = buildFingerprint(kEncodeVideoKind, sourcePaths, targetPaths),
+    .fingerprint = detail::buildFingerprint(kEncodeVideoKind, sourcePaths, targetPaths),
     .sourcePaths = sourcePaths,
     .targetPaths = targetPaths,
     .lastProgress = std::nullopt,
@@ -852,7 +596,7 @@ auto makeEncodeTask(fs::path const& inputPath, fs::path const& plannedOutputFile
     .lastStatus = std::nullopt,
     .lastError = std::nullopt,
     .startedAtMs = std::nullopt,
-    .updatedAtMs = nowMs(),
+    .updatedAtMs = detail::nowMs(),
     .finishedAtMs = std::nullopt,
   };
 }
@@ -871,7 +615,7 @@ auto makeArchiveTask(
     .status = TaskStatus::Pending,
     .label = std::move(label),
     .attemptCount = 0,
-    .fingerprint = buildFingerprint(kBuildArchiveKind, sourcePaths, targetPaths),
+    .fingerprint = detail::buildFingerprint(kBuildArchiveKind, sourcePaths, targetPaths),
     .sourcePaths = std::move(sourcePaths),
     .targetPaths = targetPaths,
     .lastProgress = std::nullopt,
@@ -879,7 +623,7 @@ auto makeArchiveTask(
     .lastStatus = std::nullopt,
     .lastError = std::nullopt,
     .startedAtMs = std::nullopt,
-    .updatedAtMs = nowMs(),
+    .updatedAtMs = detail::nowMs(),
     .finishedAtMs = std::nullopt,
   };
 }

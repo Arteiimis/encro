@@ -1,5 +1,6 @@
 #include "cmd/config_builder.h"
 
+#include "core/path_roots.h"
 #include "utils/utils.h"
 
 #include <algorithm>
@@ -12,6 +13,8 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+using pathroots::commonAncestorPath;
+using pathroots::normalizeInputRootDir;
 
 namespace {
 
@@ -194,10 +197,6 @@ auto parseOutputPathAlias(std::string_view raw) -> std::optional<ParsedOutputPat
   return std::nullopt;
 }
 
-auto normalizeInputRootDir(fs::path const& inputPath) -> fs::path {
-  return fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
-}
-
 auto resolveSharedInputDir(std::span<fs::path const> inputPaths)
   -> std::optional<fs::path> {
   if (inputPaths.empty()) { return std::nullopt; }
@@ -210,33 +209,13 @@ auto resolveSharedInputDir(std::span<fs::path const> inputPaths)
   return sharedDir;
 }
 
-auto commonAncestorDir(fs::path const& lhs, fs::path const& rhs)
-  -> std::optional<fs::path> {
-  auto const normalizedLhs = lhs.lexically_normal();
-  auto const normalizedRhs = rhs.lexically_normal();
-
-  auto result = fs::path{};
-  auto lhsIt = normalizedLhs.begin();
-  auto rhsIt = normalizedRhs.begin();
-  while (lhsIt != normalizedLhs.end()
-         && rhsIt != normalizedRhs.end()
-         && *lhsIt == *rhsIt) {
-    result /= *lhsIt;
-    ++lhsIt;
-    ++rhsIt;
-  }
-
-  if (result.empty()) { return std::nullopt; }
-  return result.lexically_normal();
-}
-
 auto resolveCommonInputDir(std::span<fs::path const> inputPaths)
   -> std::optional<fs::path> {
   if (inputPaths.empty()) { return std::nullopt; }
 
   auto commonDir = std::optional<fs::path>{normalizeInputRootDir(inputPaths.front())};
   for (auto const& inputPath: inputPaths) {
-    commonDir = commonAncestorDir(commonDir.value(), normalizeInputRootDir(inputPath));
+    commonDir = commonAncestorPath(commonDir.value(), normalizeInputRootDir(inputPath));
     if (!commonDir.has_value()) { return std::nullopt; }
   }
 

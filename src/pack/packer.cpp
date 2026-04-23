@@ -1,6 +1,7 @@
 #include "pack/packer.h"
 
 #include "core/collision_naming.h"
+#include "core/job_state.h"
 #include "core/progress.h"
 #include "infra/terminal.h"
 #include "pack/pack_service.h"
@@ -626,6 +627,33 @@ auto packAllFilesInDirectory(
   if (!packRes) { return eh::makeError("{}", packRes.error()); }
 
   return {};
+}
+
+auto runDirectoryPackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
+  -> eh::Result<int> {
+  auto const zipOutputDir = ctx.config.outputPath.value_or(dirPath / "packed");
+  auto const planRes = buildDirectoryPackPlan(
+    dirPath,
+    zipOutputDir,
+    pack::kDefaultMaxArchiveGroupSize,
+    true,
+    ctx.config.forceNameConflictHandling,
+    ctx.config.maxParallelJobs,
+    ctx.runtime.jobState ? std::optional<fs::path>{ctx.runtime.jobState->stateFilePath()}
+                         : std::nullopt
+  );
+  if (!planRes) { return eh::makeError("Failed to pack files: {}", planRes.error()); }
+
+  auto const packRes = pack::runPackPlan(ctx, planRes.value());
+  if (!packRes) { return eh::makeError("Failed to pack files: {}", packRes.error()); }
+  if (packRes->exitCode != 0) { return packRes->exitCode; }
+
+  terminal::println(
+    Success,
+    "All files packed successfully to: {}",
+    terminal::path(zipOutputDir)
+  );
+  return 0;
 }
 
 auto buildDirectoryPackPlan(

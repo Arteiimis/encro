@@ -1,7 +1,9 @@
 #include "video/video_process.h"
 
+#include "core/path_roots.h"
 #include "video/video_batch_execution.h"
 #include "video/video_output_planning.h"
+#include "video/video_workflow_utils.h"
 
 #include "core/job_state.h"
 #include "infra/terminal.h"
@@ -17,6 +19,11 @@
 
 namespace fs = std::filesystem;
 using enum terminal::MessageKind;
+using pathroots::commonAncestorPath;
+using pathroots::normalizeInputRootDir;
+using videoworkflow::lookupPlannedOutputFile;
+using videoworkflow::maybeJobState;
+using videoworkflow::withJobState;
 
 namespace {
 
@@ -32,11 +39,6 @@ auto toStdVector(immer::vector<Ty> const& values) -> std::vector<Ty> {
   for (auto const& value: values) { result.push_back(value); }
   return result;
 }
-
-auto lookupPlannedOutputFile(
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  fs::path const& inputPath
-) -> std::optional<fs::path>;
 
 auto packEncodedVideos(
   appctx::AppContext& ctx,
@@ -55,34 +57,6 @@ auto hasEncodingFailures(EncodeResultsMap const& vidsRunRes) -> bool;
 }  // namespace
 
 namespace {
-
-auto normalizeSourceRootDir(fs::path const& inputPath) -> fs::path {
-  return fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
-}
-
-auto commonAncestorPath(fs::path const& lhs, fs::path const& rhs)
-  -> std::optional<fs::path> {
-  auto const normalizedLhs = lhs.lexically_normal();
-  auto const normalizedRhs = rhs.lexically_normal();
-
-  auto result = fs::path{};
-  auto lhsIt = normalizedLhs.begin();
-  auto rhsIt = normalizedRhs.begin();
-  while (lhsIt != normalizedLhs.end()
-         && rhsIt != normalizedRhs.end()
-         && *lhsIt == *rhsIt) {
-    result /= *lhsIt;
-    ++lhsIt;
-    ++rhsIt;
-  }
-
-  if (result.empty()) { return std::nullopt; }
-  return result.lexically_normal();
-}
-
-auto maybeJobState(appctx::AppContext& ctx) -> jobstate::Store* {
-  return ctx.runtime.jobState.get();
-}
 
 struct PreparedEncodeActions {
   PendingVidList pendingVids;
@@ -148,19 +122,6 @@ auto prepareEncodeActions(
   }
 
   return prepared;
-}
-
-auto lookupPlannedOutputFile(
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  fs::path const& inputPath
-) -> std::optional<fs::path> {
-  if (
-    auto const it = plannedOutputFiles.find(inputPath); it != plannedOutputFiles.end()
-  ) {
-    return it->second;
-  }
-
-  return std::nullopt;
 }
 
 void printNoEncodableVideosMessage(
@@ -237,9 +198,9 @@ auto resolveMultiInputBasePath(
 
   if (config.outputPath.has_value()) { return config.outputPath.value(); }
 
-  auto basePath = std::optional<fs::path>{normalizeSourceRootDir(inputPaths.front())};
+  auto basePath = std::optional<fs::path>{normalizeInputRootDir(inputPaths.front())};
   for (auto const& inputPath: inputPaths) {
-    basePath = commonAncestorPath(basePath.value(), normalizeSourceRootDir(inputPath));
+    basePath = commonAncestorPath(basePath.value(), normalizeInputRootDir(inputPath));
     if (!basePath.has_value()) { return std::nullopt; }
   }
 
@@ -273,11 +234,11 @@ auto maybeHandleInterruptedEncoding(
 ) -> std::optional<int> {
   if (!stopsignal::isStopRequested()) { return std::nullopt; }
 
-  if (auto* store = maybeJobState(ctx); store != nullptr) {
-    store->requestCancel();
+  withJobState(ctx, [&](jobstate::Store& store) {
+    store.requestCancel();
     auto const pendingActionIds = toStdVector(prepared.pendingActionIds);
-    store->markIncompleteInterrupted(pendingActionIds);
-  }
+    store.markIncompleteInterrupted(pendingActionIds);
+  });
 
   return stopsignal::kCanceledExitCode;
 }
@@ -316,7 +277,7 @@ auto runScannedEncodingWorkflow(
   }
 
   auto const& plannedOutputFiles = plannedOutputFilesRes.value();
-  if (auto* store = maybeJobState(ctx); store != nullptr) { store->setStage("encoding"); }
+  withJobState(ctx, [](jobstate::Store& store) { store.setStage("encoding"); });
 
   auto const prepared = prepareEncodeActions(ctx, vids, plannedOutputFiles);
   auto const pendingVids = toStdVector(prepared.pendingVids);
@@ -343,9 +304,7 @@ auto runScannedEncodingWorkflow(
     maybePackWorkflowOutputs(ctx, packInputPath, plannedOutputFiles, vidsRunRes);
   if (packRes != 0) { return packRes; }
 
-  if (auto* store = maybeJobState(ctx); store != nullptr) {
-    store->setStage("completed");
-  }
+  withJobState(ctx, [](jobstate::Store& store) { store.setStage("completed"); });
 
   printEncodingSummary(vids, vidsRunRes);
   if (onCompleted) { onCompleted(); }
@@ -526,7 +485,7 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
     return 0;
   }
 
-  auto const sourceRootDir = normalizeSourceRootDir(inputPath);
+  auto const sourceRootDir = normalizeInputRootDir(inputPath);
   return runScannedEncodingWorkflow(ctx, vids, sourceRootDir, inputPath, [&] {
     spdlog::info("Path encoding done: {}", inputPath.string());
   });
