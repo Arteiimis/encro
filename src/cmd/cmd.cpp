@@ -51,12 +51,12 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     layout.lineLength,
     layout.minDescriptionLength
   );
-  general.add_options()                                                            //
-    ("help,h", "produce help message")                                             //
-    ("verbose,v", "enable verbose output")                                         //
-    ("verbose-echo,e", "echo verbose logs to console\n  (disable progress bars)")  //
-    ("color", pvDefault("auto"s), "terminal colors: auto, always, never")          //
-    ("yes,y", "automatic yes to prompts")                                          //
+  general.add_options()                                                         //
+    ("help,h", "produce help message")                                          //
+    ("verbose,v", "enable verbose output")                                      //
+    ("verbose-echo,e", "echo verbose logs to console (disable progress bars)")  //
+    ("color", pvDefault("auto"s), "terminal colors: auto, always, never")       //
+    ("yes,y", "automatic yes to prompts")                                       //
     ;
 
   auto io = po::options_description(
