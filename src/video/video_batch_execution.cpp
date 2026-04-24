@@ -229,10 +229,8 @@ struct EncodingExecutionContext {
       auto const activeList = activeStates();
       for (auto const& activeState: activeList) {
         if (!activeState) { continue; }
-        auto stateLock = std::scoped_lock{activeState->mtx};
-        if (activeState->lastProgress.has_value()) {
-          activeProgress += activeState->lastProgress.value() / 100.0f;
-        }
+        auto const p = activeState->lastProgressAtomic.load(std::memory_order_acquire);
+        if (p >= 0.0f) { activeProgress += p / 100.0f; }
       }
     }
 
@@ -252,30 +250,32 @@ struct EncodingExecutionContext {
   }
 
   void finalizeState(appctx::EncodingStatePtr const& vidState, bool result) {
-    if (result) {
-      auto lock = std::scoped_lock{vidState->mtx};
-      if (
-        vidState->plannedOutputFile.has_value()
-        && fs::exists(vidState->plannedOutputFile.value())
-      ) {
-        vidState->outputFile = vidState->plannedOutputFile;
-      }
-    }
+    auto progressFileToRemove = std::optional<fs::path>{};
 
     {
       auto lock = std::scoped_lock{vidState->mtx};
+
+      if (result) {
+        if (
+          vidState->plannedOutputFile.has_value()
+          && fs::exists(vidState->plannedOutputFile.value())
+        ) {
+          vidState->outputFile = vidState->plannedOutputFile;
+        }
+      }
+
       vidState->finished = true;
       vidState->success = result;
       vidState->endTime = std::chrono::steady_clock::now();
       vidState->lastProgress = 100.0f;
+      vidState->lastProgressAtomic.store(100.0f, std::memory_order_release);
+
+      progressFileToRemove = vidState->progressFilePath;
     }
 
-    {
-      auto lock = std::scoped_lock{vidState->mtx};
-      if (vidState->progressFilePath.has_value()) {
-        auto ec = std::error_code{};
-        fs::remove(vidState->progressFilePath.value(), ec);
-      }
+    if (progressFileToRemove.has_value()) {
+      auto ec = std::error_code{};
+      fs::remove(progressFileToRemove.value(), ec);
     }
   }
 };
@@ -288,11 +288,15 @@ auto tryReadProgressData(fs::path const& progressFilePath)
 
 auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
   -> std::optional<float> {
-  auto const totalFrames = getVidTotalFrames(ctx.toolchain, ctx.runtime, state.inputPath);
-  if (!totalFrames.has_value()) {
-    auto lock = std::scoped_lock{state.mtx};
-    state.lastError = totalFrames.error();
-    return std::nullopt;
+  if (!state.totalFrames.has_value()) {
+    auto const totalFramesRes =
+      getVidTotalFrames(ctx.toolchain, ctx.runtime, state.inputPath);
+    if (!totalFramesRes.has_value()) {
+      auto lock = std::scoped_lock{state.mtx};
+      state.lastError = totalFramesRes.error();
+      return std::nullopt;
+    }
+    state.totalFrames = totalFramesRes.value();
   }
 
   auto progressFilePath = std::optional<fs::path>{};
@@ -310,7 +314,8 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
     state.lastFrameCount = progressData->frameCount;
   }
 
-  return (static_cast<float>(progressData->frameCount) / totalFrames.value()) * 100.0f;
+  return (static_cast<float>(progressData->frameCount) / state.totalFrames.value())
+    * 100.0f;
 }
 
 auto createEncodingState(
@@ -410,6 +415,10 @@ auto startEncodingMonitor(EncodingExecutionContext& executionCtx) -> std::jthrea
         {
           auto lock = std::scoped_lock{activeState->mtx};
           activeState->lastProgress = progress.value();
+          activeState->lastProgressAtomic.store(
+            progress.value(),
+            std::memory_order_release
+          );
           barIndex = activeState->barIndex;
           actionId = activeState->actionId;
           lastFrameCount = activeState->lastFrameCount;

@@ -5,6 +5,7 @@
 #include <immer/atom.hpp>
 #include <immer/map.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
@@ -72,9 +73,11 @@ struct EncodingState {
   std::optional<std::chrono::steady_clock::time_point> startTime;
   std::optional<std::chrono::steady_clock::time_point> endTime;
   std::optional<float> lastProgress;
+  std::atomic<float> lastProgressAtomic{-1.0f};
   std::optional<uint64_t> lastFrameCount;
   std::optional<std::string> lastStatus;
   std::optional<std::string> lastError;
+  std::optional<int64_t> totalFrames;
   bool finished = false;
   bool success = false;
   std::mutex mtx;
