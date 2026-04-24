@@ -67,10 +67,23 @@ TEST_CASE(
     out << "progress=end\n";
   }
 
-  auto const [frameCount, status] = parseProgressFile(filePath);
+  auto const result = parseProgressFile(filePath);
+  REQUIRE(result.has_value());
+  auto const [frameCount, status] = *result;
 
   CHECK(frameCount == 25);
   CHECK(status == "end");
+}
+
+TEST_CASE(
+  "parseProgressFile returns nullopt for missing file",
+  "[video-process][parseProgressFile]"
+) {
+  TempDir temp;
+  auto const missingPath = temp.path / "missing.log";
+
+  auto const result = parseProgressFile(missingPath);
+  CHECK_FALSE(result.has_value());
 }
 
 TEST_CASE(

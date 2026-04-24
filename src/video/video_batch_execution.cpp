@@ -282,7 +282,6 @@ struct EncodingExecutionContext {
 
 auto tryReadProgressData(fs::path const& progressFilePath)
   -> std::optional<ProgressData> {
-  if (!fs::exists(progressFilePath)) { return std::nullopt; }
   return parseProgressFile(progressFilePath);
 }
 
@@ -330,8 +329,6 @@ auto createEncodingState(
     vidState->actionId = *actionId;
   }
   vidState->startTime = std::chrono::steady_clock::now();
-  vidState->progressFilePath =
-    fs::temp_directory_path() / std::format("progress_{}.txt", getUUID());
   vidState->plannedOutputFile =
     lookupPlannedOutputFile(executionCtx.plannedOutputFiles, vidPath);
   if (vidState->plannedOutputFile.has_value()) {
@@ -487,7 +484,7 @@ auto runEncodingTask(
   }
   executionCtx.barEncodingStart(*vidState, fileLabel);
   auto const result =
-    encodeToHevc(executionCtx.app, *vidState, [&](std::string const& status) {
+    encodeVideo(executionCtx.app, *vidState, [&](std::string const& status) {
       executionCtx.barEncodingStatus(*vidState, fileLabel, status);
       auto actionId = std::optional<std::string>{};
       auto lock = std::scoped_lock{vidState->mtx};
@@ -611,7 +608,11 @@ auto runEncodingWithoutProgress(
       }
     );
 
-    auto const success = encodeToHevc(ctx, state, {});
+    auto const success = encodeVideo(ctx, state, {});
+    if (state.progressFilePath.has_value()) {
+      auto ec = std::error_code{};
+      fs::remove(state.progressFilePath.value(), ec);
+    }
     vidsRunRes = vidsRunRes.set(vidPath, success);
     withActionJobState(
       ctx,
