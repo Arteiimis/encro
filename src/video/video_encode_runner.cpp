@@ -299,7 +299,7 @@ auto runStandardEncoding(
 
 }  // namespace
 
-bool encodeToHevc(
+bool encodeVideo(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
   function_ref statusUpdater
