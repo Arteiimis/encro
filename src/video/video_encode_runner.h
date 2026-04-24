@@ -6,7 +6,7 @@
 
 using function_ref = std::function<void(std::string const&)> const&;
 
-auto encodeToHevc(
+auto encodeVideo(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
   function_ref statusUpdater = {}

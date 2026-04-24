@@ -121,10 +121,12 @@ auto readLastNLines(fs::path const& filePath, std::size_t n) -> std::vector<std:
   return {tail.begin(), tail.end()};
 }
 
-auto parseProgressFile(fs::path const& progressFilePath) -> ProgressData {
+auto parseProgressFile(fs::path const& progressFilePath) -> std::optional<ProgressData> {
   namespace bp = boost::parser;
 
   auto const lines = readLastNLines(progressFilePath, 12);
+  if (lines.empty()) { return std::nullopt; }
+
   auto frameCount = uint64_t{0};
   auto progressStatus = std::string{};
 
@@ -142,5 +144,5 @@ auto parseProgressFile(fs::path const& progressFilePath) -> ProgressData {
     }
   }
 
-  return {frameCount, progressStatus};
+  return ProgressData{frameCount, progressStatus};
 }

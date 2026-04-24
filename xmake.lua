@@ -45,7 +45,7 @@ target("encro")
     add_syslinks("dl")
   end
 
-  add_includedirs("src")
+  add_includedirs("src", {public = true})
   add_files("src/**.cpp")
 target_end()
 

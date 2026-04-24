@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,4 +18,4 @@ auto isLikelyFfmpegErrorLine(std::string_view line) -> bool;
 
 auto readLastNLines(fs::path const& filePath, std::size_t n) -> std::vector<std::string>;
 
-auto parseProgressFile(fs::path const& progressFilePath) -> ProgressData;
+auto parseProgressFile(fs::path const& progressFilePath) -> std::optional<ProgressData>;
