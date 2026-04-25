@@ -7,8 +7,6 @@
 #include <fstream>
 #include <string_view>
 
-namespace fs = std::filesystem;
-
 TEST_CASE("readLastNLines returns tail of file", "[video-process][readLastNLines]") {
   TempDir temp;
   auto const filePath = temp.path / "progress.log";
@@ -84,6 +82,49 @@ TEST_CASE(
 
   auto const result = parseProgressFile(missingPath);
   CHECK_FALSE(result.has_value());
+}
+
+TEST_CASE(
+  "parseProgressFile returns nullopt when no frame line is available yet",
+  "[video-process][parseProgressFile]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "progress.log";
+
+  {
+    std::ofstream out{filePath};
+    out << "bitrate=N/A\n";
+    out << "total_size=0\n";
+    out << "out_time_ms=0\n";
+    out << "progress=continue\n";
+  }
+
+  auto const result = parseProgressFile(filePath);
+  CHECK_FALSE(result.has_value());
+}
+
+TEST_CASE(
+  "parseProgressFile keeps latest frame when ffmpeg tail block is longer than 12 lines",
+  "[video-process][parseProgressFile]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "progress.log";
+
+  {
+    std::ofstream out{filePath};
+    out << "frame=10\n";
+    out << "progress=continue\n";
+    out << "frame=25\n";
+    for (auto i = 0; i < 12; ++i) { out << "field_" << i << "=value\n"; }
+    out << "progress=end\n";
+  }
+
+  auto const result = parseProgressFile(filePath);
+  REQUIRE(result.has_value());
+  auto const [frameCount, status] = *result;
+
+  CHECK(frameCount == 25);
+  CHECK(status == "end");
 }
 
 TEST_CASE(
