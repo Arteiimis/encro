@@ -10,6 +10,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
+constexpr auto kProgressTailLines = std::size_t{32};
+
 auto containsCaseInsensitive(std::string_view text, std::string_view needle) -> bool {
   if (needle.empty()) { return true; }
   if (text.size() < needle.size()) { return false; }
@@ -124,10 +126,10 @@ auto readLastNLines(fs::path const& filePath, std::size_t n) -> std::vector<std:
 auto parseProgressFile(fs::path const& progressFilePath) -> std::optional<ProgressData> {
   namespace bp = boost::parser;
 
-  auto const lines = readLastNLines(progressFilePath, 12);
+  auto const lines = readLastNLines(progressFilePath, kProgressTailLines);
   if (lines.empty()) { return std::nullopt; }
 
-  auto frameCount = uint64_t{0};
+  auto frameCount = std::optional<uint64_t>{};
   auto progressStatus = std::string{};
 
   auto const frameParser = bp::string("frame=") >> bp::uint_;
@@ -144,5 +146,7 @@ auto parseProgressFile(fs::path const& progressFilePath) -> std::optional<Progre
     }
   }
 
-  return ProgressData{frameCount, progressStatus};
+  if (!frameCount.has_value()) { return std::nullopt; }
+
+  return ProgressData{frameCount.value(), progressStatus};
 }

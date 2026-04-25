@@ -241,6 +241,47 @@ auto finalizeVideoList(
   return filtered;
 }
 
+auto prewarmWebpVideoInfoCache(
+  appctx::AppConfig const& config,
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  std::span<fs::path const> vids
+) -> void {
+  if (vids.empty()) { return; }
+
+  auto const configuredOrDetected = config.maxParallelJobs.value_or(
+    static_cast<std::size_t>(std::thread::hardware_concurrency())
+  );
+  auto const maxParallelJobs = std::max<std::size_t>(1, configuredOrDetected);
+  auto const workerCount = taskexec::resolveWorkerCount(vids.size(), maxParallelJobs);
+  auto const prewarmCount = std::min(vids.size(), workerCount + 1);
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(prewarmCount);
+
+  for (auto index = std::size_t{0}; index < prewarmCount; ++index) {
+    tasks.push_back(
+      taskexec::TaskSpec{
+        .id = vids[index].string(),
+        .label = vids[index].filename().string(),
+        .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
+          auto const& vidPath = vids[index];
+          runtime.videoInfoCache.set(vidPath, getVidInfo(toolchain, vidPath));
+          return {};
+        }
+      }
+    );
+  }
+
+  auto const _ = taskexec::runTasks(
+    taskexec::TaskPlan{
+      .tasks = std::move(tasks),
+      .maxConcurrency = maxParallelJobs,
+      .progress = nullptr,
+      .hideCursor = false,
+    }
+  );
+}
+
 }  // namespace
 
 auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPath)
@@ -399,9 +440,16 @@ auto readAllVids(
 
   if (vids.empty()) { return vids; }
 
-  if (config.outputFormat != "mp4") { return vids; }
+  if (config.outputFormat == "mp4") {
+    return finalizeVideoList(config, toolchain, runtime, vids);
+  }
 
-  return finalizeVideoList(config, toolchain, runtime, vids);
+  if (config.outputFormat == "webp") {
+    prewarmWebpVideoInfoCache(config, toolchain, runtime, vids);
+    return vids;
+  }
+
+  return vids;
 }
 
 auto readAllVidsFromFiles(
@@ -419,7 +467,16 @@ auto readAllVidsFromFiles(
     }
   }
 
-  if (vids.empty() || config.outputFormat != "mp4") { return vids; }
+  if (vids.empty()) { return vids; }
 
-  return finalizeVideoList(config, toolchain, runtime, vids);
+  if (config.outputFormat == "mp4") {
+    return finalizeVideoList(config, toolchain, runtime, vids);
+  }
+
+  if (config.outputFormat == "webp") {
+    prewarmWebpVideoInfoCache(config, toolchain, runtime, vids);
+    return vids;
+  }
+
+  return vids;
 }
