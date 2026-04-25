@@ -27,7 +27,6 @@
 namespace fs = std::filesystem;
 using enum terminal::MessageKind;
 using videoworkflow::lookupPlannedOutputFile;
-using videoworkflow::maybeJobState;
 using videoworkflow::withActionJobState;
 using videoworkflow::withJobState;
 
