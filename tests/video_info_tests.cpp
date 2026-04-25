@@ -9,6 +9,24 @@
 #include <cstdint>
 #include <fstream>
 
+#if defined(_WIN32)
+auto makeCmdScriptCommand(fs::path const& scriptPath) -> fs::path {
+  return fs::path{std::format("cmd.exe /d /c call \"{}\"", scriptPath.string())};
+}
+
+void writeFakeFfprobeScript(fs::path const& scriptPath) {
+  auto const script = R"(
+@echo off
+setlocal EnableExtensions
+echo {"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]}
+exit /b 0
+)";
+  auto out = std::ofstream{scriptPath, std::ios::binary};
+  REQUIRE(out.is_open());
+  out << script;
+}
+#endif
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -62,7 +80,7 @@ TEST_CASE("readAllVids allows files just below 32MB for webp", "[video-info]") {
   CHECK(vids.front() == boundaryVideo);
 }
 
-TEST_CASE("readAllVids for webp does not prewarm video info cache", "[video-info]") {
+TEST_CASE("readAllVids for webp prewarms video info cache", "[video-info]") {
   TempDir temp;
   auto const boundaryVideo = temp.path / "boundary.mp4";
   createFileWithSize(boundaryVideo, 1024ULL);
@@ -73,11 +91,52 @@ TEST_CASE("readAllVids for webp does not prewarm video info cache", "[video-info
   auto toolchain = appctx::ToolchainPaths{};
   auto runtime = appctx::RuntimeContext{};
 
+#if defined(_WIN32)
+  auto const ffprobeScriptPath = temp.path / "fake_ffprobe.cmd";
+  writeFakeFfprobeScript(ffprobeScriptPath);
+  toolchain.ffprobePath = makeCmdScriptCommand(ffprobeScriptPath);
+#endif
+
   auto const vids = readAllVids(config, toolchain, runtime, temp.path);
 
   REQUIRE(vids.size() == 1);
   CHECK(vids.front() == boundaryVideo);
-  CHECK(runtime.videoInfoCache.size() == 0);
+  CHECK(runtime.videoInfoCache.size() == 1);
+  CHECK(runtime.videoInfoCache.find(boundaryVideo).has_value());
+}
+
+TEST_CASE(
+  "readAllVidsFromFiles for webp prewarms only bounded lookahead entries",
+  "[video-info]"
+) {
+  TempDir temp;
+  auto const firstVideo = temp.path / "a.mp4";
+  auto const secondVideo = temp.path / "b.mp4";
+  auto const thirdVideo = temp.path / "c.mp4";
+  createFileWithSize(firstVideo, 1024ULL);
+  createFileWithSize(secondVideo, 1024ULL);
+  createFileWithSize(thirdVideo, 1024ULL);
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "webp";
+  config.maxParallelJobs = 1;
+  auto toolchain = appctx::ToolchainPaths{};
+  auto runtime = appctx::RuntimeContext{};
+
+#if defined(_WIN32)
+  auto const ffprobeScriptPath = temp.path / "fake_ffprobe.cmd";
+  writeFakeFfprobeScript(ffprobeScriptPath);
+  toolchain.ffprobePath = makeCmdScriptCommand(ffprobeScriptPath);
+#endif
+
+  auto const inputFiles = std::array{firstVideo, secondVideo, thirdVideo};
+  auto const vids = readAllVidsFromFiles(config, toolchain, runtime, inputFiles);
+
+  REQUIRE(vids == std::vector<fs::path>{firstVideo, secondVideo, thirdVideo});
+  CHECK(runtime.videoInfoCache.size() == 2);
+  CHECK(runtime.videoInfoCache.find(firstVideo).has_value());
+  CHECK(runtime.videoInfoCache.find(secondVideo).has_value());
+  CHECK_FALSE(runtime.videoInfoCache.find(thirdVideo).has_value());
 }
 
 TEST_CASE("readAllVids keeps only <32MB videos for webp in directory", "[video-info]") {
