@@ -94,6 +94,10 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("resume", "resume previous unfinished job state when available")         //
     ("restart", "ignore previous job state and start a fresh run")            //
     ("ffmpeg-path,x", pv<std::string>(), "custom ffmpeg install path")        //
+    ("compress", "enable JPEG compression during picture processing")         //
+    ("image-quality,q",
+     pv<int>(),
+     "JPEG compression quality (2-31, default=5, lower=better)")  //
     ;
 
   auto fileop = po::options_description(

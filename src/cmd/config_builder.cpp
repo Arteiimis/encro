@@ -314,6 +314,24 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   }
   config.pictureFolderSummary = pictureFolderSummaryRes.value();
 
+  config.compressImages = vm.count("compress") > 0;
+
+  if (config.processType != "picture" && config.compressImages) {
+    return eh::makeError("--compress is only supported when --type is picture.");
+  }
+
+  if (vm.count("image-quality")) {
+    auto const quality = vm.at("image-quality").as<int>();
+    if (quality < 2 || quality > 31) {
+      return eh::makeError("--image-quality must be between 2 and 31.");
+    }
+    config.imageQuality = quality;
+
+    if (!config.compressImages) {
+      return eh::makeError("--image-quality requires --compress to be enabled.");
+    }
+  }
+
   config.yesToAll = vm.count("yes") > 0;
   config.recursive = vm.count("recursive") > 0;
   config.packOutput = vm.count("pack") > 0;
