@@ -58,6 +58,11 @@ auto packFilesToZip(
   std::string_view progressText
 ) -> eh::Result<void>;
 
+auto packFilesToZip(
+  std::vector<pack::PackFileEntry> const& entries,
+  std::filesystem::path const& zipFilePath
+) -> eh::Result<void>;
+
 auto groupFilesBySize(
   std::vector<std::filesystem::path> const& filePaths,
   std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
