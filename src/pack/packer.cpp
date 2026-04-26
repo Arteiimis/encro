@@ -400,15 +400,21 @@ auto packFilesToZip(
 
 auto packFilesToZip(
   std::vector<pack::PackFileEntry> const& entries,
-  fs::path const& zipFilePath
+  fs::path const& zipFilePath,
+  PackEntryProgressCallback onEntryPacked
 ) -> eh::Result<void> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());
   zip.open(libzippp::ZipArchive::New);
+
+  auto processedCount = std::size_t{0};
+  auto const totalCount = entries.size();
 
   for (auto const& entry: entries) {
     if (fs::is_regular_file(entry.sourcePath)) {
       zip.addFile(entry.zipEntryName, entry.sourcePath.string());
     }
+    ++processedCount;
+    if (onEntryPacked) { onEntryPacked(processedCount, totalCount); }
     spdlog::debug(
       "Packing (no-progress): {} -> {}",
       entry.sourcePath.string(),
