@@ -338,6 +338,7 @@ auto buildConfig(boost::program_options::variables_map const& vm)
   config.packOnly = vm.count("pack-only") > 0;
   config.verbose = vm.count("verbose") > 0;
   config.verboseEcho = vm.count("verbose-echo") > 0;
+  config.fullProgress = vm.count("full-progress") > 0;
 
   if (vm.count("state-file")) {
     config.stateFilePath =
