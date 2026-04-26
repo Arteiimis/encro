@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-26
+
+### Added
+
+- Compact progress mode, which shows one bar per stage instead of one per file; `--full-progress` brings back the per-worker and per-archive bars.
+- Progress bars are coloured by outcome, so finished, failed and active work differ at a glance.
+
+### Changed
+
+- Video encoding runs faster on the same hardware.
+- Per-archive success lines were removed from compact mode, where the progress bars already say the same thing.
+
 ## [0.4.0] - 2026-04-19
 
 ### Added
@@ -70,7 +82,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v0.4.0...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Arteiimis/encro/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/Arteiimis/encro/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Arteiimis/encro/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Arteiimis/encro/compare/v0.1.5...v0.2.0

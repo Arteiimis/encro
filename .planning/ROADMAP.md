@@ -1,10 +1,22 @@
 # encro — Roadmap
 
-## Phase 1: Compact Progress Mode
-**Goal:** Add a compact/simple progress bar mode for the video encoding + packing pipeline. Instead of showing per-worker progress bars, display a single unified progress bar tracking the entire encode→pack workflow.
+## Milestones
 
-**Plans:** 2 plans
+- ✅ **v1.0 Compact Progress Mode** — Phases 1-2 (shipped 2026-04-26)
 
-Plans:
-- [ ] 01-01-PLAN.md — CLI foundation (`--full-progress` flag) + encoding compact mode
-- [ ] 01-02-PLAN.md — Packing compact mode (single overall bar)
+## Phases
+
+<details>
+<summary>✅ v1.0 Compact Progress Mode (Phases 1-2) — SHIPPED 2026-04-26</summary>
+
+- [x] Phase 1: Compact Progress Mode (2/2 plans) — completed 2026-04-26
+- [x] Phase 2: Compact Mode Gap Fixes (1/1 plan) — completed 2026-04-26
+
+</details>
+
+## Progress
+
+| Phase                             | Milestone | Plans Complete | Status      | Completed  |
+| --------------------------------- | --------- | -------------- | ----------- | ---------- |
+| 1. Compact Progress Mode          | v1.0      | 2/2            | Complete    | 2026-04-26 |
+| 2. Compact Mode Gap Fixes         | v1.0      | 1/1            | Complete    | 2026-04-26 |
