@@ -1,5 +1,7 @@
 #include "picture/picture_process.h"
 
+#include "picture/picture_compress.h"
+
 #include "core/collision_naming.h"
 #include "core/media_scanner.h"
 #include "infra/terminal.h"
@@ -284,6 +286,210 @@ auto readAllPics(appctx::AppConfig const& config, fs::path const& dirPath)
 auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
   -> eh::Result<int> {
   auto const outputDir = ctx.config.outputPath.value_or(dirPath) / "packed";
+
+  if (ctx.config.compressImages) {
+    auto const scannedPics = readAllPics(ctx.config, dirPath);
+    if (scannedPics.empty()) {
+      return eh::makeError("No pictures found in directory: {}", dirPath.string());
+    }
+
+    auto const quality = ctx.config.imageQuality.value_or(5);
+    terminal::println(
+      Info,
+      "Picture scan completed, {} picture(s) found, will be compressed to JPEG "
+      "(quality={}).",
+      terminal::count(scannedPics.size()),
+      terminal::count(quality)
+    );
+
+    if (!confirmPicturePack(ctx.config)) {
+      terminal::println(Warning, "Packing task canceled by user.");
+      return 0;
+    }
+
+    auto const tempDir = outputDir / ".compress_tmp";
+    auto ec = std::error_code{};
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir);
+
+    auto summaryPics = std::vector<fs::path>{};
+    if (ctx.config.pictureFolderSummary) {
+      summaryPics = collectFolderSummaryPictures(dirPath, scannedPics);
+    }
+
+    auto plannedEntryNames = planPictureZipEntryNames(ctx.config, dirPath, scannedPics);
+
+    auto toJpgEntryName = [](std::string const& entryName) -> std::string {
+      auto const stemEnd = entryName.rfind('.');
+      if (stemEnd != std::string::npos) { return entryName.substr(0, stemEnd) + ".jpg"; }
+      return entryName + ".jpg";
+    };
+
+    auto compressedSet = std::unordered_map<fs::path, fs::path>{};
+    auto compressTasks = std::vector<CompressTask>{};
+    compressTasks.reserve(scannedPics.size() + summaryPics.size());
+
+    auto addCompressTask = [&](fs::path const& picPath, std::string const& entryName) {
+      if (compressedSet.contains(picPath)) { return; }
+      auto const jpgEntryName = toJpgEntryName(entryName);
+      auto const outputPath = tempDir / jpgEntryName;
+      fs::create_directories(outputPath.parent_path(), ec);
+
+      compressTasks.push_back(
+        CompressTask{
+          .inputPath = picPath,
+          .outputPath = outputPath,
+          .entryName = jpgEntryName,
+        }
+      );
+      compressedSet[picPath] = outputPath;
+    };
+
+    for (auto const& summaryPic: summaryPics) {
+      auto const entryName = buildSummaryPictureEntryName(dirPath, summaryPic);
+      addCompressTask(summaryPic, entryName);
+    }
+
+    for (auto const& picPath: scannedPics) {
+      auto const plannedIt = plannedEntryNames.find(picPath);
+      auto const entryName = plannedIt != plannedEntryNames.end()
+        ? plannedIt->second
+        : picPath.filename().generic_string();
+      addCompressTask(picPath, entryName);
+    }
+
+    terminal::println(
+      Info,
+      "Compressing {} picture(s) to JPEG (quality={})...",
+      terminal::count(scannedPics.size()),
+      terminal::count(quality)
+    );
+
+    auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
+    auto const compressResults =
+      compressImageBatch(ctx, compressTasks, quality, maxParallel);
+
+    if (compressResults.empty()) {
+      fs::remove_all(tempDir, ec);
+      return eh::makeError("All picture compressions failed.");
+    }
+
+    terminal::println(
+      Info,
+      "{} picture(s) compressed, preparing pack plan...",
+      terminal::count(compressResults.size())
+    );
+
+    auto packInputs = std::vector<PackEntryInput>{};
+    packInputs.reserve(compressResults.size());
+
+    for (auto const& summaryPic: summaryPics) {
+      auto const compressedIt = compressedSet.find(summaryPic);
+      if (compressedIt == compressedSet.end()) { continue; }
+
+      auto const dirKey = naming::stablePathString(summaryPic.parent_path());
+      auto const entryName =
+        toJpgEntryName(buildSummaryPictureEntryName(dirPath, summaryPic));
+
+      packInputs.emplace_back(
+        PackEntryInput{
+          .entry =
+            pack::PackFileEntry{
+              .sourcePath = compressedIt->second,
+              .zipEntryName = entryName,
+            },
+          .sourceDir = summaryPic.parent_path(),
+          .sourceKey = std::format("0000__{}", dirKey),
+          .fileKey = std::format("0000__{}", dirKey),
+        }
+      );
+    }
+
+    for (auto const& picPath: scannedPics) {
+      auto const compressedIt = compressedSet.find(picPath);
+      if (compressedIt == compressedSet.end()) { continue; }
+
+      auto const plannedIt = plannedEntryNames.find(picPath);
+      auto const entryName = plannedIt != plannedEntryNames.end()
+        ? toJpgEntryName(plannedIt->second)
+        : toJpgEntryName(picPath.filename().generic_string());
+
+      auto const sourceKey =
+        std::format("1000__{}", naming::stablePathString(picPath.parent_path()));
+      packInputs.emplace_back(
+        PackEntryInput{
+          .entry =
+            pack::PackFileEntry{
+              .sourcePath = compressedIt->second,
+              .zipEntryName = entryName,
+            },
+          .sourceDir = picPath.parent_path(),
+          .sourceKey = sourceKey,
+          .fileKey = std::format("1000__{}", naming::stablePathString(picPath)),
+        }
+      );
+    }
+
+    constexpr auto kMaxPicturesPerPack = std::size_t{2000};
+    constexpr auto kFolderCarryOverThreshold = std::size_t{2000};
+    auto const groupedPartitions = groupPackEntriesWithSubparts(
+      packInputs,
+      pack::kDefaultMaxArchiveGroupSize,
+      kMaxPicturesPerPack,
+      kFolderCarryOverThreshold
+    );
+
+    auto groupedPics = std::vector<std::vector<pack::PackFileEntry>>{};
+    auto groupNameParts = std::vector<std::pair<std::size_t, std::size_t>>{};
+    auto subPartCountsByPart = std::vector<std::size_t>{};
+    groupedPics.reserve(groupedPartitions.size());
+    groupNameParts.reserve(groupedPartitions.size());
+    subPartCountsByPart.reserve(groupedPartitions.size());
+    for (auto const& partition: groupedPartitions) {
+      groupedPics.emplace_back(partition.entries);
+      groupNameParts.emplace_back(partition.partIndex, partition.subPartIndex);
+      if (subPartCountsByPart.size() < partition.partIndex) {
+        subPartCountsByPart.resize(partition.partIndex, 0);
+      }
+      ++subPartCountsByPart[partition.partIndex - 1];
+    }
+
+    auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedPics);
+    auto picturePackNaming = PicturePackNamingState{
+      .dirName = dirPath.filename().string(),
+      .ordinalRanges = ordinalRanges,
+      .groupNameParts = groupNameParts,
+      .subPartCountsByPart = subPartCountsByPart,
+    };
+    auto const picturePackNamingState =
+      std::make_shared<PicturePackNamingState>(std::move(picturePackNaming));
+
+    auto const plan = pack::PackPlan{
+      .groups = groupedPics,
+      .outputDir = outputDir,
+      .zipNameForIndex = [picturePackNamingState](
+                           std::size_t index
+                         ) { return picturePackNamingState->zipNameFor(index); },
+      .maxParallelJobs = ctx.config.maxParallelJobs,
+      .removeOnFailure = true
+    };
+
+    auto const packRes = pack::runPackPlan(ctx, plan);
+    fs::remove_all(tempDir, ec);
+
+    if (!packRes) {
+      return eh::makeError("Failed to pack pictures: {}", packRes.error());
+    }
+    if (packRes->exitCode != 0) { return packRes->exitCode; }
+
+    terminal::println(
+      Success,
+      "All pictures packed successfully to: {}",
+      terminal::path(outputDir)
+    );
+    return 0;
+  }
+
   auto const preparedRes = preparePicturePack(ctx.config, dirPath, outputDir);
   if (!preparedRes) {
     return eh::makeError("Failed to pack pictures: {}", preparedRes.error());

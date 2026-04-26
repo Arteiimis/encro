@@ -44,6 +44,8 @@ struct AppConfig {
   bool restartState = false;
   bool forceNameConflictHandling = true;
   bool pictureFolderSummary = false;
+  bool compressImages = false;
+  std::optional<int> imageQuality;
   bool verbose = false;
   bool verboseEcho = false;
   std::optional<std::size_t> maxParallelJobs;

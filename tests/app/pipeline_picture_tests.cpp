@@ -1,10 +1,13 @@
 #include "app/pipeline.h"
 #include "core/job_state.h"
+#include "picture/picture_compress.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
 
 #include <filesystem>
+#include <format>
+#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -12,6 +15,33 @@ using testutils::collisionGroupPrefix;
 using testutils::hasCollisionSafePrefix;
 using testutils::listZipRegularEntryNames;
 using testutils::touchFile;
+
+#if defined(_WIN32)
+namespace {
+
+auto makeCmdScriptCommand(fs::path const& scriptPath) -> fs::path {
+  return fs::path{std::format("cmd.exe /d /c call \"{}\"", scriptPath.string())};
+}
+
+void writeFakeFfmpegScript(fs::path const& scriptPath) {
+  auto const script = std::string{R"(@echo off
+set "outputPath="
+:parse
+if "%~1"=="" goto done
+set "outputPath=%~1"
+shift
+goto parse
+:done
+if "%outputPath%"=="" exit /b 2
+for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
+>"%outputPath%" echo fake-compressed-jpeg
+exit /b 0
+)"};
+  testutils::writeTextFile(scriptPath, script);
+}
+
+}  // namespace
+#endif
 
 TEST_CASE("picture pipeline packs directory", "[pipeline]") {
   TempDir temp;
@@ -253,3 +283,149 @@ TEST_CASE("picture pipeline keeps relative paths in keep mode", "[pipeline]") {
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames == std::vector<std::string>{"a/same.jpg", "b/same.jpg"});
 }
+
+#if defined(_WIN32)
+TEST_CASE(
+  "picture pipeline compress+pack produces .jpg entries",
+  "[pipeline][compress]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
+  fs::create_directories(inputDir);
+  touchFile(inputDir / "a.png");
+  touchFile(inputDir / "b.png");
+  writeFakeFfmpegScript(scriptPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.verbose = true;
+  ctx.config.verboseEcho = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+
+  auto const entryNames =
+    listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
+  REQUIRE(entryNames.size() == 2);
+  CHECK(entryNames[0].ends_with(".jpg"));
+  CHECK(entryNames[1].ends_with(".jpg"));
+}
+
+TEST_CASE(
+  "picture pipeline compress with keep layout preserves relative paths with .jpg",
+  "[pipeline][compress]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+  touchFile(dirA / "same.png");
+  touchFile(dirB / "same.png");
+  writeFakeFfmpegScript(scriptPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.recursive = true;
+  ctx.config.verbose = true;
+  ctx.config.verboseEcho = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.outputLayout = appctx::OutputLayout::Keep;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+
+  auto const entryNames =
+    listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
+  REQUIRE(entryNames.size() == 2);
+  CHECK(entryNames == std::vector<std::string>{"a/same.jpg", "b/same.jpg"});
+}
+
+TEST_CASE(
+  "picture pipeline compress with folder-summary adds summary jpg entries",
+  "[pipeline][compress]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+  touchFile(dirA / "alpha.png");
+  touchFile(dirA / "beta.png");
+  touchFile(dirB / "alpha.png");
+  touchFile(dirB / "beta.png");
+  writeFakeFfmpegScript(scriptPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.recursive = true;
+  ctx.config.verbose = true;
+  ctx.config.verboseEcho = true;
+  ctx.config.pictureFolderSummary = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+
+  auto const entryNames =
+    listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~6#6p].zip");
+  REQUIRE(entryNames.size() == 6);
+
+  for (auto const& name: entryNames) { CHECK(name.ends_with(".jpg")); }
+  CHECK(entryNames[0].starts_with("0000__summary__"));
+  CHECK(entryNames[1].starts_with("0000__summary__"));
+  CHECK(entryNames[2].starts_with("1000__"));
+  CHECK(entryNames[3].starts_with("1000__"));
+  CHECK(entryNames[4].starts_with("1000__"));
+  CHECK(entryNames[5].starts_with("1000__"));
+}
+
+TEST_CASE(
+  "picture pipeline compress skips job state by default",
+  "[pipeline][compress]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
+  fs::create_directories(inputDir);
+  touchFile(inputDir / "a.png");
+  writeFakeFfmpegScript(scriptPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.verbose = true;
+  ctx.config.verboseEcho = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config);
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+  CHECK_FALSE(fs::exists(stateFilePath));
+}
+#endif
