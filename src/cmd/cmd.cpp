@@ -55,7 +55,8 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("help,h", "produce help message")                                          //
     ("verbose,v", "enable verbose output")                                      //
     ("verbose-echo,e", "echo verbose logs to console (disable progress bars)")  //
-    ("color", pvDefault("auto"s), "terminal colors: auto, always, never")       //
+    ("full-progress,F", "show full progress with per-worker encoding bars and per-archive packing bars")  //
+    ("color", pvDefault("auto"s), "terminal colors: auto, always, never")      //
     ("yes,y", "automatic yes to prompts")                                       //
     ;
 
