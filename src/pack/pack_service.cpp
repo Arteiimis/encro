@@ -7,8 +7,10 @@
 #include "pack/packer.h"
 
 #include <algorithm>
+#include <atomic>
 #include <format>
 #include <memory>
+#include <optional>
 
 namespace pack {
 
@@ -149,6 +151,16 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
 
   fs::create_directories(plan.outputDir);
 
+  auto compactProgressCtx = progress::ProgressContext{};
+  auto compactBarIndex = std::optional<std::size_t>{};
+  auto completedCount = std::atomic_size_t{0};
+  if (plan.compact) {
+    compactBarIndex = compactProgressCtx.addBar(
+      std::format("Packing: 0/{}", plan.groups.size()),
+      progress::Tone::Packing
+    );
+  }
+
   auto const maxParallelJobs =
     std::max<std::size_t>(1, plan.maxParallelJobs.value_or(plan.groups.size()));
   auto packResults = std::vector<eh::Result<void>>(plan.groups.size());
@@ -169,8 +181,9 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
           [&, index, zipPath, label](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
           if (plan.onGroupStart) { plan.onGroupStart(index); }
 
-          auto const packRes =
-            packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
+          auto const packRes = plan.compact
+            ? packFilesToZip(plan.groups[index], zipPath)
+            : packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
 
           if (!packRes) {
             if (plan.removeOnFailure) {
@@ -180,6 +193,18 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
             packResults[index] = packRes;
             if (plan.onGroupFailure) { plan.onGroupFailure(index, packRes.error()); }
             return eh::makeError("{}", packRes.error());
+          }
+
+          if (plan.compact && compactBarIndex.has_value()) {
+            auto const done = completedCount.fetch_add(1, std::memory_order_release) + 1;
+            auto const total = plan.groups.size();
+            auto const percent =
+              static_cast<float>(done) / static_cast<float>(total) * 100.0f;
+            compactProgressCtx.setProgress(compactBarIndex.value(), percent);
+            compactProgressCtx.setPostfixText(
+              compactBarIndex.value(),
+              std::format("Packing: {}/{}", done, total)
+            );
           }
 
           packResults[index] = {};
@@ -207,6 +232,14 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
     if (runRes.attempted[index] == 0) { continue; }
     if (!packResults[index]) { return eh::makeError("{}", packResults[index].error()); }
+  }
+
+  if (plan.compact && compactBarIndex.has_value()) {
+    compactProgressCtx.setTone(compactBarIndex.value(), progress::Tone::Success);
+    compactProgressCtx.setPostfixText(
+      compactBarIndex.value(),
+      std::format("Packed: {}/{}", plan.groups.size(), plan.groups.size())
+    );
   }
 
   return zippedFiles;

@@ -398,6 +398,34 @@ auto packFilesToZip(
   );
 }
 
+auto packFilesToZip(
+  std::vector<pack::PackFileEntry> const& entries,
+  fs::path const& zipFilePath
+) -> eh::Result<void> try {
+  auto zip = libzippp::ZipArchive(zipFilePath.string());
+  zip.open(libzippp::ZipArchive::New);
+
+  for (auto const& entry: entries) {
+    if (fs::is_regular_file(entry.sourcePath)) {
+      zip.addFile(entry.zipEntryName, entry.sourcePath.string());
+    }
+    spdlog::debug(
+      "Packing (no-progress): {} -> {}",
+      entry.sourcePath.string(),
+      entry.zipEntryName
+    );
+  }
+
+  zip.close();
+  return {};
+} catch (std::exception const& ex) {
+  return eh::makeError(
+    "Failed to create zip file: {} ({})",
+    zipFilePath.string(),
+    ex.what()
+  );
+}
+
 auto groupFilesBySize(
   std::vector<fs::path> const& filePaths,
   std::uintmax_t maxGroupSize,
