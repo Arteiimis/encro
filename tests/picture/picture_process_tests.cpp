@@ -99,6 +99,7 @@ TEST_CASE(
   CHECK(sourcePathsOf(planRes->groups[1]) == std::vector<fs::path>{f3});
   CHECK(planRes->zipNameForIndex(0) == "pics_part1.1[1~2#2p].zip");
   CHECK(planRes->zipNameForIndex(1) == "pics_part1.2[3~3#1p].zip");
+  CHECK(planRes->compact == true);
 }
 
 TEST_CASE(
@@ -131,6 +132,7 @@ TEST_CASE(
   REQUIRE(planRes);
   REQUIRE(planRes->groups.size() == 1);
   REQUIRE(planRes->groups[0].size() == 6);
+  CHECK(planRes->compact == true);
 
   auto entryNames = std::vector<std::string>{};
   entryNames.reserve(planRes->groups[0].size());
