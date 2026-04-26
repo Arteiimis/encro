@@ -12,6 +12,7 @@
 #include <vector>
 
 using ZipEntryNameResolver = std::function<std::string(std::filesystem::path const&)>;
+using PackEntryProgressCallback = std::function<void(std::size_t, std::size_t)>;
 
 namespace pack {
 
@@ -60,7 +61,8 @@ auto packFilesToZip(
 
 auto packFilesToZip(
   std::vector<pack::PackFileEntry> const& entries,
-  std::filesystem::path const& zipFilePath
+  std::filesystem::path const& zipFilePath,
+  PackEntryProgressCallback onEntryPacked = {}
 ) -> eh::Result<void>;
 
 auto groupFilesBySize(

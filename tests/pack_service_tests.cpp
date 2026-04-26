@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -126,6 +127,161 @@ TEST_CASE("selectPackPlanIndexes preserves compact from source plan", "[pack-ser
   auto const resultCompact =
     pack::selectPackPlanIndexes(compactPlan, std::span{selectedIndexes});
   CHECK(resultCompact.compact == true);
+}
+
+TEST_CASE("packGroups compact mode reports per-file progress updates", "[pack-service]") {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+
+  auto const f1 = createFile(srcDir, "a.txt");
+  auto const f2 = createFile(srcDir, "b.txt");
+  auto const f3 = createFile(srcDir, "c.txt");
+
+  auto progressUpdates = std::vector<std::string>{};
+  auto const plan = pack::PackPlan{
+    .groups =
+      {
+        std::vector<pack::PackFileEntry>{
+          pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
+          pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
+          pack::PackFileEntry{.sourcePath = f3, .zipEntryName = "c.txt"},
+        },
+      },
+    .outputDir = outDir,
+    .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
+    .onCompactProgress =
+      [&](std::size_t completedFiles, std::size_t totalFiles) {
+        progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+      },
+    .compact = true,
+  };
+
+  auto const result = pack::packGroups(plan);
+
+  REQUIRE(result);
+  CHECK(progressUpdates == std::vector<std::string>{"0/3", "1/3", "2/3", "3/3"});
+}
+
+TEST_CASE(
+  "packGroups compact mode emits archive and file status text",
+  "[pack-service]"
+) {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+
+  auto const f1 = createFile(srcDir, "a.txt");
+  auto const f2 = createFile(srcDir, "b.txt");
+  auto const f3 = createFile(srcDir, "c.txt");
+
+  auto statusTexts = std::vector<std::string>{};
+  auto const plan = pack::PackPlan{
+    .groups =
+      {
+        std::vector<pack::PackFileEntry>{
+          pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
+          pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
+          pack::PackFileEntry{.sourcePath = f3, .zipEntryName = "c.txt"},
+        },
+      },
+    .outputDir = outDir,
+    .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
+    .onCompactStatusText =
+      [&](std::string_view statusText) { statusTexts.emplace_back(statusText); },
+    .compact = true,
+  };
+
+  auto const result = pack::packGroups(plan);
+
+  REQUIRE(result);
+  CHECK(
+    statusTexts
+    == std::vector<std::string>{
+      "Packing: archive 1/1 [file 0/3]",
+      "Packing: archive 1/1 [file 1/3]",
+      "Packing: archive 1/1 [file 2/3]",
+      "Packing: archive 1/1 [file 3/3]",
+      "Packed: archive 1/1 complete",
+    }
+  );
+}
+
+TEST_CASE(
+  "packGroups compact mode keeps per-file progress callbacks ordered across parallel "
+  "groups",
+  "[pack-service]"
+) {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+
+  auto const f1 = createFile(srcDir, "a.txt");
+  auto const f2 = createFile(srcDir, "b.txt");
+
+  auto progressUpdates = std::vector<std::string>{};
+  auto const plan = pack::PackPlan{
+    .groups =
+      {
+        std::vector<pack::PackFileEntry>{
+          pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
+        },
+        std::vector<pack::PackFileEntry>{
+          pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
+        },
+      },
+    .outputDir = outDir,
+    .zipNameForIndex =
+      [](std::size_t index) { return std::format("group{}.zip", index + 1); },
+    .onCompactProgress =
+      [&](std::size_t completedFiles, std::size_t totalFiles) {
+        if (completedFiles == 1) {
+          std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        }
+        progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+      },
+    .maxParallelJobs = 2,
+    .compact = true,
+  };
+
+  auto const result = pack::packGroups(plan);
+
+  REQUIRE(result);
+  CHECK(progressUpdates == std::vector<std::string>{"0/2", "1/2", "2/2"});
+}
+
+TEST_CASE(
+  "packGroups compact mode advances progress for skipped entries",
+  "[pack-service]"
+) {
+  TempDir temp;
+  auto const outDir = temp.path / "out";
+
+  auto progressUpdates = std::vector<std::string>{};
+  auto const missingFile = temp.path / "missing.txt";
+  auto const plan = pack::PackPlan{
+    .groups =
+      {
+        std::vector<pack::PackFileEntry>{
+          pack::PackFileEntry{.sourcePath = missingFile, .zipEntryName = "missing.txt"},
+        },
+      },
+    .outputDir = outDir,
+    .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
+    .onCompactProgress =
+      [&](std::size_t completedFiles, std::size_t totalFiles) {
+        progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+      },
+    .compact = true,
+  };
+
+  auto const result = pack::packGroups(plan);
+
+  REQUIRE(result);
+  CHECK(progressUpdates == std::vector<std::string>{"0/1", "1/1"});
 }
 
 TEST_CASE(
