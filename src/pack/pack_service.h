@@ -41,6 +41,8 @@ struct PackPlan {
   std::function<void(std::size_t)> onGroupStart;
   std::function<void(std::size_t, fs::path const&)> onGroupSuccess;
   std::function<void(std::size_t, std::string const&)> onGroupFailure;
+  std::function<void(std::size_t, std::size_t)> onCompactProgress;
+  std::function<void(std::string_view)> onCompactStatusText;
   std::optional<std::size_t> maxParallelJobs;
   bool removeOnFailure = false;
   bool compact = true;
