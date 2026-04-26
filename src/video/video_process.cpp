@@ -425,12 +425,6 @@ auto packEncodedVideos(
 
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
-  for (auto const& zipPath: packRes->zippedFiles) {
-    if (!zipPath.empty()) {
-      terminal::println(Success, "Packed archive: {}", terminal::path(zipPath));
-    }
-  }
-
   spdlog::info("Packing completed: archive-count={}", packRes->zippedFiles.size());
 
   return 0;
