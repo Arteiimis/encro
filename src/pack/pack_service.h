@@ -43,6 +43,7 @@ struct PackPlan {
   std::function<void(std::size_t, std::string const&)> onGroupFailure;
   std::optional<std::size_t> maxParallelJobs;
   bool removeOnFailure = false;
+  bool compact = true;
 };
 
 auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)

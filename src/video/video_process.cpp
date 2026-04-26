@@ -414,7 +414,8 @@ auto packEncodedVideos(
           ordinalRanges.at(index)
         );
       },
-    .maxParallelJobs = ctx.config.maxParallelJobs
+    .maxParallelJobs = ctx.config.maxParallelJobs,
+    .compact = !ctx.config.fullProgress
   };
 
   auto const packRes = pack::runPackPlan(ctx, plan);
