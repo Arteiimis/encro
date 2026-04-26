@@ -604,6 +604,7 @@ auto buildPicturePackPlan(
       return picturePackNamingState->zipNameFor(index);
     },
     .maxParallelJobs = config.maxParallelJobs,
-    .removeOnFailure = true
+    .removeOnFailure = true,
+    .compact = true
   };
 }

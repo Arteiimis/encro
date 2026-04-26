@@ -112,6 +112,7 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
     .onGroupFailure = {},
     .maxParallelJobs = plan.maxParallelJobs,
     .removeOnFailure = plan.removeOnFailure,
+    .compact = plan.compact,
   };
 }
 

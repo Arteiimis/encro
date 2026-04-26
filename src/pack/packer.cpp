@@ -770,6 +770,7 @@ auto buildDirectoryPackPlan(
           ordinalRanges.at(index)
         );
       },
-    .maxParallelJobs = maxParallelJobs
+    .maxParallelJobs = maxParallelJobs,
+    .compact = true
   };
 }
