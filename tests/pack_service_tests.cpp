@@ -94,6 +94,40 @@ TEST_CASE("pack range helpers append cumulative ordinal suffixes", "[pack-servic
   );
 }
 
+TEST_CASE("selectPackPlanIndexes preserves compact from source plan", "[pack-service]") {
+  auto groups = std::vector<std::vector<pack::PackFileEntry>>{
+    std::vector<pack::PackFileEntry>{
+      pack::PackFileEntry{.sourcePath = fs::path{"a"}, .zipEntryName = "a"},
+    },
+    std::vector<pack::PackFileEntry>{
+      pack::PackFileEntry{.sourcePath = fs::path{"b"}, .zipEntryName = "b"},
+    },
+  };
+
+  // Plan with compact=false (full-progress mode)
+  auto const nonCompactPlan = pack::PackPlan{
+    .groups = groups,
+    .outputDir = fs::path{},
+    .compact = false,
+  };
+  auto const selectedIndexes = std::vector<std::size_t>{0, 1};
+
+  auto const resultNonCompact =
+    pack::selectPackPlanIndexes(nonCompactPlan, std::span{selectedIndexes});
+  CHECK(resultNonCompact.compact == false);
+
+  // Plan with compact=true (default)
+  auto const compactPlan = pack::PackPlan{
+    .groups = groups,
+    .outputDir = fs::path{},
+    .compact = true,
+  };
+
+  auto const resultCompact =
+    pack::selectPackPlanIndexes(compactPlan, std::span{selectedIndexes});
+  CHECK(resultCompact.compact == true);
+}
+
 TEST_CASE(
   "runPackPlan skips already completed archive tasks from job state",
   "[pack-service]"
