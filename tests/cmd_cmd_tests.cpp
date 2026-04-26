@@ -210,3 +210,35 @@ TEST_CASE("commandLineInit adapts help output to narrower terminal width", "[cmd
 
   CHECK(longestHelpLine(help) <= 72);
 }
+
+TEST_CASE("commandLineInit parses --compress flag", "[cmd]") {
+  auto const result = parseArgs({"encro", "--compress"});
+
+  CHECK(result.vm.count("compress") == 1);
+}
+
+TEST_CASE("commandLineInit does not set --compress by default", "[cmd]") {
+  auto const result = parseArgs({"encro"});
+
+  CHECK(result.vm.count("compress") == 0);
+}
+
+TEST_CASE("commandLineInit parses --image-quality as integer", "[cmd]") {
+  auto const result = parseArgs({"encro", "--image-quality", "15"});
+
+  REQUIRE(result.vm.count("image-quality") == 1);
+  CHECK(result.vm["image-quality"].as<int>() == 15);
+}
+
+TEST_CASE("commandLineInit parses -q short option for quality", "[cmd]") {
+  auto const result = parseArgs({"encro", "-q", "15"});
+
+  REQUIRE(result.vm.count("image-quality") == 1);
+  CHECK(result.vm["image-quality"].as<int>() == 15);
+}
+
+TEST_CASE("commandLineInit does not set image-quality by default", "[cmd]") {
+  auto const result = parseArgs({"encro"});
+
+  CHECK(result.vm.count("image-quality") == 0);
+}

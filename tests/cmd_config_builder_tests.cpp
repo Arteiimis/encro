@@ -15,7 +15,8 @@ namespace {
 
 auto makeVm(
   std::vector<std::pair<std::string, std::string>> const& options,
-  std::vector<std::string> const& flags = {}
+  std::vector<std::string> const& flags = {},
+  std::vector<std::pair<std::string, int>> const& intOptions = {}
 ) -> boost::program_options::variables_map {
   namespace po = boost::program_options;
 
@@ -25,6 +26,9 @@ auto makeVm(
   }
   for (auto const& flag: flags) {
     vm.insert({flag, po::variable_value(boost::any{}, false)});
+  }
+  for (auto const& [key, value]: intOptions) {
+    vm.insert({key, po::variable_value(boost::any{value}, false)});
   }
 
   return vm;
@@ -555,4 +559,174 @@ TEST_CASE("buildConfig rejects jobs = 0", "[cmd][config]") {
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("--jobs must be >= 1") != std::string::npos);
+}
+
+TEST_CASE("buildConfig enables compressImages with --compress", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "pics";
+  fs::create_directories(inputPath);
+
+  auto const vm =
+    makeVm({{"input", inputPath.string()}, {"type", "picture"}}, {"compress"});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  CHECK(configRes->compressImages == true);
+  CHECK_FALSE(configRes->imageQuality.has_value());
+}
+
+TEST_CASE("buildConfig rejects --compress without picture type", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const vm =
+    makeVm({{"input", inputPath.string()}, {"type", "video"}}, {"compress"});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(
+    configRes.error().find("--compress is only supported when --type is picture")
+    != std::string::npos
+  );
+}
+
+TEST_CASE("buildConfig reads --image-quality with --compress", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "pics";
+  fs::create_directories(inputPath);
+
+  auto const vm = makeVm(
+    {
+      {"input", inputPath.string()},
+      {"type", "picture"},
+    },
+    {"compress"},
+    {{"image-quality", 10}}
+  );
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  CHECK(configRes->compressImages == true);
+  REQUIRE(configRes->imageQuality.has_value());
+  CHECK(configRes->imageQuality.value() == 10);
+}
+
+TEST_CASE("buildConfig rejects --image-quality without --compress", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "pics";
+  fs::create_directories(inputPath);
+
+  auto const vm = makeVm(
+    {{"input", inputPath.string()}, {"type", "picture"}},
+    {},
+    {{"image-quality", 10}}
+  );
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(
+    configRes.error().find("--image-quality requires --compress") != std::string::npos
+  );
+}
+
+TEST_CASE("buildConfig rejects --image-quality below 2", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "pics";
+  fs::create_directories(inputPath);
+
+  auto const vm = makeVm(
+    {
+      {"input", inputPath.string()},
+      {"type", "picture"},
+    },
+    {"compress"},
+    {{"image-quality", 1}}
+  );
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(
+    configRes.error().find("--image-quality must be between 2 and 31")
+    != std::string::npos
+  );
+}
+
+TEST_CASE("buildConfig rejects --image-quality above 31", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "pics";
+  fs::create_directories(inputPath);
+
+  auto const vm = makeVm(
+    {
+      {"input", inputPath.string()},
+      {"type", "picture"},
+    },
+    {"compress"},
+    {{"image-quality", 32}}
+  );
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(
+    configRes.error().find("--image-quality must be between 2 and 31")
+    != std::string::npos
+  );
+}
+
+TEST_CASE("buildConfig accepts --image-quality at minimum 2", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "pics";
+  fs::create_directories(inputPath);
+
+  auto const vm = makeVm(
+    {
+      {"input", inputPath.string()},
+      {"type", "picture"},
+    },
+    {"compress"},
+    {{"image-quality", 2}}
+  );
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  REQUIRE(configRes->imageQuality.has_value());
+  CHECK(configRes->imageQuality.value() == 2);
+}
+
+TEST_CASE("buildConfig accepts --image-quality at maximum 31", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "pics";
+  fs::create_directories(inputPath);
+
+  auto const vm = makeVm(
+    {
+      {"input", inputPath.string()},
+      {"type", "picture"},
+    },
+    {"compress"},
+    {{"image-quality", 31}}
+  );
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  REQUIRE(configRes->imageQuality.has_value());
+  CHECK(configRes->imageQuality.value() == 31);
+}
+
+TEST_CASE(
+  "buildConfig leaves imageQuality unset when --image-quality not provided",
+  "[cmd][config]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "pics";
+  fs::create_directories(inputPath);
+
+  auto const vm =
+    makeVm({{"input", inputPath.string()}, {"type", "picture"}}, {"compress"});
+  auto const configRes = cmd::buildConfig(vm);
+
+  REQUIRE(configRes);
+  CHECK(configRes->compressImages == true);
+  CHECK_FALSE(configRes->imageQuality.has_value());
 }
