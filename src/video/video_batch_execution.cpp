@@ -82,7 +82,8 @@ struct EncodingProgressState {
     std::size_t pendingTotal,
     std::size_t overallTotal,
     std::size_t completedBeforeStart,
-    std::size_t workers
+    std::size_t workers,
+    bool compact = false
   )
     : counters{
         std::atomic_size_t{std::min(completedBeforeStart, overallTotal)},
@@ -97,8 +98,8 @@ struct EncodingProgressState {
       },
       progressCtx{} {
     counters.overallBarIndex =
-      createOverallBar(progressCtx, overallTotal, completedBeforeStart, workers);
-    slots.barIndexes = makeSlotBars(progressCtx, workers);
+      createOverallBar(progressCtx, overallTotal, completedBeforeStart, workers, compact);
+    slots.barIndexes = makeSlotBars(progressCtx, workers, compact, overallTotal);
   }
 
 private:
@@ -115,9 +116,11 @@ private:
     progress::ProgressContext& progressCtx,
     std::size_t totalTasks,
     std::size_t completedBeforeStart,
-    std::size_t workerCount
+    std::size_t workerCount,
+    bool compact
   ) -> std::optional<std::size_t> {
-    if (totalTasks <= workerCount) { return std::optional<std::size_t>{}; }
+    bool const showOverall = compact ? (totalTasks > 1) : (totalTasks > workerCount);
+    if (!showOverall) { return std::optional<std::size_t>{}; }
     return std::optional<std::size_t>{progressCtx.addBar(
       std::format(
         "Overall: {}/{}",
@@ -129,7 +132,8 @@ private:
   }
 
   static std::vector<std::size_t>
-  makeSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCount) {
+  makeSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCount, bool compact, std::size_t totalTasks) {
+    if (compact && totalTasks > 1) { return {}; }
     auto barIndexes = std::vector<std::size_t>(workerCount);
     for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
       barIndexes[slot] = progressCtx.addBar(
@@ -164,6 +168,11 @@ struct EncodingExecutionContext {
   void markFinished() { counters().finished.fetch_add(1, std::memory_order_release); }
 
   auto barIndex(std::size_t slot) const { return slots().barIndexes[slot]; }
+
+  auto barIndexOpt(std::size_t slot) const -> std::optional<std::size_t> {
+    if (slots().barIndexes.empty()) { return std::nullopt; }
+    return slots().barIndexes[slot];
+  }
 
   void setActive(std::size_t slot, appctx::EncodingStatePtr const& vidState) {
     progressState.snapshot.update(
@@ -214,10 +223,11 @@ struct EncodingExecutionContext {
     progress().setPostfixText(index, std::format("Encoding: {} | {}", fileLabel, status));
   }
 
-  void barIdle(std::size_t barIndex, std::size_t slot) {
-    progress().setTone(barIndex, progress::Tone::Idle);
-    progress().setProgress(barIndex, 0.0f);
-    progress().setPostfixText(barIndex, std::format("Encoding: [idle-{}]", slot + 1));
+  void barIdle(std::optional<std::size_t> barIndex, std::size_t slot) {
+    if (!barIndex.has_value()) { return; }
+    progress().setTone(barIndex.value(), progress::Tone::Idle);
+    progress().setProgress(barIndex.value(), 0.0f);
+    progress().setPostfixText(barIndex.value(), std::format("Encoding: [idle-{}]", slot + 1));
   }
 
   void updateOverall() {
@@ -319,7 +329,7 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
 auto createEncodingState(
   EncodingExecutionContext& executionCtx,
   fs::path const& vidPath,
-  std::size_t barIndex
+  std::optional<std::size_t> barIndex
 ) -> appctx::EncodingStatePtr {
   auto vidState = std::make_shared<appctx::EncodingState>();
   vidState->inputPath = vidPath;
@@ -466,7 +476,7 @@ auto runEncodingTask(
     executionCtx.pendingTotal(),
     vidPath.string()
   );
-  auto const barIndex = executionCtx.barIndex(slot);
+  auto const barIndex = executionCtx.barIndexOpt(slot);
   auto vidState = createEncodingState(executionCtx, vidPath, barIndex);
   executionCtx.setActive(slot, vidState);
 
@@ -680,11 +690,13 @@ auto videobatch::runEncodingTasks(
   auto const maxConcurrentJobs =
     std::max<std::size_t>(1, ctx.config.maxParallelJobs.value_or(kMaxConcurrentJobs));
   auto const workerCount = taskexec::resolveWorkerCount(vids.size(), maxConcurrentJobs);
+  auto const compact = !ctx.config.fullProgress;
   auto progressState = EncodingProgressState{
     vids.size(),
     overallTotalCount,
     initialCompletedCount,
-    workerCount
+    workerCount,
+    compact
   };
 
   terminal::println(
