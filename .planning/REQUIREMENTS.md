@@ -12,12 +12,12 @@ Requirements for eliminating lambda abuse (deep nesting, multi-line inline lambd
 - [x] **REF-01**: Extract deeply nested lambdas (3+ levels) in `src/video/video_batch_execution.cpp` to named functions/methods
 - [x] **REF-02**: Refactor lambda-wrapping-lambda pattern in `src/pack/pack_service.cpp` (`selectPackPlanIndexes`) to named helpers
 - [x] **REF-03**: Extract inline multi-line lambdas in `src/pack/packer.cpp` (`packSourceEntries`, `spinnerThread`) to named private methods
-- [ ] **REF-04**: Extract named lambda variables in `src/picture/picture_process.cpp` (`addCompressTask`, `toJpgEntryName`) to static/named functions
+- [x] **REF-04**: Extract named lambda variables in `src/picture/picture_process.cpp` (`addCompressTask`, `toJpgEntryName`) to static/named functions
 
 ### Constraints
 
-- [ ] **REF-05**: All 876 assertions across 203 test cases pass unchanged
-- [ ] **REF-06**: No behavioral changes — only structural code reorganization
+- [x] **REF-05**: All 910 assertions across 215 test cases pass unchanged
+- [x] **REF-06**: No behavioral changes — only structural code reorganization
 
 ## v2 Requirements
 
@@ -39,12 +39,12 @@ Requirements for eliminating lambda abuse (deep nesting, multi-line inline lambd
 | REF-01 | Phase 3 | Complete |
 | REF-02 | Phase 4 | Complete |
 | REF-03 | Phase 4 | Complete |
-| REF-04 | Phase 5 | Pending |
-| REF-05 | Phase 5 | Pending |
-| REF-06 | Phase 5 | Pending |
+| REF-04 | Phase 5 | Complete |
+| REF-05 | Phase 5 | Complete |
+| REF-06 | Phase 5 | Complete |
 
 **Coverage:**
-- v1.1 requirements: 6 total (2 complete, 4 pending)
+- v1.1 requirements: 6 total (6 complete, 0 pending)
 - Mapped to phases: 6
 - Unmapped: 0 ✓
 
