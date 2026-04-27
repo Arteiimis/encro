@@ -36,17 +36,17 @@ Requirements for eliminating lambda abuse (deep nesting, multi-line inline lambd
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REF-01 | — | Pending |
-| REF-02 | — | Pending |
-| REF-03 | — | Pending |
-| REF-04 | — | Pending |
-| REF-05 | — | Pending |
-| REF-06 | — | Pending |
+| REF-01 | Phase 3 | Pending |
+| REF-02 | Phase 4 | Pending |
+| REF-03 | Phase 4 | Pending |
+| REF-04 | Phase 5 | Pending |
+| REF-05 | Phase 5 | Pending |
+| REF-06 | Phase 5 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 6 total
-- Mapped to phases: 0
-- Unmapped: 6 ⚠️
+- Mapped to phases: 6
+- Unmapped: 0 ✓
 
 ---
 
