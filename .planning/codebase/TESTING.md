@@ -1,203 +1,183 @@
----
-focus: quality
-last_mapped_commit: 919b0cea076d2821618c3febf54f72285880cd4c
-mapped_at: 2026-04-26
----
-
 # Testing Patterns
 
-**Analysis Date:** 2026-04-26
+**Analysis Date:** 2026-04-28
 
 ## Test Framework
 
-**Runner:** Catch2 v3
+**Runner:**
+- Catch2 v3
+- Included via `#include <catch2/catch_all.hpp>`
+- Configured as xmake dependency: `add_requires("catch2")`
 
-- Header: `<catch2/catch_all.hpp>` or `<catch2/catch_test_macros.hpp>`
-- Configured in `xmake.lua:36`: `add_requires("catch2")`
-- Two test targets: `tests` (unit/integration) and `e2e_tests` (end-to-end)
+**Entry points:**
+- Unit/integration tests: `tests/test_main.cpp` — contains `#define CATCH_CONFIG_MAIN`
+- E2E tests: `tests/e2e/e2e_test_main.cpp` — separate `#define CATCH_CONFIG_MAIN`
+
+**Config:** No external Catch2 config file; configuration via macros in test_main files and command-line
 
 **Run Commands:**
 ```bash
-xmake build tests           # Build unit/integration tests
-xmake run tests             # Run unit/integration tests
-xmake build e2e_tests       # Build E2E tests
-xmake run e2e_tests         # Run E2E tests
-xmake coverage              # Build with coverage mode, run tests, generate llvm-cov report
-xmake coverage --summary    # Coverage summary only
+xmake build tests && xmake run tests              # Run all unit/integration tests
+xmake run tests -- "[tag-name]"                    # Run specific test tag
+xmake build e2e_tests && xmake run e2e_tests       # Run e2e tests
+xmake coverage                                      # Run tests with coverage (uses coverage mode build)
+xmake coverage --summary                            # Coverage summary only
 ```
-
-### Test Entry Points
-
-Each test target has its own `main()` via `CATCH_CONFIG_MAIN`:
-
-- `tests/test_main.cpp:1-2`:
-  ```cpp
-  #define CATCH_CONFIG_MAIN
-  #include <catch2/catch_all.hpp>
-  ```
-
-- `tests/e2e/e2e_test_main.cpp:1-2` (identical pattern)
 
 ## Test File Organization
 
-**Location:** Separate `tests/` directory mirroring `src/` structure coarsely:
+**Location:**
+- Co-located pattern: test files mirror `src/` directory structure under `tests/`
+- `tests/*.cpp` — tests for top-level/core modules
+- `tests/app/*.cpp` — tests for `src/app/` modules
+- `tests/infra/*.cpp` — tests for `src/infra/` modules
+- `tests/picture/*.cpp` — tests for `src/picture/` modules
+- `tests/video/*.cpp` — tests for `src/video/` modules
+- `tests/e2e/*.cpp` — end-to-end tests (separate binary target)
 
+**Naming:**
+- Pattern: `{module}_tests.cpp` (e.g., `task_executor_tests.cpp`, `job_state_tests.cpp`, `packer_tests.cpp`)
+- Matches the module name from `src/` (without directory prefix for root-level tests)
+- E2E tests use descriptive names: `encro_e2e_tests.cpp`
+
+**Test file count structure:**
 ```
 tests/
-├── test_main.cpp                    # Main entry for unit/integration suite
-├── test_utils.h                     # Shared test utilities and fixtures
-├── job_state_tests.cpp              # Mirror of src/core/job_state
-├── task_executor_tests.cpp          # Mirror of src/core/task_executor
-├── media_scanner_tests.cpp          # Mirror of src/core/media_scanner
-├── packer_tests.cpp                 # Mirror of src/pack/
-├── pack_service_tests.cpp
-├── utils_tests.cpp                  # Mirror of src/utils/
-├── app_context_tests.cpp            # Mirror of src/core/app_context
-├── display_text_tests.cpp           # Mirror of src/core/display_text
-├── video_info_tests.cpp             # Mirror of src/video/video_info
-├── cmd_cmd_tests.cpp                # Mirror of src/cmd/cmd
-├── cmd_config_builder_tests.cpp     # Mirror of src/cmd/config_builder
-├── app/                             # Mirror of src/app/
+├── test_main.cpp                          # Catch2 main entry
+├── test_utils.h                           # Shared test utilities
+├── app_context_tests.cpp                  # Core app context tests
+├── cmd_cmd_tests.cpp                      # CLI parsing tests
+├── cmd_config_builder_tests.cpp           # Config builder tests
+├── display_text_tests.cpp                 # Display text utilities tests
+├── job_state_tests.cpp                    # Job state persistence tests
+├── media_scanner_tests.cpp                # Media scanner tests
+├── pack_service_tests.cpp                 # Pack service tests
+├── packer_tests.cpp                       # Packer grouping/zipping tests
+├── task_executor_tests.cpp                # Task executor tests
+├── utils_tests.cpp                        # Utility function tests
+├── video_info_tests.cpp                   # Video info tests
+├── app/
 │   ├── app_entry_tests.cpp
 │   ├── pipeline_pack_only_tests.cpp
 │   └── pipeline_picture_tests.cpp
-├── infra/                           # Mirror of src/infra/
+├── infra/
 │   ├── console_width_tests.cpp
 │   ├── crash_runtime_tests.cpp
 │   ├── progress_tests.cpp
 │   ├── stacktrace_tests.cpp
 │   ├── terminal_tests.cpp
 │   └── toolchain_tests.cpp
-├── picture/                         # Mirror of src/picture/
+├── picture/
 │   ├── picture_compress_tests.cpp
 │   └── picture_process_tests.cpp
-├── video/                           # Mirror of src/video/
+├── video/
 │   ├── encode_config_tests.cpp
+│   ├── video_batch_execution_tests.cpp
 │   ├── video_output_planning_tests.cpp
 │   ├── video_process_orchestration_tests.cpp
 │   └── video_progress_parser_tests.cpp
-└── e2e/                             # End-to-end tests (separate target)
+└── e2e/
     ├── e2e_test_main.cpp
     ├── e2e_test_utils.h
     ├── e2e_test_utils.cpp
     ├── encro_e2e_tests.cpp
-    └── fake_media_tool.cpp          # Helper binary for E2E tests
-```
-
-**Naming Convention:** `<module>_tests.cpp` — e.g., `job_state_tests.cpp`, `encode_config_tests.cpp`
-
-**Building:** Test target includes `src/**.cpp` files directly (except `main.cpp`), compiling source and tests together (`xmake.lua:70-76`):
-```lua
-add_files("tests/*.cpp")
-add_files("tests/app/*.cpp")
-add_files("tests/infra/*.cpp")
-add_files("tests/picture/*.cpp")
-add_files("tests/video/*.cpp")
-add_files("src/**.cpp|main.cpp")
+    └── fake_media_tool.cpp
 ```
 
 ## Test Structure
 
-### Suite Organization
-
-Tests use `TEST_CASE` macros with description and tags:
-
+**Suite Organization:**
 ```cpp
-TEST_CASE("description of what is tested", "[tag1][tag2]") {
+#include "module_under_test.h"
+#include "test_utils.h"            // When TempDir or testutils helpers needed
+
+#include <catch2/catch_all.hpp>
+
+#include <standard_headers>
+
+namespace fs = std::filesystem;
+using testutils::touchFile;       // Selective using-declarations
+
+namespace {                        // Anonymous namespace for test-local helpers
+
+auto makeConfig(...) -> SomeType {
+  // Factory function
+}
+
+}  // namespace
+
+TEST_CASE("descriptive behavior description", "[tag1][tag2]") {
   // Arrange
   TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  auto const filePath = temp.path / "input.mp4";
+  touchFile(filePath);
 
   // Act
-  auto const result = functionUnderTest(inputPath);
+  auto const result = functionUnderTest(...);
 
   // Assert
   REQUIRE(result.size() == 1);
-  CHECK(result.front() == expected);
+  CHECK(result.front() == filePath);
 }
 ```
 
-### Assertion Macros
+**TestCase patterns:**
+- `TEST_CASE("single line description", "[tag]")` — short descriptions
+- `TEST_CASE("longer description that\nspans two lines", "[tag]")` — multi-line descriptions use embedded newline
+- Test case descriptions are human-readable behavior descriptions, not function names
+- Tags use lowercase-kebab: `[task-executor]`, `[job-state]`, `[video-process]`, `[packer]`, `[groupFilesBySize]`
+- Tags used for categorization and filtering, typically matching module names
 
-**Hard preconditions (abort on failure):** `REQUIRE`, `REQUIRE_FALSE`
+**Assertion patterns:**
+- `REQUIRE(expr)` — critical precondition (test stops on failure)
+- `REQUIRE_FALSE(expr)` — critical negated check
+- `CHECK(expr)` — non-critical assertion
+- `CHECK_FALSE(expr)` — negated non-critical assertion
+- `CHECK(expr == expected)` — preferred over `CHECK_EQ` (not used in this codebase)
+- `CHECK(longExpr.find(substr) != std::string::npos)` — string contains check
+- `Catch::Approx(100.0f)` — floating point comparison: `CHECK(task.lastProgress.value() == Catch::Approx(100.0f))`
+- `REQUIRE(result)` — checks `eh::Result<T>` has value (uses `operator bool`)
+- `REQUIRE_FALSE(result)` — checks that `eh::Result<T>` has error
+- `CHECK(result.error() == "expected error message")` — exact error message check
+- `CHECK(result.error().find("substring") != std::string::npos)` — substring error check
 
-**Soft checks (continue on failure):** `CHECK`, `CHECK_FALSE`
-
-```cpp
-// From tests/cmd_config_builder_tests.cpp:47-64
-REQUIRE(configRes);
-auto const config = configRes.value();
-CHECK(config.processType == "video");
-CHECK(config.outputFormat == "mp4");
-CHECK_FALSE(config.yesToAll);
-```
-
-**Float comparison:** `Catch::Approx` (`tests/job_state_tests.cpp:141`):
-```cpp
-CHECK(resumed.front().lastProgress.value() == Catch::Approx(100.0f));
-```
-
-**String matching:** `.find()` + `!= std::string::npos` for substring checks in error messages (`tests/cmd_config_builder_tests.cpp:125-127`):
-```cpp
-REQUIRE_FALSE(configRes);
-CHECK(configRes.error().find("must be set to y or n") != std::string::npos);
-```
-
-### Expected/Result Type Assertions
-
-The `eh::Result<T>` pattern integrates naturally with Catch2:
-
-```cpp
-auto const validation = cfg.validate();
-REQUIRE(validation);          // Check .has_value() is true
-REQUIRE_FALSE(validation);    // Check .has_value() is false
-CHECK(validation.error().find("CRF value must be") != std::string::npos);
-```
-
-## Shared Test Utilities
-
-### `tests/test_utils.h`
-
-Contains shared test infrastructure:
-
-**`TempDir` RAII fixture:**
-```cpp
-struct TempDir {
-  fs::path path;
-  TempDir() {
-    path = fs::temp_directory_path();
-    path /= std::format("video_encoder_tests_{}", /* timestamp */);
-    fs::create_directories(path);
-  }
-  ~TempDir() {
-    std::error_code ec;
-    fs::remove_all(path, ec);
-  }
-};
-```
-
-**`testutils` namespace helpers:**
-- `writeTextFile(path, content)` — creates file with content and parent directories
-- `writeFile(path, content)` — alias for `writeTextFile`
-- `touchFile(path)` — creates file with default content `"x"`
-- `ScopedStopSignalReset` — RAII wrapper to reset `stopsignal` global state between tests
-- `listRegularFiles(dirPath)` — sorted vector of regular file paths
-- `listZipRegularEntryNames(zipPath)` — sorted list of zip entry names (excluding directories)
-- `stripCollisionSafePrefix(entryName)` — extracts stem from collision-safe zip entry name
-- `hasCollisionSafePrefix(entryName, dirLabel, stem)` — checks collision-safe naming pattern
-- `collisionGroupPrefix(entryName)` — extracts collision group prefix
+**Setup/Teardown:**
+- `TempDir` (RAII struct in `tests/test_utils.h`) — creates unique temp directory, auto-cleans in destructor:
+  ```cpp
+  TempDir temp;
+  auto const filePath = temp.path / "sample.mp4";
+  // temp.path and contents cleaned up when temp goes out of scope
+  ```
+- `testutils::ScopedStopSignalReset` — resets global stop signal state:
+  ```cpp
+  testutils::ScopedStopSignalReset resetGuard;
+  ```
+- `ScopedEnvVar` (test-local) — sets env var, restores original on destruction
+- `ScopedCurrentPath` (test-local) — changes working directory, restores on destruction
+- Anonymous namespace for factory functions that create test configs/objects
 
 ## Mocking
 
-### Approach
+**Framework:** No formal mocking framework used. Manual test doubles.
 
-The project does **not** use a mocking framework (no dependency injection framework, no mock libraries). Instead:
+**Patterns:**
+1. **Global state reset:**
+   ```cpp
+   stopsignal::reset();  // Reset before test that modifies stop signal
+   ```
 
-1. **Fake filesystem:** `TempDir` + `touchFile()` create temporary test files and directories
-2. **Fake executables:** Test scripts simulate external tools (e.g., `writeFakeFfprobeScript` in `tests/video_info_tests.cpp:17-27`)
-3. **Fake binary for E2E:** `tests/e2e/fake_media_tool.cpp` is a separate binary target (`encro_e2e_tool`) that simulates ffmpeg/ffprobe for end-to-end tests
-4. **`std::istringstream` injection:** For testing interactive input (`tests/utils_tests.cpp:16-23`):
+2. **Fake external tools:**
+   - `tests/e2e/fake_media_tool.cpp` — a standalone binary that simulates ffmpeg/ffprobe behavior
+   - Windows batch scripts for orchestration tests:
+     ```cpp
+     void writeFakeFfmpegScript(fs::path const& scriptPath) {
+       auto const script = std::format(R"(@echo off ...)", ...);
+       // Write script and use it as fake ffmpeg
+     }
+     ```
+   - `e2e::FakeToolchain` struct — paths to fake tool binaries
+
+3. **Input redirection:**
    ```cpp
    auto input = std::istringstream{"y\n"};
    auto* oldBuf = std::cin.rdbuf(input.rdbuf());
@@ -205,28 +185,43 @@ The project does **not** use a mocking framework (no dependency injection framew
    std::cin.rdbuf(oldBuf);
    ```
 
-### Global State Management
+4. **Real filesystem operations:** Tests create real temp files and directories rather than mocking the filesystem. `testutils::writeTextFile()`, `testutils::touchFile()`, `std::ofstream` used directly.
 
-Global state (`stopsignal`) is reset before/after tests that depend on it:
+**What to Mock:**
+- Global state that persists between tests (stop signal, current working directory, env vars)
+- External tool invocations (ffmpeg/ffprobe) — via fake binaries or scripts
 
+**What NOT to Mock:**
+- Filesystem operations — use `TempDir` for isolation
+- Standard library or boost components
+- Internal project code — tested directly with real dependencies
+
+## Fixtures and Factories
+
+**Shared test utilities** (`tests/test_utils.h`):
 ```cpp
-// tests/task_executor_tests.cpp:25
-stopsignal::reset();
-// ... test body ...
+namespace testutils {
 
-// Or via RAII:
-// tests/app/pipeline_pack_only_tests.cpp:70
-ScopedStopSignalReset stopGuard;
+struct ScopedStopSignalReset {
+  ScopedStopSignalReset() { stopsignal::reset(); }
+  ~ScopedStopSignalReset() { stopsignal::reset(); }
+};
+
+inline auto writeTextFile(fs::path const& filePath, std::string_view content = "x") -> void;
+inline auto touchFile(fs::path const& filePath) -> void;
+inline auto listRegularFiles(fs::path const& dirPath) -> std::vector<fs::path>;
+inline auto listZipRegularEntryNames(fs::path const& zipPath) -> std::vector<std::string>;
+inline auto stripCollisionSafePrefix(std::string_view entryName) -> std::string_view;
+inline auto hasCollisionSafePrefix(std::string_view entryName, std::string_view dirLabel, std::string_view stem) -> bool;
+inline auto collisionGroupPrefix(std::string_view entryName) -> std::string;
+
+}  // namespace testutils
 ```
 
-### Test Fixture Pattern
-
-Tests that need the same setup use helper functions in anonymous namespaces:
-
+**Test-local factories** (anonymous namespace in test files):
 ```cpp
 namespace {
-auto makeConfig(fs::path const& inputPath, fs::path const& statePath)
-  -> appctx::AppConfig {
+auto makeConfig(fs::path const& inputPath, fs::path const& statePath) -> appctx::AppConfig {
   auto config = appctx::AppConfig{};
   config.processType = "video";
   config.outputFormat = "mp4";
@@ -234,141 +229,194 @@ auto makeConfig(fs::path const& inputPath, fs::path const& statePath)
   config.stateFilePath = statePath;
   return config;
 }
+
+auto createTempFile(fs::path const& dir, std::string_view name) {
+  auto const filePath = dir / name;
+  std::ofstream file{filePath};
+  file << "dummy";
+  return filePath;
+}
+
+void createSizedSparseFile(fs::path const& filePath, std::uintmax_t sizeInBytes) {
+  auto out = std::ofstream{filePath, std::ios::binary};
+  REQUIRE(out.is_open());
+  if (sizeInBytes == 0) { out.flush(); return; }
+  out.seekp(static_cast<std::streamoff>(sizeInBytes - 1));
+  out.put('\0');
+  out.flush();
+}
 }  // namespace
 ```
 
+**Location:**
+- Shared fixtures and helpers in `tests/test_utils.h`
+- Test-specific fixtures in anonymous namespace at top of each test file
+- E2E test utilities in `tests/e2e/e2e_test_utils.h`
+
 ## Coverage
 
-**Tool:** LLVM source-based code coverage (via `-fprofile-instr-generate -fcoverage-mapping`)
+**Requirements:** No enforced coverage threshold. Coverage is opt-in via xmake `coverage` mode.
 
-**Build config:** `xmake.lua:13-17` — coverage mode disables LTO and adds instrumentation flags:
-```lua
-if is_mode("coverage") then
-  set_policy("build.optimization.lto", false)
-  add_cxxflags("-fprofile-instr-generate", "-fcoverage-mapping")
-  add_ldflags("-fprofile-instr-generate", "-fcoverage-mapping", {force = true})
-end
-```
+**Coverage build:**
+- xmake mode `coverage` (defined in `xmake.lua:2`)
+- Disables LTO: `set_policy("build.optimization.lto", false)`
+- Adds Clang instrumentation flags: `-fprofile-instr-generate`, `-fcoverage-mapping`
+- Linker flags: `-fprofile-instr-generate`, `-fcoverage-mapping`
 
-**Plugin:** `plugins/coverge/xmake.lua` provides `xmake coverage`:
-1. Configure with coverage mode
-2. Build test binary
-3. Run tests with `LLVM_PROFILE_FILE` env var
-4. Merge `.profraw` files with `llvm-profdata`
-5. Generate report with `llvm-cov report`
-
-**Command:**
+**Run and view:**
 ```bash
-xmake coverage              # Full report
-xmake coverage --summary    # Summary only
+xmake coverage                 # Full report — builds, runs tests, merges profdata, prints table
+xmake coverage --summary       # Summary-only report
 ```
+The `plugins/coverge/xmake.lua` task:
+1. Configures coverage mode build
+2. Builds `tests` target
+3. Runs tests with `LLVM_PROFILE_FILE` env var pointing to `build/coverage/tests-%p.profraw`
+4. Merges `.profraw` files into `tests.profdata` via `llvm-profdata merge`
+5. Generates report via `llvm-cov report`
 
 ## Test Types
 
-### Unit Tests
+**Unit Tests:**
+- Scope: Individual functions, small classes, pure logic (no external tool calls)
+- Approach: Instantiate the unit under test with controlled inputs, assert outputs
+- Examples: `task_executor_tests.cpp`, `encode_config_tests.cpp`, `display_text_tests.cpp`, `stacktrace_tests.cpp`
+- These tests run fast and have no external dependencies beyond filesystem temp dirs
 
-- **Scope:** Individual functions, structs, and small components
-- **Location:** `tests/*_tests.cpp`, `tests/*/ *_tests.cpp`
-- **Examples:** `tests/media_scanner_tests.cpp` (68 lines), `tests/display_text_tests.cpp` (34 lines), `tests/task_executor_tests.cpp` (118 lines)
-- **Pattern:** Test one behavior per `TEST_CASE`, use `TempDir` for filesystem isolation
+**Integration Tests:**
+- Scope: Multiple modules interacting, state persistence, pipeline stages
+- Approach: Create real files, run multiple operations, verify state files
+- Examples: `job_state_tests.cpp` (tests state file read/write/resume cycles), `video_output_planning_tests.cpp` (tests full output planning with real filesystem layout)
+- May depend on filesystem and real temporary directories
 
-### Integration Tests
+**E2E Tests:**
+- Framework: Catch2, separate `e2e_tests` xmake target
+- Scope: Full process invocation, toolchain integration, real ffmpeg/ffprobe calls
+- Approach: Run `encro` as a subprocess (`e2e::runEncro()`), verify exit codes and output files
+- Location: `tests/e2e/encro_e2e_tests.cpp`
+- Requires fake media tools (`fake_media_tool.cpp`) compiled as `encro_e2e_tool`
+- Uses `e2e::ProcessResult` to capture exit code, stdout, stderr
+- Some tests gated on system tool availability: `systemToolAvailable("ffmpeg")`
 
-- **Scope:** Multi-component interactions within `app/`, `cmd/`, `video/`
-- **Location:** `tests/cmd_config_builder_tests.cpp` (740 lines), `tests/video/*.cpp`, `tests/picture/*.cpp`
-- **Pattern:** Build real `AppContext`, invoke pipeline functions, verify side effects on filesystem
-- **Example** (`tests/app/pipeline_pack_only_tests.cpp:30-44`):
-  ```cpp
-  auto ctx = appctx::AppContext{};
-  ctx.config.packOnly = true;
-  ctx.config.processType = "video";
-  ctx.config.inputPath = inputDir;
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  CHECK(runRes.value() == 0);
-  CHECK(fs::exists(inputDir / "packed" / "input_part1[1~1#1p].zip"));
-  ```
+## Build Configuration for Tests
 
-### End-to-End (E2E) Tests
+The `tests` target in `xmake.lua` (lines 59-76):
+- Binary target, not default build
+- Links against: catch2, boost, thread-pool, indicators, fmt, spdlog, libzippp, immer
+- Includes: `src` and `tests` directories
+- Source files: all `tests/*.cpp`, `tests/{app,infra,picture,video}/*.cpp`
+- Also includes all `src/**.cpp` except `main.cpp` (so test code has access to all production implementations)
+- On Windows: links `dbghelp` system library for stack trace support
 
-- **Framework:** Separate Catch2 binary target `e2e_tests`
-- **Location:** `tests/e2e/`
-- **Pattern:** Invoke the actual `encro` binary as a child process, verify its output and side effects
-- **Helper binary:** `tests/e2e/fake_media_tool.cpp` — standalone binary that simulates ffmpeg/ffprobe
-- **Environment:** Can use real system tools (`ffmpeg`, `ffprobe`) when available; falls back to fake toolchain
-- **E2E utilities** (`tests/e2e/e2e_test_utils.h`):
-  - `encroBinaryPath()` — locate built encro binary
-  - `runEncro(args)` — invoke encro process
-  - `installFakeToolchain(root)` — set up fake ffmpeg/ffprobe
-  - `listZipEntries(zipPath)` — inspect output zip contents
+The `e2e_tests` target (lines 78-92):
+- Separate binary, not default build
+- Dependencies on `encro` and `encro_e2e_tool` targets
+- All e2e test files except `fake_media_tool.cpp`
 
-## Common Patterns
+## Common Testing Patterns
 
-### Async Testing
-
-`std::atomic` + `std::this_thread::sleep_for` for concurrency tests (`tests/task_executor_tests.cpp:27-55`):
+**Async/Threaded Testing:**
 ```cpp
-auto active = std::atomic_size_t{0};
-auto peak = std::atomic_size_t{0};
-// ... capture concurrency metrics during execution ...
-CHECK(peak.load(std::memory_order_acquire) <= 2);
+TEST_CASE("runTasks executes tasks within configured concurrency", "[task-executor]") {
+  stopsignal::reset();
+  auto active = std::atomic_size_t{0};
+  auto peak = std::atomic_size_t{0};
+
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.push_back(taskexec::TaskSpec{
+    .id = "task-0",
+    .label = "Task 0",
+    .run = [&](taskexec::TaskContext&) -> eh::Result<void> {
+      auto const current = active.fetch_add(1, std::memory_order_acq_rel) + 1;
+      // Track concurrency peak...
+      std::this_thread::sleep_for(20ms);
+      active.fetch_sub(1, std::memory_order_acq_rel);
+      return {};
+    }
+  });
+
+  auto const result = taskexec::runTasks(taskexec::TaskPlan{
+    .tasks = std::move(tasks), .maxConcurrency = 2
+  });
+
+  CHECK(peak.load() <= 2);  // Concurrency is capped
+}
+```
+Key: Always reset `stopsignal` before async tests. Use atomics to observe concurrent behavior.
+
+**Error Handling Testing:**
+```cpp
+TEST_CASE("runTasks preserves task failures", "[task-executor]") {
+  auto tasks = std::vector<taskexec::TaskSpec>{
+    taskexec::TaskSpec{
+      .id = "fail",
+      .label = "fail",
+      .run = [](taskexec::TaskContext&) -> eh::Result<void> {
+        return eh::makeError("expected failure");
+      },
+    },
+  };
+  auto const result = taskexec::runTasks(...);
+
+  REQUIRE_FALSE(result.results[0]);
+  CHECK(result.results[0].error() == "expected failure");
+}
+```
+Pattern: Test both success and failure paths. Check `.error()` for exact messages or substrings.
+
+**Validation Testing:**
+```cpp
+TEST_CASE("EncodeConfig rejects missing input", "[encode-config]") {
+  EncodeConfig cfg;
+  auto const validation = cfg.validate();
+  REQUIRE_FALSE(validation);
+  CHECK(validation.error().find("Input path is required") != std::string::npos);
+}
+```
+Pattern: Call validation, assert failure, check error message contains expected text.
+
+**Temp Directory Pattern:**
+```cpp
+TEST_CASE("test with file operations", "[some-tag]") {
+  TempDir temp;
+  auto const filePath = temp.path / "input.mp4";
+  testutils::touchFile(filePath);
+
+  auto const result = functionUnderTest(temp.path);
+
+  REQUIRE(result);
+  // temp.path auto-cleaned
+}
 ```
 
-### Stop Signal Testing
-
-`stopsignal::requestStop()` + timing assertions for cancellation behavior (`tests/utils_tests.cpp:25-50`):
+**Multi-TestCase Orchestration (for stateful workflows):**
 ```cpp
-stopsignal::reset();
-std::jthread requester([](std::stop_token token) {
-  std::this_thread::sleep_for(150ms);
-  if (!token.stop_requested()) { stopsignal::requestStop(); }
-});
-auto const startedAt = std::chrono::steady_clock::now();
-auto const result = exec2(cmd, true);
-auto const elapsed = std::chrono::steady_clock::now() - startedAt;
-CHECK(result.exitCode == stopsignal::kCanceledExitCode);
-CHECK(elapsed < 5s);
+// Each test case is independent but tests a step in a workflow:
+TEST_CASE("job state keeps succeeded action when output exists", "[job-state]") {
+  TempDir temp;
+  writeFile(inputPath); writeFile(outputPath);
+  // Create store, mark running, mark succeeded, flush
+  // Open new store, verify status is Succeeded
+}
+
+TEST_CASE("job state resets succeeded action when output is missing", "[job-state]") {
+  TempDir temp;
+  writeFile(inputPath); writeFile(outputPath);
+  // Create store, mark running, mark succeeded, flush
+  // Delete output file
+  // Open new store, verify status is Pending (reset)
+}
 ```
+Pattern: Each test case is self-contained with its own `TempDir` and setup, but they test sequential state machine transitions.
 
-### Error Testing
+## Test Limitations
 
-Validate that functions return expected errors:
-```cpp
-REQUIRE_FALSE(configRes);
-CHECK(configRes.error().find("Invalid process type") != std::string::npos);
-```
-
-### Filesystem Output Verification
-
-Verify files created by operations:
-```cpp
-REQUIRE(fs::exists(outputDir / "input_part1[1~2#2p].zip"));
-libzippp::ZipArchive zip{zipPath.string()};
-zip.open(libzippp::ZipArchive::ReadOnly);
-CHECK(zip.getEntries().size() == 2);
-zip.close();
-```
-
-### Test Tag Conventions
-
-Tags are used for filtering and mirror module names:
-- `[job-state]`, `[task-executor]`, `[media-scanner]`, `[video-info]`, `[encode-config]`
-- `[packer]`, `[cmd]`, `[config]`, `[pipeline]`, `[app-context]`, `[display-text]`
-- `[utils]`, `[stacktrace]`, `[video-process]`, `[ffmpeg]`
-- Sub-tags for grouping: `[packer][groupFilesBySize]`, `[packer][packFilesToZip]`
-
-## Test Count Summary
-
-| Directory | Test Files |
-|-----------|-----------|
-| `tests/` (root) | 11 |
-| `tests/app/` | 3 |
-| `tests/infra/` | 6 |
-| `tests/picture/` | 2 |
-| `tests/video/` | 4 |
-| `tests/e2e/` | 1 (+ 3 support files) |
-| **Total** | **27 test files** |
+- **No mock framework:** Manual test doubles only. Real filesystem operations used.
+- **Limited async testing:** Only basic concurrency verification. No stress/race condition testing.
+- **Platform windows-centric:** Some tests use Windows-specific scripting (`cmd.exe`, batch files).
+- **Coverage not enforced:** No minimum coverage gate in CI or build.
+- **E2E tests depend on system tools:** `encro_e2e_tests.cpp` gates on system `ffmpeg` availability.
 
 ---
 
-*Testing analysis: 2026-04-26*
+*Testing analysis: 2026-04-28*

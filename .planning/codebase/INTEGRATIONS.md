@@ -1,128 +1,84 @@
----
-focus: tech
-last_mapped_commit: 919b0cea076d2821618c3febf54f72285880cd4c
-mapped_at: 2026-04-26
----
-
 # External Integrations
 
-**Analysis Date:** 2026-04-26
+**Analysis Date:** 2026-04-28
 
 ## APIs & External Services
 
-**No external APIs or network services detected.**
+**External CLI Tools (subprocess invocation):**
+- FFmpeg - Video encoding/transcoding engine
+  - SDK/Client: None (invoked as subprocess via `exec2()` in `src/utils/utils.cpp`)
+  - Command construction: `EncodeConfig::buildCMD()` in `src/video/encode_config.h:81-109`
+  - Location discovery: `findFFmpeg()` in `src/utils/utils.cpp:337-356` (searches PATH and optional install dir)
+  - Configuration: `--ffmpeg-install-dir` CLI option stored in `AppConfig::ffmpegInstallDir` (`src/core/app_context.h:60`)
 
-This is a fully offline, local tool. There are no HTTP clients, no SDK imports for cloud services, no remote API calls, and no network dependencies.
+- FFprobe - Video/audio metadata extraction (stream info, codec detection, frame counts)
+  - SDK/Client: None (invoked as subprocess via `exec2()`)
+  - JSON output parsed via `boost::json::parse()` in `src/video/video_info.cpp:287-319`
+  - Location discovery: `findFFprobe()` in `src/utils/utils.cpp:316-335`
+  - Consumed by: video scan pipeline (`readAllVids()`, `finalizeVideoList()`, `getVidTotalFrames()`)
+
+**No External APIs:**
+- This is a local desktop CLI tool — no HTTP/HTTPS client code, no REST/gRPC/GraphQL APIs, no cloud service SDKs
+- No Stripe, Supabase, AWS, Azure, or any third-party service integrations detected
 
 ## Data Storage
 
 **Databases:**
-- None. No database client or ORM detected.
-
-**File-Based State:**
-- Job state persisted as a custom JSON snapshot file on the local filesystem
-  - Format: Custom `Snapshot` struct serialized/deserialized via `src/core/job_state_detail.h`
-  - Locations:
-    - Default: `src/core/job_state_detail.h` → `buildFallbackStateFilePath()` (typically `<input_dir>/.encro_state.json`)
-    - Custom: `--state-file` CLI flag → `src/cmd/config_builder.cpp:342-345`
-  - Purpose: Resume interrupted encoding/packing jobs, track progress across runs
-  - Schema versioned: `kStateVersion = 1` in `src/core/job_state_detail.h:7`
+- None — no database client or ORM used
 
 **File Storage:**
-- Local filesystem only. Outputs written to:
-  - Default: Same directory as input
-  - Custom: `--output/-o` flag or path aliases (`input://`, `common://`, `+`, `=`) resolved in `src/cmd/config_builder.cpp:253-274`
+- Local filesystem only
+- Input: user-specified file/directory paths (`.mp4`, `.mkv`, `.avi`, `.mov`, `.flv`, `.wmv` video files; image files for picture processing)
+- Output: encoded video files (`.mp4`/`.webp`), compressed images, ZIP archives
+- State persistence: JSON snapshot files written to disk via `jobstate::Store::flush()` in `src/core/job_state.h`
+- Temporary files: progress files written to `fs::temp_directory_path()` during encoding (`src/video/video_encode_runner.cpp:65-66`)
 
 **Caching:**
-- In-memory immutable cache for ffprobe results: `RuntimeContext::VideoInfoCacheStore` in `src/core/app_context.h:92-113`
-  - Uses `immer::atom<immer::map<fs::path, json::value>>` for lock-free concurrent access
-- No persistent cache or external caching service
-
-## External Tool Dependencies
-
-**FFmpeg (`ffmpeg`):**
-- **Used for:** HEVC video encoding (mp4 via `hevc_nvenc` codec), WebP conversion, image compression to JPEG
-- **Invocation:** `exec2()` via `boost::process::v1` in `src/utils/utils.cpp`
-- **Location resolution:** System PATH first; falls back to `--ffmpeg-path` directory recursive search (`src/utils/utils.cpp:337-356`)
-- **Command construction:**
-  - Video encoding: `src/video/encode_config.h:81-109` (builds ffmpeg command string from `EncodeConfig`)
-  - Image compression: `src/picture/picture_compress.h:27-34`
-- **Progress monitoring:** ffmpeg `-progress` pipe parsed by `src/video/video_progress_parser.cpp`
-
-**FFprobe (`ffprobe`):**
-- **Used for:** Video metadata extraction (codec info, frame counts, duration, stream details)
-- **Invocation:** `exec2()` via `boost::process::v1` in `src/utils/utils.cpp`
-- **Output format:** JSON (`-print_format json -show_format -show_streams`) parsed via `boost::json` in `src/video/video_info.cpp:289-318`
-- **Location resolution:** System PATH first; falls back to `--ffmpeg-path` directory (`src/utils/utils.cpp:316-335`)
+- In-memory video info cache via `immer::map` in `RuntimeContext::videoInfoCache` (`src/core/app_context.h:93-113`)
+- No persistent cache / no Redis / no Memcached
 
 ## Authentication & Identity
 
-**No authentication framework or identity provider.**
-
-The tool runs as a local CLI binary with no user accounts, no API keys, and no authentication tokens.
+**Auth Provider:**
+- None — local CLI tool, no authentication required
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- Built-in crash handler: `src/infra/crash_runtime.cpp`
-  - Windows: SEH unhandled exception filter + `SetUnhandledExceptionFilter`
-  - POSIX: Signal handlers for SIGABRT, SIGFPE, SIGILL, SIGSEGV
-  - Output: Stacktrace captured via `src/infra/stacktrace.cpp`, written to spdlog or stderr
-- No external error tracking service (Sentry, etc.)
+- Built-in crash handler (`src/infra/crash_runtime.cpp`) captures stacktraces on unhandled exceptions and fatal signals
+- Stacktrace capture uses either `std::stacktrace` (C++23/26) or `boost::stacktrace` fallback (`src/infra/stacktrace.cpp`)
+- Crash messages written to spdlog (stderr fallback) with exit code 1
 
 **Logs:**
-- Framework: spdlog (async logger, thread pool of 8192 entries / 1 thread)
-- Setup: `src/app/prelude.cpp:60-129`
-- Log file: `<LOCALAPPDATA>/encro/logs/encro.verbose.log` (Windows) or `$HOME/.local/state/encro/logs/encro.verbose.log` (Unix)
-- Console output: `indicators` library for progress bars; custom terminal formatting in `src/infra/terminal.cpp`
-- Log level: debug when `--verbose` flag is present; off otherwise
-- Optional stderr echo: `--verbose-echo` flag writes logs to both file and stdout
+- spdlog with external fmt (`src/infra/crash_runtime.cpp` uses `spdlog::default_logger_raw()`)
+- Log levels used: `info`, `warn`, `error`, `debug`, `critical`
+- No log aggregation service, no external monitoring
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- No deployment platform detected. The tool is distributed as a standalone native binary.
-
-**Packaging:**
-- xpack integration in `xmake.lua:94-103`
-- Formats: `nsis` (Windows installer), `srczip`, `srctarxz`, `zip`, `tarxz`
-- Author: "Artemiss"
-- Description: "encro: Universal video encoder/converter/packer"
+- Local installation (distributed as NSIS installer, zip, tarxz via xpack in `xmake.lua:96-103`)
+- No cloud deployment platform detected
 
 **CI Pipeline:**
-- Not detected (no GitHub Actions, GitLab CI, or other CI config files found)
+- None detected — no `.github/workflows/`, no Jenkinsfile, no GitLab CI config, no CircleCI config
 
 ## Environment Configuration
 
-**Required environment (runtime):**
-- None required. All configuration via CLI flags.
-- Optional: `FFmpeg`/`FFprobe` on system PATH
-
-**Environment variables read (Windows only, for log path):**
-- `%LOCALAPPDATA%` → primary log directory
-- `%APPDATA%` → fallback log directory
-- `%HOME%` (Unix) → `$HOME/.local/state/encro/logs/`
+**Required env vars:**
+- None required for runtime (FFmpeg/FFprobe discovered via PATH or `--ffmpeg-install-dir`)
 
 **Secrets location:**
-- No secrets, API keys, or credentials needed or stored
+- Not applicable — no secrets needed (no API keys, no credentials)
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None
+- None — not a server process
 
 **Outgoing:**
-- None
-
-## Inter-Process Communication
-
-**Subprocess Execution:**
-- `exec2()` function in `src/utils/utils.cpp` wraps `boost::process::v1::child`
-- Used exclusively for invoking external tools (ffmpeg, ffprobe)
-- Supports: stdout capture, line-by-line callbacks, stderr merging, graceful termination on user interrupt (Ctrl+C)
-- Stop signal integration: Terminates child processes on interrupt via `stopsignal::isStopRequested()` (`src/utils/utils.cpp:131-161`)
-- Platform-specific: Windows uses `PeekNamedPipe`/`CloseHandle`; Unix uses `bp::ipstream` + reader thread
+- None — no outbound HTTP/webhook calls
 
 ---
 
-*Integration audit: 2026-04-26*
+*Integration audit: 2026-04-28*
