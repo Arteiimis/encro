@@ -1,184 +1,277 @@
----
-focus: arch
-last_mapped_commit: 919b0cea076d2821618c3febf54f72285880cd4c
-mapped_at: 2026-04-26
----
-
 # Codebase Structure
 
-**Analysis Date:** 2026-04-26
+**Analysis Date:** 2026-04-28
 
 ## Directory Layout
 
 ```
-encro/
-├── src/                        # Production source code
-│   ├── main.cpp                # Program entry point
-│   ├── app/                    # Application layer (entry, prelude, pipeline)
-│   ├── cmd/                    # CLI parsing and config building
-│   ├── video/                  # Video processing domain
-│   ├── picture/                # Picture processing domain
-│   ├── pack/                   # Archive (zip) creation
-│   ├── core/                   # Core abstractions and shared types
-│   ├── infra/                  # Infrastructure (platform abstractions, I/O)
-│   └── utils/                  # General utilities
-├── tests/                      # Test suite
-│   ├── test_main.cpp           # Unit/integration test entry (Catch2)
-│   ├── test_utils.h            # Shared test helpers (temp dirs, etc.)
-│   ├── *.cpp                   # Top-level test files
-│   ├── app/                    # Tests for app/ layer
-│   ├── infra/                  # Tests for infra/ layer
-│   ├── picture/                # Tests for picture/ layer
-│   ├── video/                  # Tests for video/ layer
-│   └── e2e/                    # End-to-end tests
-│       ├── e2e_test_main.cpp   # E2E test entry
-│       ├── e2e_test_utils.h    # E2E shared helpers
-│       ├── e2e_test_utils.cpp
-│       ├── encro_e2e_tests.cpp # E2E test cases
-│       └── fake_media_tool.cpp # Fake media tool binary
-├── plugins/                    # xmake custom tasks
-│   ├── format/xmake.lua        # clang-format task
-│   └── coverge/xmake.lua       # Coverage task
-├── plans/                      # Working planning documents
-├── .planning/                  # GSD planning artifacts
-├── .githooks/                  # Git hooks (pre-commit clang-format)
-├── .vscode/                    # VS Code settings (gitignored)
-├── .xmake/                     # xmake cache (gitignored)
-├── build/                      # Build output (gitignored)
-├── xmake.lua                   # Build configuration
-├── AGENTS.md                   # Agent behavioral guidelines
-└── .gitignore
+[project-root]/
+├── .claude/                  # Claude AI configuration (if present)
+├── .githooks/                # Git hooks
+│   └── pre-commit            # Pre-commit hook script
+├── .planning/                # GSD planning artifacts (not committed patterns)
+│   ├── codebase/             # Codebase map documents (ARCHITECTURE.md, etc.)
+│   ├── milestones/           # Milestone roadmaps (v1.0, v1.1)
+│   ├── phases/               # Phase planning artifacts
+│   ├── quick/                # Quick-fix plans
+│   ├── STATE.md              # Current project state
+│   ├── PROJECT.md            # Project description
+│   ├── ROADMAP.md            # Overall roadmap
+│   └── config.json           # Planning configuration
+├── .vscode/                  # VS Code workspace settings
+│   └── settings.json
+├── .xmake/                   # Xmake build cache (gitignored)
+├── build/                    # Build output directory (gitignored)
+│   ├── .gens/                # Generated build rules
+│   ├── compile_commands.json # LSP compile commands
+│   ├── debug_probe/          # Debug probe data (sample files)
+│   └── windows/x64/          # Platform-specific builds
+│       ├── release/          # Release build outputs
+│       └── releasedbg/       # Release+debug build outputs
+├── plans/                    # Implementation plans & checklists
+│   ├── CODE_REUSE_OPTIMIZATION_PLAN.md
+│   ├── VIDEO_ENCODE_PERF_OPTIMIZATION_PLAN.md
+│   └── VIDEO_PROCESS_REFACTOR_CHECKLIST.md
+├── plugins/                  # Xmake plugins
+│   ├── coverge/              # Coverage plugin
+│   └── format/               # Format plugin
+├── src/                      # Source code
+│   ├── main.cpp              # Entry point
+│   ├── app/                  # Application layer
+│   ├── cmd/                  # CLI parsing
+│   ├── core/                 # Core domain types & logic
+│   ├── infra/                # Platform/infrastructure abstractions
+│   ├── pack/                 # ZIP packing service
+│   ├── picture/              # Picture processing domain
+│   ├── utils/                # General utilities
+│   └── video/                # Video processing domain
+├── tests/                    # Test code
+│   ├── test_main.cpp         # Unit test entry point
+│   ├── test_utils.h          # Test utilities & helpers
+│   ├── app/                  # App-layer tests
+│   ├── e2e/                  # End-to-end tests
+│   ├── infra/                # Infrastructure tests
+│   ├── picture/              # Picture domain tests
+│   ├── video/                # Video domain tests
+│   └── *.cpp                 # Top-level tests (core components)
+├── .gitignore
+└── xmake.lua                 # Build configuration
 ```
 
 ## Directory Purposes
 
-**src/app/:** Application layer -- entry point coordination, startup bootstrap, workflow orchestration.
-- Contains: `app_entry.h/.cpp`, `prelude.h/.cpp`, `pipeline.h/.cpp`
-- Key: `src/app/app_entry.cpp` (CLI->config->toolchain->pipeline wiring), `src/app/pipeline.cpp` (video/picture/pack-only dispatch)
+**`src/`:**
+- Purpose: All production source code
+- Contains: `.cpp` implementation files and `.h` header files, organized into 9 subdirectories by layer/domain
+- Key files: `main.cpp` (entry point), `app/app_entry.cpp` (orchestration), `app/pipeline.cpp` (workflow dispatch)
 
-**src/cmd/:** CLI argument parsing and typed config construction.
-- Contains: `cmd.h/.cpp` (parsing), `config_builder.h/.cpp` (config construction)
-- Key: `src/cmd/config_builder.cpp` (328 lines -- all CLI option-to-config mapping)
+**`src/app/`:**
+- Purpose: Application bootstrap, startup orchestration, pipeline dispatch
+- Contains: `app_entry.cpp/.h`, `prelude.cpp/.h`, `pipeline.cpp/.h`
+- Key files: `app_entry.cpp` (startup lifecycle), `pipeline.cpp` (routes to video/picture/pack workflows)
 
-**src/video/:** Video processing domain -- scanning, encoding, output planning, progress monitoring.
-- Contains: `video_process`, `video_batch_execution`, `video_encode_runner`, `video_info`, `video_output_planning`, `video_progress_parser`, `video_workflow_utils`
-- Key: `src/video/video_batch_execution.cpp` (654 lines), `src/video/video_process.cpp` (533 lines)
+**`src/cmd/`:**
+- Purpose: Command-line argument definition and parsing
+- Contains: `cmd.cpp/.h` (Boost.ProgramOptions setup), `config_builder.cpp/.h` (argument → config translation)
+- Key files: `config_builder.cpp` (13KB, all CLI option handling)
 
-**src/picture/:** Picture processing domain -- scanning, compression, pack planning.
-- Contains: `picture_process.h/.cpp`, `picture_compress.h/.cpp`
-- Key: `src/picture/picture_process.cpp` (521 lines)
+**`src/core/`:**
+- Purpose: Shared domain types, configuration, state management, generic task execution, progress display
+- Contains: 19 files — `app_context.h`, `job_state.cpp/.h`, `task_executor.cpp/.h`, `progress.cpp/.h`, `media_scanner.cpp/.h`, `parallel.cpp/.h`, `archive_plan.cpp/.h`, plus header-only utilities (`collision_naming.h`, `display_text.h`, `error_handle.h`, `path_roots.h`, `job_state_detail.h`)
+- Key files: `app_context.h` (central types), `job_state.cpp` (23KB, resumable state), `progress.cpp` (7.6KB)
 
-**src/pack/:** Zip archive creation -- file grouping, pack plan execution.
-- Contains: `packer.h/.cpp`, `pack_service.h/.cpp`
-- Key: `src/pack/packer.cpp` (657 lines -- largest file)
+**`src/video/`:**
+- Purpose: Video encoding domain — scanning, metadata extraction, output planning, batch encoding, progress parsing
+- Contains: 14 files — `video_process.cpp/.h`, `video_batch_execution.cpp/.h`, `video_encode_runner.cpp/.h`, `video_info.cpp/.h`, `video_output_planning.cpp/.h`, `video_progress_parser.cpp/.h`, `encode_config.h`, `video_workflow_utils.h`
+- Key files: `video_process.cpp` (17KB, workflow orchestration), `video_batch_execution.cpp` (25KB, parallel encode execution), `video_info.cpp` (15KB, ffprobe-based metadata)
 
-**src/core/:** Shared types, error handling, task execution, state persistence, utilities.
-- Contains: `app_context`, `error_handle`, `task_executor`, `parallel`, `progress`, `job_state` + `job_state_store` + `job_state_detail`, `media_scanner`, `collision_naming`, `display_text`, `archive_plan`, `path_roots`
-- Key: `src/core/app_context.h` (central config structs), `src/core/job_state.cpp` (570 lines), `src/core/error_handle.h` (eh::Result)
+**`src/picture/`:**
+- Purpose: Picture processing domain — scanning, compression, packaging
+- Contains: `picture_process.cpp/.h`, `picture_compress.cpp/.h`
+- Key files: `picture_process.cpp` (21KB, full picture workflow)
 
-**src/infra/:** Platform infrastructure -- crash handling, terminal I/O, signal handling, tool resolution.
-- Contains: `crash_runtime`, `stacktrace`, `terminal`, `stop_signal`, `toolchain`, `console_width`
-- Key: `src/infra/terminal.h` (colored output), `src/infra/crash_runtime.cpp` (SEH handlers)
+**`src/pack/`:**
+- Purpose: ZIP archive creation and pack plan execution
+- Contains: `packer.cpp/.h`, `pack_service.cpp/.h`
+- Key files: `packer.cpp` (25KB, low-level ZIP operations), `pack_service.cpp` (11KB, high-level plan execution)
 
-**src/utils/:** General utilities -- subprocess execution, user input.
-- Contains: `utils.h/.cpp`
-- Key: `src/utils/utils.cpp` (exec2 subprocess runner)
+**`src/infra/`:**
+- Purpose: OS/platform abstractions — terminal I/O, crash handling, toolchain discovery, signal handling
+- Contains: `terminal.cpp/.h`, `crash_runtime.cpp/.h`, `toolchain.cpp/.h`, `stop_signal.cpp/.h`, `stacktrace.cpp/.h`, `console_width.cpp/.h`
+- Key files: `terminal.cpp` (7.5KB, colored output), `crash_runtime.cpp` (3.2KB, Windows SEH)
 
-**tests/:** All test code, mirroring src/ structure. Catch2 test binaries.
-- Key: `tests/test_main.cpp` (unit entry), `tests/e2e/e2e_test_main.cpp` (E2E entry)
+**`src/utils/`:**
+- Purpose: Generic utilities with no domain knowledge — process execution, user prompts, path discovery
+- Contains: `utils.cpp/.h`
+- Key files: `utils.cpp` (11KB)
 
-**tests/e2e/:** End-to-end tests exercising the full encro binary.
-- Contains: test cases, shared helpers, `fake_media_tool.cpp` (separate binary)
+**`tests/`:**
+- Purpose: All test code, mirroring `src/` structure
+- Contains: 34 files organized into `app/`, `e2e/`, `infra/`, `picture/`, `video/` subdirectories plus top-level files
+- Key files: `test_main.cpp` (entry), `test_utils.h` (shared test helpers: `TempDir`, file helpers)
 
-**plugins/:** xmake custom task plugins for format and coverage workflows.
+**`tests/e2e/`:**
+- Purpose: End-to-end integration tests
+- Contains: `encro_e2e_tests.cpp`, `e2e_test_utils.cpp/.h`, `e2e_test_main.cpp`, `fake_media_tool.cpp`
+- Key files: `encro_e2e_tests.cpp` (16.6KB), `fake_media_tool.cpp` (generates test media)
 
-**plans/:** Human-authored planning documents for future refactoring/optimization.
+**`build/`:**
+- Purpose: Build outputs — binaries, compile commands, debug data
+- Generated: Yes (by Xmake)
+- Committed: No (gitignored)
+
+**`.xmake/`:**
+- Purpose: Xmake build cache and package dependencies
+- Generated: Yes
+- Committed: No (gitignored)
+
+**`plugins/`:**
+- Purpose: Xmake build system plugins
+- Contains: `coverge/` (coverage instrumentation), `format/` (code formatting)
+- Key files: Plugin Lua scripts (not explored in detail)
+
+**`.planning/`:**
+- Purpose: GSD workflow planning artifacts — roadmaps, phase plans, milestone audits
+- Contains: `STATE.md`, `PROJECT.md`, `ROADMAP.md`, `milestones/`, `phases/`, `quick/`, `codebase/`
+- Key files: `ROADMAP.md` (project direction), `config.json` (planning config)
+
+**`plans/`:**
+- Purpose: Human-authored implementation plans and checklists
+- Contains: Code reuse optimization plan, video encode perf plan, video process refactor checklist
+- Key files: `VIDEO_PROCESS_REFACTOR_CHECKLIST.md`
 
 ## Key File Locations
 
 **Entry Points:**
-- `src/main.cpp`: Program entry -- installs crash handlers, delegates to `appentry::run()`
-- `tests/test_main.cpp`: Unit/integration test binary entry (Catch2)
-- `tests/e2e/e2e_test_main.cpp`: End-to-end test binary entry (Catch2)
+- `src/main.cpp`: Process entry point — crash handlers, catch-all, delegate to `appentry::run()`
+- `tests/test_main.cpp`: Unit test entry point (`#define CATCH_CONFIG_MAIN`)
+- `tests/e2e/e2e_test_main.cpp`: E2E test entry point
 
 **Configuration:**
-- `xmake.lua`: Build config -- toolchain (clang-cl), C++26, packages, targets, packaging
-- `src/core/app_context.h`: `AppConfig`, `ToolchainPaths`, `RuntimeContext`, `AppContext` structs
-- `src/cmd/config_builder.cpp`: CLI options to `AppConfig` mapping (328 lines)
+- `xmake.lua`: Build configuration — targets, dependencies, flags, packaging
+- `.vscode/settings.json`: Editor settings
+- `.gitignore`: Git exclusion rules
 
-**Core Logic (largest implementation files):**
-- `src/pack/packer.cpp` (657 lines): Zip creation, file grouping, directory pack workflows
-- `src/video/video_batch_execution.cpp` (654 lines): Parallel batch encoding, progress bars, monitor
-- `src/core/job_state.cpp` (570 lines): Persistent state store (JSON snapshot read/write/merge)
-- `src/video/video_process.cpp` (533 lines): Video workflow orchestration
-- `src/picture/picture_process.cpp` (521 lines): Picture scan and pack workflow
-- `src/video/video_info.cpp` (482 lines): ffprobe parsing, video scanning
+**Core Logic (largest files):**
+- `src/pack/packer.cpp` (25KB): ZIP creation, file grouping algorithms
+- `src/video/video_batch_execution.cpp` (25KB): Parallel encode orchestration with progress
+- `src/core/job_state.cpp` (23KB): Resumable state persistence and merge
+- `src/picture/picture_process.cpp` (21KB): Picture scan, compress, pack workflow
+- `src/video/video_process.cpp` (17KB): Video workflow orchestration
+- `src/video/video_info.cpp` (15KB): ffprobe-based video metadata extraction
+- `src/cmd/config_builder.cpp` (13KB): CLI argument → AppConfig translation
 
-**Testing helpers:**
-- `tests/test_utils.h`: Shared test utilities (temp directories, file creation)
-- `tests/e2e/e2e_test_utils.h/.cpp`: E2E test helpers
-- 32 test files total across unit, integration, and E2E suites
+**Shared Types (header-only):**
+- `src/core/app_context.h` (3.3KB): AppConfig, ToolchainPaths, RuntimeContext, AppContext, EncodingState
+- `src/core/collision_naming.h` (5KB): Conflict-safe file naming with FNV-1a hashing
+- `src/core/error_handle.h` (0.4KB): `eh::Result<T>` and `eh::makeError()`
+- `src/video/encode_config.h` (3.7KB): ffmpeg command construction struct
+- `src/core/display_text.h` (2.5KB): Unicode text truncation
+- `src/video/video_workflow_utils.h` (1.2KB): Workflow helper templates
+
+**Testing:**
+- `tests/test_utils.h`: Shared test utilities (`TempDir`, `writeFile`, `touchFile`, zip inspection)
+- `tests/test_main.cpp`: Catch2 main
+- `tests/e2e/e2e_test_utils.h`: E2E-specific test helpers
+- `tests/e2e/fake_media_tool.cpp`: Media generator tool built as separate `encro_e2e_tool` target
 
 ## Naming Conventions
 
-**Files:** `snake_case` throughout: `video_batch_execution.h`, `job_state_store.cpp`
-- Header-only modules are `.h` only: `error_handle.h`, `collision_naming.h`, `display_text.h`, `path_roots.h`
-- Test files: `{module}_tests.cpp` mirroring source module name
+**Files:**
+- All lowercase with underscores: `video_batch_execution.cpp`, `job_state.h`, `app_context.h`
+- Header/implementation pairs: `foo.h` + `foo.cpp`
+- Header-only utilities: `foo.h` with no corresponding `.cpp` (e.g., `collision_naming.h`, `display_text.h`, `error_handle.h`)
 
-**Directories:** `snake_case`: `src/video/`, `tests/e2e/`
-- Tests subdirectories mirror src/ structure: `tests/video/` <-> `src/video/`
+**Directories:**
+- All lowercase, single words: `app/`, `cmd/`, `core/`, `infra/`, `pack/`, `picture/`, `utils/`, `video/`
+- Test subdirectories mirror source structure: `tests/app/`, `tests/video/`, `tests/picture/`, `tests/infra/`, `tests/e2e/`
 
-**Namespaces:** `snake_case`: `appentry`, `pipeline`, `jobstate`, `taskexec`, `collisionnaming`
-- Common aliases: `namespace fs = std::filesystem;`, `namespace eh = ErrorHandle;`, `namespace po = boost::program_options;`
+**Namespaces:**
+- Short, lowercase names matching directory/module: `appentry`, `appctx`, `jobstate`, `taskexec`, `progress`, `media`, `pack`, `toolchain`, `terminal`, `crash`, `stopsignal`, `videobatch`, `videoworkflow`, `displaytext`, `collisionnaming`, `pathroots`, `archiveplan`
+- Convenience alias: `namespace eh = ErrorHandle;` defined in `src/core/error_handle.h`
+- Common aliases: `namespace fs = std::filesystem;`, `namespace json = boost::json;`, `namespace po = boost::program_options;`
 
-**Types:** `PascalCase` for structs/classes/enums: `AppConfig`, `TaskPlan`, `MessageKind`, `Tone`
-- Enum values: `OutputLayout::Flat`, `OutputLayout::Keep`, `TaskStatus::Pending`
+**Functions:**
+- camelCase for public API: `run()`, `buildConfig()`, `initStartup()`, `readAllVids()`, `planVideoOutputFiles()`
+- camelCase for private/internal: `scanInputVideos()`, `buildEncodeActions()`, `prepareEncodeActions()`
+- `auto` return type with trailing return type (`-> Type`) used pervasively
 
-**Functions:** `camelCase`: `buildConfig()`, `runEncodingTasks()`, `handlePathEncoding()`, `readUserIpt()`
-- Boolean predicates: `should*`, `is*`, `has*` prefix
-- `auto` return with trailing return type heavily used: `auto run(argc, argv) -> int;`
+**Variables:**
+- camelCase: `stateFilePath`, `maxParallelJobs`, `outputLayout`
+- Private members with trailing underscore: `stateFilePath_`, `snapshot_`, `mtx_`, `lastFlushAtMs_`
 
-**Variables:** Mixed styles -- `camelCase` for locals (`vidPath`, `progressCtx`), trailing `_` for private members (`stateFilePath_`, `snapshot_`), `k` prefix for constants (`kVideoTypes`, `kCanceledExitCode`)
+**Types (structs/classes/enums):**
+- PascalCase: `AppContext`, `AppConfig`, `EncodingState`, `TaskPlan`, `PackPlan`, `EncodeConfig`
+- Enum values PascalCase: `TaskStatus::Pending`, `OutputLayout::Flat`, `Tone::Default`
+
+**Constants:**
+- `k` prefix PascalCase: `kEncodeVideoKind`, `kBuildArchiveKind`, `kCanceledExitCode`, `kDefaultMaxArchiveGroupSize`
 
 ## Where to Add New Code
 
-**New feature (new media type like "audio"):**
-- Primary code: `src/audio/` (new directory, following `video/` or `picture/` pattern)
-- Tests: `tests/audio/{feature}_tests.cpp`
-- Register in `xmake.lua` test target
-- Wire into `src/app/pipeline.cpp::run()` with new process type branch
+**New feature (e.g., new media type "audio"):**
+- Primary code: `src/audio/` — create `audio_process.cpp/.h`, `audio_info.cpp/.h`, etc.
+- Tests: `tests/audio/` — create test files following existing conventions
+- Integration: Add `runAudio(ctx)` branch in `src/app/pipeline.cpp`
+- Build: Add `src/audio/*.cpp` file pattern to `xmake.lua` `encro` target
 
 **New CLI option:**
-- Define option: `src/cmd/cmd.cpp` in `commandLineInit()`
-- Add config field: `src/core/app_context.h` -> `AppConfig` struct
-- Parse value: `src/cmd/config_builder.cpp` -> `cmd::buildConfig()`
-- Log if needed: `src/app/prelude.cpp` -> `logConfigSummary()`
-- Test: `tests/cmd_config_builder_tests.cpp`
+- Add field to `appctx::AppConfig` in `src/core/app_context.h`
+- Add option definition in `src/cmd/cmd.cpp`
+- Add translation logic in `src/cmd/config_builder.cpp`
+- Add test case in `tests/cmd_config_builder_tests.cpp`
 
-**New core utility:**
-- Pure logic: header-only `src/core/{name}.h` (follow `collision_naming.h` pattern)
-- Stateful/large: `src/core/{name}.h` + `src/core/{name}.cpp`
-- No build changes needed: `add_files("src/**.cpp")` auto-discovers
+**New pack variant/strategy:**
+- Implementation: `src/pack/` — add function to `packer.cpp/.h` or new file
+- High-level orchestration: Add to `pack_service.cpp/.h` if exposing a new `PackPlan` variant
+- Tests: `tests/packer_tests.cpp` or `tests/pack_service_tests.cpp`
 
-**New infrastructure component:**
-- `src/infra/{name}.h` + `src/infra/{name}.cpp`
-- Tests: `tests/infra/{name}_tests.cpp`
-- Auto-discovered by xmake glob patterns
+**New infrastructure capability (e.g., new OS integration):**
+- Implementation: `src/infra/` — new `.cpp/.h` pair
+- Tests: `tests/infra/` — new test file
+- Internal only; no changes needed in layers above
+
+**Utilities:**
+- Shared helpers: `src/utils/utils.cpp/.h` — add free functions
+- If the utility file grows beyond ~15KB, split into domain-specific utility files (e.g., `path_utils.cpp`, `string_utils.cpp`)
+
+**New test target or test category:**
+- Add test `.cpp` files in `tests/` or subdirectory
+- Update `xmake.lua` `tests` target `add_files(...)` patterns
+- For standalone test tools (like `encro_e2e_tool`), add new `target(...)` block in `xmake.lua`
 
 ## Special Directories
 
-**build/:** xmake build output. Generated. Not committed (`.gitignore`).
+**`build/`:**
+- Purpose: Build artifacts (binaries, compile commands, probe data)
+- Generated: Yes (by Xmake)
+- Committed: No (gitignored)
 
-**.xmake/:** xmake package cache and platform config. Generated. Not committed.
+**`.xmake/`:**
+- Purpose: Xmake cache, package dependencies, platform configuration
+- Generated: Yes (by Xmake)
+- Committed: No (gitignored)
 
-**.vscode/:** VS Code settings. Manual. Not committed.
+**`.vscode/`:**
+- Purpose: Editor workspace settings
+- Generated: No (manually created)
+- Committed: No (gitignored by `.gitignore`)
 
-**.planning/:** GSD planning artifacts (codebase maps, plans). Generated by tools. Committed.
+**`plugins/`:**
+- Purpose: Xmake build system plugins (coverage instrumentation, code formatting)
+- Generated: No
+- Committed: Yes
 
-**plans/:** Human-authored planning documents. Manual. Committed.
+**`.githooks/`:**
+- Purpose: Custom git hooks (pre-commit)
+- Generated: No
+- Committed: Yes
 
-**.githooks/:** Git hooks. Manual. Committed. Contains clang-format pre-commit hook.
+**`.planning/`:**
+- Purpose: GSD workflow planning documents and codebase maps
+- Generated: Yes (by GSD commands)
+- Committed: Yes (tracked for team context sharing)
 
 ---
 
-*Structure analysis: 2026-04-26*
+*Structure analysis: 2026-04-28*

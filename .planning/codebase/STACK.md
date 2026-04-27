@@ -1,107 +1,89 @@
----
-focus: tech
-last_mapped_commit: 919b0cea076d2821618c3febf54f72285880cd4c
-mapped_at: 2026-04-26
----
-
 # Technology Stack
 
-**Analysis Date:** 2026-04-26
+**Analysis Date:** 2026-04-28
 
 ## Languages
 
 **Primary:**
-- C++26 - Entire codebase (`src/`, `tests/`)
+- C++26 - All application code in `src/` and `tests/`
 
-**Build Scripting:**
-- Lua 5.x (xmake dialect) - Build system configuration (`xmake.lua`, `plugins/**/xmake.lua`)
-
-**Shell:**
-- Bash - Git pre-commit hook (`.githooks/pre-commit`)
+**Secondary:**
+- Lua - xmake build scripts (`xmake.lua`, `plugins/coverge/xmake.lua`, `plugins/format/xmake.lua`)
+- Bash - Git hooks (`.githooks/pre-commit`)
 
 ## Runtime
 
 **Environment:**
-- Native compiled binary (no VM or interpreter)
-- Compiler: clang-cl (MSVC-compatible Clang, via `set_toolchains("clang-cl")`)
-- C++ standard: `c++26` with `-ftrivial-auto-var-init=pattern` hardening
+- Native binary (no managed runtime / virtual machine)
+- Platform: Windows primary; cross-platform compatibility via conditional compilation (`src/utils/utils.cpp` has `#if defined(_WIN32)` blocks)
 
 **Package Manager:**
-- xmake (xrepo) - Integrated package management
-- Lockfile: Not present (xmake uses `xmake.lua` for dependency declarations, `.xmake/` for cache)
+- xmake built-in package manager (declared in `xmake.lua`)
+- Lockfile: Not detected (xmake uses `.xmake/` cache directory)
 
 ## Frameworks
 
-**Core Libraries:**
-| Library | Version | Purpose |
-|---------|---------|---------|
-| Boost | (xrepo resolved) | All sub-libraries: `program_options` (CLI), `json` (ffprobe output parsing), `process::v1` (subprocess spawning), `uuid` (unique IDs), `lexical_cast`, `parser` |
-| spdlog | (xrepo resolved) | Async structured logging with file sink and optional stdout sink |
-| fmt | (xrepo resolved) | String formatting (used via spdlog's `fmt_external` mode) |
-| indicators | (xrepo resolved) | Terminal progress bars and spinners |
-| immer | (xrepo resolved) | Persistent immutable data structures (`immer::vector`, `immer::map`, `immer::atom`) |
-| libzippp | (xrepo resolved) | ZIP archive creation and manipulation |
-
-**External Tools (Runtime Dependencies):**
-- FFmpeg - Video encoding, image compression, format conversion (`src/video/encode_config.h`)
-- FFprobe - Video metadata extraction via JSON (`src/video/video_info.cpp:289-295`)
-- Location: Resolved from system PATH or user-specified `--ffmpeg-path` directory (`src/utils/utils.cpp:316-356`)
+**Core:**
+- C++ Standard Library (C++26) - filesystem, format, expected, chrono, threading, ranges
+- Boost (all modules) - program_options (CLI parsing), json (ffprobe output parsing and state serialization), process (subprocess management), stacktrace (crash diagnostics), uuid (unique IDs), lexical_cast
 
 **Testing:**
-- Catch2 - Unit/integration/E2E test framework (`tests/test_main.cpp`, `tests/e2e/e2e_test_main.cpp`)
+- Catch2 - Unit and integration test framework (`tests/test_main.cpp`, test files in `tests/`)
+- Test runner defined as xmake target `"tests"` in `xmake.lua:59`
 
 **Build/Dev:**
-- xmake - Build orchestration (`xmake.lua`)
-- clang-format - Code formatting (`D:/clangformat/.clang-format`, via `plugins/format/xmake.lua` and `.githooks/pre-commit`)
-- llvm-cov / llvm-profdata - Code coverage measurement (`plugins/coverge/xmake.lua`)
+- xmake 0.1.5 (project version) - Build system and package manager (`xmake.lua`)
+- clang-cl - Compiler toolchain (`xmake.lua:7`)
+- clang-format - Code formatter, invoked via `xmake format` (configured in `plugins/format/xmake.lua`)
+- LLVM tools (llvm-profdata, llvm-cov) - Code coverage instrumentation and reports (`plugins/coverge/xmake.lua`)
+- xpack - Packaging/installer generation for NSIS, zip, tarxz, source archives (`xmake.lua:94-103`)
 
 ## Key Dependencies
 
-**Critical (required at runtime):**
-- `FFmpeg` / `FFprobe` - The tool is nonfunctional without these. Resolved at startup via `toolchain::resolve()` in `src/infra/toolchain.cpp:9-29`.
+**Critical:**
+- FFmpeg (external CLI) - Video encoding engine; called as subprocess via `exec2()` in `src/video/video_encode_runner.cpp`; configured via `EncodeConfig` in `src/video/encode_config.h`
+- FFprobe (external CLI) - Video metadata extraction; called as subprocess for JSON stream info in `src/video/video_info.cpp:287-319`
+- Boost.Process - Platform-abstracted subprocess execution in `src/utils/utils.cpp`
 
-**Infrastructure (compile-time only):**
-- Boost - CLI parsing (`boost::program_options`), subprocess management (`boost::process::v1`), JSON parsing (ffprobe output), UUID generation
-- immer - Thread-safe persistent caches (`RuntimeContext::VideoInfoCacheStore` in `src/core/app_context.h:92-113`) and immutable collections for state management
-- libzippp - All archive output
+**Infrastructure:**
+- spdlog (with external fmt) - Structured logging across all modules; header `src/infra/crash_runtime.cpp` uses `spdlog::default_logger_raw()`
+- fmt - String formatting; used for both log messages and ffmpeg command construction
+- indicators - Terminal progress bars via `indicators::DynamicProgress` and `indicators::ProgressBar` in `src/core/progress.h`
+- immer - Persistent/immutable maps for thread-safe video info caching (`immer::map`, `immer::atom`) in `src/core/app_context.h:93-113`
+- libzippp - ZIP archive creation for output packing; used in `src/pack/packer.h` and `src/pack/pack_service.h`
+- thread-pool - Concurrent task execution; used in `src/core/task_executor.h` and parallel processing in `src/core/parallel.h`
 
 ## Configuration
 
-**Build:**
-- `xmake.lua` - Primary build configuration (targets, dependencies, flags, packaging)
-- Build modes: `debug`, `release`, `releasedbg`, `coverage` (LTO disabled for coverage)
-- LTO enabled by default (except coverage mode)
-
-**Runtime (CLI flags):**
-- All configuration via command-line arguments parsed by `boost::program_options` (`src/app/prelude.cpp`)
-- CLI definition: `src/cmd/cmd.cpp`
-- Config model: `src/core/app_context.h` → `AppConfig` struct
-- Config builder: `src/cmd/config_builder.cpp` → `cmd::buildConfig()`
-
-**State Persistence:**
-- Job state file: Custom JSON snapshot written to filesystem (`src/core/job_state_detail.h`, `src/core/job_state_store.cpp`)
-- Default location: `<input_dir>/.encro_state.json` or fallback from `buildDefaultStateFilePath()`
-- Custom location: `--state-file` flag
-
 **Environment:**
-- Windows: `%LOCALAPPDATA%` / `%APPDATA%` for log files (`src/app/prelude.cpp:40-58`)
-- Linux/macOS: `$HOME/.local/state/encro/logs/`
 - No `.env` files detected
+- External tool paths resolved at runtime via system PATH or user-specified install directory (`src/infra/toolchain.cpp` finds ffmpeg/ffprobe)
+- Runtime configuration via CLI arguments parsed by Boost.ProgramOptions (`src/cmd/cmd.h`)
+
+**Build:**
+- `xmake.lua` - Root build configuration (compiler flags, dependencies, targets, packaging)
+- `.vscode/settings.json` - Editor configuration (debug target, format-on-save)
+- `compile_commands.json` - Generated in `build/` directory for IDE integration (via `plugin.compile_commands.autoupdate` rule)
+
+**Build Modes:**
+- `debug`, `release`, `releasedbg`, `coverage` (defined in `xmake.lua:2`)
+- Coverage mode disables LTO and adds `-fprofile-instr-generate -fcoverage-mapping` flags (`xmake.lua:13-17`)
 
 ## Platform Requirements
 
 **Development:**
-- xmake
-- clang-cl (Windows) or Clang (cross-platform)
-- FFmpeg/FFprobe on PATH
-- clang-format (for formatting tasks)
-- LLVM tools (for coverage)
+- C++26-capable compiler (clang-cl)
+- xmake build tool
+- Boost libraries (via xmake package manager)
+- FFmpeg and FFprobe available on PATH (or via `--ffmpeg-install-dir`)
+- clang-format (optional, for `xmake format`)
+- LLVM tools (optional, for `xmake coverage`)
 
 **Production:**
-- Windows (primary target, syslinks `dbghelp` for stack traces)
-- Linux/macOS supported (conditional code with `dl` syslinks and POSIX signals)
-- FFmpeg/FFprobe installed and on PATH or specified via `--ffmpeg-path`
+- Native Windows binary (linked to `dbghelp` for crash stacktrace resolution)
+- Cross-platform compatible (Linux/macOS use `dl` system lib instead of `dbghelp`)
+- FFmpeg and FFprobe must be installed on target system
 
 ---
 
-*Stack analysis: 2026-04-26*
+*Stack analysis: 2026-04-28*
