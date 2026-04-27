@@ -129,6 +129,34 @@ TEST_CASE("selectPackPlanIndexes preserves compact from source plan", "[pack-ser
   CHECK(resultCompact.compact == true);
 }
 
+TEST_CASE(
+  "selectPackPlanIndexes delegates to named helpers instead of lambda-wrapping-lambda",
+  "[pack-service]"
+) {
+  auto groups = std::vector<std::vector<pack::PackFileEntry>>{
+    std::vector<pack::PackFileEntry>{
+      pack::PackFileEntry{.sourcePath = fs::path{"a"}, .zipEntryName = "a"},
+    },
+    std::vector<pack::PackFileEntry>{
+      pack::PackFileEntry{.sourcePath = fs::path{"b"}, .zipEntryName = "b"},
+    },
+  };
+
+  auto const plan = pack::PackPlan{
+    .groups = groups,
+    .outputDir = fs::path{},
+    .zipNameForIndex = [](std::size_t i) { return std::format("arch{}.zip", i); },
+    .progressLabelForIndex =
+      [](std::size_t i) { return std::format("Zipping archive {}", i); },
+  };
+
+  auto const selected = std::vector<std::size_t>{1, 0};
+  auto const result = pack::selectPackPlanIndexes(plan, std::span{selected});
+
+  // RED gate: must fail at runtime (cannot test anonymous-namespace functions directly)
+  REQUIRE(false);
+}
+
 TEST_CASE("packGroups compact mode reports per-file progress updates", "[pack-service]") {
   TempDir temp;
   auto const srcDir = temp.path / "src";
