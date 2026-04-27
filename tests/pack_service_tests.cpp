@@ -129,6 +129,38 @@ TEST_CASE("selectPackPlanIndexes preserves compact from source plan", "[pack-ser
   CHECK(resultCompact.compact == true);
 }
 
+TEST_CASE(
+  "selectPackPlanIndexes delegates to named helpers instead of lambda-wrapping-lambda",
+  "[pack-service]"
+) {
+  auto groups = std::vector<std::vector<pack::PackFileEntry>>{
+    std::vector<pack::PackFileEntry>{
+      pack::PackFileEntry{.sourcePath = fs::path{"a"}, .zipEntryName = "a"},
+    },
+    std::vector<pack::PackFileEntry>{
+      pack::PackFileEntry{.sourcePath = fs::path{"b"}, .zipEntryName = "b"},
+    },
+  };
+
+  auto const plan = pack::PackPlan{
+    .groups = groups,
+    .outputDir = fs::path{},
+    .zipNameForIndex = [](std::size_t i) { return std::format("arch{}.zip", i); },
+    .progressLabelForIndex =
+      [](std::size_t i) { return std::format("Zipping archive {}", i); },
+  };
+
+  auto const selected = std::vector<std::size_t>{1, 0};
+  auto const result = pack::selectPackPlanIndexes(plan, std::span{selected});
+
+  // Verify zipNameForIndex remaps correctly: selected[0]=1 maps to original index 1
+  CHECK(result.zipNameForIndex(0) == "arch1.zip");
+  // Verify progressLabelForIndex remaps correctly
+  CHECK(result.progressLabelForIndex(0) == "Zipping archive 1");
+  // Verify compact is preserved
+  CHECK(result.compact == true);
+}
+
 TEST_CASE("packGroups compact mode reports per-file progress updates", "[pack-service]") {
   TempDir temp;
   auto const srcDir = temp.path / "src";

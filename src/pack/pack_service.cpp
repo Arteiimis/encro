@@ -44,6 +44,27 @@ auto formatCompactPackedStatus(std::size_t archiveIndex, std::size_t archiveCoun
   return std::format("Packed: archive {}/{} complete", archiveIndex, archiveCount);
 }
 
+auto makeSubsetZipNameResolver(
+  std::function<std::string(std::size_t)> const& originalResolver,
+  std::shared_ptr<std::vector<std::size_t>> const& selectedIndexes
+) -> std::function<std::string(std::size_t)> {
+  return [originalResolver, selectedIndexes](std::size_t subsetIndex) -> std::string {
+    auto const actualIndex = selectedIndexes->at(subsetIndex);
+    return originalResolver ? originalResolver(actualIndex)
+                            : defaultZipNameForIndex(actualIndex);
+  };
+}
+
+auto makeSubsetProgressLabelResolver(
+  std::function<std::string(std::size_t)> const& originalResolver,
+  std::shared_ptr<std::vector<std::size_t>> const& selectedIndexes
+) -> std::function<std::string(std::size_t)> {
+  if (!originalResolver) { return {}; }
+  return [originalResolver, selectedIndexes](std::size_t subsetIndex) -> std::string {
+    return originalResolver(selectedIndexes->at(subsetIndex));
+  };
+}
+
 }  // namespace
 
 template<class Group>
@@ -126,19 +147,9 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
   return PackPlan{
     .groups = std::move(filteredGroups),
     .outputDir = plan.outputDir,
-    .zipNameForIndex =
-      [base = plan.zipNameForIndex, selectedIndexes](std::size_t subsetIndex) {
-        auto const actualIndex = selectedIndexes->at(subsetIndex);
-        return base ? base(actualIndex) : defaultZipNameForIndex(actualIndex);
-      },
-    .progressLabelForIndex =  //
-    plan.progressLabelForIndex
-      ? std::function<std::string(std::size_t)>{ //
-        [base = plan.progressLabelForIndex, selectedIndexes](std::size_t subsetIndex) {
-          return base(selectedIndexes->at(subsetIndex));
-        }
-      }
-      : std::function<std::string(std::size_t)>{},
+    .zipNameForIndex = makeSubsetZipNameResolver(plan.zipNameForIndex, selectedIndexes),
+    .progressLabelForIndex =
+      makeSubsetProgressLabelResolver(plan.progressLabelForIndex, selectedIndexes),
     .onGroupStart = {},
     .onGroupSuccess = {},
     .onGroupFailure = {},

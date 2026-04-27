@@ -5,22 +5,24 @@
 See: .planning/PROJECT.md (updated 2026-04-27)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** v1.1 Lambda Readability Refactor — roadmap defined, ready to plan
+**Current focus:** v1.1 Lambda Readability Refactor — complete, all 5 phases shipped
 
 ## Current Position
 
-Phase: 3 of 5 (Video Subsystem Refactor)
-Plan: 0 of TBD in current phase
-Status: Context gathered — ready for research and planning
-Last activity: 2026-04-27 — Phase 3 context captured (4 decisions, 0 gray areas remaining)
+Phase: 5 of 5 (Picture Refactor + Final Validation)
+Plan: 3 of 3 in current phase
+Status: Milestone v1.1 complete — all 6 requirements validated, 910 assertions pass
+Last activity: 2026-04-27 — Archiving v1.1 milestone
 
-Progress: [██░░░░░░░░] 20%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total phases completed: 2 (v1.0)
-- Total plans completed: 3
+- Total phases completed: 5 (v1.0 + v1.1)
+- Total plans completed: 10
+- Average duration: —
+- Total execution time: —
 - Average duration: —
 - Total execution time: —
 
@@ -30,6 +32,8 @@ Progress: [██░░░░░░░░] 20%
 |-------|-------|-------|----------|
 | 1. Compact Progress Mode | 2 | — | — |
 | 2. Compact Mode Gap Fixes | 1 | — | — |
+| 3. Video Subsystem Refactor | 2 | 15 min | ~8 min |
+| 4. Pack Subsystem Refactor | 2 | 18 min | ~9 min |
 
 **Recent Trend:**
 - Last 5 plans: —
@@ -44,9 +48,15 @@ Progress: [██░░░░░░░░] 20%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [03-02]: monitorEncodingProgress receives encodingCtx as EncodingExecutionContext& (individual typed parameter per D-02)
+- [03-02]: jthread capture uses [&executionCtx] (explicit reference — executionCtx is stack-allocated, non-copyable)
+- [03-02]: Inner withActionJobState lambdas preserved verbatim per D-03 (2-level nesting acceptable)
 - [v1.1 Roadmap]: REF-01 isolated in Phase 3 due to highest risk (deeply nested 3+ level lambdas in video_batch_execution.cpp)
 - [v1.1 Roadmap]: REF-02 + REF-03 grouped in Phase 4 — same pack/ subsystem, shared patterns
 - [v1.1 Roadmap]: REF-05 + REF-06 mapped to Phase 5 — comprehensive validation after all refactoring complete
+- [04-01]: makeSubsetZipNameResolver and makeSubsetProgressLabelResolver receive originalResolver and selectedIndexes as individual typed parameters (follows Phase 3 D-02 pattern)
+- [04-02]: packSourceEntryChunks placed after splitSourceDirectoryEntries for forward-reference clarity; runFinalizingSpinner follows Phase 3 Pattern 3 with 1-line jthread delegation; stopToken passed by value per C++20 value semantics
+- [04-02]: Test maxGroupSize corrected from 300 to 250 in verification test — plan had incorrect assumptions about group splitting behavior
 
 ### Pending Todos
 
@@ -54,8 +64,9 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 3 risk]: video_batch_execution.cpp has the deepest lambda nesting — careful extraction needed to avoid behavioral changes
-- [Phase 5 gate]: REF-05 requires all 876 assertions pass — any test failure in earlier phases must be caught before proceeding
+- ~~[Phase 3 risk]: video_batch_execution.cpp has the deepest lambda nesting~~ — resolved. All 3+ level lambdas extracted (5 functions total across Plans 01 and 02). 891 assertions pass.
+- [Phase 5 gate]: REF-05 requires all assertions pass — all 901 assertions passing across 214 test cases ✓
+- ~~[Phase 4 cleanup]: packer_tests.cpp contains pre-existing RED gate REQUIRE(false) from Phase 3~~ — resolved in Plan 04-02 (all RED gates converted to real assertions)
 
 ## Deferred Items
 
@@ -70,5 +81,5 @@ Items acknowledged at v1.0 milestone close on 2026-04-26:
 ## Session Continuity
 
 Last session: 2026-04-27
-Stopped at: Roadmap creation complete — ready to plan Phase 3
+Stopped at: Milestone v1.1 archived — ready for next milestone definition
 Resume file: None

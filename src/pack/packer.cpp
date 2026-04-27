@@ -205,6 +205,38 @@ auto splitSourceDirectoryEntries(
   return chunks;
 }
 
+auto packSourceEntryChunks(
+  std::vector<PreparedPackEntry> const& entries,
+  std::uintmax_t maxGroupSize,
+  std::optional<std::size_t> maxFilesPerGroup,
+  std::vector<pack::PackFileEntry>& currentGroup,
+  std::uintmax_t& currentSize,
+  std::size_t& currentCount,
+  std::vector<std::vector<pack::PackFileEntry>>& groupedEntries
+) -> void {
+  auto const sourceChunks =
+    splitSourceDirectoryEntries(entries, maxGroupSize, maxFilesPerGroup);
+  for (auto const& chunk: sourceChunks) {
+    if (
+      !currentGroup.empty()
+      && wouldExceedGroupLimits(
+        currentSize,
+        currentCount,
+        chunk.totalSize,
+        chunk.fileCount,
+        maxGroupSize,
+        maxFilesPerGroup
+      )
+    ) {
+      flushGroupedEntries(currentGroup, currentSize, currentCount, groupedEntries);
+    }
+
+    currentGroup.insert(currentGroup.end(), chunk.entries.begin(), chunk.entries.end());
+    currentSize += chunk.totalSize;
+    currentCount += chunk.fileCount;
+  }
+}
+
 auto buildPackEntryStableKey(pack::PackFileEntry const& entry) -> std::string {
   return std::format(
     "{}|{}",
@@ -248,35 +280,19 @@ auto groupPreparedEntries(
   auto currentSourceEntries = std::vector<PreparedPackEntry>{};
   auto currentSourceKey = std::string{};
 
-  auto packSourceEntries = [&](std::vector<PreparedPackEntry> const& entries) {
-    auto const sourceChunks =
-      splitSourceDirectoryEntries(entries, maxGroupSize, maxFilesPerGroup);
-    for (auto const& chunk: sourceChunks) {
-      if (
-        !currentGroup.empty()
-        && wouldExceedGroupLimits(
-          currentSize,
-          currentCount,
-          chunk.totalSize,
-          chunk.fileCount,
-          maxGroupSize,
-          maxFilesPerGroup
-        )
-      ) {
-        flushGroupedEntries(currentGroup, currentSize, currentCount, groupedEntries);
-      }
-
-      currentGroup.insert(currentGroup.end(), chunk.entries.begin(), chunk.entries.end());
-      currentSize += chunk.totalSize;
-      currentCount += chunk.fileCount;
-    }
-  };
-
   for (auto const& entry: preparedEntries) {
     if (currentSourceEntries.empty()) {
       currentSourceKey = entry.sourceKey;
     } else if (entry.sourceKey != currentSourceKey) {
-      packSourceEntries(currentSourceEntries);
+      packSourceEntryChunks(
+        currentSourceEntries,
+        maxGroupSize,
+        maxFilesPerGroup,
+        currentGroup,
+        currentSize,
+        currentCount,
+        groupedEntries
+      );
       currentSourceEntries.clear();
       currentSourceKey = entry.sourceKey;
     }
@@ -284,7 +300,15 @@ auto groupPreparedEntries(
     currentSourceEntries.emplace_back(entry);
   }
 
-  packSourceEntries(currentSourceEntries);
+  packSourceEntryChunks(
+    currentSourceEntries,
+    maxGroupSize,
+    maxFilesPerGroup,
+    currentGroup,
+    currentSize,
+    currentCount,
+    groupedEntries
+  );
   flushGroupedEntries(currentGroup, currentSize, currentCount, groupedEntries);
 
   return groupedEntries;
@@ -306,6 +330,26 @@ auto sourcePathGroups(std::vector<std::vector<pack::PackFileEntry>> const& group
     groupedPaths.push_back(sourcePathsForGroup(group));
   }
   return groupedPaths;
+}
+
+auto runFinalizingSpinner(
+  progress::ProgressContext& progressCtx,
+  std::size_t progressBarIndex,
+  std::string_view progressText,
+  std::atomic<bool>& finalizing,
+  std::stop_token stopToken
+) -> void {
+  using namespace std::chrono_literals;
+  auto const frames = std::array{'|', '/', '-', '\\'};
+  auto frameIndex = std::size_t{0};
+  while (!stopToken.stop_requested() && finalizing.load(std::memory_order_acquire)) {
+    progressCtx.setPostfixText(
+      progressBarIndex,
+      std::format("{} | Finalizing {}", progressText, frames[frameIndex])
+    );
+    frameIndex = (frameIndex + 1) % frames.size();
+    std::this_thread::sleep_for(120ms);
+  }
 }
 
 }  // namespace
@@ -368,17 +412,13 @@ auto packFilesToZip(
 
   std::atomic<bool> finalizing{true};
   auto spinnerThread = std::jthread([&](std::stop_token stopToken) {
-    using namespace std::chrono_literals;
-    auto const frames = std::array{'|', '/', '-', '\\'};
-    auto frameIndex = std::size_t{0};
-    while (!stopToken.stop_requested() && finalizing.load(std::memory_order_acquire)) {
-      progressCtx.setPostfixText(
-        progressBarIndex,
-        std::format("{} | Finalizing {}", progressText, frames[frameIndex])
-      );
-      frameIndex = (frameIndex + 1) % frames.size();
-      std::this_thread::sleep_for(120ms);
-    }
+    runFinalizingSpinner(
+      progressCtx,
+      progressBarIndex,
+      progressText,
+      finalizing,
+      stopToken
+    );
   });
 
   zip.close();

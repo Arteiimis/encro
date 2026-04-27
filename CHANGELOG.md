@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-27
+
+### Changed
+
+- Packing in compact progress mode reports its own progress and status instead of going silent until it finishes.
+
 ## [1.0.0] - 2026-04-26
 
 ### Added
@@ -82,7 +88,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v1.0.0...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Arteiimis/encro/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Arteiimis/encro/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/Arteiimis/encro/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Arteiimis/encro/compare/v0.2.0...v0.3.0
