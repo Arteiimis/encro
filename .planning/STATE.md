@@ -1,27 +1,27 @@
 # STATE.md
 
-## Current State
+## Current Position
 
-**Status:** ✅ v1.0 Complete — Planning next milestone
-**Last Activity:** 2026-04-26 — v1.0 milestone archived and tagged
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-27 — Milestone v1.1 Lambda Readability Refactor started
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-04-26)
+See: `.planning/PROJECT.md` (updated 2026-04-27)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** Planning next milestone (`/gsd-new-milestone`)
+**Current focus:** v1.1 Lambda Readability Refactor — defining requirements
 
 ## Phase Tracking
 
-| Phase                          | Plans | Status   | Completed  |
-| ------------------------------ | ----- | -------- | ---------- |
-| 1. Compact Progress Mode       | 2/2   | Complete | 2026-04-26 |
-| 2. Compact Mode Gap Fixes      | 1/1   | Complete | 2026-04-26 |
+(Phases will be defined during roadmap creation)
 
 ## Milestones
 
 - ✅ **v1.0 Compact Progress Mode** — shipped 2026-04-26 (2 phases, 3 plans, 5 tasks)
+- ◆ **v1.1 Lambda Readability Refactor** — planning (2026-04-27)
 
 ## Deferred Items
 
