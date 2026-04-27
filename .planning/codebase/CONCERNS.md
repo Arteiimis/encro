@@ -1,374 +1,176 @@
----
-focus: concerns
-last_mapped_commit: 919b0cea076d2821618c3febf54f72285880cd4c
-mapped_at: 2026-04-26
----
-
 # Codebase Concerns
 
-**Analysis Date:** 2026-04-26
+**Analysis Date:** 2026-04-28
 
 ## Tech Debt
 
-### Command Injection Risk via File Paths in ffmpeg Command Strings
-
-**Issue:** Both `EncodeConfig::buildCMD()` (`src/video/encode_config.h:81-109`) and `ImageCompressConfig::buildCMD()` (`src/picture/picture_compress.cpp:27-34`) construct ffmpeg command strings by wrapping file paths in double quotes. If a file path itself contains a double-quote character, the quoting breaks and allows arbitrary command injection.
-
-**Files:**
-- `src/video/encode_config.h:81-109`
-- `src/picture/picture_compress.cpp:27-34`
-
-**Impact:** A maliciously crafted file path containing `"` characters could escape the quoting and inject arbitrary commands into the ffmpeg invocation. Any user or automated process that controls file names on disk can potentially escalate to command execution.
-
-**Fix approach:** Switch to argument-list-based subprocess invocation (pass each arg as a separate string to `boost::process::v1` rather than building a monolithic command string). Alternatively, validate file paths to reject characters with shell significance and escape file paths properly.
-
-### ffmpeg Executable Path Not Quoted in Command Strings
-
-**Issue:** In both `EncodeConfig::buildCMD()` (line 82: `cmd = std::string{ffmpegPath.value().string()}`) and `ImageCompressConfig::buildCMD()` (line 28: same pattern), the ffmpeg executable path is inserted into the command string without double-quote wrapping. File paths are quoted but the executable itself is not.
-
-**Files:**
-- `src/video/encode_config.h:82`
-- `src/picture/picture_compress.cpp:28`
-
-**Impact:** If ffmpeg is installed at a path containing spaces (common on Windows, e.g., `Program Files`), the subprocess invocation will fail because the path will be treated as multiple arguments.
-
-**Fix approach:** Quote the ffmpeg path with `std::format("\"{}\"", ffmpegPath.value().string())` or switch to argument-list-based subprocess invocation.
-
-### Bare Executable Name Resolution on System PATH
-
-**Issue:** When ffmpeg is found on the system PATH (no custom install directory), `findFFmpeg()` returns `fs::path{"ffmpeg"}` -- a bare executable name with no directory prefix (`src/utils/utils.cpp:340`). `findFFprobe()` does the same (`src/utils/utils.cpp:319`). Subprocess execution then relies on PATH-based resolution at runtime.
-
-**Files:**
-- `src/utils/utils.cpp:319, 340`
-
-**Impact:** PATH hijacking risk -- a malicious `ffmpeg.exe` or `ffprobe.exe` placed earlier in PATH would be executed instead of the intended tool. This is especially relevant on shared systems or when running from untrusted directories.
-
-**Fix approach:** Resolve the full absolute path of ffmpeg/ffprobe using `boost::process::search_path()` and store the resolved absolute path in `ToolchainPaths`.
-
-### Inconsistent Error Handling: throw vs eh::Result
-
-**Issue:** The codebase uses `eh::Result<T>` (a `std::expected<T, std::string>` wrapper) consistently for error propagation. However, `EncodeConfig::buildOutputFileName()` (line 49), `buildOutputPath()` (line 71), and `buildCMD()` (line 86) all throw `std::runtime_error` when `inputPath` is missing, bypassing the project convention.
-
-**Files:**
-- `src/video/encode_config.h:49, 71, 86`
-
-**Impact:** Callers that handle only `eh::Result` errors will not catch these exceptions, potentially crashing. If an `EncodeConfig` is partially initialized and reaches these methods, the throw propagates without structured error context.
-
-**Fix approach:** Return `eh::makeError(...)` instead of throwing. Make these methods return `eh::Result<std::string>` and `eh::Result<fs::path>` respectively.
-
-### Pre-Commit Hook Hardcoded Absolute Path
-
-**Issue:** The pre-commit hook (`.githooks/pre-commit:4`) contains a hardcoded absolute path: `style_file='D:/clangformat/.clang-format'`. This path only exists on the original developer's machine.
-
-**File:** `.githooks/pre-commit:4`
-
-**Impact:** The pre-commit hook fails for any other developer, blocking commits until they manually edit or bypass the hook.
-
-**Fix approach:** Use a project-relative path (e.g., `.clang-format` in the repo root) or detect via an environment variable with a fallback default.
-
-### Large Files with Mixed Responsibilities
-
-**Issue:** Three files exceed 500 lines and were identified as growth risks in `plans/CODE_REUSE_OPTIMIZATION_PLAN.md` Phase 6:
-- `src/pack/packer.cpp` (747 lines): Entry preparation, zip writing, directory scanning, group planning, orchestration.
-- `src/video/video_batch_execution.cpp` (753 lines): Monitor thread, progress tracking, slot management, state finalization, encoding task creation.
-- `src/core/job_state.cpp` (654 lines): Task records, serialization, config snapshots, state file management, utility functions.
-
-**Files:**
-- `src/pack/packer.cpp` (747 lines)
-- `src/video/video_batch_execution.cpp` (753 lines)
-- `src/core/job_state.cpp` (654 lines)
-
-**Impact:** High cognitive load. Changes to one concern risk touching another. New contributors tend to add logic to existing large files rather than creating focused modules.
-
-**Fix approach:** Monitor line counts. When a file accumulates a new responsibility (not just more of the same concern), extract it. Apply the Phase 6 guard rail: "The largest files stop acting as catch-all locations for new logic."
-
-### Potential Data Loss Window in Job State Persistence
-
-**Issue:** `src/core/job_state.cpp:23` defines `kFlushIntervalMs = 2000` -- the job state file is flushed to disk at most every 2 seconds. On crash or forced termination, up to 2 seconds of task progress and stage transitions can be lost.
-
-**Files:** `src/core/job_state.cpp:23`
-
-**Impact:** After a crash, the resume feature may miss completed tasks or repeat work that was finished but not flushed.
-
-**Fix approach:** Reduce the flush interval, or add opportunistic flushing on critical state transitions (task completion, stage change).
-
-### C++26 Language Standard Usage
-
-**Issue:** `xmake.lua:6` specifies `set_languages("c++26")`. The C++26 standard has not yet been finalized as of April 2026. The codebase uses C++20 features (`std::format`, structured bindings) that work on C++20.
-
-**Files:** `xmake.lua:6`
-
-**Impact:** Potential compiler bugs with draft-standard features. Limits portability to compilers with C++26 front-end support (primarily Clang 19+).
-
-**Fix approach:** Consider downgrading to `c++23` or `c++20` which provide all features the codebase currently uses.
-
-### UTF-8 Path Conversion May Be Lossy
-
-**Issue:** `displaytext::pathToUtf8String()` (`src/core/display_text.h:78-84`) converts `fs::path::u8string()` (returning `std::u8string` of `char8_t`) to `std::string` by casting each `char8_t` to `char`. On platforms where `char` is signed, this can produce negative byte values for non-ASCII characters.
-
-**File:** `src/core/display_text.h:78-84`
-
-**Impact:** File names with non-ASCII characters may display incorrectly in progress bars and status messages.
-
-**Fix approach:** Use `reinterpret_cast<const char*>(utf8.data())` with `utf8.size()` or use `path.string()` directly where the platform encoding is UTF-8.
-
-### Perf Plan Phase 3-5,7 Not Yet Implemented
-
-**Issue:** The `plans/VIDEO_ENCODE_PERF_OPTIMIZATION_PLAN.md` documents 7 optimization phases. Phases 0, 1, 2, 6 are marked complete with `[x]`. Phases 3 (monitor poll interval), 4 (merge critical sections), 5 (WebP starting quality heuristic), and 7 (immer::map to unordered_map) have no completion markers -- suggesting they were planned but either not executed or not documented as complete.
-
-**Areas:**
-- Phase 3: Monitor polling still at 20ms (`src/video/video_batch_execution.cpp:339`)
-- Phase 5: WebP quality starts at 80 regardless of input size (`src/video/video_encode_runner.cpp:201`)
-- Phase 7: `runEncodingWithoutProgress()` still uses `immer::map` in sequential loop (`src/video/video_batch_execution.cpp`)
-
-**Impact:** These are known, documented performance opportunities that remain unaddressed in the current codebase.
-
-## Known Bugs
-
-### E2e Test Build Failure (Pre-Existing)
-
-**Symptoms:** `xmake build e2e_tests` fails with a missing include path. Documented in `plans/VIDEO_ENCODE_PERF_OPTIMIZATION_PLAN.md:78` as "pre-existing build error (missing `infra/stop_signal.h` in e2e `test_utils.h` include path)."
-
-**Files:**
-- `tests/e2e/e2e_test_utils.h`
-- `tests/e2e/e2e_test_utils.cpp`
-
-**Trigger:** Running `xmake build e2e_tests`.
-
-**Workaround:** None -- the e2e tests cannot be built.
-
-**Fix approach:** Add `src` to the include directories for the `e2e_tests` target in `xmake.lua:83` (currently only `tests` is included; the `tests` target at line 69 correctly includes `src`).
-
-### Directory Iterators Without Error Codes in Packer
-
-**Issue:** `buildDirectoryPackPlan()` in `src/pack/packer.cpp:682-691` uses `fs::recursive_directory_iterator` without an `error_code` parameter. Permission-denied directories will cause an exception that propagates uncaught.
-
-**File:** `src/pack/packer.cpp:682-691`
-
-**Trigger:** Scanning a directory tree containing inaccessible subdirectories in pack-only mode.
-
-**Workaround:** Ensure all files in the scanned directory tree are accessible.
-
-**Fix approach:** Use `fs::directory_options::skip_permission_denied` and pass a `std::error_code` to the iterator constructor, matching the pattern in `media_scanner.cpp:34`.
-
-### `inputSize()` Uses `file_size` Without Checking Error Code
-
-**Issue:** `job_state.cpp:50` calls `fs::file_size(path, ec)` (the non-throwing overload) but does not check `ec` before using the return value. On failure, the function returns `static_cast<uintmax_t>(-1)` which is used as a valid size.
-
-**File:** `src/core/job_state.cpp:50`
-
-**Impact:** Corrupted or inaccessible files could yield `UINTMAX_MAX` as the size in the job state snapshot, causing incorrect pack grouping.
-
-**Fix approach:** Check `ec` after the `file_size` call: `if (ec) { return std::nullopt; }`.
+### Implicit `.compact` Default in Compress-Picture Pack Path
+- Issue: The compress-picture path in `picture_process.cpp:474-482` constructs a `PackPlan` without explicitly setting `.compact`. It relies on the struct default `bool compact = true` in `pack_service.h:48`. While functionally correct (compact mode IS the desired default), if someone changes the struct default, this code path would silently change behavior. The `buildPicturePackPlan` function at `picture_process.cpp:606-616` DOES explicitly set `.compact = true`, making this the lone remaining implicit default.
+- Files: `src/picture/picture_process.cpp` line 474, `src/pack/pack_service.h` line 48
+- Impact: Silent regression risk if `PackPlan::compact` default changes. Low risk today, but inconsistent with all other PackPlan construction sites.
+- Fix approach: Add `.compact = true` to the designated initializer at `picture_process.cpp:474`. One-line addition.
+
+### Duplicate Test Case in pack_service_tests.cpp
+- Issue: The test case `"selectPackPlanIndexes preserves compact from source plan"` appears at `tests/pack_service_tests.cpp:98`. The v1.0 milestone audit flagged a duplicate at lines 131-168. Verify whether the duplicate still exists.
+- Files: `tests/pack_service_tests.cpp`
+- Impact: Redundant test execution, minor maintenance burden. No behavioral impact.
+- Fix approach: Grep for all occurrences of `"selectPackPlanIndexes preserves compact"` in the test file. If duplicate found, remove the later copy and keep the one with the most comprehensive assertions.
+
+### Pre-Commit Hook Hardcodes Machine-Specific Path
+- Issue: The pre-commit hook at `.githooks/pre-commit:4` hardcodes `D:/clangformat/.clang-format` — an absolute Windows path on a specific developer's machine. Fails on any other machine, including CI, Linux, macOS, or other Windows users.
+- Files: `.githooks/pre-commit` line 4
+- Impact: Pre-commit formatting hook is non-functional for all developers except the original author. No automated formatting enforcement in practice.
+- Fix approach: Either add a `.clang-format` file to the repository root and reference it relatively, or make the path configurable via environment variable with a fallback.
+
+### No `.clang-format` Config in Repository
+- Issue: The pre-commit hook references an external clang-format style file, but no `.clang-format` exists in the repository itself. Without this file, developers using editors with auto-formatting may produce inconsistent formatting.
+- Files: Repository root (missing `.clang-format`)
+- Impact: Inconsistent code formatting across contributors. CI cannot enforce formatting.
+- Fix approach: Add a `.clang-format` file to the repository root matching the project's style, then update the pre-commit hook to reference it with a relative path.
+
+### Large Files Deferred for Future Splitting
+- Issue: The CODE_REUSE_OPTIMIZATION_PLAN Phase 6 explicitly deferred splitting `video_batch_execution.cpp` (~700 lines), `packer.cpp` (~727 lines), and `video_process.cpp` (~484 lines), concluding each "is currently centered on one workflow concern." However, `job_state.cpp` (~570 lines) was split into `job_state.cpp` + `job_state_store.cpp` + `job_state_detail.h`. These remaining large files are acknowledged technical debt.
+- Files: `src/video/video_batch_execution.cpp`, `src/pack/packer.cpp`, `src/core/job_state.cpp`, `src/video/video_process.cpp`
+- Impact: Large single files are harder to navigate and review. Growth pressure increases as new features are added.
+- Fix approach: Monitor file growth. When a file exceeds 800 lines or begins mixing additional responsibilities, revisit the Phase 6 split plan.
+
+### No `.env` Protection in `.gitignore`
+- Issue: The `.gitignore` file does not include patterns for `.env`, `.env.*`, or credential files. If such files were ever created locally, they could be accidentally committed.
+- Files: `.gitignore`
+- Impact: Risk of accidentally committing environment files with secrets. Currently low since the project uses `xmake.lua` for build config, not `.env` files.
+- Fix approach: Add `.env*` and `*.secret` patterns to `.gitignore` as a defensive measure.
 
 ## Security Considerations
 
-### Subprocess Command String Injection
+### Command Injection via Unsanitized File Paths
+- Issue: `encode_config.h:buildCMD()` at lines 81-110 constructs ffmpeg shell commands using `std::format(" -i \"{}\"", inputPath->string())`. File paths are wrapped in double quotes but special characters within paths (notably embedded double-quote `"` characters) are not escaped. On Windows, `bp::child(cmd.data(), ...)` in `utils.cpp:46` invokes the command interpreter (cmd.exe), which processes quotes and metacharacters. A specially crafted filename like `video" && malicious.exe && echo "test.mp4` could escape the quoting and execute arbitrary commands.
+- Files: `src/video/encode_config.h` line 88, `src/video/video_info.cpp` line 294, `src/utils/utils.cpp` lines 46-47
+- Current mitigation: Input paths come from local filesystem scanning (`media_scanner.cpp`) or CLI arguments, reducing but not eliminating the risk. Users control directory contents and CLI paths.
+- Recommendations:
+  1. Use `boost::process::child` with argument vector (e.g., `bp::child(ffmpegPath, args...)`) instead of shell command strings, which avoids the shell entirely.
+  2. Alternatively, sanitize file paths by rejecting or escaping characters meaningful to the target shell (`"`, `&`, `|`, `;`, `%`, `^` on Windows).
+  3. Validate input paths against a whitelist of allowed characters before passing to shell commands.
 
-**Risk:** `buildCMD()` methods construct shell command strings via string concatenation. On POSIX platforms, `boost::process::v1::child` may parse the command through `/bin/sh` when given a single string. File paths are double-quoted but this is insufficient against paths containing `"` characters.
+### Unvalidated External Binary Resolution
+- Issue: `findFFprobe()` at `utils.cpp:317` and `findFFmpeg()` at `utils.cpp:338` search PATH or a user-supplied install directory for the `ffprobe`/`ffmpeg` executables. If PATH is compromised (e.g., a malicious directory prepended), a trojaned binary could be executed with the application's privileges.
+- Files: `src/utils/utils.cpp` lines 315-355, `src/infra/toolchain.cpp` lines 11-19
+- Current mitigation: User specifies `--ffmpeg-path` for explicit control. System PATH fallback is a convenience feature.
+- Recommendations:
+  1. Log the resolved binary path at startup (already done at `toolchain.cpp:25-26`).
+  2. Optionally validate the resolved binary via version string check or checksum.
+  3. Consider warning when falling back to PATH-discovered binaries.
 
-**Files:**
-- `src/video/encode_config.h:81-109`
-- `src/picture/picture_compress.cpp:27-34`
-- `src/utils/utils.cpp:27-168` (subprocess execution)
-
-**Current mitigation:** Double-quoting of file paths; `CreateProcess` on Windows avoids shell interpretation.
-
-**Recommendations:**
-1. Switch to argument-vector subprocess invocation: `bp::child(exe, arg1, arg2, ...)`
-2. Validate file paths to reject shell-metacharacter characters (`"`, `$`, backtick, `;`, `|`, `&`)
-3. Resolve executable paths to absolute form and validate they reside in expected directories
-
-### PATH Injection for FFmpeg Discovery
-
-**Risk:** `findFFmpeg()` and `findFFprobe()` discover binaries via bare name execution (`exec2("ffmpeg -version")`), which resolves from PATH. A PATH-controlled attacker can substitute a malicious binary.
-
-**Files:** `src/utils/utils.cpp:338,317`
-
-**Current mitigation:** Users can specify `--ffmpeg-install-dir` to avoid PATH entirely. Default behavior falls back to PATH.
-
-**Recommendations:** Resolve the absolute path of the found binary using `boost::process::search_path()` and store in `ToolchainPaths`. Never pass unqualified binary names to `buildCMD()`.
-
-### Global Detached Thread in Stop-Signal Handler
-
-**Issue:** `stop_signal.cpp:39-54` detaches a watchdog thread that runs indefinitely and can only exit via `::ExitProcess`. If a future change prevents `ExitProcess`, the thread leaks silently.
-
-**Files:** `src/infra/stop_signal.cpp:39-54`
-
-**Current mitigation:** The thread terminates only via `ExitProcess`, which the signal handler guarantees will be called. This is currently safe but fragile.
-
-**Recommendations:** Store the watchdog `std::jthread` in a global variable so it can be explicitly joined during graceful shutdown.
-
-### Environment Variable Reading Without Sanitization
-
-**Issue:** Multiple modules read environment variables (`LOCALAPPDATA`, `APPDATA`, `HOME`, `COLUMNS`) and use values directly for filesystem operations. No validation against path traversal is performed.
-
-**Files:** `src/app/prelude.cpp:43-50`, `src/infra/terminal.cpp:41-56`, `src/infra/console_width.cpp:20-39`
-
-**Current mitigation:** Paths are appended with `/encro/logs`, so `..` traversal from the env var is partially mitigated.
-
-**Recommendations:** Validate that resolved environment variable paths are absolute and do not contain `..` components.
+### Error Information Leakage in Output
+- Issue: Error messages include full file paths (`encode_config.h:26`), command strings (`utils.cpp:40`), and internal state details. While useful for debugging, this may leak filesystem structure information to log consumers.
+- Files: `src/video/encode_config.h` line 26, `src/utils/utils.cpp` line 40, `src/video/video_batch_execution.cpp` lines 343-345
+- Risk: Low — CLI tool for local use, not a network service. Logs are local.
+- Recommendations: Ensure verbose logging (`--verbose-echo`) is opt-in and off by default. Maintain current practice of using `spdlog::debug` for sensitive details and `spdlog::info` for user-facing messages.
 
 ## Performance Bottlenecks
 
-### Monitor Loop Polls at 50 Hz (20ms)
+### Monitor Poll Loop Still at 50 Hz
+- Issue: The encoding progress monitor loop in `video_batch_execution.cpp:512` polls at `sleep_for(20ms)` (50 Hz). The VIDEO_ENCODE_PERF_OPTIMIZATION_PLAN Phase 3 recommended changing to 100ms (10 Hz) for a 5× reduction in CPU usage with no visible impact on terminal rendering. This phase was planned but never implemented.
+- Files: `src/video/video_batch_execution.cpp` line 512
+- Cause: The 20ms interval was the original design. Phase 3 (adjust monitor poll interval) of the performance optimization plan was documented but skipped.
+- Improvement path: Change `sleep_for(20ms)` to `sleep_for(100ms)` at line 512. Optionally implement adaptive polling (50ms for first 5s, 200ms thereafter).
 
-**Problem:** `startEncodingMonitor()` in `src/video/video_batch_execution.cpp` polls at 20ms intervals (50 Hz). Terminal progress bars need only ~10 Hz for smooth visual updates. This wastes CPU.
+### Unimplemented Performance Optimization Phases
+- Issue: The VIDEO_ENCODE_PERF_OPTIMIZATION_PLAN documents 7 phases; only Phases 1-2 (totalFrames caching, lastProgressAtomic) were implemented. Phases 3-7 remain as planned but unimplemented:
+  - **Phase 3**: Monitor poll interval adjustment (see above)
+  - **Phase 4**: `finalizeState()` critical section merging — partially done (currently single lock at `video_batch_execution.cpp:303-322`)
+  - **Phase 5**: WebP starting quality heuristic — `encodeWebpWithTargetSize()` at `video_encode_runner.cpp:173` always starts at quality 80 regardless of input size
+  - **Phase 6**: Single-owner `progressFilePath` — `prepareEncodeExecution()` at `video_encode_runner.cpp:64-67` has redundant fallback path
+  - **Phase 7**: Sequential path `immer::map` → `std::unordered_map` — `runEncodingWithoutProgress()` still uses persistent tree allocations
+- Files: `src/video/video_batch_execution.cpp`, `src/video/video_encode_runner.cpp`
+- Impact: Unnecessary CPU usage in monitor loop, extra ffmpeg passes for large WebP encodes, minor allocation overhead. Not blocking functionality.
+- Fix approach: Execute remaining phases in order. Phase 3 is lowest risk (one-line change). Phase 5 provides the biggest perf win for WebP users.
 
-**Files:** `src/video/video_batch_execution.cpp` (monitor loop timing)
-
-**Improvement path:** Per Phase 3 of the perf plan: change to 100ms (10 Hz), optionally adaptive (50ms first 5 seconds, 200ms thereafter).
-
-### WebP Adaptive Encoding Always Starts at Quality 80
-
-**Problem:** `encodeWebpWithTargetSize()` always starts at `quality = 80` regardless of input file size. Large files waste 1-3 ffmpeg passes before reaching target size.
-
-**Files:** `src/video/video_encode_runner.cpp:201`
-
-**Improvement path:** Per Phase 5 of the perf plan: read input file size first, start at quality 50 for >100 MB, 40 for >200 MB.
-
-### Sequential Encoding Path Uses `immer::map`
-
-**Problem:** `runEncodingWithoutProgress()` builds results using `immer::map::set()` in a sequential loop, creating a new persistent tree node per insertion.
-
-**Files:** `src/video/video_batch_execution.cpp`
-
-**Improvement path:** Per Phase 7 of the perf plan: accumulate in `std::unordered_map`, convert to `immer::map` at the end.
-
-### `ffprobe` Scans Before Job-State Filtering
-
-**Problem:** `finalizeVideoList()` launches parallel ffprobe on all scanned candidates before checking job-state for already-completed tasks. Some ffprobe work is wasted on resume.
-
-**Files:** `src/video/video_info.cpp` (via orchestration in `video_process.cpp`)
-
-**Improvement path:** Move job-state filtering before ffprobe scanning in the orchestration flow.
+### `immer::map` in Sequential Insertion Path
+- Issue: `runEncodingWithoutProgress()` in `video_batch_execution.cpp` uses `vidsRunRes.set(vidPath, success)` in a tight loop. Each insertion creates a new persistent tree node. The plan Phase 7 proposed replacing with `std::unordered_map` for the loop and converting to `immer::map` at the end.
+- Files: `src/video/video_batch_execution.cpp`
+- Cause: The `EncodeResultsMap` type is `immer::map<fs::path, bool>` optimized for concurrent read access, but the sequential path doesn't need this.
+- Improvement path: Switch to temporary `std::unordered_map` during the sequential loop, convert at return boundary.
 
 ## Fragile Areas
 
-### `EncodeConfig` Validation/Construction Split
+### Compress-Picture Pack Path (Implicit Default)
+- Files: `src/picture/picture_process.cpp` lines 380-484
+- Why fragile: The `PackPlan` at line 474 omits `.compact`, relying on struct default. If `PackPlan::compact` default changes from `true` to `false`, compact progress mode silently breaks for the compress-picture workflow. All other PackPlan construction sites (video process at `video_process.cpp:434`, picture pack-only at `picture_process.cpp:615`, directory pack at `packer.cpp:820`, selectPackPlanIndexes at `pack_service.cpp:160`) explicitly set `.compact`.
+- Safe modification: Add `.compact = true` to line 474's designated initializer. One-line, zero-risk change.
+- Test coverage: Unknown — the compress-picture path may have limited direct test coverage for progress bar behavior.
 
-**Files:** `src/video/encode_config.h`
+### Shell Command Construction in `EncodeConfig::buildCMD()`
+- Files: `src/video/encode_config.h` lines 81-110
+- Why fragile: The function concatenates a shell command string with unsanitized path components. Paths containing spaces, quotes, or special characters could produce invalid commands. The double-quote wrapping provides partial protection but is not comprehensive. Additionally, Windows paths use backslashes, which are escape characters within double quotes in cmd.exe.
+- Safe modification: Convert to argument-vector invocation (`bp::child` with argv) or add proper shell escaping.
+- Test coverage: `tests/video/encode_config_tests.cpp` exists and tests `buildCMD()` output format.
 
-**Why fragile:** All fields are `std::optional`. `validate()` checks consistency but `buildCMD()`, `buildOutputPath()`, and `buildOutputFileName()` will throw (not return `eh::Result`) if `inputPath` is absent. If validation is skipped or config is modified post-validation, the throw propagates without structured error context.
-
-**Safe modification:** Always call `validate()` before any command-building method. Do not add new optional fields without adding corresponding validation.
-
-**Test coverage:** `tests/video/encode_config_tests.cpp` exercises validation; construction error paths are not covered.
-
-### `EncodingState` Manual Mutex Management
-
-**Files:**
-- `src/core/app_context.h:67-86` (struct definition with raw `std::mutex mtx`)
-- `src/video/video_batch_execution.cpp` (all accessors)
-
-**Why fragile:** Every access site must manually acquire `EncodingState::mtx`. No encapsulation enforces locking. The `lastProgressAtomic` field was added as a parallel atomic to avoid mutex contention for progress reads, creating a dual-access protocol (some fields read under mutex, others via atomic). Adding a new field requires auditing every access site.
-
-**Safe modification:** Do not add fields to `EncodingState` without finding all lock and unlock sites. Prefer an accessor method that encapsulates the locking pattern.
-
-**Test coverage:** Thread safety is not directly tested. Orchestration tests exercise happy path only.
-
-### `StopSignal` Global State Leaking Between Tests
-
-**Files:** `src/infra/stop_signal.cpp`, `tests/test_utils.h` (via `ScopedStopSignalReset`)
-
-**Why fragile:** `stopsignal::isStopRequested()` reads a global atomic. The `ScopedStopSignalReset` RAII guard resets it between tests. If a test forgets the guard, stop-signal state can leak between test cases, causing flaky failures in encoding orchestration tests.
-
-**Safe modification:** Always use `ScopedStopSignalReset` in tests that check stop signals. Consider a test fixture that installs this guard automatically.
-
-### `immer::atom` Usage Without Contention Strategy
-
-**Files:**
-- `src/video/video_batch_execution.cpp:70` (`immer::atom<SharedSnapshot>`)
-- `src/core/app_context.h:96-113` (`immer::atom<VideoInfoCacheMap>`)
-
-**Why fragile:** `immer::atom` uses CAS loops internally. Under contention, CAS retry loops degrade performance. Currently low contention (one writer per atom), but adding concurrent writers would change this.
-
-**Safe modification:** Ensure each `immer::atom` has a single writer. Document the writer thread explicitly if adding a second mutation path.
+### E2E Test Build Configuration
+- Files: `tests/e2e/e2e_test_utils.h`, `xmake.lua` lines 52-57, 78-92
+- Why fragile: The VIDEO_ENCODE_PERF_OPTIMIZATION_PLAN noted a "pre-existing build error (missing `infra/stop_signal.h` in e2e `test_utils.h` include path)" on 2026-04-24. The e2e test target at `xmake.lua:78-92` uses `add_deps("encro", "encro_e2e_tool")` which depends on the main binary target and the fake media tool. Configuration churn between these targets may cause build breaks.
+- Safe modification: Verify e2e tests build and pass with `xmake build e2e_tests && xmake run e2e_tests`. Fix include paths if broken.
+- Test coverage: E2E tests cover end-to-end CLI workflows — the highest-value tests for catching integration regressions.
 
 ## Scaling Limits
 
-### No Atomic Zip File Creation
+### Archive Group Size Constants
+- Issue: Archive/zip group size limits are defined as constants (e.g., `kDefaultMaxArchiveGroupSize`, `kMaxPicturesPerPack = 2000` at `picture_process.cpp:440`) with hardcoded values. For extremely large directories with thousands of files, these create many small archive groups.
+- Files: `src/picture/picture_process.cpp` line 440-446, `src/pack/pack_service.cpp`
+- Current capacity: Group size policies handle typical use cases. No known failure reports.
+- Limit: Very large directories (10,000+ files) may produce many archive files, though this is by design.
+- Scaling path: Consider making group size limits configurable via CLI flags for power users.
 
-**Issue:** `libzippp` opens zip files for append. If zip creation fails mid-write, a partial zip file remains on disk and could be mistaken for a valid archive.
-
-**Files:** `src/pack/packer.cpp` (zip operations via `libzippp`)
-
-**Fix approach:** Write zips to a temporary name and rename atomically on success. Remove temp file on failure.
-
-### No Validation on `maxParallelJobs == 0`
-
-**Issue:** `AppConfig::maxParallelJobs` (`src/core/app_context.h:51`) can be set to `0`. This causes `std::thread` constructor failures or an unhandled 0-worker pool.
-
-**Files:** `src/core/app_context.h:51`, `src/core/task_executor.cpp`
-
-**Fix approach:** Validate in `buildConfig` (`src/cmd/config_builder.cpp`) that `maxParallelJobs >= 1`, or clamp at consumption site.
+### Single-Threaded Orchestration Dispatch
+- Issue: The main `app_entry.cpp` → `pipeline.cpp` dispatch path processes one workflow at a time (video, picture, or pack-only). Multi-directory batch processing is not supported in a single invocation.
+- Files: `src/app/pipeline.cpp`, `src/app/app_entry.cpp`
+- Limit: One `--input-path` per invocation. Users with multiple directories must run encro multiple times.
+- Scaling path: Support multiple `--input-path` values with parallel or sequential processing per directory.
 
 ## Dependencies at Risk
 
-### `libzippp` -- Verify Upstream Maintenance
+### Boost Process `v1` Namespace
+- Issue: `utils.cpp:32` explicitly uses `namespace bp = boost::process::v1`. If Boost ever releases `boost::process::v2` and deprecates v1 (as happened with boost::asio), this will require migration.
+- Files: `src/utils/utils.cpp` line 32
+- Impact: Low — Boost Process is stable and widely used. No deprecation announced.
+- Migration plan: Monitor Boost release notes. If v2 ships, evaluate migration cost (likely minimal — the API surface used is small).
 
-**Risk:** `libzippp` wraps `libzip` for C++ convenience. If `libzippp` becomes unmaintained or lags behind `libzip` API changes, the pack workflow needs a replacement.
+### External Formatting Tool Dependency
+- Issue: The pre-commit hook requires `clang-format` to be on PATH. No version pinning or fallback.
+- Files: `.githooks/pre-commit` lines 6-9
+- Impact: Different clang-format versions may produce different formatting, causing churn. Missing clang-format silently blocks commits.
+- Migration plan: Either document the required clang-format version, or add a `.clang-format` file with version requirements, or use a project-local clang-format installation via package manager.
 
-**Migration plan:** Monitor `libzippp` release cadence. If abandoned, migrate to `libzip` C API directly wrapped in internal C++ helpers.
+## Missing Critical Features
 
-### `boost::process::v1` -- API Transition Risk
+### No Structured Logging Output
+- Issue: All logging goes to `spdlog` sinks (console/file). There is no machine-parseable log format (JSON, structured key-value) for monitoring or CI integration.
+- Blocks: Automated performance monitoring, CI log analysis, programmatic progress extraction (beyond terminal output parsing).
 
-**Risk:** The `boost::process::v1` namespace suggests a transitional API. Future Boost releases may remove `v1` in favor of `v2`.
-
-**Impact:** `src/utils/utils.cpp` is the sole subprocess execution layer. If `v1` is removed, the entire encoding pipeline breaks.
-
-**Migration plan:** Monitor Boost.Process release notes. Prepare to migrate to `boost::process::v2` or wrap the process API behind an internal interface.
-
-### `indicators` -- Progress Bar API Instability
-
-**Risk:** `indicators` is actively maintained but has a history of API-breaking changes between minor versions.
-
-**Impact:** Progress bar code in `src/core/progress.cpp` and `src/video/video_batch_execution.cpp` uses `indicators` types directly. An incompatible update requires significant rework.
-
-**Migration plan:** Pin the `indicators` version in xmake. Wrap `indicators` usage behind `progress::ProgressContext` so only one module needs updating.
+### No Installer or Package Distribution
+- Issue: The xmake xpack configuration (`xmake.lua:94-103`) defines packaging targets including `nsis`, `zip`, `tarxz`, but there is no CI pipeline to build and publish these packages. Users must build from source.
+- Files: `xmake.lua` lines 94-103
+- Blocks: Easy distribution to non-developer users. One-click installation.
 
 ## Test Coverage Gaps
 
-### E2e Tests Unbuildable
+### Compress-Picture Path Coverage Uncertain
+- What's not tested: The compress-picture workflow path in `picture_process.cpp` (lines ~380-489) — specifically the PackPlan construction without explicit `.compact`. Unit tests focus on `picture_compress.cpp` and `picture_process.cpp` entry points, but the internal PackPlan construction may not have dedicated assertion coverage for the `.compact` field.
+- Files: `src/picture/picture_process.cpp`, `tests/picture/picture_process_tests.cpp`
+- Risk: Silent `.compact` regression if `PackPlan` struct default changes.
+- Priority: Low
 
-**What's not tested:** Full end-to-end pipeline: subprocess execution, job-state recovery, multi-file orchestration, pack workflows.
+### E2E Tests Potentially Broken
+- What's not tested: End-to-end CLI workflows if the e2e test target fails to build (reported pre-existing build error as of 2026-04-24). The e2e tests cover: default encoding+packing, full-progress mode, pack-only, picture mode. If these can't build, the highest-value integration tests are unavailable.
+- Files: `tests/e2e/encro_e2e_tests.cpp`, `xmake.lua` target `e2e_tests`
+- Risk: Integration regressions go undetected until manual testing.
+- Priority: High
 
-**Files:** `tests/e2e/encro_e2e_tests.cpp`, `tests/e2e/e2e_test_utils.h`
-
-**Risk:** High. Integration regressions in encoding orchestration, job-state persistence, and pack workflows are not caught by unit tests.
-
-**Priority:** High. Fix the build by adding `src` to `e2e_tests` include directories in `xmake.lua`.
-
-### Thread Safety Not Covered by Tests
-
-**What's not tested:** `EncodingState` mutex protocol, progress monitor thread lifecycle, `stop_signal` watch thread, concurrent `immer::atom` access.
-
-**Files:** `src/video/video_batch_execution.cpp`, `src/core/app_context.h`, `src/infra/stop_signal.cpp`
-
-**Risk:** Medium. Thread safety bugs manifest as rare, hard-to-reproduce crashes. No automated concurrency tests exist.
-
-**Priority:** Medium. Add targeted concurrency tests using `std::latch`/`std::barrier`.
-
-### Permission/I/O Error Paths in Packer
-
-**What's not tested:** Directory scanning with permission-denied entries, disk-full during zip writing, file-locked source files.
-
-**Files:** `src/pack/packer.cpp:682-691`
-
-**Risk:** Medium. Common real-world failure modes for a file-packing utility. Current behavior is throw-then-crash.
-
-**Priority:** Medium. Fix the iterator to use `skip_permission_denied` and add tests with mock filesystem operations.
-
-### `EncodeConfig` Construction Error Paths
-
-**What's not tested:** Building a command from `EncodeConfig` with `inputPath` absent. The throw paths in `buildCMD()`, `buildOutputPath()`, `buildOutputFileName()` are not exercised.
-
-**Files:** `src/video/encode_config.h:49, 71, 86`
-
-**Risk:** Low. Callers always validate first, so these paths rarely trigger in practice.
-
-**Priority:** Low. Add tests after converting `throw` to `eh::Result`.
+### No Stress/Load Testing
+- What's not tested: Large-scale batch encoding (100+ files), large archive groups, concurrent worker saturation, memory usage under load.
+- Files: No load test files exist
+- Risk: Performance degradation or resource exhaustion at scale goes undetected.
+- Priority: Medium
 
 ---
 
-*Concerns audit: 2026-04-26*
+*Concerns audit: 2026-04-28*
