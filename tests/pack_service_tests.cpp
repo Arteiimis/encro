@@ -153,8 +153,12 @@ TEST_CASE(
   auto const selected = std::vector<std::size_t>{1, 0};
   auto const result = pack::selectPackPlanIndexes(plan, std::span{selected});
 
-  // RED gate: must fail at runtime (cannot test anonymous-namespace functions directly)
-  REQUIRE(false);
+  // Verify zipNameForIndex remaps correctly: selected[0]=1 maps to original index 1
+  CHECK(result.zipNameForIndex(0) == "arch1.zip");
+  // Verify progressLabelForIndex remaps correctly
+  CHECK(result.progressLabelForIndex(0) == "Zipping archive 1");
+  // Verify compact is preserved
+  CHECK(result.compact == true);
 }
 
 TEST_CASE("packGroups compact mode reports per-file progress updates", "[pack-service]") {
