@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 Phase: 5 of 5 (Picture Refactor + Final Validation)
 Plan: 3 of 3 in current phase
 Status: Milestone v1.1 complete — all 6 requirements validated, 910 assertions pass
-Last activity: 2026-04-27 — Archiving v1.1 milestone
+Last activity: 2026-04-28 — Completed quick task 0428-199: fix pack confirmation prompt for video resume scenarios
 
 Progress: [██████████] 100%
 
@@ -67,6 +67,14 @@ None yet.
 - ~~[Phase 3 risk]: video_batch_execution.cpp has the deepest lambda nesting~~ — resolved. All 3+ level lambdas extracted (5 functions total across Plans 01 and 02). 891 assertions pass.
 - [Phase 5 gate]: REF-05 requires all assertions pass — all 901 assertions passing across 214 test cases ✓
 - ~~[Phase 4 cleanup]: packer_tests.cpp contains pre-existing RED gate REQUIRE(false) from Phase 3~~ — resolved in Plan 04-02 (all RED gates converted to real assertions)
+
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 20260426-remove-pack-per-file-msg | Remove per-file pack progress messages | 2026-04-26 | — | [20260426-remove-pack-per-file-msg](./quick/20260426-remove-pack-per-file-msg/) |
+| 0428-199 | Fix pack confirmation prompt for video resume scenarios | 2026-04-28 | fb87eaf | [20260428-fix-pack-confirm-resume](./quick/20260428-fix-pack-confirm-resume/) |
 
 ## Deferred Items
 
