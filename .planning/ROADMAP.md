@@ -49,7 +49,11 @@ Plans:
   2. packSourceEntries and spinnerThread in packer.cpp use named private methods instead of inline multiline lambdas
   3. Pack subsystem compiles without errors and produces identical packing behavior
   4. All existing test cases related to pack service and packer pass without assertion changes
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Extract lambda-wrapping-lambda in selectPackPlanIndexes (pack_service.cpp): makeSubsetZipNameResolver, makeSubsetProgressLabelResolver
+- [ ] 04-02-PLAN.md — Extract inline multiline lambdas in packer.cpp: packSourceEntryChunks, runFinalizingSpinner
 
 ### Phase 5: Picture Refactor + Final Validation
 **Goal**: Extract named lambda variables in picture_process.cpp to static functions, with comprehensive test suite validation
@@ -72,5 +76,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Compact Progress Mode | v1.0 | 2/2 | Complete | 2026-04-26 |
 | 2. Compact Mode Gap Fixes | v1.0 | 1/1 | Complete | 2026-04-26 |
 | 3. Video Subsystem Refactor | v1.1 | 2/2 | Complete | 2026-04-27 |
-| 4. Pack Subsystem Refactor | v1.1 | 0/TBD | Not started | - |
+| 4. Pack Subsystem Refactor | v1.1 | 0/2 | Planned | - |
 | 5. Picture Refactor + Final Validation | v1.1 | 0/TBD | Not started | - |
