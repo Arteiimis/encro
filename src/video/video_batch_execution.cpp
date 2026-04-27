@@ -163,8 +163,12 @@ private:
     )};
   }
 
-  static std::vector<std::size_t>
-  makeSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCount, bool compact, std::size_t totalTasks) {
+  static std::vector<std::size_t> makeSlotBars(
+    progress::ProgressContext& progressCtx,
+    std::size_t workerCount,
+    bool compact,
+    std::size_t totalTasks
+  ) {
     if (compact && totalTasks > 1) { return {}; }
     auto barIndexes = std::vector<std::size_t>(workerCount);
     for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
@@ -259,7 +263,10 @@ struct EncodingExecutionContext {
     if (!barIndex.has_value()) { return; }
     progress().setTone(barIndex.value(), progress::Tone::Idle);
     progress().setProgress(barIndex.value(), 0.0f);
-    progress().setPostfixText(barIndex.value(), std::format("Encoding: [idle-{}]", slot + 1));
+    progress().setPostfixText(
+      barIndex.value(),
+      std::format("Encoding: [idle-{}]", slot + 1)
+    );
   }
 
   void updateOverall() {
@@ -396,6 +403,116 @@ auto createEncodingState(
     vidState->outputPath = vidState->plannedOutputFile->parent_path();
   }
   return vidState;
+}
+
+auto monitorEncodingProgress(EncodingExecutionContext& executionCtx) -> void {
+  using namespace std::chrono_literals;
+
+  while (true) {
+    noteStopRequest(executionCtx.app);
+    auto const activeStates = executionCtx.activeStates();
+
+    if (executionCtx.finished() >= executionCtx.overallTotal()) { break; }
+
+    if (stopsignal::isStopRequested() && activeStates.empty()) {
+      spdlog::info(
+        "Encoding monitor exiting after stop request; no active tasks remain."
+      );
+      break;
+    }
+
+    for (auto const& activeState: activeStates) {
+      if (!activeState) { continue; }
+
+      auto const progress = getEncodingProgress(executionCtx.app, *activeState);
+      if (!progress.has_value()) {
+        auto barIndex = std::optional<std::size_t>{};
+        auto lastError = std::optional<std::string>{};
+        auto lastStatus = std::optional<std::string>{};
+        auto actionId = std::optional<std::string>{};
+        {
+          auto lock = std::scoped_lock{activeState->mtx};
+          barIndex = activeState->barIndex;
+          lastError = activeState->lastError;
+          lastStatus = activeState->lastStatus;
+          actionId = activeState->actionId;
+        }
+
+        if (barIndex.has_value()) {
+          auto const fileLabel = getStateLabel(*activeState);
+          if (lastError.has_value()) {
+            executionCtx.progress().setTone(barIndex.value(), progress::Tone::Failure);
+            executionCtx.progress().setPostfixText(
+              barIndex.value(),
+              std::format("Encoding: {} | {}", fileLabel, lastError.value())
+            );
+          } else if (lastStatus.has_value()) {
+            executionCtx.progress().setTone(barIndex.value(), progress::Tone::Active);
+            executionCtx.progress().setPostfixText(
+              barIndex.value(),
+              std::format("Encoding: {} | {}", fileLabel, lastStatus.value())
+            );
+          }
+        }
+
+        if (lastStatus.has_value()) {
+          withActionJobState(
+            executionCtx.app,
+            actionId,
+            [&](jobstate::Store& currentStore, std::string const& currentActionId) {
+              currentStore.markProgress(
+                currentActionId,
+                std::nullopt,
+                std::nullopt,
+                lastStatus.value()
+              );
+            }
+          );
+        }
+
+        continue;
+      }
+
+      auto barIndex = std::optional<std::size_t>{};
+      auto actionId = std::optional<std::string>{};
+      auto lastFrameCount = std::optional<std::uint64_t>{};
+      {
+        auto lock = std::scoped_lock{activeState->mtx};
+        activeState->lastProgress = progress.value();
+        activeState->lastProgressAtomic.store(
+          progress.value(),
+          std::memory_order_release
+        );
+        barIndex = activeState->barIndex;
+        actionId = activeState->actionId;
+        lastFrameCount = activeState->lastFrameCount;
+      }
+
+      if (barIndex.has_value()) {
+        executionCtx.progress().setTone(barIndex.value(), progress::Tone::Active);
+        executionCtx.progress().setProgress(barIndex.value(), progress.value());
+      }
+
+      withActionJobState(
+        executionCtx.app,
+        actionId,
+        [&](jobstate::Store& currentStore, std::string const& currentActionId) {
+          currentStore.markProgress(
+            currentActionId,
+            progress.value(),
+            lastFrameCount,
+            std::nullopt
+          );
+        }
+      );
+    }
+
+    executionCtx.updateOverall();
+
+    std::this_thread::sleep_for(20ms);
+  }
+
+  executionCtx.updateOverall();
 }
 
 auto startEncodingMonitor(EncodingExecutionContext& executionCtx) -> std::jthread {
@@ -545,8 +662,9 @@ auto runEncodingTask(
   }
   executionCtx.barEncodingStart(*vidState, fileLabel);
   auto const result =
-    encodeVideo(executionCtx.app, *vidState,
-      [&](std::string const& status) { reportEncodingStatus(executionCtx, *vidState, fileLabel, status); });
+    encodeVideo(executionCtx.app, *vidState, [&](std::string const& status) {
+      reportEncodingStatus(executionCtx, *vidState, fileLabel, status);
+    });
 
   executionCtx.finalizeState(vidState, result);
 
@@ -657,7 +775,12 @@ auto runEncodingWithoutProgress(
       fs::remove(state.progressFilePath.value(), ec);
     }
     vidsRunRes = vidsRunRes.set(vidPath, success);
-    finalizeEncodeResult(ctx, state.actionId, success, state.lastError.value_or("encoding failed"));
+    finalizeEncodeResult(
+      ctx,
+      state.actionId,
+      success,
+      state.lastError.value_or("encoding failed")
+    );
     if (success) {
       spdlog::info("Encoded success (no-progress): {}", vidPath.string());
     } else {

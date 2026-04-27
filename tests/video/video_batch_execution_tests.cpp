@@ -32,3 +32,12 @@ TEST_CASE("runEncodingWithoutProgress helpers extracted", "[video-batch-executio
   // are now wired in runEncodingWithoutProgress replacing inline lambdas
   CHECK(true);
 }
+
+TEST_CASE(
+  "startEncodingMonitor jthread lambda extracted to monitorEncodingProgress",
+  "[video-batch-execution]"
+) {
+  // RED gate: monitorEncodingProgress function exists in anonymous namespace
+  // but is not yet wired at startEncodingMonitor call site
+  REQUIRE(false);
+}
