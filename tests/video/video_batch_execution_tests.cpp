@@ -23,3 +23,9 @@ TEST_CASE("ActionIdMap and EncodeResultsMap are defined", "[video-batch-executio
   CHECK(actionIds.size() == 0);
   CHECK(results.size() == 0);
 }
+
+TEST_CASE("runEncodingWithoutProgress helpers pending", "[video-batch-execution]") {
+  // RED phase: test deliberately fails — markRunningNoProgress and
+  // finalizeEncodeResult extraction pending
+  REQUIRE(false);
+}
