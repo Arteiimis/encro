@@ -22,6 +22,7 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 - Progress visibility: compact single-bar progress by default, detailed mode opt-in
 - Resumability: interrupted jobs can continue via persistent state
 - No data loss: errors handled explicitly, nothing deleted silently
+- Code clarity: no deeply nested lambdas, inline lambdas kept short and readable
 
 ## Requirements
 
@@ -35,7 +36,9 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 
 ### Active
 
-(To be defined in next milestone — run `/gsd-new-milestone`)
+- [ ] Deeply nested lambdas (3+ levels) extracted to named functions
+- [ ] Multi-line inline lambdas extracted to named functions or static helpers
+- [ ] All 876 assertions across 203 test cases pass unchanged
 
 ### Out of Scope
 
@@ -48,6 +51,15 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 Shipped v1.0 with compact progress mode across all workflows (video encoding, picture compression, pack-only). 9 source files + 2 test files modified. 876 assertions across 203 test cases pass.
 
 Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, xmake.
+
+## Current Milestone: v1.1 Lambda Readability Refactor
+
+**Goal:** Eliminate deep lambda nesting (3+ levels) and lengthy inline lambdas across the full codebase without changing any program behavior.
+
+**Target features:**
+- Extract deeply nested lambdas to named functions/methods
+- Extract multi-line inline lambdas to named functions or static helpers
+- Maintain all 876 assertions across 203 test cases
 
 ## Key Decisions
 
@@ -64,6 +76,23 @@ Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, x
 - Duplicate test case in `tests/pack_service_tests.cpp`
 - No formal VERIFICATION.md artifacts for Phase 01 or Phase 02
 
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
 ---
 
-*Last updated: 2026-04-26 after v1.0 milestone*
+*Last updated: 2026-04-27 after v1.1 milestone start*
