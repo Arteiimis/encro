@@ -381,8 +381,15 @@ TEST_CASE(
 
   auto const result = packFilesToZip({f1}, zipPath, progressCtx, "Packing: bundle.zip");
 
-  // RED gate: must fail at runtime
-  REQUIRE(false);
+  REQUIRE(result);
+  REQUIRE(fs::exists(zipPath));
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  REQUIRE(entries.size() == 1);
+  CHECK(entries.front().getName() == f1.filename().string());
+  zip.close();
 }
 
 TEST_CASE("runDirectoryPackWorkflow packs directory", "[packer][workflow]") {

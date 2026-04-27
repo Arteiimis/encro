@@ -332,6 +332,26 @@ auto sourcePathGroups(std::vector<std::vector<pack::PackFileEntry>> const& group
   return groupedPaths;
 }
 
+auto runFinalizingSpinner(
+  progress::ProgressContext& progressCtx,
+  std::size_t progressBarIndex,
+  std::string_view progressText,
+  std::atomic<bool>& finalizing,
+  std::stop_token stopToken
+) -> void {
+  using namespace std::chrono_literals;
+  auto const frames = std::array{'|', '/', '-', '\\'};
+  auto frameIndex = std::size_t{0};
+  while (!stopToken.stop_requested() && finalizing.load(std::memory_order_acquire)) {
+    progressCtx.setPostfixText(
+      progressBarIndex,
+      std::format("{} | Finalizing {}", progressText, frames[frameIndex])
+    );
+    frameIndex = (frameIndex + 1) % frames.size();
+    std::this_thread::sleep_for(120ms);
+  }
+}
+
 }  // namespace
 
 auto packFilesToZip(
@@ -392,17 +412,13 @@ auto packFilesToZip(
 
   std::atomic<bool> finalizing{true};
   auto spinnerThread = std::jthread([&](std::stop_token stopToken) {
-    using namespace std::chrono_literals;
-    auto const frames = std::array{'|', '/', '-', '\\'};
-    auto frameIndex = std::size_t{0};
-    while (!stopToken.stop_requested() && finalizing.load(std::memory_order_acquire)) {
-      progressCtx.setPostfixText(
-        progressBarIndex,
-        std::format("{} | Finalizing {}", progressText, frames[frameIndex])
-      );
-      frameIndex = (frameIndex + 1) % frames.size();
-      std::this_thread::sleep_for(120ms);
-    }
+    runFinalizingSpinner(
+      progressCtx,
+      progressBarIndex,
+      progressText,
+      finalizing,
+      stopToken
+    );
   });
 
   zip.close();
