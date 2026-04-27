@@ -10,17 +10,17 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 ## Current Position
 
 Phase: 4 of 5 (Pack Subsystem Refactor)
-Plan: 1 of 2 in current phase
-Status: In Progress — REF-02 complete (selectPackPlanIndexes lambda-wrapping-lambda extracted)
-Last activity: 2026-04-27 — Plan 04-01 complete (makeSubsetZipNameResolver, makeSubsetProgressLabelResolver extracted)
+Plan: 2 of 2 in current phase
+Status: Phase complete — REF-02 & REF-03 done (all pack subsystem lambdas extracted)
+Last activity: 2026-04-27 — Plan 04-02 complete (packSourceEntryChunks, runFinalizingSpinner extracted)
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
 - Total phases completed: 2 (v1.0)
-- Total plans completed: 6
+- Total plans completed: 7
 - Average duration: —
 - Total execution time: —
 
@@ -31,7 +31,7 @@ Progress: [█████░░░░░] 50%
 | 1. Compact Progress Mode | 2 | — | — |
 | 2. Compact Mode Gap Fixes | 1 | — | — |
 | 3. Video Subsystem Refactor | 2 | 15 min | ~8 min |
-| 4. Pack Subsystem Refactor | 1 | 4 min | ~4 min |
+| 4. Pack Subsystem Refactor | 2 | 18 min | ~9 min |
 
 **Recent Trend:**
 - Last 5 plans: —
@@ -53,6 +53,8 @@ Recent decisions affecting current work:
 - [v1.1 Roadmap]: REF-02 + REF-03 grouped in Phase 4 — same pack/ subsystem, shared patterns
 - [v1.1 Roadmap]: REF-05 + REF-06 mapped to Phase 5 — comprehensive validation after all refactoring complete
 - [04-01]: makeSubsetZipNameResolver and makeSubsetProgressLabelResolver receive originalResolver and selectedIndexes as individual typed parameters (follows Phase 3 D-02 pattern)
+- [04-02]: packSourceEntryChunks placed after splitSourceDirectoryEntries for forward-reference clarity; runFinalizingSpinner follows Phase 3 Pattern 3 with 1-line jthread delegation; stopToken passed by value per C++20 value semantics
+- [04-02]: Test maxGroupSize corrected from 300 to 250 in verification test — plan had incorrect assumptions about group splitting behavior
 
 ### Pending Todos
 
@@ -61,8 +63,8 @@ None yet.
 ### Blockers/Concerns
 
 - ~~[Phase 3 risk]: video_batch_execution.cpp has the deepest lambda nesting~~ — resolved. All 3+ level lambdas extracted (5 functions total across Plans 01 and 02). 891 assertions pass.
-- [Phase 5 gate]: REF-05 requires all assertions pass — currently at 894 of 895 passing (1 pre-existing packer_tests.cpp RED gate from Phase 3)
-- [Phase 4 cleanup]: packer_tests.cpp contains pre-existing RED gate `REQUIRE(false)` from Phase 3 — should be resolved in Plan 04-02 (same test file, related scope)
+- [Phase 5 gate]: REF-05 requires all assertions pass — all 901 assertions passing across 214 test cases ✓
+- ~~[Phase 4 cleanup]: packer_tests.cpp contains pre-existing RED gate REQUIRE(false) from Phase 3~~ — resolved in Plan 04-02 (all RED gates converted to real assertions)
 
 ## Deferred Items
 
@@ -77,5 +79,5 @@ Items acknowledged at v1.0 milestone close on 2026-04-26:
 ## Session Continuity
 
 Last session: 2026-04-27
-Stopped at: Completed 04-01-PLAN.md — REF-02 done, ready for Plan 04-02
+Stopped at: Completed 04-02-PLAN.md — Phase 4 done, REF-02 & REF-03 complete, ready for Phase 5
 Resume file: None

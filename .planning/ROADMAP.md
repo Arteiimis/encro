@@ -20,7 +20,7 @@
 **Milestone Goal:** Eliminate deep lambda nesting (3+ levels) and lengthy inline lambdas across the full codebase without changing any program behavior.
 
 - [x] **Phase 3: Video Subsystem Refactor** (2/2 plans) — Extract deeply nested lambdas in video_batch_execution.cpp to named functions
-- [ ] **Phase 4: Pack Subsystem Refactor** — Extract lambda-wrapping-lambda and inline multiline lambdas in pack subsystem
+- [x] **Phase 4: Pack Subsystem Refactor** (2/2 plans) — Extract lambda-wrapping-lambda and inline multiline lambdas in pack subsystem
 - [ ] **Phase 5: Picture Refactor + Final Validation** — Extract named lambda variables in picture_process.cpp, validate full test suite
 
 ## Phase Details
@@ -53,7 +53,7 @@ Plans:
 
 Plans:
 - [x] 04-01-PLAN.md — Extract lambda-wrapping-lambda in selectPackPlanIndexes (pack_service.cpp): makeSubsetZipNameResolver, makeSubsetProgressLabelResolver
-- [ ] 04-02-PLAN.md — Extract inline multiline lambdas in packer.cpp: packSourceEntryChunks, runFinalizingSpinner
+- [x] 04-02-PLAN.md — Extract inline multiline lambdas in packer.cpp: packSourceEntryChunks, runFinalizingSpinner
 
 ### Phase 5: Picture Refactor + Final Validation
 **Goal**: Extract named lambda variables in picture_process.cpp to static functions, with comprehensive test suite validation
@@ -76,5 +76,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Compact Progress Mode | v1.0 | 2/2 | Complete | 2026-04-26 |
 | 2. Compact Mode Gap Fixes | v1.0 | 1/1 | Complete | 2026-04-26 |
 | 3. Video Subsystem Refactor | v1.1 | 2/2 | Complete | 2026-04-27 |
-| 4. Pack Subsystem Refactor | v1.1 | 1/2 | In Progress | - |
+| 4. Pack Subsystem Refactor | v1.1 | 2/2 | Complete | 2026-04-27 |
 | 5. Picture Refactor + Final Validation | v1.1 | 0/TBD | Not started | - |

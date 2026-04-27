@@ -11,7 +11,7 @@ Requirements for eliminating lambda abuse (deep nesting, multi-line inline lambd
 
 - [x] **REF-01**: Extract deeply nested lambdas (3+ levels) in `src/video/video_batch_execution.cpp` to named functions/methods
 - [x] **REF-02**: Refactor lambda-wrapping-lambda pattern in `src/pack/pack_service.cpp` (`selectPackPlanIndexes`) to named helpers
-- [ ] **REF-03**: Extract inline multi-line lambdas in `src/pack/packer.cpp` (`packSourceEntries`, `spinnerThread`) to named private methods
+- [x] **REF-03**: Extract inline multi-line lambdas in `src/pack/packer.cpp` (`packSourceEntries`, `spinnerThread`) to named private methods
 - [ ] **REF-04**: Extract named lambda variables in `src/picture/picture_process.cpp` (`addCompressTask`, `toJpgEntryName`) to static/named functions
 
 ### Constraints
@@ -38,7 +38,7 @@ Requirements for eliminating lambda abuse (deep nesting, multi-line inline lambd
 |-------------|-------|--------|
 | REF-01 | Phase 3 | Complete |
 | REF-02 | Phase 4 | Complete |
-| REF-03 | Phase 4 | Pending |
+| REF-03 | Phase 4 | Complete |
 | REF-04 | Phase 5 | Pending |
 | REF-05 | Phase 5 | Pending |
 | REF-06 | Phase 5 | Pending |
