@@ -37,6 +37,38 @@ void noteStopRequest(appctx::AppContext& ctx) {
   withJobState(ctx, [](jobstate::Store& store) { store.requestCancel(); });
 }
 
+auto markRunningNoProgress(
+  appctx::AppContext& ctx,
+  std::optional<std::string> const& actionId
+) -> void {
+  withActionJobState(
+    ctx,
+    actionId,
+    [](jobstate::Store& store, std::string const& currentActionId) {
+      store.markRunning(currentActionId);
+    }
+  );
+}
+
+auto finalizeEncodeResult(
+  appctx::AppContext& ctx,
+  std::optional<std::string> const& actionId,
+  bool success,
+  std::string const& failureReason
+) -> void {
+  withActionJobState(
+    ctx,
+    actionId,
+    [&](jobstate::Store& store, std::string const& currentActionId) {
+      if (success) {
+        store.markSucceeded(currentActionId);
+      } else {
+        store.markFailed(currentActionId, failureReason);
+      }
+    }
+  );
+}
+
 auto truncateForProgressLabel(std::string const& text, std::size_t maxLen = 48)
   -> std::string {
   return displaytext::truncateWithEllipsis(text, maxLen);
