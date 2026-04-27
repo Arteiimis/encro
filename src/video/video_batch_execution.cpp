@@ -326,6 +326,26 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
     * 100.0f;
 }
 
+auto reportEncodingStatus(
+  EncodingExecutionContext& executionCtx,
+  appctx::EncodingState& vidState,
+  std::string const& fileLabel,
+  std::string const& status
+) -> void {
+  executionCtx.barEncodingStatus(vidState, fileLabel, status);
+  auto actionId = std::optional<std::string>{};
+  auto lock = std::scoped_lock{vidState.mtx};
+  vidState.lastStatus = status;
+  actionId = vidState.actionId;
+  withActionJobState(
+    executionCtx.app,
+    actionId,
+    [&](jobstate::Store& store, std::string const& currentActionId) {
+      store.markProgress(currentActionId, std::nullopt, std::nullopt, status);
+    }
+  );
+}
+
 auto createEncodingState(
   EncodingExecutionContext& executionCtx,
   fs::path const& vidPath,
