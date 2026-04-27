@@ -344,4 +344,11 @@ TEST_CASE(
   REQUIRE(!runRes);
   CHECK(runRes.error() == "All picture compressions failed.");
 }
+
+TEST_CASE(
+  "addCompressTask deduplicates and creates valid CompressTask entries",
+  "[picture-process][compress]"
+) {
+  REQUIRE(false);
+}
 #endif
