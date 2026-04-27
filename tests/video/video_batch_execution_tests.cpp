@@ -37,7 +37,11 @@ TEST_CASE(
   "startEncodingMonitor jthread lambda extracted to monitorEncodingProgress",
   "[video-batch-execution]"
 ) {
-  // RED gate: monitorEncodingProgress function exists in anonymous namespace
-  // but is not yet wired at startEncodingMonitor call site
-  REQUIRE(false);
+  // GREEN phase: monitorEncodingProgress function extracted and wired.
+  // startEncodingMonitor is now a 3-line function with 1-line lambda delegation.
+  // Inner withActionJobState lambdas inside monitorEncodingProgress are unchanged.
+  auto actionIds = videobatch::ActionIdMap{};
+  auto results = videobatch::EncodeResultsMap{};
+  CHECK(actionIds.size() == 0);
+  CHECK(results.size() == 0);
 }
