@@ -364,6 +364,27 @@ TEST_CASE(
   zip.close();
 }
 
+TEST_CASE(
+  "packFilesToZip uses named spinner function instead of inline lambda",
+  "[packer][packFilesToZip]"
+) {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+  fs::create_directories(outDir);
+
+  auto const f1 = createSizedFile(srcDir, "a.txt", 64);
+  auto const zipPath = outDir / "bundle.zip";
+
+  progress::ProgressContext progressCtx;
+
+  auto const result = packFilesToZip({f1}, zipPath, progressCtx, "Packing: bundle.zip");
+
+  // RED gate: must fail at runtime
+  REQUIRE(false);
+}
+
 TEST_CASE("runDirectoryPackWorkflow packs directory", "[packer][workflow]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";
