@@ -120,13 +120,14 @@ TEST_CASE(
       PackGroupInput{a2, dirA},
       PackGroupInput{b1, dirB},
     },
-    300,
+    250,
     std::nullopt,
     2
   );
 
-  // RED gate: must fail at runtime
-  REQUIRE(false);
+  REQUIRE(grouped.size() == 2);
+  CHECK(grouped[0] == std::vector{a1, a2});
+  CHECK(grouped[1] == std::vector{b1});
 }
 
 TEST_CASE(
