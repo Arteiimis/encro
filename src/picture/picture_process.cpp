@@ -197,6 +197,29 @@ auto buildPicturePackEntryInputs(
   return packInputs;
 }
 
+auto addCompressTask(
+  std::unordered_map<fs::path, fs::path>& compressedSet,
+  fs::path const& tempDir,
+  std::error_code& ec,
+  std::vector<CompressTask>& compressTasks,
+  fs::path const& picPath,
+  std::string const& entryName
+) -> void {
+  if (compressedSet.contains(picPath)) { return; }
+  auto const jpgEntryName = toJpgEntryName(entryName);
+  auto const outputPath = tempDir / jpgEntryName;
+  fs::create_directories(outputPath.parent_path(), ec);
+
+  compressTasks.push_back(
+    CompressTask{
+      .inputPath = picPath,
+      .outputPath = outputPath,
+      .entryName = jpgEntryName,
+    }
+  );
+  compressedSet[picPath] = outputPath;
+}
+
 auto buildPicturePackBaseName(
   std::string const& dirName,
   std::size_t partIndex,
@@ -329,25 +352,9 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
     auto compressTasks = std::vector<CompressTask>{};
     compressTasks.reserve(scannedPics.size() + summaryPics.size());
 
-    auto addCompressTask = [&](fs::path const& picPath, std::string const& entryName) {
-      if (compressedSet.contains(picPath)) { return; }
-      auto const jpgEntryName = toJpgEntryName(entryName);
-      auto const outputPath = tempDir / jpgEntryName;
-      fs::create_directories(outputPath.parent_path(), ec);
-
-      compressTasks.push_back(
-        CompressTask{
-          .inputPath = picPath,
-          .outputPath = outputPath,
-          .entryName = jpgEntryName,
-        }
-      );
-      compressedSet[picPath] = outputPath;
-    };
-
     for (auto const& summaryPic: summaryPics) {
       auto const entryName = buildSummaryPictureEntryName(dirPath, summaryPic);
-      addCompressTask(summaryPic, entryName);
+      addCompressTask(compressedSet, tempDir, ec, compressTasks, summaryPic, entryName);
     }
 
     for (auto const& picPath: scannedPics) {
@@ -355,7 +362,7 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
       auto const entryName = plannedIt != plannedEntryNames.end()
         ? plannedIt->second
         : picPath.filename().generic_string();
-      addCompressTask(picPath, entryName);
+      addCompressTask(compressedSet, tempDir, ec, compressTasks, picPath, entryName);
     }
 
     terminal::println(
