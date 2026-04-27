@@ -21,7 +21,7 @@
 
 - [x] **Phase 3: Video Subsystem Refactor** (2/2 plans) — Extract deeply nested lambdas in video_batch_execution.cpp to named functions
 - [x] **Phase 4: Pack Subsystem Refactor** (2/2 plans) — Extract lambda-wrapping-lambda and inline multiline lambdas in pack subsystem
-- [ ] **Phase 5: Picture Refactor + Final Validation** — Extract named lambda variables in picture_process.cpp, validate full test suite
+- [x] **Phase 5: Picture Refactor + Final Validation** (3/3 plans) — Extract named lambda variables in picture_process.cpp, validate full test suite
 
 ## Phase Details
 
@@ -67,9 +67,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Extract `toJpgEntryName` to static free function in anonymous namespace
-- [ ] 05-02-PLAN.md — TDD extract `addCompressTask` to free function with explicit typed parameters
-- [ ] 05-03-PLAN.md — Final validation gate: full test suite, codebase audit
+- [x] 05-01-PLAN.md — Extract `toJpgEntryName` to static free function in anonymous namespace
+- [x] 05-02-PLAN.md — TDD extract `addCompressTask` to free function with explicit typed parameters
+- [x] 05-03-PLAN.md — Final validation gate: full test suite, codebase audit
 
 ## Progress
 
@@ -82,4 +82,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Compact Mode Gap Fixes | v1.0 | 1/1 | Complete | 2026-04-26 |
 | 3. Video Subsystem Refactor | v1.1 | 2/2 | Complete | 2026-04-27 |
 | 4. Pack Subsystem Refactor | v1.1 | 2/2 | Complete | 2026-04-27 |
-| 5. Picture Refactor + Final Validation | v1.1 | 0/3 | Planned | - |
+| 5. Picture Refactor + Final Validation | v1.1 | 3/3 | Complete | 2026-04-27 |
