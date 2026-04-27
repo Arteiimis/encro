@@ -344,4 +344,38 @@ TEST_CASE(
   REQUIRE(!runRes);
   CHECK(runRes.error() == "All picture compressions failed.");
 }
+
+TEST_CASE(
+  "addCompressTask deduplicates and creates valid CompressTask entries",
+  "[picture-process][compress]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
+  fs::create_directories(inputDir);
+  createSparseSizedFile(inputDir, "photo.png", 32);
+  createSparseSizedFile(inputDir, "other.png", 32);
+  writeFakeFfmpegScript(scriptPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.verbose = true;
+  ctx.config.verboseEcho = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+
+  auto const entryNames =
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
+  REQUIRE(entryNames.size() == 2);
+  CHECK(entryNames[0].ends_with(".jpg"));
+  CHECK(entryNames[1].ends_with(".jpg"));
+  CHECK(entryNames[0] != entryNames[1]);
+}
 #endif
