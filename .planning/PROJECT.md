@@ -28,38 +28,48 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 
 ### Validated
 
+**v1.0 Compact Progress Mode:**
 - ✓ Compact progress mode (default single overall bar) — v1.0
 - ✓ `--full-progress` flag restores per-worker/per-archive bars — v1.0
 - ✓ Compact packing ("Packing: X/Y" single bar) — v1.0
 - ✓ `--verbose-echo` correctly wins over `--full-progress` — v1.0
 - ✓ Cross-subsystem `.compact` propagation in all PackPlan builders — v1.0
 
+**v1.1 Lambda Readability Refactor:**
+- ✓ 4 deeply nested lambdas (3+ levels) in video_batch_execution.cpp extracted to named functions — v1.1
+- ✓ 4 multiline/inline lambdas in pack_service.cpp + packer.cpp extracted — v1.1
+- ✓ 2 named lambda variables in picture_process.cpp extracted to free functions — v1.1
+- ✓ All 910 assertions across 215 test cases pass unchanged — v1.1
+- ✓ Milestone audit PASSED — 10 functions extracted, 0 header file modifications
+
 ### Active
 
-- [ ] Deeply nested lambdas (3+ levels) extracted to named functions
-- [ ] Multi-line inline lambdas extracted to named functions or static helpers
-- [ ] All 876 assertions across 203 test cases pass unchanged
+(No active requirements — v1.1 shipped. Start `/gsd-new-milestone` to define next milestone.)
 
 ### Out of Scope
 
 - GUI interface — CLI-first approach
 - Cloud/remote encoding — local filesystem only
 - Real-time encoding — batch processing focused
+- `withActionJobState`/`withJobState` shared helper refactoring — used across codebase
+- Structural file size reduction (e.g., 765-line video_batch_execution.cpp) — different concern
 
 ## Context
 
-Shipped v1.0 with compact progress mode across all workflows (video encoding, picture compression, pack-only). 9 source files + 2 test files modified. 876 assertions across 203 test cases pass.
+Shipped v1.0 with compact progress mode across all workflows (video encoding, picture compression, pack-only). Shipped v1.1 Lambda Readability Refactor — 10 lambda functions extracted to named free functions across 4 source files, 0 header modifications, 910 assertions across 215 test cases pass.
 
 Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, xmake.
 
-## Current Milestone: v1.1 Lambda Readability Refactor
+## Current State
 
-**Goal:** Eliminate deep lambda nesting (3+ levels) and lengthy inline lambdas across the full codebase without changing any program behavior.
+Both v1.0 and v1.1 milestones are shipped. All source files comply with code clarity principle: 0 deeply nested lambdas, inline lambdas are short and readable. Ready to define next milestone.
 
-**Target features:**
-- Extract deeply nested lambdas to named functions/methods
-- Extract multi-line inline lambdas to named functions or static helpers
-- Maintain all 876 assertions across 203 test cases
+### Architecture
+
+- 10 extracted free functions in anonymous namespaces across 4 `.cpp` files
+- Factory function pattern for lambda-wrapping-lambda (pack_service.cpp)
+- 1-line jthread delegation pattern for monitor/spinner loops (video_batch_execution.cpp, packer.cpp)
+- Individual typed parameters for captured variables (no context structs)
 
 ## Key Decisions
 
@@ -69,6 +79,12 @@ Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, x
 | `compact = !ctx.config.fullProgress` pattern in both subsystems | ✓ Consistent flag semantics |
 | All PackPlan builders explicitly set `.compact` | ✓ Defensive, prevents silent regression |
 | 2-arg `packFilesToZip` no-progress overload for compact packing | ✓ Clean separation, no progress noise in compact mode |
+| D-01: Free functions in anonymous namespace for lambda extraction | ✓ 10 functions extracted, 0 header modifications |
+| D-02: Individual typed parameters for captured variables | ✓ Consistent across all phases, max 7 params (packSourceEntryChunks) |
+| D-03: 2-level lambda nesting acceptable, only 3+ targeted | ✓ Boundary respected, over-extraction avoided |
+| Factory function pattern for lambda-wrapping-lambda (Phase 4) | ✓ Designated initializer assignment, clean call sites |
+| TDD RED gate cycle for higher-risk extractions | ✓ 6 RED→GREEN cycles across Phases 3-5 |
+| 1-line jthread delegation pattern for monitor/spinner loops | ✓ 3 jthread sites with clean 1-line lambdas |
 
 ## Known Issues / Tech Debt
 
@@ -95,4 +111,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-04-27 after v1.1 milestone start*
+*Last updated: 2026-04-27 after v1.1 milestone*
