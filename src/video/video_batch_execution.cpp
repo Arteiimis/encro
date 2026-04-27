@@ -649,13 +649,7 @@ auto runEncodingWithoutProgress(
     }
 
     spdlog::debug("Start encoding (no-progress): {}", vidPath.string());
-    withActionJobState(
-      ctx,
-      state.actionId,
-      [](jobstate::Store& store, std::string const& currentActionId) {
-        store.markRunning(currentActionId);
-      }
-    );
+    markRunningNoProgress(ctx, state.actionId);
 
     auto const success = encodeVideo(ctx, state, {});
     if (state.progressFilePath.has_value()) {
@@ -663,17 +657,7 @@ auto runEncodingWithoutProgress(
       fs::remove(state.progressFilePath.value(), ec);
     }
     vidsRunRes = vidsRunRes.set(vidPath, success);
-    withActionJobState(
-      ctx,
-      state.actionId,
-      [&](jobstate::Store& store, std::string const& currentActionId) {
-        if (success) {
-          store.markSucceeded(currentActionId);
-        } else {
-          store.markFailed(currentActionId, state.lastError.value_or("encoding failed"));
-        }
-      }
-    );
+    finalizeEncodeResult(ctx, state.actionId, success, state.lastError.value_or("encoding failed"));
     if (success) {
       spdlog::info("Encoded success (no-progress): {}", vidPath.string());
     } else {
