@@ -58,6 +58,12 @@ auto buildConflictHandledPictureEntryName(
   );
 }
 
+auto toJpgEntryName(std::string const& entryName) -> std::string {
+  auto const stemEnd = entryName.rfind('.');
+  if (stemEnd != std::string::npos) { return entryName.substr(0, stemEnd) + ".jpg"; }
+  return entryName + ".jpg";
+}
+
 auto planPictureZipEntryNames(
   appctx::AppConfig const& config,
   fs::path const& dirPath,
@@ -318,12 +324,6 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
     }
 
     auto plannedEntryNames = planPictureZipEntryNames(ctx.config, dirPath, scannedPics);
-
-    auto toJpgEntryName = [](std::string const& entryName) -> std::string {
-      auto const stemEnd = entryName.rfind('.');
-      if (stemEnd != std::string::npos) { return entryName.substr(0, stemEnd) + ".jpg"; }
-      return entryName + ".jpg";
-    };
 
     auto compressedSet = std::unordered_map<fs::path, fs::path>{};
     auto compressTasks = std::vector<CompressTask>{};
