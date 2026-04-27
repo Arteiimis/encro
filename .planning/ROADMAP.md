@@ -19,7 +19,7 @@
 
 **Milestone Goal:** Eliminate deep lambda nesting (3+ levels) and lengthy inline lambdas across the full codebase without changing any program behavior.
 
-- [ ] **Phase 3: Video Subsystem Refactor** — Extract deeply nested lambdas in video_batch_execution.cpp to named functions
+- [ ] **Phase 3: Video Subsystem Refactor** (0/2 plans) — Extract deeply nested lambdas in video_batch_execution.cpp to named functions
 - [ ] **Phase 4: Pack Subsystem Refactor** — Extract lambda-wrapping-lambda and inline multiline lambdas in pack subsystem
 - [ ] **Phase 5: Picture Refactor + Final Validation** — Extract named lambda variables in picture_process.cpp, validate full test suite
 
@@ -34,7 +34,11 @@
   2. Maximum lambda nesting depth in video_batch_execution.cpp is ≤ 2 levels
   3. Video encoding pipeline compiles without errors and produces identical output
   4. All existing test cases related to video execution pass without assertion changes
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Extract inner callback and status helpers (reportEncodingStatus, markRunningNoProgress, finalizeEncodeResult)
+- [ ] 03-02-PLAN.md — Extract monitor body + full test suite validation
 
 ### Phase 4: Pack Subsystem Refactor
 **Goal**: Eliminate lambda-wrapping-lambda and inline multiline lambdas in pack_service.cpp and packer.cpp
@@ -67,6 +71,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|-----------|----------------|--------|-----------|
 | 1. Compact Progress Mode | v1.0 | 2/2 | Complete | 2026-04-26 |
 | 2. Compact Mode Gap Fixes | v1.0 | 1/1 | Complete | 2026-04-26 |
-| 3. Video Subsystem Refactor | v1.1 | 0/TBD | Not started | - |
+| 3. Video Subsystem Refactor | v1.1 | 0/2 | Not started | - |
 | 4. Pack Subsystem Refactor | v1.1 | 0/TBD | Not started | - |
 | 5. Picture Refactor + Final Validation | v1.1 | 0/TBD | Not started | - |
