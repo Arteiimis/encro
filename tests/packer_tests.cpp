@@ -101,6 +101,35 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "groupPreparedEntries delegates packSourceEntries to named function",
+  "[packer][groupPackFiles]"
+) {
+  TempDir temp;
+  auto const dirA = temp.path / "a";
+  auto const dirB = temp.path / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  auto const a1 = createSizedFile(dirA, "a1.bin", 100);
+  auto const a2 = createSizedFile(dirA, "a2.bin", 100);
+  auto const b1 = createSizedFile(dirB, "b1.bin", 90);
+
+  auto const grouped = groupPackFiles(
+    {
+      PackGroupInput{a1, dirA},
+      PackGroupInput{a2, dirA},
+      PackGroupInput{b1, dirB},
+    },
+    300,
+    std::nullopt,
+    2
+  );
+
+  // RED gate: must fail at runtime
+  REQUIRE(false);
+}
+
+TEST_CASE(
   "groupFilesBySize respects maximum file count per group",
   "[packer][groupFilesBySize]"
 ) {
