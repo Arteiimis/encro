@@ -10,6 +10,7 @@
 #include "infra/stop_signal.h"
 #include "pack/pack_service.h"
 #include "video/video_info.h"
+#include "utils/utils.h"
 
 #include <immer/vector.hpp>
 #include <spdlog/spdlog.h>
@@ -298,6 +299,21 @@ auto runScannedEncodingWorkflow(
     stopExit.has_value()
   ) {
     return stopExit.value();
+  }
+
+  if (
+    prepared.pendingVids.empty()
+    && !prepared.initialResults.empty()
+    && ctx.config.packOutput
+  ) {
+    auto const proceed = readUserIpt(
+      ctx.config.yesToAll,
+      "All encodes already complete. Do you want to proceed with packing? (y/N): "
+    );
+    if (!proceed) {
+      terminal::println(Warning, "Packing task canceled by user.");
+      return 0;
+    }
   }
 
   auto const packRes =
