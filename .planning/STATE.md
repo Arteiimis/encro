@@ -10,9 +10,11 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 ## Current Position
 
 Phase: 5 of 5 (Picture Refactor + Final Validation)
-Plan: 0/TBD in current phase
-Status: Context gathered — ready for planning
-Last activity: 2026-04-27 — Phase 5 context captured (decisions D-01 through D-07)
+Plan: 3 of 3 in current phase
+Status: Phase complete — REF-04, REF-05, REF-06 done (all picture_process.cpp lambdas extracted, all tests pass)
+Last activity: 2026-04-27 — Phase 5 complete: toJpgEntryName + addCompressTask extracted, 910 assertions pass
+
+Progress: [██████████] 100%
 
 Progress: [████████░░] 80%
 
@@ -79,5 +81,5 @@ Items acknowledged at v1.0 milestone close on 2026-04-26:
 ## Session Continuity
 
 Last session: 2026-04-27
-Stopped at: Phase 5 context gathered — ready for planning
+Stopped at: Phase 5 complete — all v1.1 requirements done
 Resume file: .planning/phases/05-picture-refactor-validation/05-CONTEXT.md
