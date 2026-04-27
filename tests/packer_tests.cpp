@@ -101,6 +101,36 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "groupPreparedEntries delegates packSourceEntries to named function",
+  "[packer][groupPackFiles]"
+) {
+  TempDir temp;
+  auto const dirA = temp.path / "a";
+  auto const dirB = temp.path / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  auto const a1 = createSizedFile(dirA, "a1.bin", 100);
+  auto const a2 = createSizedFile(dirA, "a2.bin", 100);
+  auto const b1 = createSizedFile(dirB, "b1.bin", 90);
+
+  auto const grouped = groupPackFiles(
+    {
+      PackGroupInput{a1, dirA},
+      PackGroupInput{a2, dirA},
+      PackGroupInput{b1, dirB},
+    },
+    250,
+    std::nullopt,
+    2
+  );
+
+  REQUIRE(grouped.size() == 2);
+  CHECK(grouped[0] == std::vector{a1, a2});
+  CHECK(grouped[1] == std::vector{b1});
+}
+
+TEST_CASE(
   "groupFilesBySize respects maximum file count per group",
   "[packer][groupFilesBySize]"
 ) {
@@ -331,6 +361,34 @@ TEST_CASE(
   CHECK(
     entryNames == std::vector<std::string>{"0000__summary__a__same.txt", "1000__same.txt"}
   );
+  zip.close();
+}
+
+TEST_CASE(
+  "packFilesToZip uses named spinner function instead of inline lambda",
+  "[packer][packFilesToZip]"
+) {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+  fs::create_directories(outDir);
+
+  auto const f1 = createSizedFile(srcDir, "a.txt", 64);
+  auto const zipPath = outDir / "bundle.zip";
+
+  progress::ProgressContext progressCtx;
+
+  auto const result = packFilesToZip({f1}, zipPath, progressCtx, "Packing: bundle.zip");
+
+  REQUIRE(result);
+  REQUIRE(fs::exists(zipPath));
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const entries = zip.getEntries();
+  REQUIRE(entries.size() == 1);
+  CHECK(entries.front().getName() == f1.filename().string());
   zip.close();
 }
 
