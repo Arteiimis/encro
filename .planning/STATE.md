@@ -5,24 +5,24 @@
 See: .planning/PROJECT.md (updated 2026-04-27)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** v1.1 Lambda Readability Refactor — roadmap defined, ready to plan
+**Current focus:** v1.1 Lambda Readability Refactor — complete, all 5 phases shipped
 
 ## Current Position
 
 Phase: 5 of 5 (Picture Refactor + Final Validation)
 Plan: 3 of 3 in current phase
-Status: Phase complete — REF-04, REF-05, REF-06 done (all picture_process.cpp lambdas extracted, all tests pass)
-Last activity: 2026-04-27 — Phase 5 complete: toJpgEntryName + addCompressTask extracted, 910 assertions pass
+Status: Milestone v1.1 complete — all 6 requirements validated, 910 assertions pass
+Last activity: 2026-04-27 — Archiving v1.1 milestone
 
 Progress: [██████████] 100%
-
-Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total phases completed: 2 (v1.0)
-- Total plans completed: 7
+- Total phases completed: 5 (v1.0 + v1.1)
+- Total plans completed: 10
+- Average duration: —
+- Total execution time: —
 - Average duration: —
 - Total execution time: —
 
@@ -81,5 +81,5 @@ Items acknowledged at v1.0 milestone close on 2026-04-26:
 ## Session Continuity
 
 Last session: 2026-04-27
-Stopped at: Phase 5 complete — all v1.1 requirements done
-Resume file: .planning/phases/05-picture-refactor-validation/05-CONTEXT.md
+Stopped at: Milestone v1.1 archived — ready for next milestone definition
+Resume file: None
