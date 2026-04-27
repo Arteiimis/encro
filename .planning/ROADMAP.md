@@ -64,7 +64,12 @@ Plans:
   2. All 876 assertions across all 203 test cases pass without any modification
   3. No behavioral changes detected — identical output for all CLI workflows (encoding+pack, pack-only, picture mode)
   4. Codebase audit confirms all targeted lambda violations are resolved (no gaps beyond documented out-of-scope exclusions)
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Extract `toJpgEntryName` to static free function in anonymous namespace
+- [ ] 05-02-PLAN.md — TDD extract `addCompressTask` to free function with explicit typed parameters
+- [ ] 05-03-PLAN.md — Final validation gate: full test suite, codebase audit
 
 ## Progress
 
@@ -77,4 +82,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Compact Mode Gap Fixes | v1.0 | 1/1 | Complete | 2026-04-26 |
 | 3. Video Subsystem Refactor | v1.1 | 2/2 | Complete | 2026-04-27 |
 | 4. Pack Subsystem Refactor | v1.1 | 2/2 | Complete | 2026-04-27 |
-| 5. Picture Refactor + Final Validation | v1.1 | 0/TBD | Not started | - |
+| 5. Picture Refactor + Final Validation | v1.1 | 0/3 | Planned | - |
