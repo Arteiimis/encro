@@ -513,20 +513,8 @@ auto runEncodingTask(
   }
   executionCtx.barEncodingStart(*vidState, fileLabel);
   auto const result =
-    encodeVideo(executionCtx.app, *vidState, [&](std::string const& status) {
-      executionCtx.barEncodingStatus(*vidState, fileLabel, status);
-      auto actionId = std::optional<std::string>{};
-      auto lock = std::scoped_lock{vidState->mtx};
-      vidState->lastStatus = status;
-      actionId = vidState->actionId;
-      withActionJobState(
-        executionCtx.app,
-        actionId,
-        [&](jobstate::Store& store, std::string const& currentActionId) {
-          store.markProgress(currentActionId, std::nullopt, std::nullopt, status);
-        }
-      );
-    });
+    encodeVideo(executionCtx.app, *vidState,
+      [&](std::string const& status) { reportEncodingStatus(executionCtx, *vidState, fileLabel, status); });
 
   executionCtx.finalizeState(vidState, result);
 

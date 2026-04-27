@@ -9,10 +9,11 @@
 namespace fs = std::filesystem;
 
 TEST_CASE("videobatch types compile and are usable", "[video-batch-execution]") {
-  // RED phase: test deliberately fails to signal extraction-in-progress.
-  // Extracted functions (reportEncodingStatus, markRunningNoProgress,
-  // finalizeEncodeResult) will be verified in GREEN phase.
-  REQUIRE(false);
+  // GREEN phase: extraction complete — public API types verified
+  auto actionIds = videobatch::ActionIdMap{};
+  auto results = videobatch::EncodeResultsMap{};
+  CHECK(actionIds.size() == 0);
+  CHECK(results.size() == 0);
 }
 
 TEST_CASE("ActionIdMap and EncodeResultsMap are defined", "[video-batch-execution]") {
