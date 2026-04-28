@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -47,6 +48,11 @@ struct PackPlan {
   bool removeOnFailure = false;
   bool compact = true;
 };
+
+static_assert(
+  std::is_aggregate_v<pack::PackPlan>,
+  "PackPlan must remain an aggregate for designated-initializer usage"
+);
 
 auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
   -> std::vector<FileOrdinalRange>;

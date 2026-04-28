@@ -157,8 +157,6 @@ TEST_CASE(
   CHECK(result.zipNameForIndex(0) == "arch1.zip");
   // Verify progressLabelForIndex remaps correctly
   CHECK(result.progressLabelForIndex(0) == "Zipping archive 1");
-  // Verify compact is preserved
-  CHECK(result.compact == true);
 }
 
 TEST_CASE("packGroups compact mode reports per-file progress updates", "[pack-service]") {

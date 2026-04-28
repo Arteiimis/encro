@@ -478,7 +478,8 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
                            std::size_t index
                          ) { return picturePackNamingState->zipNameFor(index); },
       .maxParallelJobs = ctx.config.maxParallelJobs,
-      .removeOnFailure = true
+      .removeOnFailure = true,
+      .compact = true
     };
 
     auto const packRes = pack::runPackPlan(ctx, plan);
