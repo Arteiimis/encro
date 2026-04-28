@@ -68,6 +68,78 @@ auto makeSubsetProgressLabelResolver(
   };
 }
 
+struct CompactProgressState {
+  progress::ProgressContext ctx;
+  std::optional<std::size_t> barIndex;
+  std::size_t completedFileCount = 0;
+  std::atomic<std::size_t> completedArchiveCount{0};
+  std::mutex mutex;
+  std::atomic<std::size_t> finalizingCount{0};
+  std::atomic<bool> spinnerStop{false};
+  std::jthread spinnerThread;
+
+  void initBar(
+    std::size_t archiveCount,
+    std::size_t totalFiles,
+    std::function<void(std::size_t, std::size_t)> const& onCompactProgress,
+    std::function<void(std::string_view)> const& onCompactStatusText
+  ) {
+    auto const initialStatus = formatCompactPackingStatus(0, archiveCount, 0, totalFiles);
+    barIndex = ctx.addBar(initialStatus, progress::Tone::Packing);
+    ctx.setProgress(barIndex.value(), 0.0f);
+    ctx.setPostfixText(barIndex.value(), initialStatus);
+    if (onCompactProgress) { onCompactProgress(0, totalFiles); }
+    if (onCompactStatusText) { onCompactStatusText(initialStatus); }
+  }
+
+  void startSpinner(std::function<void(std::string_view)> const& onCompactStatusText) {
+    using namespace std::chrono_literals;
+    spinnerThread = std::jthread{[this, &onCompactStatusText](std::stop_token stopToken) {
+      auto const frames = std::array{'|', '/', '-', '\\'};
+      auto frameIndex = std::size_t{0};
+      while (!stopToken.stop_requested()
+             && !spinnerStop.load(std::memory_order_acquire)) {
+        if (finalizingCount.load(std::memory_order_acquire) > 0) {
+          auto lock = std::scoped_lock{mutex};
+          auto const finalizingText = std::format("Finalizing {}", frames[frameIndex]);
+          frameIndex = (frameIndex + 1) % frames.size();
+          if (barIndex.has_value()) {
+            ctx.setPostfixText(barIndex.value(), finalizingText);
+          }
+          if (onCompactStatusText) { onCompactStatusText(finalizingText); }
+        }
+        std::this_thread::sleep_for(120ms);
+      }
+    }};
+  }
+
+  void tryUpdateStatus(
+    std::string_view statusText,
+    std::function<void(std::string_view)> const& onCompactStatusText
+  ) {
+    // Caller holds mutex lock
+    if (finalizingCount.load(std::memory_order_acquire) == 0) {
+      if (barIndex.has_value()) { ctx.setPostfixText(barIndex.value(), statusText); }
+      if (onCompactStatusText) { onCompactStatusText(statusText); }
+    }
+  }
+
+  void finish(
+    std::size_t archiveCount,
+    std::function<void(std::string_view)> const& onCompactStatusText
+  ) {
+    spinnerStop.store(true, std::memory_order_release);
+    spinnerThread.request_stop();
+    spinnerThread.join();
+    if (barIndex.has_value()) {
+      auto const completedStatus = formatCompactPackedStatus(archiveCount, archiveCount);
+      ctx.setTone(barIndex.value(), progress::Tone::Success);
+      ctx.setPostfixText(barIndex.value(), completedStatus);
+      if (onCompactStatusText) { onCompactStatusText(completedStatus); }
+    }
+  }
+};
+
 }  // namespace
 
 template<class Group>
