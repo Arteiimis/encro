@@ -229,14 +229,7 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
              && !finalizingSpinnerStop.load(std::memory_order_acquire)) {
         if (finalizingCount.load(std::memory_order_acquire) > 0) {
           auto lock = std::scoped_lock{compactProgressMutex};
-          auto const statusText = formatCompactPackingStatus(
-            completedArchiveCount.load(std::memory_order_acquire),
-            archiveCount,
-            completedFileCount,
-            compactTotalFiles
-          );
-          auto const finalizingText =
-            std::format("{} | Finalizing {}", statusText, frames[frameIndex]);
+          auto const finalizingText = std::format("Finalizing {}", frames[frameIndex]);
           frameIndex = (frameIndex + 1) % frames.size();
           if (compactBarIndex.has_value()) {
             compactProgressCtx.setPostfixText(compactBarIndex.value(), finalizingText);
@@ -290,16 +283,23 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
 
                   if (compactBarIndex.has_value()) {
                     compactProgressCtx.setProgress(compactBarIndex.value(), percent);
-                    compactProgressCtx.setPostfixText(
-                      compactBarIndex.value(),
-                      statusText
-                    );
+                    if (finalizingCount.load(std::memory_order_acquire) == 0) {
+                      compactProgressCtx.setPostfixText(
+                        compactBarIndex.value(),
+                        statusText
+                      );
+                    }
                   }
 
                   if (plan.onCompactProgress) {
                     plan.onCompactProgress(completedFileCount, compactTotalFiles);
                   }
-                  if (plan.onCompactStatusText) { plan.onCompactStatusText(statusText); }
+                  if (
+                    plan.onCompactStatusText
+                    && finalizingCount.load(std::memory_order_acquire) == 0
+                  ) {
+                    plan.onCompactStatusText(statusText);
+                  }
                 },
                 &finalizingCount
               )
