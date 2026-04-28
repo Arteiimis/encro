@@ -200,12 +200,13 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   auto compactProgressCtx = progress::ProgressContext{};
   auto compactBarIndex = std::optional<std::size_t>{};
   auto completedFileCount = std::size_t{0};
+  auto completedArchiveCount = std::atomic<std::size_t>{0};
   auto compactProgressMutex = std::mutex{};
   auto const compactTotalFiles = countPackedFiles(plan.groups);
   auto const archiveCount = plan.groups.size();
   if (plan.compact) {
     auto const initialStatus =
-      formatCompactPackingStatus(1, archiveCount, 0, plan.groups.front().size());
+      formatCompactPackingStatus(0, archiveCount, 0, compactTotalFiles);
     compactBarIndex = compactProgressCtx.addBar(initialStatus, progress::Tone::Packing);
     compactProgressCtx.setProgress(compactBarIndex.value(), 0.0f);
     compactProgressCtx.setPostfixText(compactBarIndex.value(), initialStatus);
@@ -237,7 +238,7 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
             ? packFilesToZip(
                 plan.groups[index],
                 zipPath,
-                [&](std::size_t fileIndex, std::size_t fileCount) {
+                [&](std::size_t /*fileIndex*/, std::size_t /*fileCount*/) {
                   auto lock = std::scoped_lock{compactProgressMutex};
                   ++completedFileCount;
 
@@ -247,10 +248,10 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
                       / static_cast<float>(compactTotalFiles)
                       * 100.0f;
                   auto const statusText = formatCompactPackingStatus(
-                    index + 1,
+                    completedArchiveCount.load(std::memory_order_acquire),
                     archiveCount,
-                    fileIndex,
-                    fileCount
+                    completedFileCount,
+                    compactTotalFiles
                   );
 
                   if (compactBarIndex.has_value()) {
@@ -281,6 +282,20 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
 
           packResults[index] = {};
           zippedFiles[index] = zipPath;
+          if (plan.compact) {
+            auto const completed = completedArchiveCount.fetch_add(1) + 1;
+            auto lock = std::scoped_lock{compactProgressMutex};
+            auto const statusText = formatCompactPackingStatus(
+              completed,
+              archiveCount,
+              completedFileCount,
+              compactTotalFiles
+            );
+            if (compactBarIndex.has_value()) {
+              compactProgressCtx.setPostfixText(compactBarIndex.value(), statusText);
+            }
+            if (plan.onCompactStatusText) { plan.onCompactStatusText(statusText); }
+          }
           if (plan.onGroupSuccess) { plan.onGroupSuccess(index, zipPath); }
           return {};
         }
