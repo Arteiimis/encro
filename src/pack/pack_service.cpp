@@ -140,6 +140,186 @@ struct CompactProgressState {
   }
 };
 
+auto packGroupsCompact(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
+  if (plan.groups.empty()) { return std::vector<fs::path>{}; }
+  fs::create_directories(plan.outputDir);
+
+  auto state = CompactProgressState{};
+  auto const totalFiles = countPackedFiles(plan.groups);
+  auto const archiveCount = plan.groups.size();
+
+  state
+    .initBar(archiveCount, totalFiles, plan.onCompactProgress, plan.onCompactStatusText);
+  state.startSpinner(plan.onCompactStatusText);
+
+  auto const maxParallelJobs =
+    std::max<std::size_t>(1, plan.maxParallelJobs.value_or(plan.groups.size()));
+  auto packResults = std::vector<eh::Result<void>>(plan.groups.size());
+  auto zippedFiles = std::vector<fs::path>(plan.groups.size());
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(plan.groups.size());
+
+  for (auto index = std::size_t{0}; index < plan.groups.size(); ++index) {
+    auto const zipName = resolveZipNameForIndex(plan, index);
+    auto const zipPath = plan.outputDir / zipName;
+    auto const label = resolveProgressLabelForIndex(plan, index);
+
+    tasks.push_back(
+      taskexec::TaskSpec{
+        .id = std::format("pack:{}", index),
+        .label = label,
+        .run =
+          [&, index, zipPath, label](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
+          if (plan.onGroupStart) { plan.onGroupStart(index); }
+
+          auto const packRes = packFilesToZip(
+            plan.groups[index],
+            zipPath,
+            [&](std::size_t /*fileIndex*/, std::size_t /*fileCount*/) {
+              auto lock = std::scoped_lock{state.mutex};
+              ++state.completedFileCount;
+
+              auto const percent = totalFiles == 0
+                ? 100.0f
+                : static_cast<float>(state.completedFileCount)
+                  / static_cast<float>(totalFiles)
+                  * 100.0f;
+              auto const statusText = formatCompactPackingStatus(
+                state.completedArchiveCount.load(std::memory_order_acquire),
+                archiveCount,
+                state.completedFileCount,
+                totalFiles
+              );
+
+              if (state.barIndex.has_value()) {
+                state.ctx.setProgress(state.barIndex.value(), percent);
+              }
+              if (plan.onCompactProgress) {
+                plan.onCompactProgress(state.completedFileCount, totalFiles);
+              }
+              state.tryUpdateStatus(statusText, plan.onCompactStatusText);
+            },
+            &state.finalizingCount
+          );
+
+          if (!packRes) {
+            if (plan.removeOnFailure) {
+              auto ec = std::error_code{};
+              fs::remove(zipPath, ec);
+            }
+            packResults[index] = packRes;
+            if (plan.onGroupFailure) { plan.onGroupFailure(index, packRes.error()); }
+            return eh::makeError("{}", packRes.error());
+          }
+
+          packResults[index] = {};
+          zippedFiles[index] = zipPath;
+          {
+            auto const completed = state.completedArchiveCount.fetch_add(1) + 1;
+            auto lock = std::scoped_lock{state.mutex};
+            auto const statusText = formatCompactPackingStatus(
+              completed,
+              archiveCount,
+              state.completedFileCount,
+              totalFiles
+            );
+            state.tryUpdateStatus(statusText, plan.onCompactStatusText);
+          }
+          if (plan.onGroupSuccess) { plan.onGroupSuccess(index, zipPath); }
+          return {};
+        }
+      }
+    );
+  }
+
+  auto const runRes = taskexec::runTasks(
+    taskexec::TaskPlan{
+      .tasks = std::move(tasks),
+      .maxConcurrency = maxParallelJobs,
+      .progress = nullptr,
+      .hideCursor = true,
+    }
+  );
+
+  if (runRes.canceled && runRes.attemptedCount < plan.groups.size()) {
+    return eh::makeError("Packing canceled by user.");
+  }
+
+  for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
+    if (runRes.attempted[index] == 0) { continue; }
+    if (!packResults[index]) { return eh::makeError("{}", packResults[index].error()); }
+  }
+
+  state.finish(archiveCount, plan.onCompactStatusText);
+  return zippedFiles;
+}
+
+auto packGroupsFull(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
+  if (plan.groups.empty()) { return std::vector<fs::path>{}; }
+  fs::create_directories(plan.outputDir);
+
+  auto const maxParallelJobs =
+    std::max<std::size_t>(1, plan.maxParallelJobs.value_or(plan.groups.size()));
+  auto packResults = std::vector<eh::Result<void>>(plan.groups.size());
+  auto zippedFiles = std::vector<fs::path>(plan.groups.size());
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(plan.groups.size());
+
+  for (auto index = std::size_t{0}; index < plan.groups.size(); ++index) {
+    auto const zipName = resolveZipNameForIndex(plan, index);
+    auto const zipPath = plan.outputDir / zipName;
+    auto const label = resolveProgressLabelForIndex(plan, index);
+
+    tasks.push_back(
+      taskexec::TaskSpec{
+        .id = std::format("pack:{}", index),
+        .label = label,
+        .run =
+          [&, index, zipPath, label](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
+          if (plan.onGroupStart) { plan.onGroupStart(index); }
+
+          auto const packRes =
+            packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
+          if (!packRes) {
+            if (plan.removeOnFailure) {
+              auto ec = std::error_code{};
+              fs::remove(zipPath, ec);
+            }
+            packResults[index] = packRes;
+            if (plan.onGroupFailure) { plan.onGroupFailure(index, packRes.error()); }
+            return eh::makeError("{}", packRes.error());
+          }
+
+          packResults[index] = {};
+          zippedFiles[index] = zipPath;
+          if (plan.onGroupSuccess) { plan.onGroupSuccess(index, zipPath); }
+          return {};
+        }
+      }
+    );
+  }
+
+  auto const runRes = taskexec::runTasks(
+    taskexec::TaskPlan{
+      .tasks = std::move(tasks),
+      .maxConcurrency = maxParallelJobs,
+      .progress = nullptr,
+      .hideCursor = true,
+    }
+  );
+
+  if (runRes.canceled && runRes.attemptedCount < plan.groups.size()) {
+    return eh::makeError("Packing canceled by user.");
+  }
+
+  for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
+    if (runRes.attempted[index] == 0) { continue; }
+    if (!packResults[index]) { return eh::makeError("{}", packResults[index].error()); }
+  }
+
+  return zippedFiles;
+}
+
 }  // namespace
 
 template<class Group>
@@ -268,188 +448,8 @@ auto runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
 }
 
 auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
-  if (plan.groups.empty()) { return std::vector<fs::path>{}; }
-
-  fs::create_directories(plan.outputDir);
-
-  auto compactProgressCtx = progress::ProgressContext{};
-  auto compactBarIndex = std::optional<std::size_t>{};
-  auto completedFileCount = std::size_t{0};
-  auto completedArchiveCount = std::atomic<std::size_t>{0};
-  auto compactProgressMutex = std::mutex{};
-  auto finalizingCount = std::atomic<std::size_t>{0};
-  auto finalizingSpinnerStop = std::atomic<bool>{false};
-  auto const compactTotalFiles = countPackedFiles(plan.groups);
-  auto const archiveCount = plan.groups.size();
-  if (plan.compact) {
-    auto const initialStatus =
-      formatCompactPackingStatus(0, archiveCount, 0, compactTotalFiles);
-    compactBarIndex = compactProgressCtx.addBar(initialStatus, progress::Tone::Packing);
-    compactProgressCtx.setProgress(compactBarIndex.value(), 0.0f);
-    compactProgressCtx.setPostfixText(compactBarIndex.value(), initialStatus);
-    if (plan.onCompactProgress) { plan.onCompactProgress(0, compactTotalFiles); }
-    if (plan.onCompactStatusText) { plan.onCompactStatusText(initialStatus); }
-  }
-
-  auto finalizingSpinner = std::jthread{};
-  if (plan.compact) {
-    finalizingSpinner = std::jthread{[&](std::stop_token stopToken) {
-      using namespace std::chrono_literals;
-      auto const frames = std::array{'|', '/', '-', '\\'};
-      auto frameIndex = std::size_t{0};
-      while (!stopToken.stop_requested()
-             && !finalizingSpinnerStop.load(std::memory_order_acquire)) {
-        if (finalizingCount.load(std::memory_order_acquire) > 0) {
-          auto lock = std::scoped_lock{compactProgressMutex};
-          auto const finalizingText = std::format("Finalizing {}", frames[frameIndex]);
-          frameIndex = (frameIndex + 1) % frames.size();
-          if (compactBarIndex.has_value()) {
-            compactProgressCtx.setPostfixText(compactBarIndex.value(), finalizingText);
-          }
-          if (plan.onCompactStatusText) { plan.onCompactStatusText(finalizingText); }
-        }
-        std::this_thread::sleep_for(120ms);
-      }
-    }};
-  }
-
-  auto const maxParallelJobs =
-    std::max<std::size_t>(1, plan.maxParallelJobs.value_or(plan.groups.size()));
-  auto packResults = std::vector<eh::Result<void>>(plan.groups.size());
-  auto zippedFiles = std::vector<fs::path>(plan.groups.size());
-  auto tasks = std::vector<taskexec::TaskSpec>{};
-  tasks.reserve(plan.groups.size());
-
-  for (auto index = std::size_t{0}; index < plan.groups.size(); ++index) {
-    auto const zipName = resolveZipNameForIndex(plan, index);
-    auto const zipPath = plan.outputDir / zipName;
-    auto const label = resolveProgressLabelForIndex(plan, index);
-
-    tasks.push_back(
-      taskexec::TaskSpec{
-        .id = std::format("pack:{}", index),
-        .label = label,
-        .run =
-          [&, index, zipPath, label](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
-          if (plan.onGroupStart) { plan.onGroupStart(index); }
-
-          auto const packRes = plan.compact
-            ? packFilesToZip(
-                plan.groups[index],
-                zipPath,
-                [&](std::size_t /*fileIndex*/, std::size_t /*fileCount*/) {
-                  auto lock = std::scoped_lock{compactProgressMutex};
-                  ++completedFileCount;
-
-                  auto const percent = compactTotalFiles == 0
-                    ? 100.0f
-                    : static_cast<float>(completedFileCount)
-                      / static_cast<float>(compactTotalFiles)
-                      * 100.0f;
-                  auto const statusText = formatCompactPackingStatus(
-                    completedArchiveCount.load(std::memory_order_acquire),
-                    archiveCount,
-                    completedFileCount,
-                    compactTotalFiles
-                  );
-
-                  if (compactBarIndex.has_value()) {
-                    compactProgressCtx.setProgress(compactBarIndex.value(), percent);
-                    if (finalizingCount.load(std::memory_order_acquire) == 0) {
-                      compactProgressCtx.setPostfixText(
-                        compactBarIndex.value(),
-                        statusText
-                      );
-                    }
-                  }
-
-                  if (plan.onCompactProgress) {
-                    plan.onCompactProgress(completedFileCount, compactTotalFiles);
-                  }
-                  if (
-                    plan.onCompactStatusText
-                    && finalizingCount.load(std::memory_order_acquire) == 0
-                  ) {
-                    plan.onCompactStatusText(statusText);
-                  }
-                },
-                &finalizingCount
-              )
-            : packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
-
-          if (!packRes) {
-            if (plan.removeOnFailure) {
-              auto ec = std::error_code{};
-              fs::remove(zipPath, ec);
-            }
-            packResults[index] = packRes;
-            if (plan.onGroupFailure) { plan.onGroupFailure(index, packRes.error()); }
-            return eh::makeError("{}", packRes.error());
-          }
-
-          packResults[index] = {};
-          zippedFiles[index] = zipPath;
-          if (plan.compact) {
-            auto const completed = completedArchiveCount.fetch_add(1) + 1;
-            auto lock = std::scoped_lock{compactProgressMutex};
-            auto const statusText = formatCompactPackingStatus(
-              completed,
-              archiveCount,
-              completedFileCount,
-              compactTotalFiles
-            );
-            if (
-              compactBarIndex.has_value()
-              && finalizingCount.load(std::memory_order_acquire) == 0
-            ) {
-              compactProgressCtx.setPostfixText(compactBarIndex.value(), statusText);
-            }
-            if (
-              plan.onCompactStatusText
-              && finalizingCount.load(std::memory_order_acquire) == 0
-            ) {
-              plan.onCompactStatusText(statusText);
-            }
-          }
-          if (plan.onGroupSuccess) { plan.onGroupSuccess(index, zipPath); }
-          return {};
-        }
-      }
-    );
-  }
-
-  auto const runRes = taskexec::runTasks(
-    taskexec::TaskPlan{
-      .tasks = std::move(tasks),
-      .maxConcurrency = maxParallelJobs,
-      .progress = nullptr,
-      .hideCursor = true,
-    }
-  );
-
-  if (runRes.canceled && runRes.attemptedCount < plan.groups.size()) {
-    return eh::makeError("Packing canceled by user.");
-  }
-
-  for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
-    if (runRes.attempted[index] == 0) { continue; }
-    if (!packResults[index]) { return eh::makeError("{}", packResults[index].error()); }
-  }
-
-  if (plan.compact) {
-    finalizingSpinnerStop.store(true, std::memory_order_release);
-    finalizingSpinner.request_stop();
-    finalizingSpinner.join();
-  }
-
-  if (plan.compact && compactBarIndex.has_value()) {
-    auto const completedStatus = formatCompactPackedStatus(archiveCount, archiveCount);
-    compactProgressCtx.setTone(compactBarIndex.value(), progress::Tone::Success);
-    compactProgressCtx.setPostfixText(compactBarIndex.value(), completedStatus);
-    if (plan.onCompactStatusText) { plan.onCompactStatusText(completedStatus); }
-  }
-
-  return zippedFiles;
+  if (plan.compact) { return packGroupsCompact(plan); }
+  return packGroupsFull(plan);
 }
 
 }  // namespace pack
