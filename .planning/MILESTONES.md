@@ -61,3 +61,33 @@ CLI tool for video encoding + zip packing now defaults to compact progress bars.
 - `.planning/milestones/v1.1-ROADMAP.md` — Full milestone roadmap
 - `.planning/milestones/v1.1-REQUIREMENTS.md` — Requirements archive
 - `.planning/v1.1-MILESTONE-AUDIT.md` — Audit report
+
+---
+
+## v1.2 — Tech Debt & Code Quality
+
+**Shipped:** 2026-04-29
+**Phases:** 2 | **Plans:** 4 | **Tasks:** 6
+
+### Key Accomplishments
+
+1. DEBT-01: Fixed implicit `.compact` default — all 4 PackPlan construction sites now explicitly set `.compact = true`, with `static_assert` aggregate guard in `pack_service.h`
+2. DEBT-02: Removed duplicate assertion `CHECK(result.compact == true)` in `pack_service_tests.cpp:161` — compact preservation already exhaustively tested by Test A
+3. PROC-01: Backfilled structured VERIFICATION.md for Phase 01 and Phase 02 with requirement-to-evidence mapping (2 files, 7 requirements mapped)
+4. STRUCT-02: Split `video_batch_execution.cpp` (804 lines) into 2 compilation units — `video_encoding_state.cpp` (NEW, 191 lines) + `video_batch_execution.cpp` (MODIFIED, 403 lines)
+5. STRUCT-01: Cancelled after research confirmed template helpers already correctly placed in `video_workflow_utils.h`
+6. 909 assertions across 215 test cases pass with zero behavioral change
+
+### Delivered
+
+All 3 known gaps from v1.0/v1.1 resolved: explicit `.compact = true` in compress-picture path, duplicate test assertion removed, Phase 01 and Phase 02 VERIFICATION.md backfilled. `video_batch_execution.cpp` split into 2 independently-compiling units with struct definitions promoted to `videobatch::detail` in header. Zero header modifications beyond the narrow D-01 exception. Build succeeds, all tests pass, 4 E2E flows produce identical output.
+
+### Known Gaps
+
+- No formal milestone audit file (v1.2-MILESTONE-AUDIT.md) — process artifact deferred for speed
+- `noteStopRequest` and `truncateForProgressLabel` intentionally duplicated across both TU anonymous namespaces (standard C++ pattern, not debt)
+
+### Archives
+
+- `.planning/phases/06-must-fix-debt/` — Phase 6 plans and summaries
+- `.planning/phases/07-structural-optimization/` — Phase 7 plan and summary

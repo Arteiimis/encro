@@ -42,13 +42,17 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 - ✓ All 910 assertions across 215 test cases pass unchanged — v1.1
 - ✓ Milestone audit PASSED — 10 functions extracted, 0 header file modifications
 
-### Active (v1.2 Tech Debt & Code Quality)
+**v1.2 Tech Debt & Code Quality:**
+- ✓ DEBT-01: Fixed implicit `.compact` default — all 4 PackPlan sites now explicitly set `.compact = true` — v1.2
+- ✓ DEBT-02: Removed duplicate assertion `CHECK(result.compact == true)` at `pack_service_tests.cpp:161` — v1.2
+- ✓ PROC-01: Backfilled structured VERIFICATION.md for Phase 01 and Phase 02 — v1.2
+- ✓ STRUCT-02: Split `video_batch_execution.cpp` (804 lines) into 2 compilation units — v1.2
+- ✓ STRUCT-01: Cancelled — template helpers already correctly placed in `video_workflow_utils.h` — v1.2
+- ✓ All 909 assertions across 215 test cases pass unchanged — v1.2
 
-- [ ] **DEBT-01**: Fix implicit `.compact` default in `picture_process.cpp:467` — explicit `.compact = true` in `buildPicturePackPlan`
-- [ ] **DEBT-02**: Remove duplicate test case `selectPackPlanIndexes preserves compact` in `tests/pack_service_tests.cpp:131-168`
-- [ ] **DEBT-03**: Backfill VERIFICATION.md for Phase 01 (Compact Progress Mode) and Phase 02 (Compact Mode Gap Fixes)
-- [ ] **OPTIM-01**: Refactor `withActionJobState`/`withJobState` shared template helpers — reduce duplication across video/picture subsystems
-- [ ] **OPTIM-02**: Split `video_batch_execution.cpp` (765 lines) into smaller compilation units — improve modularity and compile times
+### Active
+
+*(None — all v1.2 items completed. Awaiting next milestone definition.)*
 
 ### Out of Scope
 
@@ -58,20 +62,23 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 
 ## Context
 
-Shipped v1.0 with compact progress mode across all workflows (video encoding, picture compression, pack-only). Shipped v1.1 Lambda Readability Refactor — 10 lambda functions extracted to named free functions across 4 source files, 0 header modifications, 910 assertions across 215 test cases pass.
+Shipped v1.0 (compact progress mode), v1.1 (lambda readability refactor), and v1.2 (tech debt & code quality). v1.2 resolved all 3 known gaps from prior milestones: explicit `.compact = true` in all PackPlan sites, removed duplicate assertion, backfilled Phase 01/02 VERIFICATION.md. `video_batch_execution.cpp` split into 2 compilation units with zero behavioral change. 909 assertions across 215 test cases pass.
 
 Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, xmake.
 
 ## Current State
 
-v1.2 Tech Debt & Code Quality milestone started. Both v1.0 and v1.1 milestones are shipped. Sources comply with code clarity principle: 0 deeply nested lambdas. Focus: fix implicit defaults, remove dead code, backfill process artifacts, refactor shared templates, reduce file sizes.
+All 3 milestones shipped (v1.0, v1.1, v1.2). Codebase is clean: 0 deeply nested lambdas, 0 implicit struct defaults in PackPlan, 0 duplicate assertions, 4/4 PackPlan sites explicitly set `.compact`. STRUCT-01 (template relocation) confirmed unnecessary during v1.2 — templates already correctly placed. Awaiting next milestone definition.
 
 ### Architecture
 
-- 10 extracted free functions in anonymous namespaces across 4 `.cpp` files
-- Factory function pattern for lambda-wrapping-lambda (pack_service.cpp)
-- 1-line jthread delegation pattern for monitor/spinner loops (video_batch_execution.cpp, packer.cpp)
-- Individual typed parameters for captured variables (no context structs)
+- 10 extracted free functions in anonymous namespaces across 4 `.cpp` files (v1.1)
+- Factory function pattern for lambda-wrapping-lambda (pack_service.cpp) (v1.1)
+- 1-line jthread delegation pattern for monitor/spinner loops (v1.1)
+- Individual typed parameters for captured variables — no context structs (v1.1)
+- Split compilation units: `video_encoding_state.cpp` + `video_batch_execution.cpp` (v1.2)
+- `videobatch::detail` namespace in header for shared struct definitions (v1.2)
+- All PackPlan sites explicitly set `.compact = true` with `static_assert` guard (v1.2)
 
 ## Key Decisions
 
@@ -87,12 +94,15 @@ v1.2 Tech Debt & Code Quality milestone started. Both v1.0 and v1.1 milestones a
 | Factory function pattern for lambda-wrapping-lambda (Phase 4) | ✓ Designated initializer assignment, clean call sites |
 | TDD RED gate cycle for higher-risk extractions | ✓ 6 RED→GREEN cycles across Phases 3-5 |
 | 1-line jthread delegation pattern for monitor/spinner loops | ✓ 3 jthread sites with clean 1-line lambdas |
+| `static_assert(std::is_aggregate_v<pack::PackPlan>)` guard | ✓ Catches accidental non-aggregate breakage of `.compact` |
+| STRUCT-02 split boundary: state/monitor vs. task execution | ✓ 2 independently-compiling TUs, zero behavioral change |
+| STRUCT-01 cancelled: templates already correctly placed | ✓ Avoided unnecessary `core/` header creation |
+| `videobatch::detail` namespace for shared struct definitions | ✓ Required for cross-TU value semantics (narrow D-01 exception) |
 
 ## Known Issues / Tech Debt
 
-- compress-picture path (`picture_process.cpp:467`) still has implicit `.compact` default
-- Duplicate test case in `tests/pack_service_tests.cpp`
-- No formal VERIFICATION.md artifacts for Phase 01 or Phase 02
+- No formal milestone audit file (v1.2-MILESTONE-AUDIT.md) — deferred for speed
+- `noteStopRequest` and `truncateForProgressLabel` intentionally duplicated across both TU anonymous namespaces — standard C++ pattern, not debt
 
 ## Evolution
 
@@ -113,4 +123,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-04-28 — v1.2 Tech Debt & Code Quality milestone started*
+*Last updated: 2026-04-29 — v1.2 Tech Debt & Code Quality milestone shipped*
