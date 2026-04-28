@@ -29,7 +29,7 @@
 - [x] Phase 5: Picture Refactor + Final Validation (phases/05-picture-refactor-validation, 3/3 plans) — completed 2026-04-27
 
 ### Phase 6: Must-Fix Debt
-- [ ] Phase 6: Must-Fix Debt — 3 plans ready (06-01: DEBT-01, 06-02: DEBT-02, 06-03: PROC-01)
+- [x] Phase 6: Must-Fix Debt — 3/3 plans (06-01: DEBT-01, 06-02: DEBT-02, 06-03: PROC-01) — completed 2026-04-28
 
 ### Phase 7: Structural Optimization
 - [x] Phase 7: Structural Optimization — STRUCT-02 (split video_batch_execution.cpp) → STRUCT-01 (relocate template helpers) cancelled

@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Tech Debt & Code Quality
-status: complete
-stopped_at: Phase 7 executed — v1.2 milestone complete
-last_updated: "2026-04-29T00:17:00.000Z"
-last_activity: 2026-04-29 -- Phase 7 STRUCT-02 executed (split video_batch_execution.cpp)
+status: shipped
+stopped_at: Milestone v1.2 complete — all 2 phases, 4 plans, 6 tasks delivered. Awaiting next milestone.
+last_updated: "2026-04-29T00:30:00.000Z"
+last_activity: 2026-04-29 — v1.2 milestone closed via /gsd-complete-milestone
 progress:
   total_phases: 2
   completed_phases: 2
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 
 ## Current Position
 
-Phase: 7 of 7 (complete)
-Plan: 1/1 (STRUCT-02)
-Status: v1.2 milestone complete — all 4 plans executed
-Last activity: 2026-04-29 — Phase 7 STRUCT-02 executed (split video_batch_execution.cpp)
+Milestone: v1.2 — SHIPPED
+All 2 phases complete (Phase 6 Must-Fix Debt, Phase 7 Structural Optimization).
+All 4 plans executed: DEBT-01 (explicit .compact), DEBT-02 (remove duplicate assertion), PROC-01 (VERIFICATION.md backfill), STRUCT-02 (split video_batch_execution.cpp).
+909 assertions across 215 test cases pass. Zero behavioral change. Ready for next milestone definition.
 
 ## Performance Metrics
 
