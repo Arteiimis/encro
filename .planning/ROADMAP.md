@@ -4,6 +4,7 @@
 
 - ✅ **v1.0 Compact Progress Mode** — Phases 1-2 (shipped 2026-04-26)
 - ✅ **v1.1 Lambda Readability Refactor** — Phases 3-5 (shipped 2026-04-27)
+- 🔄 **v1.2 Tech Debt & Code Quality** — Phases 6-7 (in progress)
 
 ## Phases
 
@@ -27,10 +28,16 @@
 
 - [x] Phase 5: Picture Refactor + Final Validation (phases/05-picture-refactor-validation, 3/3 plans) — completed 2026-04-27
 
+### Phase 6: Must-Fix Debt
+- [ ] Phase 6: Must-Fix Debt — DEBT-01 (explicit .compact fix), DEBT-02 (redundant assertion removal), DEBT-03 (VERIFICATION.md backfill)
+
+### Phase 7: Structural Optimization
+- [ ] Phase 7: Structural Optimization — STRUCT-02 (split video_batch_execution.cpp) → STRUCT-01 (relocate template helpers)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+Phases execute in numeric order: 6 → 7
 
 | Phase                                  | Directory                      | Milestone | Plans Complete | Status   | Completed  |
 | -------------------------------------- | ------------------------------ | --------- | -------------- | -------- | ---------- |
@@ -39,6 +46,42 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 3. Video Subsystem Refactor            | 03-video-subsystem-refactor    | v1.1      | 2/2            | Complete | 2026-04-27 |
 | 4. Pack Subsystem Refactor             | 04-pack-subsystem-refactor     | v1.1      | 2/2            | Complete | 2026-04-27 |
 | 5. Picture Refactor + Final Validation | 05-picture-refactor-validation | v1.1      | 3/3            | Complete | 2026-04-27 |
+| 6. Must-Fix Debt                       | 06-must-fix-debt                | v1.2      | 0/3            | Pending  | —          |
+| 7. Structural Optimization             | 07-structural-optimization      | v1.2      | 0/2            | Pending  | —          |
+
+## Phase Details
+
+### Phase 6: Must-Fix Debt
+**Goal:** Fix latent correctness bugs and backfill process compliance artifacts before structural changes.
+
+**Requirements:** DEBT-01, DEBT-02, PROC-01
+
+**Success criteria:**
+1. `picture_process.cpp` PackPlan explicitly sets `.compact = true` (no silent struct default reliance)
+2. `pack_service_tests.cpp` line 161 `CHECK(result.compact == true)` removed; all remaining assertions pass
+3. Structured VERIFICATION.md exists for Phase 01 and Phase 02 with requirement-to-evidence mapping
+4. All 910 existing assertions pass unchanged across 215 test cases
+
+**Plans (3, all parallel — independent files):**
+- Plan 6-1: DEBT-01 — Fix implicit `.compact` default
+- Plan 6-2: DEBT-02 — Remove redundant assertion
+- Plan 6-3: PROC-01 — Backfill VERIFICATION.md
+
+### Phase 7: Structural Optimization
+**Goal:** Improve code organization with zero behavioral change. Split monolithic file and relocate shared helpers to reduce subsystem coupling.
+
+**Requirements:** STRUCT-02, STRUCT-01
+
+**Success criteria:**
+1. `video_batch_execution.cpp` split into 2 compilation units (`video_encoding_state.cpp` + `video_batch_execution.cpp`), both compile independently
+2. `EncodingProgressState` + `EncodingExecutionContext` accessible via `videobatch::detail` in header (~30 lines added, narrow D-01 exception)
+3. `withJobState`/`withActionJobState` templates relocated to `src/core/job_state_utils.h`, all includers updated
+4. All 910 assertions pass; 4 E2E flows produce identical binary output
+5. All PackPlan builders explicitly set `.compact` field (defense-in-depth verification)
+
+**Plans (2, ordered — STRUCT-02 first, then STRUCT-01):**
+- Plan 7-1: STRUCT-02 — Split video_batch_execution.cpp
+- Plan 7-2: STRUCT-01 — Relocate shared template helpers
 
 ---
 
