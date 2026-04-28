@@ -103,5 +103,5 @@ Items acknowledged at v1.0 milestone close on 2026-04-26:
 ## Session Continuity
 
 Last session: 2026-04-28
-Stopped at: v1.2 roadmap created — ready for Phase 6 discussion
-Resume file: None
+Stopped at: Phase 6 context gathered — ready for planning
+Resume file: .planning/phases/06-must-fix-debt/06-CONTEXT.md
