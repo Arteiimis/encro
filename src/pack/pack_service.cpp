@@ -326,10 +326,18 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
               completedFileCount,
               compactTotalFiles
             );
-            if (compactBarIndex.has_value()) {
+            if (
+              compactBarIndex.has_value()
+              && finalizingCount.load(std::memory_order_acquire) == 0
+            ) {
               compactProgressCtx.setPostfixText(compactBarIndex.value(), statusText);
             }
-            if (plan.onCompactStatusText) { plan.onCompactStatusText(statusText); }
+            if (
+              plan.onCompactStatusText
+              && finalizingCount.load(std::memory_order_acquire) == 0
+            ) {
+              plan.onCompactStatusText(statusText);
+            }
           }
           if (plan.onGroupSuccess) { plan.onGroupSuccess(index, zipPath); }
           return {};
