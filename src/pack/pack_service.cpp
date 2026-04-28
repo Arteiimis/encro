@@ -7,11 +7,14 @@
 #include "pack/packer.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <chrono>
 #include <format>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <thread>
 
 namespace pack {
 
@@ -202,6 +205,8 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   auto completedFileCount = std::size_t{0};
   auto completedArchiveCount = std::atomic<std::size_t>{0};
   auto compactProgressMutex = std::mutex{};
+  auto finalizingCount = std::atomic<std::size_t>{0};
+  auto finalizingSpinnerStop = std::atomic<bool>{false};
   auto const compactTotalFiles = countPackedFiles(plan.groups);
   auto const archiveCount = plan.groups.size();
   if (plan.compact) {
@@ -212,6 +217,35 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
     compactProgressCtx.setPostfixText(compactBarIndex.value(), initialStatus);
     if (plan.onCompactProgress) { plan.onCompactProgress(0, compactTotalFiles); }
     if (plan.onCompactStatusText) { plan.onCompactStatusText(initialStatus); }
+  }
+
+  auto finalizingSpinner = std::jthread{};
+  if (plan.compact) {
+    finalizingSpinner = std::jthread{[&](std::stop_token stopToken) {
+      using namespace std::chrono_literals;
+      auto const frames = std::array{'|', '/', '-', '\\'};
+      auto frameIndex = std::size_t{0};
+      while (!stopToken.stop_requested()
+             && !finalizingSpinnerStop.load(std::memory_order_acquire)) {
+        if (finalizingCount.load(std::memory_order_acquire) > 0) {
+          auto lock = std::scoped_lock{compactProgressMutex};
+          auto const statusText = formatCompactPackingStatus(
+            completedArchiveCount.load(std::memory_order_acquire),
+            archiveCount,
+            completedFileCount,
+            compactTotalFiles
+          );
+          auto const finalizingText =
+            std::format("{} | Finalizing {}", statusText, frames[frameIndex]);
+          frameIndex = (frameIndex + 1) % frames.size();
+          if (compactBarIndex.has_value()) {
+            compactProgressCtx.setPostfixText(compactBarIndex.value(), finalizingText);
+          }
+          if (plan.onCompactStatusText) { plan.onCompactStatusText(finalizingText); }
+        }
+        std::this_thread::sleep_for(120ms);
+      }
+    }};
   }
 
   auto const maxParallelJobs =
@@ -266,7 +300,8 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
                     plan.onCompactProgress(completedFileCount, compactTotalFiles);
                   }
                   if (plan.onCompactStatusText) { plan.onCompactStatusText(statusText); }
-                }
+                },
+                &finalizingCount
               )
             : packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
 
@@ -319,6 +354,12 @@ auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
     if (runRes.attempted[index] == 0) { continue; }
     if (!packResults[index]) { return eh::makeError("{}", packResults[index].error()); }
+  }
+
+  if (plan.compact) {
+    finalizingSpinnerStop.store(true, std::memory_order_release);
+    finalizingSpinner.request_stop();
+    finalizingSpinner.join();
   }
 
   if (plan.compact && compactBarIndex.has_value()) {

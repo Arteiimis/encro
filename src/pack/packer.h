@@ -4,6 +4,7 @@
 #include "core/progress.h"
 #include "pack/pack_service.h"
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -62,7 +63,8 @@ auto packFilesToZip(
 auto packFilesToZip(
   std::vector<pack::PackFileEntry> const& entries,
   std::filesystem::path const& zipFilePath,
-  PackEntryProgressCallback onEntryPacked = {}
+  PackEntryProgressCallback onEntryPacked = {},
+  std::atomic<std::size_t>* finalizingCount = nullptr
 ) -> eh::Result<void>;
 
 auto groupFilesBySize(
