@@ -42,17 +42,19 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 - ✓ All 910 assertions across 215 test cases pass unchanged — v1.1
 - ✓ Milestone audit PASSED — 10 functions extracted, 0 header file modifications
 
-### Active
+### Active (v1.2 Tech Debt & Code Quality)
 
-(No active requirements — v1.1 shipped. Start `/gsd-new-milestone` to define next milestone.)
+- [ ] **DEBT-01**: Fix implicit `.compact` default in `picture_process.cpp:467` — explicit `.compact = true` in `buildPicturePackPlan`
+- [ ] **DEBT-02**: Remove duplicate test case `selectPackPlanIndexes preserves compact` in `tests/pack_service_tests.cpp:131-168`
+- [ ] **DEBT-03**: Backfill VERIFICATION.md for Phase 01 (Compact Progress Mode) and Phase 02 (Compact Mode Gap Fixes)
+- [ ] **OPTIM-01**: Refactor `withActionJobState`/`withJobState` shared template helpers — reduce duplication across video/picture subsystems
+- [ ] **OPTIM-02**: Split `video_batch_execution.cpp` (765 lines) into smaller compilation units — improve modularity and compile times
 
 ### Out of Scope
 
 - GUI interface — CLI-first approach
 - Cloud/remote encoding — local filesystem only
 - Real-time encoding — batch processing focused
-- `withActionJobState`/`withJobState` shared helper refactoring — used across codebase
-- Structural file size reduction (e.g., 765-line video_batch_execution.cpp) — different concern
 
 ## Context
 
@@ -62,7 +64,7 @@ Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, x
 
 ## Current State
 
-Both v1.0 and v1.1 milestones are shipped. All source files comply with code clarity principle: 0 deeply nested lambdas, inline lambdas are short and readable. Ready to define next milestone.
+v1.2 Tech Debt & Code Quality milestone started. Both v1.0 and v1.1 milestones are shipped. Sources comply with code clarity principle: 0 deeply nested lambdas. Focus: fix implicit defaults, remove dead code, backfill process artifacts, refactor shared templates, reduce file sizes.
 
 ### Architecture
 
@@ -111,4 +113,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-04-27 after v1.1 milestone*
+*Last updated: 2026-04-28 — v1.2 Tech Debt & Code Quality milestone started*
