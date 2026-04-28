@@ -29,7 +29,7 @@
 - [x] Phase 5: Picture Refactor + Final Validation (phases/05-picture-refactor-validation, 3/3 plans) — completed 2026-04-27
 
 ### Phase 6: Must-Fix Debt
-- [ ] Phase 6: Must-Fix Debt — DEBT-01 (explicit .compact fix), DEBT-02 (redundant assertion removal), DEBT-03 (VERIFICATION.md backfill)
+- [ ] Phase 6: Must-Fix Debt — 3 plans ready (06-01: DEBT-01, 06-02: DEBT-02, 06-03: PROC-01)
 
 ### Phase 7: Structural Optimization
 - [ ] Phase 7: Structural Optimization — STRUCT-02 (split video_batch_execution.cpp) → STRUCT-01 (relocate template helpers)
@@ -46,7 +46,7 @@ Phases execute in numeric order: 6 → 7
 | 3. Video Subsystem Refactor            | 03-video-subsystem-refactor    | v1.1      | 2/2            | Complete | 2026-04-27 |
 | 4. Pack Subsystem Refactor             | 04-pack-subsystem-refactor     | v1.1      | 2/2            | Complete | 2026-04-27 |
 | 5. Picture Refactor + Final Validation | 05-picture-refactor-validation | v1.1      | 3/3            | Complete | 2026-04-27 |
-| 6. Must-Fix Debt                       | 06-must-fix-debt                | v1.2      | 0/3            | Pending  | —          |
+| 6. Must-Fix Debt                       | 06-must-fix-debt                | v1.2      | 3/3            | Ready to execute  | —          |
 | 7. Structural Optimization             | 07-structural-optimization      | v1.2      | 0/2            | Pending  | —          |
 
 ## Phase Details
