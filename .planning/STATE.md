@@ -5,7 +5,7 @@ milestone_name: Tech Debt & Code Quality
 status: shipped
 stopped_at: Milestone v1.2 complete — all 2 phases, 4 plans, 6 tasks delivered. Awaiting next milestone.
 last_updated: "2026-04-29T00:30:00.000Z"
-last_activity: 2026-04-28 — Completed quick task 260429-1yf: Add finalizing spinner during zip.close() in compact mode
+last_activity: 2026-04-28 — Completed quick task 260429-2gx: Fix finalizing spinner flashing; show only spinner text
 progress:
   total_phases: 2
   completed_phases: 2
@@ -92,6 +92,7 @@ None yet.
 | 0428-199 | Fix pack confirmation prompt for video resume scenarios | 2026-04-28 | fb87eaf | [20260428-fix-pack-confirm-resume](./quick/20260428-fix-pack-confirm-resume/) |
 | 260429-1iq | Fix pack progress bar jumping/incorrect display | 2026-04-28 | — | [260429-1iq-pack-progress-bar-fix](./quick/260429-1iq-pack-progress-bar-fix/) |
 | 260429-1yf | Add finalizing spinner during zip.close() in compact mode | 2026-04-28 | — | [260429-1yf-zip-100](./quick/260429-1yf-zip-100/) |
+| 260429-2gx | Fix finalizing spinner flashing; show only spinner text | 2026-04-28 | — | [260429-2gx-fix-finalizing-spinner-flashing-before-f](./quick/260429-2gx-fix-finalizing-spinner-flashing-before-f/) |
 
 ## Deferred Items
 
