@@ -1,5 +1,5 @@
 ---
-s_and___state_version: 1.0
+gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Tech Debt & Code Quality
 status: complete
@@ -21,21 +21,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-27)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** v1.1 Lambda Readability Refactor — complete, all 5 phases shipped
+**Current focus:** v1.2 Tech Debt & Code Quality — complete, all 2 phases shipped
 
 ## Current Position
 
-Phase: 7 of 7 (discuss complete)
-Plan: 0/1 (STRUCT-02 pending)
-Status: CONTEXT.md written — ready to plan STRUCT-02
-Last activity: 2026-04-28 — Phase 7 discussion complete
+Phase: 7 of 7 (complete)
+Plan: 1/1 (STRUCT-02)
+Status: v1.2 milestone complete — all 4 plans executed
+Last activity: 2026-04-29 — Phase 7 STRUCT-02 executed (split video_batch_execution.cpp)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total phases completed: 5 (v1.0 + v1.1)
-- Total plans completed: 10
+- Total phases completed: 7 (v1.0 + v1.1 + v1.2)
+- Total plans completed: 14
 - Average duration: —
 - Total execution time: —
 - Average duration: —
