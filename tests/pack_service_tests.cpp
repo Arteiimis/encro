@@ -230,9 +230,10 @@ TEST_CASE(
   CHECK(
     statusTexts
     == std::vector<std::string>{
-      "Packing: archive 1/1 [file 0/3]",
-      "Packing: archive 1/1 [file 1/3]",
-      "Packing: archive 1/1 [file 2/3]",
+      "Packing: archive 0/1 [file 0/3]",
+      "Packing: archive 0/1 [file 1/3]",
+      "Packing: archive 0/1 [file 2/3]",
+      "Packing: archive 0/1 [file 3/3]",
       "Packing: archive 1/1 [file 3/3]",
       "Packed: archive 1/1 complete",
     }
