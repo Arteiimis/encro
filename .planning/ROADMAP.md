@@ -7,35 +7,38 @@
 
 ## Phases
 
-<details>
-<summary>✅ v1.0 Compact Progress Mode (Phases 1-2) — SHIPPED 2026-04-26</summary>
+### Phase 1: Compact Progress Mode
 
-- [x] Phase 1: Compact Progress Mode (2/2 plans) — completed 2026-04-26
-- [x] Phase 2: Compact Mode Gap Fixes (1/1 plan) — completed 2026-04-26
+- [x] Phase 1: Compact Progress Mode (phases/01-compact-progress, 2/2 plans) — completed 2026-04-26
 
-</details>
+### Phase 2: Compact Mode Gap Fixes
 
-<details>
-<summary>✅ v1.1 Lambda Readability Refactor (Phases 3-5) — SHIPPED 2026-04-27</summary>
+- [x] Phase 2: Compact Mode Gap Fixes (phases/02-compact-mode-gap-fixes, 1/1 plan) — completed 2026-04-26
 
-- [x] Phase 3: Video Subsystem Refactor (2/2 plans) — completed 2026-04-27
-- [x] Phase 4: Pack Subsystem Refactor (2/2 plans) — completed 2026-04-27
-- [x] Phase 5: Picture Refactor + Final Validation (3/3 plans) — completed 2026-04-27
+### Phase 3: Video Subsystem Refactor
 
-</details>
+- [x] Phase 3: Video Subsystem Refactor (phases/03-video-subsystem-refactor, 2/2 plans) — completed 2026-04-27
+
+### Phase 4: Pack Subsystem Refactor
+
+- [x] Phase 4: Pack Subsystem Refactor (phases/04-pack-subsystem-refactor, 2/2 plans) — completed 2026-04-27
+
+### Phase 5: Picture Refactor + Final Validation
+
+- [x] Phase 5: Picture Refactor + Final Validation (phases/05-picture-refactor-validation, 3/3 plans) — completed 2026-04-27
 
 ## Progress
 
 **Execution Order:**
 Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
-| Phase | Milestone | Plans Complete | Status | Completed |
-|-------|-----------|----------------|--------|-----------|
-| 1. Compact Progress Mode | v1.0 | 2/2 | Complete | 2026-04-26 |
-| 2. Compact Mode Gap Fixes | v1.0 | 1/1 | Complete | 2026-04-26 |
-| 3. Video Subsystem Refactor | v1.1 | 2/2 | Complete | 2026-04-27 |
-| 4. Pack Subsystem Refactor | v1.1 | 2/2 | Complete | 2026-04-27 |
-| 5. Picture Refactor + Final Validation | v1.1 | 3/3 | Complete | 2026-04-27 |
+| Phase                                  | Directory                      | Milestone | Plans Complete | Status   | Completed  |
+| -------------------------------------- | ------------------------------ | --------- | -------------- | -------- | ---------- |
+| 1. Compact Progress Mode               | 01-compact-progress            | v1.0      | 2/2            | Complete | 2026-04-26 |
+| 2. Compact Mode Gap Fixes              | 02-compact-mode-gap-fixes      | v1.0      | 1/1            | Complete | 2026-04-26 |
+| 3. Video Subsystem Refactor            | 03-video-subsystem-refactor    | v1.1      | 2/2            | Complete | 2026-04-27 |
+| 4. Pack Subsystem Refactor             | 04-pack-subsystem-refactor     | v1.1      | 2/2            | Complete | 2026-04-27 |
+| 5. Picture Refactor + Final Validation | 05-picture-refactor-validation | v1.1      | 3/3            | Complete | 2026-04-27 |
 
 ---
 
