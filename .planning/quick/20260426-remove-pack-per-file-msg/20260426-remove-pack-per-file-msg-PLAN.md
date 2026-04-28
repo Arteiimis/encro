@@ -1,3 +1,7 @@
+---
+status: complete
+one_liner: "Removed per-archive pack success messages after webp+pack progress bar"
+---
 # Quick Task 20260426-remove-pack-per-file-msg: Remove per-archive pack success messages
 
 ## Goal
