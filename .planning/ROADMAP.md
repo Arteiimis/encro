@@ -4,7 +4,7 @@
 
 - ✅ **v1.0 Compact Progress Mode** — Phases 1-2 (shipped 2026-04-26)
 - ✅ **v1.1 Lambda Readability Refactor** — Phases 3-5 (shipped 2026-04-27)
-- 🔄 **v1.2 Tech Debt & Code Quality** — Phases 6-7 (in progress)
+- ✅ **v1.2 Tech Debt & Code Quality** — Phases 6-7 (shipped 2026-04-29)
 
 ## Phases
 
@@ -32,7 +32,7 @@
 - [ ] Phase 6: Must-Fix Debt — 3 plans ready (06-01: DEBT-01, 06-02: DEBT-02, 06-03: PROC-01)
 
 ### Phase 7: Structural Optimization
-- [ ] Phase 7: Structural Optimization — STRUCT-02 (split video_batch_execution.cpp) → STRUCT-01 (relocate template helpers)
+- [x] Phase 7: Structural Optimization — STRUCT-02 (split video_batch_execution.cpp) → STRUCT-01 (relocate template helpers) cancelled
 
 ## Progress
 
