@@ -31,10 +31,23 @@ using namespace pack::detail;
 
 using enum terminal::MessageKind;
 
-namespace {
+struct pack::Packer::PreparedPackEntry {
+  PackFileEntry entry;
+  std::string sourceKey;
+  std::string fileKey;
+  std::uintmax_t fileSize = 0;
+};
 
-auto buildConflictHandledPackEntryName(fs::path const& dirPath, fs::path const& filePath)
-  -> std::string {
+struct pack::Packer::PreparedPackChunk {
+  std::vector<PackFileEntry> entries;
+  std::uintmax_t totalSize = 0;
+  std::size_t fileCount = 0;
+};
+
+auto pack::Packer::buildConflictHandledPackEntryName(
+  fs::path const& dirPath,
+  fs::path const& filePath
+) -> std::string {
   return naming::buildConflictHandledFlatName(
     dirPath,
     filePath,
@@ -43,7 +56,7 @@ auto buildConflictHandledPackEntryName(fs::path const& dirPath, fs::path const& 
   );
 }
 
-auto normalizeZipEntryName(std::string const& entryName) -> std::string {
+auto pack::Packer::normalizeZipEntryName(std::string const& entryName) -> std::string {
   auto normalized = fs::path{entryName}.generic_string();
   while (!normalized.empty() && normalized.front() == '/') {
     normalized.erase(normalized.begin());
@@ -51,7 +64,7 @@ auto normalizeZipEntryName(std::string const& entryName) -> std::string {
   return normalized;
 }
 
-auto makeUniqueZipEntryName(
+auto pack::Packer::makeUniqueZipEntryName(
   std::string const& preferredEntryName,
   fs::path const& filePath,
   std::unordered_set<std::string>& usedEntryNames
@@ -77,42 +90,48 @@ auto makeUniqueZipEntryName(
   return candidate;
 }
 
-struct PreparedPackEntry {
-  pack::PackFileEntry entry;
-  std::string sourceKey;
-  std::string fileKey;
-  std::uintmax_t fileSize = 0;
-};
-
-struct PreparedPackChunk {
-  std::vector<pack::PackFileEntry> entries;
-  std::uintmax_t totalSize = 0;
-  std::size_t fileCount = 0;
-};
-
-auto wouldExceedGroupLimits(
+auto pack::Packer::wouldExceedGroupLimits(
   std::uintmax_t currentSize,
   std::size_t currentCount,
   std::uintmax_t additionalSize,
   std::size_t additionalCount,
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup
-) -> bool;
+) -> bool {
+  if (currentSize + additionalSize > maxGroupSize) { return true; }
+  return maxFilesPerGroup.has_value()
+    && currentCount + additionalCount > maxFilesPerGroup.value();
+}
 
-void flushGroupedEntries(
-  std::vector<pack::PackFileEntry>& currentGroup,
+void pack::Packer::flushGroupedEntries(
+  std::vector<PackFileEntry>& currentGroup,
   std::uintmax_t& currentSize,
   std::size_t& currentCount,
-  std::vector<std::vector<pack::PackFileEntry>>& groupedEntries
-);
+  std::vector<std::vector<PackFileEntry>>& groupedEntries
+) {
+  if (currentGroup.empty()) { return; }
+  groupedEntries.emplace_back(std::move(currentGroup));
+  currentGroup = {};
+  currentSize = 0;
+  currentCount = 0;
+}
 
-auto groupPreparedEntriesSequentially(
+void pack::Packer::flushPreparedChunk(
+  PreparedPackChunk& currentChunk,
+  std::vector<PreparedPackChunk>& chunks
+) {
+  if (currentChunk.entries.empty()) { return; }
+  chunks.emplace_back(std::move(currentChunk));
+  currentChunk = {};
+}
+
+auto pack::Packer::groupPreparedEntriesSequentially(
   std::vector<PreparedPackEntry> const& preparedEntries,
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup
-) -> std::vector<std::vector<pack::PackFileEntry>> {
-  auto groupedEntries = std::vector<std::vector<pack::PackFileEntry>>{};
-  auto currentGroup = std::vector<pack::PackFileEntry>{};
+) -> std::vector<std::vector<PackFileEntry>> {
+  auto groupedEntries = std::vector<std::vector<PackFileEntry>>{};
+  auto currentGroup = std::vector<PackFileEntry>{};
   auto currentSize = std::uintmax_t{0};
   auto currentCount = std::size_t{0};
 
@@ -140,42 +159,7 @@ auto groupPreparedEntriesSequentially(
   return groupedEntries;
 }
 
-auto wouldExceedGroupLimits(
-  std::uintmax_t currentSize,
-  std::size_t currentCount,
-  std::uintmax_t additionalSize,
-  std::size_t additionalCount,
-  std::uintmax_t maxGroupSize,
-  std::optional<std::size_t> maxFilesPerGroup
-) -> bool {
-  if (currentSize + additionalSize > maxGroupSize) { return true; }
-  return maxFilesPerGroup.has_value()
-    && currentCount + additionalCount > maxFilesPerGroup.value();
-}
-
-void flushPreparedChunk(
-  PreparedPackChunk& currentChunk,
-  std::vector<PreparedPackChunk>& chunks
-) {
-  if (currentChunk.entries.empty()) { return; }
-  chunks.emplace_back(std::move(currentChunk));
-  currentChunk = {};
-}
-
-void flushGroupedEntries(
-  std::vector<pack::PackFileEntry>& currentGroup,
-  std::uintmax_t& currentSize,
-  std::size_t& currentCount,
-  std::vector<std::vector<pack::PackFileEntry>>& groupedEntries
-) {
-  if (currentGroup.empty()) { return; }
-  groupedEntries.emplace_back(std::move(currentGroup));
-  currentGroup = {};
-  currentSize = 0;
-  currentCount = 0;
-}
-
-auto splitSourceDirectoryEntries(
+auto pack::Packer::splitSourceDirectoryEntries(
   std::vector<PreparedPackEntry> const& entries,
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup
@@ -207,15 +191,15 @@ auto splitSourceDirectoryEntries(
   return chunks;
 }
 
-auto packSourceEntryChunks(
+void pack::Packer::packSourceEntryChunks(
   std::vector<PreparedPackEntry> const& entries,
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup,
-  std::vector<pack::PackFileEntry>& currentGroup,
+  std::vector<PackFileEntry>& currentGroup,
   std::uintmax_t& currentSize,
   std::size_t& currentCount,
-  std::vector<std::vector<pack::PackFileEntry>>& groupedEntries
-) -> void {
+  std::vector<std::vector<PackFileEntry>>& groupedEntries
+) {
   auto const sourceChunks =
     splitSourceDirectoryEntries(entries, maxGroupSize, maxFilesPerGroup);
   for (auto const& chunk: sourceChunks) {
@@ -239,7 +223,7 @@ auto packSourceEntryChunks(
   }
 }
 
-auto buildPackEntryStableKey(pack::PackFileEntry const& entry) -> std::string {
+auto pack::Packer::buildPackEntryStableKey(PackFileEntry const& entry) -> std::string {
   return std::format(
     "{}|{}",
     naming::stablePathString(entry.sourcePath),
@@ -247,12 +231,12 @@ auto buildPackEntryStableKey(pack::PackFileEntry const& entry) -> std::string {
   );
 }
 
-auto groupPreparedEntries(
+auto pack::Packer::groupPreparedEntries(
   std::vector<PreparedPackEntry> preparedEntries,
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup,
   std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed
-) -> std::vector<std::vector<pack::PackFileEntry>> {
+) -> std::vector<std::vector<PackFileEntry>> {
   if (preparedEntries.empty()) { return {}; }
 
   if (
@@ -274,8 +258,8 @@ auto groupPreparedEntries(
     }
   );
 
-  auto groupedEntries = std::vector<std::vector<pack::PackFileEntry>>{};
-  auto currentGroup = std::vector<pack::PackFileEntry>{};
+  auto groupedEntries = std::vector<std::vector<PackFileEntry>>{};
+  auto currentGroup = std::vector<PackFileEntry>{};
   auto currentSize = std::uintmax_t{0};
   auto currentCount = std::size_t{0};
 
@@ -316,7 +300,7 @@ auto groupPreparedEntries(
   return groupedEntries;
 }
 
-auto sourcePathsForGroup(std::vector<pack::PackFileEntry> const& entries)
+auto pack::Packer::sourcePathsForGroup(std::vector<PackFileEntry> const& entries)
   -> std::vector<fs::path> {
   auto paths = std::vector<fs::path>{};
   paths.reserve(entries.size());
@@ -324,8 +308,9 @@ auto sourcePathsForGroup(std::vector<pack::PackFileEntry> const& entries)
   return paths;
 }
 
-auto sourcePathGroups(std::vector<std::vector<pack::PackFileEntry>> const& groupedEntries)
-  -> std::vector<std::vector<fs::path>> {
+auto pack::Packer::sourcePathGroups(
+  std::vector<std::vector<PackFileEntry>> const& groupedEntries
+) -> std::vector<std::vector<fs::path>> {
   auto groupedPaths = std::vector<std::vector<fs::path>>{};
   groupedPaths.reserve(groupedEntries.size());
   for (auto const& group: groupedEntries) {
@@ -334,13 +319,13 @@ auto sourcePathGroups(std::vector<std::vector<pack::PackFileEntry>> const& group
   return groupedPaths;
 }
 
-auto runFinalizingSpinner(
+void pack::Packer::runFinalizingSpinner(
   progress::ProgressContext& progressCtx,
   std::size_t progressBarIndex,
   std::string_view progressText,
   std::atomic<bool>& finalizing,
   std::stop_token stopToken
-) -> void {
+) {
   using namespace std::chrono_literals;
   auto const frames = std::array{'|', '/', '-', '\\'};
   auto frameIndex = std::size_t{0};
@@ -354,20 +339,20 @@ auto runFinalizingSpinner(
   }
 }
 
-}  // namespace
+// === Public methods ===
 
-auto packFilesToZip(
+auto pack::Packer::packFilesToZip(
   std::vector<fs::path> const& filePaths,
   fs::path const& zipFilePath,
   progress::ProgressContext& progressCtx,
   std::string_view progressText,
   ZipEntryNameResolver entryNameForFile
 ) -> eh::Result<void> {
-  auto entries = std::vector<pack::PackFileEntry>{};
+  auto entries = std::vector<PackFileEntry>{};
   entries.reserve(filePaths.size());
   for (auto const& filePath: filePaths) {
     entries.emplace_back(
-      pack::PackFileEntry{
+      PackFileEntry{
         .sourcePath = filePath,
         .zipEntryName =
           entryNameForFile ? entryNameForFile(filePath) : filePath.filename().string(),
@@ -378,8 +363,8 @@ auto packFilesToZip(
   return packFilesToZip(entries, zipFilePath, progressCtx, progressText);
 }
 
-auto packFilesToZip(
-  std::vector<pack::PackFileEntry> const& entries,
+auto pack::Packer::packFilesToZip(
+  std::vector<PackFileEntry> const& entries,
   fs::path const& zipFilePath,
   progress::ProgressContext& progressCtx,
   std::string_view progressText
@@ -440,8 +425,8 @@ auto packFilesToZip(
   );
 }
 
-auto packFilesToZip(
-  std::vector<pack::PackFileEntry> const& entries,
+auto pack::Packer::packFilesToZip(
+  std::vector<PackFileEntry> const& entries,
   fs::path const& zipFilePath,
   PackEntryProgressCallback onEntryPacked,
   std::atomic<std::size_t>* finalizingCount
@@ -480,7 +465,7 @@ auto packFilesToZip(
   );
 }
 
-auto groupFilesBySize(
+auto pack::Packer::groupFilesBySize(
   std::vector<fs::path> const& filePaths,
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup
@@ -490,7 +475,7 @@ auto groupFilesBySize(
   for (auto const& filePath: filePaths) {
     preparedEntries.emplace_back(
       PreparedPackEntry{
-        .entry = pack::PackFileEntry{.sourcePath = filePath, .zipEntryName = {}},
+        .entry = PackFileEntry{.sourcePath = filePath, .zipEntryName = {}},
         .sourceKey = {},
         .fileKey = {},
         .fileSize = fs::file_size(filePath),
@@ -503,12 +488,12 @@ auto groupFilesBySize(
   );
 }
 
-auto groupPackEntries(
+auto pack::Packer::groupPackEntries(
   std::vector<PackEntryInput> const& entries,
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup,
   std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed
-) -> std::vector<std::vector<pack::PackFileEntry>> {
+) -> std::vector<std::vector<PackFileEntry>> {
   if (entries.empty()) { return {}; }
 
   auto preparedEntries = std::vector<PreparedPackEntry>{};
@@ -532,7 +517,7 @@ auto groupPackEntries(
   );
 }
 
-auto groupPackFiles(
+auto pack::Packer::groupPackFiles(
   std::vector<PackGroupInput> const& filePaths,
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup,
@@ -543,7 +528,7 @@ auto groupPackFiles(
   for (auto const& file: filePaths) {
     packEntries.emplace_back(
       PackEntryInput{
-        .entry = pack::PackFileEntry{.sourcePath = file.filePath, .zipEntryName = {}},
+        .entry = PackFileEntry{.sourcePath = file.filePath, .zipEntryName = {}},
         .sourceDir = file.sourceDir,
         .sourceKey = naming::stablePathString(file.sourceDir),
         .fileKey = naming::stablePathString(file.filePath),
@@ -559,7 +544,7 @@ auto groupPackFiles(
   ));
 }
 
-auto groupPackEntriesWithSubparts(
+auto pack::Packer::groupPackEntriesWithSubparts(
   std::vector<PackEntryInput> const& entries,
   std::uintmax_t maxGroupSize,
   std::size_t maxFilesPerPart,
@@ -646,7 +631,7 @@ auto groupPackEntriesWithSubparts(
   return groupedPartitions;
 }
 
-auto groupPackFilesWithSubparts(
+auto pack::Packer::groupPackFilesWithSubparts(
   std::vector<PackGroupInput> const& filePaths,
   std::uintmax_t maxGroupSize,
   std::size_t maxFilesPerPart,
@@ -657,7 +642,7 @@ auto groupPackFilesWithSubparts(
   for (auto const& file: filePaths) {
     packEntries.emplace_back(
       PackEntryInput{
-        .entry = pack::PackFileEntry{.sourcePath = file.filePath, .zipEntryName = {}},
+        .entry = PackFileEntry{.sourcePath = file.filePath, .zipEntryName = {}},
         .sourceDir = file.sourceDir,
         .sourceKey = naming::stablePathString(file.sourceDir),
         .fileKey = naming::stablePathString(file.filePath),
@@ -687,58 +672,7 @@ auto groupPackFilesWithSubparts(
   return groupedPartitions;
 }
 
-auto packAllFilesInDirectory(
-  fs::path const& dirPath,
-  fs::path const& zipFileDir,
-  std::uintmax_t maxGroupSize,
-  bool recursive,
-  bool forceNameConflictHandling,
-  std::optional<std::size_t> maxParallelJobs
-) -> eh::Result<void> {
-  auto const planRes = buildDirectoryPackPlan(
-    dirPath,
-    zipFileDir,
-    maxGroupSize,
-    recursive,
-    forceNameConflictHandling,
-    maxParallelJobs
-  );
-  if (!planRes) { return eh::makeError("{}", planRes.error()); }
-
-  auto const packRes = pack::packGroups(planRes.value());
-  if (!packRes) { return eh::makeError("{}", packRes.error()); }
-
-  return {};
-}
-
-auto runDirectoryPackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
-  -> eh::Result<int> {
-  auto const zipOutputDir = ctx.config.outputPath.value_or(dirPath / "packed");
-  auto const planRes = buildDirectoryPackPlan(
-    dirPath,
-    zipOutputDir,
-    pack::kDefaultMaxArchiveGroupSize,
-    true,
-    ctx.config.forceNameConflictHandling,
-    ctx.config.maxParallelJobs,
-    ctx.runtime.jobState ? std::optional<fs::path>{ctx.runtime.jobState->stateFilePath()}
-                         : std::nullopt
-  );
-  if (!planRes) { return eh::makeError("Failed to pack files: {}", planRes.error()); }
-
-  auto const packRes = pack::runPackPlan(ctx, planRes.value());
-  if (!packRes) { return eh::makeError("Failed to pack files: {}", packRes.error()); }
-  if (packRes->exitCode != 0) { return packRes->exitCode; }
-
-  terminal::println(
-    Success,
-    "All files packed successfully to: {}",
-    terminal::path(zipOutputDir)
-  );
-  return 0;
-}
-
-auto buildDirectoryPackPlan(
+auto pack::Packer::buildDirectoryPackPlan(
   fs::path const& dirPath,
   fs::path const& zipFileDir,
   std::uintmax_t maxGroupSize,
@@ -827,4 +761,59 @@ auto buildDirectoryPackPlan(
     .maxParallelJobs = maxParallelJobs,
     .compact = true
   };
+}
+
+// === Free functions (move to PackService in Phase 09-03) ===
+
+auto packAllFilesInDirectory(
+  fs::path const& dirPath,
+  fs::path const& zipFileDir,
+  std::uintmax_t maxGroupSize,
+  bool recursive,
+  bool forceNameConflictHandling,
+  std::optional<std::size_t> maxParallelJobs
+) -> eh::Result<void> {
+  pack::Packer packer;
+  auto const planRes = packer.buildDirectoryPackPlan(
+    dirPath,
+    zipFileDir,
+    maxGroupSize,
+    recursive,
+    forceNameConflictHandling,
+    maxParallelJobs
+  );
+  if (!planRes) { return eh::makeError("{}", planRes.error()); }
+
+  auto const packRes = pack::packGroups(planRes.value());
+  if (!packRes) { return eh::makeError("{}", packRes.error()); }
+
+  return {};
+}
+
+auto runDirectoryPackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
+  -> eh::Result<int> {
+  pack::Packer packer;
+  auto const zipOutputDir = ctx.config.outputPath.value_or(dirPath / "packed");
+  auto const planRes = packer.buildDirectoryPackPlan(
+    dirPath,
+    zipOutputDir,
+    pack::kDefaultMaxArchiveGroupSize,
+    true,
+    ctx.config.forceNameConflictHandling,
+    ctx.config.maxParallelJobs,
+    ctx.runtime.jobState ? std::optional<fs::path>{ctx.runtime.jobState->stateFilePath()}
+                         : std::nullopt
+  );
+  if (!planRes) { return eh::makeError("Failed to pack files: {}", planRes.error()); }
+
+  auto const packRes = pack::runPackPlan(ctx, planRes.value());
+  if (!packRes) { return eh::makeError("Failed to pack files: {}", packRes.error()); }
+  if (packRes->exitCode != 0) { return packRes->exitCode; }
+
+  terminal::println(
+    Success,
+    "All files packed successfully to: {}",
+    terminal::path(zipOutputDir)
+  );
+  return 0;
 }
