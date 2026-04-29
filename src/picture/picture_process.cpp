@@ -241,7 +241,7 @@ struct PicturePackNamingState {
 
   auto zipNameFor(std::size_t index) const -> std::string {
     auto const [partIndex, subPartIndex] = groupNameParts.at(index);
-    return pack::appendOrdinalRangeSuffix(
+    return pack::PackService::appendOrdinalRangeSuffix(
       buildPicturePackBaseName(
         dirName,
         partIndex,
@@ -463,7 +463,7 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
       ++subPartCountsByPart[partition.partIndex - 1];
     }
 
-    auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedPics);
+    auto const ordinalRanges = pack::PackService::buildGroupOrdinalRanges(groupedPics);
     auto picturePackNaming = PicturePackNamingState{
       .dirName = dirPath.filename().string(),
       .ordinalRanges = ordinalRanges,
@@ -484,7 +484,9 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
       .compact = true
     };
 
-    auto const packRes = pack::runPackPlan(ctx, plan);
+    pack::Packer packer;
+    pack::PackService service(packer);
+    auto const packRes = service.runPackPlan(ctx, plan);
     fs::remove_all(tempDir, ec);
 
     if (!packRes) {
@@ -511,7 +513,9 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
     return 0;
   }
 
-  auto const packRes = pack::runPackPlan(ctx, prepared.plan);
+  pack::Packer packer2;
+  pack::PackService service2(packer2);
+  auto const packRes = service2.runPackPlan(ctx, prepared.plan);
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
@@ -537,7 +541,9 @@ auto packAllPicsToZip(
     return eh::makeError("Packing task canceled by user.");
   }
 
-  auto const packRes = pack::packGroups(prepared.plan);
+  pack::Packer packer3;
+  pack::PackService service3(packer3);
+  auto const packRes = service3.packGroups(prepared.plan);
   if (!packRes) {
     auto const errMsg = std::format(
       "Failed to pack pictures in {}: {}",
@@ -596,7 +602,7 @@ auto buildPicturePackPlan(
     }
     ++subPartCountsByPart[partition.partIndex - 1];
   }
-  auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedPics);
+  auto const ordinalRanges = pack::PackService::buildGroupOrdinalRanges(groupedPics);
   auto picturePackNaming = PicturePackNamingState{
     .dirName = dirPath.filename().string(),
     .ordinalRanges = ordinalRanges,

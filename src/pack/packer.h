@@ -23,21 +23,6 @@ using PackEntryProgressCallback = std::function<void(std::size_t, std::size_t)>;
 
 }  // namespace pack::detail
 
-// TODO: move to PackService in Phase 09-03
-auto packAllFilesInDirectory(
-  std::filesystem::path const& dirPath,
-  std::filesystem::path const& zipFileDir,
-  std::uintmax_t maxGroupSize = pack::kDefaultMaxArchiveGroupSize,
-  bool recursive = true,
-  bool forceNameConflictHandling = false,
-  std::optional<std::size_t> maxParallelJobs = std::nullopt
-) -> eh::Result<void>;
-
-auto runDirectoryPackWorkflow(
-  appctx::AppContext& ctx,
-  std::filesystem::path const& dirPath
-) -> eh::Result<int>;
-
 namespace pack {
 
 class Packer final {

@@ -729,7 +729,7 @@ auto pack::Packer::buildDirectoryPackPlan(
   );
 
   auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
-  auto const ordinalRanges = pack::buildGroupOrdinalRanges(groupedFiles);
+  auto const ordinalRanges = PackService::buildGroupOrdinalRanges(groupedFiles);
   auto groupedEntries = std::vector<std::vector<pack::PackFileEntry>>{};
   groupedEntries.reserve(groupedFiles.size());
   for (auto const& group: groupedFiles) {
@@ -753,7 +753,7 @@ auto pack::Packer::buildDirectoryPackPlan(
     .outputDir = zipFileDir,
     .zipNameForIndex =
       [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
-        return pack::appendOrdinalRangeSuffix(
+        return PackService::appendOrdinalRangeSuffix(
           std::format("{}_part{}.zip", dirName, index + 1),
           ordinalRanges.at(index)
         );
@@ -761,59 +761,4 @@ auto pack::Packer::buildDirectoryPackPlan(
     .maxParallelJobs = maxParallelJobs,
     .compact = true
   };
-}
-
-// === Free functions (move to PackService in Phase 09-03) ===
-
-auto packAllFilesInDirectory(
-  fs::path const& dirPath,
-  fs::path const& zipFileDir,
-  std::uintmax_t maxGroupSize,
-  bool recursive,
-  bool forceNameConflictHandling,
-  std::optional<std::size_t> maxParallelJobs
-) -> eh::Result<void> {
-  pack::Packer packer;
-  auto const planRes = packer.buildDirectoryPackPlan(
-    dirPath,
-    zipFileDir,
-    maxGroupSize,
-    recursive,
-    forceNameConflictHandling,
-    maxParallelJobs
-  );
-  if (!planRes) { return eh::makeError("{}", planRes.error()); }
-
-  auto const packRes = pack::packGroups(planRes.value());
-  if (!packRes) { return eh::makeError("{}", packRes.error()); }
-
-  return {};
-}
-
-auto runDirectoryPackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
-  -> eh::Result<int> {
-  pack::Packer packer;
-  auto const zipOutputDir = ctx.config.outputPath.value_or(dirPath / "packed");
-  auto const planRes = packer.buildDirectoryPackPlan(
-    dirPath,
-    zipOutputDir,
-    pack::kDefaultMaxArchiveGroupSize,
-    true,
-    ctx.config.forceNameConflictHandling,
-    ctx.config.maxParallelJobs,
-    ctx.runtime.jobState ? std::optional<fs::path>{ctx.runtime.jobState->stateFilePath()}
-                         : std::nullopt
-  );
-  if (!planRes) { return eh::makeError("Failed to pack files: {}", planRes.error()); }
-
-  auto const packRes = pack::runPackPlan(ctx, planRes.value());
-  if (!packRes) { return eh::makeError("Failed to pack files: {}", packRes.error()); }
-  if (packRes->exitCode != 0) { return packRes->exitCode; }
-
-  terminal::println(
-    Success,
-    "All files packed successfully to: {}",
-    terminal::path(zipOutputDir)
-  );
-  return 0;
 }
