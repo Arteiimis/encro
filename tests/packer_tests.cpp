@@ -1,4 +1,5 @@
 #include "pack/packer.h"
+#include "pack/pack_service.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
@@ -404,7 +405,9 @@ TEST_CASE("runDirectoryPackWorkflow packs directory", "[packer][workflow]") {
   auto ctx = appctx::AppContext{};
   ctx.config.inputPath = inputDir;
 
-  auto const runRes = runDirectoryPackWorkflow(ctx, inputDir);
+  pack::Packer p;
+  pack::PackService s(p);
+  auto const runRes = s.runDirectoryPackWorkflow(ctx, inputDir);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
   CHECK(fs::exists(inputDir / "packed" / "input_part1[1~1#1p].zip"));
@@ -423,7 +426,9 @@ TEST_CASE(
   auto const f2 = createSizedFile(inputDir, "b.bin", 150);
   auto const f3 = createSizedFile(inputDir, "c.bin", 60);
 
-  auto const packRes = packAllFilesInDirectory(inputDir, outputDir, 300, true);
+  pack::Packer p;
+  pack::PackService s(p);
+  auto const packRes = s.packAllFilesInDirectory(inputDir, outputDir, 300, true);
 
   REQUIRE(packRes);
   REQUIRE(fs::exists(outputDir / "input_part1[1~2#2p].zip"));
@@ -453,7 +458,9 @@ TEST_CASE(
   auto const topFile = createSizedFile(inputDir, "top.bin", 64);
   auto const nestedFile = createSizedFile(nestedDir, "nested.bin", 64);
 
-  auto const packRes = packAllFilesInDirectory(inputDir, outputDir, 300, false);
+  pack::Packer p;
+  pack::PackService s(p);
+  auto const packRes = s.packAllFilesInDirectory(inputDir, outputDir, 300, false);
 
   REQUIRE(packRes);
   libzippp::ZipArchive zip{(outputDir / "input_part1[1~1#1p].zip").string()};
