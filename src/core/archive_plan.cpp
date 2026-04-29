@@ -29,8 +29,8 @@ auto buildArchiveActions(pack::PackPlan const& plan, std::span<std::size_t const
   tasks.reserve(indexes.size());
 
   for (auto const index: indexes) {
-    auto const zipName = pack::resolveZipNameForIndex(plan, index);
-    auto const label = pack::resolveProgressLabelForIndex(plan, index);
+    auto const zipName = pack::PackService::resolveZipNameForIndex(plan, index);
+    auto const label = pack::PackService::resolveProgressLabelForIndex(plan, index);
     auto members = std::vector<std::filesystem::path>{};
     members.reserve(plan.groups[index].size());
     for (auto const& entry: plan.groups[index]) { members.push_back(entry.sourcePath); }
@@ -62,7 +62,8 @@ auto prepareResumablePackExecution(jobstate::Store& store, pack::PackPlan const&
     return PreparedPackExecution{.pendingPlan = std::nullopt, .pendingActionIds = {}};
   }
 
-  auto pendingPlan = pack::selectPackPlanIndexes(plan, executionState->pendingIndexes);
+  auto pendingPlan =
+    pack::PackService::selectPackPlanIndexes(plan, executionState->pendingIndexes);
   pendingPlan.progressCallbacks.onGroupStart = [executionState](std::size_t subsetIndex) {
     executionState->store->markRunning(
       executionState->actionIdForSubsetIndex(subsetIndex)

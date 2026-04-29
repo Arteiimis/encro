@@ -4,6 +4,7 @@
 #include "core/task_executor.h"
 
 #include "infra/stop_signal.h"
+#include "infra/terminal.h"
 #include "pack/packer.h"
 
 #include <algorithm>
@@ -16,57 +17,23 @@
 #include <optional>
 #include <thread>
 
+namespace fs = std::filesystem;
+using enum terminal::MessageKind;
+
 namespace pack {
 
-namespace {
+PackService::PackService(Packer& packer): packer_(packer) { }
 
-auto countPackedFiles(std::vector<std::vector<PackFileEntry>> const& groups)
-  -> std::size_t {
-  auto total = std::size_t{0};
-  for (auto const& group: groups) { total += group.size(); }
-  return total;
-}
+namespace {
 
 auto formatCompactPackingStatus(
   std::size_t archiveIndex,
   std::size_t archiveCount,
   std::size_t fileIndex,
   std::size_t fileCount
-) -> std::string {
-  return std::format(
-    "Packing: archive {}/{} [file {}/{}]",
-    archiveIndex,
-    archiveCount,
-    fileIndex,
-    fileCount
-  );
-}
-
+) -> std::string;
 auto formatCompactPackedStatus(std::size_t archiveIndex, std::size_t archiveCount)
-  -> std::string {
-  return std::format("Packed: archive {}/{} complete", archiveIndex, archiveCount);
-}
-
-auto makeSubsetZipNameResolver(
-  std::function<std::string(std::size_t)> const& originalResolver,
-  std::shared_ptr<std::vector<std::size_t>> const& selectedIndexes
-) -> std::function<std::string(std::size_t)> {
-  return [originalResolver, selectedIndexes](std::size_t subsetIndex) -> std::string {
-    auto const actualIndex = selectedIndexes->at(subsetIndex);
-    return originalResolver ? originalResolver(actualIndex)
-                            : defaultZipNameForIndex(actualIndex);
-  };
-}
-
-auto makeSubsetProgressLabelResolver(
-  std::function<std::string(std::size_t)> const& originalResolver,
-  std::shared_ptr<std::vector<std::size_t>> const& selectedIndexes
-) -> std::function<std::string(std::size_t)> {
-  if (!originalResolver) { return {}; }
-  return [originalResolver, selectedIndexes](std::size_t subsetIndex) -> std::string {
-    return originalResolver(selectedIndexes->at(subsetIndex));
-  };
-}
+  -> std::string;
 
 struct CompactProgressState {
   progress::ProgressContext ctx;
@@ -117,7 +84,6 @@ struct CompactProgressState {
     std::string_view statusText,
     std::function<void(std::string_view)> const& onCompactStatusText
   ) {
-    // Caller holds mutex lock
     if (finalizingCount.load(std::memory_order_acquire) == 0) {
       if (barIndex.has_value()) { ctx.setPostfixText(barIndex.value(), statusText); }
       if (onCompactStatusText) { onCompactStatusText(statusText); }
@@ -140,11 +106,61 @@ struct CompactProgressState {
   }
 };
 
-auto packGroupsCompact(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
+auto countPackedFiles(std::vector<std::vector<PackFileEntry>> const& groups)
+  -> std::size_t {
+  auto total = std::size_t{0};
+  for (auto const& group: groups) { total += group.size(); }
+  return total;
+}
+
+auto formatCompactPackingStatus(
+  std::size_t archiveIndex,
+  std::size_t archiveCount,
+  std::size_t fileIndex,
+  std::size_t fileCount
+) -> std::string {
+  return std::format(
+    "Packing: archive {}/{} [file {}/{}]",
+    archiveIndex,
+    archiveCount,
+    fileIndex,
+    fileCount
+  );
+}
+
+auto formatCompactPackedStatus(std::size_t archiveIndex, std::size_t archiveCount)
+  -> std::string {
+  return std::format("Packed: archive {}/{} complete", archiveIndex, archiveCount);
+}
+
+}  // namespace
+
+auto PackService::makeSubsetZipNameResolver(
+  std::function<std::string(std::size_t)> const& originalResolver,
+  std::shared_ptr<std::vector<std::size_t>> const& selectedIndexes
+) -> std::function<std::string(std::size_t)> {
+  return [originalResolver, selectedIndexes](std::size_t subsetIndex) -> std::string {
+    auto const actualIndex = selectedIndexes->at(subsetIndex);
+    return originalResolver ? originalResolver(actualIndex)
+                            : defaultZipNameForIndex(actualIndex);
+  };
+}
+
+auto PackService::makeSubsetProgressLabelResolver(
+  std::function<std::string(std::size_t)> const& originalResolver,
+  std::shared_ptr<std::vector<std::size_t>> const& selectedIndexes
+) -> std::function<std::string(std::size_t)> {
+  if (!originalResolver) { return {}; }
+  return [originalResolver, selectedIndexes](std::size_t subsetIndex) -> std::string {
+    return originalResolver(selectedIndexes->at(subsetIndex));
+  };
+}
+
+auto PackService::packGroupsCompact(PackPlan const& plan)
+  -> eh::Result<std::vector<fs::path>> {
   if (plan.groups.empty()) { return std::vector<fs::path>{}; }
   fs::create_directories(plan.outputDir);
 
-  auto packer = Packer{};
   auto state = CompactProgressState{};
   auto const totalFiles = countPackedFiles(plan.groups);
   auto const archiveCount = plan.groups.size();
@@ -179,7 +195,7 @@ auto packGroupsCompact(PackPlan const& plan) -> eh::Result<std::vector<fs::path>
             plan.progressCallbacks.onGroupStart(index);
           }
 
-          auto const packRes = packer.packFilesToZip(
+          auto const packRes = packer_.packFilesToZip(
             plan.groups[index],
             zipPath,
             [&](std::size_t /*fileIndex*/, std::size_t /*fileCount*/) {
@@ -271,11 +287,10 @@ auto packGroupsCompact(PackPlan const& plan) -> eh::Result<std::vector<fs::path>
   return zippedFiles;
 }
 
-auto packGroupsFull(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
+auto PackService::packGroupsFull(PackPlan const& plan)
+  -> eh::Result<std::vector<fs::path>> {
   if (plan.groups.empty()) { return std::vector<fs::path>{}; }
   fs::create_directories(plan.outputDir);
-
-  auto packer = Packer{};
 
   auto const maxParallelJobs =
     std::max<std::size_t>(1, plan.maxParallelJobs.value_or(plan.groups.size()));
@@ -300,7 +315,7 @@ auto packGroupsFull(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
           }
 
           auto const packRes =
-            packer.packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
+            packer_.packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
           if (!packRes) {
             if (plan.removeOnFailure) {
               auto ec = std::error_code{};
@@ -345,8 +360,6 @@ auto packGroupsFull(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   return zippedFiles;
 }
 
-}  // namespace
-
 template<class Group>
 auto buildGroupOrdinalRangesImpl(std::vector<Group> const& groups)
   -> std::vector<FileOrdinalRange> {
@@ -369,18 +382,22 @@ auto buildGroupOrdinalRangesImpl(std::vector<Group> const& groups)
   return ranges;
 }
 
-auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
-  -> std::vector<FileOrdinalRange> {
+auto PackService::buildGroupOrdinalRanges(
+  std::vector<std::vector<fs::path>> const& groups
+) -> std::vector<FileOrdinalRange> {
   return buildGroupOrdinalRangesImpl(groups);
 }
 
-auto buildGroupOrdinalRanges(std::vector<std::vector<PackFileEntry>> const& groups)
-  -> std::vector<FileOrdinalRange> {
+auto PackService::buildGroupOrdinalRanges(
+  std::vector<std::vector<PackFileEntry>> const& groups
+) -> std::vector<FileOrdinalRange> {
   return buildGroupOrdinalRangesImpl(groups);
 }
 
-auto appendOrdinalRangeSuffix(std::string_view fileName, FileOrdinalRange const& range)
-  -> std::string {
+auto PackService::appendOrdinalRangeSuffix(
+  std::string_view fileName,
+  FileOrdinalRange const& range
+) -> std::string {
   if (range.first == 0 || range.last == 0 || range.count == 0) {
     return std::string{fileName};
   }
@@ -395,28 +412,32 @@ auto appendOrdinalRangeSuffix(std::string_view fileName, FileOrdinalRange const&
   );
 }
 
-auto defaultZipNameForIndex(std::size_t index) -> std::string {
+auto PackService::defaultZipNameForIndex(std::size_t index) -> std::string {
   return std::format("part{}.zip", index + 1);
 }
 
-auto defaultProgressLabelForZipName(std::string_view zipName) -> std::string {
+auto PackService::defaultProgressLabelForZipName(std::string_view zipName)
+  -> std::string {
   return std::format("Packing: {}", zipName);
 }
 
-auto resolveZipNameForIndex(PackPlan const& plan, std::size_t index) -> std::string {
+auto PackService::resolveZipNameForIndex(PackPlan const& plan, std::size_t index)
+  -> std::string {
   return plan.zipNameForIndex ? plan.zipNameForIndex(index)
                               : defaultZipNameForIndex(index);
 }
 
-auto resolveProgressLabelForIndex(PackPlan const& plan, std::size_t index)
+auto PackService::resolveProgressLabelForIndex(PackPlan const& plan, std::size_t index)
   -> std::string {
   if (plan.progressLabelForIndex) { return plan.progressLabelForIndex(index); }
 
   return defaultProgressLabelForZipName(resolveZipNameForIndex(plan, index));
 }
 
-auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> indexes)
-  -> PackPlan {
+auto PackService::selectPackPlanIndexes(
+  PackPlan const& plan,
+  std::span<std::size_t const> indexes
+) -> PackPlan {
   auto filteredGroups = std::vector<std::vector<PackFileEntry>>{};
   filteredGroups.reserve(indexes.size());
   for (auto const index: indexes) { filteredGroups.push_back(plan.groups[index]); }
@@ -441,7 +462,7 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
   };
 }
 
-auto runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
+auto PackService::runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
   -> eh::Result<PackRunResult> {
   auto* store = ctx.runtime.jobState.get();
   if (store == nullptr) {
@@ -472,9 +493,62 @@ auto runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
   return PackRunResult{.exitCode = 0, .zippedFiles = packRes.value()};
 }
 
-auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
+auto PackService::packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   if (plan.compact) { return packGroupsCompact(plan); }
   return packGroupsFull(plan);
+}
+
+auto PackService::packAllFilesInDirectory(
+  fs::path const& dirPath,
+  fs::path const& zipFileDir,
+  std::uintmax_t maxGroupSize,
+  bool recursive,
+  bool forceNameConflictHandling,
+  std::optional<std::size_t> maxParallelJobs
+) -> eh::Result<void> {
+  auto const planRes = packer_.buildDirectoryPackPlan(
+    dirPath,
+    zipFileDir,
+    maxGroupSize,
+    recursive,
+    forceNameConflictHandling,
+    maxParallelJobs
+  );
+  if (!planRes) { return eh::makeError("{}", planRes.error()); }
+
+  auto const packRes = packGroups(planRes.value());
+  if (!packRes) { return eh::makeError("{}", packRes.error()); }
+
+  return {};
+}
+
+auto PackService::runDirectoryPackWorkflow(
+  appctx::AppContext& ctx,
+  fs::path const& dirPath
+) -> eh::Result<int> {
+  auto const zipOutputDir = ctx.config.outputPath.value_or(dirPath / "packed");
+  auto const planRes = packer_.buildDirectoryPackPlan(
+    dirPath,
+    zipOutputDir,
+    kDefaultMaxArchiveGroupSize,
+    true,
+    ctx.config.forceNameConflictHandling,
+    ctx.config.maxParallelJobs,
+    ctx.runtime.jobState ? std::optional<fs::path>{ctx.runtime.jobState->stateFilePath()}
+                         : std::nullopt
+  );
+  if (!planRes) { return eh::makeError("Failed to pack files: {}", planRes.error()); }
+
+  auto const packRes = runPackPlan(ctx, planRes.value());
+  if (!packRes) { return eh::makeError("Failed to pack files: {}", packRes.error()); }
+  if (packRes->exitCode != 0) { return packRes->exitCode; }
+
+  terminal::println(
+    Success,
+    "All files packed successfully to: {}",
+    terminal::path(zipOutputDir)
+  );
+  return 0;
 }
 
 }  // namespace pack

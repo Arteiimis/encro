@@ -1,5 +1,6 @@
 #include "core/job_state.h"
 #include "pack/pack_service.h"
+#include "pack/packer.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
@@ -15,6 +16,9 @@ namespace fs = std::filesystem;
 
 namespace {
 
+pack::Packer testPacker;
+pack::PackService testService(testPacker);
+
 auto createFile(fs::path const& dir, std::string_view name) -> fs::path {
   auto const filePath = dir / name;
   std::ofstream out{filePath, std::ios::binary};
@@ -26,7 +30,7 @@ auto createFile(fs::path const& dir, std::string_view name) -> fs::path {
 
 TEST_CASE("packGroups returns empty for empty plan", "[pack-service]") {
   auto const plan = pack::PackPlan{};
-  auto const result = pack::packGroups(plan);
+  auto const result = testService.packGroups(plan);
 
   REQUIRE(result);
   CHECK(result.value().empty());
@@ -61,7 +65,7 @@ TEST_CASE("packGroups packs grouped files", "[pack-service]") {
       [](std::size_t index) { return std::format("Packing: group{}.zip", index + 1); }
   };
 
-  auto const result = pack::packGroups(plan);
+  auto const result = testService.packGroups(plan);
 
   REQUIRE(result);
   REQUIRE(result.value().size() == 2);
@@ -80,7 +84,7 @@ TEST_CASE("pack range helpers append cumulative ordinal suffixes", "[pack-servic
     std::vector<fs::path>{fs::path{"c"}}
   };
 
-  auto const ranges = pack::buildGroupOrdinalRanges(groups);
+  auto const ranges = pack::PackService::buildGroupOrdinalRanges(groups);
 
   REQUIRE(ranges.size() == 2);
   CHECK(ranges[0].first == 1);
@@ -90,7 +94,7 @@ TEST_CASE("pack range helpers append cumulative ordinal suffixes", "[pack-servic
   CHECK(ranges[1].last == 3);
   CHECK(ranges[1].count == 1);
   CHECK(
-    pack::appendOrdinalRangeSuffix("bundle_part1.zip", ranges[0])
+    pack::PackService::appendOrdinalRangeSuffix("bundle_part1.zip", ranges[0])
     == "bundle_part1[1~2#2p].zip"
   );
 }
@@ -114,7 +118,7 @@ TEST_CASE("selectPackPlanIndexes preserves compact from source plan", "[pack-ser
   auto const selectedIndexes = std::vector<std::size_t>{0, 1};
 
   auto const resultNonCompact =
-    pack::selectPackPlanIndexes(nonCompactPlan, std::span{selectedIndexes});
+    pack::PackService::selectPackPlanIndexes(nonCompactPlan, std::span{selectedIndexes});
   CHECK(resultNonCompact.compact == false);
 
   // Plan with compact=true (default)
@@ -125,7 +129,7 @@ TEST_CASE("selectPackPlanIndexes preserves compact from source plan", "[pack-ser
   };
 
   auto const resultCompact =
-    pack::selectPackPlanIndexes(compactPlan, std::span{selectedIndexes});
+    pack::PackService::selectPackPlanIndexes(compactPlan, std::span{selectedIndexes});
   CHECK(resultCompact.compact == true);
 }
 
@@ -151,7 +155,7 @@ TEST_CASE(
   };
 
   auto const selected = std::vector<std::size_t>{1, 0};
-  auto const result = pack::selectPackPlanIndexes(plan, std::span{selected});
+  auto const result = pack::PackService::selectPackPlanIndexes(plan, std::span{selected});
 
   // Verify zipNameForIndex remaps correctly: selected[0]=1 maps to original index 1
   CHECK(result.zipNameForIndex(0) == "arch1.zip");
@@ -191,7 +195,7 @@ TEST_CASE("packGroups compact mode reports per-file progress updates", "[pack-se
     .compact = true,
   };
 
-  auto const result = pack::packGroups(plan);
+  auto const result = testService.packGroups(plan);
 
   REQUIRE(result);
   CHECK(progressUpdates == std::vector<std::string>{"0/3", "1/3", "2/3", "3/3"});
@@ -230,7 +234,7 @@ TEST_CASE(
     .compact = true,
   };
 
-  auto const result = pack::packGroups(plan);
+  auto const result = testService.packGroups(plan);
 
   REQUIRE(result);
   CHECK(
@@ -287,7 +291,7 @@ TEST_CASE(
     .compact = true,
   };
 
-  auto const result = pack::packGroups(plan);
+  auto const result = testService.packGroups(plan);
 
   REQUIRE(result);
   CHECK(progressUpdates == std::vector<std::string>{"0/2", "1/2", "2/2"});
@@ -321,7 +325,7 @@ TEST_CASE(
     .compact = true,
   };
 
-  auto const result = pack::packGroups(plan);
+  auto const result = testService.packGroups(plan);
 
   REQUIRE(result);
   CHECK(progressUpdates == std::vector<std::string>{"0/1", "1/1"});
@@ -364,14 +368,14 @@ TEST_CASE(
       [](std::size_t) { return std::string{"Packing: group1.zip"}; }
   };
 
-  auto const firstRun = pack::runPackPlan(ctx, plan);
+  auto const firstRun = testService.runPackPlan(ctx, plan);
 
   REQUIRE(firstRun);
   REQUIRE(firstRun->exitCode == 0);
   CHECK(firstRun->zippedFiles == std::vector<fs::path>{zipPath});
   CHECK(fs::exists(zipPath));
 
-  auto const secondRun = pack::runPackPlan(ctx, plan);
+  auto const secondRun = testService.runPackPlan(ctx, plan);
 
   REQUIRE(secondRun);
   CHECK(secondRun->exitCode == 0);
