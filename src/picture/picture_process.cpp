@@ -5,8 +5,7 @@
 #include "core/collision_naming.h"
 #include "core/media_scanner.h"
 #include "infra/terminal.h"
-#include "pack/pack_service.h"
-#include "pack/packer.h"
+#include "pack/pack_facade.h"
 #include "utils/utils.h"
 
 #include <spdlog/spdlog.h>
@@ -241,7 +240,7 @@ struct PicturePackNamingState {
 
   auto zipNameFor(std::size_t index) const -> std::string {
     auto const [partIndex, subPartIndex] = groupNameParts.at(index);
-    return pack::PackService::appendOrdinalRangeSuffix(
+    return pack_facade::appendOrdinalRangeSuffix(
       buildPicturePackBaseName(
         dirName,
         partIndex,
@@ -441,7 +440,7 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
 
     constexpr auto kMaxPicturesPerPack = std::size_t{2000};
     constexpr auto kFolderCarryOverThreshold = std::size_t{2000};
-    auto const groupedPartitions = pack::Packer{}.groupPackEntriesWithSubparts(
+    auto const groupedPartitions = pack_facade::groupPackEntriesWithSubparts(
       packInputs,
       pack::kDefaultMaxArchiveGroupSize,
       kMaxPicturesPerPack,
@@ -463,7 +462,7 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
       ++subPartCountsByPart[partition.partIndex - 1];
     }
 
-    auto const ordinalRanges = pack::PackService::buildGroupOrdinalRanges(groupedPics);
+    auto const ordinalRanges = pack_facade::buildGroupOrdinalRanges(groupedPics);
     auto picturePackNaming = PicturePackNamingState{
       .dirName = dirPath.filename().string(),
       .ordinalRanges = ordinalRanges,
@@ -484,9 +483,7 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
       .compact = true
     };
 
-    pack::Packer packer;
-    pack::PackService service(packer);
-    auto const packRes = service.runPackPlan(ctx, plan);
+    auto const packRes = pack_facade::runPackPlan(ctx, plan);
     fs::remove_all(tempDir, ec);
 
     if (!packRes) {
@@ -513,9 +510,7 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
     return 0;
   }
 
-  pack::Packer packer2;
-  pack::PackService service2(packer2);
-  auto const packRes = service2.runPackPlan(ctx, prepared.plan);
+  auto const packRes = pack_facade::runPackPlan(ctx, prepared.plan);
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
@@ -541,9 +536,7 @@ auto packAllPicsToZip(
     return eh::makeError("Packing task canceled by user.");
   }
 
-  pack::Packer packer3;
-  pack::PackService service3(packer3);
-  auto const packRes = service3.packGroups(prepared.plan);
+  auto const packRes = pack_facade::packGroups(prepared.plan);
   if (!packRes) {
     auto const errMsg = std::format(
       "Failed to pack pictures in {}: {}",
@@ -582,7 +575,7 @@ auto buildPicturePackPlan(
   auto const plannedEntryNames = planPictureZipEntryNames(config, dirPath, scannedPics);
   auto const packInputs =
     buildPicturePackEntryInputs(config, dirPath, scannedPics, plannedEntryNames);
-  auto const groupedPicPartitions = pack::Packer{}.groupPackEntriesWithSubparts(
+  auto const groupedPicPartitions = pack_facade::groupPackEntriesWithSubparts(
     packInputs,
     pack::kDefaultMaxArchiveGroupSize,
     kMaxPicturesPerPack,
@@ -602,7 +595,7 @@ auto buildPicturePackPlan(
     }
     ++subPartCountsByPart[partition.partIndex - 1];
   }
-  auto const ordinalRanges = pack::PackService::buildGroupOrdinalRanges(groupedPics);
+  auto const ordinalRanges = pack_facade::buildGroupOrdinalRanges(groupedPics);
   auto picturePackNaming = PicturePackNamingState{
     .dirName = dirPath.filename().string(),
     .ordinalRanges = ordinalRanges,
