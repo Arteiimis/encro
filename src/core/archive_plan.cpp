@@ -63,18 +63,18 @@ auto prepareResumablePackExecution(jobstate::Store& store, pack::PackPlan const&
   }
 
   auto pendingPlan = pack::selectPackPlanIndexes(plan, executionState->pendingIndexes);
-  pendingPlan.onGroupStart = [executionState](std::size_t subsetIndex) {
+  pendingPlan.progressCallbacks.onGroupStart = [executionState](std::size_t subsetIndex) {
     executionState->store->markRunning(
       executionState->actionIdForSubsetIndex(subsetIndex)
     );
   };
-  pendingPlan.onGroupSuccess =
+  pendingPlan.progressCallbacks.onGroupSuccess =
     [executionState](std::size_t subsetIndex, std::filesystem::path const&) {
       executionState->store->markSucceeded(
         executionState->actionIdForSubsetIndex(subsetIndex)
       );
     };
-  pendingPlan.onGroupFailure =
+  pendingPlan.progressCallbacks.onGroupFailure =
     [executionState](std::size_t subsetIndex, std::string const& error) {
       executionState->store->markFailed(
         executionState->actionIdForSubsetIndex(subsetIndex),

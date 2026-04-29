@@ -11,6 +11,8 @@
 namespace fs = std::filesystem;
 namespace naming = collisionnaming;
 
+using namespace pack::detail;
+
 namespace {
 
 auto shouldForceConflictNaming(appctx::AppConfig const& config) -> bool {
