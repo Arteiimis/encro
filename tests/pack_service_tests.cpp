@@ -181,9 +181,12 @@ TEST_CASE("packGroups compact mode reports per-file progress updates", "[pack-se
       },
     .outputDir = outDir,
     .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
-    .onCompactProgress =
-      [&](std::size_t completedFiles, std::size_t totalFiles) {
-        progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+    .progressCallbacks =
+      {
+        .onCompactProgress =
+          [&](std::size_t completedFiles, std::size_t totalFiles) {
+            progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+          },
       },
     .compact = true,
   };
@@ -219,8 +222,11 @@ TEST_CASE(
       },
     .outputDir = outDir,
     .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
-    .onCompactStatusText =
-      [&](std::string_view statusText) { statusTexts.emplace_back(statusText); },
+    .progressCallbacks =
+      {
+        .onCompactStatusText =
+          [&](std::string_view statusText) { statusTexts.emplace_back(statusText); },
+      },
     .compact = true,
   };
 
@@ -267,12 +273,15 @@ TEST_CASE(
     .outputDir = outDir,
     .zipNameForIndex =
       [](std::size_t index) { return std::format("group{}.zip", index + 1); },
-    .onCompactProgress =
-      [&](std::size_t completedFiles, std::size_t totalFiles) {
-        if (completedFiles == 1) {
-          std::this_thread::sleep_for(std::chrono::milliseconds{50});
-        }
-        progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+    .progressCallbacks =
+      {
+        .onCompactProgress =
+          [&](std::size_t completedFiles, std::size_t totalFiles) {
+            if (completedFiles == 1) {
+              std::this_thread::sleep_for(std::chrono::milliseconds{50});
+            }
+            progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+          },
       },
     .maxParallelJobs = 2,
     .compact = true,
@@ -302,9 +311,12 @@ TEST_CASE(
       },
     .outputDir = outDir,
     .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
-    .onCompactProgress =
-      [&](std::size_t completedFiles, std::size_t totalFiles) {
-        progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+    .progressCallbacks =
+      {
+        .onCompactProgress =
+          [&](std::size_t completedFiles, std::size_t totalFiles) {
+            progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+          },
       },
     .compact = true,
   };
