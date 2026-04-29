@@ -1,226 +1,297 @@
-# Domain Pitfalls
+# Pitfalls Research
 
-**Domain:** C++26 Tech Debt Resolution — encro
-**Researched:** 2026-04-28
-
----
+**Domain:** C++ procedural-to-OO refactoring (pack subsystem)
+**Researched:** 2026-04-29
+**Confidence:** HIGH
 
 ## Critical Pitfalls
 
-Mistakes that cause rewrites or major issues.
-
-### Pitfall 1: Deleting the Wrong Duplicate Test (DEBT-02)
-
-**What goes wrong:** Two tests at lines 98 and 132 of `pack_service_tests.cpp` both assert `compact` preservation through `selectPackPlanIndexes`, but the test at line 132 also validates `zipNameForIndex` and `progressLabelForIndex` remapping — the true purpose of that test case. Removing the line 132 test entirely would lose coverage of the v1.1 refactoring that extracted `makeSubsetZipNameResolver` and `makeSubsetProgressLabelResolver`.
-
-**Why it happens:** The tests appear similar superficially because both check `result.compact == true`, but they validate different concerns:
-- **Line 98** (`selectPackPlanIndexes preserves compact from source plan`): A **property test** — verifies `compact` field propagation for both `true` and `false` values through the index remapping logic. No other fields are tested.
-- **Line 132** (`selectPackPlanIndexes delegates to named helpers instead of lambda-wrapping-lambda`): An **integration test** — verifies the v1.1 refactoring correctly delegates to `makeSubsetZipNameResolver` and `makeSubsetProgressLabelResolver` factory functions. The `compact` check at line 161 is incidental coverage.
-
-**Consequences:** Deleting the test at line 132 loses regression protection for the v1.1 factory function refactoring. Deleting the test at line 98 loses the `compact=false` coverage. Neither test is truly "duplicate" in content.
-
-**Prevention:** The actual DEBT-02 task is not to delete a test case but to **consolidate** the coverage — the compact-field check in line 161 is redundant with line 129, but the zipNameForIndex/progressLabelForIndex assertions are unique. The correct action: keep the line 132 test, remove the **redundant compact assertion** (line 161) from it, and ensure the line 98 test covers both `compact=true` and `compact=false`. Do NOT delete entire test cases.
-
-**Detection:** Before modifying, run `grep -n "compact" tests/pack_service_tests.cpp` to count all 19 `compact` references and verify each test's distinct purpose. The assertion count must remain at 910 — any drop is a red flag.
-
-### Pitfall 2: Silent Behavioral Change from Explicit Struct Initialization (DEBT-01)
-
-**What goes wrong:** Adding `.compact = true` to `picture_process.cpp:467`'s `PackPlan` designated initializer list could change behavior if the default member initializer (`bool compact = true` in `pack_service.h:48`) is ever changed, OR if the current code accidentally omits other fields and adding `.compact` introduces a different initialization order.
-
-**Why it happens:** In C++20/26 designated initializers (per cppreference aggregate initialization rules):
-- Members **not mentioned** in a designated initializer list get their default member initializer if one exists, else are copy-initialized from `{}`.
-- `PackPlan::compact` has `bool compact = true` as its default — so omitting `.compact` from every designated initializer list yields `compact = true`.
-- **Adding `.compact = true` to a designated initializer list that already omits it produces IDENTICAL behavior today** — but makes the intent explicit and prevents silent breakage if someone later changes the default to `false`.
-
-**Consequences of getting it wrong:**
-- **Too conservative (omit the fix):** Future default change silently breaks the compress-picture path without compiler diagnostic.  
-- **Wrong field added:** Accidentally adding `.compact = true` to the wrong struct (e.g., `PicturePackNamingState` on line 465, which has no `compact` field) → compilation error.  
-- **Designator order violation:** C++ requires designated initializers to appear in declaration order. Since `compact` is the LAST field in `PackPlan`, adding it won't cause order issues.  
-- **Compiler warning:** clang-cl with `-Wmissing-field-initializers` may warn about uninitialized fields even when default member initializers exist. This is a cosmetic warning, not a bug.
-
-**Prevention:**
-1. **Verify `PackPlan` field order** (lines 36-49 in `pack_service.h`): `groups` → `outputDir` → `zipNameForIndex` → `progressLabelForIndex` → `onGroupStart` → `onGroupSuccess` → `onGroupFailure` → `onCompactProgress` → `onCompactStatusText` → `maxParallelJobs` → `removeOnFailure` → `compact`.
-2. **Place `.compact = true` as the last field** in the designated initializer (after `.removeOnFailure = true` and `.maxParallelJobs`).
-3. **Build and run full test suite** — any behavioral change in struct padding or initialization order will manifest as a test failure or assertion change.
-4. **Use `static_assert`** on `PackPlan` to verify it remains an aggregate type: `static_assert(std::is_aggregate_v<pack::PackPlan>)`.
-
-**Detection:** Diff the test output before/after. All 910 assertions must pass identically. The compact-mode tests (`packGroups compact mode reports per-file progress updates`, etc.) are the canary — if the compress-picture path behavior changed, these tests would fail or reveal different assertion counts.
-
-### Pitfall 3: ODR Violations When Refactoring Template Functions (OPTIM-01)
-
-**What goes wrong:** `withJobState` and `withActionJobState` are `template<class Fn> inline` functions defined in `video_workflow_utils.h`. Any refactoring that moves them out of the header, changes their `inline` or template linkage, or creates a separate instantiation unit risks **One Definition Rule (ODR) violations**.
-
-**Why it happens:** Per the C++ standard (cppreference ODR rules):
-- Template functions and inline functions are **exempt from the single-definition requirement** IF every definition across all translation units is identical in token sequence and meaning.
-- These functions are currently used in 2 translation units: `video_batch_execution.cpp` (8 call sites) and `video_process.cpp` (3 call sites).
-- Moving either function out of `video_workflow_utils.h` into a `.cpp` file would break all other translation units that include the header — the definition would no longer be visible at instantiation points.
-- If the refactoring involves splitting these into different namespaces or adding a wrapper layer, the `using videoworkflow::withJobState;` declarations at file scope in the consuming `.cpp` files would silently resolve to different instantiations.
-
-**Specific risks with this codebase:**
-1. **`withActionJobState` depends on `withJobState`** (line 48 of `video_workflow_utils.h`). If only one is refactored, the dependency chain must be preserved identically.
-2. **Clang-cl's template merging:** Clang merges identical template instantiations at link time. If two TUs instantiate slightly different versions (e.g., one with `const&` vs `&&` on `Fn`), the linker picks one arbitrarily → undefined behavior.
-3. **Lambda uniqueness:** The `Fn&&` template parameter deduces to a unique type for every lambda. Even identical-looking lambdas in different TUs produce different template instantiations. This is expected and safe — the ODR exemption covers this.
-
-**Prevention:**
-1. **Keep them in the header.** These are header-only by design — `inline template` functions must stay in `video_workflow_utils.h`.
-2. **If refactoring for code sharing** (the goal is to reduce duplication across video/picture subsystems), extract a **common header** in a shared location (e.g., `core/job_state_utils.h`), keeping the `template<class Fn> inline` pattern intact.
-3. **Use `using` declarations consistently.** If moving to `core::` namespace, ensure ALL call sites update their `using` declarations simultaneously. Mismatched `using` declarations in different TUs that point to old and new locations are an ODR violation.
-4. **The `inline` keyword is critical.** `template<class Fn>` alone provides the ODR exemption, but `inline` is good practice for header-defined templates — it signals intent and prevents some compilers from issuing ODR-violation diagnostics.
-
-**Detection:** ODR violations are **undefined behavior, not compilation errors**. Detection requires:
-- Search for `withJobState(` and `withActionJobState(` across ALL source files (not just video subsystem) to ensure no stale references.
-- The `using videoworkflow::withJobState;` declarations at `video_batch_execution.cpp:31` and `video_process.cpp:27` must both point to the same definition.
-- After refactoring, run a clean rebuild (not incremental) to force all TUs to recompile with the new definition.
-
-### Pitfall 4: Anonymous Namespace Fragmentation from File Splitting (OPTIM-02)
-
-**What goes wrong:** Splitting `video_batch_execution.cpp` (804 lines) into multiple `.cpp` files creates **separate anonymous namespaces** in each new translation unit. Functions that currently call each other through anonymous namespace linkage become unavailable across file boundaries.
-
-**Why it happens:** Per C++ standard §7.3.1.1 (since C++11):
-> Unnamed namespaces as well as all namespaces declared directly or indirectly within an unnamed namespace have internal linkage, which means that any name that is declared within an unnamed namespace has internal linkage.
-
-Each translation unit gets its **own unique anonymous namespace**. When a single `.cpp` file is split:
-- `noteStopRequest` calls `withJobState` — if `noteStopRequest` moves to a new `.cpp` file, it must still have access to `withJobState` via the header (which is already the case — `withJobState` is in `video_workflow_utils.h`).
-- `monitorEncodingProgress` calls `noteStopRequest`, `getEncodingProgress`, `reportEncodingStatus` — if these are split across files, the cross-references break unless the called functions are also in the header.
-- `runEncodingTask` calls `createEncodingState`, `reportEncodingStatus`, `markRunningNoProgress` — same issue.
-
-**Specific risks in this codebase:**
-1. **`EncodingExecutionContext` and `EncodingProgressState`** are structs defined in the anonymous namespace (lines 87-329). They are LOCAL to `video_batch_execution.cpp`. Any function that takes `EncodingExecutionContext&` as a parameter CANNOT be moved to another `.cpp` file unless the struct definition is also moved to a shared header.
-2. **`using` declarations** (lines 30-31): `using videoworkflow::withActionJobState;` and `using videoworkflow::withJobState;` are at file scope. Each new `.cpp` file would need these duplicated — not a problem as long as they all refer to the same header location.
-3. **Include dependencies**: The current file includes `immer/atom.hpp`, `immer/vector.hpp` — any new `.cpp` file that uses `EncodingProgressState` (which depends on `immer::atom` and `immer::vector`) must also include these headers.
-4. **Static initialization order fiasco (SIOF):** The `EncodingProgressState` constructor initializes `progressCtx` (a `progress::ProgressContext`). If split files introduce static-duration objects that depend on initialization order across translation units, the SIOF applies. Per cppreference: "Within a single translation unit, the fiasco does not apply because the objects are initialized from top to bottom."
-
-**Prevention — "safe split" strategy given 0-header-modification constraint:**
-1. **Do NOT move `EncodingExecutionContext` or `EncodingProgressState`** — they stay in the main `.cpp` file.
-2. **Extract only leaf functions** that don't reference these structs: `truncateForProgressLabel`, `makeSlotLabel`, `getStateLabel` (these depend only on `std::string`, `fs::path`, `appctx::EncodingState`).
-3. **`tryReadProgressData`** and **`getEncodingProgress`** could move to a separate file since they depend on `appctx::AppContext`, `appctx::EncodingState`, and `ProgressData` — all from headers.
-4. **Structure as internal implementation files:** Create `video_batch_execution_progress.cpp` and `video_batch_execution_utils.cpp` — new files detected by `xmake.lua:49` (`add_files("src/**.cpp")`). No header modifications needed.
-5. **Each new file gets its own anonymous namespace** — copy the relevant `using` declarations, includes, and namespace aliases.
-6. **Re-verify `EncodingExecutionContext` member functions** (all 15 of them on lines 186-328) — these are tied to the struct and must stay.
-
-**Detection of split failures:**
-- **Linker errors** for unresolved symbols: functions that moved to a new file but are still called from the original file via anonymous-namespace names.
-- **Duplicate symbol errors**: if a function is copy-pasted instead of moved, resulting in two definitions across translation units.
-- **`using` declaration mismatch**: compilation error if a moved function uses `withJobState` but the new file lacks the `using videoworkflow::withJobState;` declaration.
-
-### Pitfall 5: Scope Creep — Turning Tech Debt Into a Feature Sprint
-
-**What goes wrong:** Tech debt milestones devolve into mini-feature development under the guise of "while we're touching this code anyway."
-
-**Why it happens:** The temptation to "fix" things beyond the defined scope is strong when:
-- A pattern looks "inelegant" and "could be better"
-- New C++26 features seem applicable
-- The milestone has momentum and feels like "cleanup time"
-
-**Specific anti-patterns for this milestone:**
-
-| Anti-Pattern | Example | Why It's Wrong |
-|-------------|---------|----------------|
-| **Over-abstracting templates** | Adding a concept-constrained, polymorphic `JobStateAccessor<T>` CRTP base class | `withJobState`/`withActionJobState` serve exactly 2 subsystems with identical patterns. The shared-helper refactoring should remain simple — extract to a common header, don't build a framework. |
-| **Header restructuring** | Moving `PackPlan` from `pack_service.h` to a new `pack_types.h` | Violates the 0-header-modifications constraint. Changes the include graph for all consumers. |
-| **"Better" tests** | Rewriting test assertions to use Catch2 matchers, `SECTION`, or `GENERATE` | These are style changes, not tech debt. Every rewritten line is a regression risk. |
-| **Performance micro-optimizations** | Changing `std::function` callbacks in `PackPlan` to `std::move_only_function` or template callables | `std::function` is the current contract. Changing it introduces template instantiation complexity and potential ODR issues. |
-| **C++26 feature adoption** | Using `std::execution`, `std::generator`, or `std::inplace_vector` | C++26 features are for feature milestones, not debt resolution. They introduce new failure modes and compiler edge cases on clang-cl. |
-| **Changing public API** | Adding parameters to `videobatch::runEncodingTasks` | The function signature in `video_batch_execution.h` is the public contract. Cannot be modified. |
-| **Adding logging/diagnostics** | Inserting `spdlog::debug` calls in refactored code "for better observability" | Behavioral change. If observability is needed, it belongs in a separate milestone. |
-| **Renaming for clarity** | Renaming `markRunningNoProgress` to `markJobRunning` | The function name is established in v1.1 audit. Renaming creates inconsistency between the audit document and codebase. |
-| **Inlining everything** | Making all extracted functions `constexpr` or `[[gnu::always_inline]]` | Unnecessary optimization. Functions are already in anonymous namespaces — the compiler inlines aggressively. |
-
-**Prevention:**
-1. **Work from the milestone checklist** in PROJECT.md lines 46-50. If an idea isn't on that list, it doesn't belong in v1.2.
-2. **The "would this change any assertion?" test:** If a change could possibly alter test output, assertion count, or pass/fail status, it's a behavioral change → stop.
-3. **The "would the v1.1 audit need updating?" test:** The v1.1 audit (v1.1-MILESTONE-AUDIT.md) documents 10 extracted functions across 4 files. If the refactoring would invalidate any of those entries, it's scope creep.
-4. **Header modification check:** `git diff --stat HEAD -- '*.h' '*.hpp'` must return no output. Any change to any `.h` file violates the constraint.
+Mistakes that cause rewrites, test cascades, or silent behavioral changes in this specific codebase.
 
 ---
 
-## Moderate Pitfalls
+### Pitfall 1: Breaking the designated-initializer contract on PackPlan
 
-### Pitfall 6: VERIFICATION.md Backfill Becoming a Rewrite (DEBT-03)
+**What goes wrong:**
+Converting `PackPlan` from `struct` to `class` with private members immediately breaks the `static_assert(std::is_aggregate_v<pack::PackPlan>)` guard at `pack_service.h:52`. Every designated-initializer construction site — **six in production code** (video_process.cpp:423, picture_process.cpp:474/607, packer.cpp:815, pack_service.cpp:402, archive_plan.cpp:65) and **ten in test code** — fails to compile. This is not just a test failure; it's a 100% build break with zero incremental recovery path.
 
-**What goes wrong:** Backfilling VERIFICATION.md turns into rewriting or reinterpreting historical decisions. The VERIFICATION.md should document **what was verified and how**, not re-litigate design choices.
+**Why it happens:**
+PackPlan currently relies on C++ aggregate initialization with designated initializers (`.groups = ...`, `.outputDir = ...`). This is a deliberate design choice enforced by static_assert. Even C++26 does not support designated initializers on non-aggregates. Naïvely adding `private:` to PackPlan deletes the aggregate property, causing every consumer — including video, picture, and all 215 test cases — to fail simultaneously.
 
-**Prevention:**
-- Source from existing artifacts: v1.0-MILESTONE-AUDIT.md, v1.1-MILESTONE-AUDIT.md, commit history.
-- Use the VERIFICATION.md template (verify each requirement with evidence, not opinion).
-- Do NOT add "improvement suggestions" or "future work" sections — those belong in PROJECT.md or roadmap files.
+**How to avoid:**
+1. **Do NOT make PackPlan a class with private data.** PackPlan is a data-transfer object (DTO) with callback hooks — it is correctly modeled as an aggregate struct.
+2. **Encapsulate the logic around PackPlan, not PackPlan itself.** Move the anonymous-namespace free functions (`packGroupsCompact`, `packGroupsFull`, `resolveZipNameForIndex`, etc.) into a `PackService` class that *takes* a `PackPlan const&` but does not own it.
+3. **If PackPlan MUST change**, transition through a builder pattern that preserves the aggregate while adding validation, then change consumers one at a time. But this is high-risk and unnecessary for v1.3.
 
-### Pitfall 7: Immer Persistent Data Structure Copy Semantics
+**Warning signs:**
+- Seeing `private:` in a header that currently has a `static_assert(std::is_aggregate_v<...>)`.
+- Grepping for `PackPlan{` and seeing 20+ designated-initializer sites.
+- Build errors: `"cannot use designated initializer with non-aggregate type"`.
 
-**What goes wrong:** The codebase uses `immer::map` and `immer::vector` (persistent/immutable data structures). When splitting `video_batch_execution.cpp`, the `immer::atom<SharedSnapshot>` in `EncodingProgressState` uses lock-free updates. Any refactoring that changes how this atom is accessed could introduce subtle race conditions.
-
-**Prevention:**
-- Do not change any `immer::atom::update()` or `immer::atom::load()` call pattern.
-- Do not introduce new shared state or atom wrappers around split code.
-- The `EncodingExecutionContext` should remain a monolithic struct containing the atom — splitting atom access across files is unsafe.
-
-### Pitfall 8: xmake `add_files("src/**.cpp")` Auto-Discovery
-
-**What goes wrong:** The xmake build file (line 49) uses `add_files("src/**.cpp")` — a glob pattern that auto-discovers new `.cpp` files. Adding a new file like `video_batch_execution_utils.cpp` in `src/video/` will be automatically picked up on the next build. This is convenient but can mask issues:
-- If the new file has compilation errors, the entire target fails.
-- If the new file introduces a duplicate symbol, the linker error message won't clearly identify which file is the culprit.
-
-**Prevention:**
-- Run `xmake build` immediately after creating each new `.cpp` file to catch issues early.
-- The test target (lines 75: `add_files("src/**.cpp|main.cpp")`) also uses glob — new files are automatically included in test compilation.
+**Phase to address:**
+Phase 0 (planning) — Must be in the research/audit stage before any code change. Design review must confirm whether PackPlan stays aggregate or transitions with a full impact analysis.
 
 ---
 
-## Minor Pitfalls
+### Pitfall 2: Virtual dispatch on the hot pack path
 
-### Pitfall 9: Clang-cl `-ftrivial-auto-var-init=pattern`
+**What goes wrong:**
+Introducing virtual functions (`virtual`, `override`) on classes that sit in the critical packing path — `packFilesToZip` is called for every file in every archive. A virtual call through the vtable prevents inlining, adds an indirect branch, and on clang-cl with LTO enabled (`xmake.lua:3`), can prevent cross-TU optimization. This is easily a 10–50% throughput regression on large batches.
 
-**What goes wrong:** The xmake.lua (line 9) sets `-ftrivial-auto-var-init=pattern`, which initializes all automatic variables with a pattern. When refactoring and adding explicit initializers, this flag can mask uninitialized-variable bugs that would otherwise be caught by static analysis.
+**Why it happens:**
+Developers trained in "classical OO" reflexively add `virtual` to methods they think might need polymorphism. In a pack subsystem where the only polymorphism is compile-time (compact vs. full progress mode selected via `if (plan.compact)`), there is zero need for runtime dispatch.
 
-**Prevention:** This flag is a safety net, not a substitute. Always explicitly initialize variables. The flag is already in place and should remain.
+**How to avoid:**
+1. **Zero virtual functions in v1.3.** The refactoring goal is encapsulation, not polymorphism. Use `final` on any class that could accidentally become a base class.
+2. **Mark all pack classes `final`** — `class PackService final { ... };` — this allows the compiler to devirtualize any accidentally-virtual calls and signals intent.
+3. **Prefer `std::variant` or enum-based dispatch over inheritance** for any behavioral variation (but this codebase already uses a boolean `compact` flag correctly).
+4. **Benchmark before and after.** Run `xmake build` and time a pack of 1000 files. Any regression >2% is a blocking issue.
 
-### Pitfall 10: `#pragma once` vs. Include Guards
+**Warning signs:**
+- `virtual` keyword appearing in pack headers.
+- `override` keyword.
+- Virtual destructors in classes without virtual functions.
+- Clang-cl warning `-Wnon-virtual-dtor`.
 
-**What goes wrong:** All headers use `#pragma once` (non-standard but universally supported). If a new internal header is created (unlikely given the 0-header-modification constraint), it must also use `#pragma once` for consistency. Mixing include guards and `#pragma once` is safe but inconsistent.
-
-**Prevention:** If a new header must be created (only if unavoidable for the file split), use `#pragma once` to match the codebase convention.
-
-### Pitfall 11: `constexpr` and `static` in Anonymous Namespaces
-
-**What goes wrong:** Adding `static` or `constexpr` to functions in anonymous namespaces is redundant (anonymous namespace already provides internal linkage). However, it's not harmful. The pitfall is in copy-pasting functions: if a `static` function is moved between files, changing the `static` to anonymous-namespace scope is necessary but easy to miss.
-
-**Prevention:** All extracted helper functions should be in anonymous namespaces (per D-01 from v1.1 audit). No `static` functions at file scope.
+**Phase to address:**
+All phases — must be checked at every code review. Add a `grep -r "virtual" src/pack/` to the pre-commit hook for v1.3.
 
 ---
 
-## Phase-Specific Warnings
+### Pitfall 3: Circular include dependency between pack and core
 
-| Phase Topic | Likely Pitfall | Mitigation |
-|-------------|---------------|------------|
-| DEBT-01 (explicit `.compact`) | Adding designator for wrong struct field | Verify `PackPlan` field order before editing; place `.compact = true` as last field |
-| DEBT-02 (duplicate test) | Deleting test with unique coverage | Keep line 132 test; remove only redundant `compact` assertion (line 161) |
-| DEBT-03 (VERIFICATION.md) | Scope creep into redesign | Source from existing audit artifacts only |
-| OPTIM-01 (template refactoring) | ODR violation from header move | Keep templates in header; extract to shared `core/job_state_utils.h` if needed |
-| OPTIM-02 (file splitting) | Anonymous namespace fragmentation | Extract only leaf functions; keep `EncodingExecutionContext` in original file |
+**What goes wrong:**
+`pack_service.h:3` includes `core/app_context.h`. If the new `PackService` class adds `core/task_executor.h` or `core/progress.h` (needed for its methods), and those headers transitively depend on pack, you get a circular include. At best, `#pragma once` silently masks it. At worst, incomplete types cause cryptic template instantiation errors that take hours to diagnose.
 
-## Items That Could Silently Change Behavior Even When Tests Pass
+**Why it happens:**
+The current codebase avoids this by keeping pack headers thin (only structs and function declarations) and including heavy dependencies (task_executor.h, packer.h) only in `.cpp` files. When you move function implementations into header methods (e.g., making `packGroups` a member of `PackService`), the heavy includes migrate to the header.
 
-| Scenario | Mechanism | Detection Difficulty |
-|----------|-----------|---------------------|
-| Designated initializer reordering changing struct layout | C++20 padding rules with designated initializers in wrong order | **MEDIUM** — clang warns about designator order mismatch |
-| Template instantiation divergence across TUs | Two TUs instantiate `withJobState` with different `Fn` types; linker picks one | **HIGH** — no diagnostic required; manifests as intermittent failures |
-| `std::function` lambda capture lifetime change | Moving a lambda body to a named function changes capture semantics | **LOW** — compilation error if captures are wrong; runtime crash if captured by reference to moved-from local |
-| `immer::atom` update timing change | Splitting code that performs `.update()` on the atom across files introduces different sequencing | **HIGH** — lock-free atom updates are correct as-is; any refactoring must preserve exact call order |
+**How to avoid:**
+1. **Keep headers implementation-free.** Public method *declarations* in the header. Method *definitions* in the `.cpp` file. This is the existing pattern and must be preserved.
+2. **Use forward declarations** for types only needed in method signatures. E.g., `namespace taskexec { struct TaskPlan; }` in the header.
+3. **If a method signature requires a type from another module**, consider whether the method belongs in that module's header or whether the dependency can be inverted (dependency inversion).
+4. **Validate with a compile-time check:** After each header change, run `xmake build -j1` and verify no new include cycles appear. Use clang's `-H` flag to trace includes if suspicious.
+
+**Warning signs:**
+- Adding `#include "core/task_executor.h"` to `pack_service.h`.
+- `incomplete type` errors in template instantiation backtraces.
+- Compilation of a single `.cpp` file pulling in 50+ headers.
+
+**Phase to address:**
+Phase 1 (core class extraction) — Every header modification must be verified with a clean single-thread build (`xmake build -j1`).
+
+---
+
+### Pitfall 4: Test breakage from access modifier change on functions
+
+**What goes wrong:**
+When free functions in anonymous namespaces (`pack_service.cpp:21-323`, `packer.cpp:32-354`) are moved into class `private:` sections, they become inaccessible to tests. Tests that currently call `pack::packGroups(plan)` will still work (that's public API), but any test that constructs internal state objects (like `CompactProgressState` at pack_service.cpp:71) or calls helper functions cannot. More critically, tests pass through `pack::packGroups` → `packGroupsCompact` / `packGroupsFull` — if these become private methods of `PackService`, the test can't invoke them separately.
+
+**Why it happens:**
+The anonymous namespace members are currently TU-scoped but accessible to any function in the same `.cpp`. When moved into a class, they get the class's access level. `CompactProgressState` and `packGroupsCompact`/`packGroupsFull` contain the actual packing logic — tests exercise them through `packGroups(plan)`, but unit tests might need finer-grained access.
+
+**How to avoid:**
+1. **Map what tests actually need.** All 10 `pack::PackPlan{...}` construction sites in tests pass through the public API (`pack::packGroups`, `pack::selectPackPlanIndexes`, `pack::buildGroupOrdinalRanges`). These are the correct public surface.
+2. **Keep the existing public API surface intact.** The current free functions in `namespace pack` (not anonymous) are the public API. These must remain callable with identical signatures.
+3. **If a helper needs test access**, make it a `protected` method with a test-only subclass, or keep it as a free function in a `detail` namespace (preferred: avoids test-only code in production headers).
+4. **Add one integration test that exercises the full `packGroups` path** before any refactoring, to serve as a canary.
+
+**Warning signs:**
+- `private:` section containing functions that were previously in the anonymous namespace.
+- Tests failing to link because a symbol went from TU-local to class-private.
+- Adding `friend class PackServiceTest;` to production code (this is a code smell).
+
+**Phase to address:**
+Phase 1 (initial class extraction) — The first class refactored must pass all existing tests without modification to test assertions.
+
+---
+
+### Pitfall 5: Getter/setter proliferation for every field
+
+**What goes wrong:**
+Converting every public struct field to `private` + `get_x()`/`set_x()` pair. The C++ Core Guidelines explicitly call this an anti-pattern: *"Trivial getters and setters: class with verbose accessors — bad. struct with public members — good."* For PackPlan's 11 fields, this means 22 accessor functions that serve no purpose except ceremony.
+
+**Why it happens:**
+Misunderstanding encapsulation. Encapsulation means hiding *implementation details* behind *behavioral interfaces*. If the getter just returns the field and the setter just assigns it, you haven't hidden anything — you've just added indirection and made designated-initializer construction impossible. The C++ Core Guidelines state: *"If a class has no behavioral member functions, use a struct."*
+
+**How to avoid:**
+1. **Distinguish data from behavior.** PackPlan, PackFileEntry, PackRunResult, FileOrdinalRange, PackGroupInput, PackGroupPartition, PackEntryInput, PackEntryPartition — these are data bags. Keep them as structs (or `class` with `public:` for consistency, but maintain aggregate-ness).
+2. **Encapsulate behavior, not data.** The OO value is in wrapping the 30+ free functions in pack_service.cpp/packer.cpp into cohesive classes with clear responsibilities. The data types are the *interface* between those classes and consumers.
+3. **Only add accessors when there's an invariant.** If you were to add a validation (e.g., `setMaxParallelJobs` that clamps to [1, N]), that's a legitimate encapsulation. But v1.3's goal statement says "zero behavioral change," so validation changes are out of scope.
+
+**Warning signs:**
+- Class with more `get`/`set` methods than behavioral methods.
+- `int get_x() const { return x_; }` — this is exactly the anti-pattern.
+- Accessor that returns a const reference to a member without any computation or invariant check.
+
+**Phase to address:**
+Phase 0 (design review) — Class design must distinguish data-transfer types (stay structs) from service types (become classes).
+
+---
+
+### Pitfall 6: Migration order — converting PackPlan before its consumers
+
+**What goes wrong:**
+PackPlan is consumed by video_process.cpp, picture_process.cpp, packer.cpp, archive_plan.cpp, and all tests. If you start the refactoring by changing PackPlan, every consumer must change simultaneously. This violates the incremental-refactoring principle and guarantees a long period where nothing compiles.
+
+**Why it happens:**
+"Start with the core" is intuitive but wrong for data-transfer types. PackPlan is a dependency, not a dependency root. Changing it first is like replacing the foundation while people are living in the house.
+
+**How to avoid:**
+1. **Refactoring order: leaves → trunk, not trunk → leaves.** Start with internal types that have no consumers outside their TU:
+   - `CompactProgressState` (pack_service.cpp:71) — TU-local, pure implementation
+   - `PreparedPackEntry`/`PreparedPackChunk` (packer.cpp:78-89) — TU-local
+   - Anonymous-namespace grouping functions in packer.cpp
+2. **Then service classes** — `PackService` wrapping the public free functions, taking PackPlan by const reference
+3. **PackPlan stays aggregate** unless there's a compelling reason to change it (and there isn't for v1.3)
+4. **Each step must compile and pass all 909 assertions**
+
+**Warning signs:**
+- First PR touches `pack_service.h` and 6 other files.
+- "This won't compile until Part 3" — any multi-PR dependency that can't compile independently.
+- Changing a type that has a `static_assert` guarding its current properties.
+
+**Phase to address:**
+Phase 1 — Must define clear "leaf first" ordering. Each PR must be independently buildable and test-passing.
+
+---
+
+### Pitfall 7: Compilation time regression from header bloat
+
+**What goes wrong:**
+The current codebase has fast compilation because pack headers are lean: `pack_service.h` (82 lines, 7 includes), `packer.h` (126 lines, 10 includes). When free functions become class methods defined in headers (inline or templated), every consumer of the header must recompile those definitions. Even worse, if the header pulls in transitive includes (task_executor, progress, job_state), compilation time can easily double.
+
+**Why it happens:**
+OO refactoring encourages putting methods in headers for inlining or because templates are header-only. But this codebase has no pack templates that require header definitions. The LTO in xmake.lua (`set_policy("build.optimization.lto", true)`) already enables cross-TU inlining — there is zero benefit to header-based method definitions.
+
+**How to avoid:**
+1. **All method definitions in .cpp files.** No exceptions for v1.3.
+2. **Measure compilation time before and after each phase.** `xmake build -j1 --verbose 2>&1 | grep "compile"` — any TU going from <1s to >2s needs investigation.
+3. **Use `final` on classes** to enable devirtualization without LTO requirements.
+4. **The xmake.lua uses `add_files("src/**.cpp")`** which auto-includes new files — adding a `pack_service_impl.cpp` would be auto-picked but adds a TU. Keep the TU count close to current.
+
+**Warning signs:**
+- Method bodies appearing in `.h` files.
+- `inline` keyword in pack headers.
+- `constexpr` methods defined in headers that could be in .cpp.
+- Increase in `#include` count in any pack header.
+
+**Phase to address:**
+All phases — Add a CI check: `grep -c "^\s*(virtual|inline|constexpr).*{" src/pack/*.h` must return 0.
+
+---
+
+## Technical Debt Patterns
+
+Shortcuts that seem reasonable but create long-term problems.
+
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| `friend class TestAccessor;` | Quick test access to private members | Production code now knows about test code; test-specific code in headers slows compilation | Never — use public API or `detail` namespace free functions |
+| `public:` section with all old struct fields | Builds compile, all tests pass | Zero encapsulation — the refactoring is cosmetic and adds zero value | Never for v1.3 — either encapsulate or don't change |
+| Duplicate free function bodies in member methods + keep originals | "Incremental" — old code still works | Two implementations to maintain; bugs fixed in one but not the other | Only during a single-PR transition where the old is deleted in the same PR |
+| `#include` everything in a single `pack_all.h` | Convenience for consumers | Loss of incremental compilation; every consumer recompiles on any pack change | Never — the current per-header include pattern is correct |
+| Abstract base class for PackService with single implementation | "Extensibility" | Virtual call overhead on packing hot path; complexity for zero benefit | Only when a second implementation exists and is being merged simultaneously |
+| `std::shared_ptr` for all objects instead of value semantics | No lifetime management worries | Heap allocation overhead; cache-unfriendly indirection | Only for data shared across threads (like `CompactProgressState` which already uses atomic members correctly) |
+
+---
+
+## Integration Gotchas
+
+Common mistakes when pack subsystem connects to video/picture consumers.
+
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| **video_process.cpp builds PackPlan** (line 423) | Changing PackPlan constructors breaks this site — video team may not know pack was refactored | PackPlan must maintain backward-compatible construction. If builder is added, keep the aggregate constructor working during transition |
+| **picture_process.cpp builds PackPlan** (lines 474, 607) | Same as above, plus picture uses `groupPackEntriesWithSubparts` from packer.h — if packer functions move into a class, picture must update | Keep the existing free-function signatures as public API during transition; deprecate only after consumers migrate |
+| **archive_plan.cpp uses `pack::selectPackPlanIndexes`** (line 65) and accesses `plan.groups[i]` | Making `groups` private breaks archive_plan's direct access | `groups` is a data member of a DTO — it should remain publicly accessible. archive_plan is a core module that legitimately needs this data |
+| **All consumers construct `pack::PackFileEntry{ .sourcePath = ..., .zipEntryName = ... }`** (video_process.cpp:414, picture_process.cpp:243+) | Making PackFileEntry fields private breaks designated-initializer construction everywhere | PackFileEntry is a value type with `operator==` defaulted — keep it as an aggregate |
+| **video_output_planning.cpp calls `groupPackFiles` from packer.h** (line 183) | If `groupPackFiles` becomes a method, video must construct the class first | Keep `groupPackFiles` as a free function or provide it as a static method on the grouping class |
+| **picture_process.cpp calls `groupPackEntriesWithSubparts`** (line 577) | Same pattern — packer grouping functions are called from outside the pack subsystem | These are genuinely reusable algorithms. They should remain callable without constructing a service object |
+
+---
+
+## Performance Traps
+
+Patterns that work at small scale but fail with real workloads.
+
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Virtual dispatch on `addFile` loop | Per-file overhead × 1000s of files; `packFilesToZip` becomes CPU-bound on vtable lookup instead of I/O | Zero virtual in pack hot paths; mark all pack classes `final` | 1000+ files, noticeable at 10k files |
+| Heap-allocating `PackService` per `packGroups` call | `packGroups` is called once per workflow; heap allocation of a stateless service object adds ~100ns — negligible. But if it happens inside the per-file loop, catastrophic | `PackService` should be stack-allocated or have static lifetime; no `new`/`make_unique` inside loops | Inside per-file loop: breaks at 100 files |
+| `std::function` copy overhead for callbacks | `PackPlan` has 7 `std::function` members. Copying a PackPlan copies all callbacks — but PackPlan is passed as `const&` everywhere so this is already avoided | Do NOT change `PackPlan const&` to `PackPlan` (by-value) in any function signature | Would break immediately on large callback captures (picture's `PicturePackNamingState` shared_ptr) |
+| Thread contention on mutex in `CompactProgressState` | `state.mutex` is locked per file completion. At 10k files with 8 concurrent archives, negligible. But moving to a coarser lock (making the whole PackService mutex-protected) would serialize packing | Keep the fine-grained locking; do not add a "convenience" mutex on the service class | Breaks at 4+ concurrent archives with small files (I/O < lock contention) |
+
+---
+
+## Security Mistakes
+
+Beyond general C++ security — domain-specific to this codebase.
+
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| Exposing `std::function` setters without validation | Malformed callback could throw from inside `runTasks` worker thread, causing std::terminate | All callbacks in PackPlan are set by trusted internal code; if a setter is added, wrap in `noexcept` or document the noexcept requirement |
+| Path traversal via crafted `zipEntryName` | `zipEntryName` like `../../etc/passwd` could extract outside target directory | `normalizeZipEntryName` (packer.cpp:44) already strips leading `/` but does not prevent `../` — this is pre-existing and NOT a v1.3 concern, but adding OO wrappers must not weaken existing checks |
+| `src/**.cpp` wildcard in xmake.lua adding all files | Adding a `src/pack/exploit_helper.cpp` would be compiled and linked | Pre-existing build config; v1.3 must not introduce files outside `src/pack/` |
+
+---
+
+## "Looks Done But Isn't" Checklist
+
+Things that appear complete but are missing critical pieces.
+
+- [ ] **"PackService class extracted":** Are all 30+ anonymous-namespace functions accounted for? Verify: `grep -c "namespace {" src/pack/*.cpp` should equal zero after complete migration (or only contain new TU-local helpers with justification)
+- [ ] **"All tests pass":** Are there *new* tests for the OO interface? The 909 existing assertions test behavior through the free-function API. If that API is now a thin delegate to methods, there should be at least 5 new tests that exercise the class directly — verifying construction, destruction, and method chaining. Without these, the OO layer is untested.
+- [ ] **"Encapsulation complete":** Can a consumer access pack internals without going through the public interface? Verify: try to include only the public header and call internal methods — it should fail to compile.
+- [ ] **"No header bloat":** Compare `wc -l src/pack/*.h` before and after. Header size should be within 20% of original. If headers grew 2x+, the OO refactoring moved implementation into headers.
+- [ ] **"LTO still works":** The `xmake.lua` LTO policy requires that link-time optimization can see through method boundaries. Verify: `xmake f -m release && xmake build` — if linker errors about undefined symbols appear, LTO is conflicting with new OO boundaries.
+- [ ] **"Video/picture consumers unchanged":** `git diff src/video/ src/picture/` should show zero changes (except possibly `#include` path adjustments). If video or picture files change, the encapsulation boundary leaked.
+
+---
+
+## Recovery Strategies
+
+When pitfalls occur despite prevention, how to recover.
+
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Broke designated-initializer by making PackPlan non-aggregate | LOW | Revert PackPlan to aggregate struct. The work wasn't wasted — extract the logic into a service class instead. 1 PR to fix. |
+| Added virtual function discovered by benchmark regression | LOW | Remove virtual, add `final`. Re-measure. If regression persists, the problem is elsewhere — git bisect. |
+| Circular include (doesn't compile) | MEDIUM | Forward-declare the type that caused the cycle. Move the method definition to .cpp. If the method must be inline, extract a free function in a detail header. |
+| Test cascades (50+ test failures) | MEDIUM | Revert to last green commit. Re-apply changes in smaller increments (one class/method at a time). Each increment must pass all tests. |
+| Compilation time doubled | MEDIUM | Run `clang-cl -H` to see include tree. Move method bodies from .h to .cpp. Remove unnecessary includes from headers. Add forward declarations. |
+| Over-engineered (abstract base, deep hierarchy, getters everywhere) | HIGH | Full revert and restart. Over-engineering in C++ OO creates design debt that's harder to unwind than procedural debt. The correct approach: concrete classes, flat hierarchy, behavioral methods only. |
+
+---
+
+## Pitfall-to-Phase Mapping
+
+How roadmap phases should address these pitfalls.
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Breaking PackPlan aggregate contract | Phase 0 (design review) | `static_assert(std::is_aggregate_v<pack::PackPlan>)` still holds after Phase 1 |
+| Virtual dispatch on hot path | All phases | `grep -r "virtual" src/pack/` returns empty |
+| Circular includes | Phase 1 (initial class extraction) | `xmake build -j1` clean build succeeds |
+| Test breakage from access modifier change | Phase 1 | All 909 assertions pass; `git diff tests/` is empty |
+| Getter/setter proliferation | Phase 0 (design review) | Code review: count behavioral methods vs accessors on each new class |
+| Wrong migration order | Phase 0 (planning) | First PR touches only TU-local internals, not pack_service.h |
+| Compilation time regression | Phase 1, 2, 3 | `xmake build -j1` time within 120% of baseline |
+| Integration breakage with video/picture | Phase 2 (service class extraction) | `git diff src/video/ src/picture/` is empty |
+| Header bloat from inlined methods | All phases | `wc -l src/pack/*.h` within 120% of baseline |
+| Thread safety regression from coarser locking | Phase 2 | Per-file progress still resolves correctly under concurrent packing |
 
 ---
 
 ## Sources
 
-- [cppreference: Aggregate Initialization (designated initializers, default member initializers)](https://en.cppreference.com/w/cpp/language/aggregate_initialization) — HIGH confidence
-- [cppreference: One Definition Rule (ODR) — inline, template exemptions](https://en.cppreference.com/w/cpp/language/definition) — HIGH confidence
-- [cppreference: Namespaces — unnamed namespaces, internal linkage since C++11](https://en.cppreference.com/w/cpp/language/namespace#Unnamed_namespaces) — HIGH confidence
-- [cppreference: Static Initialization Order Fiasco (SIOF)](https://en.cppreference.com/w/cpp/language/siof) — HIGH confidence
-- [cppreference: Templates — instantiation, specialization, ODR merging](https://en.cppreference.com/w/cpp/language/templates) — HIGH confidence
-- `src/video/video_workflow_utils.h` — inline template definitions for `withJobState`/`withActionJobState` — HIGH confidence (primary source)
-- `src/pack/pack_service.h` — `PackPlan` struct with `bool compact = true` default — HIGH confidence (primary source)
-- `tests/pack_service_tests.cpp` — test cases at lines 98 and 132 — HIGH confidence (primary source)
-- `src/video/video_batch_execution.cpp` — `EncodingExecutionContext`, `EncodingProgressState`, anonymous namespace functions — HIGH confidence (primary source)
-- `xmake.lua` — build configuration, `add_files("src/**.cpp")` glob — HIGH confidence (primary source)
-- `.planning/v1.1-MILESTONE-AUDIT.md` — architectural decisions D-01 through D-06 — HIGH confidence (project artifact)
-- `.planning/PROJECT.md` — milestone scope and constraints — HIGH confidence (project artifact)
+- **C++ Core Guidelines** (isocpp/cppcoreguidelines) via Context7 — authoritative source for class design, interface segregation, avoiding trivial getters/setters, preferring concrete types. [HIGH confidence]
+- **isocpp.org Super-FAQ** — Classes and Objects section — defines encapsulation, interface quality, struct vs class. [HIGH confidence]
+- **Codebase analysis** — All pack subsystem files (pack_service.h/.cpp, packer.h/.cpp), consumer files (video_process.cpp, picture_process.cpp, archive_plan.cpp, video_output_planning.cpp), test files, xmake.lua build configuration. [HIGH confidence — direct code inspection]
+- **xmake.lua:3** — LTO policy (`set_policy("build.optimization.lto", true)`) confirms cross-TU optimization is active, making header-based inlining redundant. [HIGH confidence]
+- **pack_service.h:52-55** — `static_assert(std::is_aggregate_v<pack::PackPlan>)` confirms PackPlan must remain aggregate. [HIGH confidence]
 
+---
+
+*Pitfalls research for: encro pack subsystem C++ OO refactoring (v1.3)*
+*Researched: 2026-04-29*

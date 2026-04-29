@@ -1,213 +1,435 @@
-# Technology Stack — Tech Debt Resolution
+# Stack Research — C++ OO Encapsulation Patterns
 
-**Project:** encro — C++26 CLI tool for video encoding + zip packing
-**Researched:** 2026-04-28
-**Clang version:** 22.1.4 (based on LLVM 22, targets `x86_64-pc-windows-msvc`)
-**Confidence:** HIGH (verified via cppreference.com compiler support table, clang.llvm.org/cxx_status.html, and direct codebase inspection)
+**Domain:** C++ OO refactoring — procedural/functional → encapsulated class design
+**Researched:** 2026-04-29
+**Confidence:** HIGH
 
 ## Executive Summary
 
-For a C++26 codebase doing tech debt cleanup (fixing implicit struct defaults, removing duplicate tests, refactoring shared template functions, splitting large .cpp files), the most impactful C++26 features are **not yet available** in clang-cl 22.1.4 at this date. Reflection (P2996R13), expansion statements (P1306R5), and concept template parameters (P2841R7) — the features that could substantially reduce template boilerplate — are all unimplemented. However, several smaller C++26 features ARE available and practically useful: pack indexing for cleaner template metaprogramming, `= delete("reason")` for self-documenting deletions, and the `std::function_ref` library type for non-owning callable wrapping. For the specific `withActionJobState`/`withJobState` duplication, the solution is NOT language features but **higher-level helper functions that encapsulate the repeated lock-extract-mark patterns** at call sites. Code splitting across compilation units requires zero xmake build system changes (the `add_files("src/**.cpp")` glob already handles new files automatically).
+This research identifies the C++ patterns, idioms, and anti-patterns specifically suited for incrementally refactoring the encro pack subsystem from public structs + free functions to encapsulated classes with private data, injectable dependencies, and mockable interfaces. All recommendations are backed by the C++ Core Guidelines (isocpp), validated against C++20/26 standard features, and targeted at the existing codebase's constraints: C++26/clang-cl/xmake/Catch2, 909 existing assertions that must not regress.
 
-## Recommended Stack (No Changes)
+## Recommended Stack — Patterns & Techniques
 
-The existing tech stack requires no additions for this milestone. All tech debt resolution uses already-provisioned tooling.
+### 1. Struct → Class Conversion: Incremental Privatization
 
-### Core Framework (Unchanged)
+**Core Guideline:** C.134 — Make non-const data members `private` if they participate in the object's invariant. Keep them `public` if they're just a data bundle with no internal invariants.
 
-| Technology | Version | Purpose | Why |
-|------------|---------|---------|-----|
-| C++26 (clang-cl) | LLVM 22.1.4 | Language | Already set via `set_languages("c++26")` in xmake.lua |
-| xmake | 3.0+ | Build system | `add_files("src/**.cpp")` wildcard handles file splitting automatically |
-| boost | any | CLI parsing (`program_options`), JSON | Already provisioned via `add_requires("boost[all]")` |
-| immer | any | Persistent data structures (`map`, `vector`, `atom`) | Used for ActionIdMap, EncodeResultsMap |
-| spdlog | any | Structured logging | Already used throughout |
-| Catch2 | any | Test framework | 910 assertions across 215 test cases |
+| Pattern | When to Apply | Complexity | Risk |
+|---------|--------------|------------|------|
+| **Invariant Audit First** | Before touching any struct | Low | None |
+| **Stepwise Field Privatization** | One field at a time, keep backward compat | Low | Low |
+| **Named Constructor / Factory** | When designated-initializer callers exist (`PackPlan{}`, `PackPlan{.groups=...}`) | Medium | Medium |
+| **Accessor Pairs (const getter)** | Data that's read externally but should be read-only | Low | None |
 
-### C++26 Features Available for This Milestone
+**Rationale:** The codebase currently has a `static_assert(std::is_aggregate_v<pack::PackPlan>)` guarding designated-initializer usage. This is the highest-risk struct to convert. The safe approach: audit invariants per struct first. Many structs (like `PackGroupInput`, `PackEntryInput`, `PackGroupPartition`) are pure data bundles with no invariants — these should remain as public-data `struct`s per C.134. Only structs with behavioral invariants (state that must be maintained coherently) should become `class`es with `private` data.
 
-| Feature | Paper | Clang Since | Usefulness for This Milestone |
-|---------|-------|-------------|-------------------------------|
-| Pack indexing (`T...[N]`) | P2662R3 | Clang 19 | **MEDIUM**: Could simplify pack access in template metaprogramming, but `withJobState`/`withActionJobState` have no packs |
-| `= delete("reason")` | P2573R2 | Clang 19 | **LOW**: Documentation improvement; not a refactoring tool |
-| Placeholder variables (`auto _ = ...`) | P2169R4 | Clang 18 | **LOW**: Minor cleanup for intentionally-unused return values |
-| Structured bindings can introduce a pack | P1061R10 | Clang 21 | **LOW**: No pack-based structured bindings in current code |
-| `std::function_ref` (library) | P0792R14 | libc++ 16 | **MEDIUM**: Could replace `template<class Fn>` with type-erased wrapper if template instantiation count matters, but current usage is already minimal |
-| Structured binding as condition | P0963R3 | Clang 21 | **LOW**: Useful in if-let patterns, not applicable here |
-| Variadic friends | P2893R3 | Clang 20 | **N/A**: No template friend declarations exist |
-| `constexpr` placement new | P2747R2 | Clang 20 | **N/A**: Not applicable to this refactoring |
-
-### C++26 Features NOT Available (Cannot Use)
-
-| Feature | Paper | Status | Why We'd Want It |
-|---------|-------|--------|-----------------|
-| Reflection | P2996R13 | NOT implemented | Could generate job state wrapper functions from Store method signatures, eliminating hand-written forwarding |
-| Expansion statements | P1306R5 | NOT implemented | Could unroll template `for_each` over parameter packs |
-| Concept template parameters | P2841R7 | NOT implemented | Would allow `template<concept C> requires ...` parameter constraints |
-| Contracts | P2900R14 | NOT implemented | Could replace some runtime null checks with contract preconditions |
-| `constexpr` exceptions | P3068R6 | NOT implemented | Would simplify error handling in constexpr contexts |
-
-### C++20 Concepts Already Available (Apply Now)
-
-The codebase already uses C++26 mode, so all C++20 features are available. **Concepts are the most underutilized feature** for the template refactoring task:
+**Step-by-step conversion pattern:**
 
 ```cpp
-// Current (unconstrained):
-template<class Fn>
-inline auto withJobState(appctx::AppContext& ctx, Fn&& fn) -> bool {
-  if (auto* store = maybeJobState(ctx); store != nullptr) {
-    std::forward<Fn>(fn)(*store);
-    return true;
-  }
-  return false;
-}
+// BEFORE: public struct aggregate
+struct PackPlan {
+    std::vector<std::vector<PackFileEntry>> groups;
+    fs::path outputDir;
+    bool removeOnFailure = false;
+    bool compact = true;
+    // ... other public fields
+};
 
-// Improved with C++20 concept constraint:
-template<std::invocable<jobstate::Store&> Fn>
-inline auto withJobState(appctx::AppContext& ctx, Fn&& fn) -> bool {
-  // ... same body, but now with compile-time signature checking
-}
+// STEP 1: Add private data, keep public fields for compatible access (transitional)
+class PackPlan {
+public:
+    // Backward-compatible accessors (temporary — remove after migration)
+    const auto& groups() const { return groups_; }
+    const auto& outputDir() const { return outputDir_; }
+    // ... accessors for all fields
+
+    // New behavior methods
+    auto zipNameForIndex(std::size_t index) const -> std::string;
+    void onGroupStart(std::size_t groupIndex) const;
+
+private:
+    std::vector<std::vector<PackFileEntry>> groups_;
+    fs::path outputDir_;
+    // ... private fields
+    // Factory for construction (replaces designated initializers)
+public:
+    struct Config {
+        std::vector<std::vector<PackFileEntry>> groups;
+        fs::path outputDir;
+        bool removeOnFailure = false;
+        bool compact = true;
+    };
+    explicit PackPlan(Config cfg);
+};
 ```
 
-This catches misuse at compile time (e.g., passing a callable with wrong parameter count) rather than at template instantiation.
+**Critical constraint:** `PackPlan` has a `static_assert(std::is_aggregate_v<pack::PackPlan>)`. Removing this requires removing ALL designated-initializer call sites first (at least 4 sites in tests and production code). This should be a dedicated phase-transition step.
 
-## Recommended Approach for Each Tech Debt Item
+### 2. Free Functions → Class Methods: Adapter + Gradual Migration
 
-### OPTIM-01: `withActionJobState`/`withJobState` Template Deduplication
+**Core Guideline:** C.4 — Make a function a member only if it needs direct access to the representation of a class.
 
-**Do NOT change the templates themselves.** The templates are already minimal (5 lines each) and correctly factored. The duplication is in the **call site patterns** in `video_batch_execution.cpp`.
+| Pattern | Use Case | Risk |
+|---------|----------|------|
+| **Facade Delegate** | Free function that wraps a new method call | Low |
+| **Method Extraction + Thin Wrapper** | Move implementation to method, keep free function as forwarder | Low |
+| **Anonymous Namespace Internal Move** | Functions already in anonymous namespaces become `private` methods | Lowest |
 
-**Pattern to extract:** The repeated sequence of "lock mutex → extract optional fields → call `withActionJobState` with lambda → call specific Store method" appears 5+ times in `video_batch_execution.cpp`. 
+**Rationale:** The codebase has free functions in anonymous namespaces inside `pack_service.cpp` and `packer.cpp`. These are already internal. The approach: classify which free functions genuinely need representation access (→ methods) vs. which are algorithmic utilities that should remain free (→ `static` or kept as file-scope helpers).
 
-**Recommended approach:** Create higher-level named free functions in the anonymous namespace (consistent with the D-01 decision from v1.1):
+**Recommended migration pattern:**
 
 ```cpp
-// Example: Extract the "mark failed with extracted values" pattern
+// BEFORE: free function in anonymous namespace
+namespace pack {
 namespace {
-auto markFinalStateWithLock(
-  appctx::AppContext& ctx,
-  std::mutex& mtx,
-  std::optional<std::string>& actionId,
-  bool success,
-  std::string const& defaultFailureReason,
-  std::optional<std::string> const& lastError,
-  std::optional<std::string> const& lastStatus
-) -> void {
-  auto id = std::optional<std::string>{};
-  auto reason = defaultFailureReason;
-  auto status = std::optional<std::string>{};
-  {
-    auto lock = std::scoped_lock{mtx};
-    id = actionId;
-    if (lastError.has_value()) reason = lastError.value();
-    else if (lastStatus.has_value()) { reason = lastStatus.value(); status = lastStatus; }
-  }
-  withActionJobState(ctx, id, [&](jobstate::Store& store, std::string const& aid) {
-    if (success) {
-      if (status) store.markSucceeded(aid, *status);
-      else store.markSucceeded(aid);
-    } else {
-      store.markFailed(aid, reason);
-    }
-  });
+    auto countPackedFiles(std::vector<std::vector<PackFileEntry>> const& groups)
+      -> std::size_t { /* ... */ }
+} // namespace
+
+// AFTER: becomes private static member (no instance access needed)
+class PackService {
+private:
+    static auto countPackedFiles(
+        std::vector<std::vector<PackFileEntry>> const& groups
+    ) -> std::size_t;
+};
+
+// For functions that callers currently use directly:
+// Keep a forwarding free function for backward compatibility
+
+// BEFORE: caller writes: auto plan = pack::buildDirectoryPackPlan(...);
+// AFTER: same call still works (delegates to class)
+auto buildDirectoryPackPlan(
+    fs::path const& dirPath, fs::path const& zipFileDir,
+    std::uintmax_t maxGroupSize, bool recursive,
+    bool forceNameConflictHandling,
+    std::optional<std::size_t> maxParallelJobs,
+    std::optional<fs::path> excludedPath
+) -> eh::Result<pack::PackPlan> {
+    return PackPlanBuilder::build(dirPath, zipFileDir, maxGroupSize,
+        recursive, forceNameConflictHandling, maxParallelJobs, excludedPath);
 }
-}  // namespace
 ```
 
-This eliminates 5+ copies of the identical lock-extract-store pattern without changing the existing template signatures or introducing new language features. No C++26 features needed — just good factoring consistent with the v1.1 lambda refactoring pattern.
+**Priority classification for the encro codebase:**
 
-### OPTIM-02: Split `video_batch_execution.cpp` (804 lines) into Multiple Compilation Units
+| Functions | Action | Reason |
+|-----------|--------|--------|
+| `countPackedFiles` (anon ns) | → `private static` method | No state access needed; algorithm utility |
+| `formatCompactPackingStatus` (anon ns) | → `private static` method | Pure formatting, no state |
+| `packFilesToZip` overloads (public, packer.h) | → `Packer::packToZip` + forwarding wrappers | Core behavior; main refactoring target |
+| `groupFilesBySize`, `groupPackFiles` (public) | → `Packer` static methods or keep as free | Algorithmic; don't need private data |
+| `runPackPlan` (public) | → `PackService::run` (instance method) | Needs context; primary orchestrator |
+| `packGroups` (public) | → `PackService::packGroups` (instance method) | Needs `PackPlan` state |
 
-**Build system impact: ZERO.** The xmake target uses `add_files("src/**.cpp")` which automatically picks up any `.cpp` file anywhere under `src/`. No xmake.lua changes required.
+### 3. Dependency Injection for Testability
 
-**Recommended split:**
+**Core Guideline:** I.23 — Keep the number of function arguments low. I.4 — Make interfaces precisely and strongly typed.
 
-| New File | Lines From Original | Content |
-|----------|---------------------|---------|
-| `src/video/video_batch_execution.cpp` (keep) | ~lines 687-804 | Public entry point `runEncodingTasks()` only |
-| `src/video/video_batch_helpers.cpp` | ~lines 33-85 | `noteStopRequest`, `markRunningNoProgress`, `finalizeEncodeResult`, utility functions |
-| `src/video/video_batch_progress.cpp` | ~lines 87-329 | `EncodingProgressState` struct (all progress bar management) |
-| `src/video/video_batch_execution_context.cpp` | ~lines 184-329 (refactored) | `EncodingExecutionContext` struct (extracted from progress state, used by encoding logic) |
-| `src/video/video_batch_encoding.cpp` | ~lines 331-685 | `EncodingExecutionContext` member functions + `runEncodingTask` + encoding loop + monitor |
+| Pattern | Use When | Example |
+|---------|----------|---------|
+| **Constructor Injection** (preferred) | Dependency required for object lifetime | `PackService(AppContext& ctx)` |
+| **Setter/Property Injection** | Optional/reconfigurable dependency | `packer.setProgressCallback(cb)` |
+| **Template Parameter (compile-time DI)** | Performance-critical; no virtual overhead | `template<typename ZipImpl> class Packer` |
+| **Interface Pointer Injection** | Need to swap implementations for testing | `PackService(std::unique_ptr<IZipWriter>)` |
 
-**Anonymous namespace consideration:** The original file uses an anonymous namespace for file-local functions. When splitting, functions that need to be shared across new `.cpp` files must move to a named `detail` namespace in a shared header, or be declared `inline` in an internal header. Recommendation:
+**For the encro codebase, the recommended hierarchy:**
+
+```
+AppContext (existing, stays as value bundle)
+    ├── RuntimeContext (existing)
+    │   └── jobState: shared_ptr<jobstate::Store>  ← already DI pattern!
+    │
+    └── (NEW) injectable dependencies
+        ├── IFileSystem        ← mockable for tests
+        ├── IZipWriter         ← mockable for pack tests
+        └── IProcessRunner     ← mockable for FFmpeg tests
+```
+
+**The existing `jobstate::Store` is already a good example of constructor DI in this codebase:**
 
 ```cpp
-// New file: src/video/video_batch_internal.h
-#pragma once
-// ... includes ...
-namespace videobatch::detail {
-  // Move shared structs and function declarations here
-  struct EncodingProgressState { ... };
-  struct EncodingExecutionContext { ... };
-  void noteStopRequest(appctx::AppContext& ctx);
-  // etc.
-}
+class Store {
+public:
+    explicit Store(fs::path stateFilePath);  // ← Constructor DI
+    // ... public methods, private data ...
+};
 ```
 
-**Header impact:** The public `video_batch_execution.h` already exposes only `runEncodingTasks()`. No public header changes needed — the internal implementation split is entirely hidden.
+**Recommended DI approach for PackService:**
 
-### DEBT-01/02/03: No Stack Changes
+```cpp
+// Interface for mockable zip operations
+class IZipWriter {
+public:
+    virtual ~IZipWriter() = default;
+    virtual auto addFile(fs::path const& sourcePath,
+                         std::string_view entryName) -> eh::Result<void> = 0;
+    virtual auto finalize() -> eh::Result<void> = 0;
+};
 
-These items (fix implicit `.compact` default, remove duplicate test, backfill VERIFICATION.md) are pure code/documentation changes requiring zero tooling additions.
+// Production implementation (wraps libzippp)
+class LibzipppWriter : public IZipWriter { /* ... */ };
 
-## Alternatives Considered
+// Test mock
+class MockZipWriter : public IZipWriter { /* ... */ };
 
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| Template refactoring | Extract higher-level free functions in anonymous namespace | Use C++26 reflection to auto-generate wrappers | Reflection not implemented in clang-cl 22.1.4 |
-| Template refactoring | Keep `template<class Fn>` with `std::invocable` constraint | Replace with `std::function_ref` to reduce template instantiations | Premature optimization; template count is already low (2 instantiations); `function_ref` adds indirection |
-| Code splitting | Split into 3-4 .cpp files with `detail` namespace header | Use C++20 modules to avoid header dependencies | Modules on Windows/clang-cl are incomplete; simpler approach works |
-| Code splitting | Keep anonymous namespace for truly private functions; `detail` namespace for shared internals | Move everything to `detail` namespace | Hybrid approach preserves compilation firewall where appropriate |
-| Build system | Zero changes (wildcard globs cover new files) | Add explicit `add_files()` entries for each new file | Unnecessary; glob works, explicit listing adds maintenance burden |
-| External tools | None needed | cpp-dependencies or include-what-you-use for include analysis | Nice-to-have, not needed for this simple split |
+// PackService with DI
+class PackService {
+public:
+    // Constructor injection — production
+    explicit PackService(appctx::AppContext& ctx);
 
-## Installation (No New Dependencies)
+    // Constructor injection — testable (packages IZipWriter via unique_ptr)
+    PackService(appctx::AppContext& ctx,
+                std::unique_ptr<IZipWriter> zipWriter);
 
-No new packages to install. The existing xmake.lua dependencies cover everything needed:
+    auto run(PackPlan const& plan) -> eh::Result<PackRunResult>;
 
-```bash
-# Already provisioned via xmake.lua:
-# add_requires("boost[all]")
-# add_requires("thread-pool")
-# add_requires("spdlog[fmt_external]")
-# add_requires("fmt")
-# add_requires("indicators")
-# add_requires("immer")
-# add_requires("libzippp")
-# add_requires("catch2")
+private:
+    appctx::AppContext& ctx_;
+    std::unique_ptr<IZipWriter> zipWriter_;
+};
 ```
 
-## Architecture Note: Template Pattern in Codebase
+**When NOT to use dependency injection:**
+- For value types that are cheap to construct (e.g., `PackPlan`, `PackFileEntry` — these stay as structs)
+- For things that already have no side effects (pure computation functions)
+- For dependencies that are already abstracted via standard library types (`std::filesystem::path`)
 
-The `video_workflow_utils.h` template pattern is well-designed for its purpose:
+### 4. Interface / Abstract Class Patterns for Mockable Dependencies
+
+**Core Guideline:** C.121 — If a base class is used as an interface, make it a pure abstract class. I.25 — Prefer empty abstract classes as interfaces to class hierarchies.
+
+**The canonical C++ interface pattern:**
+
+```cpp
+// Pure abstract interface — the C++ Core Guidelines way
+class IZipWriter {
+public:
+    virtual ~IZipWriter() = default;  // ← CRITICAL: virtual destructor
+
+    // Only pure virtual functions, no data members
+    virtual auto open(fs::path const& zipPath) -> eh::Result<void> = 0;
+    virtual auto addFile(fs::path const& src,
+                         std::string_view entryName) -> eh::Result<void> = 0;
+    virtual auto close() -> eh::Result<void> = 0;
+
+    // Prevent copying (interfaces usually manage resources)
+    IZipWriter(IZipWriter const&) = delete;
+    IZipWriter& operator=(IZipWriter const&) = delete;
+
+protected:
+    IZipWriter() = default;  // Only derived classes construct
+};
+```
+
+**NVI (Non-Virtual Interface) pattern — when you need pre/post conditions:**
+
+```cpp
+// Public non-virtual method enforces invariants
+// Private virtual method is the customization point
+class PackService {
+public:
+    auto run(PackPlan const& plan) -> eh::Result<PackRunResult> {
+        // Pre-condition checks
+        if (plan.groups.empty()) return PackRunResult{};
+
+        // Delegate to virtual implementation
+        auto result = runImpl(plan);
+
+        // Post-condition checks
+        return result;
+    }
+
+private:
+    virtual auto runImpl(PackPlan const& plan) -> eh::Result<PackRunResult> = 0;
+};
+```
+
+**Interface identification for the encro codebase:**
+
+| External Dependency | Interface | Production Impl | Test Mock |
+|--------------------|-----------|-----------------|-----------|
+| libzippp (zip creation) | `IZipWriter` | `LibzipppWriter` | `MockZipWriter` |
+| FFmpeg (process execution) | `IProcessRunner` | `FfmpegRunner` | `MockProcessRunner` |
+| Filesystem (I/O) | `IFileSystem` | — use `std::filesystem` directly (already mockable via temp dirs) | `TempDir` (exists) |
+| Progress reporting | `IProgressReporter` | `Progress::ProgressContext` adapter | `FakeProgressReporter` |
+
+**Critical decision: How many interfaces?**
+
+Start with ONE interface (`IZipWriter`) for the pack subsystem. The codebase's Catch2 tests already use `TempDir` and real filesystem for integration testing — this is working well. Only add interfaces where the existing pattern is insufficient. The 909 assertions already pass without mocks — don't over-mock.
+
+### 5. Modern C++20/23/26 Features for Encapsulation
+
+| Feature | C++ Version | Relevance to This Refactor | Recommendation |
+|---------|------------|---------------------------|----------------|
+| **Modules** | C++20 | TRUE encapsulation boundary — `module linkage` prevents leakage | **DEFER** — clang-cl module support for C++20 is maturing but not yet production-stable for MSVC ABI targets. The codebase uses `#pragma once` + header guards which work. Modules would be a separate milestone (v2.0+). |
+| **Concepts** | C++20 | Constrain template-based DI; document interface requirements | **USE sparingly**. Define concepts for template-based DI: `concept ZipWriter = requires(T w, fs::path p) { { w.addFile(p, "") } -> std::same_as<eh::Result<void>>; };` |
+| **`std::span`** | C++20 | Already used in codebase for view semantics | Continue using — great for read-only views of data |
+| **Three-way comparison `<=>`** | C++20 | For value types that need ordering | Use `= default` on value structs like `PackFileEntry` |
+| **`explicit(bool)`** | C++20 | Conditional explicit constructors | Niche — use when writing generic factory wrappers |
+| **`consteval`** | C++20 | Compile-time validation of invariants | Use for compile-time constant validation |
+| **Deducing `this`** | C++23 | Simplifies CRTP, removes const/non-const duplication | **LOW priority** — the current codebase doesn't use CRTP |
+| **Contracts** | C++26 | Pre/post-condition checking on methods | **HIGHLY RECOMMENDED** when compiler support matures. The pack subsystem's methods naturally have contracts: `packGroups` requires non-empty groups, `addFile` requires valid source paths. Use `[[expects: ...]]` and `[[ensures: ...]]` once available. |
+| **`std::expected`** | C++23 | Better error handling than `eh::Result` | **EVALUATE** — the codebase uses `eh::Result<void>` heavily. `std::expected` provides better ergonomics but would require touching all call sites. Keep `eh::Result` for this milestone. |
+
+**What to use NOW in this refactor:**
+
+1. **`= default` for comparison operators** — add to value structs that stay as structs
+2. **`final` on leaf classes** — prevent unintended inheritance (C.139)
+3. **`override` on all virtual overrides** — already standard practice; ensure new interface implementations use it
+4. **`std::unique_ptr` for owned interface implementations** — modern ownership semantics
+
+**What to explicitly NOT use yet:**
+
+1. **Modules** — clang-cl C++20 module support is not production-ready for MSVC-style targets. The `#pragma once` approach works and doesn't block encapsulation goals (private data in headers is already hidden).
+2. **C++26 Contracts** — compiler support is nascent. Add `// Precondition:` / `// Postcondition:` comments in interface headers as documentation for future contract annotations.
+3. **`std::expected`** — not worth the refactoring churn to replace `eh::Result` across the entire codebase. The existing error handling pattern is consistent and well-tested.
+
+### 6. Patterns to Follow (Composition Over Inheritance)
+
+**Recommended structural patterns for the pack subsystem:**
 
 ```
-┌─────────────────────────────────────────┐
-│           video_workflow_utils.h        │
-│                                         │
-│  maybeJobState(ctx) → Store*  (nullable)│
-│  withJobState(ctx, fn) → bool           │
-│  withActionJobState(ctx, id, fn) → bool │
-│  lookupPlannedOutputFile(map, path)     │
-└──────────┬──────────────────────────────┘
-           │ used by
-    ┌──────┴──────┐
-    │             │
- video_process  video_batch_execution
- (video encode  (batch encoding,
-  orchestration) progress monitoring)
+PackService (orchestrator — owns dependencies)
+    │
+    ├── PackPlan (value object — stays as struct/aggregate with accessors)
+    │
+    ├── IZipWriter (abstract interface)
+    │   └── LibzipppWriter (production impl, wraps libzippp)
+    │
+    ├── Packer (stateless grouping algorithms → stays free functions or static methods)
+    │
+    └── JobState::Store (already a class — inject via shared_ptr)
 ```
 
-The picture subsystem (`picture_process.cpp`) does NOT use these templates — it has its own separate workflow that doesn't touch `jobstate::Store` directly. No cross-subsystem template sharing is needed.
+**Class relationships — favor composition:**
+
+```cpp
+// GOOD: Composition (has-a)
+class PackService {
+    std::unique_ptr<IZipWriter> zipWriter_;  // owns via unique_ptr
+    appctx::AppContext& ctx_;                 // references (non-owning)
+    // ...
+};
+
+// AVOID: Deep inheritance for domain objects
+// class PackService : public TaskExecutor, public ErrorHandler, ...  ← BAD
+```
+
+**Single responsibility per class:**
+- `PackService` → orchestrates pack workflow (run, packGroups)
+- `Packer` (or free functions in `packer.cpp`) → file grouping algorithms
+- `LibzipppWriter` → wraps libzippp, implements IZipWriter
+- `PackPlan` → value object, carries plan configuration
+
+## Anti-Patterns — What NOT to Introduce
+
+### Critical Anti-Patterns (rewrite-causing)
+
+| Anti-Pattern | Why It's Dangerous | What to Do Instead |
+|-------------|-------------------|-------------------|
+| **Deep Inheritance Hierarchy (>2 levels)** | C.138: "Use `final` on leaf classes." Deep hierarchies create fragile base class problems, make testing harder, and the codebase has zero inheritance currently. | Max 2 levels: Interface → Implementation. Use composition for everything else. |
+| **Virtual Functions in Hot Paths** | The `packFilesToZip` loop processes potentially millions of files. Virtual dispatch in inner loops defeats branch prediction and inlining. | Make interfaces at the workflow level, not the per-file level. The `IZipWriter` interface should have coarse-grained methods (`addFile`, `finalize`), not per-byte virtual calls. |
+| **God Class (everything in one class)** | PackService that knows about FFmpeg, zip, filesystem, progress bars, AND error handling becomes untestable and unmaintainable. | Single Responsibility: Split into focused classes. PackService orchestrates; it doesn't encode video. |
+| **Private Data + Public Getters/Setters for EVERY Field** | Violates "Tell, Don't Ask." If a class exposes all its internal state via getters/setters, it hasn't actually encapsulated anything. | Expose behavior, not state. `plan.zipName()` not `plan.getOutputDir()`. |
+| **Breaking the `static_assert(is_aggregate_v<PackPlan>)` Without Migration** | At least 4 test sites + production code use designated initializers. Removing the assertion without migrating all callers breaks the build. | Phase 1: Migrate all designated-initializer callers to factory/constructor. Phase 2: Remove `static_assert`. Phase 3: Add `private` members. |
+| **Over-Mocking (mock everything)** | The codebase's existing tests with `TempDir` + real filesystem are stable (909 assertions pass). Introducing mocks for things that don't need mocking adds maintenance burden and false confidence. | Only mock external side effects (zip I/O, process execution). Never mock value types or standard library facilities. |
+
+### Moderate Anti-Patterns
+
+| Anti-Pattern | Prevention |
+|-------------|-----------|
+| **Virtual Inheritance (diamond)** | Not needed. Use single interface inheritance only. |
+| **`friend` for Testing** | Use interfaces or make testable methods `public`. `friend class TestFixture` is a smell — it means your class has hidden dependencies. |
+| **Static Mutable State** | Already absent from the codebase. Don't introduce. Use constructor injection instead of singletons. |
+| **Base Class with Data Members** | C.121: interface classes should have zero data members. Production base classes with data → use composition. |
+| **Exception-Throwing Destructors** | C.36: destructors must not fail. All the IZipWriter, IProcessRunner destructors must be `noexcept`. |
+| **Copyable Interfaces** | Interfaces should delete copy constructor/assignment. Use `unique_ptr<Interface>` for ownership transfer. |
+
+### Minor Anti-Patterns
+
+| Anti-Pattern | Prevention |
+|-------------|-----------|
+| **`protected` Data Members** | C.133: avoid `protected` data. Use `private` + `protected` accessor methods if truly needed by derived classes. |
+| **Non-Virtual Destructor in Base** | C.35, C.127: every interface class must have `virtual ~Interface() = default;` |
+| **Type Erasure via `std::function` for Hot Paths** | `std::function` has allocation overhead. For callbacks in inner loops, use templates or `std::move_only_function` (C++23). |
+| **`dynamic_cast` in Application Code** | C.146: use `dynamic_cast` only where you can't use virtual functions. If you find yourself `dynamic_cast`ing, the interface is wrong. |
+
+## Stack Patterns by Scenario
+
+**If the struct has NO invariants (pure data bundle):**
+- Keep as `struct` with all public members
+- Examples: `PackGroupInput`, `PackEntryInput`, `PackGroupPartition`, `PackEntryPartition`
+- Add `auto operator==(T const&) const -> bool = default;` for testability
+- These are "Category A" per C.134 — no encapsulation needed
+
+**If the struct has invariants but is small (1-3 interconnected fields):**
+- Convert to `class` with private data + constructor that enforces invariant
+- Provide const accessor methods for the data consumers need
+- Example: `PackPlan` — `groups` and `outputDir` are tightly coupled (groups must correspond to output paths)
+
+**If the free function accesses no private state:**
+- Keep as a free function (possibly in a namespace, not anonymous)
+- Move to utility/algorithm header if reusable across modules
+- Example: `appendOrdinalRangeSuffix` — pure string manipulation, should stay free
+
+**If the free function accesses private state or is tightly coupled to a class's behavior:**
+- Make it a `private` method (or `public` if it's part of the class's interface contract)
+- If it's currently in an anonymous namespace → `private static` member
+- Example: `countPackedFiles` — called only by pack service logic
+
+**If the dependency is an external system (zip, FFmpeg):**
+- Define a pure abstract interface (C.121)
+- Provide production implementation + test mock
+- Inject via constructor (unique_ptr for ownership, shared_ptr for shared state)
+- Example: `IZipWriter` for libzippp
+
+**If the dependency is a simple algorithm or computation:**
+- Pass as a `std::function` or template callable — no interface needed
+- The codebase already does this with `ZipEntryNameResolver`, `PackEntryProgressCallback`
+- Example: `zipNameForIndex`, `progressLabelForIndex` in PackPlan
+
+## Existing Patterns to Leverage (Not Rebuild)
+
+The codebase already has good patterns that should be extended, not replaced:
+
+| Existing Pattern | Where | How to Extend |
+|-----------------|-------|---------------|
+| `jobstate::Store` — class with private data, constructor DI, public methods | `src/core/job_state.h` | Model for new classes. Follow its constructor injection style. |
+| `RuntimeContext::VideoInfoCacheStore` — struct-as-value with methods | `src/core/app_context.h` | Pattern for small encapsulated value types with behavior. |
+| `PackPlan` with `std::function` callbacks | `src/pack/pack_service.h` | Already using strategy pattern via callbacks. Extend by wrapping in a class. |
+| `TempDir` test helper | `tests/test_utils.h` | Already provides test isolation. Continue using; complement with mock interfaces for non-filesystem deps. |
+| `eh::Result<T>` error handling | `src/core/error_handle.h` | Consistent, tested. Keep using for this milestone. |
+| Catch2 `TEST_CASE` with designated initializers | `tests/pack_service_tests.cpp` | Keep tests passing DURING refactor (RED→GREEN cycles). |
+
+## What NOT to Use
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| C++ Modules (C++20) | clang-cl module support is not production-stable for MSVC-ABI targets | `#pragma once` + header guards (already working) |
+| `std::expected` (C++23) | Would require touching all call sites of `eh::Result` | `eh::Result<T>` (already consistent and tested) |
+| C++26 Contracts | Compiler support is nascent (no production clang-cl implementation yet) | `// Precondition:` / `// Postcondition:` comments in headers |
+| CRTP (Curiously Recurring Template) | Adds template complexity with no benefit for this codebase | Simple virtual dispatch (not in hot paths) |
+| Singleton/Monostate patterns | Hides dependencies, makes testing hard | Constructor injection with `AppContext&` |
+| `std::function` for inner-loop callbacks | Allocation overhead in hot paths | Template callables or `std::move_only_function` (C++23) |
+| Boost.DI or other DI frameworks | Adds external dependency complexity for no benefit | Manual constructor injection (already used in `jobstate::Store`) |
+| PIMPL for small domain objects | Indirection overhead; the codebase isn't a library with ABI stability needs | Direct `private` members (recompilation cost is acceptable for an application) |
 
 ## Sources
 
-| Source | Confidence | URL/Reference |
-|--------|-----------|--------------|
-| cppreference C++26 compiler support | HIGH | https://en.cppreference.com/w/cpp/compiler_support/26 |
-| Clang C++ status page (official) | HIGH | https://clang.llvm.org/cxx_status.html |
-| Direct codebase inspection | HIGH | `src/video/video_workflow_utils.h`, `src/video/video_batch_execution.cpp` |
-| xmake target documentation | MEDIUM | https://xmake.io/#/manual/project_target (xmake 3.0.8; glob patterns stable since 2.x) |
-| clang-cl version verification | HIGH | `clang-cl --version` → 22.1.4 (local) |
-| cppreference std::function_ref | HIGH | https://en.cppreference.com/w/cpp/utility/functional/function_ref |
+| Source | Type | Confidence | Topics Verified |
+|--------|------|-----------|-----------------|
+| `/isocpp/cppcoreguidelines` (Context7) | Official | HIGH | C.134 (struct vs class), C.121 (pure abstract interfaces), I.25 (interface segregation), C.35/C.127 (virtual destructors), C.133 (protected data), C.138 (final), C.146 (dynamic_cast), C.4 (method vs free function), PIMPL idiom, NVI pattern |
+| `/refactoringguru/design-patterns-cpp` (Context7) | Educational | MEDIUM | Strategy, Adapter, Facade patterns with C++ examples |
+| cppreference.com — Modules | Official | HIGH | C++20 modules syntax, module linkage, export/import semantics, compiler support status |
+| isocpp.github.io/CppCoreGuidelines | Official | HIGH | Full guidelines including Appendix B (Modernizing code), enforcement profiles, gradual adoption philosophy |
+| Existing codebase analysis | Primary | HIGH | Current patterns: `jobstate::Store` (class with DI), `PackPlan` (aggregate with static_assert), anonymous namespace free functions, Catch2 test patterns, `eh::Result` error handling |
+
+---
+
+*Stack research for: C++ OO encapsulation refactoring of encro pack subsystem*
+*Researched: 2026-04-29*
+*Confidence: HIGH — backed by C++ Core Guidelines (official), codebase direct analysis, and cppreference.com*
