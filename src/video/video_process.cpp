@@ -8,8 +8,7 @@
 #include "core/job_state.h"
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
-#include "pack/pack_service.h"
-#include "pack/packer.h"
+#include "pack/pack_facade.h"
 #include "video/video_info.h"
 #include "utils/utils.h"
 
@@ -404,7 +403,7 @@ auto packEncodedVideos(
     zipOutputDir.string()
   );
 
-  auto const ordinalRanges = pack::PackService::buildGroupOrdinalRanges(groupedFiles);
+  auto const ordinalRanges = pack_facade::buildGroupOrdinalRanges(groupedFiles);
   auto groupedEntries = std::vector<std::vector<pack::PackFileEntry>>{};
   groupedEntries.reserve(groupedFiles.size());
   for (auto const& group: groupedFiles) {
@@ -426,7 +425,7 @@ auto packEncodedVideos(
     .outputDir = zipOutputDir,
     .zipNameForIndex =
       [ordinalRanges](std::size_t index) {
-        return pack::PackService::appendOrdinalRangeSuffix(
+        return pack_facade::appendOrdinalRangeSuffix(
           std::format("encoded_videos_part{}.zip", index + 1),
           ordinalRanges.at(index)
         );
@@ -435,9 +434,7 @@ auto packEncodedVideos(
     .compact = !ctx.config.fullProgress
   };
 
-  pack::Packer packer;
-  pack::PackService service(packer);
-  auto const packRes = service.runPackPlan(ctx, plan);
+  auto const packRes = pack_facade::runPackPlan(ctx, plan);
   if (!packRes) {
     spdlog::error("Failed to pack encoded videos: {}", packRes.error());
     return 1;

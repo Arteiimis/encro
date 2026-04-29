@@ -1,7 +1,7 @@
 #include "video/video_output_planning.h"
 
 #include "core/collision_naming.h"
-#include "pack/packer.h"
+#include "pack/pack_facade.h"
 #include "video/encode_config.h"
 
 #include <algorithm>
@@ -182,7 +182,7 @@ auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
     packInputs.emplace_back(PackGroupInput{filePath, filePath.parent_path()});
   }
 
-  return pack::Packer{}.groupPackFiles(packInputs, pack::kDefaultMaxArchiveGroupSize);
+  return pack_facade::groupPackFiles(packInputs, pack::kDefaultMaxArchiveGroupSize);
 }
 
 auto groupEncodedVideosForPack(
@@ -197,7 +197,7 @@ auto groupEncodedVideosForPack(
     );
   }
 
-  return pack::Packer{}.groupPackFiles(
+  return pack_facade::groupPackFiles(
     packInputs,
     pack::kDefaultMaxArchiveGroupSize,
     std::nullopt,
