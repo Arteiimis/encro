@@ -70,30 +70,30 @@ Explicitly excluded from v1.3. Documented to prevent scope creep.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TYPE-01 | Phase 1 | Pending |
-| TYPE-02 | Phase 1 | Pending |
-| TYPE-03 | Phase 1 | Pending |
-| TYPE-04 | Phase 1 | Pending |
-| SVC-01 | Phase 2 | Pending |
-| SVC-02 | Phase 2 | Pending |
-| SVC-03 | Phase 2 | Pending |
-| SVC-04 | Phase 2 | Pending |
-| SVC-05 | Phase 2 | Pending |
-| SVC-06 | Phase 2 | Pending |
-| SVC-07 | Phase 2 | Pending |
-| SVC-08 | Phase 2 | Pending |
-| DI-01 | Phase 3 | Pending |
-| DI-02 | Phase 3 | Pending |
-| DI-03 | Phase 3 | Pending |
-| DI-04 | Phase 3 | Pending |
-| DI-05 | Phase 3 | Pending |
-| DI-06 | Phase 3 | Pending |
-| MIG-01 | Phase 4 | Pending |
-| MIG-02 | Phase 4 | Pending |
-| MIG-03 | Phase 4 | Pending |
-| MIG-04 | Phase 4 | Pending |
-| MIG-05 | Phase 4 | Pending |
-| MIG-06 | Phase 4 | Pending |
+| TYPE-01 | Phase 8 | Pending |
+| TYPE-02 | Phase 8 | Pending |
+| TYPE-03 | Phase 8 | Pending |
+| TYPE-04 | Phase 8 | Pending |
+| SVC-01 | Phase 9 | Pending |
+| SVC-02 | Phase 9 | Pending |
+| SVC-03 | Phase 9 | Pending |
+| SVC-04 | Phase 9 | Pending |
+| SVC-05 | Phase 9 | Pending |
+| SVC-06 | Phase 9 | Pending |
+| SVC-07 | Phase 9 | Pending |
+| SVC-08 | Phase 9 | Pending |
+| DI-01 | Phase 10 | Pending |
+| DI-02 | Phase 10 | Pending |
+| DI-03 | Phase 10 | Pending |
+| DI-04 | Phase 10 | Pending |
+| DI-05 | Phase 10 | Pending |
+| DI-06 | Phase 10 | Pending |
+| MIG-01 | Phase 11 | Pending |
+| MIG-02 | Phase 11 | Pending |
+| MIG-03 | Phase 11 | Pending |
+| MIG-04 | Phase 11 | Pending |
+| MIG-05 | Phase 11 | Pending |
+| MIG-06 | Phase 11 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 24 total
