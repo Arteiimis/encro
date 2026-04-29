@@ -141,6 +141,63 @@
 
 ---
 
+## Milestone: v1.3 — Pack Subsystem OO Refactor
+
+**Shipped:** 2026-04-30
+**Phases:** 4 | **Plans:** 11 | **Tasks:** 11
+
+### What Was Built
+
+- `pack_types.h` + `packer_types.h`: shared value types extracted, circular `packer.h` ↔ `pack_service.h` dependency broken, global-scope structs moved to `pack::detail::`
+- `pack::Packer final` class: 14 free functions → public/private methods, zip I/O encapsulated, ZipWriter RAII
+- `pack::PackService final` class: orchestration logic encapsulated, `std::unique_ptr<IPacker>` constructor injection
+- `PackProgressCallbacks` sub-struct: 5 callback `std::function` fields extracted from PackPlan
+- `IPacker` abstract interface (3 virtual methods, archive granularity) + `MockPacker` capture-recording test double
+- `pack_facade.h` (248 lines, 21 deprecated wrappers) created as temporary bridge, then deleted in Phase 11
+- 7 consumer files migrated to direct OO API, 36 new MockPacker assertions (945 total, 225 test cases, 0 failures)
+
+### What Worked
+
+- Incremental delivery (4 phases, 11 plans): each plan was small enough to execute autonomously with clear verification gates
+- Phase 8 (pure header refactoring) was the right first step — broke circular dependency before adding classes
+- Temporary facade (`pack_facade.h`) as backward-compat bridge preserved all consumers unchanged through Phases 9-10
+- `static_assert(is_aggregate_v<PackPlan>)` guard caught zero regressions — aggregate contract never violated
+- TDD pattern from v1.1 carried forward: MockPacker tests written before final verification
+- All classes marked `final`, zero virtual dispatch on hot paths — no performance regression
+
+### What Was Inefficient
+
+- Phase 9 Plan 09-02 left `packAllFilesInDirectory` as global free function temporarily — migrated to PackService in Plan 09-03; could have been done in single step
+- MockPacker tests (Plan 10-04) went GREEN immediately — TDD RED gate was a no-op since MockPacker and DI were already implemented in Plans 10-01/10-03
+- E2E CLI verification (Phase 11 Task 11) deferred due to test media dependency — should have been factored into pre-milestone test environment setup
+
+### Patterns Established
+
+- `pack_types.h` / `packer_types.h` split: shared DTO types separate from internal implementation types
+- `pack::detail::` namespace for internal aliases and types (follows `videobatch::detail` precedent from v1.2)
+- Minimalist abstract interface: IPacker exposes only 3 methods PackService actually calls — no over-engineering
+- Capture-recording mock: simple vectors for call recording, no mock framework needed
+- Per-call-site stack instances for PackService/Packer: no lifecycle management, no shared state
+- `[[deprecated]]` facade as temporary bridge: removed cleanly when migration complete
+
+### Key Lessons
+
+1. Break circular dependencies first — Phase 8 was the critical enabler for all subsequent work
+2. Temporary facade bridges reduce risk during multi-phase migrations — consumers migrate at their own pace
+3. Interface granularity should match actual call sites — IPacker has exactly what PackService needs, nothing more
+4. Mock without frameworks: manual capture-recording is simpler and more debuggable than mock libraries
+5. E2E verification should be part of pre-milestone test environment setup, not a deferred task
+
+### Cost Observations
+
+- Model: deepseek-v4-pro
+- 4 phases, 11 plans, 11 tasks executed
+- 7 consumer files migrated, 1 facade file deleted, 2 new headers created
+- 50 files changed, ~1094 source LOC added (net after deletions)
+- 36 new assertions added, 0 regressions
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -150,6 +207,7 @@
 | v1.0 | 2 | 3 | 5 | Core feature: compact progress mode |
 | v1.1 | 3 | 7 | 8 | Pure refactoring: TDD RED gate cycle introduced |
 | v1.2 | 2 | 4 | 6 | Debt resolution: research-first, forensics audit |
+| v1.3 | 4 | 11 | 11 | OO refactor: incremental delivery, facade bridge, DI + mocks |
 
 ### Cumulative Quality
 
@@ -158,6 +216,7 @@
 | v1.0 | 203 | 876 | 11 | Several |
 | v1.1 | 215 | 910 | 4 `.cpp` files | 0 |
 | v1.2 | 215 | 909 | 8 source files | 1 (narrow D-01 exception) |
+| v1.3 | 225 | 945 | 19 source files + 2 new headers | 5 new/rewritten headers |
 
 ### Top Lessons (Verified Across Milestones)
 
