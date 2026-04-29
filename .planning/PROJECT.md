@@ -24,6 +24,17 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 - No data loss: errors handled explicitly, nothing deleted silently
 - Code clarity: no deeply nested lambdas, inline lambdas kept short and readable
 
+## Current Milestone: v1.3 Pack Subsystem OO Refactor
+
+**Goal:** 将 pack 子系统及相关核心模块重构为面向对象风格，以程序关键路径和流程为导向抽象封装，模块独立、可测试性强
+
+**Target features:**
+- Pack 核心 struct → class 封装（pack_service, packer 等），数据成员私有化
+- 自由函数归入类方法，公共接口清晰，实现细节隐藏
+- 紧密耦合的核心/共享模块同步改造
+- 模块可独立编译与测试，支持 Mock 外部依赖
+- 测试覆盖不退化（909 assertions 维持）
+
 ## Requirements
 
 ### Validated
@@ -52,7 +63,13 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 
 ### Active
 
-*(None — all v1.2 items completed. Awaiting next milestone definition.)*
+<!-- Current scope for v1.3. Building toward these. -->
+
+- [ ] Pack 核心 struct 封装为 class，数据成员私有，提供明确公共接口
+- [ ] 自由函数（pack_service.cpp, packer.cpp 等）归入相应类方法
+- [ ] 紧密耦合的核心模块同步改造（共享数据结构、工具函数等）
+- [ ] 模块可独立编译与单元测试，支持 Mock 外部依赖
+- [ ] 所有现有测试保持通过（909 assertions, 215 test cases）
 
 ### Out of Scope
 
@@ -68,7 +85,7 @@ Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, x
 
 ## Current State
 
-All 3 milestones shipped (v1.0, v1.1, v1.2). Codebase is clean: 0 deeply nested lambdas, 0 implicit struct defaults in PackPlan, 0 duplicate assertions, 4/4 PackPlan sites explicitly set `.compact`. STRUCT-01 (template relocation) confirmed unnecessary during v1.2 — templates already correctly placed. Awaiting next milestone definition.
+v1.0, v1.1, v1.2 shipped. v1.3 started — Pack Subsystem OO Refactor. Codebase is clean: 0 deeply nested lambdas, 0 implicit struct defaults in PackPlan, 0 duplicate assertions. STRUCT-01 (template relocation) confirmed unnecessary. Beginning gradual OO transformation, starting with pack subsystem and coupled core modules.
 
 ### Architecture
 
@@ -130,4 +147,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-04-29 — v1.2 Tech Debt & Code Quality milestone shipped*
+*Last updated: 2026-04-29 — v1.3 Pack Subsystem OO Refactor milestone started*
