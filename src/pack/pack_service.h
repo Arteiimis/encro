@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -16,11 +17,11 @@ namespace fs = std::filesystem;
 
 namespace pack {
 
-class Packer;  // forward declaration
+class IPacker;  // forward declaration
 
 class PackService final {
 public:
-  explicit PackService(Packer& packer);
+  explicit PackService(std::unique_ptr<IPacker> packer);
 
   static auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
     -> std::vector<FileOrdinalRange>;
@@ -59,7 +60,7 @@ public:
   ) -> eh::Result<int>;
 
 private:
-  Packer& packer_;
+  std::unique_ptr<IPacker> packer_;
 
   static auto makeSubsetZipNameResolver(
     std::function<std::string(std::size_t)> const& originalResolver,

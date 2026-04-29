@@ -4,11 +4,15 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace pack::detail {
+
+using ZipEntryNameResolver = std::function<std::string(std::filesystem::path const&)>;
+using PackEntryProgressCallback = std::function<void(std::size_t, std::size_t)>;
 
 struct PackGroupInput {
   std::filesystem::path filePath;
