@@ -182,7 +182,7 @@ auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
     packInputs.emplace_back(PackGroupInput{filePath, filePath.parent_path()});
   }
 
-  return groupPackFiles(packInputs, pack::kDefaultMaxArchiveGroupSize);
+  return pack::Packer{}.groupPackFiles(packInputs, pack::kDefaultMaxArchiveGroupSize);
 }
 
 auto groupEncodedVideosForPack(
@@ -197,7 +197,7 @@ auto groupEncodedVideosForPack(
     );
   }
 
-  return groupPackFiles(
+  return pack::Packer{}.groupPackFiles(
     packInputs,
     pack::kDefaultMaxArchiveGroupSize,
     std::nullopt,
