@@ -5,6 +5,7 @@
 #include "core/progress.h"
 #include "pack/pack_types.h"
 #include "pack/packer_types.h"
+#include "pack/ipacker.h"
 
 #include <atomic>
 #include <cstdint>
@@ -16,16 +17,9 @@
 #include <unordered_set>
 #include <vector>
 
-namespace pack::detail {
-
-using ZipEntryNameResolver = std::function<std::string(std::filesystem::path const&)>;
-using PackEntryProgressCallback = std::function<void(std::size_t, std::size_t)>;
-
-}  // namespace pack::detail
-
 namespace pack {
 
-class Packer final {
+class Packer final: public IPacker {
 public:
   Packer() = default;
 
@@ -42,14 +36,14 @@ public:
     std::filesystem::path const& zipFilePath,
     progress::ProgressContext& progressCtx,
     std::string_view progressText
-  ) -> eh::Result<void>;
+  ) -> eh::Result<void> override;
 
   auto packFilesToZip(
     std::vector<PackFileEntry> const& entries,
     std::filesystem::path const& zipFilePath,
     pack::detail::PackEntryProgressCallback onEntryPacked = {},
     std::atomic<std::size_t>* finalizingCount = nullptr
-  ) -> eh::Result<void>;
+  ) -> eh::Result<void> override;
 
   auto groupFilesBySize(
     std::vector<std::filesystem::path> const& filePaths,
@@ -93,7 +87,7 @@ public:
     bool forceNameConflictHandling = false,
     std::optional<std::size_t> maxParallelJobs = std::nullopt,
     std::optional<std::filesystem::path> excludedPath = std::nullopt
-  ) -> eh::Result<PackPlan>;
+  ) -> eh::Result<PackPlan> override;
 
 private:
   struct PreparedPackEntry;

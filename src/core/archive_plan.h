@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/job_state.h"
-#include "pack/pack_facade.h"
+#include "pack/pack_types.h"
 
 #include <optional>
 #include <vector>

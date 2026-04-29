@@ -2,7 +2,8 @@
 
 #include "core/job_state.h"
 #include "infra/terminal.h"
-#include "pack/pack_facade.h"
+#include "pack/pack_service.h"
+#include "pack/packer.h"
 #include "picture/picture_process.h"
 #include "utils/utils.h"
 #include "video/video_process.h"
@@ -48,7 +49,8 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
     return eh::makeError("pack-only mode requires input to be a directory.");
   }
 
-  return pack_facade::runDirectoryPackWorkflow(ctx, ctx.config.inputPath);
+  pack::PackService svc(std::make_unique<pack::Packer>());
+  return svc.runDirectoryPackWorkflow(ctx, ctx.config.inputPath);
 }
 
 auto runVideo(appctx::AppContext& ctx) -> eh::Result<int> {

@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -405,8 +406,8 @@ TEST_CASE("runDirectoryPackWorkflow packs directory", "[packer][workflow]") {
   auto ctx = appctx::AppContext{};
   ctx.config.inputPath = inputDir;
 
-  pack::Packer p;
-  pack::PackService s(p);
+  auto p = std::make_unique<pack::Packer>();
+  pack::PackService s(std::move(p));
   auto const runRes = s.runDirectoryPackWorkflow(ctx, inputDir);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
@@ -426,8 +427,8 @@ TEST_CASE(
   auto const f2 = createSizedFile(inputDir, "b.bin", 150);
   auto const f3 = createSizedFile(inputDir, "c.bin", 60);
 
-  pack::Packer p;
-  pack::PackService s(p);
+  auto p = std::make_unique<pack::Packer>();
+  pack::PackService s(std::move(p));
   auto const packRes = s.packAllFilesInDirectory(inputDir, outputDir, 300, true);
 
   REQUIRE(packRes);
@@ -458,8 +459,8 @@ TEST_CASE(
   auto const topFile = createSizedFile(inputDir, "top.bin", 64);
   auto const nestedFile = createSizedFile(nestedDir, "nested.bin", 64);
 
-  pack::Packer p;
-  pack::PackService s(p);
+  auto p = std::make_unique<pack::Packer>();
+  pack::PackService s(std::move(p));
   auto const packRes = s.packAllFilesInDirectory(inputDir, outputDir, 300, false);
 
   REQUIRE(packRes);

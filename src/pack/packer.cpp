@@ -31,6 +31,33 @@ using namespace pack::detail;
 
 using enum terminal::MessageKind;
 
+namespace {
+
+struct ZipWriter {
+  libzippp::ZipArchive zip;
+  bool opened = false;
+
+  explicit ZipWriter(std::string const& path): zip(path) { }
+
+  void open() {
+    zip.open(libzippp::ZipArchive::New);
+    opened = true;
+  }
+
+  ~ZipWriter() {
+    if (opened) {
+      try {
+        zip.close();
+      } catch (...) { }
+    }
+  }
+
+  ZipWriter(ZipWriter const&) = delete;
+  ZipWriter& operator=(ZipWriter const&) = delete;
+};
+
+}  // namespace
+
 struct pack::Packer::PreparedPackEntry {
   PackFileEntry entry;
   std::string sourceKey;
