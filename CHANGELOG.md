@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-04-29
+
+### Fixed
+
+- The pack progress bar no longer jumps between parallel archives.
+- A finalizing indicator now appears while an archive is being closed, and stops flashing once it completes.
+- The completion hook no longer overwrites the packing text while an archive finalizes.
+
 ## [1.1.0] - 2026-04-27
 
 ### Changed
@@ -88,7 +96,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v1.1.0...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Arteiimis/encro/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Arteiimis/encro/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Arteiimis/encro/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/Arteiimis/encro/compare/v0.3.0...v0.4.0

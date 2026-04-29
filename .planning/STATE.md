@@ -3,11 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Tech Debt & Code Quality
 status: shipped
-stopped_at: Milestone v1.2 complete — all 2 phases, 4 plans, 6 tasks delivered. Awaiting next milestone.
-last_updated: "2026-04-29T00:30:00.000Z"
-last_activity: 2026-04-28 — Completed quick task 260429-34v: Refactor packGroups function to reduce length and nesting
+stopped_at: v1.2 milestone formally archived — all 3 milestones complete, 7 phases, 14 plans, 909 assertions
+last_updated: "2026-04-29T12:31:54.969Z"
 progress:
-  total_phases: 2
+  total_phases: 7
   completed_phases: 2
   total_plans: 4
   completed_plans: 4
@@ -18,10 +17,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-27)
+See: .planning/PROJECT.md (updated 2026-04-29)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** v1.2 Tech Debt & Code Quality — complete, all 2 phases shipped
+**Current focus:** All 3 milestones shipped (v1.0, v1.1, v1.2) — awaiting next milestone definition
 
 ## Current Position
 
@@ -106,8 +105,20 @@ Items acknowledged at v1.0 milestone close on 2026-04-26:
 | tech_debt | Duplicate test case in pack_service_tests.cpp | Deferred |
 | process | VERIFICATION.md missing for Phase 01, 02 | Deferred |
 
+Items acknowledged and deferred at v1.2 milestone close on 2026-04-29:
+
+| Category | Item | Status |
+|----------|------|--------|
+| quick_task | 260429-1c4-fix-package-progress-bar | Deferred — missing formal status file |
+| quick_task | 260429-1iq-pack-progress-bar-fix | Deferred — missing formal status file |
+| quick_task | 260429-1yf-zip-100 | Deferred — missing formal status file |
+| quick_task | 260429-2gx-fix-finalizing-spinner-flashing-before-f | Deferred — missing formal status file |
+| quick_task | 260429-2tn-archive-completion-hook-flashes-packing- | Deferred — missing formal status file |
+| quick_task | 260429-34v-refactor-packgroups-function-in-pack-ser | Deferred — missing formal status file |
+
 ## Session Continuity
 
-Last session: 2026-04-28
-Stopped at: Phase 6 context gathered — ready for planning
-Resume file: .planning/phases/06-must-fix-debt/06-CONTEXT.md
+Last session: 2026-04-29
+Stopped at: v1.2 milestone formal close — archive, ROADMAP reorganization, PROJECT.md evolution
+Resume file: N/A (milestone complete)
+Next: /gsd-new-milestone to define v1.3+ scope
