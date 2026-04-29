@@ -31,7 +31,7 @@ TEST_CASE("groupFilesBySize splits sequentially by limit", "[packer][groupFilesB
   auto const f3 = createSizedFile(temp.path, "c.bin", 250);
   auto const f4 = createSizedFile(temp.path, "d.bin", 50);
 
-  auto const grouped = groupFilesBySize({f1, f2, f3, f4}, 300);
+  auto const grouped = pack::Packer{}.groupFilesBySize({f1, f2, f3, f4}, 300);
 
   REQUIRE(grouped.size() == 2);
   CHECK(grouped[0] == std::vector{f1, f2});
@@ -53,7 +53,7 @@ TEST_CASE(
   auto const b1 = createSizedFile(dirB, "b1.bin", 90);
   auto const b2 = createSizedFile(dirB, "b2.bin", 90);
 
-  auto const grouped = groupPackFiles(
+  auto const grouped = pack::Packer{}.groupPackFiles(
     {
       PackGroupInput{a1, dirA},
       PackGroupInput{a2, dirA},
@@ -85,7 +85,7 @@ TEST_CASE(
   auto const b1 = createSizedFile(dirB, "b1.bin", 90);
   auto const b2 = createSizedFile(dirB, "b2.bin", 90);
 
-  auto const grouped = groupPackFiles(
+  auto const grouped = pack::Packer{}.groupPackFiles(
     {
       PackGroupInput{a1, dirA},
       PackGroupInput{a2, dirA},
@@ -116,7 +116,7 @@ TEST_CASE(
   auto const a2 = createSizedFile(dirA, "a2.bin", 100);
   auto const b1 = createSizedFile(dirB, "b1.bin", 90);
 
-  auto const grouped = groupPackFiles(
+  auto const grouped = pack::Packer{}.groupPackFiles(
     {
       PackGroupInput{a1, dirA},
       PackGroupInput{a2, dirA},
@@ -144,7 +144,7 @@ TEST_CASE(
   auto const f4 = createSizedFile(temp.path, "d.bin", 8);
   auto const f5 = createSizedFile(temp.path, "e.bin", 8);
 
-  auto const grouped = groupFilesBySize({f1, f2, f3, f4, f5}, 300, 2);
+  auto const grouped = pack::Packer{}.groupFilesBySize({f1, f2, f3, f4, f5}, 300, 2);
 
   REQUIRE(grouped.size() == 3);
   CHECK(grouped[0] == std::vector{f1, f2});
@@ -164,7 +164,7 @@ TEST_CASE(
   auto const f4 = createSizedFile(temp.path, "d.bin", 2);
   auto const f5 = createSizedFile(temp.path, "e.bin", 2);
 
-  auto const grouped = groupPackFilesWithSubparts(
+  auto const grouped = pack::Packer{}.groupPackFilesWithSubparts(
     {
       PackGroupInput{f1, temp.path},
       PackGroupInput{f2, temp.path},
@@ -207,7 +207,7 @@ TEST_CASE(
   progress::ProgressContext progressCtx;
 
   auto const result =
-    packFilesToZip({f1, f2}, zipPath, progressCtx, "Packing: bundle.zip");
+    pack::Packer{}.packFilesToZip({f1, f2}, zipPath, progressCtx, "Packing: bundle.zip");
 
   REQUIRE(result);
   REQUIRE(fs::exists(zipPath));
@@ -249,7 +249,7 @@ TEST_CASE(
   progress::ProgressContext progressCtx;
 
   auto const result =
-    packFilesToZip({f1, f2}, zipPath, progressCtx, "Packing: bundle.zip");
+    pack::Packer{}.packFilesToZip({f1, f2}, zipPath, progressCtx, "Packing: bundle.zip");
 
   REQUIRE(result);
 
@@ -293,7 +293,7 @@ TEST_CASE(
 
   progress::ProgressContext progressCtx;
 
-  auto const result = packFilesToZip(
+  auto const result = pack::Packer{}.packFilesToZip(
     {f1, f2},
     zipPath,
     progressCtx,
@@ -336,7 +336,7 @@ TEST_CASE(
 
   progress::ProgressContext progressCtx;
 
-  auto const result = packFilesToZip(
+  auto const result = pack::Packer{}.packFilesToZip(
     {
       pack::PackFileEntry{
         .sourcePath = source,
@@ -381,7 +381,8 @@ TEST_CASE(
 
   progress::ProgressContext progressCtx;
 
-  auto const result = packFilesToZip({f1}, zipPath, progressCtx, "Packing: bundle.zip");
+  auto const result =
+    pack::Packer{}.packFilesToZip({f1}, zipPath, progressCtx, "Packing: bundle.zip");
 
   REQUIRE(result);
   REQUIRE(fs::exists(zipPath));

@@ -441,7 +441,7 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
 
     constexpr auto kMaxPicturesPerPack = std::size_t{2000};
     constexpr auto kFolderCarryOverThreshold = std::size_t{2000};
-    auto const groupedPartitions = groupPackEntriesWithSubparts(
+    auto const groupedPartitions = pack::Packer{}.groupPackEntriesWithSubparts(
       packInputs,
       pack::kDefaultMaxArchiveGroupSize,
       kMaxPicturesPerPack,
@@ -576,7 +576,7 @@ auto buildPicturePackPlan(
   auto const plannedEntryNames = planPictureZipEntryNames(config, dirPath, scannedPics);
   auto const packInputs =
     buildPicturePackEntryInputs(config, dirPath, scannedPics, plannedEntryNames);
-  auto const groupedPicPartitions = groupPackEntriesWithSubparts(
+  auto const groupedPicPartitions = pack::Packer{}.groupPackEntriesWithSubparts(
     packInputs,
     pack::kDefaultMaxArchiveGroupSize,
     kMaxPicturesPerPack,

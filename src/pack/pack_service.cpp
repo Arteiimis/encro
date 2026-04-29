@@ -144,6 +144,7 @@ auto packGroupsCompact(PackPlan const& plan) -> eh::Result<std::vector<fs::path>
   if (plan.groups.empty()) { return std::vector<fs::path>{}; }
   fs::create_directories(plan.outputDir);
 
+  auto packer = Packer{};
   auto state = CompactProgressState{};
   auto const totalFiles = countPackedFiles(plan.groups);
   auto const archiveCount = plan.groups.size();
@@ -178,7 +179,7 @@ auto packGroupsCompact(PackPlan const& plan) -> eh::Result<std::vector<fs::path>
             plan.progressCallbacks.onGroupStart(index);
           }
 
-          auto const packRes = packFilesToZip(
+          auto const packRes = packer.packFilesToZip(
             plan.groups[index],
             zipPath,
             [&](std::size_t /*fileIndex*/, std::size_t /*fileCount*/) {
@@ -274,6 +275,8 @@ auto packGroupsFull(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   if (plan.groups.empty()) { return std::vector<fs::path>{}; }
   fs::create_directories(plan.outputDir);
 
+  auto packer = Packer{};
+
   auto const maxParallelJobs =
     std::max<std::size_t>(1, plan.maxParallelJobs.value_or(plan.groups.size()));
   auto packResults = std::vector<eh::Result<void>>(plan.groups.size());
@@ -297,7 +300,7 @@ auto packGroupsFull(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
           }
 
           auto const packRes =
-            packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
+            packer.packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
           if (!packRes) {
             if (plan.removeOnFailure) {
               auto ec = std::error_code{};
