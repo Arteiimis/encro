@@ -2,64 +2,56 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Pack Subsystem OO Refactor
-status: planning
-last_updated: "2026-04-29T14:00:00.000Z"
-last_activity: 2026-04-29
+status: shipped
+last_updated: "2026-04-30T02:20:57.000Z"
+last_activity: 2026-04-30
 progress:
   total_phases: 11
-  completed_phases: 7
-  total_plans: 0
-  completed_plans: 0
-  percent: 64
+  completed_phases: 11
+  total_plans: 25
+  completed_plans: 25
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-29)
+See: .planning/PROJECT.md (updated 2026-04-30)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** Phase 8 — Type Extraction & Namespace Cleanup (v1.3 milestone)
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 8 of 11 (Type Extraction & Namespace Cleanup)
-Plan: —
-Status: Ready to plan
-Last activity: 2026-04-29 — Roadmap created for v1.3 (4 phases: 8-11)
+All v1.3 phases (8-11) complete. Milestone shipped 2026-04-30.
+945 assertions across 225 test cases, 0 failures.
+Ready: /gsd-new-milestone
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total phases completed: 7 (v1.0 + v1.1 + v1.2)
-- Total plans completed: 14
-- Average duration: —
-- Total execution time: —
+- Total phases completed: 11 (v1.0 + v1.1 + v1.2 + v1.3)
+- Total plans completed: 25
 - Average duration: —
 - Total execution time: —
 
 **By Phase:**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1. Compact Progress Mode | 2 | — | — |
-| 2. Compact Mode Gap Fixes | 1 | — | — |
-| 3. Video Subsystem Refactor | 2 | 15 min | ~8 min |
-| 4. Pack Subsystem Refactor | 2 | 18 min | ~9 min |
-| 5. Picture Refactor + Validation | 3 | — | — |
-| 6. Must-Fix Debt | 3 | — | — |
-| 7. Structural Optimization | 1 | — | — |
-| 8. Type Extraction & NS Cleanup | — | — | — |
-| 9. Service Class Extraction | — | — | — |
-| 10. DI & Testability | — | — | — |
-| 11. Consumer Migration & Cleanup | — | — | — |
-
-**Recent Trend:**
-
-- Last 5 plans: —
-- Trend: —
+| Phase | Plans | Milestone | Status |
+|-------|-------|-----------|--------|
+| 1. Compact Progress Mode | 2 | v1.0 | Complete |
+| 2. Compact Mode Gap Fixes | 1 | v1.0 | Complete |
+| 3. Video Subsystem Refactor | 2 | v1.1 | Complete |
+| 4. Pack Subsystem Refactor | 2 | v1.1 | Complete |
+| 5. Picture Refactor + Validation | 3 | v1.1 | Complete |
+| 6. Must-Fix Debt | 3 | v1.2 | Complete |
+| 7. Structural Optimization | 1 | v1.2 | Complete |
+| 8. Type Extraction & NS Cleanup | 1 | v1.3 | Complete |
+| 9. Service Class Extraction | 4 | v1.3 | Complete |
+| 10. DI & Testability | 5 | v1.3 | Complete |
+| 11. Consumer Migration & Cleanup | 1 | v1.3 | Complete |
 
 *Updated after each plan completion*
 
@@ -68,27 +60,21 @@ Last activity: 2026-04-29 — Roadmap created for v1.3 (4 phases: 8-11)
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
+Recent decisions from v1.3:
 
-- [03-02]: monitorEncodingProgress receives encodingCtx as EncodingExecutionContext& (individual typed parameter per D-02)
-- [03-02]: jthread capture uses [&executionCtx] (explicit reference — executionCtx is stack-allocated, non-copyable)
-- [03-02]: Inner withActionJobState lambdas preserved verbatim per D-03 (2-level nesting acceptable)
-- [v1.1 Roadmap]: REF-01 isolated in Phase 3 due to highest risk (deeply nested 3+ level lambdas in video_batch_execution.cpp)
-- [v1.1 Roadmap]: REF-02 + REF-03 grouped in Phase 4 — same pack/ subsystem, shared patterns
-- [v1.1 Roadmap]: REF-05 + REF-06 mapped to Phase 5 — comprehensive validation after all refactoring complete
-- [04-01]: makeSubsetZipNameResolver and makeSubsetProgressLabelResolver receive originalResolver and selectedIndexes as individual typed parameters (follows Phase 3 D-02 pattern)
-- [04-02]: packSourceEntryChunks placed after splitSourceDirectoryEntries for forward-reference clarity; runFinalizingSpinner follows Phase 3 Pattern 3 with 1-line jthread delegation; stopToken passed by value per C++20 value semantics
-- [04-02]: Test maxGroupSize corrected from 300 to 250 in verification test — plan had incorrect assumptions about group splitting behavior
-
-### Pending Todos
-
-None yet.
+- [Phase 8]: pack_types.h + packer_types.h created; circular dependency between packer.h and pack_service.h resolved
+- [Phase 8]: PackPlan moved to pack_types.h (required for packer.h's buildDirectoryPackPlan return type)
+- [Phase 9]: D-01 Packer = zip I/O + grouping; PackService = orchestration with constructor-injected Packer
+- [Phase 9]: D-02 5 callbacks extracted to PackProgressCallbacks sub-struct; PackPlan aggregate preserved
+- [Phase 9]: D-04 pack_facade.h with [[deprecated]] static wrappers for backward-compat (removed in Phase 11)
+- [Phase 10]: D-01 IPacker interface at archive granularity (3 virtual methods); no hot-path dispatch
+- [Phase 10]: D-03 MockPacker capture-recording design; D-05 added 10 unit tests with 36 assertions
+- [Phase 11]: D-01 All consumers migrated in single commit; D-05 8 E2E paths verified
 
 ### Blockers/Concerns
 
-- ~~[Phase 3 risk]: video_batch_execution.cpp has the deepest lambda nesting~~ — resolved. All 3+ level lambdas extracted (5 functions total across Plans 01 and 02). 891 assertions pass.
-- [Phase 5 gate]: REF-05 requires all assertions pass — all 901 assertions passing across 214 test cases ✓
-- ~~[Phase 4 cleanup]: packer_tests.cpp contains pre-existing RED gate REQUIRE(false) from Phase 3~~ — resolved in Plan 04-02 (all RED gates converted to real assertions)
+None — all v1.3 phases complete, 945 assertions pass.
+- E2E CLI verification task (Phase 11 Task 11) deferred — requires test media + FFmpeg (known gap)
 
 ### Quick Tasks Completed
 
@@ -125,7 +111,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-04-29:
 
 ## Session Continuity
 
-Last session: 2026-04-29
-Stopped at: v1.3 roadmap creation — 4 phases (8-11) defined, Phase 8 ready to plan
-Resume file: N/A (milestone planning complete)
-Next: /gsd-plan-phase 8
+Last session: 2026-04-30
+Stopped at: v1.3 shipped — 4 phases (8-11) complete, 945 assertions, 225 test cases, 0 failures
+Resume file: N/A (milestone shipped)
+Next: /gsd-new-milestone
