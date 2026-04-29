@@ -27,6 +27,8 @@ namespace fs = std::filesystem;
 using namespace indicators;
 namespace naming = collisionnaming;
 
+using namespace pack::detail;
+
 using enum terminal::MessageKind;
 
 namespace {

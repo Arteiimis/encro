@@ -1,8 +1,10 @@
 #pragma once
 
+#include "core/app_context.h"
 #include "core/error_handle.h"
 #include "core/progress.h"
-#include "pack/pack_service.h"
+#include "pack/pack_types.h"
+#include "pack/packer_types.h"
 
 #include <atomic>
 #include <cstdint>
@@ -12,45 +14,19 @@
 #include <string>
 #include <vector>
 
+namespace pack::detail {
+
 using ZipEntryNameResolver = std::function<std::string(std::filesystem::path const&)>;
 using PackEntryProgressCallback = std::function<void(std::size_t, std::size_t)>;
 
-namespace pack {
-
-inline constexpr auto kDefaultMaxArchiveGroupSize = std::uintmax_t{500 * 1024 * 1024};
-
-}
-
-struct PackGroupInput {
-  std::filesystem::path filePath;
-  std::filesystem::path sourceDir;
-};
-
-struct PackGroupPartition {
-  std::vector<std::filesystem::path> filePaths;
-  std::size_t partIndex = 0;
-  std::size_t subPartIndex = 0;
-};
-
-struct PackEntryInput {
-  pack::PackFileEntry entry;
-  std::filesystem::path sourceDir;
-  std::optional<std::string> sourceKey;
-  std::optional<std::string> fileKey;
-};
-
-struct PackEntryPartition {
-  std::vector<pack::PackFileEntry> entries;
-  std::size_t partIndex = 0;
-  std::size_t subPartIndex = 0;
-};
+}  // namespace pack::detail
 
 auto packFilesToZip(
   std::vector<std::filesystem::path> const& filePaths,
   std::filesystem::path const& zipFilePath,
   progress::ProgressContext& progressCtx,
   std::string_view progressText,
-  ZipEntryNameResolver entryNameForFile = {}
+  pack::detail::ZipEntryNameResolver entryNameForFile = {}
 ) -> eh::Result<void>;
 
 auto packFilesToZip(
@@ -63,7 +39,7 @@ auto packFilesToZip(
 auto packFilesToZip(
   std::vector<pack::PackFileEntry> const& entries,
   std::filesystem::path const& zipFilePath,
-  PackEntryProgressCallback onEntryPacked = {},
+  pack::detail::PackEntryProgressCallback onEntryPacked = {},
   std::atomic<std::size_t>* finalizingCount = nullptr
 ) -> eh::Result<void>;
 
@@ -74,32 +50,32 @@ auto groupFilesBySize(
 ) -> std::vector<std::vector<std::filesystem::path>>;
 
 auto groupPackFiles(
-  std::vector<PackGroupInput> const& filePaths,
+  std::vector<pack::detail::PackGroupInput> const& filePaths,
   std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
   std::optional<std::size_t> maxFilesPerGroup = std::nullopt,
   std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed = std::nullopt
 ) -> std::vector<std::vector<std::filesystem::path>>;
 
 auto groupPackFilesWithSubparts(
-  std::vector<PackGroupInput> const& filePaths,
+  std::vector<pack::detail::PackGroupInput> const& filePaths,
   std::uintmax_t maxGroupSize,
   std::size_t maxFilesPerPart,
   std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed = std::nullopt
-) -> std::vector<PackGroupPartition>;
+) -> std::vector<pack::detail::PackGroupPartition>;
 
 auto groupPackEntries(
-  std::vector<PackEntryInput> const& entries,
+  std::vector<pack::detail::PackEntryInput> const& entries,
   std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
   std::optional<std::size_t> maxFilesPerGroup = std::nullopt,
   std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed = std::nullopt
 ) -> std::vector<std::vector<pack::PackFileEntry>>;
 
 auto groupPackEntriesWithSubparts(
-  std::vector<PackEntryInput> const& entries,
+  std::vector<pack::detail::PackEntryInput> const& entries,
   std::uintmax_t maxGroupSize,
   std::size_t maxFilesPerPart,
   std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed = std::nullopt
-) -> std::vector<PackEntryPartition>;
+) -> std::vector<pack::detail::PackEntryPartition>;
 
 auto packAllFilesInDirectory(
   std::filesystem::path const& dirPath,

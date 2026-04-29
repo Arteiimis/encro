@@ -2,6 +2,7 @@
 
 #include "core/app_context.h"
 #include "core/error_handle.h"
+#include "pack/pack_types.h"
 
 #include <filesystem>
 #include <functional>
@@ -9,50 +10,11 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <vector>
 
 namespace fs = std::filesystem;
 
 namespace pack {
-
-struct PackRunResult {
-  int exitCode = 0;
-  std::vector<fs::path> zippedFiles;
-};
-
-struct PackFileEntry {
-  fs::path sourcePath;
-  std::string zipEntryName;
-
-  auto operator==(PackFileEntry const&) const -> bool = default;
-};
-
-struct FileOrdinalRange {
-  std::size_t first = 0;
-  std::size_t last = 0;
-  std::size_t count = 0;
-};
-
-struct PackPlan {
-  std::vector<std::vector<PackFileEntry>> groups;
-  fs::path outputDir;
-  std::function<std::string(std::size_t)> zipNameForIndex;
-  std::function<std::string(std::size_t)> progressLabelForIndex;
-  std::function<void(std::size_t)> onGroupStart;
-  std::function<void(std::size_t, fs::path const&)> onGroupSuccess;
-  std::function<void(std::size_t, std::string const&)> onGroupFailure;
-  std::function<void(std::size_t, std::size_t)> onCompactProgress;
-  std::function<void(std::string_view)> onCompactStatusText;
-  std::optional<std::size_t> maxParallelJobs;
-  bool removeOnFailure = false;
-  bool compact = true;
-};
-
-static_assert(
-  std::is_aggregate_v<pack::PackPlan>,
-  "PackPlan must remain an aggregate for designated-initializer usage"
-);
 
 auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
   -> std::vector<FileOrdinalRange>;

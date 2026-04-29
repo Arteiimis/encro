@@ -13,6 +13,8 @@
 namespace fs = std::filesystem;
 using namespace indicators;
 
+using namespace pack::detail;
+
 static auto
 createSizedFile(fs::path const& dir, std::string_view name, std::size_t sizeBytes) {
   auto const filePath = dir / name;
