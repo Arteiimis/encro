@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -16,8 +17,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-pack::Packer testPacker;
-pack::PackService testService(testPacker);
+auto testPacker = std::make_unique<pack::Packer>();
+pack::PackService testService(std::move(testPacker));
 
 auto createFile(fs::path const& dir, std::string_view name) -> fs::path {
   auto const filePath = dir / name;

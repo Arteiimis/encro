@@ -22,7 +22,7 @@ using enum terminal::MessageKind;
 
 namespace pack {
 
-PackService::PackService(Packer& packer): packer_(packer) { }
+PackService::PackService(std::unique_ptr<IPacker> packer): packer_(std::move(packer)) { }
 
 namespace {
 
@@ -195,7 +195,7 @@ auto PackService::packGroupsCompact(PackPlan const& plan)
             plan.progressCallbacks.onGroupStart(index);
           }
 
-          auto const packRes = packer_.packFilesToZip(
+          auto const packRes = packer_->packFilesToZip(
             plan.groups[index],
             zipPath,
             [&](std::size_t /*fileIndex*/, std::size_t /*fileCount*/) {
@@ -315,7 +315,7 @@ auto PackService::packGroupsFull(PackPlan const& plan)
           }
 
           auto const packRes =
-            packer_.packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
+            packer_->packFilesToZip(plan.groups[index], zipPath, taskCtx.progress, label);
           if (!packRes) {
             if (plan.removeOnFailure) {
               auto ec = std::error_code{};
@@ -506,7 +506,7 @@ auto PackService::packAllFilesInDirectory(
   bool forceNameConflictHandling,
   std::optional<std::size_t> maxParallelJobs
 ) -> eh::Result<void> {
-  auto const planRes = packer_.buildDirectoryPackPlan(
+  auto const planRes = packer_->buildDirectoryPackPlan(
     dirPath,
     zipFileDir,
     maxGroupSize,
@@ -527,7 +527,7 @@ auto PackService::runDirectoryPackWorkflow(
   fs::path const& dirPath
 ) -> eh::Result<int> {
   auto const zipOutputDir = ctx.config.outputPath.value_or(dirPath / "packed");
-  auto const planRes = packer_.buildDirectoryPackPlan(
+  auto const planRes = packer_->buildDirectoryPackPlan(
     dirPath,
     zipOutputDir,
     kDefaultMaxArchiveGroupSize,
