@@ -101,7 +101,14 @@ All 3 milestones shipped (v1.0, v1.1, v1.2). Codebase is clean: 0 deeply nested 
 
 ## Known Issues / Tech Debt
 
+All v1.0 deferred items resolved in v1.2:
+- ~~compress-picture path implicit .compact default~~ → Resolved by DEBT-01 (explicit `.compact = true` at all 4 sites)
+- ~~Duplicate test case in pack_service_tests.cpp~~ → Resolved by DEBT-02 (redundant assertion removed)
+- ~~VERIFICATION.md missing for Phase 01, 02~~ → Resolved by PROC-01 (backfilled)
+
+Remaining items:
 - No formal milestone audit file (v1.2-MILESTONE-AUDIT.md) — deferred for speed
+- 6 quick tasks missing formal status files — acknowledged at v1.2 close (see STATE.md Deferred Items)
 - `noteStopRequest` and `truncateForProgressLabel` intentionally duplicated across both TU anonymous namespaces — standard C++ pattern, not debt
 
 ## Evolution
