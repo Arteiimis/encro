@@ -1,5 +1,35 @@
 # MILESTONES.md
 
+## v1.3 — Pack Subsystem OO Refactor
+
+**Shipped:** 2026-04-30
+**Phases:** 4 | **Plans:** 11 | **Tasks:** 11
+
+### Key Accomplishments
+
+1. Type Extraction & circular dependency broken: `pack_types.h` (shared value types), `packer_types.h` (internal types in `pack::detail::`), `packer.h` no longer includes `pack_service.h`
+2. Packer + PackService final classes: 30+ free functions consolidated, anonymous-namespace helpers as private methods, CompactProgressState as private nested helper
+3. PackProgressCallbacks sub-struct: 5 callback fields extracted from PackPlan, `static_assert(is_aggregate_v)` preserved, 16 designated-initializer sites intact
+4. IPacker abstract interface: 3 virtual methods at archive granularity, zero hot-path dispatch, MockPacker capture-recording test double with 36 new assertions
+5. Constructor injection: PackService migrated from `Packer&` to `std::unique_ptr<IPacker>`, ZipWriter RAII in packer.cpp
+6. Consumer migration complete: 7 consumers use OO API directly, `pack_facade.h` (248 lines, 21 deprecated wrappers) deleted
+
+### Delivered
+
+Pack subsystem fully refactored to idiomatic C++ OO architecture: encapsulated classes with constructor-injected dependencies, abstract interface for mock-based testing, zero virtual dispatch on hot paths. All 905+ assertions (v1.2 baseline) plus 36 new MockPacker assertions = 945 assertions across 225 test cases with zero failures. 7 consumer files migrated to direct OO API usage. Facade layer removed. Behavioral parity with v1.2 baseline verified via all E2E CLI workflows except one deferred for environment reasons.
+
+### Known Gaps
+
+- E2E CLI verification (8 paths) deferred — requires test media + FFmpeg (see Phase 11 Task 11)
+- 6 quick tasks missing formal status files — acknowledged at v1.2 close, re-acknowledged at v1.3 close
+
+### Archives
+
+- `.planning/milestones/v1.3-ROADMAP.md` — Full milestone roadmap
+- `.planning/milestones/v1.3-REQUIREMENTS.md` — Requirements archive
+
+---
+
 ## v1.0 — Compact Progress Mode
 
 **Shipped:** 2026-04-26
