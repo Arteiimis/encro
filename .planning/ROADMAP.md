@@ -6,6 +6,7 @@
 - ✅ **v1.1 Lambda Readability Refactor** — Phases 3-5 (shipped 2026-04-27)
 - ✅ **v1.2 Tech Debt & Code Quality** — Phases 6-7 (shipped 2026-04-29)
 - ✅ **v1.3 Pack Subsystem OO Refactor** — Phases 8-11 (shipped 2026-04-30)
+- ◆ **v1.4 Pack 接口简化 & 抽象层清理** — Phases 12-14 (in progress)
 
 ## Phases
 
@@ -52,6 +53,15 @@
 
 </details>
 
+<details>
+<summary>◆ v1.4 Pack 接口简化 & 抽象层清理 (Phases 12-14) — IN PROGRESS</summary>
+
+- [ ] Phase 12: PackRequest 声明式 API & 配置注入 — pending
+- [ ] Phase 13: 分组统一 & 命名内化 — pending
+- [ ] Phase 14: 移除 IPacker 抽象层 & 验证 — pending
+
+</details>
+
 ## Progress
 
 | Phase                                  | Directory                      | Milestone | Plans Complete | Status   | Completed  |
@@ -67,6 +77,9 @@
 | 9. Service Class Extraction            | 09-service-class-extraction    | v1.3      | 4/4            | Complete | 2026-04-29 |
 | 10. Dependency Injection & Testability | 10-di-and-testability          | v1.3      | 5/5            | Complete | 2026-04-30 |
 | 11. Consumer Migration & Cleanup       | 11-consumer-migration-cleanup  | v1.3      | 1/1            | Complete | 2026-04-30 |
+| 12. PackRequest 声明式 API & 配置注入  | 12-packrequest-api             | v1.4      | 0/0            | Pending  | —          |
+| 13. 分组统一 & 命名内化                | 13-grouping-naming             | v1.4      | 0/0            | Pending  | —          |
+| 14. 移除 IPacker 抽象层 & 验证         | 14-remove-ipacker              | v1.4      | 0/0            | Pending  | —          |
 
 ---
 

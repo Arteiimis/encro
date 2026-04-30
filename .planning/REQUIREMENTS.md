@@ -57,24 +57,24 @@ Deferred to later milestones.
 
 ## Traceability
 
-| Requirement | Status |
-|-------------|--------|
-| SIMPLIFY-01 | Pending |
-| SIMPLIFY-02 | Pending |
-| SIMPLIFY-03 | Pending |
-| SIMPLIFY-04 | Pending |
-| SIMPLIFY-05 | Pending |
-| SIMPLIFY-06 | Pending |
-| SIMPLIFY-07 | Pending |
-| SIMPLIFY-08 | Pending |
-| SIMPLIFY-09 | Pending |
-| SIMPLIFY-10 | Pending |
-| SIMPLIFY-11 | Pending |
-| SIMPLIFY-13 | Pending |
-| SIMPLIFY-14 | Pending |
-| SIMPLIFY-15 | Pending |
-| SIMPLIFY-16 | Pending |
-| SIMPLIFY-17 | Pending |
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| SIMPLIFY-01 | Phase 12 | Pending |
+| SIMPLIFY-02 | Phase 12 | Pending |
+| SIMPLIFY-03 | Phase 12 | Pending |
+| SIMPLIFY-04 | Phase 12 | Pending |
+| SIMPLIFY-09 | Phase 12 | Pending |
+| SIMPLIFY-10 | Phase 12 | Pending |
+| SIMPLIFY-05 | Phase 13 | Pending |
+| SIMPLIFY-06 | Phase 13 | Pending |
+| SIMPLIFY-07 | Phase 13 | Pending |
+| SIMPLIFY-08 | Phase 13 | Pending |
+| SIMPLIFY-15 | Phase 14 | Pending |
+| SIMPLIFY-16 | Phase 14 | Pending |
+| SIMPLIFY-17 | Phase 14 | Pending |
+| SIMPLIFY-11 | Phase 14 | Pending |
+| SIMPLIFY-13 | Phase 14 | Pending |
+| SIMPLIFY-14 | Phase 14 | Pending |
 
 **Coverage:**
 - v1.4 requirements: 17 total
