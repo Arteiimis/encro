@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Pack Subsystem OO Refactor
-status: shipped
-last_updated: "2026-04-30T02:20:57.000Z"
+milestone: v1.4
+milestone_name: Pack 接口简化 & 抽象层清理
+status: planning
+last_updated: "2026-04-30T13:38:06.524Z"
 last_activity: 2026-04-30
 progress:
-  total_phases: 11
-  completed_phases: 11
-  total_plans: 25
-  completed_plans: 25
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -24,9 +24,10 @@ See: .planning/PROJECT.md (updated 2026-04-30)
 
 ## Current Position
 
-All v1.3 phases (8-11) complete. Milestone shipped 2026-04-30.
-945 assertions across 225 test cases, 0 failures.
-Ready: /gsd-new-milestone
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-30 — Milestone v1.4 started
 
 ## Performance Metrics
 
@@ -74,6 +75,7 @@ Recent decisions from v1.3:
 ### Blockers/Concerns
 
 None — all v1.3 phases complete, 945 assertions pass.
+
 - E2E CLI verification task (Phase 11 Task 11) deferred — requires test media + FFmpeg (known gap)
 
 ### Quick Tasks Completed
