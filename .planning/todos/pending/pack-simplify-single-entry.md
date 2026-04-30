@@ -2,6 +2,8 @@
 title: "Pack模块接口简化：PackRequest单一入口"
 date: 2026-04-30
 priority: high
+resolves_phase: 12
+area: pack
 ---
 
 # Pack模块接口简化：PackRequest单一入口
