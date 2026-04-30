@@ -56,7 +56,11 @@
 <details>
 <summary>◆ v1.4 Pack 接口简化 & 抽象层清理 (Phases 12-14) — IN PROGRESS</summary>
 
-- [ ] Phase 12: PackRequest 声明式 API & 配置注入 — pending
+- [ ] Phase 12: PackRequest 声明式 API & 配置注入 — planned (4 plans, 3 waves)
+  - [ ] 12-01-PLAN.md — Create pack.h with PackRequest types, PackMode, NamingConfig, execute() declaration
+  - [ ] 12-02-PLAN.md — Implement pack::execute() covering Media + Directory modes with resumable execution
+  - [ ] 12-03-PLAN.md — Adapt 3 consumers (pipeline/video/picture) + delete archive_plan
+  - [ ] 12-04-PLAN.md — Demote PackService static methods to pack::internal + update tests
 - [ ] Phase 13: 分组统一 & 命名内化 — pending
 - [ ] Phase 14: 移除 IPacker 抽象层 & 验证 — pending
 
@@ -77,7 +81,7 @@
 | 9. Service Class Extraction            | 09-service-class-extraction    | v1.3      | 4/4            | Complete | 2026-04-29 |
 | 10. Dependency Injection & Testability | 10-di-and-testability          | v1.3      | 5/5            | Complete | 2026-04-30 |
 | 11. Consumer Migration & Cleanup       | 11-consumer-migration-cleanup  | v1.3      | 1/1            | Complete | 2026-04-30 |
-| 12. PackRequest 声明式 API & 配置注入  | 12-packrequest-api             | v1.4      | 0/0            | Pending  | —          |
+| 12. PackRequest 声明式 API & 配置注入  | 12-packrequest-api             | v1.4      | 0/4            | Planned  | —          |
 | 13. 分组统一 & 命名内化                | 13-grouping-naming             | v1.4      | 0/0            | Pending  | —          |
 | 14. 移除 IPacker 抽象层 & 验证         | 14-remove-ipacker              | v1.4      | 0/0            | Pending  | —          |
 
