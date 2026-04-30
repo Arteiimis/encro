@@ -29,7 +29,20 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 
 ## Current Focus
 
-v1.0–v1.3 shipped. Planning next milestone.
+v1.0–v1.3 shipped. Working on v1.4 — Pack 接口简化 & 抽象层清理.
+
+## Current Milestone: v1.4 Pack 接口简化 & 抽象层清理
+
+**Goal:** 将 pack 模块从调用方手动编排进化为 PackRequest 声明式单一入口，移除不必要的 IPacker 抽象层.
+
+**Target features:**
+- PackRequest 声明式 API — 调用方只需描述需求，所有分组/命名/执行编排内化
+- 分组策略统一为两层切分 (groupPackEntriesWithSubparts)
+- 命名规则内化，预留可选钩子
+- 配置从 CLI 统一注入 (修复 picture 硬编码 compact=true)
+- 移除 IPacker 抽象基类，PackService 直接持有 Packer
+- MockPacker 删除，mock 测试改真实 Packer 集成测试
+- 945 assertions 零行为回归
 
 ## Requirements
 
@@ -67,9 +80,12 @@ v1.0–v1.3 shipped. Planning next milestone.
 
 ### Active
 
-- [ ] Promote CompactProgressState to public class if needed by other subsystems
-- [ ] Template-based pack format abstraction (tar/7z) — future consideration
-- [ ] E2E CLI verification for v1.3 deferred paths — requires test media + FFmpeg
+- [ ] **SIMPLIFY-01~04**: PackRequest 声明式单一入口 API — PackPlan 不再对外暴露
+- [ ] **SIMPLIFY-05~08**: 内部分组统一 + 命名内化 — 两层切分，命名规则收归模块内部
+- [ ] **SIMPLIFY-09~10**: 配置集中注入 — compact 从 AppConfig 推导，修复 picture 硬编码
+- [ ] **SIMPLIFY-11**: 所有现有 945 assertions 保持绿，零行为变化
+- [ ] **SIMPLIFY-13~14**: jobState 恢复性执行 + 冲突处理逻辑不变
+- [ ] **SIMPLIFY-15~17**: 移除 IPacker + MockPacker — PackService 直接持有 Packer
 
 ### Out of Scope
 
@@ -83,15 +99,14 @@ v1.0–v1.3 shipped. Planning next milestone.
 
 ## Context
 
-Shipped v1.0 (compact progress mode), v1.1 (lambda readability refactor), v1.2 (tech debt & code quality), and v1.3 (pack subsystem OO refactor). All 4 milestones complete. Codebase is clean: 0 deeply nested lambdas, 0 implicit struct defaults, 0 duplicate assertions, 0 free functions in pack subsystem, 0 global-scope pack types.
+Shipped v1.0 (compact progress mode), v1.1 (lambda readability refactor), v1.2 (tech debt & code quality), and v1.3 (pack subsystem OO refactor). v1.4 in progress — focusing on interface simplification (PackRequest single-entry API) and removing unnecessary abstractions (IPacker) surfaced during v1.3 exploration.
 
-Pack subsystem architecture (v1.3):
+v1.3 pack subsystem architecture (current, target of v1.4 simplification):
 - `pack_types.h` / `packer_types.h`: shared value types, no circular dependencies
-- `IPacker`: abstract interface (3 virtual methods, archive granularity)
+- `IPacker`: abstract interface (3 virtual methods, archive granularity) — **slated for removal in v1.4**
 - `Packer final : IPacker`: production zip I/O via libzippp, ZipWriter RAII
-- `PackService final`: orchestration with `unique_ptr<IPacker>` constructor injection
-- `MockPacker : IPacker`: capture-recording test double for unit tests
-- `PackProgressCallbacks`: callback sub-struct on PackPlan aggregate
+- `PackService final`: orchestration with `unique_ptr<IPacker>` constructor injection — **simplifying to direct Packer in v1.4**
+- `MockPacker : IPacker`: capture-recording test double — **slated for removal, tests will use real Packer**
 
 Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, xmake.
 945 assertions across 225 test cases, 0 failures.
@@ -167,4 +182,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-04-30 after v1.3 Pack Subsystem OO Refactor milestone*
+*Last updated: 2026-04-30 after v1.4 milestone start*
