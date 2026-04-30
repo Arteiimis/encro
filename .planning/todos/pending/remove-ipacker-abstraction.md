@@ -2,6 +2,8 @@
 title: "合并 Packer 与 IPacker，移除抽象层"
 date: 2026-04-30
 priority: medium
+resolves_phase: 14
+area: pack
 ---
 
 # 合并 Packer 与 IPacker，移除抽象层
