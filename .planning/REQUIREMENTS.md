@@ -29,9 +29,14 @@ Requirements for the pack module interface simplification milestone.
 ### 4. 行为保持 & 测试
 
 - [ ] **SIMPLIFY-11**: 所有现有 945 断言保持绿，零行为变化
-- [ ] **SIMPLIFY-12**: IPacker 接口保留，MockPacker 测试能力不变
 - [ ] **SIMPLIFY-13**: 恢复性执行（jobState / selectPackPlanIndexes）逻辑完全不变
 - [ ] **SIMPLIFY-14**: 同名 zip 条目冲突处理逻辑不变（uniqueifyZipEntryNames / forceNameConflictHandling）
+
+### 5. 移除不必要的抽象
+
+- [ ] **SIMPLIFY-15**: 移除 IPacker 抽象基类（`src/pack/ipacker.h`），Packer 不再继承任何抽象基类
+- [ ] **SIMPLIFY-16**: PackService 直接持有 Packer（移除 `unique_ptr<IPacker>` 间接层）
+- [ ] **SIMPLIFY-17**: MockPacker（`tests/packer_mock.h`）删除，mock 测试改写为真实 Packer + TempDir 集成测试
 
 ## Future Requirements
 
@@ -65,13 +70,15 @@ Deferred to later milestones.
 | SIMPLIFY-09 | Pending |
 | SIMPLIFY-10 | Pending |
 | SIMPLIFY-11 | Pending |
-| SIMPLIFY-12 | Pending |
 | SIMPLIFY-13 | Pending |
 | SIMPLIFY-14 | Pending |
+| SIMPLIFY-15 | Pending |
+| SIMPLIFY-16 | Pending |
+| SIMPLIFY-17 | Pending |
 
 **Coverage:**
-- v1.4 requirements: 14 total
-- Mapped: 14
+- v1.4 requirements: 17 total
+- Mapped: 17
 - Unmapped: 0
 
 ---
