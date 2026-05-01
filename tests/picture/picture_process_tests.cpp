@@ -1,5 +1,4 @@
 #include "picture/picture_process.h"
-#include "picture/picture_compress.h"
 #include "pack/pack.h"
 #include "test_utils.h"
 
