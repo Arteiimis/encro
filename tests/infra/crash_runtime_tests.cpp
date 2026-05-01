@@ -91,8 +91,12 @@ TEST_CASE("crash runtime handles real process crash", "[crash][integration]") {
 
   auto childOut = bp::ipstream{};
   auto childErr = bp::ipstream{};
-  auto child =
-    bp::child(self, "[crash-child]", bp::std_out > childOut, bp::std_err > childErr);
+  auto child = bp::child(
+    self,
+    "--encro-crash-child",
+    bp::std_out > childOut,
+    bp::std_err > childErr
+  );
   child.wait();
 
   auto const output = readProcessStream(childOut) + readProcessStream(childErr);
@@ -100,17 +104,4 @@ TEST_CASE("crash runtime handles real process crash", "[crash][integration]") {
   CHECK(child.exit_code() != 0);
   CHECK(output.find("[CRASH]") != std::string::npos);
   CHECK(output.find("stacktrace") != std::string::npos);
-}
-
-TEST_CASE("child process intentionally crashes", "[crash-child][.]") {
-  crash::installHandlers();
-
-#if defined(_WIN32)
-  auto* ptr = static_cast<volatile int*>(nullptr);
-  *ptr = 7;
-#else
-  std::raise(SIGABRT);
-#endif
-
-  FAIL("child process should have crashed before reaching this line");
 }

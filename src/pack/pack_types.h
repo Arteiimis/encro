@@ -20,6 +20,15 @@ struct PackFileEntry {
   auto operator==(PackFileEntry const&) const -> bool = default;
 };
 
+struct PackEntryInput {
+  PackFileEntry entry;
+  fs::path sourceDir;
+  std::optional<std::string> sourceKey;
+  std::optional<std::string> fileKey;
+
+  auto operator==(PackEntryInput const&) const -> bool = default;
+};
+
 struct FileOrdinalRange {
   std::size_t first = 0;
   std::size_t last = 0;

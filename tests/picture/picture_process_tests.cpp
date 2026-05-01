@@ -158,6 +158,150 @@ TEST_CASE("runPicturePackWorkflow packs directory", "[picture-process]") {
   CHECK(fs::exists(inputDir / "packed" / "pics_part1[1~1#1p].zip"));
 }
 
+TEST_CASE(
+  "runPicturePackWorkflow with folder-summary keeps summary entries ahead of regular "
+  "files",
+  "[picture-process]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+  createSparseSizedFile(dirA, "alpha.jpg", 32);
+  createSparseSizedFile(dirA, "beta.jpg", 32);
+  createSparseSizedFile(dirB, "alpha.jpg", 32);
+  createSparseSizedFile(dirB, "beta.jpg", 32);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.recursive = true;
+  ctx.config.pictureFolderSummary = true;
+  ctx.config.inputPath = inputDir;
+
+  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+
+  auto entryNames = std::vector<std::string>{};
+  auto const packedDir = inputDir / "packed";
+  REQUIRE(fs::exists(packedDir));
+  for (auto const& de: fs::directory_iterator{packedDir}) {
+    if (de.path().extension() != ".zip") { continue; }
+
+    auto zipEntries = testutils::listZipRegularEntryNames(de.path());
+    entryNames.insert(entryNames.end(), zipEntries.begin(), zipEntries.end());
+  }
+
+  std::ranges::sort(entryNames);
+  REQUIRE(entryNames.size() == 6);
+  CHECK(entryNames[0].starts_with("0000__summary__"));
+  CHECK(entryNames[1].starts_with("0000__summary__"));
+  CHECK(entryNames[2].starts_with("1000__"));
+  CHECK(entryNames[3].starts_with("1000__"));
+  CHECK(entryNames[4].starts_with("1000__"));
+  CHECK(entryNames[5].starts_with("1000__"));
+}
+
+TEST_CASE(
+  "runPicturePackWorkflow with folder-summary counts summaries toward logical pack "
+  "limit",
+  "[picture-process]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  for (auto index = 0; index < 1999; ++index) {
+    createSparseSizedFile(dirA, std::format("a_{:04d}.jpg", index), 1);
+  }
+  createSparseSizedFile(dirB, "b_0000.jpg", 1);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.recursive = true;
+  ctx.config.pictureFolderSummary = true;
+  ctx.config.inputPath = inputDir;
+
+  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+
+  auto const part1 = inputDir / "packed" / "pics_part1[1~2000#2000p].zip";
+  auto const part2 = inputDir / "packed" / "pics_part2[2001~2002#2p].zip";
+  REQUIRE(fs::exists(part1));
+  REQUIRE(fs::exists(part2));
+
+  auto const part1Entries = testutils::listZipRegularEntryNames(part1);
+  auto const part2Entries = testutils::listZipRegularEntryNames(part2);
+
+  REQUIRE(part1Entries.size() == 2000);
+  REQUIRE(part2Entries.size() == 2);
+  CHECK(part1Entries.front().starts_with("0000__summary__a__"));
+  CHECK(part2Entries.front().starts_with("0000__summary__b__"));
+  CHECK(std::ranges::none_of(part1Entries, [](std::string const& name) {
+    return name.starts_with("0000__summary__b__");
+  }));
+  CHECK(std::ranges::none_of(part2Entries, [](std::string const& name) {
+    return name.starts_with("0000__summary__a__");
+  }));
+}
+
+TEST_CASE(
+  "runPicturePackWorkflow with folder-summary keeps summaries in first physical "
+  "subpart of a logical pack",
+  "[picture-process]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  createSparseSizedFile(dirA, "0001.jpg", 1);
+  createSparseSizedFile(dirA, "9999.jpg", 260ULL * 1024ULL * 1024ULL);
+  createSparseSizedFile(dirB, "0001.jpg", 1);
+  createSparseSizedFile(dirB, "9999.jpg", 260ULL * 1024ULL * 1024ULL);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.recursive = true;
+  ctx.config.pictureFolderSummary = true;
+  ctx.config.inputPath = inputDir;
+
+  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+
+  auto part11 = fs::path{};
+  auto part12 = fs::path{};
+  for (auto const& de: fs::directory_iterator{inputDir / "packed"}) {
+    auto const fileName = de.path().filename().string();
+    if (fileName.starts_with("pics_part1.1[")) { part11 = de.path(); }
+    if (fileName.starts_with("pics_part1.2[")) { part12 = de.path(); }
+  }
+
+  REQUIRE_FALSE(part11.empty());
+  REQUIRE_FALSE(part12.empty());
+
+  auto const part11Entries = testutils::listZipRegularEntryNames(part11);
+  auto const part12Entries = testutils::listZipRegularEntryNames(part12);
+  CHECK(std::ranges::any_of(part11Entries, [](std::string const& name) {
+    return name.starts_with("0000__summary__");
+  }));
+  CHECK(std::ranges::none_of(part12Entries, [](std::string const& name) {
+    return name.starts_with("0000__summary__");
+  }));
+}
+
 #if defined(_WIN32)
 TEST_CASE(
   "runPicturePackWorkflow compress+pack produces .jpg entries in zip",
@@ -275,7 +419,7 @@ TEST_CASE(
 
   auto const entryNames =
     testutils::listZipRegularEntryNames(inputDir / "packed" / "part1[1~6#6p].zip");
-  REQUIRE(entryNames.size() >= 4);
+  REQUIRE(entryNames.size() == 6);
 
   for (auto const& name: entryNames) { CHECK(name.ends_with(".jpg")); }
   CHECK(entryNames[0].starts_with("0000__summary__"));

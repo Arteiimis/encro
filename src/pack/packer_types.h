@@ -25,12 +25,7 @@ struct PackGroupPartition {
   std::size_t subPartIndex = 0;
 };
 
-struct PackEntryInput {
-  pack::PackFileEntry entry;
-  std::filesystem::path sourceDir;
-  std::optional<std::string> sourceKey;
-  std::optional<std::string> fileKey;
-};
+using PackEntryInput = pack::PackEntryInput;
 
 struct PackEntryPartition {
   std::vector<pack::PackFileEntry> entries;

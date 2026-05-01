@@ -106,22 +106,25 @@ auto makeDefaultZipNameStrategy(
 auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
   constexpr auto kMaxEntriesPerPart = std::size_t{2000};
 
-  // Convert flat entries into PackEntryInput for two-layer grouping
   auto packInputs = std::vector<pack::detail::PackEntryInput>{};
-  packInputs.reserve(request.entries.size());
-  for (auto const& entry: request.entries) {
-    packInputs.emplace_back(
-      pack::detail::PackEntryInput{
-        .entry =
-          pack::PackFileEntry{
-            .sourcePath = entry,
-            .zipEntryName = entry.filename().generic_string(),
-          },
-        .sourceDir = entry.parent_path(),
-        .sourceKey = naming::stablePathString(entry.parent_path()),
-        .fileKey = naming::stablePathString(entry),
-      }
-    );
+  if (!request.entryInputs.empty()) {
+    packInputs = request.entryInputs;
+  } else {
+    packInputs.reserve(request.entries.size());
+    for (auto const& entry: request.entries) {
+      packInputs.emplace_back(
+        pack::detail::PackEntryInput{
+          .entry =
+            pack::PackFileEntry{
+              .sourcePath = entry,
+              .zipEntryName = entry.filename().generic_string(),
+            },
+          .sourceDir = entry.parent_path(),
+          .sourceKey = naming::stablePathString(entry.parent_path()),
+          .fileKey = naming::stablePathString(entry),
+        }
+      );
+    }
   }
 
   Packer packer;
@@ -148,7 +151,7 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
   }
 
   // Apply entryNameForFile callback to override zip entry names
-  if (request.entryNameForFile) {
+  if (request.entryInputs.empty() && request.entryNameForFile) {
     for (auto& group: groupedEntries) {
       for (auto& entry: group) {
         entry.zipEntryName = request.entryNameForFile(entry.sourcePath);
@@ -292,6 +295,12 @@ auto runResumable(PackPlan const& plan, jobstate::Store& store)
 
 }  // namespace
 
+auto execute(PackPlan const& plan, jobstate::Store* jobState)
+  -> eh::Result<PackRunResult> {
+  if (jobState == nullptr) { return runNonResumable(plan); }
+  return runResumable(plan, *jobState);
+}
+
 // --- execute() — public entry point ---
 auto execute(PackRequest const& request) -> eh::Result<PackRunResult> {
   // --- Build PackPlan ---
@@ -323,7 +332,7 @@ auto execute(PackRequest const& request) -> eh::Result<PackRunResult> {
     plan.removeOnFailure = request.removeOnFailure;
   } else {
     // --- Media mode (PackMode::Media) ---
-    if (request.entries.empty()) {
+    if (request.entries.empty() && request.entryInputs.empty()) {
       return PackRunResult{.exitCode = 0, .zippedFiles = {}};
     }
 
@@ -337,22 +346,7 @@ auto execute(PackRequest const& request) -> eh::Result<PackRunResult> {
   }
 
   // --- Execute: resumable or non-resumable ---
-  auto* store = request.jobState;
-  if (store == nullptr) {
-    // Non-resumable path
-    auto const result = runNonResumable(plan);
-    if (result && result->exitCode == 0 && request.mode == PackMode::Directory) {
-      terminal::println(
-        terminal::MessageKind::Success,
-        "All files packed successfully to: {}",
-        terminal::path(request.outputDir)
-      );
-    }
-    return result;
-  }
-
-  // Resumable path (D-11: internalized archive_plan logic)
-  auto const result = runResumable(plan, *store);
+  auto const result = execute(plan, request.jobState);
 
   // For Directory mode, print success message after resumable completion too
   if (result && result->exitCode == 0 && request.mode == PackMode::Directory) {

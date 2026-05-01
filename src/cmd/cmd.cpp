@@ -80,9 +80,9 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
      "preserve relative input subdirectories inside the output directory")       //
     ("force-conflict-handling",
      pvDefault("y"s),
-     "control collision-safe file names for unique flat outputs: y or n")          //
-    ("folder-summary", "enable picture-mode folder summary images in flat packs")  //
-    ("recursive,r", "enable recursively search")                                   //
+     "control collision-safe file names for unique flat outputs: y or n")            //
+    ("folder-summary,s", "enable picture-mode folder summary images in flat packs")  //
+    ("recursive,r", "enable recursively search")                                     //
     ;
 
   auto processing = po::options_description(
@@ -96,7 +96,7 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     ("resume", "resume previous unfinished job state when available")         //
     ("restart", "ignore previous job state and start a fresh run")            //
     ("ffmpeg-path,x", pv<std::string>(), "custom ffmpeg install path")        //
-    ("compress", "enable JPEG compression during picture processing")         //
+    ("compress,c", "enable JPEG compression during picture processing")       //
     ("image-quality,q",
      pv<int>(),
      "JPEG compression quality (2-31, default=5, lower=better)")  //
@@ -123,8 +123,16 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   auto vm = po::variables_map{};
   auto error = std::optional<std::string>{};
   try {
-    store(parse_command_line(argc, argv, all), vm);
-    notify(vm);
+    auto parsed =
+      po::command_line_parser(argc, argv).options(all).allow_unregistered().run();
+    auto const unrecognized =
+      po::collect_unrecognized(parsed.options, po::exclude_positional);
+    if (!unrecognized.empty()) {
+      error = "unrecognised option '" + unrecognized.front() + "'";
+    } else {
+      store(parsed, vm);
+      notify(vm);
+    }
   } catch (po::error const& ex) { error = ex.what(); }
 
   return {all, vm, error};

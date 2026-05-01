@@ -61,7 +61,9 @@ struct NamingConfig {
 // --- PackRequest (D-01, D-02, extended D-07) ---
 // Single struct with std::optional fields. Construct with designated initializers.
 struct PackRequest {
-  std::vector<fs::path> entries;        // D-02: flat list of file paths
+  std::vector<fs::path> entries;  // D-02: flat list of file paths
+  std::vector<PackEntryInput>
+    entryInputs;  // Optional explicit media entries with stable grouping keys
   PackMode mode = PackMode::Media;      // D-03
   fs::path outputDir;                   // D-09: REQUIRED field
   bool compact = true;                  // D-08: consumers derive from config.fullProgress
@@ -72,12 +74,14 @@ struct PackRequest {
   bool recursive = true;                // Directory mode only
   jobstate::Store* jobState = nullptr;  // D-06: non-null = enable resumable execution
   std::function<std::string(fs::path const&)>
-    entryNameForFile;                   // D-07: optional callback
+    entryNameForFile;                   // D-07: optional callback for path-only entries
 };
 
 // --- execute() (D-05) ---
 // Free function. Internally manages Packer/PackService lifecycle.
 // Handles grouping, naming, PackPlan construction, resumable execution (D-11).
+auto execute(PackPlan const& plan, jobstate::Store* jobState = nullptr)
+  -> eh::Result<PackRunResult>;
 auto execute(PackRequest const& request) -> eh::Result<PackRunResult>;
 
 }  // namespace pack
