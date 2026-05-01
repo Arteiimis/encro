@@ -158,11 +158,7 @@ Pack subsystem:
 
 ## Known Issues / Tech Debt
 
-All v1.0–v1.4 items resolved or acknowledged.
-Remaining items:
-- 6 quick tasks missing formal status files (acknowledged at v1.2 close, re-acknowledged at v1.4 close — see STATE.md Deferred Items)
-- E2E CLI verification deferred (from v1.3) — requires test media + FFmpeg
-- `noteStopRequest` and `truncateForProgressLabel` intentionally duplicated across both TU anonymous namespaces — standard C++ pattern, not debt
+None — all v1.0–v1.4 items resolved or intentionally dropped.
 
 ## Evolution
 

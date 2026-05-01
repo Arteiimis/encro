@@ -98,41 +98,11 @@ None — Phase 13 complete, all tests pass.
 
 ## Deferred Items
 
-Items acknowledged at v1.0 milestone close on 2026-04-26:
-
-| Category | Item | Status |
-|----------|------|--------|
-| tech_debt | compress-picture path implicit .compact default | Deferred |
-| tech_debt | Duplicate test case in pack_service_tests.cpp | Deferred |
-| process | VERIFICATION.md missing for Phase 01, 02 | Deferred |
-
-Items acknowledged and deferred at v1.2 milestone close on 2026-04-29:
-
-| Category | Item | Status |
-|----------|------|--------|
-| quick_task | 260429-1c4-fix-package-progress-bar | Deferred — missing formal status file |
-| quick_task | 260429-1iq-pack-progress-bar-fix | Deferred — missing formal status file |
-| quick_task | 260429-1yf-zip-100 | Deferred — missing formal status file |
-| quick_task | 260429-2gx-fix-finalizing-spinner-flashing-before-f | Deferred — missing formal status file |
-| quick_task | 260429-2tn-archive-completion-hook-flashes-packing- | Deferred — missing formal status file |
-| quick_task | 260429-34v-refactor-packgroups-function-in-pack-ser | Deferred — missing formal status file |
-
-Items acknowledged and deferred at v1.4 milestone close on 2026-05-01:
-
-| Category | Item | Status |
-|----------|------|--------|
-| quick_task | 260429-1c4-fix-package-progress-bar | Deferred — missing formal status file (continued from v1.2) |
-| quick_task | 260429-1iq-pack-progress-bar-fix | Deferred — missing formal status file (continued from v1.2) |
-| quick_task | 260429-1yf-zip-100 | Deferred — missing formal status file (continued from v1.2) |
-| quick_task | 260429-2gx-fix-finalizing-spinner-flashing-before-f | Deferred — missing formal status file (continued from v1.2) |
-| quick_task | 260429-2tn-archive-completion-hook-flashes-packing- | Deferred — missing formal status file (continued from v1.2) |
-| quick_task | 260429-34v-refactor-packgroups-function-in-pack-ser | Deferred — missing formal status file (continued from v1.2) |
-| todo | pack-simplify-single-entry.md | Resolved — PackRequest single entry implemented in Phase 12 |
-| todo | remove-ipacker-abstraction.md | Resolved — IPacker abstraction removed in Phase 14 |
+None — all items resolved or intentionally dropped at v1.4 close.
 
 ## Session Continuity
 
-Last session: 2026-04-30T21:00:00.000Z
-Stopped at: Session resumed, proceeding to plan Phase 12
-Resume file: .planning/phases/12-packrequest-api/12-CONTEXT.md
-Next: /gsd-execute-phase 12
+Last session: 2026-05-02
+Stopped at: v1.4 complete, all milestones shipped, no next milestone defined
+Resume file: —
+Next: Define v1.5 or new task
