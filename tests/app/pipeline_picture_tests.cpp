@@ -1,18 +1,14 @@
 #include "app/pipeline.h"
 #include "core/job_state.h"
-#include "picture/picture_compress.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
 
 #include <filesystem>
 #include <format>
-#include <fstream>
 
 namespace fs = std::filesystem;
 
-using testutils::collisionGroupPrefix;
-using testutils::hasCollisionSafePrefix;
 using testutils::listZipRegularEntryNames;
 using testutils::touchFile;
 
