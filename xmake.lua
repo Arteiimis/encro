@@ -1,19 +1,28 @@
 add_rules("plugin.compile_commands.autoupdate", { outputdir = "./build" })
 add_rules("mode.debug", "mode.release", "mode.releasedbg", "mode.coverage")
-set_policy("build.optimization.lto", true)
 set_version("0.1.5")
 
 set_languages("c++26")
 set_toolchains("clang-cl")
+set_toolset("ld", "lld-link")
 
 add_cxxflags("-ftrivial-auto-var-init=pattern")
 
 add_plugindirs("./plugins/")
 
+if is_mode("release") then  
+  set_policy("build.optimization.lto", true)
+end
+
 if is_mode("coverage") then
   set_policy("build.optimization.lto", false)
   add_cxxflags("-fprofile-instr-generate", "-fcoverage-mapping")
   add_ldflags("-fprofile-instr-generate", "-fcoverage-mapping", {force = true})
+end
+
+if is_mode("debug") then
+  set_runtimes("MD")
+  set_policy("build.sanitizer.address", true)
 end
 
 if is_plat("windows") then
@@ -30,6 +39,7 @@ add_requires("indicators")
 add_requires("immer")
 if is_plat("windows") then
   add_requires("libzippp[toolchains=clang-cl]")
+  add_requireconfs("libzippp.libzip", {configs = {toolchains = "clang"}})
 else
   add_requires("libzippp")
 end
