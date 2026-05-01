@@ -156,11 +156,13 @@ TEST_CASE(
     }
   }
   std::ranges::sort(allEntries);
-  REQUIRE(allEntries.size() >= 2);
-  // Entries have "0000__" or "1000__" prefix (Phase 13 picture naming)
-  CHECK(std::ranges::none_of(allEntries, [](std::string const& name) {
-    return name.find('/') != std::string::npos;
-  }));
+  REQUIRE(allEntries.size() == 6);
+  CHECK(allEntries[0].starts_with("0000__summary__"));
+  CHECK(allEntries[1].starts_with("0000__summary__"));
+  CHECK(allEntries[2].starts_with("1000__"));
+  CHECK(allEntries[3].starts_with("1000__"));
+  CHECK(allEntries[4].starts_with("1000__"));
+  CHECK(allEntries[5].starts_with("1000__"));
 }
 
 TEST_CASE(
@@ -439,7 +441,7 @@ TEST_CASE(
 
   auto const entryNames =
     listZipRegularEntryNames(inputDir / "packed" / "part1[1~6#6p].zip");
-  REQUIRE(entryNames.size() >= 4);
+  REQUIRE(entryNames.size() == 6);
 
   for (auto const& name: entryNames) { CHECK(name.ends_with(".jpg")); }
   CHECK(entryNames[0].starts_with("0000__summary__"));

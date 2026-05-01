@@ -6,6 +6,8 @@
 #include "core/media_scanner.h"
 #include "infra/terminal.h"
 #include "pack/pack.h"
+#include "pack/pack_internal.h"
+#include "pack/packer.h"
 #include "pack/packer_types.h"
 #include "utils/utils.h"
 
@@ -15,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <unordered_map>
 
 namespace fs = std::filesystem;
@@ -26,6 +29,8 @@ using enum terminal::MessageKind;
 namespace {
 
 using PictureEntryPlan = std::unordered_map<fs::path, std::string>;
+
+constexpr auto kMaxPicturesPerPack = std::size_t{2000};
 
 auto buildFlatPictureEntryName(std::string_view entryName) -> std::string {
   return std::format("1000__{}", entryName);
@@ -61,6 +66,11 @@ auto toJpgEntryName(std::string const& entryName) -> std::string {
   auto const stemEnd = entryName.rfind('.');
   if (stemEnd != std::string::npos) { return entryName.substr(0, stemEnd) + ".jpg"; }
   return entryName + ".jpg";
+}
+
+auto buildCompressTaskKey(fs::path const& inputPath, std::string_view entryName)
+  -> std::string {
+  return std::format("{}\n{}", naming::stablePathString(inputPath), entryName);
 }
 
 auto planPictureZipEntryNames(
@@ -142,6 +152,42 @@ auto collectFolderSummaryPictures(
   return summaryPictures;
 }
 
+auto makePictureSummaryPackEntry(
+  fs::path const& picPath,
+  fs::path const& packedSourcePath,
+  std::string const& entryName
+) -> pack::detail::PackEntryInput {
+  auto const dirKey = naming::stablePathString(picPath.parent_path());
+  return pack::detail::PackEntryInput{
+    .entry =
+      pack::PackFileEntry{
+        .sourcePath = packedSourcePath,
+        .zipEntryName = entryName,
+      },
+    .sourceDir = picPath.parent_path(),
+    .sourceKey = std::format("0000__{}", dirKey),
+    .fileKey = std::format("0000__{}", dirKey),
+  };
+}
+
+auto makePictureRegularPackEntry(
+  fs::path const& picPath,
+  fs::path const& packedSourcePath,
+  std::string const& entryName
+) -> pack::detail::PackEntryInput {
+  auto const dirKey = naming::stablePathString(picPath.parent_path());
+  return pack::detail::PackEntryInput{
+    .entry =
+      pack::PackFileEntry{
+        .sourcePath = packedSourcePath,
+        .zipEntryName = entryName,
+      },
+    .sourceDir = picPath.parent_path(),
+    .sourceKey = std::format("1000__{}", dirKey),
+    .fileKey = std::format("1000__{}", naming::stablePathString(picPath)),
+  };
+}
+
 auto buildPicturePackEntryInputs(
   appctx::AppConfig const& config,
   fs::path const& dirPath,
@@ -157,19 +203,11 @@ auto buildPicturePackEntryInputs(
   packInputs.reserve(scannedPics.size() + summaryPics.size());
 
   for (auto const& summaryPic: summaryPics) {
-    auto const dirKey = naming::stablePathString(summaryPic.parent_path());
-    packInputs.emplace_back(
-      pack::detail::PackEntryInput{
-        .entry =
-          pack::PackFileEntry{
-            .sourcePath = summaryPic,
-            .zipEntryName = buildSummaryPictureEntryName(dirPath, summaryPic),
-          },
-        .sourceDir = summaryPic.parent_path(),
-        .sourceKey = std::format("0000__{}", dirKey),
-        .fileKey = std::format("0000__{}", dirKey),
-      }
-    );
+    packInputs.emplace_back(makePictureSummaryPackEntry(
+      summaryPic,
+      summaryPic,
+      buildSummaryPictureEntryName(dirPath, summaryPic)
+    ));
   }
 
   for (auto const& picPath: scannedPics) {
@@ -177,34 +215,297 @@ auto buildPicturePackEntryInputs(
     auto const entryName = plannedNameIt != plannedEntryNames.end()
       ? plannedNameIt->second
       : picPath.filename().generic_string();
-    auto const sourceKey =
-      std::format("1000__{}", naming::stablePathString(picPath.parent_path()));
+    packInputs.emplace_back(makePictureRegularPackEntry(picPath, picPath, entryName));
+  }
+
+  return packInputs;
+}
+
+auto buildCompressedPicturePackEntryInputs(
+  appctx::AppConfig const& config,
+  fs::path const& dirPath,
+  std::span<fs::path const> scannedPics,
+  PictureEntryPlan const& plannedEntryNames,
+  std::unordered_map<std::string, fs::path> const& compressedByTaskKey
+) -> std::vector<pack::detail::PackEntryInput> {
+  auto summaryPics = std::vector<fs::path>{};
+  if (config.pictureFolderSummary) {
+    summaryPics = collectFolderSummaryPictures(dirPath, scannedPics);
+  }
+
+  auto packInputs = std::vector<pack::detail::PackEntryInput>{};
+  packInputs.reserve(compressedByTaskKey.size());
+
+  for (auto const& summaryPic: summaryPics) {
+    auto const entryName =
+      toJpgEntryName(buildSummaryPictureEntryName(dirPath, summaryPic));
+    auto const compressedIt =
+      compressedByTaskKey.find(buildCompressTaskKey(summaryPic, entryName));
+    if (compressedIt == compressedByTaskKey.end()) { continue; }
+
     packInputs.emplace_back(
-      pack::detail::PackEntryInput{
-        .entry =
-          pack::PackFileEntry{
-            .sourcePath = picPath,
-            .zipEntryName = entryName,
-          },
-        .sourceDir = picPath.parent_path(),
-        .sourceKey = sourceKey,
-        .fileKey = std::format("1000__{}", naming::stablePathString(picPath)),
-      }
+      makePictureSummaryPackEntry(summaryPic, compressedIt->second, entryName)
+    );
+  }
+
+  for (auto const& picPath: scannedPics) {
+    auto const plannedIt = plannedEntryNames.find(picPath);
+    auto const entryName = plannedIt != plannedEntryNames.end()
+      ? toJpgEntryName(plannedIt->second)
+      : toJpgEntryName(picPath.filename().generic_string());
+    auto const compressedIt =
+      compressedByTaskKey.find(buildCompressTaskKey(picPath, entryName));
+    if (compressedIt == compressedByTaskKey.end()) { continue; }
+
+    packInputs.emplace_back(
+      makePictureRegularPackEntry(picPath, compressedIt->second, entryName)
     );
   }
 
   return packInputs;
 }
 
+auto buildPicturePackBaseName(
+  std::string const& baseName,
+  std::size_t partIndex,
+  std::size_t subPartIndex,
+  std::size_t totalSubParts
+) -> std::string {
+  if (baseName.empty()) {
+    if (totalSubParts <= 1) { return std::format("part{}.zip", partIndex); }
+    return std::format("part{}.{}.zip", partIndex, subPartIndex + 1);
+  }
+
+  if (totalSubParts <= 1) { return std::format("{}_part{}.zip", baseName, partIndex); }
+
+  return std::format("{}_part{}.{}.zip", baseName, partIndex, subPartIndex + 1);
+}
+
+struct PicturePackNamingState {
+  std::string baseName;
+  std::vector<pack::FileOrdinalRange> ordinalRanges;
+  std::vector<std::pair<std::size_t, std::size_t>> groupNameParts;
+  std::vector<std::size_t> subPartCountsByPart;
+
+  auto zipNameFor(std::size_t index) const -> std::string {
+    auto const [partIndex, subPartIndex] = groupNameParts.at(index);
+    return pack::internal::appendOrdinalRangeSuffix(
+      buildPicturePackBaseName(
+        baseName,
+        partIndex,
+        subPartIndex,
+        subPartCountsByPart.at(partIndex - 1)
+      ),
+      ordinalRanges.at(index)
+    );
+  }
+};
+
+struct PictureLogicalBucket {
+  fs::path sourceDir;
+  std::string sourceDirKey;
+  std::optional<pack::detail::PackEntryInput> summaryEntry;
+  std::vector<pack::detail::PackEntryInput> regularEntries;
+};
+
+auto isSummaryPicturePackEntry(pack::detail::PackEntryInput const& input) -> bool {
+  return input.sourceKey.has_value() && input.sourceKey->starts_with("0000__");
+}
+
+auto sortPictureLogicalBucketEntries(PictureLogicalBucket& bucket) -> void {
+  std::ranges::sort(
+    bucket.regularEntries,
+    [](pack::detail::PackEntryInput const& lhs, pack::detail::PackEntryInput const& rhs) {
+      auto const lhsKey =
+        lhs.fileKey.value_or(naming::stablePathString(lhs.entry.sourcePath));
+      auto const rhsKey =
+        rhs.fileKey.value_or(naming::stablePathString(rhs.entry.sourcePath));
+      return lhsKey < rhsKey;
+    }
+  );
+}
+
+auto logicalEntryCount(PictureLogicalBucket const& bucket) -> std::size_t {
+  return bucket.regularEntries.size() + (bucket.summaryEntry.has_value() ? 1 : 0);
+}
+
+auto buildPictureLogicalBuckets(
+  std::vector<pack::detail::PackEntryInput> const& packInputs
+) -> std::vector<PictureLogicalBucket> {
+  auto bucketsByDir = std::unordered_map<std::string, PictureLogicalBucket>{};
+  bucketsByDir.reserve(packInputs.size());
+
+  for (auto const& input: packInputs) {
+    auto const dirKey = naming::stablePathString(input.sourceDir);
+    auto [bucketIt, _] = bucketsByDir.try_emplace(
+      dirKey,
+      PictureLogicalBucket{
+        .sourceDir = input.sourceDir,
+        .sourceDirKey = dirKey,
+      }
+    );
+
+    if (isSummaryPicturePackEntry(input)) {
+      bucketIt->second.summaryEntry = input;
+      continue;
+    }
+
+    bucketIt->second.regularEntries.push_back(input);
+  }
+
+  auto buckets = std::vector<PictureLogicalBucket>{};
+  buckets.reserve(bucketsByDir.size());
+  for (auto& [_, bucket]: bucketsByDir) {
+    sortPictureLogicalBucketEntries(bucket);
+    buckets.push_back(std::move(bucket));
+  }
+
+  std::ranges::sort(
+    buckets,
+    [](PictureLogicalBucket const& lhs, PictureLogicalBucket const& rhs) {
+      return lhs.sourceDirKey < rhs.sourceDirKey;
+    }
+  );
+
+  return buckets;
+}
+
+auto buildPictureLogicalParts(std::vector<PictureLogicalBucket> const& buckets)
+  -> eh::Result<std::vector<std::vector<pack::detail::PackEntryInput>>> {
+  auto logicalParts = std::vector<std::vector<pack::detail::PackEntryInput>>{};
+  auto currentPart = std::vector<pack::detail::PackEntryInput>{};
+  auto currentCount = std::size_t{0};
+
+  for (auto const& bucket: buckets) {
+    auto const bucketCount = logicalEntryCount(bucket);
+    if (bucketCount > kMaxPicturesPerPack) {
+      return eh::makeError(
+        "Directory '{}' requires {} entries including summary, exceeding the {}-picture "
+        "logical pack limit.",
+        bucket.sourceDir.string(),
+        bucketCount,
+        kMaxPicturesPerPack
+      );
+    }
+
+    if (!currentPart.empty() && currentCount + bucketCount > kMaxPicturesPerPack) {
+      logicalParts.push_back(std::move(currentPart));
+      currentPart = {};
+      currentCount = 0;
+    }
+
+    if (bucket.summaryEntry.has_value()) {
+      currentPart.push_back(bucket.summaryEntry.value());
+    }
+    currentPart.insert(
+      currentPart.end(),
+      bucket.regularEntries.begin(),
+      bucket.regularEntries.end()
+    );
+    currentCount += bucketCount;
+  }
+
+  if (!currentPart.empty()) { logicalParts.push_back(std::move(currentPart)); }
+  return logicalParts;
+}
+
+auto validateSummaryEntriesFitFirstPhysicalPack(
+  std::span<pack::detail::PackEntryInput const> logicalPart,
+  std::size_t partIndex
+) -> eh::Result<void> {
+  auto summarySize = std::uintmax_t{0};
+  for (auto const& input: logicalPart) {
+    if (!isSummaryPicturePackEntry(input)) { continue; }
+    summarySize += fs::file_size(input.entry.sourcePath);
+  }
+
+  if (summarySize > pack::kDefaultMaxArchiveGroupSize) {
+    return eh::makeError(
+      "Summary entries in logical pack {} exceed the single-archive size limit.",
+      partIndex + 1
+    );
+  }
+
+  return {};
+}
+
+auto buildPicturePackPlan(
+  appctx::AppConfig const& config,
+  fs::path const& dirPath,
+  fs::path const& zipFileDir,
+  std::string baseName,
+  std::vector<pack::detail::PackEntryInput> const& packInputs
+) -> eh::Result<pack::PackPlan> {
+  if (packInputs.empty()) {
+    return eh::makeError("No pictures found to pack in directory: {}", dirPath.string());
+  }
+
+  auto const logicalPartsRes =
+    buildPictureLogicalParts(buildPictureLogicalBuckets(packInputs));
+  if (!logicalPartsRes) { return eh::makeError("{}", logicalPartsRes.error()); }
+
+  auto groupedPics = std::vector<std::vector<pack::PackFileEntry>>{};
+  auto groupNameParts = std::vector<std::pair<std::size_t, std::size_t>>{};
+  auto subPartCountsByPart = std::vector<std::size_t>{};
+  pack::Packer packer;
+
+  for (auto partIndex = std::size_t{0}; partIndex < logicalPartsRes->size();
+       ++partIndex) {
+    auto const summaryFitRes = validateSummaryEntriesFitFirstPhysicalPack(
+      logicalPartsRes->at(partIndex),
+      partIndex
+    );
+    if (!summaryFitRes) { return eh::makeError("{}", summaryFitRes.error()); }
+
+    auto physicalGroups = packer.groupPackEntries(
+      logicalPartsRes->at(partIndex),
+      pack::kDefaultMaxArchiveGroupSize,
+      std::nullopt,
+      std::optional<std::size_t>{0}
+    );
+
+    if (subPartCountsByPart.size() < partIndex + 1) {
+      subPartCountsByPart.resize(partIndex + 1, 0);
+    }
+
+    for (auto subPartIndex = std::size_t{0}; subPartIndex < physicalGroups.size();
+         ++subPartIndex) {
+      groupedPics.emplace_back(std::move(physicalGroups[subPartIndex]));
+      groupNameParts.emplace_back(partIndex + 1, subPartIndex);
+      ++subPartCountsByPart[partIndex];
+    }
+  }
+
+  auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groupedPics);
+  auto picturePackNaming = PicturePackNamingState{
+    .baseName = std::move(baseName),
+    .ordinalRanges = ordinalRanges,
+    .groupNameParts = groupNameParts,
+    .subPartCountsByPart = subPartCountsByPart,
+  };
+  auto const picturePackNamingState =
+    std::make_shared<PicturePackNamingState>(std::move(picturePackNaming));
+
+  return pack::PackPlan{
+    .groups = std::move(groupedPics),
+    .outputDir = zipFileDir,
+    .zipNameForIndex =  //
+    [picturePackNamingState](std::size_t index) {
+      return picturePackNamingState->zipNameFor(index);
+    },
+    .maxParallelJobs = config.maxParallelJobs,
+    .removeOnFailure = true,
+    .compact = !config.fullProgress,
+  };
+}
+
 auto addCompressTask(
-  std::unordered_map<fs::path, fs::path>& compressedSet,
   fs::path const& tempDir,
   std::error_code& ec,
   std::vector<CompressTask>& compressTasks,
   fs::path const& picPath,
   std::string const& entryName
 ) -> void {
-  if (compressedSet.contains(picPath)) { return; }
   auto const jpgEntryName = toJpgEntryName(entryName);
   auto const outputPath = tempDir / jpgEntryName;
   fs::create_directories(outputPath.parent_path(), ec);
@@ -216,7 +517,6 @@ auto addCompressTask(
       .entryName = jpgEntryName,
     }
   );
-  compressedSet[picPath] = outputPath;
 }
 
 auto confirmPicturePack(appctx::AppConfig const& config) -> bool {
@@ -280,13 +580,12 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
 
     auto plannedEntryNames = planPictureZipEntryNames(ctx.config, dirPath, scannedPics);
 
-    auto compressedSet = std::unordered_map<fs::path, fs::path>{};
     auto compressTasks = std::vector<CompressTask>{};
     compressTasks.reserve(scannedPics.size() + summaryPics.size());
 
     for (auto const& summaryPic: summaryPics) {
       auto const entryName = buildSummaryPictureEntryName(dirPath, summaryPic);
-      addCompressTask(compressedSet, tempDir, ec, compressTasks, summaryPic, entryName);
+      addCompressTask(tempDir, ec, compressTasks, summaryPic, entryName);
     }
 
     for (auto const& picPath: scannedPics) {
@@ -294,13 +593,13 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
       auto const entryName = plannedIt != plannedEntryNames.end()
         ? plannedIt->second
         : picPath.filename().generic_string();
-      addCompressTask(compressedSet, tempDir, ec, compressTasks, picPath, entryName);
+      addCompressTask(tempDir, ec, compressTasks, picPath, entryName);
     }
 
     terminal::println(
       Info,
       "Compressing {} picture(s) to JPEG (quality={})...",
-      terminal::count(scannedPics.size()),
+      terminal::count(compressTasks.size()),
       terminal::count(quality)
     );
 
@@ -319,38 +618,41 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
       terminal::count(compressResults.size())
     );
 
-    auto compressedPaths = std::vector<fs::path>{};
-    compressedPaths.reserve(compressResults.size());
-
-    for (auto const& summaryPic: summaryPics) {
-      auto const compressedIt = compressedSet.find(summaryPic);
-      if (compressedIt == compressedSet.end()) { continue; }
-      compressedPaths.push_back(compressedIt->second);
+    auto compressedByTaskKey = std::unordered_map<std::string, fs::path>{};
+    compressedByTaskKey.reserve(compressResults.size());
+    for (auto const& result: compressResults) {
+      compressedByTaskKey.emplace(
+        buildCompressTaskKey(result.originalPath, result.entryName),
+        result.compressedPath
+      );
     }
 
-    for (auto const& picPath: scannedPics) {
-      auto const compressedIt = compressedSet.find(picPath);
-      if (compressedIt == compressedSet.end()) { continue; }
-      compressedPaths.push_back(compressedIt->second);
+    auto const packInputs = buildCompressedPicturePackEntryInputs(
+      ctx.config,
+      dirPath,
+      scannedPics,
+      plannedEntryNames,
+      compressedByTaskKey
+    );
+    if (packInputs.empty()) {
+      fs::remove_all(tempDir, ec);
+      return eh::makeError("No compressed pictures available to pack.");
+    }
+
+    auto const planRes =
+      buildPicturePackPlan(ctx.config, dirPath, outputDir, std::string{}, packInputs);
+    if (!planRes) {
+      fs::remove_all(tempDir, ec);
+      return eh::makeError("Failed to pack pictures: {}", planRes.error());
     }
 
     terminal::println(
       Info,
-      "Packing {} compressed picture(s) into archives...",
-      terminal::count(compressedPaths.size())
+      "Packing {} compressed picture entry(s) into archives...",
+      terminal::count(packInputs.size())
     );
 
-    auto const packRes = pack::execute(
-      pack::PackRequest{
-        .entries = std::move(compressedPaths),
-        .mode = pack::PackMode::Media,
-        .outputDir = outputDir,
-        .compact = !ctx.config.fullProgress,
-        .removeOnFailure = true,
-        .maxParallelJobs = ctx.config.maxParallelJobs,
-        .jobState = ctx.runtime.jobState.get(),
-      }
-    );
+    auto const packRes = pack::execute(*planRes, ctx.runtime.jobState.get());
 
     fs::remove_all(tempDir, ec);
 
@@ -388,38 +690,19 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
   auto const plannedEntryNames =
     planPictureZipEntryNames(ctx.config, dirPath, scannedPics);
 
-  auto entryNameForFile = [plannedEntryNames =
-                             std::move(plannedEntryNames)](fs::path const& filePath) {
-    auto const it = plannedEntryNames.find(filePath);
-    return it != plannedEntryNames.end() ? it->second
-                                         : filePath.filename().generic_string();
-  };
-
-  auto const packInputs =
+  auto packInputs =
     buildPicturePackEntryInputs(ctx.config, dirPath, scannedPics, plannedEntryNames);
 
-  auto sortedEntries = std::vector<fs::path>{};
-  sortedEntries.reserve(packInputs.size());
-  for (auto const& input: packInputs) { sortedEntries.push_back(input.entry.sourcePath); }
-
-  auto const packRes = pack::execute(
-    pack::PackRequest{
-      .entries = std::move(sortedEntries),
-      .mode = pack::PackMode::Media,
-      .outputDir = outputDir,
-      .compact = !ctx.config.fullProgress,
-      .removeOnFailure = true,
-      .naming =
-        pack::NamingConfig{
-          .layout = ctx.config.outputLayout,
-          .forceConflictHandling = shouldForcePictureConflictNaming(ctx.config),
-          .baseName = dirPath.filename().string(),
-        },
-      .maxParallelJobs = ctx.config.maxParallelJobs,
-      .jobState = ctx.runtime.jobState.get(),
-      .entryNameForFile = std::move(entryNameForFile),
-    }
+  auto const planRes = buildPicturePackPlan(
+    ctx.config,
+    dirPath,
+    outputDir,
+    dirPath.filename().string(),
+    packInputs
   );
+  if (!planRes) { return eh::makeError("Failed to pack pictures: {}", planRes.error()); }
+
+  auto const packRes = pack::execute(*planRes, ctx.runtime.jobState.get());
 
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
   if (packRes->exitCode != 0) { return packRes->exitCode; }
@@ -449,38 +732,26 @@ auto packAllPicsToZip(
 
   auto const plannedEntryNames = planPictureZipEntryNames(config, dirPath, scannedPics);
 
-  auto entryNameForFile = [plannedEntryNames =
-                             std::move(plannedEntryNames)](fs::path const& filePath) {
-    auto const it = plannedEntryNames.find(filePath);
-    return it != plannedEntryNames.end() ? it->second
-                                         : filePath.filename().generic_string();
-  };
-
   auto const packInputs =
     buildPicturePackEntryInputs(config, dirPath, scannedPics, plannedEntryNames);
-
-  auto sortedEntries = std::vector<fs::path>{};
-  sortedEntries.reserve(packInputs.size());
-  for (auto const& input: packInputs) { sortedEntries.push_back(input.entry.sourcePath); }
-
-  auto const packRes = pack::execute(
-    pack::PackRequest{
-      .entries = std::move(sortedEntries),
-      .mode = pack::PackMode::Media,
-      .outputDir = zipFileDir,
-      .compact = !config.fullProgress,
-      .removeOnFailure = true,
-      .naming =
-        pack::NamingConfig{
-          .layout = config.outputLayout,
-          .forceConflictHandling = shouldForcePictureConflictNaming(config),
-          .baseName = dirPath.filename().string(),
-        },
-      .maxParallelJobs = config.maxParallelJobs,
-      .jobState = nullptr,
-      .entryNameForFile = std::move(entryNameForFile),
-    }
+  auto const planRes = buildPicturePackPlan(
+    config,
+    dirPath,
+    zipFileDir,
+    dirPath.filename().string(),
+    packInputs
   );
+  if (!planRes) {
+    auto const errMsg = std::format(
+      "Failed to pack pictures in {}: {}",
+      zipFileDir.string(),
+      planRes.error()
+    );
+    spdlog::error(errMsg);
+    return eh::makeError("{}", errMsg);
+  }
+
+  auto const packRes = pack::execute(*planRes);
 
   if (!packRes) {
     auto const errMsg = std::format(

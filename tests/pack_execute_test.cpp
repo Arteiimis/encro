@@ -99,6 +99,59 @@ TEST_CASE("execute() with Media mode groups entries by parent dir", "[pack][exec
   for (auto const& zip: result->zippedFiles) { CHECK(fs::exists(zip)); }
 }
 
+TEST_CASE(
+  "execute() with explicit entryInputs keeps duplicate logical media entries",
+  "[pack][execute]"
+) {
+  TempDir tmp;
+  auto const sourceDir = tmp.path / "album" / "a";
+  auto const sourceFile = sourceDir / "alpha.jpg";
+  createBinaryFile(sourceFile, 256);
+
+  auto const outputDir = tmp.path / "packed_explicit";
+  fs::create_directories(outputDir);
+
+  pack::PackRequest req{
+    .entryInputs =
+      {
+        pack::PackEntryInput{
+          .entry =
+            pack::PackFileEntry{
+              .sourcePath = sourceFile,
+              .zipEntryName = "0000__summary__a__alpha__001.jpg",
+            },
+          .sourceDir = sourceDir,
+          .sourceKey = std::string{"0000__a"},
+          .fileKey = std::string{"0000__summary__a__alpha__001.jpg"},
+        },
+        pack::PackEntryInput{
+          .entry =
+            pack::PackFileEntry{
+              .sourcePath = sourceFile,
+              .zipEntryName = "1000__a__alpha__001.jpg",
+            },
+          .sourceDir = sourceDir,
+          .sourceKey = std::string{"1000__a"},
+          .fileKey = std::string{"1000__a__alpha__001.jpg"},
+        },
+      },
+    .mode = pack::PackMode::Media,
+    .outputDir = outputDir,
+    .compact = true,
+  };
+
+  auto const result = pack::execute(req);
+  REQUIRE(result.has_value());
+  CHECK(result->exitCode == 0);
+  REQUIRE(result->zippedFiles.size() == 1);
+
+  auto const entryNames =
+    testutils::listZipRegularEntryNames(result->zippedFiles.front());
+  REQUIRE(entryNames.size() == 2);
+  CHECK(entryNames[0] == "0000__summary__a__alpha__001.jpg");
+  CHECK(entryNames[1] == "1000__a__alpha__001.jpg");
+}
+
 TEST_CASE("execute() with Directory mode packs directory tree", "[pack][execute]") {
   TempDir tmp;
   createBinaryFile(tmp.path / "docs/readme.txt", 200);
