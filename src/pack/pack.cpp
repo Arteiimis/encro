@@ -176,13 +176,18 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
     auto nameParts = groupNameParts;
     auto subPartCounts = subPartCountsByPart;
     auto bName = baseName;
-    zipNameForIndex = [strategy, ordRanges, nameParts, subPartCounts, bName](
-                        std::size_t index
-                      ) {
-      auto const [partIndex, subPartIndex] = nameParts.at(index);
-      auto const totalSubParts = subPartCounts.at(partIndex - 1);
-      return strategy(partIndex, subPartIndex, totalSubParts, bName, ordRanges.at(index));
-    };
+    zipNameForIndex =  //
+      [strategy, ordRanges, nameParts, subPartCounts, bName](std::size_t index) {
+        auto const [partIndex, subPartIndex] = nameParts.at(index);
+        auto const totalSubParts = subPartCounts.at(partIndex - 1);
+        return strategy(
+          partIndex,
+          subPartIndex,
+          totalSubParts,
+          bName,
+          ordRanges.at(index)
+        );
+      };
   } else {
     zipNameForIndex = makeDefaultZipNameStrategy(
       baseName,

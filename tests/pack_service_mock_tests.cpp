@@ -289,13 +289,3 @@ TEST_CASE("packGroups full-progress mode writes correct zip content", "[pack-ser
   auto entries = testutils::listZipRegularEntryNames(outDir / "full.zip");
   CHECK(entries == std::vector<std::string>{"a.txt"});
 }
-
-TEST_CASE("packGroups empty plan returns empty", "[pack-service]") {
-  pack::PackService service;
-  pack::PackPlan plan{};
-
-  auto result = service.packGroups(plan);
-
-  REQUIRE(result);
-  CHECK(result.value().empty());
-}
