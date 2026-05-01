@@ -4,7 +4,6 @@
 #include "infra/terminal.h"
 #include "pack/pack.h"
 #include "picture/picture_process.h"
-#include "utils/utils.h"
 #include "video/video_process.h"
 
 #include <filesystem>

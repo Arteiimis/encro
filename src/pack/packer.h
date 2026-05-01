@@ -1,16 +1,13 @@
 #pragma once
 
-#include "core/app_context.h"
 #include "core/error_handle.h"
 #include "core/progress.h"
 #include "pack/pack_types.h"
 #include "pack/packer_types.h"
-// IPacker abstraction removed — Packer is the sole concrete implementation
 
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
-#include <functional>
 #include <optional>
 #include <stop_token>
 #include <string>

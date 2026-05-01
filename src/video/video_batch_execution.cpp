@@ -1,22 +1,18 @@
 #include "video/video_batch_execution.h"
 
 #include "video/video_encode_runner.h"
-#include "video/video_progress_parser.h"
 #include "video/video_workflow_utils.h"
 
 #include "core/display_text.h"
 #include "core/job_state.h"
-#include "core/progress.h"
 #include "core/task_executor.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
 #include "utils/utils.h"
-#include "video/video_info.h"
 
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <format>
