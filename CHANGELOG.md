@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-01
+
+No user-visible changes: this milestone reworked the internal packing request into a declarative structure and removed an abstraction layer nothing polymorphically used.
+
 ## [1.3.0] - 2026-04-30
 
 No user-visible changes: this milestone moved the packing subsystem onto an object-oriented API and deleted the deprecated façade in front of it.
@@ -100,7 +104,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v1.3.0...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Arteiimis/encro/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Arteiimis/encro/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Arteiimis/encro/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Arteiimis/encro/compare/v1.0.0...v1.1.0

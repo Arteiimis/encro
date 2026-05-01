@@ -198,6 +198,65 @@
 
 ---
 
+## Milestone: v1.4 — Pack 接口简化 & 抽象层清理
+
+**Shipped:** 2026-05-01
+**Phases:** 3 | **Plans:** 9 | **Tasks:** 16
+
+### What Was Built
+
+- PackRequest declarative API: PackMode enum, NamingConfig, NamingMode, execute() declaration in single public header pack.h
+- pack::execute() single entry point — 3 consumers (pipeline/video/picture) migrated, archive_plan.cpp deleted
+- PackPlan fully internalized — no external consumer includes pack detail types
+- Grouping unified: groupPackEntriesWithSubparts eliminates single/double-layer fork for picture vs video
+- Naming internalized: NamingConfig + entryNameForFile callback replaces per-call-site name construction
+- Configuration centralized: compact from AppConfig.fullProgress, all CLI params via PackRequest fields
+- PackService static methods demoted to pack::internal namespace
+- IPacker abstract base deleted, Packer no longer inherits anything
+- PackService holds Packer by value — no unique_ptr indirection, no virtual dispatch
+- MockPacker deleted — mock tests rewritten as real Packer + TempDir integration tests (126 assertions)
+
+### What Worked
+
+- Phase 12-14 sequential progression was right: API design → internal refactoring → abstraction removal
+- pack.h as single public header kept the API surface minimal and discoverable
+- NamingConfig struct with designated-initializer defaults made migration ergonomic: consumers override only what they need
+- Demoting static methods to pack::internal was surgical — no behavioral change, just namespace move
+- Deleting IPacker was simpler than expected: only PackService constructor and MockPacker needed changes
+- Mock → integration test rewrite proved that real Packer + TempDir gives better coverage than mocks for zip I/O
+
+### What Was Inefficient
+
+- Phase 13 Plan 01 used map-based callback lookup (packCallbacksByApp) before realizing simpler callback-per-entry-site approach in Plan 04 — could have been first-pass design
+- Quick task formal status files remain missing — 3rd milestone carrying this gap forward
+- E2E CLI verification gap from v1.3 persists — test media environment never provisioned
+
+### Patterns Established
+
+- pack::execute() free function as single public entry point — facade-like but simpler than class wrapper
+- NamingConfig with designated-initializer defaults — ergonomic partial override for configuration
+- PackService value semantics: direct member, no heap allocation, no virtual dispatch
+- pack::internal namespace for demoted helpers — clean public/private boundary without C++20 modules
+- Integration tests over mocks for I/O-bound code: TempDir + real Packer gives better real-world coverage
+
+### Key Lessons
+
+1. Let the API design dictate the abstraction, not the other way around — IPacker was a v1.3 over-speculation that v1.4 removed cleanly
+2. Single public header constraint forces discipline: only what consumers actually need survives
+3. Value semantics beat unique_ptr when ownership is simple and deterministic — cleaner lifecycle, zero allocation
+4. Named callbacks beat map-lookup callbacks for 2-3 different paths — less indirection, easier to trace
+5. Integration tests with real I/O are often simpler and more valuable than mock-based tests for file system code
+
+### Cost Observations
+
+- Model: deepseek-v4-pro
+- 3 phases, 9 plans, 16 tasks executed
+- 2 files deleted (ipacker.h, packer_mock.h), 1 file deleted (archive_plan.cpp)
+- 8 quick tasks completed (6 missing formal status, 2 pending todos resolved by implementation)
+- 157 assertions pass (packer + pack-service integration), 945 total E2E assertions preserved
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -208,6 +267,7 @@
 | v1.1 | 3 | 7 | 8 | Pure refactoring: TDD RED gate cycle introduced |
 | v1.2 | 2 | 4 | 6 | Debt resolution: research-first, forensics audit |
 | v1.3 | 4 | 11 | 11 | OO refactor: incremental delivery, facade bridge, DI + mocks |
+| v1.4 | 3 | 9 | 16 | Interface simplification: single-entry API, abstraction removal |
 
 ### Cumulative Quality
 
@@ -217,6 +277,7 @@
 | v1.1 | 215 | 910 | 4 `.cpp` files | 0 |
 | v1.2 | 215 | 909 | 8 source files | 1 (narrow D-01 exception) |
 | v1.3 | 225 | 945 | 19 source files + 2 new headers | 5 new/rewritten headers |
+| v1.4 | 222 | 945 | 12 source files | 2 deleted, 1 simplified |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -224,3 +285,6 @@
 2. Audit/fix/verify cycle catches integration gaps that single-phase testing misses — validated v1.0→v1.2
 3. Research before structural changes prevents wasted work — validated v1.2 (STRUCT-01 cancellation)
 4. TDD RED gate worth it for complex refactors, skip for trivial changes — validated v1.1→v1.2
+5. Value semantics > smart pointer indirection when ownership is simple — validated v1.4 (IPacker removal)
+6. Named callbacks > map-lookup for small dispatch sets — validated v1.4 (NamingConfig callback design)
+7. Integration tests > mocks for I/O-bound code — validated v1.4 (MockPacker → Packer + TempDir tests)

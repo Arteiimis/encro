@@ -4,7 +4,7 @@
 #include "core/job_state.h"
 #include "core/progress.h"
 #include "infra/terminal.h"
-#include "pack/pack_service.h"
+#include "pack/pack_internal.h"
 
 #include <libzippp/libzippp.h>
 #include <spdlog/spdlog.h>
@@ -756,7 +756,7 @@ auto pack::Packer::buildDirectoryPackPlan(
   );
 
   auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
-  auto const ordinalRanges = PackService::buildGroupOrdinalRanges(groupedFiles);
+  auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groupedFiles);
   auto groupedEntries = std::vector<std::vector<pack::PackFileEntry>>{};
   groupedEntries.reserve(groupedFiles.size());
   for (auto const& group: groupedFiles) {
@@ -780,7 +780,7 @@ auto pack::Packer::buildDirectoryPackPlan(
     .outputDir = zipFileDir,
     .zipNameForIndex =
       [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
-        return PackService::appendOrdinalRangeSuffix(
+        return pack::internal::appendOrdinalRangeSuffix(
           std::format("{}_part{}.zip", dirName, index + 1),
           ordinalRanges.at(index)
         );
