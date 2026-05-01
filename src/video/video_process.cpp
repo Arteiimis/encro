@@ -8,8 +8,7 @@
 #include "core/job_state.h"
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
-#include "pack/pack_service.h"
-#include "pack/packer.h"
+#include "pack/pack.h"
 #include "video/video_info.h"
 #include "utils/utils.h"
 
@@ -386,66 +385,45 @@ auto packEncodedVideos(
     return 0;
   }
 
-  auto const groupedFiles = groupEncodedVideosForPack(encodedOutputFiles);
   auto const zipOutputDir = resolveVideoPackOutputPath(ctx.config, inputPath);
-
   fs::create_directories(zipOutputDir);
+
+  // Flatten: collect all output file paths
+  auto filePaths = std::vector<fs::path>{};
+  filePaths.reserve(encodedOutputFiles.size());
+  for (auto const& encodedFile: encodedOutputFiles) {
+    filePaths.push_back(encodedFile.outputPath);
+  }
 
   terminal::println(
     Info,
-    "Packing {} encoded video(s) into {} archive(s)...",
-    terminal::count(encodedOutputFiles.size()),
-    terminal::count(groupedFiles.size())
+    "Packing {} encoded video(s)...",
+    terminal::count(filePaths.size())
   );
   spdlog::info(
-    "Packing plan: files={} archives={} output-dir={}",
-    encodedOutputFiles.size(),
-    groupedFiles.size(),
+    "Packing plan: files={} output-dir={}",
+    filePaths.size(),
     zipOutputDir.string()
   );
 
-  auto const ordinalRanges = pack::PackService::buildGroupOrdinalRanges(groupedFiles);
-  auto groupedEntries = std::vector<std::vector<pack::PackFileEntry>>{};
-  groupedEntries.reserve(groupedFiles.size());
-  for (auto const& group: groupedFiles) {
-    auto entries = std::vector<pack::PackFileEntry>{};
-    entries.reserve(group.size());
-    for (auto const& filePath: group) {
-      entries.emplace_back(
-        pack::PackFileEntry{
-          .sourcePath = filePath,
-          .zipEntryName = filePath.filename().generic_string(),
-        }
-      );
+  auto const packRes = pack::execute(
+    pack::PackRequest{
+      .entries = std::move(filePaths),
+      .mode = pack::PackMode::Media,
+      .outputDir = zipOutputDir,
+      .compact = !ctx.config.fullProgress,
+      .maxParallelJobs = ctx.config.maxParallelJobs,
+      .jobState = ctx.runtime.jobState.get(),
     }
-    groupedEntries.push_back(std::move(entries));
-  }
+  );
 
-  auto plan = pack::PackPlan{
-    .groups = std::move(groupedEntries),
-    .outputDir = zipOutputDir,
-    .zipNameForIndex =
-      [ordinalRanges](std::size_t index) {
-        return pack::PackService::appendOrdinalRangeSuffix(
-          std::format("encoded_videos_part{}.zip", index + 1),
-          ordinalRanges.at(index)
-        );
-      },
-    .maxParallelJobs = ctx.config.maxParallelJobs,
-    .compact = !ctx.config.fullProgress
-  };
-
-  pack::PackService svc(std::make_unique<pack::Packer>());
-  auto const packRes = svc.runPackPlan(ctx, plan);
   if (!packRes) {
     spdlog::error("Failed to pack encoded videos: {}", packRes.error());
     return 1;
   }
-
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
   spdlog::info("Packing completed: archive-count={}", packRes->zippedFiles.size());
-
   return 0;
 }
 

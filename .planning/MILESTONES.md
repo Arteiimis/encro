@@ -1,5 +1,30 @@
 # MILESTONES.md
 
+## v1.4 Pack 接口简化 & 抽象层清理 (Shipped: 2026-05-01)
+
+**Phases completed:** 3 phases, 9 plans, 16 tasks
+
+**Key accomplishments:**
+
+1. PackRequest declarative type, PackMode enum, NamingConfig, and execute() declaration in single public header pack.h — PackRunResult moved from pack_types.h, zero behavior regressions across 945 assertions
+2. 3 consumers migrated to pack::execute() (pipeline/video/picture) — archive_plan.cpp deleted, direct PackPlan access eliminated
+3. PackService static helpers moved to pack::internal namespace, all call sites updated, 222 non-compress tests pass (864 assertions), compress tests pass individually
+4. Grouping unified — groupPackEntriesWithSubparts eliminates single/double-layer fork, naming internalized via NamingConfig + entryNameForFile callback
+5. IPacker abstract base deleted, PackService holds Packer by value, MockPacker removed — 126 assertions pass (56 packer + 70 pack-service), build green
+
+### Known Gaps
+
+- E2E CLI verification (8 paths) deferred — requires test media + FFmpeg (from v1.3, still deferred)
+- 6 quick tasks missing formal status files — acknowledged at v1.2 close, re-acknowledged at v1.4 close
+- 2 pending todos resolved by v1.4 implementation (pack-simplify-single-entry, remove-ipacker-abstraction)
+
+### Archives
+
+- `.planning/milestones/v1.4-ROADMAP.md` — Full milestone roadmap
+- `.planning/milestones/v1.4-REQUIREMENTS.md` — Requirements archive
+
+---
+
 ## v1.3 — Pack Subsystem OO Refactor
 
 **Shipped:** 2026-04-30

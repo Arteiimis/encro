@@ -1,7 +1,7 @@
 #include "video/video_output_planning.h"
 
 #include "core/collision_naming.h"
-#include "pack/packer.h"
+
 #include "video/encode_config.h"
 
 #include <algorithm>
@@ -10,8 +10,6 @@
 
 namespace fs = std::filesystem;
 namespace naming = collisionnaming;
-
-using namespace pack::detail;
 
 namespace {
 
@@ -172,37 +170,4 @@ auto resolveVideoPackOutputPath(
 
   auto const basePath = fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
   return basePath / "packed";
-}
-
-auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
-  -> std::vector<std::vector<fs::path>> {
-  auto packInputs = std::vector<PackGroupInput>{};
-  packInputs.reserve(filePaths.size());
-  for (auto const& filePath: filePaths) {
-    packInputs.emplace_back(PackGroupInput{filePath, filePath.parent_path()});
-  }
-
-  pack::Packer packer;
-  return packer.groupPackFiles(packInputs, pack::kDefaultMaxArchiveGroupSize);
-}
-
-auto groupEncodedVideosForPack(
-  std::vector<EncodedVideoPackFile> const& filePaths,
-  std::size_t keepSourceDirsTogetherWhenTotalFilesExceed
-) -> std::vector<std::vector<fs::path>> {
-  auto packInputs = std::vector<PackGroupInput>{};
-  packInputs.reserve(filePaths.size());
-  for (auto const& file: filePaths) {
-    packInputs.emplace_back(
-      PackGroupInput{file.outputPath, file.sourcePath.parent_path()}
-    );
-  }
-
-  pack::Packer packer;
-  return packer.groupPackFiles(
-    packInputs,
-    pack::kDefaultMaxArchiveGroupSize,
-    std::nullopt,
-    keepSourceDirsTogetherWhenTotalFilesExceed
-  );
 }

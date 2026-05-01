@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Pack 接口简化 & 抽象层清理
-status: Planned Phase 12
-stopped_at: Phase 12 plans created (4 plans, 3 waves)
-last_updated: "2026-04-30T14:35:00.000Z"
-last_activity: 2026-04-30 — Phase 12 plans created and verified
+status: completed
+stopped_at: Session resumed, proceeding to plan Phase 12
+last_updated: "2026-05-01T10:15:59.725Z"
+last_activity: 2026-05-01
 progress:
-  total_phases: 1
-  completed_phases: 0
-  total_plans: 4
-  completed_plans: 0
+  total_phases: 3
+  completed_phases: 3
+  total_plans: 9
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State
@@ -20,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-30)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** Phase 12 planned — PackRequest 声明式 API & 配置注入
+**Current focus:** v1.4 milestone — COMPLETE
 
 ## Current Position
 
-Phase: 12 (Planned)
-Plan: 4 plans (12-01, 12-02, 12-03, 12-04) in 3 waves
-Status: Ready for execution
-Last activity: 2026-04-30 — Phase 12 plans created and verified
+Phase: 14 (remove-ipacker) — COMPLETE
+Plan: 1 of 1
+Status: v1.4 milestone complete — all 3 phases executed, 157 assertions pass
+Last activity: 2026-05-01
 
 ## Performance Metrics
 
@@ -53,6 +54,8 @@ Last activity: 2026-04-30 — Phase 12 plans created and verified
 | 9. Service Class Extraction | 4 | v1.3 | Complete |
 | 10. DI & Testability | 5 | v1.3 | Complete |
 | 11. Consumer Migration & Cleanup | 1 | v1.3 | Complete |
+| 12. PackRequest 声明式 API & 配置注入 | 4 | v1.4 | Complete |
+| 13. 分组统一 & 命名内化 | 4 | v1.4 | Complete |
 
 *Updated after each plan completion*
 
@@ -71,10 +74,13 @@ Recent decisions from v1.3:
 - [Phase 10]: D-01 IPacker interface at archive granularity (3 virtual methods); no hot-path dispatch
 - [Phase 10]: D-03 MockPacker capture-recording design; D-05 added 10 unit tests with 36 assertions
 - [Phase 11]: D-01 All consumers migrated in single commit; D-05 8 E2E paths verified
+- [Phase 12]: D-01~D-14 PackRequest 声明式入口 + execute() 自由函数；pack.h 唯一公开头文件；archive_plan.cpp 删除；PackService 静态方法降级为 internal；3 consumers 迁移到 pack::execute()
+
+- [Phase 13]: D-01~D-14 分组统一 (groupPackEntriesWithSubparts) + 命名内化 (NamingConfig扩展 + entryNameForFile callback)；picture_process 非压缩路径直接调用 pack::execute()；groupEncodedVideosForPack/buildPicturePackPlan 删除
 
 ### Blockers/Concerns
 
-None — all v1.3 phases complete, 945 assertions pass.
+None — Phase 13 complete, all tests pass.
 
 - E2E CLI verification task (Phase 11 Task 11) deferred — requires test media + FFmpeg (known gap)
 
@@ -110,6 +116,19 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-04-29:
 | quick_task | 260429-2gx-fix-finalizing-spinner-flashing-before-f | Deferred — missing formal status file |
 | quick_task | 260429-2tn-archive-completion-hook-flashes-packing- | Deferred — missing formal status file |
 | quick_task | 260429-34v-refactor-packgroups-function-in-pack-ser | Deferred — missing formal status file |
+
+Items acknowledged and deferred at v1.4 milestone close on 2026-05-01:
+
+| Category | Item | Status |
+|----------|------|--------|
+| quick_task | 260429-1c4-fix-package-progress-bar | Deferred — missing formal status file (continued from v1.2) |
+| quick_task | 260429-1iq-pack-progress-bar-fix | Deferred — missing formal status file (continued from v1.2) |
+| quick_task | 260429-1yf-zip-100 | Deferred — missing formal status file (continued from v1.2) |
+| quick_task | 260429-2gx-fix-finalizing-spinner-flashing-before-f | Deferred — missing formal status file (continued from v1.2) |
+| quick_task | 260429-2tn-archive-completion-hook-flashes-packing- | Deferred — missing formal status file (continued from v1.2) |
+| quick_task | 260429-34v-refactor-packgroups-function-in-pack-ser | Deferred — missing formal status file (continued from v1.2) |
+| todo | pack-simplify-single-entry.md | Resolved — PackRequest single entry implemented in Phase 12 |
+| todo | remove-ipacker-abstraction.md | Resolved — IPacker abstraction removed in Phase 14 |
 
 ## Session Continuity
 

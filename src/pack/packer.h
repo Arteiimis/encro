@@ -5,7 +5,7 @@
 #include "core/progress.h"
 #include "pack/pack_types.h"
 #include "pack/packer_types.h"
-#include "pack/ipacker.h"
+// IPacker abstraction removed — Packer is the sole concrete implementation
 
 #include <atomic>
 #include <cstdint>
@@ -19,7 +19,7 @@
 
 namespace pack {
 
-class Packer final: public IPacker {
+class Packer final {
 public:
   Packer() = default;
 
@@ -36,14 +36,14 @@ public:
     std::filesystem::path const& zipFilePath,
     progress::ProgressContext& progressCtx,
     std::string_view progressText
-  ) -> eh::Result<void> override;
+  ) -> eh::Result<void>;
 
   auto packFilesToZip(
     std::vector<PackFileEntry> const& entries,
     std::filesystem::path const& zipFilePath,
     pack::detail::PackEntryProgressCallback onEntryPacked = {},
     std::atomic<std::size_t>* finalizingCount = nullptr
-  ) -> eh::Result<void> override;
+  ) -> eh::Result<void>;
 
   auto groupFilesBySize(
     std::vector<std::filesystem::path> const& filePaths,
@@ -87,7 +87,7 @@ public:
     bool forceNameConflictHandling = false,
     std::optional<std::size_t> maxParallelJobs = std::nullopt,
     std::optional<std::filesystem::path> excludedPath = std::nullopt
-  ) -> eh::Result<PackPlan> override;
+  ) -> eh::Result<PackPlan>;
 
 private:
   struct PreparedPackEntry;

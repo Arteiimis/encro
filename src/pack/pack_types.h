@@ -1,7 +1,5 @@
 #pragma once
 
-#include "core/error_handle.h"
-
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -14,11 +12,6 @@
 namespace fs = std::filesystem;
 
 namespace pack {
-
-struct PackRunResult {
-  int exitCode = 0;
-  std::vector<fs::path> zippedFiles;
-};
 
 struct PackFileEntry {
   fs::path sourcePath;

@@ -2,8 +2,7 @@
 
 #include "core/job_state.h"
 #include "infra/terminal.h"
-#include "pack/pack_service.h"
-#include "pack/packer.h"
+#include "pack/pack.h"
 #include "picture/picture_process.h"
 #include "utils/utils.h"
 #include "video/video_process.h"
@@ -49,8 +48,26 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
     return eh::makeError("pack-only mode requires input to be a directory.");
   }
 
-  pack::PackService svc(std::make_unique<pack::Packer>());
-  return svc.runDirectoryPackWorkflow(ctx, ctx.config.inputPath);
+  auto const outputDir = ctx.config.outputPath.value_or(ctx.config.inputPath) / "packed";
+
+  auto const packRes = pack::execute(
+    pack::PackRequest{
+      .entries = {ctx.config.inputPath},
+      .mode = pack::PackMode::Directory,
+      .outputDir = outputDir,
+      .compact = !ctx.config.fullProgress,
+      .naming =
+        pack::NamingConfig{
+          .layout = ctx.config.outputLayout,
+          .forceConflictHandling = ctx.config.forceNameConflictHandling,
+        },
+      .maxParallelJobs = ctx.config.maxParallelJobs,
+      .jobState = ctx.runtime.jobState.get(),
+    }
+  );
+
+  if (!packRes) { return eh::makeError("{}", packRes.error()); }
+  return packRes->exitCode;
 }
 
 auto runVideo(appctx::AppContext& ctx) -> eh::Result<int> {
