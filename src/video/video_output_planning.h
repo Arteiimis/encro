@@ -6,7 +6,6 @@
 #include <filesystem>
 #include <optional>
 #include <span>
-#include <vector>
 
 namespace fs = std::filesystem;
 
