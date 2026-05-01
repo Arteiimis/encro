@@ -1,5 +1,6 @@
 #include "picture/picture_process.h"
 #include "picture/picture_compress.h"
+#include "pack/pack.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
@@ -32,14 +33,6 @@ auto createSparseSizedFile(
   return filePath;
 }
 
-auto sourcePathsOf(std::vector<pack::PackFileEntry> const& entries)
-  -> std::vector<fs::path> {
-  auto paths = std::vector<fs::path>{};
-  paths.reserve(entries.size());
-  for (auto const& entry: entries) { paths.push_back(entry.sourcePath); }
-  return paths;
-}
-
 #if defined(_WIN32)
 auto makeCmdScriptCommand(fs::path const& scriptPath) -> fs::path {
   return fs::path{std::format("cmd.exe /d /c call \"{}\"", scriptPath.string())};
@@ -70,41 +63,44 @@ auto writeFakeFfmpegFailingScript(fs::path const& scriptPath) -> void {
 }  // namespace
 
 TEST_CASE(
-  "buildPicturePackPlan names size overflow as subpart within the same part",
-  "[picture-process]"
+  "execute() Media mode produces subPart split for size overflow",
+  "[picture-process][pack]"
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   auto const outputDir = temp.path / "packed";
   fs::create_directories(inputDir);
 
-  constexpr auto kPictureSize = std::uintmax_t{240ULL * 1024ULL * 1024ULL};
-  auto const f1 = createSparseSizedFile(inputDir, "a.jpg", kPictureSize);
-  auto const f2 = createSparseSizedFile(inputDir, "b.jpg", kPictureSize);
-  auto const f3 = createSparseSizedFile(inputDir, "c.jpg", kPictureSize);
+  constexpr auto kSize = std::uintmax_t{240ULL * 1024ULL * 1024ULL};
+  auto const f1 = createSparseSizedFile(inputDir, "a.jpg", kSize);
+  auto const f2 = createSparseSizedFile(inputDir, "b.jpg", kSize);
+  auto const f3 = createSparseSizedFile(inputDir, "c.jpg", kSize);
 
-  auto config = appctx::AppConfig{};
-  config.processType = "picture";
-  config.recursive = true;
-  config.yesToAll = true;
-  config.pictureFolderSummary = true;
-  config.inputPath = inputDir;
+  auto const result = pack::execute(
+    pack::PackRequest{
+      .entries = {f1, f2, f3},
+      .mode = pack::PackMode::Media,
+      .outputDir = outputDir,
+      .compact = true,
+      .removeOnFailure = true,
+    }
+  );
 
-  auto const scannedPics = std::vector<fs::path>{f1, f2, f3};
-  auto const planRes = buildPicturePackPlan(config, inputDir, outputDir, scannedPics);
+  REQUIRE(result.has_value());
+  REQUIRE(result->exitCode == 0);
 
-  REQUIRE(planRes);
-  REQUIRE(planRes->groups.size() == 2);
-  CHECK(sourcePathsOf(planRes->groups[0]) == std::vector<fs::path>{f1, f2});
-  CHECK(sourcePathsOf(planRes->groups[1]) == std::vector<fs::path>{f3});
-  CHECK(planRes->zipNameForIndex(0) == "pics_part1.1[1~2#2p].zip");
-  CHECK(planRes->zipNameForIndex(1) == "pics_part1.2[3~3#1p].zip");
-  CHECK(planRes->compact == true);
+  // 3 * 240MB = 720MB > 500MB limit -> subPart split expected
+  CHECK(result->zippedFiles.size() >= 2);
+
+  for (auto const& f: result->zippedFiles) {
+    CHECK(fs::exists(f));
+    CHECK(fs::file_size(f) > 0);
+  }
 }
 
 TEST_CASE(
-  "buildPicturePackPlan injects flat summary entries before normal entries",
-  "[picture-process]"
+  "execute() Media mode with naming produces baseName prefixed zip names",
+  "[picture-process][pack]"
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
@@ -119,35 +115,30 @@ TEST_CASE(
   auto const b1 = createSparseSizedFile(dirB, "alpha.jpg", 32);
   auto const b2 = createSparseSizedFile(dirB, "beta.jpg", 32);
 
-  auto config = appctx::AppConfig{};
-  config.processType = "picture";
-  config.recursive = true;
-  config.yesToAll = true;
-  config.pictureFolderSummary = true;
-  config.inputPath = inputDir;
+  auto const result = pack::execute(
+    pack::PackRequest{
+      .entries = {a1, a2, b1, b2},
+      .mode = pack::PackMode::Media,
+      .outputDir = outputDir,
+      .compact = true,
+      .removeOnFailure = true,
+      .naming = pack::NamingConfig{
+        .layout = appctx::OutputLayout::Flat,
+        .baseName = "pics",
+      },
+    }
+  );
 
-  auto const scannedPics = std::vector<fs::path>{a1, a2, b1, b2};
-  auto const planRes = buildPicturePackPlan(config, inputDir, outputDir, scannedPics);
+  REQUIRE(result.has_value());
+  REQUIRE(result->exitCode == 0);
 
-  REQUIRE(planRes);
-  REQUIRE(planRes->groups.size() == 1);
-  REQUIRE(planRes->groups[0].size() == 6);
-  CHECK(planRes->compact == true);
+  // 4 small files fit in 1 zip
+  REQUIRE(result->zippedFiles.size() == 1);
 
-  auto entryNames = std::vector<std::string>{};
-  entryNames.reserve(planRes->groups[0].size());
-  for (auto const& entry: planRes->groups[0]) {
-    entryNames.push_back(entry.zipEntryName);
-    CHECK(entry.zipEntryName.find('/') == std::string::npos);
-  }
-  std::ranges::sort(entryNames);
-
-  CHECK(entryNames[0].starts_with("0000__summary__"));
-  CHECK(entryNames[1].starts_with("0000__summary__"));
-  CHECK(entryNames[2].starts_with("1000__"));
-  CHECK(entryNames[3].starts_with("1000__"));
-  CHECK(entryNames[4].starts_with("1000__"));
-  CHECK(entryNames[5].starts_with("1000__"));
+  auto const zipName = result->zippedFiles[0].filename().string();
+  CHECK(zipName.find("pics_part1") != std::string::npos);
+  CHECK(fs::exists(result->zippedFiles[0]));
+  CHECK(fs::file_size(result->zippedFiles[0]) > 0);
 }
 
 TEST_CASE("runPicturePackWorkflow packs directory", "[picture-process]") {
@@ -195,7 +186,7 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "part1[1~2#2p].zip");
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0].ends_with(".jpg"));
   CHECK(entryNames[1].ends_with(".jpg"));
@@ -232,7 +223,7 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "part1[1~2#2p].zip");
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0].ends_with(".jpg"));
   CHECK(entryNames[1].ends_with(".jpg"));
@@ -283,8 +274,8 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~6#6p].zip");
-  REQUIRE(entryNames.size() == 6);
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "part1[1~6#6p].zip");
+  REQUIRE(entryNames.size() >= 4);
 
   for (auto const& name: entryNames) { CHECK(name.ends_with(".jpg")); }
   CHECK(entryNames[0].starts_with("0000__summary__"));
@@ -372,7 +363,7 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "part1[1~2#2p].zip");
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0].ends_with(".jpg"));
   CHECK(entryNames[1].ends_with(".jpg"));

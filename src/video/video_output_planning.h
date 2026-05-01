@@ -28,11 +28,3 @@ auto resolveVideoPackOutputPath(
   appctx::AppConfig const& config,
   fs::path const& inputPath
 ) -> fs::path;
-
-auto groupEncodedVideosForPack(std::vector<fs::path> const& filePaths)
-  -> std::vector<std::vector<fs::path>>;
-
-auto groupEncodedVideosForPack(
-  std::vector<EncodedVideoPackFile> const& filePaths,
-  std::size_t keepSourceDirsTogetherWhenTotalFilesExceed = 2000
-) -> std::vector<std::vector<fs::path>>;

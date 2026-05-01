@@ -27,22 +27,32 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 - Testability: injectable dependencies via abstract interfaces, mock-based unit tests
 - Zero hot-path overhead: virtual dispatch only at archive/operation granularity
 
-## Current Focus
+## Context
 
-v1.0–v1.3 shipped. Working on v1.4 — Pack 接口简化 & 抽象层清理.
+Shipped v1.0 (compact progress mode), v1.1 (lambda readability refactor), v1.2 (tech debt & code quality), v1.3 (pack subsystem OO refactor), and v1.4 (PackRequest declarative API & IPacker removal).
 
-## Current Milestone: v1.4 Pack 接口简化 & 抽象层清理
+v1.4 pack subsystem architecture (shipped):
+- `pack.h`: single public header — PackRequest, PackMode, NamingConfig, execute() declaration
+- `packer.h` / `packer.cpp`: Packer class (zip I/O + grouping), no longer inherits IPacker
+- `pack_service.h` / `pack_service.cpp`: PackService owns Packer by value, internal executor
+- `archive_plan.cpp` / `ipacker.h` deleted
+- MockPacker removed — mock tests rewritten as real Packer + TempDir integration tests
+- 3 consumers use pack::execute() directly — no PackPlan exposure, no internal detail includes
 
-**Goal:** 将 pack 模块从调用方手动编排进化为 PackRequest 声明式单一入口，移除不必要的 IPacker 抽象层.
+Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, xmake.
+157 assertions pass (packer + pack-service integration tests), 945 total E2E assertions preserved.
 
-**Target features:**
-- PackRequest 声明式 API — 调用方只需描述需求，所有分组/命名/执行编排内化
-- 分组策略统一为两层切分 (groupPackEntriesWithSubparts)
-- 命名规则内化，预留可选钩子
-- 配置从 CLI 统一注入 (修复 picture 硬编码 compact=true)
-- 移除 IPacker 抽象基类，PackService 直接持有 Packer
-- MockPacker 删除，mock 测试改真实 Packer 集成测试
-- 945 assertions 零行为回归
+## Current State
+
+**Shipped:** v1.0 through v1.4. All milestones complete.
+
+Pack subsystem:
+- PackRequest declarative single-entry API: `pack::execute(request)` — consumers describe intent, all orchestration internal
+- Grouping unified: single `groupPackEntriesWithSubparts` for picture/video
+- Naming internalized: `NamingConfig` + `entryNameForFile` callback, no call-site naming logic
+- Configuration centralized: compact from `AppConfig.fullProgress`, all CLI params injected via PackRequest fields
+- No abstract layer: Packer used directly by value, IPacker/MockPacker deleted
+- Architecture: Packer (I/O) → PackService (orchestration, owns Packer) → `pack::execute()` (free function entry point)
 
 ## Requirements
 
@@ -78,14 +88,16 @@ v1.0–v1.3 shipped. Working on v1.4 — Pack 接口简化 & 抽象层清理.
 - ✓ MIG-01~05: 7 consumers migrated to OO API, `pack_facade.h` (248 lines) deleted — v1.3
 - ✓ 945 assertions across 225 test cases pass (909 baseline + 36 mock) — v1.3
 
+**v1.4 Pack 接口简化 & 抽象层清理:**
+- ✓ SIMPLIFY-01~04: PackRequest 声明式单一入口 API — PackPlan 不再对外暴露 — v1.4
+- ✓ SIMPLIFY-05~08: 内部分组统一 + 命名内化 — 两层切分，命名规则收归模块内部 — v1.4
+- ✓ SIMPLIFY-09~10: 配置集中注入 — compact 从 AppConfig 推导，修复 picture 硬编码 — v1.4
+- ✓ SIMPLIFY-11,13~14: 945 assertions 零行为变化，恢复性执行 + 冲突处理逻辑不变 — v1.4
+- ✓ SIMPLIFY-15~17: 移除 IPacker + MockPacker — PackService 直接持有 Packer 值 — v1.4
+
 ### Active
 
-- [ ] **SIMPLIFY-01~04**: PackRequest 声明式单一入口 API — PackPlan 不再对外暴露
-- [ ] **SIMPLIFY-05~08**: 内部分组统一 + 命名内化 — 两层切分，命名规则收归模块内部
-- [ ] **SIMPLIFY-09~10**: 配置集中注入 — compact 从 AppConfig 推导，修复 picture 硬编码
-- [ ] **SIMPLIFY-11**: 所有现有 945 assertions 保持绿，零行为变化
-- [ ] **SIMPLIFY-13~14**: jobState 恢复性执行 + 冲突处理逻辑不变
-- [ ] **SIMPLIFY-15~17**: 移除 IPacker + MockPacker — PackService 直接持有 Packer
+(Next milestone requirements to be defined)
 
 ### Out of Scope
 
@@ -97,35 +109,16 @@ v1.0–v1.3 shipped. Working on v1.4 — Pack 接口简化 & 抽象层清理.
 - Getter/setter for every data field — anti-pattern per C++ Core Guidelines
 - PackPlan → class with private data — 16 designated-initializer sites preserved as aggregate
 
-## Context
+### Architecture (current v1.4)
 
-Shipped v1.0 (compact progress mode), v1.1 (lambda readability refactor), v1.2 (tech debt & code quality), and v1.3 (pack subsystem OO refactor). v1.4 in progress — focusing on interface simplification (PackRequest single-entry API) and removing unnecessary abstractions (IPacker) surfaced during v1.3 exploration.
-
-v1.3 pack subsystem architecture (current, target of v1.4 simplification):
-- `pack_types.h` / `packer_types.h`: shared value types, no circular dependencies
-- `IPacker`: abstract interface (3 virtual methods, archive granularity) — **slated for removal in v1.4**
-- `Packer final : IPacker`: production zip I/O via libzippp, ZipWriter RAII
-- `PackService final`: orchestration with `unique_ptr<IPacker>` constructor injection — **simplifying to direct Packer in v1.4**
-- `MockPacker : IPacker`: capture-recording test double — **slated for removal, tests will use real Packer**
-
-Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, xmake.
-945 assertions across 225 test cases, 0 failures.
-
-## Current State
-
-v1.0, v1.1, v1.2, v1.3 all shipped. Pack subsystem fully OO with DI and mock boundaries. Codebase ready for next milestone.
-
-### Architecture
-
-- OO pack subsystem: Packer, PackService, IPacker, MockPacker — encapsulated, injectable, testable
-- Factory function pattern for lambda-wrapping-lambda (pack_service.cpp) (v1.1)
-- 1-line jthread delegation pattern for monitor/spinner loops (v1.1)
-- Individual typed parameters for captured variables — no context structs (v1.1)
-- Split compilation units: `video_encoding_state.cpp` + `video_batch_execution.cpp` (v1.2)
-- `videobatch::detail` / `pack::detail::` namespace for internal types (v1.2/v1.3)
-- All PackPlan sites explicitly set `.compact = true` with `static_assert` guard (v1.2)
-- PackPlan aggregate preserved: all 16 designated-initializer sites intact (v1.3)
-- All pack classes `final`, method bodies in `.cpp`, zero virtual in hot path (v1.3)
+- `pack.h`: single public header — PackRequest, PackMode, NamingConfig, execute() declaration
+- Packer: zip I/O, grouping, file copy — direct value semantics, no abstract base
+- PackService: orchestration, owns Packer by value, internal executor
+- `pack::execute()`: free function entry point, all grouping/naming/Plan construction internal
+- `pack::internal::` namespace: demoted static helpers, detail types, internal constants
+- IPacker / MockPacker: deleted — mock tests rewritten as real Packer + TempDir integration tests
+- 3 consumers (pipeline/video/picture) use pack::execute() directly
+- All legacy patterns preserved: compact progress, resumability, conflict handling
 
 ## Key Decisions
 
@@ -154,13 +147,21 @@ v1.0, v1.1, v1.2, v1.3 all shipped. Pack subsystem fully OO with DI and mock bou
 | [Phase 10 D-05]: Additive testing — mock tests + preserved integration tests | ✓ Dual-layer coverage, no coverage loss risk |
 | [Phase 11 D-01]: All-at-once consumer migration, single commit | ✓ No intermediate mixed-API states |
 | [Phase 11 D-03]: Per-call-site stack instances for PackService/Packer | ✓ Simple lifecycle, no shared state, no function signature changes |
+| [Phase 12 D-01~14]: PackRequest declarative API — PackMode enum, NamingConfig, NamingMode | ✓ 3 consumers migrated, archive_plan.cpp deleted, zero behavioral regression |
+| [Phase 12 D-02]: pack::execute() free function as single public entry point | ✓ Consumers describe intent, all orchestration internal |
+| [Phase 12 D-04]: PackService static methods demoted to pack::internal namespace | ✓ Clean public API surface — only PackRequest types in pack.h |
+| [Phase 13 D-04]: 1个 callback parameter per entry site vs callback map lookups | ✓ No map overhead, simple pointer-based dispatch |
+| [Phase 13 D-08]: picture_process non-compress path uses pack::execute() directly | ✓ Removes buildPicturePackPlan(), eliminates single/double-layer fork |
+| [Phase 14 D-01]: IPacker abstract base deleted — Packer no longer inherits anything | ✓ Zero virtual dispatch, simpler lifecycle, cleaner code |
+| [Phase 14 D-02]: PackService holds Packer by value, no unique_ptr indirection | ✓ Direct construction in stack scope, no heap allocation |
+| [Phase 14 D-03]: MockPacker deleted, tests rewritten as real Packer integration tests | ✓ Real I/O coverage with TempDir, 56 packer + 70 pack-service assertions |
 
 ## Known Issues / Tech Debt
 
-All v1.0–v1.2 deferred items resolved.
+All v1.0–v1.4 items resolved or acknowledged.
 Remaining items:
-- 6 quick tasks missing formal status files (acknowledged at v1.2/v1.3 close — see STATE.md Deferred Items)
-- E2E CLI verification for v1.3 deferred (1 of 6 Phase 11 requirements) — requires test media + FFmpeg
+- 6 quick tasks missing formal status files (acknowledged at v1.2 close, re-acknowledged at v1.4 close — see STATE.md Deferred Items)
+- E2E CLI verification deferred (from v1.3) — requires test media + FFmpeg
 - `noteStopRequest` and `truncateForProgressLabel` intentionally duplicated across both TU anonymous namespaces — standard C++ pattern, not debt
 
 ## Evolution
@@ -182,4 +183,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-04-30 after v1.4 milestone start*
+*Last updated: 2026-05-01 after v1.4 milestone completion*

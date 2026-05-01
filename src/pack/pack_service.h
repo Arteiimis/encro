@@ -2,45 +2,22 @@
 
 #include "core/app_context.h"
 #include "core/error_handle.h"
+#include "pack/pack.h"
 #include "pack/pack_types.h"
+#include "pack/packer.h"
 
 #include <filesystem>
-#include <functional>
-#include <memory>
 #include <optional>
-#include <span>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace fs = std::filesystem;
 
 namespace pack {
 
-class IPacker;  // forward declaration
-
 class PackService final {
 public:
-  explicit PackService(std::unique_ptr<IPacker> packer);
-
-  static auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
-    -> std::vector<FileOrdinalRange>;
-  static auto
-  buildGroupOrdinalRanges(std::vector<std::vector<PackFileEntry>> const& groups)
-    -> std::vector<FileOrdinalRange>;
-  static auto
-  appendOrdinalRangeSuffix(std::string_view fileName, FileOrdinalRange const& range)
-    -> std::string;
-  static auto defaultZipNameForIndex(std::size_t index) -> std::string;
-  static auto defaultProgressLabelForZipName(std::string_view zipName) -> std::string;
-  static auto resolveZipNameForIndex(PackPlan const& plan, std::size_t index)
-    -> std::string;
-  static auto resolveProgressLabelForIndex(PackPlan const& plan, std::size_t index)
-    -> std::string;
-
-  static auto
-  selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> indexes)
-    -> PackPlan;
+  PackService() = default;
 
   auto runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
     -> eh::Result<PackRunResult>;
@@ -60,16 +37,7 @@ public:
   ) -> eh::Result<int>;
 
 private:
-  std::unique_ptr<IPacker> packer_;
-
-  static auto makeSubsetZipNameResolver(
-    std::function<std::string(std::size_t)> const& originalResolver,
-    std::shared_ptr<std::vector<std::size_t>> const& selectedIndexes
-  ) -> std::function<std::string(std::size_t)>;
-  static auto makeSubsetProgressLabelResolver(
-    std::function<std::string(std::size_t)> const& originalResolver,
-    std::shared_ptr<std::vector<std::size_t>> const& selectedIndexes
-  ) -> std::function<std::string(std::size_t)>;
+  Packer packer_;
 
   auto packGroupsCompact(PackPlan const& plan) -> eh::Result<std::vector<fs::path>>;
   auto packGroupsFull(PackPlan const& plan) -> eh::Result<std::vector<fs::path>>;
