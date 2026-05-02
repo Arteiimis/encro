@@ -146,10 +146,8 @@ void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& execu
       {
         auto lock = std::scoped_lock{activeState->mtx};
         activeState->lastProgress = progress.value();
-        activeState->lastProgressAtomic.store(
-          progress.value(),
-          std::memory_order_release
-        );
+        activeState->lastProgressAtomic
+          .store(progress.value(), std::memory_order_release);
         barIndex = activeState->barIndex;
         actionId = activeState->actionId;
         lastFrameCount = activeState->lastFrameCount;

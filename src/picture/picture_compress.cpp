@@ -58,10 +58,8 @@ auto compressImageTask(
 
   auto const percent = static_cast<float>(done) / static_cast<float>(total) * 100.0f;
   state.progressCtx.setProgress(barIndex, percent);
-  state.progressCtx.setPostfixText(
-    barIndex,
-    std::format("Compressing: {}/{}", done, total)
-  );
+  state.progressCtx
+    .setPostfixText(barIndex, std::format("Compressing: {}/{}", done, total));
 
   if (!success) {
     return eh::makeError("Failed to compress image: {}", task.inputPath.string());
@@ -178,10 +176,8 @@ auto compressImageBatch(
   );
 
   progressCtx.setTone(barIndex, progress::Tone::Success);
-  progressCtx.setPostfixText(
-    barIndex,
-    std::format("Compressed: {}/{}", results.size(), total)
-  );
+  progressCtx
+    .setPostfixText(barIndex, std::format("Compressed: {}/{}", results.size(), total));
 
   auto const succeeded =
     std::ranges::count_if(runState.results, [](eh::Result<void> const& result) {

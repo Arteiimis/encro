@@ -193,15 +193,11 @@ auto PackService::packGroupsCompact(PackPlan const& plan)
                 state.ctx.setProgress(state.barIndex.value(), percent);
               }
               if (plan.progressCallbacks.onCompactProgress) {
-                plan.progressCallbacks.onCompactProgress(
-                  state.completedFileCount,
-                  totalFiles
-                );
+                plan.progressCallbacks
+                  .onCompactProgress(state.completedFileCount, totalFiles);
               }
-              state.tryUpdateStatus(
-                statusText,
-                plan.progressCallbacks.onCompactStatusText
-              );
+              state
+                .tryUpdateStatus(statusText, plan.progressCallbacks.onCompactStatusText);
             },
             &state.finalizingCount
           );

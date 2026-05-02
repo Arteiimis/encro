@@ -14,9 +14,8 @@ inline auto const pvm = [] { return boost::program_options::value<Ty>()->multito
 
 template<class Ty>
 auto pvDefault(Ty&& defaultValue) {
-  return boost::program_options::value<Ty>()->default_value(
-    std::forward<Ty>(defaultValue)
-  );
+  return boost::program_options::value<Ty>()
+    ->default_value(std::forward<Ty>(defaultValue));
 }
 
 using namespace std::literals;
