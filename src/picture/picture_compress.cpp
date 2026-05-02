@@ -22,6 +22,49 @@ auto truncateForLabel(std::string const& text, std::size_t maxLen = 48) -> std::
   return displaytext::truncateWithEllipsis(text, maxLen);
 }
 
+auto compressImageTask(
+  appctx::AppContext& ctx,
+  fs::path const& inputPath,
+  fs::path const& outputPath,
+  std::string const& entryName,
+  int quality,
+  std::size_t total,
+  std::atomic_size_t& completed,
+  std::vector<CompressResult>& results,
+  std::mutex& resultsMutex,
+  progress::ProgressContext& progressCtx,
+  std::size_t barIndex
+) -> eh::Result<void> {
+  if (stopsignal::isStopRequested()) {
+    return eh::makeError("Compression canceled by user.");
+  }
+
+  auto const success = compressImage(ctx, inputPath, outputPath, quality);
+
+  auto const done = completed.fetch_add(1, std::memory_order_release) + 1;
+
+  if (success) {
+    auto lock = std::scoped_lock{resultsMutex};
+    results.push_back(
+      CompressResult{
+        .originalPath = inputPath,
+        .compressedPath = outputPath,
+        .entryName = entryName,
+      }
+    );
+  }
+
+  auto const percent = static_cast<float>(done) / static_cast<float>(total) * 100.0f;
+  progressCtx.setProgress(barIndex, percent);
+  progressCtx.setPostfixText(barIndex, std::format("Compressing: {}/{}", done, total));
+
+  if (!success) {
+    return eh::makeError("Failed to compress image: {}", inputPath.string());
+  }
+
+  return {};
+}
+
 }  // namespace
 
 auto ImageCompressConfig::buildCMD() const -> std::string {
@@ -118,39 +161,22 @@ auto compressImageBatch(
                 &results,
                 &resultsMutex,
                 &progressCtx,
-                barIndex](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
-          if (stopsignal::isStopRequested()) {
-            return eh::makeError("Compression canceled by user.");
-          }
-
-          auto const success = compressImage(ctx, inputPath, outputPath, quality);
-
-          auto const done = completed.fetch_add(1, std::memory_order_release) + 1;
-
-          if (success) {
-            auto lock = std::scoped_lock{resultsMutex};
-            results.push_back(
-              CompressResult{
-                .originalPath = inputPath,
-                .compressedPath = outputPath,
-                .entryName = entryName,
-              }
-            );
-          }
-
-          auto const percent =
-            static_cast<float>(done) / static_cast<float>(total) * 100.0f;
-          progressCtx.setProgress(barIndex, percent);
-          progressCtx.setPostfixText(
-            barIndex,
-            std::format("Compressing: {}/{}", done, total)
+                barIndex](
+                 taskexec::TaskContext& /*taskCtx*/
+               ) -> eh::Result<void> {
+          return compressImageTask(
+            ctx,
+            inputPath,
+            outputPath,
+            entryName,
+            quality,
+            total,
+            completed,
+            results,
+            resultsMutex,
+            progressCtx,
+            barIndex
           );
-
-          if (!success) {
-            return eh::makeError("Failed to compress image: {}", inputPath.string());
-          }
-
-          return {};
         }
       }
     );
