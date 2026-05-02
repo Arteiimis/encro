@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iostream>
+#include <sstream>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -447,7 +449,10 @@ TEST_CASE(
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
 
+  auto input = std::istringstream{"n\n"};
+  auto* oldBuf = std::cin.rdbuf(input.rdbuf());
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+  std::cin.rdbuf(oldBuf);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
   CHECK_FALSE(fs::exists(inputDir / "packed"));
