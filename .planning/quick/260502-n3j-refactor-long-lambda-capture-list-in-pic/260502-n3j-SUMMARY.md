@@ -22,7 +22,7 @@ key-files:
       description: "Extracted compressImageTask from lambda, simplified lambda to one-liner"
 
 key-decisions:
-  - "Kept all 11 lambda captures (5 ref + 6 value) — value variables must be captured to pass as arguments; readability win is from body extraction, not capture reduction"
+  - "Introduced BatchState struct to bundle 5 shared references; CompressTask passed by ref to eliminate 3 value copies. Lambda captures reduced from 11 to 5."
 
 patterns-established:
   - "Large lambda bodies extracted to named functions in anonymous namespace"
@@ -47,8 +47,10 @@ completed: 2026-05-02
 - **Files modified:** 1
 
 ## Accomplishments
-- Extracted lambda body (stop-check, compress, record result, update progress) into named `compressImageTask` function in anonymous namespace
-- Lambda body simplified from ~30 lines to a single function call
+- Introduced `BatchState` struct bundling 5 shared references (ctx, completed, results, resultsMutex, progressCtx)
+- Extracted lambda body into `compressImageTask(CompressTask const&, BatchState const&, int, size_t, size_t)` — 5 params instead of 11
+- Lambda capture list reduced from 11 items to 5: `[&state, &task, quality, total, barIndex]`
+- Removed redundant local copies (inputPath, outputPath, entryName) — use `task.*` directly
 - Build passes cleanly
 
 ## Task Commits
@@ -56,29 +58,19 @@ completed: 2026-05-02
 Each task was committed atomically:
 
 1. **Task 1: Extract lambda body to anonymous namespace function** - `ea3419b` (refactor)
+2. **Follow-up: BatchState struct + CompressTask passthrough** - `f988c1c` (refactor)
 
 ## Files Created/Modified
-- `src/picture/picture_compress.cpp` - Added `compressImageTask` free function in anonymous namespace; simplified lambda to one-liner call
+- `src/picture/picture_compress.cpp` - Added `BatchState` struct and `compressImageTask` function; lambda captures reduced from 11 to 5
 
 ## Decisions Made
-- Kept all 11 lambda captures (5 reference + 6 value) — the value variables (inputPath, outputPath, entryName, quality, total, barIndex) must be captured to pass as function arguments. The readability improvement comes from extracting the body to a named function, not from reducing captures.
+- Introduced `BatchState` struct to bundle shared mutable/const references — reduces lambda captures from 11 to 5
+- Changed `compressImageTask` to accept `CompressTask const&` instead of individual path/name params — eliminates 3 value captures
+- Changed `ctx` param to `const&` (matches `compressImage` signature) — enables const ref capture in lambda
 
 ## Deviations from Plan
 
-### Auto-fixed Issues
-
-**1. [Rule 1 - Bug] Lambda capture list still has 11 items instead of planned 5**
-- **Found during:** Task 1
-- **Issue:** Plan specified lambda should have only 5 reference captures `[&ctx, &completed, &results, &resultsMutex, &progressCtx]`, but LSP reported that value variables (inputPath, outputPath, entryName, quality, total, barIndex) cannot be implicitly captured — they must be in the capture list to pass as arguments
-- **Fix:** Added all 11 captures back to lambda (5 reference + 6 value). The real readability win is that the lambda body is now a one-liner calling a well-named function.
-- **Files modified:** src/picture/picture_compress.cpp
-- **Verification:** LSP errors resolved, build passes
-- **Committed in:** ea3419b (Task 1 commit)
-
----
-
-**Total deviations:** 1 auto-fixed (1 bug — plan's capture count assumption was incorrect)
-**Impact on plan:** Minor — the core goal (extract body for readability) is achieved. Capture count remains 11 but the lambda is now a clean one-liner.
+None — plan goal achieved: lambda captures reduced from 11 to 5.
 
 ## Issues Encountered
 None
