@@ -522,7 +522,7 @@ auto addCompressTask(
 auto confirmPicturePack(appctx::AppConfig const& config) -> bool {
   return readUserIpt(
     config.yesToAll,
-    "do you want to proceed with packing the pictures? (y/N): "
+    "do you want to proceed with packing the pictures? (Y/n): "
   );
 }
 

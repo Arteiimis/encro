@@ -305,7 +305,7 @@ auto videobatch::runEncodingTasks(
   auto const proceed = readUserIpt(
     ctx.config.yesToAll,
     std::format(
-      "do you want to encode the video to {} format? (y/N): ",
+      "do you want to encode the video to {} format? (Y/n): ",
       terminal::value("{}", ctx.config.outputFormat)
     )
   );

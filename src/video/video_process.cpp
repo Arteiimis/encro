@@ -308,7 +308,7 @@ auto runScannedEncodingWorkflow(
   ) {
     auto const proceed = readUserIpt(
       ctx.config.yesToAll,
-      "All encodes already complete. Do you want to proceed with packing? (y/N): "
+      "All encodes already complete. Do you want to proceed with packing? (Y/n): "
     );
     if (!proceed) {
       terminal::println(Warning, "Packing task canceled by user.");
