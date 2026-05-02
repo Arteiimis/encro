@@ -123,10 +123,9 @@ private:
     if (compact && totalTasks > 1) { return {}; }
     auto barIndexes = std::vector<std::size_t>(workerCount);
     for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
-      barIndexes[slot] = progressCtx.addBar(
-        std::format("Encoding: [idle-{}]", slot + 1),
-        progress::Tone::Idle
-      );
+      barIndexes[slot] =
+        progressCtx
+          .addBar(std::format("Encoding: [idle-{}]", slot + 1), progress::Tone::Idle);
     }
     return barIndexes;
   }
@@ -162,23 +161,21 @@ struct EncodingExecutionContext {
   }
 
   void setActive(std::size_t slot, appctx::EncodingStatePtr const& vidState) {
-    progressState.snapshot.update(
-      [=](EncodingProgressState::SharedSnapshot const& shared) {
+    progressState.snapshot
+      .update([=](EncodingProgressState::SharedSnapshot const& shared) {
         return EncodingProgressState::SharedSnapshot{
           .active = shared.active.set(slot, vidState),
         };
-      }
-    );
+      });
   }
 
   void clearActive(std::size_t slot) {
-    progressState.snapshot.update(
-      [=](EncodingProgressState::SharedSnapshot const& shared) {
+    progressState.snapshot
+      .update([=](EncodingProgressState::SharedSnapshot const& shared) {
         return EncodingProgressState::SharedSnapshot{
           .active = shared.active.set(slot, appctx::EncodingStatePtr{}),
         };
-      }
-    );
+      });
   }
 
   auto activeStates() -> appctx::EncodingStateList {
@@ -214,10 +211,8 @@ struct EncodingExecutionContext {
     if (!barIndex.has_value()) { return; }
     progress().setTone(barIndex.value(), progress::Tone::Idle);
     progress().setProgress(barIndex.value(), 0.0f);
-    progress().setPostfixText(
-      barIndex.value(),
-      std::format("Encoding: [idle-{}]", slot + 1)
-    );
+    progress()
+      .setPostfixText(barIndex.value(), std::format("Encoding: [idle-{}]", slot + 1));
   }
 
   void updateOverall() {

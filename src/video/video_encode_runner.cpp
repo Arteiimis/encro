@@ -245,9 +245,8 @@ auto encodeWebpWithTargetSize(
     auto const nextQuality = quality - step;
     if (encodeCtx.statusUpdater && nextQuality >= kWebpMinQuality) {
       auto const outputSizeMB = static_cast<double>(outputSize) / 1024.0 / 1024.0;
-      encodeCtx.statusUpdater(
-        std::format("retry q={} ({:.1f}MB)", nextQuality, outputSizeMB)
-      );
+      encodeCtx
+        .statusUpdater(std::format("retry q={} ({:.1f}MB)", nextQuality, outputSizeMB));
     }
 
     quality -= step;

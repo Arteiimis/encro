@@ -224,9 +224,8 @@ auto runResumable(PackPlan const& plan, jobstate::Store& store)
     auto members = std::vector<fs::path>{};
     members.reserve(plan.groups[index].size());
     for (auto const& entry: plan.groups[index]) { members.push_back(entry.sourcePath); }
-    archiveTasks.push_back(
-      jobstate::makeArchiveTask(plan.outputDir / zipName, members, label)
-    );
+    archiveTasks
+      .push_back(jobstate::makeArchiveTask(plan.outputDir / zipName, members, label));
   }
 
   // Merge with existing job state
@@ -260,9 +259,11 @@ auto runResumable(PackPlan const& plan, jobstate::Store& store)
     std::vector<jobstate::TaskRecord> mergedTasks;
     std::vector<std::size_t> pendingIndexes;
   };
-  auto resumableState = std::make_shared<ResumableState>(
-    ResumableState{&store, std::move(mergedTasks), std::move(pendingIndexes)}
-  );
+  auto resumableState = std::make_shared<ResumableState>(ResumableState{
+    &store,
+    std::move(mergedTasks),
+    std::move(pendingIndexes)
+  });
 
   pendingPlan.progressCallbacks.onGroupStart = [resumableState](std::size_t subsetIndex) {
     auto const& id =
