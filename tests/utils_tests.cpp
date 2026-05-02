@@ -22,6 +22,16 @@ TEST_CASE("readUserIpt reads input", "[utils]") {
   CHECK(result);
 }
 
+TEST_CASE("readUserIpt defaults to yes on empty input", "[utils]") {
+  auto input = std::istringstream{"\n"};
+  auto* oldBuf = std::cin.rdbuf(input.rdbuf());
+
+  auto const result = readUserIpt(false, "");
+
+  std::cin.rdbuf(oldBuf);
+  CHECK(result);
+}
+
 TEST_CASE("exec2 terminates child process when stop is requested", "[utils]") {
   using namespace std::chrono_literals;
 

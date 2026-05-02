@@ -305,7 +305,7 @@ bool readUserIpt(bool yesToAll, std::string_view prompt) {
 
   if (!prompt.empty()) { terminal::print(Prompt, "{}", prompt); }
 
-  auto response = 'n';
+  auto response = 'y';
   auto input = std::string{};
   std::getline(std::cin, input);
   if (!input.empty()) { std::istringstream(input) >> response; }
