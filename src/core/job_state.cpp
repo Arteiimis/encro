@@ -37,7 +37,7 @@ auto toPathStrings(std::span<fs::path const> paths) -> std::vector<std::string> 
 auto inputWriteTime(fs::path const& path) -> std::optional<std::int64_t> {
   auto ec = std::error_code{};
   if (!fs::exists(path, ec) || ec) { return std::nullopt; }
-  return static_cast<std::int64_t>(
+  return static_cast<std::int64_t>(  //
     fs::last_write_time(path, ec).time_since_epoch().count()
   );
 }
@@ -147,12 +147,12 @@ auto toFingerprintToken(fs::path const& path) -> std::string {
   return std::format(
     "{}#{}#{}",
     collisionnaming::stablePathString(path),
-    inputSize(path).transform(
-                     [](auto value) { return std::to_string(value); }
-    ).value_or("missing"),
-    inputWriteTime(path).transform(
-                          [](auto value) { return std::to_string(value); }
-    ).value_or("missing")
+    inputSize(path)
+      .transform([](auto value) { return std::to_string(value); })
+      .value_or("missing"),
+    inputWriteTime(path)
+      .transform([](auto value) { return std::to_string(value); })
+      .value_or("missing")
   );
 }
 
