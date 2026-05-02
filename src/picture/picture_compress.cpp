@@ -22,44 +22,49 @@ auto truncateForLabel(std::string const& text, std::size_t maxLen = 48) -> std::
   return displaytext::truncateWithEllipsis(text, maxLen);
 }
 
+struct BatchState {
+  appctx::AppContext const& ctx;
+  std::atomic_size_t& completed;
+  std::vector<CompressResult>& results;
+  std::mutex& resultsMutex;
+  progress::ProgressContext& progressCtx;
+};
+
 auto compressImageTask(
-  appctx::AppContext& ctx,
-  fs::path const& inputPath,
-  fs::path const& outputPath,
-  std::string const& entryName,
+  CompressTask const& task,
+  BatchState const& state,
   int quality,
   std::size_t total,
-  std::atomic_size_t& completed,
-  std::vector<CompressResult>& results,
-  std::mutex& resultsMutex,
-  progress::ProgressContext& progressCtx,
   std::size_t barIndex
 ) -> eh::Result<void> {
   if (stopsignal::isStopRequested()) {
     return eh::makeError("Compression canceled by user.");
   }
 
-  auto const success = compressImage(ctx, inputPath, outputPath, quality);
+  auto const success = compressImage(state.ctx, task.inputPath, task.outputPath, quality);
 
-  auto const done = completed.fetch_add(1, std::memory_order_release) + 1;
+  auto const done = state.completed.fetch_add(1, std::memory_order_release) + 1;
 
   if (success) {
-    auto lock = std::scoped_lock{resultsMutex};
-    results.push_back(
+    auto lock = std::scoped_lock{state.resultsMutex};
+    state.results.push_back(
       CompressResult{
-        .originalPath = inputPath,
-        .compressedPath = outputPath,
-        .entryName = entryName,
+        .originalPath = task.inputPath,
+        .compressedPath = task.outputPath,
+        .entryName = task.entryName,
       }
     );
   }
 
   auto const percent = static_cast<float>(done) / static_cast<float>(total) * 100.0f;
-  progressCtx.setProgress(barIndex, percent);
-  progressCtx.setPostfixText(barIndex, std::format("Compressing: {}/{}", done, total));
+  state.progressCtx.setProgress(barIndex, percent);
+  state.progressCtx.setPostfixText(
+    barIndex,
+    std::format("Compressing: {}/{}", done, total)
+  );
 
   if (!success) {
-    return eh::makeError("Failed to compress image: {}", inputPath.string());
+    return eh::makeError("Failed to compress image: {}", task.inputPath.string());
   }
 
   return {};
@@ -140,43 +145,25 @@ auto compressImageBatch(
   results.reserve(total);
   auto resultsMutex = std::mutex{};
 
+  auto const state = BatchState{
+    .ctx = ctx,
+    .completed = completed,
+    .results = results,
+    .resultsMutex = resultsMutex,
+    .progressCtx = progressCtx,
+  };
+
   auto taskSpecs = std::vector<taskexec::TaskSpec>{};
   taskSpecs.reserve(total);
   for (auto const& task: tasks) {
-    auto const inputPath = task.inputPath;
-    auto const outputPath = task.outputPath;
-    auto const entryName = task.entryName;
-
     taskSpecs.push_back(
       taskexec::TaskSpec{
-        .id = std::format("compress:{}", outputPath.string()),
-        .label = inputPath.filename().string(),
-        .run = [&ctx,
-                inputPath,
-                outputPath,
-                entryName,
-                quality,
-                total,
-                &completed,
-                &results,
-                &resultsMutex,
-                &progressCtx,
-                barIndex](
+        .id = std::format("compress:{}", task.outputPath.string()),
+        .label = task.inputPath.filename().string(),
+        .run = [&state, &task, quality, total, barIndex](
                  taskexec::TaskContext& /*taskCtx*/
                ) -> eh::Result<void> {
-          return compressImageTask(
-            ctx,
-            inputPath,
-            outputPath,
-            entryName,
-            quality,
-            total,
-            completed,
-            results,
-            resultsMutex,
-            progressCtx,
-            barIndex
-          );
+          return compressImageTask(task, state, quality, total, barIndex);
         }
       }
     );
