@@ -39,15 +39,15 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SINK-01 | — | Pending |
-| SINK-02 | — | Pending |
-| SINK-03 | — | Pending |
-| SINK-04 | — | Pending |
+| SINK-01 | Phase 15 | Pending |
+| SINK-02 | Phase 16 | Pending |
+| SINK-03 | Phase 17 | Pending |
+| SINK-04 | Phase 18 | Pending |
 
 **Coverage:**
 - v1.5 requirements: 4 total
-- Mapped to phases: 0
-- Unmapped: 4 ⚠️
+- Mapped to phases: 4 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-04*
