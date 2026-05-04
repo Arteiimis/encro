@@ -4,8 +4,8 @@ milestone: v1.5
 milestone_name: Pack下沉收尾 — 消除调用方泄漏
 status: executing
 stopped_at: v1.5 roadmap creation complete — 4 phases defined, 100% coverage validated
-last_updated: "2026-05-04T11:28:46.582Z"
-last_activity: 2026-05-04 -- Phase 17 execution started
+last_updated: "2026-05-04T11:52:08.754Z"
+last_activity: 2026-05-04 -- Phase 15 execution started
 progress:
   total_phases: 4
   completed_phases: 1
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** Phase 17 — picture-process-leak-elimination
+**Current focus:** Phase 15 — naming-strategy-enum-namingconfig-migration
 
 ## Current Position
 
-Phase: 17 (picture-process-leak-elimination) — EXECUTING
-Plan: 1 of 1
-Status: Executing Phase 17
-Last activity: 2026-05-04 -- Phase 17 execution started
+Phase: 15 (naming-strategy-enum-namingconfig-migration) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 15
+Last activity: 2026-05-04 -- Phase 15 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
