@@ -95,9 +95,22 @@ Pack subsystem:
 - ✓ SIMPLIFY-11,13~14: 945 assertions 零行为变化，恢复性执行 + 冲突处理逻辑不变 — v1.4
 - ✓ SIMPLIFY-15~17: 移除 IPacker + MockPacker — PackService 直接持有 Packer 值 — v1.4
 
+## Current Milestone: v1.5 Pack下沉收尾 — 消除调用方泄漏
+
+**Goal:** 彻底消除 picture_process.cpp 对 pack 内部类型的依赖，所有调用方统一通过 `pack::execute(PackRequest)` 交互
+
+**Target features:**
+- 命名冲突处理统一抽象 — Flat/Keep/flat-with-force 抽象为命名策略枚举 + 前缀配置
+- PackRequest API 扩展 — summary 开关、分组策略声明、命名策略字段
+- Picture 消除 leak — 移除 pack::detail/internal/Packer 引用，改为 PackRequest
+- PackPlan 退化为纯内部类型 — 不再对外暴露
+
 ### Active
 
-(Next milestone requirements to be defined)
+- [ ] **SINK-01**: 命名冲突处理统一抽象 — 3种模式抽象为策略枚举 + 前缀配置
+- [ ] **SINK-02**: PackRequest API 扩展 — summary开关、分组策略、命名策略字段
+- [ ] **SINK-03**: Picture 消除 detail/internal 依赖 — 全部通过 PackRequest 交互
+- [ ] **SINK-04**: PackPlan 纯内部化 — 消费者不可见
 
 ### Out of Scope
 
@@ -179,4 +192,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-05-01 after v1.4 milestone completion*
+*Last updated: 2026-05-04 after starting v1.5 milestone definition*

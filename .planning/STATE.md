@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Pack 接口简化 & 抽象层清理
-status: completed
-stopped_at: Session resumed, proceeding to plan Phase 12
-last_updated: "2026-05-02T16:51:01Z"
-last_activity: 2026-05-01
+milestone: v1.5
+milestone_name: Pack下沉收尾 — 消除调用方泄漏
+status: planning
+last_updated: "2026-05-04T08:44:56.232Z"
+last_activity: 2026-05-04
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-04-30)
 
 ## Current Position
 
-Phase: 14 (remove-ipacker) — COMPLETE
-Plan: 1 of 1
-Status: v1.4 milestone complete — all 3 phases executed, 157 assertions pass
-Last activity: 2026-05-02
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-04 — Milestone v1.5 started
 
 ## Performance Metrics
 
