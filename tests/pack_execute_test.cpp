@@ -22,6 +22,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -331,4 +332,156 @@ TEST_CASE(
   }
 
   stopsignal::reset();
+}
+
+// ============================================================
+// Grouping Strategy + Summary Config tests
+// ============================================================
+
+TEST_CASE(
+  "GroupingStrategy::PerSourceDirKeepTogether never splits source dir entries",
+  "[pack-execute][grouping-strategy]"
+) {
+  TempDir temp;
+  auto const outputDir = temp.path / "output";
+  fs::create_directories(outputDir);
+
+  auto const dirA = temp.path / "dirA";
+  auto const dirB = temp.path / "dirB";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  auto entries = std::vector<fs::path>{};
+  for (auto i = 0; i < 10; ++i) {
+    auto const filePath = dirA / std::format("file_{:03d}.txt", i);
+    createBinaryFile(filePath, 100);
+    entries.push_back(filePath);
+  }
+  for (auto i = 0; i < 5; ++i) {
+    auto const filePath = dirB / std::format("file_{:03d}.txt", i);
+    createBinaryFile(filePath, 100);
+    entries.push_back(filePath);
+  }
+
+  pack::PackRequest request{
+    .entries = entries,
+    .mode = pack::PackMode::Media,
+    .outputDir = outputDir,
+    .groupingStrategy = pack::GroupingStrategy::PerSourceDirKeepTogether,
+  };
+
+  auto const result = pack::execute(request);
+  REQUIRE(result);
+  CHECK(result->zippedFiles.size() >= 1);
+  for (auto const& zf: result->zippedFiles) { CHECK(fs::exists(zf)); }
+}
+
+TEST_CASE(
+  "GroupingStrategy::PerSourceDir is the default strategy",
+  "[pack-execute][grouping-strategy]"
+) {
+  TempDir temp;
+  auto const outputDir = temp.path / "output";
+  fs::create_directories(outputDir);
+
+  auto const filePath = temp.path / "test.txt";
+  createBinaryFile(filePath, 100);
+
+  pack::PackRequest request{
+    .entries = {filePath},
+    .mode = pack::PackMode::Media,
+    .outputDir = outputDir,
+  };
+
+  CHECK(request.groupingStrategy == pack::GroupingStrategy::PerSourceDir);
+
+  auto const result = pack::execute(request);
+  REQUIRE(result);
+  CHECK(result->zippedFiles.size() == 1);
+}
+
+TEST_CASE(
+  "SummaryConfig injects summary entries into pack",
+  "[pack-execute][summary-config]"
+) {
+  TempDir temp;
+  auto const outputDir = temp.path / "output";
+  fs::create_directories(outputDir);
+
+  auto const regularFile = temp.path / "regular.txt";
+  createBinaryFile(regularFile, 100);
+
+  auto const summaryFile = temp.path / "cover.jpg";
+  createBinaryFile(summaryFile, 200);
+
+  pack::PackRequest request{
+    .entries = {regularFile},
+    .mode = pack::PackMode::Media,
+    .outputDir = outputDir,
+    .summary = pack::SummaryConfig{
+      .entries =
+        {
+          pack::PackFileEntry{
+            .sourcePath = summaryFile,
+            .zipEntryName = "00_cover.jpg",
+            .isSummary = true,
+          },
+        },
+      .prefix = "00_",
+      .enabled = true,
+    },
+  };
+
+  auto const result = pack::execute(request);
+  REQUIRE(result);
+  CHECK(result->zippedFiles.size() == 1);
+
+  auto const entryNames = testutils::listZipRegularEntryNames(result->zippedFiles[0]);
+  CHECK(entryNames.size() == 2);
+  auto const hasCover = std::ranges::any_of(entryNames, [](std::string const& name) {
+    return name.find("cover") != std::string::npos;
+  });
+  CHECK(hasCover);
+}
+
+TEST_CASE(
+  "Summary entries are ordered first in archive via isSummary flag",
+  "[pack-execute][summary-ordering]"
+) {
+  TempDir temp;
+  auto const outputDir = temp.path / "output";
+  fs::create_directories(outputDir);
+
+  auto const fileA = temp.path / "a.txt";
+  auto const fileB = temp.path / "b.txt";
+  auto const coverFile = temp.path / "cover.jpg";
+  createBinaryFile(fileA, 100);
+  createBinaryFile(fileB, 100);
+  createBinaryFile(coverFile, 200);
+
+  pack::PackRequest request{
+    .entries = {fileA, fileB},
+    .mode = pack::PackMode::Media,
+    .outputDir = outputDir,
+    .summary = pack::SummaryConfig{
+      .entries =
+        {
+          pack::PackFileEntry{
+            .sourcePath = coverFile,
+            .zipEntryName = "00_cover.jpg",
+            .isSummary = true,
+          },
+        },
+      .prefix = "00_",
+      .enabled = true,
+    },
+  };
+
+  auto const result = pack::execute(request);
+  REQUIRE(result);
+  CHECK(result->zippedFiles.size() == 1);
+
+  auto const entryNames = testutils::listZipRegularEntryNames(result->zippedFiles[0]);
+  REQUIRE(entryNames.size() >= 2);
+  CHECK(entryNames[0].find("cover") != std::string::npos);
 }

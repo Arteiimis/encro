@@ -16,6 +16,7 @@ namespace pack {
 struct PackFileEntry {
   fs::path sourcePath;
   std::string zipEntryName;
+  bool isSummary = false;
 
   auto operator==(PackFileEntry const&) const -> bool = default;
 };
@@ -25,6 +26,7 @@ struct PackEntryInput {
   fs::path sourceDir;
   std::optional<std::string> sourceKey;
   std::optional<std::string> fileKey;
+  bool isSummary = false;
 
   auto operator==(PackEntryInput const&) const -> bool = default;
 };

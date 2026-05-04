@@ -36,3 +36,21 @@ inline auto kSampleRequest = [] {
   };
   return req;
 }();
+
+// Verify new Phase 16 fields on PackRequest
+inline auto kSampleRequestPhase16 = [] {
+  pack::PackRequest req{
+    .groupingStrategy = pack::GroupingStrategy::PerSourceDirKeepTogether,
+    .summary = pack::SummaryConfig{.enabled = false},
+  };
+  return req;
+}();
+
+// Verify SummaryConfig aggregate
+static_assert(
+  std::is_aggregate_v<pack::SummaryConfig>,
+  "SummaryConfig must remain an aggregate"
+);
+
+// Verify GroupingStrategy enum
+static_assert(std::is_enum_v<pack::GroupingStrategy>, "GroupingStrategy must be an enum");
