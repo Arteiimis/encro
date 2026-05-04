@@ -124,6 +124,90 @@ auto compressImage(
   return true;
 }
 
+namespace {
+
+auto probeMaxFileSize(std::span<CompressTask const> tasks) -> std::uintmax_t {
+  auto maxSize = std::uintmax_t{0};
+  for (auto const& task: tasks) {
+    auto ec = std::error_code{};
+    auto const size = fs::file_size(task.inputPath, ec);
+    if (!ec && size > maxSize) { maxSize = size; }
+  }
+  return maxSize;
+}
+
+auto capConcurrencyByFileSize(std::uintmax_t maxFileSize, std::size_t maxParallel)
+  -> std::size_t {
+  constexpr auto kOneMB = 1024ULL * 1024;
+  auto const result = maxParallel;
+  if (maxFileSize > 20 * kOneMB) { return std::min(result, std::size_t{1}); }
+  if (maxFileSize > 10 * kOneMB) { return std::min(result, std::size_t{3}); }
+  if (maxFileSize > 5 * kOneMB) { return std::min(result, std::size_t{6}); }
+  return result;
+}
+
+void retryFailedTasks(
+  appctx::AppContext const& ctx,
+  std::span<CompressTask const> allTasks,
+  std::vector<CompressResult>& results,
+  std::mutex& resultsMutex,
+  int quality,
+  progress::ProgressContext& progressCtx
+) {
+  auto failedTasks = std::vector<CompressTask>{};
+  for (auto const& task: allTasks) {
+    auto const found = std::ranges::any_of(results, [&](CompressResult const& r) {
+      return r.originalPath == task.inputPath;
+    });
+    if (!found) { failedTasks.push_back(task); }
+  }
+
+  if (failedTasks.empty()) { return; }
+
+  spdlog::info("Retrying {} failed compression(s) sequentially...", failedTasks.size());
+
+  auto const retryBarIndex =
+    progressCtx
+      .addBar(std::format("Retrying: 0/{}", failedTasks.size()), progress::Tone::Active);
+
+  auto recovered = std::size_t{0};
+  for (std::size_t i = 0; i < failedTasks.size(); ++i) {
+    if (stopsignal::isStopRequested()) { break; }
+
+    auto const& task = failedTasks[i];
+    auto const success = compressImage(ctx, task.inputPath, task.outputPath, quality);
+    if (success) {
+      auto lock = std::scoped_lock{resultsMutex};
+      results.push_back(
+        CompressResult{
+          .originalPath = task.inputPath,
+          .compressedPath = task.outputPath,
+          .entryName = task.entryName,
+        }
+      );
+      ++recovered;
+    }
+
+    auto const percent =
+      static_cast<float>(i + 1) / static_cast<float>(failedTasks.size()) * 100.0f;
+    progressCtx.setProgress(retryBarIndex, percent);
+    progressCtx.setPostfixText(
+      retryBarIndex,
+      std::format("Retrying: {}/{}", i + 1, failedTasks.size())
+    );
+  }
+
+  progressCtx.setTone(retryBarIndex, progress::Tone::Success);
+  progressCtx.setPostfixText(
+    retryBarIndex,
+    std::format("Retried: {}/{}", recovered, failedTasks.size())
+  );
+
+  spdlog::info("Retry completed: {}/{} recovered", recovered, failedTasks.size());
+}
+
+}  // namespace
+
 auto compressImageBatch(
   appctx::AppContext& ctx,
   std::span<CompressTask const> tasks,
@@ -131,6 +215,17 @@ auto compressImageBatch(
   std::size_t maxParallel
 ) -> std::vector<CompressResult> {
   if (tasks.empty()) { return {}; }
+
+  auto const maxFileSize = probeMaxFileSize(tasks);
+  auto const effectiveMaxParallel = capConcurrencyByFileSize(maxFileSize, maxParallel);
+  if (effectiveMaxParallel != maxParallel) {
+    spdlog::info(
+      "Adaptive concurrency: capped from {} to {} (max input file ~{} MB)",
+      maxParallel,
+      effectiveMaxParallel,
+      maxFileSize / (1024 * 1024)
+    );
+  }
 
   auto progressCtx = progress::ProgressContext{};
   auto const total = tasks.size();
@@ -169,7 +264,7 @@ auto compressImageBatch(
   auto const runState = taskexec::runTasks(
     taskexec::TaskPlan{
       .tasks = std::move(taskSpecs),
-      .maxConcurrency = maxParallel,
+      .maxConcurrency = effectiveMaxParallel,
       .progress = &progressCtx,
       .hideCursor = true,
     }
@@ -184,6 +279,11 @@ auto compressImageBatch(
       return result.has_value();
     });
   spdlog::info("Image compression batch completed: {}/{} succeeded", succeeded, total);
+
+  retryFailedTasks(ctx, tasks, results, resultsMutex, quality, progressCtx);
+
+  auto const finalSucceeded = results.size();
+  spdlog::info("Image compression final: {}/{} images compressed", finalSucceeded, total);
 
   return results;
 }

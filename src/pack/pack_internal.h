@@ -1,5 +1,5 @@
 #pragma once
-#include "pack/pack_types.h"
+#include "pack/pack_plan_internal.h"
 #include <span>
 #include <string>
 #include <string_view>
