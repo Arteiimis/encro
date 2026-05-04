@@ -124,7 +124,7 @@ TEST_CASE(
       .compact = true,
       .removeOnFailure = true,
       .naming = pack::NamingConfig{
-        .layout = appctx::OutputLayout::Flat,
+        .namingStrategy = pack::NamingStrategy::Flat,
         .baseName = "pics",
       },
     }

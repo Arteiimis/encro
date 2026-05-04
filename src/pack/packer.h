@@ -2,6 +2,7 @@
 
 #include "core/error_handle.h"
 #include "core/progress.h"
+#include "pack/pack.h"
 #include "pack/pack_types.h"
 #include "pack/packer_types.h"
 
@@ -81,7 +82,7 @@ public:
     std::filesystem::path const& zipFileDir,
     std::uintmax_t maxGroupSize = pack::kDefaultMaxArchiveGroupSize,
     bool recursive = true,
-    bool forceNameConflictHandling = false,
+    NamingStrategy namingStrategy = NamingStrategy::Flat,
     std::optional<std::size_t> maxParallelJobs = std::nullopt,
     std::optional<std::filesystem::path> excludedPath = std::nullopt
   ) -> eh::Result<PackPlan>;
