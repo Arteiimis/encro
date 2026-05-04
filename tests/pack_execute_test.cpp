@@ -14,6 +14,7 @@
 
 #include "pack/pack.h"
 #include "pack/pack_types.h"
+#include "pack/pack_plan_internal.h"
 #include "core/job_state.h"
 #include "core/app_context.h"
 #include "infra/stop_signal.h"
