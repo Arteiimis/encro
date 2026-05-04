@@ -68,8 +68,8 @@
 **Milestone Goal:** 彻底消除 picture_process.cpp 对 pack 内部类型的依赖，所有调用方统一通过 `pack::execute(PackRequest)` 交互。命名冲突处理抽象为策略枚举 + 前缀配置，PackRequest API 扩展 summary/分组策略字段，PackPlan 退化为纯内部类型。
 
 - [ ] **Phase 15: Naming Strategy Enum + NamingConfig Migration** — `NamingStrategy` enum replaces `OutputLayout`+boolean pair; internal dispatch only (2/2 plans)
-- [ ] **Phase 16: Grouping Strategy + Summary Config on PackRequest** — `GroupingStrategy` enum + `SummaryConfig` struct; picture's two-layer partitioning declarative (0/2 plans)
-- [ ] **Phase 17: Picture Process Leak Elimination** — `picture_process.cpp` removes all 5 internal pack includes; unified `pack::execute(PackRequest)` entry
+- [x] **Phase 16: Grouping Strategy + Summary Config on PackRequest** — `GroupingStrategy` enum + `SummaryConfig` struct; picture's two-layer partitioning declarative (0/2 plans) (completed 2026-05-04)
+- [ ] **Phase 17: Picture Process Leak Elimination** — `picture_process.cpp` replaces `buildPicturePackPlan()` with `pack::execute(PackRequest)` (1/1 plan)
 - [ ] **Phase 18: PackPlan Pure Internalization** — `PackPlan` moved to internal header; compile-time enforcement of consumer invisibility
 
 ## Phase Details
@@ -104,8 +104,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 16-01-PLAN.md — GroupingStrategy enum + SummaryConfig struct + isSummary flag; buildMediaPackPlan strategy dispatch + summary injection + ordering
-- [ ] 16-02-PLAN.md — Picture consumer migration: remove "0000__"/"1000__" prefix conventions, use isSummary structural flag
+- [x] 16-01-PLAN.md — GroupingStrategy enum + SummaryConfig struct + isSummary flag; buildMediaPackPlan strategy dispatch + summary injection + ordering
+- [x] 16-02-PLAN.md — Picture consumer migration: remove "0000__"/"1000__" prefix conventions, use isSummary structural flag
 
 ### Phase 17: Picture Process Leak Elimination
 **Goal**: `picture_process.cpp` uses only the public `pack::execute(PackRequest)` API — zero internal pack type dependencies remain. All consumers are now unified on the single public entry point.
@@ -117,7 +117,10 @@ Plans:
   2. Both compress and non-compress picture paths construct a single `PackRequest` and call `pack::execute()` exclusively
   3. Golden zip entry name tests pass with byte-identical output, confirming no behavioral drift in naming or grouping
   4. All 945+ assertions pass with zero behavioral change — compress, non-compress, and resumable picture workflows produce identical archives
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 17-01-PLAN.md — Remove 3 internal pack includes, delete dead code, wire PackRequest API in 3 call sites
 
 ### Phase 18: PackPlan Pure Internalization
 **Goal**: `PackPlan` is provably invisible to all consumers outside `src/pack/` — a compile-time enforced encapsulation boundary. No consumer can construct or reference `PackPlan` directly.
@@ -150,7 +153,7 @@ Plans:
 | 14. 移除 IPacker 抽象层 & 验证 | 14-remove-ipacker | v1.4 | 1/1 | Complete | 2026-05-01 |
 | 15. Naming Strategy Enum + NamingConfig | 15-naming-strategy | v1.5 | 0/2 | Not started | - |
 | 16. Grouping + Summary on PackRequest | 16-grouping-summary | v1.5 | 0/2 | Not started | - |
-| 17. Picture Leak Elimination | 17-picture-leak | v1.5 | 0/TBD | Not started | - |
+| 17. Picture Leak Elimination | 17-picture-leak | v1.5 | 0/1 | Planned | - |
 | 18. PackPlan Internalization | 18-packplan-internalize | v1.5 | 0/TBD | Not started | - |
 
 ---
