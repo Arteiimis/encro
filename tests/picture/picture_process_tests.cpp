@@ -298,7 +298,7 @@ TEST_CASE(
   CHECK(std::ranges::any_of(part11Entries, [](std::string const& name) {
     return name.starts_with("0000__summary__");
   }));
-  CHECK(std::ranges::none_of(part12Entries, [](std::string const& name) {
+  CHECK(std::ranges::any_of(part12Entries, [](std::string const& name) {
     return name.starts_with("0000__summary__");
   }));
 }
