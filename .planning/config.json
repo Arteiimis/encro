@@ -2,6 +2,7 @@
   "model_profile": "balanced",
   "commit_docs": true,
   "response_language": "zh-CN",
+  "runtime": "opencode",
   "workflow": {
     "research": true,
     "plan_check": true,

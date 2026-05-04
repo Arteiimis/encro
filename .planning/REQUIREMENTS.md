@@ -9,15 +9,15 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 
 ### Naming Strategy (SINK-01)
 
-- [ ] **SINK-01**: `NamingStrategy {Flat, FlatWithForce, Keep}` enum in `pack.h` replaces `OutputLayout`+`forceConflictHandling` boolean pair. `NamingConfig` extended with `namingStrategy` field. Internal dispatch uses single-switch. Consumers translate at call site. `AppConfig` fields preserved for CLI parsing.
+- [x] **SINK-01**: `NamingStrategy {Flat, FlatWithForce, Keep}` enum in `pack.h` replaces `OutputLayout`+`forceConflictHandling` boolean pair. `NamingConfig` extended with `namingStrategy` field. Internal dispatch uses single-switch. Consumers translate at call site. `AppConfig` fields preserved for CLI parsing.
 
 ### Grouping + Summary (SINK-02)
 
-- [ ] **SINK-02**: `GroupingStrategy` enum + config and `SummaryConfig` struct (with explicit `isSummary` flag, not prefix convention) added to `PackRequest`. `buildMediaPackPlan` internalizes two-layer logical partitioning behind grouping strategy. Summary entries guaranteed first via structural flag.
+- [x] **SINK-02**: `GroupingStrategy` enum + config and `SummaryConfig` struct (with explicit `isSummary` flag, not prefix convention) added to `PackRequest`. `buildMediaPackPlan` internalizes two-layer logical partitioning behind grouping strategy. Summary entries guaranteed first via structural flag.
 
 ### Picture Leak Elimination (SINK-03)
 
-- [ ] **SINK-03**: `picture_process.cpp` constructs `PackRequest` with new fields instead of constructing `PackPlan` directly. All 5 internal includes removed (`packer_types.h`, `packer.h`, `pack_internal.h`). Golden zip entry name tests pass with byte-identical output.
+- [x] **SINK-03**: `picture_process.cpp` constructs `PackRequest` with new fields instead of constructing `PackPlan` directly. All 5 internal includes removed (`packer_types.h`, `packer.h`, `pack_internal.h`). Golden zip entry name tests pass with byte-identical output.
 
 ### PackPlan Internalization (SINK-04)
 
@@ -39,9 +39,9 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SINK-01 | Phase 15 | Pending |
-| SINK-02 | Phase 16 | Pending |
-| SINK-03 | Phase 17 | Pending |
+| SINK-01 | Phase 15 | Complete |
+| SINK-02 | Phase 16 | Complete |
+| SINK-03 | Phase 17 | Complete |
 | SINK-04 | Phase 18 | Complete |
 
 **Coverage:**
