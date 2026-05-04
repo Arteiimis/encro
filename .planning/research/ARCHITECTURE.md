@@ -1,633 +1,679 @@
-# Architecture Research — OO Refactoring of Pack Subsystem
+# Architecture Research
 
-**Domain:** C++26 CLI tool — OO encapsulation of pack subsystem and coupled core modules
-**Researched:** 2026-04-29
-**Confidence:** HIGH
-**Milestone:** v1.3 Pack Subsystem OO Refactor
+**Domain:** Naming strategy abstraction + grouping config + summary toggle integration into encrō pack module
+**Researched:** 2026-05-04
+**Confidence:** HIGH (all findings verified against actual source code)
 
-## System Overview — Current Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          app/ (entry point)                          │
-│   app_entry.cpp → prelude.cpp → pipeline.cpp                        │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌──────────────┐  ┌──────────────────┐  ┌───────────────────────┐  │
-│  │   video/     │  │   picture/        │  │   pack/               │  │
-│  │  video_      │  │  picture_         │  │  pack_service.h/.cpp  │  │
-│  │  process.cpp │  │  process.h/.cpp   │  │  packer.h/.cpp        │  │
-│  │  (constructs │  │  (constructs      │  │  PackPlan (struct)    │  │
-│  │   PackPlan,  │  │   PackPlan,       │◄─┤  free functions       │  │
-│  │   calls      │  │   calls           │  │  packer free funcs    │  │
-│  │   pack::     │  │   pack::          │  │                       │  │
-│  │   runPackPlan│  │   runPackPlan,    │  │                       │  │
-│  │   )          │  │   packGroups)     │  │                       │  │
-│  └──────┬───────┘  └────────┬─────────┘  └───────────┬───────────┘  │
-│         │                   │                         │              │
-│  ┌──────┴───────────────────┴─────────────────────────┴───────────┐  │
-│  │                         core/                                    │  │
-│  │  archive_plan.h/.cpp (uses pack::PackPlan for resumable jobs)    │  │
-│  │  task_executor.h/.cpp (task::TaskSpec with std::function run)   │  │
-│  │  job_state.h/.cpp (jobstate::Store — already a class)            │  │
-│  │  app_context.h (AppContext, AppConfig, RuntimeContext structs)   │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                        infra/                                     │  │
-│  │  terminal, stop_signal, crash_runtime, toolchain, console_width  │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-## Target Architecture — After OO Refactoring
+## System Overview (Current v1.4)
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          app/ (entry point)                          │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌──────────────┐  ┌──────────────────┐  ┌───────────────────────┐  │
-│  │   video/     │  │   picture/        │  │   pack/               │  │
-│  │  (uses       │  │  (uses           │  │                       │  │
-│  │   pack::     │  │   pack::         │  │  pack_types.h          │  │
-│  │   types +    │  │   types +        │  │   PackFileEntry (struct)│  │
-│  │   PackService│  │   PackService)   │  │   FileOrdinalRange     │  │
-│  │   )          │  │                  │  │   PackRunResult        │  │
-│  └──────┬───────┘  └────────┬─────────┘  │                       │  │
-│         │                   │            │  pack_plan.h/.cpp      │  │
-│         │                   │            │   PackPlan (class)     │  │
-│         │                   │            │   private data members │  │
-│         │    ┌──────────────┴──────────┐ │   public methods       │  │
-│         │    │   pack/ (Public API)    │ │                       │  │
-│         └────┤  PackService            │ │  pack_service.h/.cpp   │  │
-│              │  Packer                 │ │   PackService (class)  │  │
-│              │  IPacker (abstract)     │ │   (orchestration)      │  │
-│              └─────────────────────────┘ │                       │  │
-│                                          │  packer.h/.cpp         │  │
-│                                          │   Packer (class)       │  │
-│                                          │   implements IPacker   │  │
-│                                          │   zip I/O, grouping    │  │
-│                                          │                       │  │
-│                                          │  packer_types.h        │  │
-│                                          │   PackGroupInput etc.  │  │
-│                                          │   in pack::detail::    │  │
-│                                          └───────────────────────┘  │
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                         core/                                     │  │
-│  │  archive_plan.h/.cpp  (uses pack::PackPlan, pack::PackService)   │  │
-│  │  task_executor.h/.cpp (unchanged)                                │  │
-│  │  job_state.h/.cpp     (unchanged — already a class)              │  │
-│  │  app_context.h        (unchanged)                                 │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          Consumers (v1.4)                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────────────────┐  │
+│  │ pipeline.cpp     │  │ video_process.cpp│  │ picture_process.cpp        │  │
+│  │ (PackReq→execute)│  │ (PackReq→execute)│  │ (PackPlan→execute) ⚠ LEAK │  │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────────┬───────────────┘  │
+│           │                     │                          │                  │
+│           └─────────────────────┼──────────────────────────┘                  │
+│                                 │                                             │
+│                      pack::execute(PackRequest)                                │
+│                                 │                                             │
+├─────────────────────────────────┼─────────────────────────────────────────────┤
+│                         pack.h (PUBLIC)                                        │
+│  ┌──────────────────────────────────────────────────────────────────────────┐ │
+│  │ PackRequest │ PackMode │ NamingConfig │ PackRunResult │ execute()        │ │
+│  └──────────────────────────────────────────────────────────────────────────┘ │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                      pack.cpp (INTERNAL)                                       │
+│  ┌─────────────────────┐  ┌─────────────────────┐                             │
+│  │ buildMediaPackPlan()│  │ runResumable()      │                             │
+│  │ (grouping, naming,  │  │ (job state merge,   │                             │
+│  │  PackPlan assembly) │  │  callback wiring,   │                             │
+│  └──────────┬──────────┘  │  filtered execution)│                             │
+│             │              └──────────┬──────────┘                             │
+│             └──────────┬─────────────┘                                         │
+│                        │                                                       │
+│             PackService (orchestration, owns Packer by value)                  │
+│                        │                                                       │
+│             Packer (zip I/O, grouping algorithms)                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                    pack_internal.h (DEMOTED HELPERS)                           │
+│  buildGroupOrdinalRanges │ appendOrdinalRangeSuffix │ resolveZipNameForIndex  │
+│  selectPackPlanIndexes                                                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                   pack_types.h / packer_types.h                                 │
+│  PackFileEntry │ PackEntryInput │ FileOrdinalRange │ PackPlan │               │
+│  pack::detail::PackEntryInput │ PackGroupInput │ PackEntryPartition           │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+⚠ LEAK: picture_process.cpp includes pack_internal.h, packer.h, packer_types.h,
+  uses pack::detail::PackEntryInput, builds PackPlan directly, calls execute(PackPlan).
+  This is the SINK-03 target.
 ```
 
-## Component Boundaries
+## Current Dependencies
 
-### Before Refactoring (Current)
+## Component Responsibilities (Current)
 
-| Component | Kind | Responsibility | Coupling |
-|-----------|------|----------------|----------|
-| `pack::PackPlan` | aggregate struct | Holds zipping plan (groups, callbacks, config) | Directly accessed by video, picture, core modules via designated initializers |
-| `pack::packGroups()` | free function | Routes to compact/full packing paths | Called by pack_service.cpp, picture_process.cpp |
-| `pack::runPackPlan()` | free function | Orchestrates packing with optional job state resumability | Called by video_process.cpp, picture_process.cpp, packer.cpp |
-| `pack::selectPackPlanIndexes()` | free function | Filters PackPlan by index subset for resumable jobs | Called by archive_plan.cpp (core/) |
-| `pack::buildGroupOrdinalRanges()` | free function | Computes ordinal ranges for naming | Called by video_process.cpp, picture_process.cpp |
-| `packFilesToZip()` (3 overloads) | free functions (global/`pack::`) | Low-level zip I/O | Called by pack_service.cpp |
-| `groupFilesBySize()` | free function (global) | Groups files by size limit | Called by video_output_planning.cpp, packer.cpp |
-| `groupPackFiles()` | free function (global) | Groups files preserving source dir affinity | Called by video_output_planning.cpp |
-| `buildDirectoryPackPlan()` | free function (global) | Builds PackPlan for raw directory packing | Called by packer.cpp, app/pipeline.cpp |
-| `jobstate::Store` | **class** | Resumable job state persistence | Already OO; used by pack, video subsystems |
+| Component | Responsibility | File(s) |
+|-----------|----------------|---------|
+| `pack::PackRequest` | Declarative intent — entries, mode, naming, progress flags | `pack.h` |
+| `pack::NamingConfig` | Optional sub-struct: layout, forceConflictHandling, baseName, zipNameStrategy callback | `pack.h` |
+| `pack::execute()` | Free function entry point; builds PackPlan from PackRequest; dispatches to runNonResumable/runResumable | `pack.cpp` |
+| `buildMediaPackPlan()` | Anonymous-namespace function: groups entries → two-layer partition → applies naming → returns PackPlan | `pack.cpp` (anon ns) |
+| `Packer::groupPackEntriesWithSubparts()` | Physical grouping: source-dir-aware partitioning into PackEntryPartition | `packer.h/cpp` |
+| `Packer::buildDirectoryPackPlan()` | Directory-mode plan builder (raw file tree → entries with conflict handling) | `packer.h/cpp` |
+| `pack::internal::` | Demoted static helpers: ordinal ranges, suffix appending, zip name resolution | `pack_internal.h` |
+| `collisionnaming::` | Inline utility functions: path normalization, hashing, sanitization, conflict-handled flat names | `collision_naming.h` |
+| `picture_process.cpp` | Picture workflow: scans pics, plans entry names, builds PackEntryInput vectors, constructs PackPlan via `buildPicturePackPlan()`, calls `execute(PackPlan)` | `src/picture/` |
 
-### After Refactoring (Target)
+### picture_process.cpp Internal Leak (SINK-03 Target)
 
-| Component | Kind | Responsibility | Coupling |
-|-----------|------|----------------|----------|
-| `pack::PackFileEntry` | struct (unchanged) | Value type for zip entry metadata | Cross-subsystem value type — stays public |
-| `pack::FileOrdinalRange` | struct (unchanged) | Ordinal range data | Utility type — stays public |
-| `pack::PackRunResult` | struct (unchanged) | Result value | Return type — stays public |
-| `pack::PackPlan` | **class** (NEW) | Encapsulated pack plan with private data + public query/mutation methods | Video/picture construct via builder/factory, not designated initializer |
-| `pack::PackService` | **class** (NEW) | Orchestration: runs pack plans, manages compact/full dispatch, resumability | Video/picture call `service.runPackPlan()` |
-| `pack::IPacker` | **abstract interface** (NEW) | Zip I/O contract for mockability | Implemented by `pack::Packer`, mocked in tests |
-| `pack::Packer` | **class** (NEW) | Concrete zip I/O: creates archives, groups files, handles libzippp | Implements `IPacker`; used by `PackService` |
-| `pack::detail::*` | internal types | Packer input types (PackGroupInput, etc.) | Not visible outside pack subsystem |
+picture_process.cpp currently has **5 internal pack includes** that must be eliminated:
 
-## Data Flow — Before and After
-
-### Current Flow: video_process.cpp → pack
 ```
-video_process.cpp
-  → constructs pack::PackPlan via designated initializer (direct member access)
-  → calls pack::runPackPlan(ctx, plan) — free function
-    → calls pack::packGroups(plan) — free function
-      → calls packFilesToZip(entries, zipPath, ...) — free function
-        → calls libzippp::ZipArchive directly
+#include "pack/pack_internal.h"     ← pack::internal::
+#include "pack/packer.h"            ← pack::Packer class
+#include "pack/packer_types.h"      ← pack::detail:: types
 ```
 
-### Target Flow: video_process.cpp → pack
+And uses these internal types:
+- `pack::detail::PackEntryInput` (aliased in `packer_types.h` from `pack::PackEntryInput`)
+- `pack::PackPlan` (constructed directly, then passed to `pack::execute(PackPlan)`)
+- `pack::Packer` (instantiated to call `groupPackEntries()`)
+- `pack::FileOrdinalRange` (used in `PicturePackNamingState`)
+- `pack::internal::buildGroupOrdinalRanges()`, `pack::internal::appendOrdinalRangeSuffix()`
+
+**What picture_process does that must migrate:**
+1. Calls `planPictureZipEntryNames()` — custom entry name planning (Keep/Flat/Flat+Force logic)
+2. Calls `buildPicturePackEntryInputs()` — makes `pack::detail::PackEntryInput` vectors with "0000__"/"1000__" sourceKey prefixes
+3. Calls `buildPictureLogicalBuckets()` → `buildPictureLogicalParts()` — logical grouping (dir-containment, kMaxPicturesPerPack = 2000)
+4. Constructs `Packer` directly, calls `groupPackEntries()` for physical grouping
+5. Calls `buildPicturePackPlan()` — assembles PackPlan with zipNameForIndex
+6. Calls `pack::execute(PackPlan, jobState)` — the internal plan overload
+
+**Target state (SINK-03):** picture_process builds a `PackRequest` with entries (file paths or PackEntryInputs), naming config, grouping strategy, and summary toggle — calls `pack::execute(PackRequest)` only.
+
+## Current Dependencies
+
 ```
-video_process.cpp
-  → constructs pack::PackPlan via factory (no direct member access)
-  → calls packService.runPackPlan(ctx, plan) — method on injected PackService
-    → PackService::packGroups(plan) — private method
-      → m_packer->packFilesToZip(entries, zipPath, ...) — method on IPacker
-        → libzippp::ZipArchive (hidden behind interface)
+AppConfig
+  ├── outputLayout (OutputLayout::Flat | Keep)     ← needed by picture naming
+  ├── forceNameConflictHandling (bool)              ← needed by picture naming
+  ├── fullProgress (bool)                           ← needed by compact flag
+  ├── pictureFolderSummary (bool)                   ← needed by summary feature
+  ├── maxParallelJobs                               ← needed by PackPlan
+  └── compressImages / imageQuality                 ← picture-only, stays
+
+NamingConfig (pack.h)
+  ├── layout (OutputLayout)                         ← mirrors AppConfig
+  ├── forceConflictHandling (bool)                  ← mirrors AppConfig
+  ├── baseName (optional<string>)                   ← for zip file naming
+  └── zipNameStrategy (callback)                    ← consumer-provided custom naming
+
+PackRequest (pack.h)
+  ├── entries (vector<path>)                        ← file paths
+  ├── entryInputs (vector<PackEntryInput>)          ← explicit entries with grouping keys
+  ├── mode (PackMode)                               ← Media | Directory
+  ├── outputDir (path)                              ← where to write zips
+  ├── compact (bool)                                ← from !config.fullProgress
+  ├── removeOnFailure (bool)
+  ├── naming (optional<NamingConfig>)
+  ├── maxParallelJobs (optional<size_t>)
+  ├── recursive (bool)                              ← directory mode only
+  ├── jobState (Store*)                             ← non-null = resumable
+  └── entryNameForFile (callback)                   ← optional path→name mapping
 ```
+
+### Naming Mode Matrix (What Exists)
+
+| outputLayout | forceConflictHandling | Behavior | Used By |
+|-------------|----------------------|----------|---------|
+| `Flat` | `false` | Flatten filename with "1000__" prefix | picture non-force path |
+| `Flat` | `true` | Flatten with hash-disambiguated conflict handling | picture force path, directory pack |
+| `Keep` | (ignored) | Preserve directory structure relative to root | picture keep-layout path |
+
+**Problem:** Two separate fields (`layout` + `forceConflictHandling`) encode 3 behaviors where the boolean is irrelevant for Keep. The "1000__" prefix is hardcoded into picture_process.cpp, not configurable. The collision-based flattening spans two files (collision_naming.h for hash helpers, picture_process.cpp for orchestration, pack.cpp for directory).
+
+---
+
+## Recommended Architecture (v1.5 Target)
+
+### System Overview (Post-Migration)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          Consumers (v1.5 — UNIFIED)                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────────────────┐  │
+│  │ pipeline.cpp     │  │ video_process.cpp│  │ picture_process.cpp        │  │
+│  │ (PackReq→execute)│  │ (PackReq→execute)│  │ (PackReq→execute) ✓ FIXED │  │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────────┬───────────────┘  │
+│           │                     │                          │                  │
+│           └─────────────────────┼──────────────────────────┘                  │
+│                                 │                                             │
+│                      pack::execute(PackRequest)                                │
+│                      pack::execute(PackPlan, Store*) ← INTERNAL ONLY          │
+│                                 │                                             │
+├─────────────────────────────────┼─────────────────────────────────────────────┤
+│                    pack.h (PUBLIC — EXPANDED)                                  │
+│  ┌──────────────────────────────────────────────────────────────────────────┐ │
+│  │ PackRequest │ PackMode │ NamingConfig │ NamingStrategy enum │            │ │
+│  │ GroupingStrategy enum │ SummaryConfig │ PackRunResult │ execute()         │ │
+│  └──────────────────────────────────────────────────────────────────────────┘ │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                    pack.cpp (INTERNAL — EXPANDED)                              │
+│  ┌──────────────────────────────────────────────────────────────────────────┐ │
+│  │ buildMediaPackPlan() — now handles picture path too                      │ │
+│  │   • Naming dispatch via NamingStrategy enum (not bool+layout)            │ │
+│  │   • Summary entry injection when SummaryConfig enabled                   │ │
+│  │   • Grouping dispatch via GroupingStrategy enum (not implicit)           │ │
+│  │ buildDirectoryPackPlan() — uses new NamingStrategy too                   │ │
+│  │ runResumable() — unchanged                                               │ │
+│  └──────────────────────────────────────────────────────────────────────────┘ │
+│                                                                               │
+│             PackService / Packer — unchanged (no API changes)                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│      collision_naming.h → pack_naming.h (refactored, internal to pack/)       │
+│  buildCollisionGroupPrefix │ buildConflictHandledFlatName                     │
+│  (sanitizeLabel, shortPathHash, stablePathString — stay as is)                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+picture_process.cpp now:
+  - Scans pics, plans compress tasks if needed
+  - Builds a PackRequest with:
+      entries[] via entryInputs (summary + regular)
+      groupingStrategy = LogicalPerSourceDir
+      naming = NamingConfig{ .strategy = NamingStrategy::FlatWithForce, .prefix = "1000__" }
+      summaryConfig = SummaryConfig{ .enabled = config.pictureFolderSummary }
+  - Calls pack::execute(request)
+  - All PackEntryInput, PackPlan, Packer, pack::internal:: gone from includes
+```
+
+### Component Responsibilities (Target)
+
+| Component | Responsibility | File(s) | New/Modified |
+|-----------|----------------|---------|--------------|
+| `pack::NamingStrategy` | Enum replacing outputLayout+forceConflictHandling: `Flat`, `FlatWithForce`, `Keep` | `pack.h` | **NEW** |
+| `pack::GroupingStrategy` | Enum for grouping policy: `PerSourceDir` (default), `SingleGroup`, `LogicalPerSourceDir` (picture) | `pack.h` | **NEW** |
+| `pack::SummaryConfig` | Sub-struct for summary picture injection: `enabled`, `prefix` ("0000__" default) | `pack.h` | **NEW** |
+| `pack::NamingConfig` | Simplified: replaces `layout`+`forceConflictHandling` with `strategy` (NamingStrategy enum), adds optional `prefix` | `pack.h` | **MODIFIED** |
+| `pack::PackRequest` | Adds `groupingStrategy`, `naming` now uses simplified NamingConfig, adds `summary` (optional SummaryConfig) | `pack.h` | **MODIFIED** |
+| `pack::execute()` | Unchanged signature. Internal dispatch now handles new fields | `pack.cpp` | **MODIFIED** (internal only) |
+| `buildMediaPackPlan()` | Now handles picture path (summary injection, logical grouping), naming dispatch via enum | `pack.cpp` (anon ns) | **MODIFIED** |
+| `picture_process.cpp` | Removes 5 internal pack includes, replaces plan construction with PackRequest construction | `src/picture/` | **MODIFIED** |
+| `pipeline.cpp` | Adds naming strategy field to PackRequest (was using layout+forceConflictHandling) | `src/app/` | **MODIFIED** (minor) |
+| `collision_naming.h` | Unchanged (inline utilities stay where they are; used by picture compress path, naming logic) | `src/core/` | **UNCHANGED** |
+| `pack::internal::` | Unchanged (ordinal range helpers don't change) | `pack_internal.h` | **UNCHANGED** |
+
+---
 
 ## Recommended Project Structure
 
 ```
 src/
 ├── pack/
-│   ├── pack_types.h              # ★ Public value types: PackFileEntry, FileOrdinalRange, PackRunResult
-│   ├── pack_plan.h               # ★ PackPlan class declaration (replaces struct in pack_service.h)
-│   ├── pack_plan.cpp             # PackPlan implementation
-│   ├── pack_service.h            # ★ PackService class (orchestration, replaces free functions)
-│   ├── pack_service.cpp          # PackService implementation
-│   ├── packer_interface.h        # ★ IPacker abstract interface (for mockability)
-│   ├── packer.h                  # ★ Packer class (concrete zip I/O)
-│   ├── packer.cpp                # Packer implementation
-│   ├── packer_types.h            # Internal types: PackGroupInput, PackEntryInput → pack::detail::
-│   └── pack_facade.h             # [TEMPORARY] Deprecated free-function wrappers for backward compat
-├── video/
-│   ├── video_process.cpp         # MODIFIED: uses PackService, not free functions
-│   ├── video_output_planning.cpp # MODIFIED: uses Packer, not free groupPackFiles
-│   └── ... (other files unchanged)
+│   ├── pack.h                  # PUBLIC: PackRequest, NamingStrategy, GroupingStrategy,
+│   │                            #         SummaryConfig, NamingConfig, PackMode,
+│   │                            #         PackRunResult, execute() declaration
+│   ├── pack.cpp                # INTERNAL: execute(PackRequest), buildMediaPackPlan(),
+│   │                            #           runNonResumable, runResumable
+│   ├── pack_types.h            # PackFileEntry, PackEntryInput, FileOrdinalRange,
+│   │                            #   PackPlan (pure internal), PackProgressCallbacks
+│   ├── packer_types.h          # pack::detail:: PackGroupInput, PackEntryPartition, etc.
+│   │                            #   → NOT included by consumers
+│   ├── packer.h                # Packer class → INTERNAL only
+│   ├── packer.cpp              # Packer implementation
+│   ├── pack_service.h          # PackService → INTERNAL only
+│   ├── pack_service.cpp        # PackService implementation
+│   └── pack_internal.h         # Demoted helpers → INTERNAL only
+│
 ├── picture/
-│   ├── picture_process.cpp       # MODIFIED: uses PackService + Packer
-│   ├── picture_process.h         # MODIFIED: return types still pack::PackPlan
-│   └── ... (other files unchanged)
-├── core/
-│   ├── archive_plan.cpp          # MODIFIED: uses PackPlan methods + PackService
-│   └── ... (other files unchanged)
+│   ├── picture_process.h       # runPicturePackWorkflow, packAllPicsToZip
+│   └── picture_process.cpp     # NOW: builds PackRequest, calls pack::execute(PackRequest)
+│                                # GONE: pack_internal.h, packer.h, packer_types.h includes
+│                                # GONE: buildPicturePackPlan, buildPictureLogicalParts,
+│                                #        buildPictureLogicalBuckets, PicturePackNamingState
+│
 ├── app/
-│   ├── pipeline.cpp              # MODIFIED: uses Packer class, not free functions
-│   └── ... (other files unchanged)
-
-tests/
-├── pack/
-│   ├── pack_plan_tests.cpp         # NEW: test PackPlan encapsulation
-│   ├── pack_service_tests.cpp      # MODIFIED: test PackService with mock Packer
-│   ├── packer_tests.cpp            # MODIFIED: test Packer class
-│   └── pack_integration_tests.cpp  # NEW: integration tests
+│   └── pipeline.cpp            # UPDATED: NamingConfig uses NamingStrategy enum
+│
 ├── video/
-│   └── ... (minimal changes)
-├── picture/
-│   └── ... (minimal changes)
+│   └── video_process.cpp       # Unchanged (already uses PackRequest)
+│
+└── core/
+    └── collision_naming.h      # Unchanged (utilities used by picture compress)
 ```
 
 ### Structure Rationale
 
-- **`pack_types.h`**: Extracted first to break the circular `packer.h` → `pack_service.h` dependency. Both headers now include only `pack_types.h` for shared value types (PackFileEntry).
-- **`pack_plan.h/.cpp`**: PackPlan becomes a class with private members. This is the core encapsulation change. Separated from pack_service.h to clarify that PackPlan is a data model, not a service.
-- **`packer_interface.h`**: IPacker abstract interface enables unit testing of PackService without real zip I/O. PackService depends on the interface, not the concrete Packer.
-- **`pack_facade.h`**: Temporary backward compatibility layer. Keeps old free function signatures as `[[deprecated]]` wrappers delegating to new classes. Removed once all consumers migrate.
-- **`packer_types.h`**: Isolates internal packer input types (`PackGroupInput`, `PackEntryInput`, etc.) into `pack::detail::` namespace. Prevents these implementation details from leaking through the public header.
-
-## Architectural Patterns
-
-### Pattern 1: Interface-Based Dependency Injection (for Packer)
-
-**What:** PackService depends on `IPacker` abstract interface, not concrete `Packer`. Concrete `Packer` injected at construction or via setter.
-
-**When to use:** Whenever a component (PackService) needs to call side-effect-heavy operations (zip I/O, filesystem access) that must be mockable for unit testing.
-
-**Trade-offs:**
-- **Pros:** Enables unit testing of PackService without real zip archives. Clean separation of orchestration (PackService) from I/O (Packer). Follows existing precedent (`jobstate::Store` is already a class with private members).
-- **Cons:** Adds one abstract interface (+~15 lines). Virtual dispatch overhead is negligible for zip I/O (dominated by filesystem and compression).
-
-**Example:**
-```cpp
-// packer_interface.h
-namespace pack {
-
-class IPacker {
-public:
-  virtual ~IPacker() = default;
-
-  virtual auto packFilesToZip(
-    std::vector<PackFileEntry> const& entries,
-    std::filesystem::path const& zipFilePath,
-    PackEntryProgressCallback onEntryPacked = {},
-    std::atomic<std::size_t>* finalizingCount = nullptr
-  ) -> eh::Result<void> = 0;
-
-  // ... other zip/group operations
-};
-
-} // namespace pack
-
-// pack_service.h
-namespace pack {
-
-class PackService {
-public:
-  explicit PackService(std::unique_ptr<IPacker> packer);
-
-  auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>>;
-  auto runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
-    -> eh::Result<PackRunResult>;
-  auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> indexes)
-    -> PackPlan;
-
-private:
-  std::unique_ptr<IPacker> m_packer;
-  // implementation details hidden here
-};
-
-} // namespace pack
-```
-
-### Pattern 2: PackPlan as Class with Builder (encapsulation)
-
-**What:** PackPlan transitions from aggregate struct (all public members, designated initializer construction) to a class with private data members and a fluent builder or constructor parameter struct.
-
-**When to use:** When a data structure has invariants (e.g., `groups` must be non-empty for certain operations, `zipNameForIndex` mutex with `compact`) and is constructed in 4+ sites with similar patterns.
-
-**Trade-offs:**
-- **Pros:** Encapsulation prevents accidental direct mutation of callbacks. Builder ensures all required fields are set. Enables validation in constructor. Eliminates `static_assert(is_aggregate_v)` guard.
-- **Cons:** Breaking change from designated initializers. All 4 construction sites (video_process, picture_process × 2, packer's buildDirectoryPackPlan) must change. **Mitigated by facade pattern** — old sites continue working via deprecated constructor until migrated.
-
-**Example:**
-```cpp
-// pack_plan.h
-namespace pack {
-
-class PackPlan {
-public:
-  // Builder struct for fluent construction (preserves readability of designated initializers)
-  struct Builder {
-    std::vector<std::vector<PackFileEntry>> groups;
-    std::filesystem::path outputDir;
-    std::function<std::string(std::size_t)> zipNameForIndex;
-    std::function<std::string(std::size_t)> progressLabelForIndex;
-    std::optional<std::size_t> maxParallelJobs;
-    bool removeOnFailure = false;
-    bool compact = true;
-  };
-
-  explicit PackPlan(Builder builder);
-
-  // Queries
-  [[nodiscard]] auto groups() const -> std::vector<std::vector<PackFileEntry>> const&;
-  [[nodiscard]] auto outputDir() const -> std::filesystem::path const&;
-  [[nodiscard]] auto compact() const -> bool;
-  [[nodiscard]] auto maxParallelJobs() const -> std::optional<std::size_t>;
-
-  // These are used by archive_plan.cpp for resumable jobs
-  [[nodiscard]] auto zipNameForIndex(std::size_t index) const -> std::string;
-  [[nodiscard]] auto progressLabelForIndex(std::size_t index) const -> std::string;
-
-  // For selectPackPlanIndexes — creates a filtered copy
-  auto withGroups(std::vector<std::vector<PackFileEntry>> newGroups) const -> PackPlan;
-
-private:
-  std::vector<std::vector<PackFileEntry>> m_groups;
-  std::filesystem::path m_outputDir;
-  std::function<std::string(std::size_t)> m_zipNameForIndex;
-  std::function<std::string(std::size_t)> m_progressLabelForIndex;
-  std::optional<std::size_t> m_maxParallelJobs;
-  bool m_removeOnFailure = false;
-  bool m_compact = true;
-  // Callbacks — internal, managed by PackService not exposed publicly
-};
-
-} // namespace pack
-```
-
-**Design decision — callbacks stay internal:** The `onGroupStart`, `onGroupSuccess`, `onGroupFailure`, `onCompactProgress`, `onCompactStatusText` callbacks are NOT part of the public PackPlan API. They are set by `PackService::runPackPlan` (for resumable job state) or not needed at all in the public interface. This reduces PackPlan's public surface from 15 fields to 6 meaningful accessors.
-
-### Pattern 3: Facade Pattern for Backward Compatibility
-
-**What:** Keep old free-function signatures as `[[deprecated]]` wrappers in a separate header (`pack_facade.h`) that delegate to new class methods. All existing video/picture code continues to compile and pass tests without changes during the transition.
-
-**When to use:** When migrating a public API consumed by multiple subsystems that you don't want to change atomically.
-
-**Trade-offs:**
-- **Pros:** Zero-risk migration. Tests pass at every step. Video/picture subsystems can be migrated on their own schedule. Commit at every step with green CI.
-- **Cons:** Temporary duplication (facade functions + class methods). Must remember to remove facade after all consumers migrate.
-
-**Example:**
-```cpp
-// pack_facade.h — TEMPORARY, removed after all consumers migrate
-#pragma once
-#include "pack/pack_service.h"
-#include "pack/packer.h"
-
-namespace pack {
-
-// Facade: delegates to PackService singleton or injected instance
-[[deprecated("Use PackService::packGroups instead")]]
-inline auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
-  PackService service(std::make_unique<Packer>());
-  return service.packGroups(plan);
-}
-
-[[deprecated("Use PackService::runPackPlan instead")]]
-inline auto runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
-  -> eh::Result<PackRunResult> {
-  PackService service(std::make_unique<Packer>());
-  return service.runPackPlan(ctx, plan);
-}
-
-// ... etc for all migrated free functions
-
-} // namespace pack
-
-// packer.h also exposes deprecated free function wrappers:
-[[deprecated("Use Packer::packFilesToZip instead")]]
-inline auto packFilesToZip(/* signature matching old overloads */) -> eh::Result<void> {
-  Packer packer;
-  return packer.packFilesToZip(/* forwarded args */);
-}
-
-// ... etc
-```
-
-## Integration Points — Specific File/Struct References
-
-### What Changes vs What Stays
-
-#### NEW Files
-
-| File | Purpose | Dependencies |
-|------|---------|-------------|
-| `src/pack/pack_types.h` | Public value types (PackFileEntry, FileOrdinalRange, PackRunResult) | `<filesystem>`, `<vector>`, `<string>` |
-| `src/pack/pack_plan.h` | PackPlan class declaration | `pack/pack_types.h`, `core/error_handle.h` |
-| `src/pack/pack_plan.cpp` | PackPlan implementation (builder validation, utility methods) | `pack/pack_plan.h`, `<format>` |
-| `src/pack/packer_interface.h` | IPacker abstract base class | `pack/pack_types.h`, `core/error_handle.h` |
-| `src/pack/packer_types.h` | Internal types: `pack::detail::PackGroupInput`, `detail::PackEntryInput`, etc. | `pack/pack_types.h`, `<filesystem>`, `<optional>` |
-
-#### MODIFIED Files (pack subsystem — core refactoring)
-
-| File | Changes | Reason |
-|------|---------|--------|
-| `src/pack/pack_service.h` | Becomes PackService class declaration. Removes PackPlan struct (moves to pack_plan.h). Removes free function declarations (become class methods or deprecated facades). | Core encapsulation target |
-| `src/pack/pack_service.cpp` | Implementation moves into PackService methods. `CompactProgressState` becomes private nested class or private member. Anonymous namespace functions become private methods. | All 455 lines reorganized under class |
-| `src/pack/packer.h` | Becomes Packer class declaration. Implements IPacker. Removes global-scope structs (move to packer_types.h). Removes free function declarations (become class methods or deprecated facades). | Core encapsulation target |
-| `src/pack/packer.cpp` | Implementation moves into Packer methods. Anonymous namespace helpers become private methods. No longer includes pack_service.h (includes only pack_types.h for PackFileEntry). | Breaks circular dependency |
-
-#### MODIFIED Files (consumers — minimal changes)
-
-| File | Change Type | Lines Affected | What Changes |
-|------|-------------|---------------|--------------|
-| `src/video/video_process.cpp` | LIGHT | ~50 lines (395-448) | PackPlan construction: designated initializer → `PackPlan::Builder{}`. `pack::runPackPlan(ctx, plan)` → `service.runPackPlan(ctx, plan)`. Add `#include "pack/pack_service.h"` and `PackService` instantiation. **Facade phase: ZERO changes.** |
-| `src/video/video_output_planning.cpp` | TRIVIAL | ~5 lines | `groupPackFiles(packInputs, ...)` → `packer.groupPackFiles(...)`. **Facade phase: ZERO changes.** |
-| `src/picture/picture_process.cpp` | LIGHT | ~110 lines (2 PackPlan sites + packGroups/runPackPlan calls) | Same as video — Builder + PackService. **Facade phase: ZERO changes.** |
-| `src/picture/picture_process.h` | NONE initially | 0 lines | Return type remains `eh::Result<pack::PackPlan>` — PackPlan is still a type, just now a class. Compiles unchanged. |
-| `src/core/archive_plan.cpp` | LIGHT | ~40 lines | `pack::selectPackPlanIndexes()` → `service.selectPackPlanIndexes()`. `pack::resolveZipNameForIndex(plan, idx)` → `plan.zipNameForIndex(idx)`. `plan.groups[index]` → `plan.groups()[index]`. |
-| `src/core/archive_plan.h` | TRIVIAL | 1 line | `#include "pack/pack_service.h"` already present — PackPlan moves but is still reachable. |
-| `src/app/pipeline.cpp` | TRIVIAL | ~5 lines | `buildDirectoryPackPlan()` → `packer.buildDirectoryPackPlan()`. **Facade phase: ZERO changes.** |
-
-#### UNCHANGED Files
-
-| File | Why Unchanged |
-|------|---------------|
-| `src/core/app_context.h` | No pack types used; only `jobstate::Store` forward declaration |
-| `src/core/task_executor.h/.cpp` | No pack dependency; generic task execution |
-| `src/core/job_state.h/.cpp` | Already a class; no pack dependency (archive_plan.cpp mediates pack ↔ job_state) |
-| `src/core/parallel.h/.cpp` | Generic parallel utilities |
-| `src/core/progress.h/.cpp` | Progress bar abstraction |
-| `src/video/encode_config.h` | Data-only struct |
-| `src/video/video_encode_runner.h/.cpp` | No pack dependency |
-| `src/video/video_encoding_state.cpp` | No pack dependency |
-| `src/video/video_batch_execution.cpp` | No pack dependency |
-| `src/video/video_workflow_utils.h` | Template helpers only |
-| `src/infra/*` | Infrastructure layer — no pack dependency |
-| `src/utils/*` | General utilities |
-| All test files using facade | Compile unchanged against deprecated wrappers |
-
-### Namespace Strategy
-
-| Namespace | Contents | Visibility |
-|-----------|----------|------------|
-| `pack::` | PackPlan (class), PackService (class), IPacker (interface), Packer (class), PackFileEntry (struct), FileOrdinalRange (struct), PackRunResult (struct) | Public API — consumed by video/, picture/, core/ |
-| `pack::` | Utility free functions: `buildGroupOrdinalRanges()`, `appendOrdinalRangeSuffix()`, `defaultZipNameForIndex()`, `defaultProgressLabelForZipName()` | Keep as free functions — they're pure computation, no state, consumed by multiple subsystems |
-| `pack::detail::` | PackGroupInput, PackGroupPartition, PackEntryInput, PackEntryPartition | Internal to pack subsystem. Not visible to video/picture. |
-| Global scope → migrated | Currently global: `packFilesToZip` (3 overloads), `groupFilesBySize`, `groupPackFiles`, `groupPackFilesWithSubparts`, `groupPackEntries`, `groupPackEntriesWithSubparts`, `packAllFilesInDirectory`, `runDirectoryPackWorkflow`, `buildDirectoryPackPlan` | All move into `pack::Packer` class methods or `pack::` free functions. Global scope cleared. |
-
-**Design decision — keep some free functions in `pack::`:** `buildGroupOrdinalRanges()` and `appendOrdinalRangeSuffix()` are pure functions with no side effects, no state, and are consumed by video and picture subsystems for naming logic. They do not belong on any class. This is consistent with "free functions are fine for pure computation" — similar to how C++ stdlib keeps `std::sort` free even though `std::vector` exists.
-
-**Design decision — PackGroupInput etc. to `pack::detail::`:** These are input parameter types used only by `Packer`'s grouping methods. The public API for grouping accepts `std::vector<PackFileEntry>` or `std::vector<fs::path>` — the intermediate types (PackGroupInput, PackEntryInput) are implementation details. Moving them to `detail::` signals this.
-
-### Circular Dependency Resolution
-
-**Problem:** `packer.h` includes `pack_service.h` (for `PackFileEntry` type). After refactoring, both headers may need each other's types.
-
-**Solution — factor shared types first:**
-```
-Before:
-  packer.h → #include "pack/pack_service.h"  (circular with pack_service.h → includes packer.h indirectly)
-
-After:
-  pack_types.h  ← included by pack_plan.h, pack_service.h, packer.h, packer_interface.h
-  pack_plan.h   ← included by pack_service.h, archive_plan.h
-  packer_interface.h ← included by pack_service.h
-  pack_service.h → #include pack_plan.h, packer_interface.h (NOT packer.h)
-  packer.h       → #include packer_interface.h, pack_types.h (NOT pack_service.h)
-```
-
-Resolution order: Extract `pack_types.h` first, then `packer_interface.h`, then restructure includes.
-
-## Build Order
-
-### Phase A: Type Extraction (no behavioral changes)
-
-1. **Create `pack_types.h`** — Move PackFileEntry, FileOrdinalRange, PackRunResult from pack_service.h to new header.
-2. **Update `pack_service.h`** — Include pack_types.h instead of defining types inline.
-3. **Update `packer.h`** — Include pack_types.h instead of pack_service.h. This BREAKS the circular dependency.
-4. **Update `packer.cpp`** — Add `#include "pack/pack_service.h"` as needed (was indirectly included).
-5. **Verify**: All existing code compiles, all 909 assertions pass. ZERO behavioral changes.
-
-### Phase B: Create New Classes (behind facade, no consumer changes)
-
-1. **Create `packer_interface.h`** — IPacker abstract class.
-2. **Create `packer_types.h`** — Move global-scope structs into `pack::detail::`.
-3. **Create `pack_plan.h/.cpp`** — PackPlan class with Builder.
-4. **Rewrite `packer.h/.cpp`** — Packer class implementing IPacker, all methods. Keep old free functions as `[[deprecated]]` wrappers in pack_facade.h.
-5. **Rewrite `pack_service.h/.cpp`** — PackService class. Keep old free functions as `[[deprecated]]` wrappers in pack_facade.h.
-6. **Add `pack_facade.h`** — deprecated wrappers for all old free functions.
-7. **Update consumers minimally** — Add `#include "pack/pack_facade.h"` where needed. ZERO other changes.
-8. **Verify**: All 909 assertions pass. PackService unit tests pass with MockPacker.
-
-### Phase C: Migrate Consumers (one subsystem at a time)
-
-1. **Migrate video_process.cpp** — PackPlan::Builder, PackService instance.
-2. **Migrate video_output_planning.cpp** — Packer::groupPackFiles.
-3. **Migrate picture_process.cpp** — Both PackPlan construction sites, PackService calls.
-4. **Migrate archive_plan.cpp** — PackService::selectPackPlanIndexes, PackPlan accessors.
-5. **Migrate app/pipeline.cpp** — Packer::buildDirectoryPackPlan.
-6. **Verify after each**: Subsystem tests pass, facade still available for unmigrated consumers.
-
-### Phase D: Cleanup
-
-1. **Remove `pack_facade.h`** — All consumers migrated.
-2. **Remove deprecated wrappers from pack_service.h and packer.h**.
-3. **Final verify**: All 909 assertions pass. No deprecated warnings.
-
-**Rationale for this order:**
-- Phase A breaks the circular dependency first (lowest risk, pure refactoring).
-- Phase B establishes the new OO API without disrupting any consumer.
-- Phase C migrates consumers incrementally, one subsystem per commit.
-- At every step, the full test suite (909 assertions) can run and pass.
-
-## Mockability Strategy
-
-### For Unit Testing PackService
-
-PackService depends on two external concerns:
-1. **Zip I/O** (libzippp) — Mocked via `IPacker` interface
-2. **TaskExecutor** (taskexec::runTasks) — Not mocked initially (it's core infrastructure)
-
-```cpp
-// In tests/pack/pack_service_tests.cpp
-namespace {
-
-class MockPacker : public pack::IPacker {
-public:
-  // Control return values for test scenarios
-  eh::Result<void> packResult = {};
-  std::vector<std::vector<pack::PackFileEntry>> capturedGroups;
-  std::vector<std::filesystem::path> capturedZipPaths;
-
-  auto packFilesToZip(
-    std::vector<pack::PackFileEntry> const& entries,
-    std::filesystem::path const& zipFilePath,
-    PackEntryProgressCallback onEntryPacked,
-    std::atomic<std::size_t>* finalizingCount
-  ) -> eh::Result<void> override {
-    capturedGroups.push_back(entries);
-    capturedZipPaths.push_back(zipFilePath);
-    return packResult;
-  }
-
-  auto groupFilesBySize(
-    std::vector<std::filesystem::path> const& filePaths,
-    std::uintmax_t maxGroupSize,
-    std::optional<std::size_t> maxFilesPerGroup
-  ) -> std::vector<std::vector<std::filesystem::path>> override {
-    // ... recording and returning controlled groups
-  }
-
-  // ... other IPacker methods
-};
-
-} // namespace
-
-TEST_CASE("PackService::packGroups delegates to IPacker", "[pack-service]") {
-  auto mockPacker = std::make_unique<MockPacker>();
-  mockPacker->packResult = {}; // success
-
-  pack::PackPlan plan = pack::PackPlan{pack::PackPlan::Builder{
-    .groups = {/* test groups */},
-    .outputDir = "/tmp/out",
-    .compact = false,
-  }};
-
-  pack::PackService service(std::move(mockPacker));
-  auto result = service.packGroups(plan);
-
-  REQUIRE(result);
-}
-```
-
-### What Gets Mocked vs Not
-
-| Component | Mock? | Rationale |
-|-----------|:-----:|-----------|
-| IPacker (zip I/O) | YES | External dependency (libzippp); enables fast unit tests without filesystem |
-| PackPlan | NO | Pure data; construct real instances in tests |
-| PackService | NO | Unit under test; inject MockPacker |
-| TaskExecutor | NO (initially) | Core infrastructure; tested via integration |
-| jobstate::Store | Partial | Already a class; can be tested with temp files |
-| ProgressContext | NO | indicators library wrapper; tested via integration |
-
-## Scaling Considerations
-
-| Concern | Current Approach | After Refactoring |
-|---------|-----------------|-------------------|
-| Compile times | Single glob `src/**.cpp` — all files recompile on any header change | pack_types.h extracted → changes to PackPlan internals don't trigger picture/video recompilation |
-| Test isolation | Tests link against all `src/**.cpp|main.cpp` — can't mock zip I/O | MockPacker enables pack_service tests without libzippp or filesystem |
-| Binary size | All symbols in single binary | No change — inline/deprecated wrappers removed in Phase D |
-| New packer backend | Hard-coded libzippp | Implement new IPacker subclass (e.g., `MinizPacker`), inject into PackService |
-
-## Anti-Patterns to Avoid
-
-### Anti-Pattern 1: God Class PackService
-
-**What people do:** Dump all pack functionality (zip I/O, grouping, naming, progress, resumability) into a single PackService class with 30+ methods.
-
-**Why it's wrong:** Violates Single Responsibility. Makes PackService untestable without real zip I/O. Makes progress/compact logic inseparable from zip operations.
-
-**Do this instead:** Split into Packer (zip I/O + grouping), PackPlan (data model), PackService (orchestration + progress + resumability). Three focused classes, not one god class.
-
-### Anti-Pattern 2: Breaking All Consumers Atomically
-
-**What people do:** Rewrite pack_service.h, packer.h, AND all 6 consumer files in a single commit.
-
-**Why it's wrong:** High risk — one compilation error anywhere blocks all progress. Hard to bisect. Tests can't run until everything compiles.
-
-**Do this instead:** Facade pattern. New classes live alongside (not instead of) old free functions via deprecated wrappers. Migrate consumers one at a time.
-
-### Anti-Pattern 3: Over-Engineering the Builder
-
-**What people do:** Create a multi-step fluent builder with `.setGroups().setOutputDir().validate().build()` chain for PackPlan.
-
-**Why it's wrong:** PackPlan has only ~6 meaningful fields. A builder with separate setter for each field adds 40+ lines of boilerplate for no benefit over a simple constructor struct.
-
-**Do this instead:** Single `PackPlan::Builder` struct passed to constructor. Preserves designated-initializer readability with one level of nesting:
-
-```cpp
-// Good — clean, readable, minimal boilerplate
-auto plan = pack::PackPlan{pack::PackPlan::Builder{
-  .groups = groupedEntries,
-  .outputDir = zipOutputDir,
-  .zipNameForIndex = [&](std::size_t i) { return std::format("part{}.zip", i); },
-  .maxParallelJobs = ctx.config.maxParallelJobs,
-  .compact = !ctx.config.fullProgress,
-}};
-
-// Bad — over-engineered
-auto plan = pack::PackPlan::builder()
-  .withGroups(groupedEntries)
-  .withOutputDir(zipOutputDir)
-  .withZipNaming([&](auto i) { return std::format("part{}.zip", i); })
-  .withMaxParallelJobs(ctx.config.maxParallelJobs)
-  .withCompactMode(!ctx.config.fullProgress)
-  .build();
-```
-
-### Anti-Pattern 4: Making Everything a Class
-
-**What people do:** Convert every struct (`PackFileEntry`, `FileOrdinalRange`, `PackRunResult`) to a class with getters/setters.
-
-**Why it's wrong:** These are value types with zero invariants. Adding getters/setters for `sourcePath`, `zipEntryName` just creates busy-work and breaks existing aggregate initialization in tests.
-
-**Do this instead:** Keep value types as structs with public members. Only `PackPlan` (has invariants, callbacks, construction complexity) and the service classes (have dependencies, state) become classes.
-
-## Sources
-
-- `src/pack/pack_service.h` — PackPlan struct, free functions, static_assert guard (HIGH confidence — primary source)
-- `src/pack/pack_service.cpp` — PackPlan orchestration, CompactProgressState, anonymous namespace helpers (HIGH confidence — primary source)
-- `src/pack/packer.h` — Global-scope structs, free function declarations, circular include of pack_service.h (HIGH confidence — primary source)
-- `src/pack/packer.cpp` — Zip I/O, file grouping, anonymous namespace helpers (HIGH confidence — primary source)
-- `src/video/video_process.cpp:395-448` — PackPlan construction via designated initializer (HIGH confidence — primary source)
-- `src/video/video_output_planning.cpp:175-203` — Uses global-scope groupPackFiles (HIGH confidence — primary source)
-- `src/picture/picture_process.cpp:150-198, 607-615` — PackPlan construction sites × 2, pack::runPackPlan/packGroups calls (HIGH confidence — primary source)
-- `src/picture/picture_process.h:27,34` — Functions returning `pack::PackPlan` (HIGH confidence — primary source)
-- `src/core/archive_plan.h` — `PreparedPackExecution` struct, depends on `pack::PackPlan` (HIGH confidence — primary source)
-- `src/core/archive_plan.cpp:26-89` — Uses `pack::resolveZipNameForIndex`, `pack::selectPackPlanIndexes`, accesses `plan.groups[index]` (HIGH confidence — primary source)
-- `src/core/job_state.h:72-129` — `jobstate::Store` as existing OO class precedent (HIGH confidence — primary source)
-- `xmake.lua:38-50,59-76` — Build system: glob patterns, test linking (HIGH confidence — primary source)
-- `.planning/PROJECT.md:27-36` — v1.3 milestone requirements (HIGH confidence — authoritative)
-- `.planning/PROJECT.md:90-98` — Current architecture decisions (HIGH confidence — authoritative)
-- `tests/pack_service_tests.cpp` — Test patterns: direct PackPlan construction, designated initializers (HIGH confidence — primary source)
-- `tests/packer_tests.cpp` — Test patterns: global-scope function calls (HIGH confidence — primary source)
-- Existing `videobatch::detail` namespace precedent in `video_batch_execution.h` for shared struct definitions (HIGH confidence — v1.2 decision pattern)
+- **`pack.h` gets all new public types:** Following v1.4's "single public header" pattern. Consumers never include pack_types.h, packer_types.h, pack_service.h, or packer.h. This is verified by `pack_api_standalone_compile_test.cpp`.
+- **`collision_naming.h` stays in `core/`:** Its inline utilities (sanitizeLabel, shortPathHash, etc.) are used by picture compression path (`buildCompressTaskKey`), not just by pack subsystem. Moving it to `pack/` would create a new dependency direction.
+- **No new files needed:** The new enums and structs fit naturally into the existing `pack.h`. No new compilation units.
 
 ---
 
-*Architecture research for: encro v1.3 Pack Subsystem OO Refactor*
-*Researched: 2026-04-29*
+## Architectural Patterns
+
+### Pattern 1: Strategy Enum Dispatch (Replaces bool+enum Combo)
+
+**What:** Replace `NamingConfig`'s `OutputLayout layout` + `bool forceConflictHandling` pair with a single `NamingStrategy` enum that has one value per behavior.
+
+**Current (v1.4) — 3-way behavior encoded in 2 fields:**
+```cpp
+struct NamingConfig {
+  appctx::OutputLayout layout;       // Flat or Keep
+  bool forceConflictHandling = false; // only meaningful when layout==Flat
+  std::optional<std::string> baseName;
+  std::function<...> zipNameStrategy;
+};
+// Usage pattern: switch on (layout, forceConflictHandling) pair
+```
+
+**Target (v1.5) — 3-way enum:**
+```cpp
+enum class NamingStrategy {
+  Flat,           // Flatten filenames, no conflict disambiguation
+  FlatWithForce,  // Flatten with hash-based conflict disambiguation
+  Keep,           // Preserve relative directory structure (zip entry names mirror tree)
+};
+
+struct NamingConfig {
+  NamingStrategy strategy = NamingStrategy::Flat;
+  std::optional<std::string> entryPrefix;  // e.g. "1000__" for regular, "0000__" for summary
+  std::optional<std::string> baseName;
+  std::function<std::string(std::size_t, std::size_t, std::size_t, std::string_view, FileOrdinalRange)>
+    zipNameStrategy;  // unchanged — consumer-provided custom naming
+};
+```
+
+**When to use:** When a boolean flag only makes sense in combination with one enum value. The `forceConflictHandling` bool was dead weight for `Keep` layout. A 3-value enum eliminates the invalid state.
+
+**Trade-offs:**
+- PRO: Impossible to represent invalid states (e.g., `{Keep, forceConflictHandling=true}`)
+- PRO: Single `switch` dispatch instead of nested `if/switch`
+- PRO: Makes the `NamingStrategy` enum self-documenting
+- CON: Breaking change to `NamingConfig` struct — all construction sites must update
+- CON: `AppConfig` still stores `OutputLayout` and `forceConflictHandling` — consumers must translate to NamingStrategy
+
+**Mapping from AppConfig → NamingStrategy:**
+```
+OutputLayout::Flat + forceConflictHandling=false  → NamingStrategy::Flat
+OutputLayout::Flat + forceConflictHandling=true   → NamingStrategy::FlatWithForce
+OutputLayout::Keep + (any)                         → NamingStrategy::Keep
+```
+
+### Pattern 2: Summary Injection via Sub-Config
+
+**What:** Picture "folder summary" feature injects one summary entry per source directory at the front of each logical grouping. Currently picture_process.cpp does this manually with "0000__" key prefix. Abstract into a `SummaryConfig` sub-struct that tells `buildMediaPackPlan()` to inject summary entries.
+
+**Current (v1.4) — picture_process owns summary logic:**
+```cpp
+// picture_process.cpp
+if (config.pictureFolderSummary) {
+  summaryPics = collectFolderSummaryPictures(dirPath, scannedPics);
+}
+// summary entries get sourceKey = "0000__" prefix
+// regular entries get sourceKey = "1000__" prefix
+```
+
+**Target (v1.5) — summary as PackRequest concern:**
+```cpp
+struct SummaryConfig {
+  bool enabled = false;
+  std::string entryPrefix = "0000__";  // prefix for summary entry grouping keys
+  std::string regularPrefix = "1000__"; // prefix for regular entry grouping keys
+};
+
+struct PackRequest {
+  // ... existing fields ...
+  std::optional<SummaryConfig> summary;  // nullopt = no summary injection
+  // ...
+};
+```
+
+**When to use:** When a cross-cutting concern (summary entries) affects grouping, naming, and entry injection — all of which happen inside `buildMediaPackPlan()`. By making it a PackRequest field, the internal function can inject summary entries without the consumer managing it.
+
+**Trade-offs:**
+- PRO: picture_process no longer needs to build separate summary+regular entry vectors
+- PRO: summary injection is testable through the pack::execute() API boundary
+- CON: SummaryConfig is picture-specific, but lives in the general pack.h header (acceptable — Directory mode just ignores it)
+
+### Pattern 3: Grouping Strategy Enum (Consumer Declares Intent)
+
+**What:** Currently grouping is implicit: `buildMediaPackPlan()` always uses `groupPackEntriesWithSubparts()` with kMaxEntriesPerPart=2000. Picture has an extra logical grouping layer (`buildPictureLogicalParts`). Make the grouping policy a declared enum field on PackRequest.
+
+**Values:**
+```cpp
+enum class GroupingStrategy {
+  PerSourceDir,          // Group by source directory (default — current Media mode behavior)
+  PerSourceDirKeepTogether, // Keep source dir entries together, split at logical boundary (picture mode)
+  SingleGroup,           // Put everything in one group (for tiny inputs)
+};
+```
+
+**When to use:** When different consumers need different grouping policies for the same `PackMode::Media`. The picture workflow needs `PerSourceDirKeepTogether` (logical parts) while video uses `PerSourceDir` (simple partitioning).
+
+**Trade-offs:**
+- PRO: Consumer intent is explicit, not buried in implicit logic
+- PRO: `buildMediaPackPlan()` can switch on the enum instead of having separate code paths
+- CON: Enum values must be stable — adding a new strategy requires understanding all grouping algorithms
+- CON: The `keepSourceDirsTogetherWhenTotalFilesExceed` parameter on Packer methods maps to this — need to ensure correspondence
+
+---
+
+## Data Flow
+
+### New PackRequest → execute() Flow
+
+```
+picture_process / video_process / pipeline
+    │
+    │  Constructs PackRequest with:
+    │    .entries or .entryInputs
+    │    .mode = PackMode::Media
+    │    .naming = NamingConfig { .strategy = NamingStrategy::..., .entryPrefix = "..." }
+    │    .groupingStrategy = GroupingStrategy::...
+    │    .summary = SummaryConfig { .enabled = true/false }
+    │    .compact = ...
+    │    .outputDir = ...
+    │    .maxParallelJobs = ...
+    │
+    ▼
+pack::execute(PackRequest)
+    │
+    ├── PackMode::Directory ──→ Packer::buildDirectoryPackPlan()
+    │                           (uses naming.strategy for conflict handling)
+    │
+    └── PackMode::Media ──→ buildMediaPackPlan(request)
+                              │
+                              ├── 1. Convert entries → PackEntryInput[] (if not explicit)
+                              │
+                              ├── 2. IF summary.enabled:
+                              │       Inject summary entries with entryPrefix prefix
+                              │       into the PackEntryInput set
+                              │
+                              ├── 3. SWITCH on groupingStrategy:
+                              │       PerSourceDir:          groupPackEntriesWithSubparts()
+                              │       PerSourceDirKeepTogether: logicalParts → groupPackEntries()
+                              │       SingleGroup:           single group, no partitioning
+                              │
+                              ├── 4. SWITCH on naming.strategy:
+                              │       Flat:          entry name = prefix + filename
+                              │       FlatWithForce: entry name = prefix + collision-handled flat name
+                              │       Keep:          entry name = relative path
+                              │
+                              ├── 5. Apply entryNameForFile if consumer-provided
+                              │
+                              ├── 6. Build zipNameForIndex lambda
+                              │
+                              └── 7. Return PackPlan
+
+    │
+    ▼
+execute(PackPlan, jobState)
+    │
+    ├── jobState==null → runNonResumable → PackService::packGroups → Packer::packFilesToZip
+    └── jobState!=null → runResumable   → mergeTasks → filter → PackService::packGroups
+```
+
+### picture_process Migration Flow
+
+```
+BEFORE (v1.4):
+  picture_process.cpp
+    │
+    ├── readAllPics() → scannedPics[]
+    ├── planPictureZipEntryNames() → entryName map
+    ├── buildPicturePackEntryInputs() → pack::detail::PackEntryInput[]
+    │     └── requires packer_types.h, collision_naming.h
+    ├── buildPictureLogicalParts() → logical part vectors
+    │     └── buildPictureLogicalBuckets() → sort, group by sourceKey
+    ├── Packer::groupPackEntries() → physical groups
+    │     └── requires packer.h
+    ├── buildPicturePackPlan() → PackPlan
+    │     └── requires pack_internal.h (ordinal ranges)
+    │     └── requires pack_types.h (PackPlan, FileOrdinalRange)
+    └── pack::execute(PackPlan, jobState)
+          └── requires pack.h (PackPlan overload)
+
+AFTER (v1.5):
+  picture_process.cpp
+    │
+    ├── readAllPics() → scannedPics[]
+    ├── planPictureZipEntryNames() → entryName map (stays — naming is still picture's concern
+    │     for compression output paths, not pack entry names)
+    ├── Build PackRequest:
+    │     .entryInputs = scannedPics mapped to PackEntryInput (via entryName map)
+    │     .naming.strategy = map from AppConfig.layout + forceConflictHandling
+    │     .naming.entryPrefix = "1000__"  // regular entries
+    │     .groupingStrategy = GroupingStrategy::PerSourceDirKeepTogether
+    │     .summary.enabled = config.pictureFolderSummary
+    │     .summary.entryPrefix = "0000__"
+    │     .summary.regularPrefix = "1000__"
+    │     .outputDir = ...
+    │     .compact = !config.fullProgress
+    │
+    └── pack::execute(PackRequest)
+          └── requires ONLY pack.h
+```
+
+### Key Data Flows
+
+1. **Entry name planning stays in picture_process:** The `planPictureZipEntryNames()` function is NOT migrated. It determines entry names for compression output files (temp dir paths), which is picture-specific logic. Only the pack-level naming (zip entry names within archives) moves into pack.cpp.
+
+2. **Summary entry injection moves into pack.cpp:** `collectFolderSummaryPictures()` stays in picture_process (it depends on scanned picture files), but the injection of summary entries into the PackEntryInput set moves into `buildMediaPackPlan()` via the SummaryConfig flag.
+
+3. **Logical grouping moves into pack.cpp:** `buildPictureLogicalBuckets()` and `buildPictureLogicalParts()` logic migrates into `buildMediaPackPlan()` behind the `GroupingStrategy::PerSourceDirKeepTogether` enum value.
+
+---
+
+## Integration Points
+
+### New Types — Where They Go
+
+| Type | File | Visibility | Rationale |
+|------|------|-----------|-----------|
+| `NamingStrategy` enum | `pack.h` → `namespace pack` | PUBLIC | Replaces `OutputLayout` + `forceConflictHandling` in NamingConfig; consumers need it to construct NamingConfig |
+| `GroupingStrategy` enum | `pack.h` → `namespace pack` | PUBLIC | Field on PackRequest; consumers declare intent |
+| `SummaryConfig` struct | `pack.h` → `namespace pack` | PUBLIC | Optional sub-struct on PackRequest; picture consumer sets it |
+| Modified `NamingConfig` | `pack.h` → `namespace pack` | PUBLIC | Drops `layout`/`forceConflictHandling`, adds `strategy`+`entryPrefix` |
+| Modified `PackRequest` | `pack.h` → `namespace pack` | PUBLIC | Adds `groupingStrategy` and `summary` fields |
+
+**None of the new types go into `pack_types.h` or `pack_internal.h`.** Those headers are for types that are invisible to consumers (PackPlan, PackFileEntry, internal helpers). The new types are all consumer-facing declarations.
+
+### NamingConfig Evolution
+
+```cpp
+// BEFORE (v1.4) — two fields encoding 3 behaviors
+struct NamingConfig {
+  appctx::OutputLayout layout;
+  bool forceConflictHandling = false;
+  std::optional<std::string> baseName;
+  std::function<std::string(std::size_t, std::size_t, std::size_t, std::string_view, FileOrdinalRange)>
+    zipNameStrategy;
+};
+
+// AFTER (v1.5) — single enum encoding 3 behaviors + configurable prefix
+struct NamingConfig {
+  NamingStrategy strategy = NamingStrategy::Flat;
+  std::optional<std::string> entryPrefix;   // e.g. "1000__" — prepended to flat entry names
+  std::optional<std::string> baseName;
+  std::function<std::string(std::size_t, std::size_t, std::size_t, std::string_view, FileOrdinalRange)>
+    zipNameStrategy;  // unchanged
+};
+```
+
+### PackRequest Evolution
+
+```cpp
+// BEFORE (v1.4)
+struct PackRequest {
+  std::vector<fs::path> entries;
+  std::vector<PackEntryInput> entryInputs;
+  PackMode mode = PackMode::Media;
+  fs::path outputDir;
+  bool compact = true;
+  bool removeOnFailure = false;
+  std::optional<NamingConfig> naming;
+  std::optional<std::size_t> maxParallelJobs;
+  bool recursive = true;
+  jobstate::Store* jobState = nullptr;
+  std::function<std::string(fs::path const&)> entryNameForFile;
+};
+
+// AFTER (v1.5)
+struct PackRequest {
+  std::vector<fs::path> entries;
+  std::vector<PackEntryInput> entryInputs;
+  PackMode mode = PackMode::Media;
+  fs::path outputDir;
+  bool compact = true;
+  bool removeOnFailure = false;
+  std::optional<NamingConfig> naming;
+  GroupingStrategy groupingStrategy = GroupingStrategy::PerSourceDir;  // NEW
+  std::optional<SummaryConfig> summary;                                 // NEW
+  std::optional<std::size_t> maxParallelJobs;
+  bool recursive = true;
+  jobstate::Store* jobState = nullptr;
+  std::function<std::string(fs::path const&)> entryNameForFile;
+};
+```
+
+### Consumer Migration Impact
+
+| Consumer | Current | Target | Risk |
+|----------|---------|--------|------|
+| `pipeline.cpp` | Uses `NamingConfig{ .layout, .forceConflictHandling }` | Change to `NamingConfig{ .strategy = NamingStrategy::... }` | LOW — 2-field change, test covers compile |
+| `video_process.cpp` | No NamingConfig, plain PackRequest | Unchanged (nullopt naming = defaults) | NONE |
+| `picture_process.cpp` (non-compress) | Builds PackPlan, calls `execute(PackPlan)` | Builds PackRequest, calls `execute(PackRequest)` | HIGH — major restructure, but naming/logic preserved |
+| `picture_process.cpp` (compress) | Builds PackPlan, calls `execute(PackPlan)` | Builds PackRequest, calls `execute(PackRequest)` | HIGH — same as above |
+| `packAllPicsToZip()` | Standalone path, builds PackPlan | Builds PackRequest, calls `execute(PackRequest)` | MEDIUM — less complex than compress path |
+
+### Dependencies Between New Types
+
+```
+NamingStrategy enum
+    ↓ (required by)
+NamingConfig struct
+    ↓ (required by)
+PackRequest struct
+    ↑ (also requires)
+GroupingStrategy enum (independent — parallel)
+SummaryConfig struct (independent — parallel)
+```
+
+**Build order implication:** NamingStrategy must be defined before NamingConfig, which must be defined before PackRequest. GroupingStrategy and SummaryConfig can be added in parallel or in any order relative to NamingStrategy.
+
+---
+
+## Build Order Recommendation
+
+### Phase 1: Naming Strategy Enum + NamingConfig Migration (SINK-01)
+
+**Rationale:** NamingStrategy is the foundation. Everything else builds on it. Must exist before NamingConfig can use it, and NamingConfig must exist before PackRequest can be extended.
+
+**Changes:**
+1. Add `NamingStrategy` enum to `pack.h` (before `NamingConfig`)
+2. Modify `NamingConfig`: drop `layout`+`forceConflictHandling`, add `strategy`+`entryPrefix`
+3. Update `pack.cpp` `buildMediaPackPlan()`: switch on `strategy` for entry name generation
+4. Update `packer.cpp` `buildDirectoryPackPlan()`: use new `strategy` field
+5. Update `pipeline.cpp`: translate `AppConfig` → `NamingStrategy`, use new fields
+6. Update `NamingConfig` at `pack_service.h:31` (the forceNameConflictHandling parameter on `packAllFilesInDirectory`)
+
+**Deferred:** picture_process migration (Phase 3) — Phase 1 only changes internal dispatch, not consumers.
+
+### Phase 2: GroupingStrategy + SummaryConfig (SINK-02)
+
+**Rationale:** These are PackRequest extensions that don't depend on SINK-01's completion (except for needing the `pack.h` header). Can potentially be done in parallel with Phase 1, but safer to sequence after.
+
+**Changes:**
+1. Add `GroupingStrategy` enum to `pack.h`
+2. Add `SummaryConfig` struct to `pack.h`
+3. Add `groupingStrategy` and `summary` fields to `PackRequest`
+4. Update `buildMediaPackPlan()`: dispatch grouping by `groupingStrategy` enum; inject summary entries when `summary.enabled`
+5. Port `buildPictureLogicalBuckets()`/`buildPictureLogicalParts()` logic into `buildMediaPackPlan()` behind the `PerSourceDirKeepTogether` strategy value
+6. Port `collectFolderSummaryPictures()` → summary injection logic enters `buildMediaPackPlan()`
+
+**Risk:** Porting picture's logical grouping logic requires careful preservation of the kMaxPicturesPerPack=2000 limit, the source-key-based sorting, and the summary-entries-fit-first-physical-pack validation.
+
+### Phase 3: Picture Process Leak Elimination (SINK-03)
+
+**Rationale:** Only possible after Phase 1+2 complete, because picture_process needs to construct PackRequest with NamingStrategy, GroupingStrategy, and SummaryConfig.
+
+**Changes:**
+1. In `picture_process.cpp`:
+   - Remove `#include "pack/pack_internal.h"`, `#include "pack/packer.h"`, `#include "pack/packer_types.h"`
+   - Replace `buildPicturePackPlan()` calls with `pack::execute(PackRequest{...})`
+   - Build PackRequest with `.entryInputs`, `.naming.strategy`, `.groupingStrategy`, `.summary`
+   - Keep `planPictureZipEntryNames()` (entry names for compress output paths) 
+   - Keep `collectFolderSummaryPictures()` (scan logic)
+   - Keep `buildPicturePackEntryInputs()` / `buildCompressedPicturePackEntryInputs()` — they just build `PackEntryInput` vectors (which is a public type)
+2. Verify `pack_api_standalone_compile_test.cpp` still compiles (picture includes only pack.h)
+3. Run all tests: 945 assertions must pass with zero behavioral change
+
+### Phase 4: PackPlan Pure Internalization (SINK-04)
+
+**Rationale:** After Phase 3, only `pack.cpp` and `pack_service.cpp` use `PackPlan`. This phase makes it formally internal — verified by compile test.
+
+**Changes:**
+1. Verify no consumer outside `src/pack/` includes `pack_types.h` (PackPlan's home)
+2. Update `pack_api_standalone_compile_test.cpp` to assert PackPlan is NOT visible from `pack.h`
+3. Optionally: add `static_assert` that `pack::execute(PackPlan)` is only callable from within the pack module (compiler-level enforcement not practical without `friend` or modules, but compile test + code review suffices)
+
+**This is a verification step more than a code change.** The heavy lifting was in Phase 3.
+
+---
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Keeping AppConfig Dependencies in NamingConfig
+
+**What people do:** Copy `OutputLayout` and `forceConflictHandling` from `AppConfig` into `NamingConfig` and keep both alive. Two places to maintain the same logic.
+
+**Why it's wrong:** Creates synchronization bugs when one is updated but not the other. Confuses which is the source of truth.
+
+**Do this instead:** `NamingConfig` uses the new `NamingStrategy` enum (pack-local). Consumers translate `AppConfig` → `NamingStrategy` at the call site (one-line conversion). `AppConfig` keeps its fields for CLI parsing; they don't leak into pack.h.
+
+### Anti-Pattern 2: Moving collision_naming.h into pack/
+
+**What people do:** See collision_naming.h used by pack.cpp and move it to `src/pack/`.
+
+**Why it's wrong:** `picture_process.cpp` uses these utilities for compress task keying (`buildCompressTaskKey` → `stablePathString`), which is a picture concern not a pack concern. Moving it creates a reverse dependency or forces picture to include a pack internal header.
+
+**Do this instead:** Keep `collision_naming.h` in `src/core/`. It provides general-purpose inline path utilities used by multiple subsystems.
+
+### Anti-Pattern 3: Adding PackEntryInput Builders to pack.h
+
+**What people do:** Create factory functions or builder patterns for PackEntryInput inside pack.h to "help" consumers.
+
+**Why it's wrong:** Adds complexity to the public API for a type that is simple (4-field aggregate with designated initializers). Consumers already know how to construct it.
+
+**Do this instead:** Keep PackEntryInput as a simple aggregate in `pack_types.h` (included transitively by `pack.h`). Each consumer constructs it with designated initializers as needed.
+
+---
+
+## Risk Assessment
+
+| Risk | Severity | Phase | Mitigation |
+|------|----------|-------|------------|
+| Picture entry name behavior drift | HIGH | Phase 3 | Preserve `planPictureZipEntryNames()` unchanged; it feeds compress output paths, not pack entry names. The naming strategy in pack.cpp handles pack entry names separately. |
+| Logical grouping sort order change | MEDIUM | Phase 2 | The picture path sorts by `sourceKey` (stable-path-string of source dir). Must replicate this sort order exactly in `buildMediaPackPlan()`. Write targeted tests. |
+| Resume state compatibility | MEDIUM | Phase 3 | Job state stores task labels based on zip names. If naming strategy changes zip name format, resume breaks. Mitigation: naming strategy does NOT change zip names — only zip entry names within archives. The zipNameStrategy callback format is unchanged. |
+| NamingConfig backward compat | LOW | Phase 1 | Only 1 consumer uses NamingConfig (pipeline.cpp). Change is localized. |
+| Compile-time regression | LOW | Phase 4 | `pack_api_standalone_compile_test.cpp` guards the public API boundary. Each phase must keep this test passing. |
+
+---
+
+## Sources
+
+- **Source code (primary):** `src/pack/pack.h`, `src/pack/pack.cpp`, `src/pack/pack_types.h`, `src/pack/packer_types.h`, `src/pack/packer.h`, `src/pack/pack_service.h`, `src/pack/pack_internal.h`, `src/picture/picture_process.cpp`, `src/core/collision_naming.h`, `src/core/app_context.h` — all read and verified 2026-05-04
+- **Project context:** `.planning/PROJECT.md` — v1.5 milestone definition, SINK-01 through SINK-04
+- **Test patterns:** `tests/pack_execute_test.cpp`, `tests/pack_api_standalone_compile_test.cpp` — verified existing PackRequest construction patterns
+- **Consumer usage:** `src/video/video_process.cpp:409-418`, `src/app/pipeline.cpp:52-66` — confirmed PackRequest construction patterns
+
+---
+
+*Architecture research for: encrō v1.5 — Naming strategy + grouping config + summary toggle integration*
+*Researched: 2026-05-04*

@@ -1,297 +1,390 @@
 # Pitfalls Research
 
-**Domain:** C++ procedural-to-OO refactoring (pack subsystem)
-**Researched:** 2026-04-29
+**Domain:** C++ pack/archive API refactoring — adding naming strategy abstraction + grouping config to existing 3-consumer system
+**Researched:** 2026-05-04
 **Confidence:** HIGH
 
 ## Critical Pitfalls
 
-Mistakes that cause rewrites, test cascades, or silent behavioral changes in this specific codebase.
+### Pitfall 1: Summary Entry Ordering Breaks When Grouping Config Is Introduced
+
+**What goes wrong:**
+Picture's summary feature depends on a fragile implicit ordering contract: summary entries must be placed first in each logical bucket, and the `sourceKey` prefix `"0000__"` ensures lexicographic ordering. When grouping configuration is added (e.g., `keepSourceDirsTogetherWhenTotalFilesExceed` param exposed, or reordering logic touches groups), the summary-first invariant can silently break. The zip output will still be valid but summary entries may appear mid-archive or after non-summary files.
+
+**Why it happens:**
+The ordering depends on two mechanisms working in tandem: (a) `buildPictureLogicalBuckets()` inserts summary entries before iterating regular entries in `buildPictureLogicalParts()`, and (b) `isSummaryPicturePackEntry()` checks `sourceKey->starts_with("0000__")` to identify summaries. If the grouping config abstraction changes either the sourceKey generation or the ordering within `groupPackEntries`, summaries slide out of position. This is a *temporal coupling* between naming strategy and grouping config — they are implemented as independent abstractions but share a hidden invariant.
+
+**How to avoid:**
+1. **Enforce summary-first with a structural guarantee, not a string prefix convention**: Add a dedicated `bool isSummary` field to `PackEntryInput` (or use a tagged variant), then have `buildMediaPackPlan()` (in `pack.cpp`) explicitly copy-summary-entries-first regardless of sourceKey ordering.
+2. **Test invariant explicitly**: Add a `TEST_CASE` in `packer_tests.cpp` that verifies when summary entries are present, they appear first in every group/partition after `groupPackEntriesWithSubparts`.
+3. **Do not couple summary-first to naming strategy**: Summary position is a grouping concern. Keep it in grouping logic, not in naming.
+
+**Warning signs:**
+- Summary entries appearing after file entries in zip listing
+- Any change to `sourceKey` generation that doesn't preserve `"0000__"` prefix
+- Tests that check zip entry names but not entry ordering
+
+**Phase to address:**
+Phase 1 (Grouping Config addition to PackRequest) — this is the earliest it can break. Must be tested before any naming strategy change.
 
 ---
 
-### Pitfall 1: Breaking the designated-initializer contract on PackPlan
+### Pitfall 2: Naming Strategy Enum Explosion — Binding Enum Values to Consumer-Specific Modes
 
 **What goes wrong:**
-Converting `PackPlan` from `struct` to `class` with private members immediately breaks the `static_assert(std::is_aggregate_v<pack::PackPlan>)` guard at `pack_service.h:52`. Every designated-initializer construction site — **six in production code** (video_process.cpp:423, picture_process.cpp:474/607, packer.cpp:815, pack_service.cpp:402, archive_plan.cpp:65) and **ten in test code** — fails to compile. This is not just a test failure; it's a 100% build break with zero incremental recovery path.
+Picture has 3 naming modes (Flat, Keep, FlatForce). If the new `NamingStrategy` enum directly encodes these 3 modes, it creates a leaky abstraction: (a) the enum is useless for video consumers (they don't use these modes), (b) the enum is useless for directory pack-only consumers (they use `buildConflictHandledPackEntryName` differently), (c) adding a 4th picture mode requires modifying the shared enum and all consumers' compilation units. The enum should describe *strategy intent*, not *consumer identity*.
 
 **Why it happens:**
-PackPlan currently relies on C++ aggregate initialization with designated initializers (`.groups = ...`, `.outputDir = ...`). This is a deliberate design choice enforced by static_assert. Even C++26 does not support designated initializers on non-aggregates. Naïvely adding `private:` to PackPlan deletes the aggregate property, causing every consumer — including video, picture, and all 215 test cases — to fail simultaneously.
+The natural temptation is to "codify what picture already does" — but picture's 3 modes are a combination of layout (Keep vs Flat) + forceConflictHandling flag. They are not 3 independent strategies; they are 2 axes (layout × conflict handling) producing 3 meaningful combinations. Hardcoding the 3 combos as enum values forecloses future combinations and forces all consumers to carry unused variants.
 
 **How to avoid:**
-1. **Do NOT make PackPlan a class with private data.** PackPlan is a data-transfer object (DTO) with callback hooks — it is correctly modeled as an aggregate struct.
-2. **Encapsulate the logic around PackPlan, not PackPlan itself.** Move the anonymous-namespace free functions (`packGroupsCompact`, `packGroupsFull`, `resolveZipNameForIndex`, etc.) into a `PackService` class that *takes* a `PackPlan const&` but does not own it.
-3. **If PackPlan MUST change**, transition through a builder pattern that preserves the aggregate while adding validation, then change consumers one at a time. But this is high-risk and unnecessary for v1.3.
+1. **Keep `OutputLayout` + `forceConflictHandling` as two independent fields** in `NamingConfig`. The enum already exists. The naming strategy is determined by `(layout, forceConflictHandling)` tuple, not a flat enum. Do not add a separate `NamingStrategy` enum unless it truly orthogonal dimensions.
+2. If an enum IS needed (e.g., for `zipNameStrategy` dispatch), make it describe *how to build the entry name*, not *which picture mode is active*. Example: `EntryNameStyle::RelativePath`, `EntryNameStyle::FlatWithPrefix`, `EntryNameStyle::FlatWithCollisionGroup`. These map to the actual naming operations, not to picture modes.
+3. **Validate all enum × layout × forceConflictHandling combinations in tests** — there are only 6 possible combos (2 layouts × 2 conflictHandling bools × entry types). Test all, even the "impossible" ones, to catch regressions.
 
 **Warning signs:**
-- Seeing `private:` in a header that currently has a `static_assert(std::is_aggregate_v<...>)`.
-- Grepping for `PackPlan{` and seeing 20+ designated-initializer sites.
-- Build errors: `"cannot use designated initializer with non-aggregate type"`.
+- New enum with values named after picture-specific concepts (e.g., `PictureFlat`, `PictureKeep`)
+- `switch(namingStrategy)` in non-picture code paths
+- `static_assert` for enum count that needs updating every milestone
 
 **Phase to address:**
-Phase 0 (planning) — Must be in the research/audit stage before any code change. Design review must confirm whether PackPlan stays aggregate or transitions with a full impact analysis.
+Phase 2 (Naming Strategy Abstraction) — define the abstraction before implementing picture migration.
 
 ---
 
-### Pitfall 2: Virtual dispatch on the hot pack path
+### Pitfall 3: PackPlan Still Leaks to Consumers After "Internal-Only" Claim
 
 **What goes wrong:**
-Introducing virtual functions (`virtual`, `override`) on classes that sit in the critical packing path — `packFilesToZip` is called for every file in every archive. A virtual call through the vtable prevents inlining, adds an indirect branch, and on clang-cl with LTO enabled (`xmake.lua:3`), can prevent cross-TU optimization. This is easily a 10–50% throughput regression on large batches.
+The goal is to make PackPlan internal-only (`pack.h` no longer exposes it). But picture_process.cpp currently constructs PackPlan directly in `buildPicturePackPlan()` and passes it to `pack::execute(PackPlan, jobState*)`. If the migration only wraps this into `PackRequest` but leaves PackPlan visible in the header or adds a backdoor getter, PackPlan remains a transitive dependency of every consumer.
 
 **Why it happens:**
-Developers trained in "classical OO" reflexively add `virtual` to methods they think might need polymorphism. In a pack subsystem where the only polymorphism is compile-time (compact vs. full progress mode selected via `if (plan.compact)`), there is zero need for runtime dispatch.
+There are 4 call sites in picture_process.cpp that use `buildPicturePackPlan()` → `pack::execute(*plan, ...)`. Three of them use the PackPlan overload. The "quick" migration is to build a PackRequest that internally constructs the PackPlan — but if `pack_types.h` keeps declaring PackPlan, consumers can still `#include "pack/pack_types.h"` and see it. The `static_assert(std::is_aggregate_v<PackPlan>)` in `pack_types.h` is a reverse-dependency marker: it exists BECAUSE external code constructs PackPlan. Removing it is a signal that internalization succeeded.
 
 **How to avoid:**
-1. **Zero virtual functions in v1.3.** The refactoring goal is encapsulation, not polymorphism. Use `final` on any class that could accidentally become a base class.
-2. **Mark all pack classes `final`** — `class PackService final { ... };` — this allows the compiler to devirtualize any accidentally-virtual calls and signals intent.
-3. **Prefer `std::variant` or enum-based dispatch over inheritance** for any behavioral variation (but this codebase already uses a boolean `compact` flag correctly).
-4. **Benchmark before and after.** Run `xmake build` and time a pack of 1000 files. Any regression >2% is a blocking issue.
+1. **After all consumers migrate to `pack::execute(PackRequest)` only, move PackPlan to `pack_internal.h`** (or a new `pack_detail.h` that is NOT in the public include path). Remove it from `pack_types.h`.
+2. **Delete the `execute(PackPlan, jobState*)` public overload** or make it `namespace pack::detail` only. Only `pack::execute(PackRequest)` should be public.
+3. **Verification test**: Add a compilation check — `#include "pack/pack.h"` should NOT give access to `pack::PackPlan`. If any consumer outside `src/pack/` uses PackPlan, compilation must fail.
+4. **Remove the `static_assert(std::is_aggregate_v<PackPlan>)`** once internalization is complete — it was a guard against external mutation, no longer needed internally.
 
 **Warning signs:**
-- `virtual` keyword appearing in pack headers.
-- `override` keyword.
-- Virtual destructors in classes without virtual functions.
-- Clang-cl warning `-Wnon-virtual-dtor`.
+- `pack_types.h` still contains PackPlan after "done" claim
+- Picture (or any consumer) still `#include "pack/pack_types.h"` after migration
+- The `execute(PackPlan, jobState*)` overload remains public
 
 **Phase to address:**
-All phases — must be checked at every code review. Add a `grep -r "virtual" src/pack/` to the pre-commit hook for v1.3.
+Phase 3 (Picture elimination of detail/internal dependencies) — this is the final step after consumer migration.
 
 ---
 
-### Pitfall 3: Circular include dependency between pack and core
+### Pitfall 4: Two-Layer Partitioning Logic Leaks Through PackRequest Grouping Config
 
 **What goes wrong:**
-`pack_service.h:3` includes `core/app_context.h`. If the new `PackService` class adds `core/task_executor.h` or `core/progress.h` (needed for its methods), and those headers transitively depend on pack, you get a circular include. At best, `#pragma once` silently masks it. At worst, incomplete types cause cryptic template instantiation errors that take hours to diagnose.
+Picture currently has its own two-layer partitioning: (1) logical buckets → (2) physical groups via `packer.groupPackEntries()` with `keepSourceDirsTogetherWhenTotalFilesExceed = 0`. This is the MOST complex grouping behavior in the entire system. If the new grouping config on PackRequest tries to abstract this with simple knobs (e.g., just `maxFilesPerGroup`), the abstraction either:
+- (a) Fails to express picture's needs, forcing picture to keep calling Packer directly
+- (b) Adds too many parameters, leaking Packer's grouping internals into the public PackRequest
 
 **Why it happens:**
-The current codebase avoids this by keeping pack headers thin (only structs and function declarations) and including heavy dependencies (task_executor.h, packer.h) only in `.cpp` files. When you move function implementations into header methods (e.g., making `packGroups` a member of `PackService`), the heavy includes migrate to the header.
+The two-layer partitioning exists because picture has a unique constraint: summary entries from the same source directory must stay with their regular entries in the same logical part. Without this, you'd get summaries for directory B in the middle of directory A's files. The `keepSourceDirsTogetherWhenTotalFilesExceed = 0` parameter means "never split a source directory across packs, even if it means exceeding the file count limit." This is a semantic constraint, not just a size threshold.
 
 **How to avoid:**
-1. **Keep headers implementation-free.** Public method *declarations* in the header. Method *definitions* in the `.cpp` file. This is the existing pattern and must be preserved.
-2. **Use forward declarations** for types only needed in method signatures. E.g., `namespace taskexec { struct TaskPlan; }` in the header.
-3. **If a method signature requires a type from another module**, consider whether the method belongs in that module's header or whether the dependency can be inverted (dependency inversion).
-4. **Validate with a compile-time check:** After each header change, run `xmake build -j1` and verify no new include cycles appear. Use clang's `-H` flag to trace includes if suspicious.
+1. **Make `keepSourceDirsTogether` a first-class grouping strategy field on PackRequest**, not a hidden optional parameter. Something like:
+   ```cpp
+   enum class GroupingStrategy {
+     Simple,           // groupPackEntries — size-based only
+     SourceDirAware,   // groupPackEntriesWithSubparts — keep source dirs intact
+   };
+   ```
+2. **Picture's logical partitioning (buckets → parts) should remain inside the pack module**, driven by `GroupingStrategy::SourceDirAware`. Do not expose `keepSourceDirsTogetherWhenTotalFilesExceed` value directly.
+3. **Add `maxEntriesPerLogicalPart` to PackRequest** — picture's `kMaxPicturesPerPack = 2000` constraint must be expressible. This is currently done in `buildPictureLogicalParts()` and needs to become internal logic inside `buildMediaPackPlan()`.
+4. **Test that the two-layer partitioning produces identical group/partition counts** before and after migration. Compare `packer.groupPackEntriesWithSubparts()` output for the same inputs.
 
 **Warning signs:**
-- Adding `#include "core/task_executor.h"` to `pack_service.h`.
-- `incomplete type` errors in template instantiation backtraces.
-- Compilation of a single `.cpp` file pulling in 50+ headers.
+- PackRequest getting a raw `std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed` field (this is a Packer detail)
+- Picture code still calling `packer.groupPackEntries()` directly after "migration complete"
+- Different group counts for the same picture directory in old vs new code path
 
 **Phase to address:**
-Phase 1 (core class extraction) — Every header modification must be verified with a clean single-thread build (`xmake build -j1`).
+Phase 1 (Grouping Config) — must be designed correctly before picture migration.
 
 ---
 
-### Pitfall 4: Test breakage from access modifier change on functions
+### Pitfall 5: Behavioral Drift From Naming Strategy Callback Migration
 
 **What goes wrong:**
-When free functions in anonymous namespaces (`pack_service.cpp:21-323`, `packer.cpp:32-354`) are moved into class `private:` sections, they become inaccessible to tests. Tests that currently call `pack::packGroups(plan)` will still work (that's public API), but any test that constructs internal state objects (like `CompactProgressState` at pack_service.cpp:71) or calls helper functions cannot. More critically, tests pass through `pack::packGroups` → `packGroupsCompact` / `packGroupsFull` — if these become private methods of `PackService`, the test can't invoke them separately.
+When picture's `planPictureZipEntryNames()` is replaced by `NamingConfig` + `entryNameForFile` callback + `NamingStrategy` enum, the exact entry names produced must be byte-for-byte identical. A mismatch in edge cases (trailing slashes, unicode paths, filenames with dots, relative path normalization) causes existing zip archives to be incompatible with resumable job state, and E2E tests to fail on seemingly unrelated assertions.
 
 **Why it happens:**
-The anonymous namespace members are currently TU-scoped but accessible to any function in the same `.cpp`. When moved into a class, they get the class's access level. `CompactProgressState` and `packGroupsCompact`/`packGroupsFull` contain the actual packing logic — tests exercise them through `packGroups(plan)`, but unit tests might need finer-grained access.
+Picture's naming logic in `planPictureZipEntryNames()` has several non-obvious behaviors:
+1. **Keep layout**: Uses `lexically_relative()` — the root directory is `dirPath`, and entries relative to it. If `dirPath` normalization changes (trailing slash vs no slash), the relative path changes.
+2. **Flat layout without conflict**: Uses `buildFlatPictureEntryName()` which hardcodes `"1000__"` prefix — no collision group prefix.
+3. **Flat layout with conflict (FlatForce)**: Uses `buildConflictHandledPictureEntryName()` → `collisionnaming::buildConflictHandledFlatName()` which produces `{groupLabel}__{hash}__{stem}__{hash}{ext}`. The group label via `buildCollisionGroupPrefix(dirPath, filePath)` normalizes `dirPath` and `filePath` through `stablePathString()` which lowercases.
+4. **Summary entries**: `buildSummaryPictureEntryName()` hardcodes `"0000__summary__{prefix}__{filename}"`.
+5. **Compress path additionally calls `toJpgEntryName()`** which replaces the extension with `.jpg`.
+
+If the new `entryNameForFile` callback or naming strategy produces different strings for any of these paths, the zip entry names differ from v1.4, breaking resumable state continuity.
 
 **How to avoid:**
-1. **Map what tests actually need.** All 10 `pack::PackPlan{...}` construction sites in tests pass through the public API (`pack::packGroups`, `pack::selectPackPlanIndexes`, `pack::buildGroupOrdinalRanges`). These are the correct public surface.
-2. **Keep the existing public API surface intact.** The current free functions in `namespace pack` (not anonymous) are the public API. These must remain callable with identical signatures.
-3. **If a helper needs test access**, make it a `protected` method with a test-only subclass, or keep it as a free function in a `detail` namespace (preferred: avoids test-only code in production headers).
-4. **Add one integration test that exercises the full `packGroups` path** before any refactoring, to serve as a canary.
+1. **Snapshot reference entry names first**: Write a test that runs `planPictureZipEntryNames()` on a known test directory and captures ALL entry names as golden strings. Commit this test BEFORE starting migration. The migration is complete only when the same inputs produce exactly the same golden strings through the new code path.
+2. **Decouple naming from grouping**: `planPictureZipEntryNames()` currently BOTH assigns names AND resolves collisions (grouping same-named files). The migration should separate: naming strategy produces candidate names, Packer's `makeUniqueZipEntryName` handles collisions. But the candidate names must match.
+3. **Handle the `preferredEntryName` edge case**: In the current code, when `plannedEntryNames.find(picPath)` returns `end()`, the fallback is `picPath.filename().generic_string()`. The new code path must replicate this exactly including `generic_string()` normalization.
+4. **Compress path `toJpgEntryName`**: This is currently applied AFTER naming. Make sure the new abstraction doesn't bake JPG conversion into the naming strategy — it's a compression concern, not a naming concern.
 
 **Warning signs:**
-- `private:` section containing functions that were previously in the anonymous namespace.
-- Tests failing to link because a symbol went from TU-local to class-private.
-- Adding `friend class PackServiceTest;` to production code (this is a code smell).
+- `entryNameForFile` callback producing filenames that differ from the golden set
+- Unicode paths producing different hashes (case folding in `stablePathString`)
+- Summary entries getting `1000__` prefix instead of `0000__summary__`
 
 **Phase to address:**
-Phase 1 (initial class extraction) — The first class refactored must pass all existing tests without modification to test assertions.
+Phase 2 (Naming Strategy) — golden tests must be committed before implementation begins.
 
 ---
 
-### Pitfall 5: Getter/setter proliferation for every field
+### Pitfall 6: `collisionnaming` Namespace Scope Leak — Picture Still Depends on It Post-Migration
 
 **What goes wrong:**
-Converting every public struct field to `private` + `get_x()`/`set_x()` pair. The C++ Core Guidelines explicitly call this an anti-pattern: *"Trivial getters and setters: class with verbose accessors — bad. struct with public members — good."* For PackPlan's 11 fields, this means 22 accessor functions that serve no purpose except ceremony.
+Picture_process.cpp currently uses `collisionnaming::stablePathString`, `collisionnaming::buildCollisionGroupPrefix`, `collisionnaming::buildConflictHandledFlatName`, and `collisionnaming::shortPathHash` directly. After naming strategy abstraction, picture should NOT still depend on these functions — the naming logic is now the pack module's responsibility. If picture keeps these includes, it means the abstraction didn't fully internalize naming.
 
 **Why it happens:**
-Misunderstanding encapsulation. Encapsulation means hiding *implementation details* behind *behavioral interfaces*. If the getter just returns the field and the setter just assigns it, you haven't hidden anything — you've just added indirection and made designated-initializer construction impossible. The C++ Core Guidelines state: *"If a class has no behavioral member functions, use a struct."*
+The `using namespace collisionnaming` at line 25 and the `#include "core/collision_naming.h"` at line 5 of picture_process.cpp are transitively justified because picture builds its own entry names. When naming is "internalized", these become dead includes but the compiler won't warn about unused includes. They can persist indefinitely, maintaining a hidden coupling.
 
 **How to avoid:**
-1. **Distinguish data from behavior.** PackPlan, PackFileEntry, PackRunResult, FileOrdinalRange, PackGroupInput, PackGroupPartition, PackEntryInput, PackEntryPartition — these are data bags. Keep them as structs (or `class` with `public:` for consistency, but maintain aggregate-ness).
-2. **Encapsulate behavior, not data.** The OO value is in wrapping the 30+ free functions in pack_service.cpp/packer.cpp into cohesive classes with clear responsibilities. The data types are the *interface* between those classes and consumers.
-3. **Only add accessors when there's an invariant.** If you were to add a validation (e.g., `setMaxParallelJobs` that clamps to [1, N]), that's a legitimate encapsulation. But v1.3's goal statement says "zero behavioral change," so validation changes are out of scope.
+1. **Remove `#include "core/collision_naming.h"` from picture_process.cpp as a migration acceptance criterion.** If compilation fails after removal, the naming abstraction is incomplete.
+2. **Move collision-naming-dependent types into pack module types**: `sourceKey`, `fileKey` generation should happen inside `buildMediaPackPlan()`, not in picture's `makePictureSummaryPackEntry()` / `makePictureRegularPackEntry()`.
+3. **Track includes in the migration checklist**: Each removed `#include` is a verified decoupling.
 
 **Warning signs:**
-- Class with more `get`/`set` methods than behavioral methods.
-- `int get_x() const { return x_; }` — this is exactly the anti-pattern.
-- Accessor that returns a const reference to a member without any computation or invariant check.
+- `using namespace collisionnaming` still present in picture_process.cpp after "done"
+- `collisionnaming::buildCollisionGroupPrefix` called from picture code
+- `naming::stablePathString` alias in picture's anonymous namespace still exists
 
 **Phase to address:**
-Phase 0 (design review) — Class design must distinguish data-transfer types (stay structs) from service types (become classes).
+Phase 3 (Picture elimination) — verify includes removed.
 
 ---
 
-### Pitfall 6: Migration order — converting PackPlan before its consumers
+### Pitfall 7: Resumable Job State Incompatibility From Changed Zip Names
 
 **What goes wrong:**
-PackPlan is consumed by video_process.cpp, picture_process.cpp, packer.cpp, archive_plan.cpp, and all tests. If you start the refactoring by changing PackPlan, every consumer must change simultaneously. This violates the incremental-refactoring principle and guarantees a long period where nothing compiles.
+The resumable execution system (`pack::execute(PackPlan, jobState*)`) stores archive tasks keyed by zip file name (`jobstate::makeArchiveTask(plan.outputDir / zipName, ...)` at pack.cpp:228). If the naming strategy produces a different zip name for the same input set, the job state store won't recognize the archive as already completed. This causes:
+- (a) Redundant re-execution of already-packed archives
+- (b) Orphaned job state entries that can never be matched
+- (c) Silent data loss if the old archive is overwritten with a differently-named new one
 
 **Why it happens:**
-"Start with the core" is intuitive but wrong for data-transfer types. PackPlan is a dependency, not a dependency root. Changing it first is like replacing the foundation while people are living in the house.
+The zip file naming (`zipNameForIndex` lambda on `PackPlan`) includes part/subpart indices and ordinal range suffixes via `appendOrdinalRangeSuffix`. If the new naming strategy changes any of: baseName computation, partIndex assignment, subPartIndex assignment, or ordinal range calculation, the resulting zip filenames differ. The resumable store uses zip filenames as the stable identity of an archive task.
 
 **How to avoid:**
-1. **Refactoring order: leaves → trunk, not trunk → leaves.** Start with internal types that have no consumers outside their TU:
-   - `CompactProgressState` (pack_service.cpp:71) — TU-local, pure implementation
-   - `PreparedPackEntry`/`PreparedPackChunk` (packer.cpp:78-89) — TU-local
-   - Anonymous-namespace grouping functions in packer.cpp
-2. **Then service classes** — `PackService` wrapping the public free functions, taking PackPlan by const reference
-3. **PackPlan stays aggregate** unless there's a compelling reason to change it (and there isn't for v1.3)
-4. **Each step must compile and pass all 909 assertions**
+1. **Zip name MUST be deterministic from the pack request inputs**: For the same directory, same config, same files, the zip names must be identical. Add a test that builds PackPlan from request twice and asserts `zipNameForIndex(i)` returns the same string both times.
+2. **Preserve the existing `buildPicturePackBaseName` / `buildPackZipBaseName` logic** exactly — this is already internalized in `pack.cpp::buildPackZipBaseName()`. Do not change the format `{baseName}_part{X}.{Y}.zip` or `part{X}.zip` patterns.
+3. **Ordinal ranges must be computed identically**: `buildGroupOrdinalRanges()` in `pack_internal.h` must produce the same ranges after migration. This depends on group partitioning being identical.
 
 **Warning signs:**
-- First PR touches `pack_service.h` and 6 other files.
-- "This won't compile until Part 3" — any multi-PR dependency that can't compile independently.
-- Changing a type that has a `static_assert` guarding its current properties.
+- Resumable tests that previously skipped archives now process them again
+- Job state `.json` files contain archive IDs that don't match generated zip names
+- `--resume` flag produces duplicate archives with different names
 
 **Phase to address:**
-Phase 1 — Must define clear "leaf first" ordering. Each PR must be independently buildable and test-passing.
+Phase 2 (Naming Strategy) before picture migration — must validate zip name stability.
 
 ---
 
-### Pitfall 7: Compilation time regression from header bloat
+### Pitfall 8: Compress Path vs Non-Compress Path Divergence Post-Abstraction
 
 **What goes wrong:**
-The current codebase has fast compilation because pack headers are lean: `pack_service.h` (82 lines, 7 includes), `packer.h` (126 lines, 10 includes). When free functions become class methods defined in headers (inline or templated), every consumer of the header must recompile those definitions. Even worse, if the header pulls in transitive includes (task_executor, progress, job_state), compilation time can easily double.
+Picture has two nearly identical code paths (compress and non-compress) that share 80%+ logic but differ subtly:
+- Compress: sourcePath points to compressed file in tempDir, entryName gets `.jpg` extension
+- Non-compress: sourcePath is the original file, entryName keeps original extension
+
+After migrating both to `pack::execute(PackRequest)`, future changes to one path but not the other cause silent divergence. A developer adds a naming feature to the compress path, tests pass (compress tests cover it), but the non-compress path produces wrong entry names.
 
 **Why it happens:**
-OO refactoring encourages putting methods in headers for inlining or because templates are header-only. But this codebase has no pack templates that require header definitions. The LTO in xmake.lua (`set_policy("build.optimization.lto", true)`) already enables cross-TU inlining — there is zero benefit to header-based method definitions.
+The two paths are currently forced to share logic through `buildPicturePackPlan()` which is called by both. But the naming is applied at the PackEntryInput level BEFORE the shared plan builder. If the new abstraction applies naming at a different level (e.g., inside `buildMediaPackPlan()` via `entryNameForFile` callback), the source of truth splits: compress path provides entryName differently than non-compress.
 
 **How to avoid:**
-1. **All method definitions in .cpp files.** No exceptions for v1.3.
-2. **Measure compilation time before and after each phase.** `xmake build -j1 --verbose 2>&1 | grep "compile"` — any TU going from <1s to >2s needs investigation.
-3. **Use `final` on classes** to enable devirtualization without LTO requirements.
-4. **The xmake.lua uses `add_files("src/**.cpp")`** which auto-includes new files — adding a `pack_service_impl.cpp` would be auto-picked but adds a TU. Keep the TU count close to current.
+1. **Ensure `entryNameForFile` produces the same names for original and compressed variants of the same file** — only the sourcePath differs, not the zip entry name. This means the callback must use the original source file's path, not the compressed temp file's path.
+2. **Consolidate compress + non-compress into a single `buildPicturePackRequest()` factory** that takes optional compressed-path mapping. Both paths call the same `pack::execute(PackRequest)`. The only difference is whether `entryInputs` use original or compressed source paths.
+3. **Add a parameterized test that exercises both paths** with the same input directory and asserts identical zip entry names (differing only in file content, not zip structure).
 
 **Warning signs:**
-- Method bodies appearing in `.h` files.
-- `inline` keyword in pack headers.
-- `constexpr` methods defined in headers that could be in .cpp.
-- Increase in `#include` count in any pack header.
+- Separate `buildPackRequestForCompress()` and `buildPackRequestForNonCompress()` that duplicate naming logic
+- `entryNameForFile` callback that depends on whether the file exists at a given path (temp vs original)
+- One path getting a new feature that the other doesn't
 
 **Phase to address:**
-All phases — Add a CI check: `grep -c "^\s*(virtual|inline|constexpr).*{" src/pack/*.h` must return 0.
+Phase 3 (Picture migration) — consolidation should happen during migration, not after.
+
+---
+
+## Moderate Pitfalls
+
+### Pitfall M1: `entryNameForFile` Callback Lifetime Issues
+
+**What goes wrong:**
+The callback `entryNameForFile` on PackRequest is a `std::function<std::string(fs::path const&)>`. If it captures by reference and the PackRequest outlives the captured variables (common when PackRequest is moved into `execute()`), the callback becomes dangling. Calling it produces UB — typically a crash or garbage zip entry names.
+
+**Why it happens:**
+In `buildMediaPackPlan()` (pack.cpp:154), the callback is called on every entry after grouping. The PackRequest is passed by const-ref to `execute()`, then its `entryInputs` are moved/copied. If `entryNameForFile` captured e.g., `const auto& plannedNames` from picture_process.cpp and PackRequest is moved, the reference dangles.
+
+The current picture code avoids this by building names into `PackEntryInput.entry.zipEntryName` BEFORE constructing `PackEntryInput` — the callback is never involved. Post-migration, if picture sets `request.entryNameForFile = [&](...) { ... };`, this becomes a ticking time bomb.
+
+**How to avoid:**
+1. **Picture should NOT use `entryNameForFile` callback at all.** Instead, build entry names directly into `PackEntryInput.entry.zipEntryName` before adding to `PackRequest.entryInputs`. This is the pattern already established.
+2. If `entryNameForFile` MUST be used, document that it must outlive the PackRequest. Accept by value in appropriate contexts.
+3. Add a test that moves a PackRequest with a lambda-capturing callback into execute() and verifies no use-after-free (e.g., with AddressSanitizer).
+
+**Warning signs:**
+- `entryNameForFile = [&](...)` (capture by reference)
+- PackRequest stored in a local then moved to execute()
+- Random zip entry names or crashes in packer when reading entry names
+
+**Phase to address:**
+Phase 2 (Naming Strategy) — the callback API definition.
+
+---
+
+### Pitfall M2: `PackRequest` Grows Without Bound — Optional Everything Becomes Unmanageable
+
+**What goes wrong:**
+PackRequest currently has 10 fields, 4 of which are `std::optional`. Adding `groupingStrategy`, `summaryConfig`, `namingStrategy` with their own optional sub-structs creates a combinatorial explosion of optional fields. Consumers must understand which combinations are valid. Invalid combinations (e.g., `summaryConfig` with `PackMode::Directory`) are silently ignored rather than rejected at compile time.
+
+**Why it happens:**
+Each new feature gets a `std::optional<T>` field. This is the safe choice (backward compatible), but it defers validation to runtime. The API surface becomes: "10 fields, 4 required, 6 optional, some combinations mutually exclusive, others silently ignored." This is hard to test and easy to misuse.
+
+**How to avoid:**
+1. **Use `PackMode` to scope valid fields**: `summaryConfig` is only valid for `PackMode::Media`. `groupingStrategy` might be valid for both but with different semantics. Document in the struct, but also **add a `validate()` method or free function** that checks consistency and returns `eh::Result<void>`.
+2. **Group related optional fields into sub-structs**: Already done with `NamingConfig`. Do the same for `GroupingConfig` and `SummaryConfig`. A consumer sets `.grouping = GroupingConfig{...}` or leaves it `std::nullopt`.
+3. **Limit to one level of nesting**: Don't let sub-struct options themselves have nested optionals. `SummaryConfig` should have a simple `bool enabled = false` + maybe `perSourceDir = true`.
+
+**Warning signs:**
+- PackRequest fields exceeding 15
+- More than 3 levels of `std::optional` nesting
+- "silently ignore" comments in `execute()` body
+
+**Phase to address:**
+Phase 1 (Grouping Config) — design PackRequest extension carefully.
+
+---
+
+### Pitfall M3: Picture's `packAllPicsToZip` Legacy Path Gets Ignored
+
+**What goes wrong:**
+`packAllPicsToZip()` (line 718-770 of picture_process.cpp) is a standalone function that packs pictures into a single zip directory (no two-layer partitioning, no max file count). It's called from non-CLI contexts (potentially external consumers). If the migration only refactors `runPicturePackWorkflow()`, this function is left using the old PackPlan API while everything else moves to PackRequest. It becomes a permanent anomaly.
+
+**Why it happens:**
+This function is the simplest of the 3 picture packing functions — it has no compress path, no resumable execution, no two-layer partitioning. It's easy to overlook because it's at the bottom of the file and uses minimal dependencies. But it still constructs PackPlan directly and passes it to `pack::execute(*plan)`.
+
+**How to avoid:**
+1. **Audit ALL callers of `pack::execute(PackPlan, ...)` before starting migration.** There are 4 call sites in picture_process.cpp: 3 from `runPicturePackWorkflow()` + 1 from `packAllPicsToZip()`.
+2. **Migrate `packAllPicsToZip()` first** — it's the simplest and validates that the `PackRequest` path works for basic picture packing without complex grouping.
+3. **Search for `pack::execute(` across the full codebase** — anything passing a PackPlan is a migration target.
+
+**Warning signs:**
+- `pack::execute(*plan, ...)` still in picture_process.cpp after "done"
+- `buildPicturePackPlan()` still exists and is called
+- grep shows `PackPlan` usage in non-pack source files
+
+**Phase to address:**
+Phase 3 (Picture migration) — part of the comprehensive audit.
+
+---
+
+### Pitfall M4: `forceConflictHandling` Default Semantics Change
+
+**What goes wrong:**
+In `AppConfig`, `forceNameConflictHandling = true` (default). In `NamingConfig`, `forceConflictHandling = false` (default). If picture migration changes from reading `AppConfig.forceNameConflictHandling` to using `NamingConfig.forceConflictHandling` without carrying the AppConfig default, the effective default changes from `true` → `false` — reversing the conflict handling behavior for all picture processing.
+
+**Why it happens:**
+The `NamingConfig` was designed for the Directory mode where `forceConflictHandling = false` is the sensible default (directory trees naturally avoid name conflicts). But picture's Flat mode defaults to `forceConflictHandling = true`. The NamingConfig default was chosen for the majority use case (Directory), not for pictures.
+
+**How to avoid:**
+1. **Picture must explicitly set `NamingConfig.forceConflictHandling` from `AppConfig.forceNameConflictHandling`** — never rely on NamingConfig's default.
+2. **Document the default discrepancy** in `NamingConfig`'s struct comment.
+3. **Add a test** that verifies picture Flat mode with `forceNameConflictHandling = true` (the default) produces collision-handled names.
+
+**Warning signs:**
+- `request.naming = NamingConfig{.layout = ...}` without `.forceConflictHandling`
+- Conflict-handling tests pass with default `false` but fail with `true`
+- Non-obvious behavior change surfacing in E2E tests
+
+**Phase to address:**
+Phase 2 (Naming Strategy) — config mapping must preserve existing defaults.
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that seem reasonable but create long-term problems.
-
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| `friend class TestAccessor;` | Quick test access to private members | Production code now knows about test code; test-specific code in headers slows compilation | Never — use public API or `detail` namespace free functions |
-| `public:` section with all old struct fields | Builds compile, all tests pass | Zero encapsulation — the refactoring is cosmetic and adds zero value | Never for v1.3 — either encapsulate or don't change |
-| Duplicate free function bodies in member methods + keep originals | "Incremental" — old code still works | Two implementations to maintain; bugs fixed in one but not the other | Only during a single-PR transition where the old is deleted in the same PR |
-| `#include` everything in a single `pack_all.h` | Convenience for consumers | Loss of incremental compilation; every consumer recompiles on any pack change | Never — the current per-header include pattern is correct |
-| Abstract base class for PackService with single implementation | "Extensibility" | Virtual call overhead on packing hot path; complexity for zero benefit | Only when a second implementation exists and is being merged simultaneously |
-| `std::shared_ptr` for all objects instead of value semantics | No lifetime management worries | Heap allocation overhead; cache-unfriendly indirection | Only for data shared across threads (like `CompactProgressState` which already uses atomic members correctly) |
-
----
+| Hardcode `"1000__"` and `"0000__summary__"` prefixes in naming strategy mapping | Fast implementation | Magic strings become undocumented invariants; prefix collision risk if video consumer also uses these | Never — extract to named constants in pack module |
+| Keep `collisionnaming` namespace import in picture_process.cpp "just for stablePathString" | Avoid extra refactoring | Breaks the "naming is internal to pack" invariant; picture remains coupled to naming implementation details | Only if `stablePathString` is genuinely a core utility (it is), but then it must move to a non-pack, non-picture utility header |
+| Add `summaryEnabled` bool directly to `PackRequest` instead of a `SummaryConfig` sub-struct | One less struct to define | Forces all consumers to know about summary concept; breaks separation of concerns | Never — summary is picture-specific, not universal |
+| Use `std::function` for grouping strategy instead of enum + dispatch table | Flexibility | No compile-time validation of valid strategies; type erasure hides intent | Only if grouping strategies need runtime composition (they don't here) |
+| Copy `buildPicturePackBaseName` logic into new naming strategy enum handler | One less function to extract | Duplicated zip naming logic — change one, forget the other | Never — single source of truth for zip name format |
 
 ## Integration Gotchas
 
-Common mistakes when pack subsystem connects to video/picture consumers.
-
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| **video_process.cpp builds PackPlan** (line 423) | Changing PackPlan constructors breaks this site — video team may not know pack was refactored | PackPlan must maintain backward-compatible construction. If builder is added, keep the aggregate constructor working during transition |
-| **picture_process.cpp builds PackPlan** (lines 474, 607) | Same as above, plus picture uses `groupPackEntriesWithSubparts` from packer.h — if packer functions move into a class, picture must update | Keep the existing free-function signatures as public API during transition; deprecate only after consumers migrate |
-| **archive_plan.cpp uses `pack::selectPackPlanIndexes`** (line 65) and accesses `plan.groups[i]` | Making `groups` private breaks archive_plan's direct access | `groups` is a data member of a DTO — it should remain publicly accessible. archive_plan is a core module that legitimately needs this data |
-| **All consumers construct `pack::PackFileEntry{ .sourcePath = ..., .zipEntryName = ... }`** (video_process.cpp:414, picture_process.cpp:243+) | Making PackFileEntry fields private breaks designated-initializer construction everywhere | PackFileEntry is a value type with `operator==` defaulted — keep it as an aggregate |
-| **video_output_planning.cpp calls `groupPackFiles` from packer.h** (line 183) | If `groupPackFiles` becomes a method, video must construct the class first | Keep `groupPackFiles` as a free function or provide it as a static method on the grouping class |
-| **picture_process.cpp calls `groupPackEntriesWithSubparts`** (line 577) | Same pattern — packer grouping functions are called from outside the pack subsystem | These are genuinely reusable algorithms. They should remain callable without constructing a service object |
-
----
+| picture → pack::execute() | Passing AppConfig raw instead of translating to NamingConfig+GroupingConfig | Picture builds a PackRequest with explicit config mapping; no AppConfig types cross the boundary |
+| video → pack::execute() | Setting `entryNameForFile` callback that captures video-specific state by reference | Video should use `entryInputs` with pre-computed names, not callbacks (same pattern as current code) |
+| pipeline → pack::execute() | Different PackRequest construction for video vs picture vs directory modes | All modes use `pack::execute(PackRequest)`, mode-switching logic in pipeline, not in pack module |
+| pack::internal → consumers | Accidentally exposing `packer_types.h` types through PackRequest fields | PackRequest only uses types from `pack.h` and `pack_types.h` (public headers); never include `packer_types.h` or `pack_internal.h` in public API |
+| collisionnaming → multiple modules | Pack and picture both `using namespace collisionnaming` and calling the same functions from different contexts | After migration, only `pack/` module includes collision_naming.h; picture only calls pack::execute() |
 
 ## Performance Traps
 
-Patterns that work at small scale but fail with real workloads.
-
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Virtual dispatch on `addFile` loop | Per-file overhead × 1000s of files; `packFilesToZip` becomes CPU-bound on vtable lookup instead of I/O | Zero virtual in pack hot paths; mark all pack classes `final` | 1000+ files, noticeable at 10k files |
-| Heap-allocating `PackService` per `packGroups` call | `packGroups` is called once per workflow; heap allocation of a stateless service object adds ~100ns — negligible. But if it happens inside the per-file loop, catastrophic | `PackService` should be stack-allocated or have static lifetime; no `new`/`make_unique` inside loops | Inside per-file loop: breaks at 100 files |
-| `std::function` copy overhead for callbacks | `PackPlan` has 7 `std::function` members. Copying a PackPlan copies all callbacks — but PackPlan is passed as `const&` everywhere so this is already avoided | Do NOT change `PackPlan const&` to `PackPlan` (by-value) in any function signature | Would break immediately on large callback captures (picture's `PicturePackNamingState` shared_ptr) |
-| Thread contention on mutex in `CompactProgressState` | `state.mutex` is locked per file completion. At 10k files with 8 concurrent archives, negligible. But moving to a coarser lock (making the whole PackService mutex-protected) would serialize packing | Keep the fine-grained locking; do not add a "convenience" mutex on the service class | Breaks at 4+ concurrent archives with small files (I/O < lock contention) |
-
----
-
-## Security Mistakes
-
-Beyond general C++ security — domain-specific to this codebase.
-
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Exposing `std::function` setters without validation | Malformed callback could throw from inside `runTasks` worker thread, causing std::terminate | All callbacks in PackPlan are set by trusted internal code; if a setter is added, wrap in `noexcept` or document the noexcept requirement |
-| Path traversal via crafted `zipEntryName` | `zipEntryName` like `../../etc/passwd` could extract outside target directory | `normalizeZipEntryName` (packer.cpp:44) already strips leading `/` but does not prevent `../` — this is pre-existing and NOT a v1.3 concern, but adding OO wrappers must not weaken existing checks |
-| `src/**.cpp` wildcard in xmake.lua adding all files | Adding a `src/pack/exploit_helper.cpp` would be compiled and linked | Pre-existing build config; v1.3 must not introduce files outside `src/pack/` |
-
----
+| `std::function` copy in `buildMediaPackPlan` hot path | Increased memory allocs per archive; slower packing with many small groups | The callback is captured once per PackPlan, copied once per lambda closure — negligible for 1-100 archives. **Not a real concern** but verify with heap profiling if archive count > 1000 | >1000 archive groups |
+| `unordered_map` rehashing in `buildPictureLogicalBuckets` | `bucketsByDir.reserve(packInputs.size())` already prevents most rehashing | Existing code is already optimized. New grouping must maintain `.reserve()` calls | Not a concern — already addressed |
+| String copying in entry name generation | `std::format` return values copied into `std::string` zipEntryName | Use `std::move` when returning from format. Current code does this implicitly via RVO | Already handled by C++17 guaranteed copy elision |
 
 ## "Looks Done But Isn't" Checklist
 
-Things that appear complete but are missing critical pieces.
-
-- [ ] **"PackService class extracted":** Are all 30+ anonymous-namespace functions accounted for? Verify: `grep -c "namespace {" src/pack/*.cpp` should equal zero after complete migration (or only contain new TU-local helpers with justification)
-- [ ] **"All tests pass":** Are there *new* tests for the OO interface? The 909 existing assertions test behavior through the free-function API. If that API is now a thin delegate to methods, there should be at least 5 new tests that exercise the class directly — verifying construction, destruction, and method chaining. Without these, the OO layer is untested.
-- [ ] **"Encapsulation complete":** Can a consumer access pack internals without going through the public interface? Verify: try to include only the public header and call internal methods — it should fail to compile.
-- [ ] **"No header bloat":** Compare `wc -l src/pack/*.h` before and after. Header size should be within 20% of original. If headers grew 2x+, the OO refactoring moved implementation into headers.
-- [ ] **"LTO still works":** The `xmake.lua` LTO policy requires that link-time optimization can see through method boundaries. Verify: `xmake f -m release && xmake build` — if linker errors about undefined symbols appear, LTO is conflicting with new OO boundaries.
-- [ ] **"Video/picture consumers unchanged":** `git diff src/video/ src/picture/` should show zero changes (except possibly `#include` path adjustments). If video or picture files change, the encapsulation boundary leaked.
-
----
+- [ ] **PackPlan not visible:** `#include "pack/pack.h"` in a test file gives no access to `pack::PackPlan`
+- [ ] **No collisionnaming in picture:** `#include "core/collision_naming.h"` removed from `picture_process.cpp`
+- [ ] **No Packer direct access:** `#include "pack/packer.h"` removed from `picture_process.cpp`
+- [ ] **All 4 picture call sites migrated:** 3 `runPicturePackWorkflow()` + 1 `packAllPicsToZip()` all use `pack::execute(PackRequest)`
+- [ ] **Summary ordering preserved:** Summary entries appear first in zip listing for every archive
+- [ ] **Golden zip entry names match:** Byte-identical zip entry names for test input directory before vs after migration
+- [ ] **Resumable state compatible:** Running `--resume` after interrupted migration build reuses the same zip names
+- [ ] **Compile-time validation:** `static_assert` that `PackRequest` works with all 3 modes at compile time (no runtime dispatch needed for basic validation)
+- [ ] **`forceConflictHandling` default preserved:** Picture's Flat mode still defaults to `true` (inherited from AppConfig, not NamingConfig default)
+- [ ] **Video consumer untouched:** Video's `pack::execute(PackRequest{...})` call still works without any changes (backward compat)
 
 ## Recovery Strategies
 
-When pitfalls occur despite prevention, how to recover.
-
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Broke designated-initializer by making PackPlan non-aggregate | LOW | Revert PackPlan to aggregate struct. The work wasn't wasted — extract the logic into a service class instead. 1 PR to fix. |
-| Added virtual function discovered by benchmark regression | LOW | Remove virtual, add `final`. Re-measure. If regression persists, the problem is elsewhere — git bisect. |
-| Circular include (doesn't compile) | MEDIUM | Forward-declare the type that caused the cycle. Move the method definition to .cpp. If the method must be inline, extract a free function in a detail header. |
-| Test cascades (50+ test failures) | MEDIUM | Revert to last green commit. Re-apply changes in smaller increments (one class/method at a time). Each increment must pass all tests. |
-| Compilation time doubled | MEDIUM | Run `clang-cl -H` to see include tree. Move method bodies from .h to .cpp. Remove unnecessary includes from headers. Add forward declarations. |
-| Over-engineered (abstract base, deep hierarchy, getters everywhere) | HIGH | Full revert and restart. Over-engineering in C++ OO creates design debt that's harder to unwind than procedural debt. The correct approach: concrete classes, flat hierarchy, behavioral methods only. |
-
----
+| Summary ordering breaks | MEDIUM | Revert to explicit summary-first insertion in buildMediaPackPlan; add `isSummary` flag to PackEntryInput; re-run golden tests |
+| Naming enum explosion | LOW | Revert enum to `OutputLayout` + `forceConflictHandling` tuple; delete enum definition from header (assuming no consumer adopted it yet) |
+| PackPlan still leaks | HIGH | Requires touching all consumers' includes; find-replace `pack/pack_types.h` → `pack/pack.h` across codebase; verify compilation |
+| Golden entry name mismatch | MEDIUM | Diff golden names vs actual names; fix naming strategy mapping; re-run golden test; if fundamental mismatch, revert naming abstraction |
+| Resumable state broken | HIGH | Old job state files are incompatible with new zip names; either provide a migration script or accept that `--resume` from v1.4 requires redoing packing |
+| callback lifetime bug | LOW | Change lambda capture from reference to value; add AddressSanitizer test |
 
 ## Pitfall-to-Phase Mapping
 
-How roadmap phases should address these pitfalls.
-
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Breaking PackPlan aggregate contract | Phase 0 (design review) | `static_assert(std::is_aggregate_v<pack::PackPlan>)` still holds after Phase 1 |
-| Virtual dispatch on hot path | All phases | `grep -r "virtual" src/pack/` returns empty |
-| Circular includes | Phase 1 (initial class extraction) | `xmake build -j1` clean build succeeds |
-| Test breakage from access modifier change | Phase 1 | All 909 assertions pass; `git diff tests/` is empty |
-| Getter/setter proliferation | Phase 0 (design review) | Code review: count behavioral methods vs accessors on each new class |
-| Wrong migration order | Phase 0 (planning) | First PR touches only TU-local internals, not pack_service.h |
-| Compilation time regression | Phase 1, 2, 3 | `xmake build -j1` time within 120% of baseline |
-| Integration breakage with video/picture | Phase 2 (service class extraction) | `git diff src/video/ src/picture/` is empty |
-| Header bloat from inlined methods | All phases | `wc -l src/pack/*.h` within 120% of baseline |
-| Thread safety regression from coarser locking | Phase 2 | Per-file progress still resolves correctly under concurrent packing |
-
----
+| Summary ordering break (P1) | Phase 1 — Grouping Config | Test that summary entries are first in every zip archive listing |
+| Enum explosion (P2) | Phase 2 — Naming Strategy | Code review: enum values express strategy intent, not consumer identity |
+| PackPlan leak (P3) | Phase 3 — Picture Migration | Compile test: `#include "pack/pack.h"` doesn't expose PackPlan |
+| Two-layer partitioning leak (P4) | Phase 1 — Grouping Config | Test identical group/partition counts for same inputs |
+| Behavioral drift (P5) | Phase 2 — Naming Strategy | Golden test: byte-identical zip entry names for test directory |
+| collisionnaming scope leak (P6) | Phase 3 — Picture Migration | Search: no `collisionnaming` references in non-pack source files |
+| Resumable state incompatibility (P7) | Phase 2 — Naming Strategy | Test: `--resume` reuses same zip names |
+| Compress/non-compress divergence (P8) | Phase 3 — Picture Migration | Parameterized test: both paths produce identical entry names |
 
 ## Sources
 
-- **C++ Core Guidelines** (isocpp/cppcoreguidelines) via Context7 — authoritative source for class design, interface segregation, avoiding trivial getters/setters, preferring concrete types. [HIGH confidence]
-- **isocpp.org Super-FAQ** — Classes and Objects section — defines encapsulation, interface quality, struct vs class. [HIGH confidence]
-- **Codebase analysis** — All pack subsystem files (pack_service.h/.cpp, packer.h/.cpp), consumer files (video_process.cpp, picture_process.cpp, archive_plan.cpp, video_output_planning.cpp), test files, xmake.lua build configuration. [HIGH confidence — direct code inspection]
-- **xmake.lua:3** — LTO policy (`set_policy("build.optimization.lto", true)`) confirms cross-TU optimization is active, making header-based inlining redundant. [HIGH confidence]
-- **pack_service.h:52-55** — `static_assert(std::is_aggregate_v<pack::PackPlan>)` confirms PackPlan must remain aggregate. [HIGH confidence]
+- **Codebase analysis:** `src/pack/pack.h`, `src/pack/pack_types.h`, `src/pack/packer.h`, `src/pack/packer_types.h`, `src/pack/pack_internal.h`, `src/pack/pack.cpp`, `src/pack/packer.cpp`, `src/picture/picture_process.cpp`, `src/video/video_process.cpp`, `src/app/pipeline.cpp`, `src/core/collision_naming.h`, `src/core/app_context.h` — HIGH confidence (primary sources)
+- **Design patterns:** Refactoring.Guru — Strategy pattern (https://refactoring.guru/design-patterns/strategy) — HIGH confidence (canonical reference)
+- **C++ pitfalls:** Training data + codebase analysis — MEDIUM confidence (std::function lifetime, optional explosion, enum design — validated against codebase patterns)
+- **v1.4 context:** `.planning/PROJECT.md` — HIGH confidence (official project state)
+- **Project principles:** Design decisions document in PROJECT.md (aggregate preservation, encapsulation, zero hot-path overhead) — HIGH confidence
 
 ---
 
-*Pitfalls research for: encro pack subsystem C++ OO refactoring (v1.3)*
-*Researched: 2026-04-29*
+*Pitfalls research for: encrō v1.5 — Adding naming strategy abstraction + grouping config to existing pack API*
+*Researched: 2026-05-04*

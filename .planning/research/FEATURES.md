@@ -1,160 +1,155 @@
 # Feature Research
 
-**Domain:** C++ Pack/Archiving Subsystem OO Refactoring
-**Researched:** 2026-04-29
+**Domain:** zip-packing naming strategies, grouping config, and summary toggles for C++ CLI tool
+**Researched:** 2026-05-04
 **Confidence:** HIGH
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist. Missing these = refactoring feels half-done and untrustworthy.
+Features users assume exist. Missing these = product feels incomplete.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| **Core structs → class encapsulation** | The milestone explicitly calls for `struct` → `class` conversion with private data members. Without this, the refactoring is cosmetic. | MEDIUM | `PackPlan`, `CompactProgressState`, and the service-layer types must hide data behind const-qualified accessors. Pure-data structs (`PackFileEntry`, `FileOrdinalRange`, `PackRunResult`) remain structs per C++ Core Guidelines C.2. |
-| **Free functions consolidated into class methods** | `pack_service.cpp` has `packGroups()`, `packGroupsCompact()`, `packGroupsFull()`, `runPackPlan()` as free functions in `pack::` namespace. `packer.cpp` has `packFilesToZip()` (3 overloads), `groupFilesBySize()`, etc. They logically belong to cohesive classes. | MEDIUM | Consolidation must preserve the existing 909 assertions. Free functions in anonymous namespaces (helper functions) stay as private methods or file-local helpers. |
-| **Clear public API on headers** | Headers currently expose implementation details (internal structs, all helpers). A well-done OO refactoring exposes only the public interface in headers; implementation details move to `.cpp`. | LOW | Forward-declare internal types. Use PIMPL or opaque pointers only where truly needed (not everywhere — that's over-engineering). |
-| **PackPlan construction invariant enforcement** | Currently `PackPlan` is a designated-initializer aggregate with `static_assert(std::is_aggregate_v<...>)`. After `class` encapsulation, construction must validate: groups non-empty, outputDir valid, callback functions non-null where required. | MEDIUM | `static_assert` must be removed or restructured. Replace designated initializers with either: (a) constructor with validation, or (b) Builder pattern if construction is complex. |
-| **All 909 assertions across 215 test cases pass** | The entire point of this milestone is zero behavioral regression. Tests are the safety net. | HIGH (effort, not complexity) | Tests must be updated to use new API, but assertions and coverage must not decrease. This is a constraint, not a feature to build. |
-| **Global-scope structs moved into `pack::` namespace** | `PackGroupInput`, `PackGroupPartition`, `PackEntryInput`, `PackEntryPartition` are defined in the global namespace in `packer.h`. This leaks from the pack subsystem. | LOW | Move into `pack::` with appropriate access control. These are input/output types — may stay as structs but must live in `pack::`. |
-| **`appctx::AppContext` dependency made explicit and injectable** | `pack_service.cpp` takes `appctx::AppContext&` by reference in `runPackPlan()`. The dependency should be explicit in the constructor or method signatures, and testable by providing minimal context. | MEDIUM | Don't hide AppContext behind an interface — extract only what pack subsystem needs (job state store, config flags) as constructor parameters. |
+| Keep relative paths in zip | Standard zip behavior; users expect directory structure preserved | LOW | Already exists via `OutputLayout::Keep` + `packer.buildDirectoryPackPlan()` for Directory mode. Picture manually computes `filePath.lexically_relative(dirPath)`. Video uses flat paths. |
+| Flatten to filename only | Common when archives aggregate from many sources | LOW | Already exists via `OutputLayout::Flat` in picture_process.cpp. Produces `1000__{filename}` entries. |
+| Collision handling in Flat mode | Two files with same name from different dirs must not overwrite | MEDIUM | Already exists: hash-disambiguation via `buildConflictHandledFlatName()` (FNV-1a hash). `forceConflictHandling` config forces hash even without collision. |
+| Archive size-bounded grouping | ZIP files must stay under practical limits for distribution | MEDIUM | Already exists: `kDefaultMaxArchiveGroupSize` (500MB), `Packer::groupPackEntries` splits by size. PackService uses across all modes. |
+| Entry-name callback injection | Consumers need to control zip entry names for path-only entries | LOW | Already exists: `PackRequest::entryNameForFile` callback. Used when `entryInputs` is empty to apply naming before grouping. |
 
 ### Differentiators (Competitive Advantage)
 
-Features that set the refactoring apart. Not required, but make the result significantly better than "adequate."
+Features that set the product apart. Not required, but valuable.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| **Progress reporting via injected strategy** | Currently `PackPlan` carries 6 `std::function` callbacks for progress (`onGroupStart`, `onGroupSuccess`, `onGroupFailure`, `onCompactProgress`, `onCompactStatusText`). A `PackProgressSink` abstract concept (or `std::function` bundle struct) decouples the plan from UI concerns and enables test mocking. | MEDIUM | This is "differentiator" because we could keep `std::function` members and still achieve encapsulation. But separating progress into an injectable sink makes testing far easier and the architecture cleaner. Use a struct of callbacks, not virtual interface — idiomatic C++. |
-| **Builder pattern for PackPlan construction** | Designated initializers are gone after `class` encapsulation. A `PackPlan::Builder` (or `makePackPlan()` factory) provides: named construction steps, validation at `.build()`, and immutability of the resulting plan. | MEDIUM | The current `buildDirectoryPackPlan()` in `packer.cpp` is effectively a 100-line builder. Extracting this into a proper builder class with clear stages improves readability and testability. |
-| **Dependency injection for zip operations — mock boundary** | `packer.cpp` directly uses `libzippp::ZipArchive` inline. Extracting zip I/O behind a `ZipArchiveHandle` (concrete class wrapping libzippp, NOT a virtual interface) enables: (a) testing without real zip files, (b) future swap of zip library. | HIGH (design) | Critical boundary. Tests currently create real zip files. A thin `ZipWriter` class wrapping `libzippp::ZipArchive` with RAII semantics allows injecting a `NullZipWriter` or `InMemoryZipWriter` in tests. This is the single biggest testability win. |
-| **RAII resource management for zip archive lifecycle** | `packFilesToZip()` currently manually calls `zip.open()` / `zip.close()` with try/catch. An RAII wrapper guarantees close on scope exit, eliminating the need for manual cleanup. | MEDIUM | Complements the `ZipWriter` class. The `CompactProgressState` already uses RAII-like patterns (initBar/startSpinner/finish) — formalize this. |
-| **`PackService` takes configuration, returns results — no hidden state** | A service class that is constructed with its configuration (output dir, max parallel jobs, compact flag), receives a plan, and produces a result. No mutable state between invocations. Each call is self-contained. | MEDIUM | The current `packGroupsCompact` has internal `CompactProgressState` that's created per-call — this is correct. Formalize the stateless-service pattern. |
-| **Compile-time polymorphism via templates where virtual would be overkill** | For the progress sink and zip handle, prefer `template<typename Sink>` over virtual base class. Zero runtime overhead, better inlining. | MEDIUM | Use `std::invocable` concepts (C++20) or simple template parameters. Only use virtual if runtime polymorphism is truly needed (it isn't, for this subsystem). |
-| **Header-only pure-data types, implementation-only service types** | `PackFileEntry`, `FileOrdinalRange`, `PackRunResult` remain header-only structs. `PackService`, `Packer`, `ZipWriter` are declared in headers but fully implemented in `.cpp`. Clean separation of data from behavior. | LOW | Aligns with C++ Core Guidelines C.2: use `struct` when there's no invariant, `class` when behavior needs to maintain invariants. |
+| Naming strategy enum abstraction | Consumers declare intent (`Flat`/`Keep`/`FlatForced`) without implementing naming logic. Replaces 3-way if/else in picture_process.cpp. | MEDIUM | Requires `NamingStrategy` enum + `NamingConfig` extension. Key for SINK-01. Three strategies: `PreserveRelative` (Keep), `FlatBasename` (no-conflict=filename, conflict=hash), `FlatHashAlways` (always hash prefix). |
+| Source-directory affinity grouping | Pictures from same source dir stay in same archive even across part splits. Prevents a single directory's files from scattering across 5 different zips. | MEDIUM | Picture already does this via `PictureLogicalBucket` → `buildPictureLogicalParts`. Needs abstraction into PackRequest as `GroupingStrategy` with `maxEntriesPerPart`. Key for SINK-02. |
+| Summary/cover image per source directory | First image from each subdirectory placed at zip start with ordering prefix. Enables thumbnail preview without extracting full archive. | MEDIUM | Picture already does this via `collectFolderSummaryPictures` + "0000__" prefix. Needs PackRequest field `includeSummaryPerSourceDir` + configurable `summaryPrefix`. Key for SINK-02. |
+| Prefix-controlled zip entry ordering | Predictable ordinal prefix ("0000__" before "1000__") guarantees summary entries appear first when zip extracted alphabetically. | LOW | Currently hardcoded strings in picture_process.cpp. Should be configurable fields on PackRequest: `summaryEntryPrefix`, `regularEntryPrefix`. |
+| Declarative single-entry API | Consumers describe intent via one PackRequest struct; all grouping/naming/plan construction internalized. | LOW (already built) | `pack::execute(PackRequest)` exists. Picture still builds PackPlan directly via `buildPicturePackPlan()` — SINK-03 fixes this. |
+| Part/subPart zip naming with ordinal ranges | Archives named `part1.zip`, `part1.2.zip` (sub-part) with `[1~50#50p]` ordinal range suffix for clarity. | LOW | Already built in `makeDefaultZipNameStrategy()` + `appendOrdinalRangeSuffix()`. Picture previously had its own `PicturePackNamingState` for this. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that seem good but create problems.
-
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| **I-prefix virtual interfaces (`IPackService`, `IZipWriter`, `IProgressSink`)** | Familiar from Java/C#. "Makes everything mockable." | Virtual dispatch overhead for no benefit. C++ has templates and `std::function` for polymorphism. Interface proliferation creates header dependency explosion. Violates C++ Core Guidelines: "These guidelines are emphatically not meant to define a Java-like subset of C++." | Use concrete classes with `std::function` callbacks for hot-swap behavior. Use templates for compile-time polymorphism. If mocking is needed, mock at the `ZipWriter` boundary with a thin concrete wrapper, not an interface hierarchy. |
-| **Deep inheritance hierarchies** | "Reuse" via `BasePackService` → `PackService` → `CompactPackService`. | Tight coupling, fragile base class problem, hard to reason about virtual dispatch. C++ Core Guidelines C.120: "Use class hierarchies only if you have a genuine need for runtime polymorphism." We don't. | Composition over inheritance. `PackService` has a `ProgressSink` (composition), a `ZipWriter` (composition), not an "is-a" chain. |
-| **Dependency injection container / framework** | "Decouples everything." | Massive over-engineering for a subsystem with ~5 dependencies. Adds build complexity, header bloat, slow compile times. Obscures the actual dependency graph. | Manual constructor injection. `PackService` constructor takes what it needs (output dir, max parallelism, progress sink). Transitive dependencies are composed at the call site (main/app pipeline). |
-| **PIMPL for every class** | "ABI stability, fast compilation." | Doubles allocation for every object. Indirection for every field access. PIMPL is a tool for library ABI boundaries, not internal subsystem organization. The `pack::` subsystem is internal — no ABI stability contract. | Use PIMPL only if measured compilation time is a real problem. Forward-declare where possible. Use `#pragma once` (already done). |
-| **`operator<<` overloading for logging** | "Nice syntax." | Binds logging format to type definition. Creates include dependency on `<ostream>`. Log format changes should not require recompilation of type definition. | Keep `spdlog::debug()` calls as they are (already working well). If structured logging is needed, add a `to_string()` or `format_to()` method on the type. |
-| **Templates everywhere for "generic reusability"** | "Could pack anything, not just zip." | Premature generalization. The subsystem packs zip files. If (big if) tar/7z support is added, refactor then with real requirements. Template metaprogramming for hypothetical future use adds complexity with zero current value. | Keep concrete — `packFilesToZip` takes zip-specific parameters. If future formats arrive, extract commonality at that point with real requirements. |
-| **Every struct becomes a class with getters/setters** | "Consistency." | `PackFileEntry` (2 fields), `FileOrdinalRange` (3 fields), `PackRunResult` (2 fields) are pure data bags. Adding getters adds boilerplate with zero invariant enforcement. C++ Core Guidelines C.2: "Use class if the class has an invariant; use struct if the data members can vary independently." | Keep pure-data types as structs with public members. Only encapsulate types that have invariants (`PackPlan`, `CompactProgressState`, `ZipWriter`). |
+| Consumer-constructed PackPlan | Callers want "full control" over grouping | Leaks internal types (PackFileEntry, PackPlan aggregate), breaks encapsulation, prevents future refactoring of internals | PackRequest with strategy enums — picture_process.cpp currently bypasses PackRequest and constructs PackPlan directly (SINK-03 target) |
+| Consumer-implemented naming logic | "I know my filenames best" | Duplicates collisionnaming across consumers, hard to test, naming rules drift between modes | NamingStrategy enum on PackRequest — single implementation in pack module |
+| Consumer-invoked Packer directly | "Just put these files in a zip" | Bypasses grouping, ordinal ranges, resumable execution | Use `pack::execute(PackRequest)` — Packer is private to PackService |
+| Global/hardcoded prefix magic strings | Simplicity | "0000__" and "1000__" cannot change without recompile, can't reuse pack for non-picture archives with different ordering needs | Configurable prefix fields on PackRequest with sensible defaults |
+| Regex/pattern-based naming templates | "Rename `{dir}_{stem}_{index:04d}{ext}`" | Massive complexity for marginal utility; users who need this can pre-rename files before packing | Keep naming declarative via strategy enums; pattern templates are a v3 feature at best |
+| Per-file custom naming callbacks | Maximum flexibility for edge cases | Runtime callback per file adds overhead, complicates grouping (grouping must know names before partitioning) | `entryNameForFile` already exists for simple path→name mapping; for complex cases use `entryInputs` with pre-computed names |
 
 ## Feature Dependencies
 
 ```
-[Struct→class encapsulation for PackPlan]
-    └──requires──> [PackPlanBuilder or validated constructor]
-                        └──requires──> [Removal/restructure of static_assert(is_aggregate_v<PackPlan>)]
+NamingStrategy enum (SINK-01)
+    ├──requires──> NamingConfig extension (existing struct, add strategy field)
+    │                 └──requires──> collisionnaming functions (already exist)
+    │
+    └──consumed by──> buildMediaPackPlan() in pack.cpp (already handles naming, needs strategy dispatch)
 
-[ProgressSink (injected callback bundle)]
-    └──enables──> [Mock testing of progress without real ProgressContext]
-    └──enables──> [Cleaner PackPlan (no 6 std::function members)]
+GroupingStrategy config (SINK-02)
+    ├──requires──> PackRequest extension (new optional field)
+    │
+    └──consumed by──> buildMediaPackPlan() in pack.cpp (already does grouping, needs affinity param)
 
-[ZipWriter (RAII wrapper around libzippp)]
-    └──enables──> [Mock testing of zip creation without real files]
-    └──enables──> [RAII resource management]
-    └──enables──> [Cleaner Packer class (no raw libzippp calls)]
+Summary toggle (SINK-02)
+    ├──requires──> PackRequest extension (summaryEnabled + prefix fields)
+    │
+    └──consumed by──> buildMediaPackPlan() (must handle summary entry injection per source dir)
 
-[PackService class]
-    └──requires──> [PackPlan construction settled (builder or constructor)]
-    └──requires──> [ProgressSink or callback struct]
-    └──requires──> [ZipWriter for actual zip creation]
+Picture leak elimination (SINK-03)
+    ├──requires──> SINK-01 (NamingStrategy)
+    ├──requires──> SINK-02 (GroupingStrategy + Summary toggle)
+    │
+    └──enables──> Removal of pack::detail:: and Packer includes from picture_process.cpp
 
-[Packer class (grouping logic + zip writing)]
-    └──requires──> [ZipWriter]
-    └──requires──> [Global structs moved to pack:: namespace]
-
-[All test cases pass]
-    └──requires──> [Every feature above completed]
-    └──constrains──> [API surface must be compatible or have migration path]
+PackPlan pure internalization (SINK-04)
+    └──requires──> SINK-03 (Picture uses execute(PackRequest) not execute(PackPlan))
+    └──requires──> All 3 consumers use PackRequest exclusively (video already does, pipeline does, picture will after SINK-03)
 ```
 
 ### Dependency Notes
 
-- **Struct→class encapsulation requires PackPlan builder/constructor:** The existing `static_assert(std::is_aggregate_v<pack::PackPlan>)` enforces aggregate usage. Once we make data private, designated initializers fail. We must provide an alternative construction mechanism FIRST, then encapsulate.
-- **ZipWriter enables mock testing:** This is the highest-leverage differentiator. Without it, tests continue to create real zip files on disk (slow, fragile). With it, tests can verify "was addFile called with correct parameters?" in milliseconds.
-- **PackService requires ProgressSink settled:** Currently `packGroupsCompact()` reads `plan.onCompactProgress`, `plan.onCompactStatusText` etc. If we move these off PackPlan, PackService must receive them through a different channel. Both approaches work — settle this design decision early.
-- **Global structs moved to `pack::` is a low-effort prerequisite:** These are in the global namespace in `packer.h`. Moving them into `pack::` is a mechanical change that should happen first to avoid naming conflicts as we add more `pack::` types.
+- **SINK-01 must precede SINK-02:** NamingStrategy is simpler (3 enum values, existing NamingConfig base) and unblocks the naming unification. GroupingStrategy + Summary are more complex and can build on the naming work.
+- **SINK-02 depends on SINK-01:** GroupingStrategy needs to know naming mode because some grouping decisions interact with naming (e.g., source-dir affinity uses stable path strings as grouping keys, same as collisionnaming).
+- **SINK-03 depends on SINK-01 + SINK-02:** Picture cannot move to `pack::execute(PackRequest)` until PackRequest supports summary + grouping + naming strategies that cover picture's current behavior.
+- **SINK-04 is a cleanup step:** Once picture stops constructing PackPlan, PackPlan can be moved to an internal header. No behavioral change, just include hygiene.
 
 ## MVP Definition
 
-### Launch With (v1.3 Core — Must Complete)
+### Must Have for v1.5 (SINK milestones)
 
-Minimum refactoring that delivers the milestone's value. If we only do this, it's a success.
+- [ ] **NamingStrategy enum on NamingConfig** — 3 modes: `PreserveRelative` (Keep), `FlatBasename` (no-conflict=basename, conflict=hash), `FlatHashAlways` (force hash even without conflict). Replaces current `outputLayout` + `forceConflictHandling` boolean interaction.
+- [ ] **GroupingStrategy on PackRequest** — `sourceDirAffinity` boolean + `maxEntriesPerPart` size_t. When true, entries from same sourceDir stay in same logical part (pictures within 2000-count limit).
+- [ ] **Summary toggle on PackRequest** — `includeSummaryPerSourceDir` boolean + `summaryEntryPrefix` string ("0000__" default) + `regularEntryPrefix` string ("1000__" default). When enabled, first entry per source dir is duplicated/demoted to a summary entry with ordering prefix.
+- [ ] **Picture eliminates pack::detail:: includes** — `runPicturePackWorkflow()` and `packAllPicsToZip()` both use `pack::execute(PackRequest)` directly. No more direct PackPlan construction, no Packer instantiation.
 
-- [ ] **PackPlan class encapsulation with validated construction** — Private data, public const accessors, constructor or `.build()` that enforces invariants (groups non-empty, outputDir set, callbacks valid). Removal of aggregate `static_assert`.
-- [ ] **Free functions consolidated into classes** — `packGroups()`, `packGroupsCompact()`, `packGroupsFull()` → `PackService` methods. `packFilesToZip()` (3 overloads) → `Packer` or `ZipPacker` methods. `groupFilesBySize()`, `groupPackFiles()`, etc. → `PackGrouper` methods or `Packer` grouping methods.
-- [ ] **Progress reporting decoupled from PackPlan** — Extract the 6 `std::function` callbacks into a `PackProgressCallbacks` struct (or inject into service). PackPlan carries data; progress is a separate concern.
-- [ ] **ZipWriter RAII wrapper** — A thin concrete class that wraps `libzippp::ZipArchive` with RAII open/close. NOT a virtual interface. This is the mock boundary for testing.
-- [ ] **Global structs into `pack::` namespace** — `PackGroupInput`, `PackGroupPartition`, `PackEntryInput`, `PackEntryPartition` moved from global to `pack::`.
-- [ ] **All 909 assertions pass** — Non-negotiable. Tests updated to use new API; no assertion removed without replacement.
+### Nice to Have (v1.5 stretch or v1.6)
 
-### Add After Validation (v1.3 Polish — Nice to Have)
+- [ ] **Prefix configurability via CLI flags** — `--summary-prefix`, `--regular-prefix` CLI options that feed into PackRequest fields.
+- [ ] **Per-mode default naming strategies** — Media mode defaults to Flat, Directory mode defaults to PreserveRelative when `naming` is `std::nullopt`.
+- [ ] **Summary entry deduplication** — If a picture is already the first in its source dir AND summary is enabled, don't add a duplicate summary entry (currently it's added separately).
 
-Features to add once core refactoring is stable and tests pass.
+### Out of Scope (intentionally)
 
-- [ ] **PackPlan builder pattern** — If constructor parameter list grows unwieldy, extract a `PackPlan::Builder` with fluent API. Only do this if the constructor approach proves awkward.
-- [ ] **CompactProgressState → class with private members** — Already a proto-class in the anonymous namespace. Formalize with private fields and clear lifecycle (init → update → finish).
-- [ ] **PackService stateless pattern formalized** — Document and enforce that `PackService` has no mutable state between calls.
-
-### Future Consideration (v2+)
-
-Features to defer until the refactoring proves itself in production.
-
-- [ ] **InMemoryZipWriter for tests** — A test-only zip writer that captures entries in memory instead of writing to disk. Enables ultra-fast tests. Requires ZipWriter to be a non-virtual concrete type (use `std::variant` or template parameter).
-- [ ] **Template-based pack format abstraction** — If (and only if) we add tar/7z support. Refactor with real requirements, not hypothetical ones.
-- [ ] **PIMPL for public API stability** — Only if we decide to ship `pack::` as a library with ABI guarantees. Not needed for internal CLI tool.
+- **Pattern-based naming templates** — `{dir}_{stem}_{index:04d}{ext}` syntax. Complexity far exceeds value for CLI batch tool. Users who need this can pre-rename.
+- **Multi-level grouping strategies** — grouping by file type AND source dir AND size simultaneously. Current two-level (size + source-dir affinity) suffices.
+- **Summary selection strategy customization** — Currently "first file alphabetically." Could become "smallest," "largest," "newest" etc. Defer until user demand.
+- **Naming strategy per-entry-type** — Different strategies for summary vs regular entries. Current prefix approach is sufficient and simpler.
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| PackPlan class encapsulation | HIGH — core milestone deliverable | MEDIUM | P1 |
-| Free functions → class methods | HIGH — core milestone deliverable | MEDIUM | P1 |
-| Progress decoupled from PackPlan | HIGH — enables testing, cleaner design | MEDIUM | P1 |
-| ZipWriter RAII wrapper | HIGH — single biggest testability win | HIGH | P1 |
-| Global structs → pack:: | MEDIUM — code organization | LOW | P1 |
-| Builder pattern for PackPlan | MEDIUM — nice but constructor works | MEDIUM | P2 |
-| CompactProgressState encapsulation | MEDIUM — internal quality | LOW | P2 |
-| InMemoryZipWriter for tests | MEDIUM — faster test suite | MEDIUM | P3 |
-| Template-based format abstraction | LOW — no current need | HIGH | P3 |
-| PIMPL for ABI stability | LOW — no ABI contract | HIGH | P3 |
-
-**Priority key:**
-- P1: Must complete for v1.3 milestone success
-- P2: Should complete if time permits within v1.3
-- P3: Defer to future milestone
+| NamingStrategy enum (SINK-01) | HIGH — eliminates 3-way conditional in consumers | MEDIUM — new enum, dispatch in buildMediaPackPlan | P1 |
+| GroupingStrategy config (SINK-02) | HIGH — picture's current affinity grouping is WHY it can't use PackRequest | MEDIUM — new optional struct on PackRequest | P1 |
+| Summary toggle (SINK-02) | HIGH — picture's summary feature currently requires PackPlan bypass | MEDIUM — injection logic in buildMediaPackPlan | P1 |
+| Picture leak elimination (SINK-03) | HIGH — removes 4 internal includes from picture_process.cpp | MEDIUM — restructure picture to build PackRequest | P1 |
+| PackPlan internalization (SINK-04) | LOW — consumers don't care, but improves hygiene | LOW — move PackPlan to internal header | P2 |
+| CLIC prefix flags | LOW — power users only | LOW — 2 new boost::program_options flags | P3 |
+| Summary deduplication | LOW — edge case, cosmetic | LOW — check before inserting | P3 |
 
 ## Competitor Feature Analysis
 
-This section is adapted for a refactoring context — "competitors" are alternative refactoring approaches observed in C++ codebases.
+| Feature | 7-Zip CLI | Info-ZIP (zip) | encrō (after v1.5) |
+|---------|-----------|----------------|---------------------|
+| Preserve paths in zip | Default behavior | `zip -r` preserves tree | NamingStrategy::PreserveRelative |
+| Flatten paths | `-j` (junk paths) flag | `-j` flag | NamingStrategy::FlatBasename |
+| Conflict handling | Overwrites silently | Overwrites with warning | Hash-disambiguation + force mode |
+| Source-dir affinity | Not applicable (handles 1 dir at a time) | Not applicable | GroupingStrategy::sourceDirAffinity |
+| Summary/cover image | Not applicable (general-purpose archiver) | Not applicable | Summary toggle with ordering prefix |
+| Entry ordering prefix | N/A — entries ordered by addition | N/A — entries ordered by addition | "0000__"/"1000__" prefix convention |
+| Size-bounded splitting | `-v` (volume) flag | `-s` (split size) flag | MaxArchiveGroupSize with affinity splitting |
 
-| Feature | Java-style OO (over-engineered) | C-with-namespaces (under-engineered) | Our Approach (idiomatic C++) |
-|---------|------|------|------|
-| Progress reporting | `IProgressObserver` virtual interface with `update()` method | Raw function pointers or global callback registry | `PackProgressCallbacks` struct of `std::function` — zero-overhead, composable, mockable |
-| Zip I/O | `IZipArchive` interface → `LibzipppArchive` → `MockArchive` | Direct libzippp calls everywhere, duplicated error handling | `ZipWriter` concrete RAII class — single responsibility, swappable via template or link-time substitution |
-| Plan construction | `PackPlanFactory` → `AbstractPackPlanFactory` → `DefaultPackPlanFactory` | Memset to zero, fill fields manually, hope invariants hold | Constructor with validation OR `PackPlan::Builder` — validate once at construction, immutable after |
-| Service layer | `PackService` inherits `IService` with `initialize()`/`execute()`/`shutdown()` lifecycle | Free function `packGroups(plan)` | `PackService` stateless class — construct with config, call `execute(plan)`, no lifecycle |
-| Grouping logic | `GroupingStrategy` → `SizeBasedGroupingStrategy` → `KeepSourceDirGroupingStrategy` | Functions with 7 parameters and bool flags | Functions grouped into a `PackGrouper` class OR kept as free functions in `pack::detail` namespace — no need for Strategy pattern |
-| Test doubles | Mock framework (GoogleMock) with `EXPECT_CALL` on virtual methods | Real zip files on disk for every test | Concrete `ZipWriter` with `NullZipWriter` (no-op) or `RecordingZipWriter` (captures calls) — no virtual, no framework |
+**Key insight:** General-purpose archivers (7-Zip, Info-ZIP) don't have picture-specific features like summary/cover images or source-dir affinity grouping. These are domain-specific differentiators for encrō's batch picture encoding workflow. The table stakes (flat/keep naming, collision handling, size-bounded archives) are universally expected.
+
+## Backward Compatibility Considerations
+
+| Existing Behavior | How It's Preserved | Risk |
+|-------------------|-------------------|------|
+| `OutputLayout::Flat` + `forceConflictHandling=false` | Maps to `NamingStrategy::FlatBasename` | LOW — identical behavior |
+| `OutputLayout::Flat` + `forceConflictHandling=true` | Maps to `NamingStrategy::FlatHashAlways` | LOW — identical behavior |
+| `OutputLayout::Keep` | Maps to `NamingStrategy::PreserveRelative` | LOW — identical behavior |
+| Video consumer (path-only entries, no summary) | PackRequest defaults unchanged — no summary, no affinity | LOW — video doesn't touch new fields |
+| Pipeline consumer (Directory mode) | `PackMode::Directory` path unchanged — uses `packer.buildDirectoryPackPlan()` | LOW — Directory mode isn't modified |
+| `NamingConfig::forceConflictHandling` field | Deprecated but still accepted; when `NamingStrategy` is set, it takes precedence | MEDIUM — need deprecation path |
+| `AppConfig::forceNameConflictHandling` | Consumers map it to `NamingStrategy` when constructing PackRequest | LOW — mapping in consumer, not pack module |
+| `AppConfig::pictureFolderSummary` | Consumers set `PackRequest::includeSummaryPerSourceDir` from it | LOW — mapping in consumer |
+| Existing tests (945 assertions) | Zero behavioral change; naming logic moved but produces identical output | LOW — integration tests verify zip contents |
 
 ## Sources
 
-- **C++ Core Guidelines (isocpp.github.io/CppCoreGuidelines):** Rules C.1-C.9 on class design, C.2 (struct vs class), C.120 (hierarchy only for runtime polymorphism), P.11 (encapsulate messy constructs). Accessed 2026-04-29.
-- **Existing encro codebase:** `src/pack/pack_service.h`, `src/pack/pack_service.cpp`, `src/pack/packer.h`, `src/pack/packer.cpp`, `src/core/app_context.h`, `src/core/progress.h`, `src/core/archive_plan.h`, `tests/pack_service_tests.cpp`, `tests/packer_tests.cpp`. All read 2026-04-29.
-- **PROJECT.md v1.3 milestone definition:** Explicit goals for struct→class, free function consolidation, mock boundaries, 909 assertion preservation.
-- **Prior milestone decisions (v1.1, v1.2):** Individual typed parameters (no context structs), factory function pattern, 2-level lambda nesting acceptable, TDD RED gate cycles. These inform what patterns the codebase already accepts.
+- **Codebase analysis:** `src/pack/pack.h`, `src/pack/pack.cpp`, `src/pack/pack_types.h`, `src/pack/packer.h`, `src/pack/packer_types.h`, `src/picture/picture_process.cpp`, `src/core/collision_naming.h`, `src/core/app_context.h` — HIGH confidence (primary sources)
+- **libzippp documentation:** Context7 `/ctabin/libzippp` — confirms entry naming is application-level, library just stores name strings — HIGH confidence
+- **7-Zip CLI documentation:** `-j` (junk paths), `-v` (volume splitting) — MEDIUM confidence (training data, not fetched live)
+- **Info-ZIP (zip) man page:** `-j` (junk paths), `-s` (split size) — MEDIUM confidence (training data)
+- **PROJECT.md:** v1.5 milestone scope, SINK-01 through SINK-04 targets — HIGH confidence (project authority)
 
 ---
 
-*Feature research for: Pack Subsystem OO Refactoring (v1.3)*
-*Researched: 2026-04-29*
+*Feature research for: encrō v1.5 PackRequest naming/grouping/summary abstraction*
+*Researched: 2026-05-04*
