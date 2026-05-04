@@ -2,13 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Pack下沉收尾 — 消除调用方泄漏
-status: planning
-last_updated: "2026-05-04T09:00:00.000Z"
-last_activity: 2026-05-04
+status: executing
+stopped_at: v1.5 roadmap creation complete — 4 phases defined, 100% coverage validated
+last_updated: "2026-05-04T10:33:48.164Z"
+last_activity: 2026-05-04 -- Phase 16 execution started
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 4
   completed_plans: 0
   percent: 0
 ---
@@ -20,20 +21,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** v1.5 milestone — Pack下沉收尾: 消除 picture_process.cpp 对 pack 内部类型的依赖
+**Current focus:** Phase 16 — grouping-strategy-summary-config-on-packrequest
 
 ## Current Position
 
-Phase: 15 of 18 (Naming Strategy Enum + NamingConfig Migration)
-Plan: —
-Status: Ready to plan (roadmap created)
-Last activity: 2026-05-04 — v1.5 roadmap defined, 4 phases (15-18)
+Phase: 16 (grouping-strategy-summary-config-on-packrequest) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 16
+Last activity: 2026-05-04 -- Phase 16 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
+
 - Total phases completed: 14 (v1.0 + v1.1 + v1.2 + v1.3 + v1.4)
 - Total plans completed: 37
 - Average duration: —

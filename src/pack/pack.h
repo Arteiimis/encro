@@ -37,6 +37,11 @@ enum class PackMode {
   Directory,
 };
 
+enum class GroupingStrategy {
+  PerSourceDir,
+  PerSourceDirKeepTogether,
+};
+
 enum class NamingStrategy {
   Flat,
   FlatWithForce,
@@ -58,17 +63,25 @@ struct NamingConfig {
     zipNameStrategy;
 };
 
+struct SummaryConfig {
+  std::vector<PackFileEntry> entries;
+  std::string prefix = "";
+  bool enabled = false;
+};
+
 // --- PackRequest (D-01, D-02, extended D-07) ---
 // Single struct with std::optional fields. Construct with designated initializers.
 struct PackRequest {
   std::vector<fs::path> entries;  // D-02: flat list of file paths
   std::vector<PackEntryInput>
     entryInputs;  // Optional explicit media entries with stable grouping keys
-  PackMode mode = PackMode::Media;      // D-03
-  fs::path outputDir;                   // D-09: REQUIRED field
-  bool compact = true;                  // D-08: consumers derive from config.fullProgress
+  PackMode mode = PackMode::Media;     // D-03
+  fs::path outputDir;                  // D-09: REQUIRED field
+  bool compact = true;                 // D-08: consumers derive from config.fullProgress
   bool removeOnFailure = false;
-  std::optional<NamingConfig> naming;   // D-04: nullopt = defaults by mode
+  std::optional<NamingConfig> naming;  // D-04: nullopt = defaults by mode
+  GroupingStrategy groupingStrategy = GroupingStrategy::PerSourceDir;
+  std::optional<SummaryConfig> summary;
   std::optional<std::size_t>
     maxParallelJobs;                    // D-10: null = resolveWorkerCount() internally
   bool recursive = true;                // Directory mode only
