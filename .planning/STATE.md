@@ -2,16 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Pack下沉收尾 — 消除调用方泄漏
-status: verifying
-stopped_at: Completed 18-01-PLAN.md
-last_updated: "2026-05-04T13:22:53.001Z"
-last_activity: 2026-05-04
+status: complete
+stopped_at: Milestone v1.5 verified — all 3033 assertions pass
+last_updated: "2026-05-05"
+last_activity: 2026-05-05
+milestone_status: closed
+milestone_closed: 2026-05-05
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 6
-  completed_plans: 5
-  percent: 83
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-05-04)
 
 ## Current Position
 
-Phase: 18 (packplan-pure-internalization) — EXECUTING
+Phase: 18 (packplan-pure-internalization) — COMPLETE
 Plan: 1 of 1
-Status: Phase complete — ready for verification
+Status: v1.5 milestone complete — all 4 phases shipped
 Last activity: 2026-05-04
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -48,13 +50,14 @@ Progress: [████████░░] 83%
 | 12. PackRequest API | 4 | v1.4 | Complete |
 | 13. Grouping & Naming | 4 | v1.4 | Complete |
 | 14. Remove IPacker | 1 | v1.4 | Complete |
-| 15. Naming Strategy | TBD | v1.5 | Not started |
-| 16. Grouping + Summary | TBD | v1.5 | Not started |
-| 17. Picture Leak Elim. | TBD | v1.5 | Not started |
-| 18. PackPlan Internalize | TBD | v1.5 | Not started |
+| 15. Naming Strategy | 2 | v1.5 | Complete |
+| 16. Grouping + Summary | 2 | v1.5 | Complete |
+| 17. Picture Leak Elim. | 1 | v1.5 | Complete |
+| 18. PackPlan Internalize | 1 | v1.5 | Complete |
 
 *Updated after each plan completion*
 | Phase 18-packplan-pure-internalization P01 | 23min | 8 tasks | 12 files |
+| Phase 17-picture-process-leak-elimination P01 | — | 2 tasks | 1 file |
 
 ## Accumulated Context
 
@@ -89,7 +92,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-04T13:22:52.989Z
-Stopped at: Completed 18-01-PLAN.md
+Last session: 2026-05-05T04:02:39.000Z
+Stopped at: v1.5 verified — milestone complete
 Resume file: None
-Next: `/gsd-plan-phase 15` to create plan for Naming Strategy Enum + NamingConfig Migration
+Next: Ready for v1.6 or new milestone definition

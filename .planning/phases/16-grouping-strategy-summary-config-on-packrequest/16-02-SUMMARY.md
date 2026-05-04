@@ -1,3 +1,10 @@
+---
+phase: 16-grouping-strategy-summary-config-on-packrequest
+plan: 02
+subsystem: pack
+requirements-completed: [SINK-02]
+---
+
 # 16-02 Summary: Picture Consumer Migration to isSummary Flag
 
 **Date:** 2026-05-04
