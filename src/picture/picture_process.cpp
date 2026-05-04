@@ -163,10 +163,12 @@ auto makePictureSummaryPackEntry(
       pack::PackFileEntry{
         .sourcePath = packedSourcePath,
         .zipEntryName = entryName,
+        .isSummary = true,
       },
     .sourceDir = picPath.parent_path(),
-    .sourceKey = std::format("0000__{}", dirKey),
-    .fileKey = std::format("0000__{}", dirKey),
+    .sourceKey = dirKey,
+    .fileKey = dirKey,
+    .isSummary = true,
   };
 }
 
@@ -183,8 +185,8 @@ auto makePictureRegularPackEntry(
         .zipEntryName = entryName,
       },
     .sourceDir = picPath.parent_path(),
-    .sourceKey = std::format("1000__{}", dirKey),
-    .fileKey = std::format("1000__{}", naming::stablePathString(picPath)),
+    .sourceKey = dirKey,
+    .fileKey = naming::stablePathString(picPath),
   };
 }
 
@@ -309,7 +311,7 @@ struct PictureLogicalBucket {
 };
 
 auto isSummaryPicturePackEntry(pack::detail::PackEntryInput const& input) -> bool {
-  return input.sourceKey.has_value() && input.sourceKey->starts_with("0000__");
+  return input.isSummary;
 }
 
 auto sortPictureLogicalBucketEntries(PictureLogicalBucket& bucket) -> void {
