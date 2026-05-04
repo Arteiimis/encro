@@ -70,7 +70,7 @@
 - [x] **Phase 15: Naming Strategy Enum + NamingConfig Migration** — `NamingStrategy` enum replaces `OutputLayout`+boolean pair; internal dispatch only (2/2 plans) (completed 2026-05-04)
 - [x] **Phase 16: Grouping Strategy + Summary Config on PackRequest** — `GroupingStrategy` enum + `SummaryConfig` struct; picture's two-layer partitioning declarative (0/2 plans) (completed 2026-05-04)
 - [ ] **Phase 17: Picture Process Leak Elimination** — `picture_process.cpp` replaces `buildPicturePackPlan()` with `pack::execute(PackRequest)` (1/1 plan)
-- [ ] **Phase 18: PackPlan Pure Internalization** — `PackPlan` moved to internal header; compile-time enforcement of consumer invisibility
+- [x] **Phase 18: PackPlan Pure Internalization** — `PackPlan` moved to internal header; compile-time enforcement of consumer invisibility (completed 2026-05-04)
 
 ## Phase Details
 
