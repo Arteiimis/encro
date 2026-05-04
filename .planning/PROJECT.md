@@ -6,7 +6,7 @@
 
 ## What This Is
 
-A fast, resumable CLI tool for batch video encoding and image compression with intelligent packing into zip archives. Pack subsystem is fully object-oriented with injectable dependencies and mock-based test boundaries. Compact progress bars by default with `--full-progress` for detailed per-worker/per-archive display.
+A fast, resumable CLI tool for batch video encoding and image compression with intelligent packing into zip archives. Pack subsystem has a single public entry point `pack::execute(PackRequest)` with zero internal type leakage to consumers. Compact progress bars by default with `--full-progress` for detailed per-worker/per-archive display.
 
 ## Core Value
 
@@ -29,29 +29,37 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 
 ## Context
 
-Shipped v1.0 (compact progress mode), v1.1 (lambda readability refactor), v1.2 (tech debt & code quality), v1.3 (pack subsystem OO refactor), and v1.4 (PackRequest declarative API & IPacker removal).
+Shipped v1.0 (compact progress mode), v1.1 (lambda readability refactor), v1.2 (tech debt & code quality), v1.3 (pack subsystem OO refactor), v1.4 (PackRequest declarative API & IPacker removal), and v1.5 (Pack下沉收尾 — 消除调用方泄漏).
 
-v1.4 pack subsystem architecture (shipped):
-- `pack.h`: single public header — PackRequest, PackMode, NamingConfig, execute() declaration
-- `packer.h` / `packer.cpp`: Packer class (zip I/O + grouping), no longer inherits IPacker
-- `pack_service.h` / `pack_service.cpp`: PackService owns Packer by value, internal executor
-- `archive_plan.cpp` / `ipacker.h` deleted
-- MockPacker removed — mock tests rewritten as real Packer + TempDir integration tests
-- 3 consumers use pack::execute() directly — no PackPlan exposure, no internal detail includes
+v1.5 pack subsystem architecture (shipped):
+- `pack.h`: single public header — PackRequest, PackMode, NamingConfig, NamingStrategy, GroupingStrategy, SummaryConfig, execute() declaration
+- `pack_types.h`: public types — PackFileEntry, PackEntryInput, FileOrdinalRange
+- `pack_plan_internal.h`: internal-only — PackPlan struct, execute(PackPlan) declaration
+- Packer: zip I/O, grouping, file copy — internal-only, direct value semantics
+- PackService: orchestration, owns Packer by value, internal executor
+- `pack::execute()`: free function entry point, all grouping/naming/Plan construction internal
+- `pack::internal::` namespace: demoted static helpers, detail types, internal constants
+- 3 consumers (pipeline/video/picture) use pack::execute(PackRequest) exclusively — zero internal pack type includes
+- NamingStrategy enum (Flat/FlatWithForce/Keep) replaces OutputLayout+boolean pair
+- GroupingStrategy enum (PerSourceDir/PerSourceDirKeepTogether) on PackRequest
+- SummaryConfig with isSummary structural flag replaces "0000__" prefix convention
+- PackPlan fully internalized — compile-time enforced boundary via __if_exists
 
 Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, xmake.
 157 assertions pass (packer + pack-service integration tests), 945 total E2E assertions preserved.
 
 ## Current State
 
-**Shipped:** v1.0 through v1.4. All milestones complete.
+**Shipped:** v1.0 through v1.5. All milestones complete.
 
 Pack subsystem:
 - PackRequest declarative single-entry API: `pack::execute(request)` — consumers describe intent, all orchestration internal
-- Grouping unified: single `groupPackEntriesWithSubparts` for picture/video
-- Naming internalized: `NamingConfig` + `entryNameForFile` callback, no call-site naming logic
+- Naming internalized: `NamingConfig` with `NamingStrategy` enum (Flat/FlatWithForce/Keep), no call-site naming logic
+- Grouping declarative: `GroupingStrategy` enum (PerSourceDir/PerSourceDirKeepTogether) on PackRequest
+- Summary structural: `SummaryConfig` with `isSummary` flag, replaces "0000__" string prefix convention
 - Configuration centralized: compact from `AppConfig.fullProgress`, all CLI params injected via PackRequest fields
 - No abstract layer: Packer used directly by value, IPacker/MockPacker deleted
+- PackPlan fully internalized: moved to `pack_plan_internal.h`, unreachable from public `pack.h`
 - Architecture: Packer (I/O) → PackService (orchestration, owns Packer) → `pack::execute()` (free function entry point)
 
 ## Requirements
@@ -95,22 +103,14 @@ Pack subsystem:
 - ✓ SIMPLIFY-11,13~14: 945 assertions 零行为变化，恢复性执行 + 冲突处理逻辑不变 — v1.4
 - ✓ SIMPLIFY-15~17: 移除 IPacker + MockPacker — PackService 直接持有 Packer 值 — v1.4
 
-## Current Milestone: v1.5 Pack下沉收尾 — 消除调用方泄漏
+**v1.5 Pack下沉收尾 — 消除调用方泄漏:**
+- ✓ SINK-01: NamingStrategy 枚举 (Flat/FlatWithForce/Keep) 替换 OutputLayout+boolean 对 — v1.5
+- ✓ SINK-02: GroupingStrategy 枚举 + SummaryConfig 结构体，isSummary 标志位替换 "0000__" 前缀 — v1.5
+- ✓ SINK-03: picture_process.cpp 移除 3 个内部 pack include，零内部类型泄漏 — v1.5
+- ✓ SINK-04: PackPlan 移入 pack_plan_internal.h，编译期边界强制 via `__if_exists` — v1.5
+- ✓ 3033 assertions across 244 test cases pass with zero behavioral regression — v1.5
 
-**Goal:** 彻底消除 picture_process.cpp 对 pack 内部类型的依赖，所有调用方统一通过 `pack::execute(PackRequest)` 交互
-
-**Target features:**
-- 命名冲突处理统一抽象 — Flat/Keep/flat-with-force 抽象为命名策略枚举 + 前缀配置
-- PackRequest API 扩展 — summary 开关、分组策略声明、命名策略字段
-- Picture 消除 leak — 移除 pack::detail/internal/Packer 引用，改为 PackRequest
-- PackPlan 退化为纯内部类型 — 不再对外暴露
-
-### Active
-
-- [ ] **SINK-01**: 命名冲突处理统一抽象 — 3种模式抽象为策略枚举 + 前缀配置
-- [ ] **SINK-02**: PackRequest API 扩展 — summary开关、分组策略、命名策略字段
-- [ ] **SINK-03**: Picture 消除 detail/internal 依赖 — 全部通过 PackRequest 交互
-- [ ] **SINK-04**: PackPlan 纯内部化 — 消费者不可见
+## Current Milestone: ✅ All milestones complete (v1.0–v1.5 shipped)
 
 ### Out of Scope
 
@@ -122,15 +122,17 @@ Pack subsystem:
 - Getter/setter for every data field — anti-pattern per C++ Core Guidelines
 - PackPlan → class with private data — 16 designated-initializer sites preserved as aggregate
 
-### Architecture (current v1.4)
+### Architecture (current v1.5)
 
-- `pack.h`: single public header — PackRequest, PackMode, NamingConfig, execute() declaration
-- Packer: zip I/O, grouping, file copy — direct value semantics, no abstract base
+- `pack.h`: single public header — PackRequest, PackMode, NamingConfig, NamingStrategy, GroupingStrategy, SummaryConfig, execute() declaration
+- `pack_types.h`: public types — PackFileEntry, PackEntryInput, FileOrdinalRange
+- `pack_plan_internal.h`: internal-only — PackPlan struct, execute(PackPlan) declaration
+- Packer: zip I/O, grouping, file copy — internal-only, direct value semantics, no abstract base
 - PackService: orchestration, owns Packer by value, internal executor
 - `pack::execute()`: free function entry point, all grouping/naming/Plan construction internal
 - `pack::internal::` namespace: demoted static helpers, detail types, internal constants
 - IPacker / MockPacker: deleted — mock tests rewritten as real Packer + TempDir integration tests
-- 3 consumers (pipeline/video/picture) use pack::execute() directly
+- 3 consumers (pipeline/video/picture) use pack::execute(PackRequest) exclusively — zero internal pack type includes
 - All legacy patterns preserved: compact progress, resumability, conflict handling
 
 ## Key Decisions
@@ -168,10 +170,15 @@ Pack subsystem:
 | [Phase 14 D-01]: IPacker abstract base deleted — Packer no longer inherits anything | ✓ Zero virtual dispatch, simpler lifecycle, cleaner code |
 | [Phase 14 D-02]: PackService holds Packer by value, no unique_ptr indirection | ✓ Direct construction in stack scope, no heap allocation |
 | [Phase 14 D-03]: MockPacker deleted, tests rewritten as real Packer integration tests | ✓ Real I/O coverage with TempDir, 56 packer + 70 pack-service assertions |
+| [Phase 15]: Single NamingStrategy enum (Flat/FlatWithForce/Keep) adopted — two-axis model rejected | ✓ Represents invalid state combination `{Keep, forceConflictHandling=true}` |
+| [Phase 16]: Summary entry ordering via `bool isSummary` flag, not string prefix convention | ✓ Structurally enforced, not fragile lexicographic ordering |
+| [Phase 16]: GroupingStrategy::PerSourceDirKeepTogether is SEMANTIC not mechanical | ✓ Prevents two-layer partitioning leak, threshold=0 rejected |
+| [Phase 17]: ~200 lines dead code deleted from picture_process.cpp — PackRequest eliminates 14 functions | ✓ -565 lines in picture_process.cpp, -228 net across project |
+| [Phase 18]: __if_exists (MSVC/clang extension) for compile-boundary test — SFINAE cannot detect namespaces | ✓ PackPlan unreachable from pack.h, compile-time enforced |
 
 ## Known Issues / Tech Debt
 
-None — all v1.0–v1.4 items resolved or intentionally dropped.
+None — all v1.0–v1.5 items resolved or intentionally dropped.
 
 ## Evolution
 
@@ -192,4 +199,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-05-04 after starting v1.5 milestone definition*
+*Last updated: 2026-05-05 after v1.5 milestone completion*
