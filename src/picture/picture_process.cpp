@@ -341,14 +341,14 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
       .entryInputs = std::move(packInputs),
       .mode = pack::PackMode::Media,
       .outputDir = outputDir,
+      .compact = !ctx.config.fullProgress,
+      .removeOnFailure = true,
       .naming =
         pack::NamingConfig{
           .namingStrategy = pack::NamingStrategy::Flat,
           .baseName = std::string{},
         },
       .groupingStrategy = pack::GroupingStrategy::PerSourceDirKeepTogether,
-      .compact = !ctx.config.fullProgress,
-      .removeOnFailure = true,
       .maxParallelJobs = ctx.config.maxParallelJobs,
       .jobState = ctx.runtime.jobState.get(),
     };
@@ -438,14 +438,14 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
     .entryInputs = std::move(packInputs),
     .mode = pack::PackMode::Media,
     .outputDir = outputDir,
+    .compact = !ctx.config.fullProgress,
+    .removeOnFailure = true,
     .naming =
       pack::NamingConfig{
         .namingStrategy = pack::NamingStrategy::Flat,
         .baseName = dirPath.filename().string(),
       },
     .groupingStrategy = pack::GroupingStrategy::PerSourceDirKeepTogether,
-    .compact = !ctx.config.fullProgress,
-    .removeOnFailure = true,
     .maxParallelJobs = ctx.config.maxParallelJobs,
     .jobState = ctx.runtime.jobState.get(),
   };
@@ -527,14 +527,14 @@ auto packAllPicsToZip(
     .entryInputs = std::move(packInputs),
     .mode = pack::PackMode::Media,
     .outputDir = zipFileDir,
+    .compact = !config.fullProgress,
+    .removeOnFailure = true,
     .naming =
       pack::NamingConfig{
         .namingStrategy = pack::NamingStrategy::Flat,
         .baseName = dirPath.filename().string(),
       },
     .groupingStrategy = pack::GroupingStrategy::PerSourceDirKeepTogether,
-    .compact = !config.fullProgress,
-    .removeOnFailure = true,
     .maxParallelJobs = config.maxParallelJobs,
   };
   auto const packRes = pack::execute(request);

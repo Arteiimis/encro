@@ -7,7 +7,7 @@
 - ✅ **v1.2 Tech Debt & Code Quality** — Phases 6-7 (shipped 2026-04-29)
 - ✅ **v1.3 Pack Subsystem OO Refactor** — Phases 8-11 (shipped 2026-04-30)
 - ✅ **v1.4 Pack 接口简化 & 抽象层清理** — Phases 12-14 (shipped 2026-05-01)
-- 🚧 **v1.5 Pack下沉收尾 — 消除调用方泄漏** — Phases 15-18 (in progress)
+- ✅ **v1.5 Pack下沉收尾 — 消除调用方泄漏** — Phases 15-18 (shipped 2026-05-04)
 
 ## Phases
 
@@ -63,14 +63,14 @@
 
 </details>
 
-### 🚧 v1.5 Pack下沉收尾 — 消除调用方泄漏
+### ✅ v1.5 Pack下沉收尾 — 消除调用方泄漏
 
 **Milestone Goal:** 彻底消除 picture_process.cpp 对 pack 内部类型的依赖，所有调用方统一通过 `pack::execute(PackRequest)` 交互。命名冲突处理抽象为策略枚举 + 前缀配置，PackRequest API 扩展 summary/分组策略字段，PackPlan 退化为纯内部类型。
 
 - [x] **Phase 15: Naming Strategy Enum + NamingConfig Migration** — `NamingStrategy` enum replaces `OutputLayout`+boolean pair; internal dispatch only (2/2 plans) (completed 2026-05-04)
-- [x] **Phase 16: Grouping Strategy + Summary Config on PackRequest** — `GroupingStrategy` enum + `SummaryConfig` struct; picture's two-layer partitioning declarative (0/2 plans) (completed 2026-05-04)
-- [ ] **Phase 17: Picture Process Leak Elimination** — `picture_process.cpp` replaces `buildPicturePackPlan()` with `pack::execute(PackRequest)` (1/1 plan)
-- [ ] **Phase 18: PackPlan Pure Internalization** — `PackPlan` moved to internal header; compile-time enforcement of consumer invisibility
+- [x] **Phase 16: Grouping Strategy + Summary Config on PackRequest** — `GroupingStrategy` enum + `SummaryConfig` struct; picture's two-layer partitioning declarative (2/2 plans) (completed 2026-05-04)
+- [x] **Phase 17: Picture Process Leak Elimination** — `picture_process.cpp` replaces `buildPicturePackPlan()` with `pack::execute(PackRequest)` (completed 2026-05-04)
+- [x] **Phase 18: PackPlan Pure Internalization** — `PackPlan` moved to internal header; compile-time enforcement of consumer invisibility (completed 2026-05-04)
 
 ## Phase Details
 
@@ -120,7 +120,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 17-01-PLAN.md — Remove 3 internal pack includes, delete dead code, wire PackRequest API in 3 call sites
+- [x] 17-01-PLAN.md — Remove 3 internal pack includes, delete dead code, wire PackRequest API in 3 call sites
 
 ### Phase 18: PackPlan Pure Internalization
 **Goal**: `PackPlan` is provably invisible to all consumers outside `src/pack/` — a compile-time enforced encapsulation boundary. No consumer can construct or reference `PackPlan` directly.
@@ -131,7 +131,10 @@ Plans:
   1. `#include "pack/pack.h"` does not expose `pack::PackPlan` — a compile test confirms it is unreachable from the public header
   2. `static_assert(std::is_aggregate_v<PackPlan>)` is removed (no longer needed once PackPlan is internal-only)
   3. All existing tests pass with zero behavioral change after PackPlan is moved to internal header
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [x] 18-01-PLAN.md — Move PackPlan to internal header, compile-time boundary enforcement
 
 ## Progress
 
@@ -151,10 +154,10 @@ Plans:
 | 12. PackRequest 声明式 API & 配置注入 | 12-packrequest-api | v1.4 | 4/4 | Complete | 2026-05-01 |
 | 13. 分组统一 & 命名内化 | 13-grouping-naming | v1.4 | 4/4 | Complete | 2026-05-01 |
 | 14. 移除 IPacker 抽象层 & 验证 | 14-remove-ipacker | v1.4 | 1/1 | Complete | 2026-05-01 |
-| 15. Naming Strategy Enum + NamingConfig | 15-naming-strategy | v1.5 | 0/2 | Not started | - |
-| 16. Grouping + Summary on PackRequest | 16-grouping-summary | v1.5 | 0/2 | Not started | - |
-| 17. Picture Leak Elimination | 17-picture-leak | v1.5 | 0/1 | Planned | - |
-| 18. PackPlan Internalization | 18-packplan-internalize | v1.5 | 0/TBD | Not started | - |
+| 15. Naming Strategy Enum + NamingConfig | 15-naming-strategy | v1.5 | 2/2 | Complete | 2026-05-04 |
+| 16. Grouping + Summary on PackRequest | 16-grouping-summary | v1.5 | 2/2 | Complete | 2026-05-04 |
+| 17. Picture Leak Elimination | 17-picture-leak | v1.5 | 1/1 | Complete | 2026-05-04 |
+| 18. PackPlan Internalization | 18-packplan-internalize | v1.5 | 1/1 | Complete | 2026-05-04 |
 
 ---
 

@@ -4,6 +4,7 @@
 #include "core/error_handle.h"
 #include "pack/pack.h"
 #include "pack/pack_types.h"
+#include "pack/pack_plan_internal.h"
 #include "pack/packer.h"
 
 #include <filesystem>

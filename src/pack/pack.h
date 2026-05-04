@@ -92,9 +92,6 @@ struct PackRequest {
 
 // --- execute() (D-05) ---
 // Free function. Internally manages Packer/PackService lifecycle.
-// Handles grouping, naming, PackPlan construction, resumable execution (D-11).
-auto execute(PackPlan const& plan, jobstate::Store* jobState = nullptr)
-  -> eh::Result<PackRunResult>;
 auto execute(PackRequest const& request) -> eh::Result<PackRunResult>;
 
 }  // namespace pack
