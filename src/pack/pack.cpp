@@ -18,6 +18,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <format>
 #include <functional>
 #include <memory>
@@ -169,12 +170,40 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
     }
   }
 
+  if (request.summary.has_value() && request.summary->enabled) {
+    for (auto const& summaryEntry: request.summary->entries) {
+      packInputs.emplace_back(
+        pack::detail::PackEntryInput{
+          .entry =
+            pack::PackFileEntry{
+              .sourcePath = summaryEntry.sourcePath,
+              .zipEntryName = summaryEntry.zipEntryName,
+              .isSummary = true,
+            },
+          .sourceDir = summaryEntry.sourcePath.parent_path(),
+          .sourceKey = naming::stablePathString(summaryEntry.sourcePath.parent_path()),
+          .fileKey = naming::stablePathString(summaryEntry.sourcePath),
+          .isSummary = true,
+        }
+      );
+    }
+  }
+
+  auto const keepTogetherThreshold = [&]() -> std::optional<std::size_t> {
+    switch (request.groupingStrategy) {
+      case GroupingStrategy::PerSourceDir:
+        return std::optional<std::size_t>{kMaxEntriesPerPart};
+      case GroupingStrategy::PerSourceDirKeepTogether:
+        return std::optional<std::size_t>{0};
+    }
+  }();
+
   Packer packer;
   auto const partitions = packer.groupPackEntriesWithSubparts(
     packInputs,
     kDefaultMaxArchiveGroupSize,
     kMaxEntriesPerPart,
-    kMaxEntriesPerPart
+    keepTogetherThreshold
   );
 
   // Convert partitions to grouped entries with subPart tracking
@@ -190,6 +219,12 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
       subPartCountsByPart.resize(partition.partIndex, 0);
     }
     ++subPartCountsByPart[partition.partIndex - 1];
+  }
+
+  for (auto& group: groupedEntries) {
+    std::ranges::stable_partition(group, [](PackFileEntry const& e) {
+      return e.isSummary;
+    });
   }
 
   // Apply entryNameForFile callback to override zip entry names
