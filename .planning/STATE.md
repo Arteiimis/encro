@@ -2,16 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Pack下沉收尾 — 消除调用方泄漏
-status: executing
-stopped_at: Phase 18 context gathered
-last_updated: "2026-05-04T12:32:51.567Z"
-last_activity: 2026-05-04 -- Phase 15 execution started
+status: complete
+stopped_at: Milestone v1.5 verified — all 3033 assertions pass
+last_updated: "2026-05-05"
+last_activity: 2026-05-05
+milestone_status: closed
+milestone_closed: 2026-05-05
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 5
-  completed_plans: 4
-  percent: 80
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-04)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** Phase 15 — naming-strategy-enum-namingconfig-migration
+**Current focus:** Phase 18 — packplan-pure-internalization
 
 ## Current Position
 
-Phase: 15 (naming-strategy-enum-namingconfig-migration) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 15
-Last activity: 2026-05-04 -- Phase 15 execution started
+Phase: 18 (packplan-pure-internalization) — COMPLETE
+Plan: 1 of 1
+Status: v1.5 milestone complete — all 4 phases shipped
+Last activity: 2026-05-04
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -48,12 +50,14 @@ Progress: [░░░░░░░░░░] 0%
 | 12. PackRequest API | 4 | v1.4 | Complete |
 | 13. Grouping & Naming | 4 | v1.4 | Complete |
 | 14. Remove IPacker | 1 | v1.4 | Complete |
-| 15. Naming Strategy | TBD | v1.5 | Not started |
-| 16. Grouping + Summary | TBD | v1.5 | Not started |
-| 17. Picture Leak Elim. | TBD | v1.5 | Not started |
-| 18. PackPlan Internalize | TBD | v1.5 | Not started |
+| 15. Naming Strategy | 2 | v1.5 | Complete |
+| 16. Grouping + Summary | 2 | v1.5 | Complete |
+| 17. Picture Leak Elim. | 1 | v1.5 | Complete |
+| 18. PackPlan Internalize | 1 | v1.5 | Complete |
 
 *Updated after each plan completion*
+| Phase 18-packplan-pure-internalization P01 | 23min | 8 tasks | 12 files |
+| Phase 17-picture-process-leak-elimination P01 | — | 2 tasks | 1 file |
 
 ## Accumulated Context
 
@@ -67,6 +71,7 @@ Recent decisions affecting v1.5 work:
 - [Research]: `GroupingStrategy::PerSourceDirKeepTogether` is SEMANTIC ("keep source dirs together"), not mechanical ("threshold = 0") — prevents two-layer partitioning leak
 - [Research]: Phase ordering MUST be strict: SINK-01 → SINK-02 → SINK-03 → SINK-04 (C++ type declaration dependencies are non-negotiable)
 - [Roadmap]: 4 phases (15-18), 1:1 mapping to SINK-01 through SINK-04, 100% requirement coverage
+- [Phase 18-packplan-pure-internalization]: Used __if_exists (MSVC/clang extension) instead of pure SFINAE for compile-boundary test — Namespaces cannot be used as C++ type template parameters
 
 ### Blockers/Concerns
 
@@ -87,7 +92,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-04T12:32:51.554Z
-Stopped at: Phase 18 context gathered
-Resume file: .planning/phases/18-packplan-pure-internalization/18-CONTEXT.md
-Next: `/gsd-plan-phase 15` to create plan for Naming Strategy Enum + NamingConfig Migration
+Last session: 2026-05-05T04:02:39.000Z
+Stopped at: v1.5 verified — milestone complete
+Resume file: None
+Next: Ready for v1.6 or new milestone definition

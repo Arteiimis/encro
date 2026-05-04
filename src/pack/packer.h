@@ -5,6 +5,7 @@
 #include "pack/pack.h"
 #include "pack/pack_types.h"
 #include "pack/packer_types.h"
+#include "pack/pack_plan_internal.h"
 
 #include <atomic>
 #include <cstdint>

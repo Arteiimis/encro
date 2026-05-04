@@ -6,7 +6,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -44,22 +43,6 @@ struct PackProgressCallbacks {
   std::function<void(std::size_t, std::size_t)> onCompactProgress;
   std::function<void(std::string_view)> onCompactStatusText;
 };
-
-struct PackPlan {
-  std::vector<std::vector<PackFileEntry>> groups;
-  fs::path outputDir;
-  std::function<std::string(std::size_t)> zipNameForIndex;
-  std::function<std::string(std::size_t)> progressLabelForIndex;
-  PackProgressCallbacks progressCallbacks{};
-  std::optional<std::size_t> maxParallelJobs;
-  bool removeOnFailure = false;
-  bool compact = true;
-};
-
-static_assert(
-  std::is_aggregate_v<pack::PackPlan>,
-  "PackPlan must remain an aggregate for designated-initializer usage"
-);
 
 inline constexpr auto kDefaultMaxArchiveGroupSize = std::uintmax_t{500 * 1024 * 1024};
 

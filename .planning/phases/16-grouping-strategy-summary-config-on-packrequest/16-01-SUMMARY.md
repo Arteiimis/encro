@@ -1,3 +1,10 @@
+---
+phase: 16-grouping-strategy-summary-config-on-packrequest
+plan: 01
+subsystem: pack
+requirements-completed: [SINK-02]
+---
+
 # 16-01 Summary: GroupingStrategy + SummaryConfig + isSummary
 
 **Date:** 2026-05-04
