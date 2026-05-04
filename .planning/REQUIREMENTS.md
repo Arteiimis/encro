@@ -21,7 +21,7 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 
 ### PackPlan Internalization (SINK-04)
 
-- [ ] **SINK-04**: `PackPlan` moved from `pack_types.h` to internal header — consumers cannot include it. `static_assert(is_aggregate_v)` removed. All tests pass with zero behavioral change.
+- [x] **SINK-04**: `PackPlan` moved from `pack_types.h` to internal header — consumers cannot include it. `static_assert(is_aggregate_v)` removed. All tests pass with zero behavioral change.
 
 ## v2 Requirements
 
@@ -42,7 +42,7 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 | SINK-01 | Phase 15 | Pending |
 | SINK-02 | Phase 16 | Pending |
 | SINK-03 | Phase 17 | Pending |
-| SINK-04 | Phase 18 | Pending |
+| SINK-04 | Phase 18 | Complete |
 
 **Coverage:**
 - v1.5 requirements: 4 total
