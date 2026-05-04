@@ -67,7 +67,7 @@
 
 **Milestone Goal:** 彻底消除 picture_process.cpp 对 pack 内部类型的依赖，所有调用方统一通过 `pack::execute(PackRequest)` 交互。命名冲突处理抽象为策略枚举 + 前缀配置，PackRequest API 扩展 summary/分组策略字段，PackPlan 退化为纯内部类型。
 
-- [ ] **Phase 15: Naming Strategy Enum + NamingConfig Migration** — `NamingStrategy` enum replaces `OutputLayout`+boolean pair; internal dispatch only (2/2 plans)
+- [x] **Phase 15: Naming Strategy Enum + NamingConfig Migration** — `NamingStrategy` enum replaces `OutputLayout`+boolean pair; internal dispatch only (2/2 plans) (completed 2026-05-04)
 - [x] **Phase 16: Grouping Strategy + Summary Config on PackRequest** — `GroupingStrategy` enum + `SummaryConfig` struct; picture's two-layer partitioning declarative (0/2 plans) (completed 2026-05-04)
 - [ ] **Phase 17: Picture Process Leak Elimination** — `picture_process.cpp` replaces `buildPicturePackPlan()` with `pack::execute(PackRequest)` (1/1 plan)
 - [ ] **Phase 18: PackPlan Pure Internalization** — `PackPlan` moved to internal header; compile-time enforcement of consumer invisibility
@@ -87,8 +87,8 @@
 **Plans**: 2 plans
 
 Plans:
-- [ ] 15-01-PLAN.md — NamingStrategy enum + NamingConfig extension + Media mode dispatch (pack.h, pack.cpp, unit tests)
-- [ ] 15-02-PLAN.md — Directory mode dispatch + Pipeline translation + full test verification (packer.h/.cpp, pipeline.cpp)
+- [x] 15-01-PLAN.md — NamingStrategy enum + NamingConfig extension + Media mode dispatch (pack.h, pack.cpp, unit tests)
+- [x] 15-02-PLAN.md — Directory mode dispatch + Pipeline translation + full test verification (packer.h/.cpp, pipeline.cpp)
 
 ### Phase 16: Grouping Strategy + Summary Config on PackRequest
 **Goal**: `PackRequest` fully captures grouping and summary/cover-image behavior declaratively, so no consumer needs to bypass it for complex partitioning scenarios.
