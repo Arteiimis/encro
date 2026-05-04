@@ -26,7 +26,6 @@ __if_exists(pack::PackPlan) {
 
 // SFINAE detector struct (named per plan spec).
 // Primary template: PackPlan NOT visible → std::false_type.
-<<<<<<< Updated upstream
 template<typename, typename = void>
 struct has_PackPlan_in_pack_ns: std::false_type { };
 
@@ -39,20 +38,6 @@ static_assert(
   sizeof(pack::PackRunResult) > 0,
   "PackRunResult must be accessible from pack.h"
 );
-||||||| Stash base
-== == == = template<typename, typename = void>
-struct has_PackPlan_in_pack_ns: std::false_type { };
-
-// Verify public API remains accessible via pack.h.
-static_assert(
-  sizeof(pack::PackRequest) > 0,
-  "PackRequest must be accessible from pack.h"
-);
-static_assert(
-  sizeof(pack::PackRunResult) > 0,
-  "PackRunResult must be accessible from pack.h"
-);
->>>>>>> Stashed changes
 
 TEST_CASE("PackPlan is unreachable from public header pack.h", "[pack-plan-boundary]") {
   // The __if_exists block above would have fired a static_assert if
