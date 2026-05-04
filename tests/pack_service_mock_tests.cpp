@@ -41,7 +41,7 @@ TEST_CASE("packAllFilesInDirectory packs files from a real directory", "[pack-se
     outDir,
     500ULL * 1024 * 1024,
     true,
-    false,
+    pack::NamingStrategy::Flat,
     std::nullopt
   );
 
@@ -70,7 +70,7 @@ TEST_CASE(
     outDir,
     500ULL * 1024 * 1024,
     true,
-    false,
+    pack::NamingStrategy::Flat,
     std::nullopt
   );
 
@@ -95,7 +95,7 @@ TEST_CASE("packAllFilesInDirectory respects non-recursive flag", "[pack-service]
     outDir,
     500ULL * 1024 * 1024,
     false,
-    false,
+    pack::NamingStrategy::Flat,
     std::nullopt
   );
 
@@ -125,7 +125,7 @@ TEST_CASE("packAllFilesInDirectory with forceNameConflictHandling", "[pack-servi
     outDir,
     500ULL * 1024 * 1024,
     true,
-    true,
+    pack::NamingStrategy::FlatWithForce,
     std::nullopt
   );
 

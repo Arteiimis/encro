@@ -19,11 +19,6 @@ namespace jobstate {
 class Store;
 
 }
-namespace appctx {
-
-enum class OutputLayout : int;
-
-}
 
 namespace pack {
 
@@ -42,11 +37,16 @@ enum class PackMode {
   Directory,
 };
 
+enum class NamingStrategy {
+  Flat,
+  FlatWithForce,
+  Keep,
+};
+
 // --- NamingConfig (D-04, extended D-06, D-09) ---
 // Optional sub-struct. When std::nullopt on PackRequest, module uses defaults by mode.
 struct NamingConfig {
-  appctx::OutputLayout layout;
-  bool forceConflictHandling = false;
+  NamingStrategy namingStrategy = NamingStrategy::Flat;
   std::optional<std::string> baseName;
   std::function<std::string(
     std::size_t partIndex,

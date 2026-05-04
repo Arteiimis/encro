@@ -28,7 +28,7 @@ public:
     std::filesystem::path const& zipFileDir,
     std::uintmax_t maxGroupSize = kDefaultMaxArchiveGroupSize,
     bool recursive = true,
-    bool forceNameConflictHandling = false,
+    NamingStrategy namingStrategy = NamingStrategy::Flat,
     std::optional<std::size_t> maxParallelJobs = std::nullopt
   ) -> eh::Result<void>;
   auto runDirectoryPackWorkflow(
