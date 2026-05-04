@@ -110,14 +110,56 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
   if (!request.entryInputs.empty()) {
     packInputs = request.entryInputs;
   } else {
+    // Resolve naming strategy: from NamingConfig or default Flat
+    auto const namingStrategy =
+      request.naming.has_value() ? request.naming->namingStrategy : NamingStrategy::Flat;
+
+    // Compute common ancestor directory for Keep strategy
+    auto commonRoot = fs::path{};
+    if (namingStrategy == NamingStrategy::Keep && !request.entries.empty()) {
+      commonRoot = request.entries[0].parent_path();
+      for (auto i = std::size_t{1}; i < request.entries.size() && !commonRoot.empty();
+           ++i) {
+        auto const& other = request.entries[i].parent_path();
+        auto it1 = commonRoot.begin();
+        auto const end1 = commonRoot.end();
+        auto it2 = other.begin();
+        auto const end2 = other.end();
+        auto newRoot = fs::path{};
+        for (; it1 != end1 && it2 != end2 && *it1 == *it2; ++it1, ++it2) {
+          newRoot /= *it1;
+        }
+        commonRoot = std::move(newRoot);
+      }
+    }
+
     packInputs.reserve(request.entries.size());
     for (auto const& entry: request.entries) {
+      auto zipName = std::string{};
+      switch (namingStrategy) {
+        case NamingStrategy::Flat: zipName = entry.filename().generic_string(); break;
+        case NamingStrategy::FlatWithForce:
+          zipName = naming::buildConflictHandledFlatName(
+            entry.parent_path(),
+            entry,
+            entry.stem().string(),
+            entry.extension().string()
+          );
+          break;
+        case NamingStrategy::Keep:
+          if (commonRoot.empty()) {
+            zipName = entry.filename().generic_string();
+          } else {
+            zipName = entry.lexically_relative(commonRoot).generic_string();
+          }
+          break;
+      }
       packInputs.emplace_back(
         pack::detail::PackEntryInput{
           .entry =
             pack::PackFileEntry{
               .sourcePath = entry,
-              .zipEntryName = entry.filename().generic_string(),
+              .zipEntryName = std::move(zipName),
             },
           .sourceDir = entry.parent_path(),
           .sourceKey = naming::stablePathString(entry.parent_path()),
@@ -325,7 +367,7 @@ auto execute(PackRequest const& request) -> eh::Result<PackRunResult> {
       request.outputDir,
       kDefaultMaxArchiveGroupSize,
       request.recursive,
-      request.naming.has_value() ? request.naming->forceConflictHandling : false,
+      request.naming.has_value() ? request.naming->namingStrategy : NamingStrategy::Flat,
       request.maxParallelJobs,
       std::nullopt  // excludedPath — not needed for pack-only
     );

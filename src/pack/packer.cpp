@@ -704,7 +704,7 @@ auto pack::Packer::buildDirectoryPackPlan(
   fs::path const& zipFileDir,
   std::uintmax_t maxGroupSize,
   bool recursive,
-  bool forceNameConflictHandling,
+  NamingStrategy namingStrategy,
   std::optional<std::size_t> maxParallelJobs,
   std::optional<fs::path> excludedPath
 ) -> eh::Result<pack::PackPlan> {
@@ -763,12 +763,22 @@ auto pack::Packer::buildDirectoryPackPlan(
     auto entries = std::vector<pack::PackFileEntry>{};
     entries.reserve(group.size());
     for (auto const& filePath: group) {
+      auto zipEntryName = std::string{};
+      switch (namingStrategy) {
+        case NamingStrategy::Flat:
+          zipEntryName = filePath.filename().generic_string();
+          break;
+        case NamingStrategy::FlatWithForce:
+          zipEntryName = buildConflictHandledPackEntryName(dirPath, filePath);
+          break;
+        case NamingStrategy::Keep:
+          zipEntryName = filePath.lexically_relative(dirPath).generic_string();
+          break;
+      }
       entries.emplace_back(
         pack::PackFileEntry{
           .sourcePath = filePath,
-          .zipEntryName = forceNameConflictHandling
-            ? buildConflictHandledPackEntryName(dirPath, filePath)
-            : filePath.filename().generic_string(),
+          .zipEntryName = std::move(zipEntryName),
         }
       );
     }

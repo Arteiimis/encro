@@ -16,6 +16,14 @@ namespace pipeline {
 
 namespace {
 
+auto toNamingStrategy(appctx::AppConfig const& config) -> pack::NamingStrategy {
+  if (config.outputLayout == appctx::OutputLayout::Keep) {
+    return pack::NamingStrategy::Keep;
+  }
+  if (config.forceNameConflictHandling) { return pack::NamingStrategy::FlatWithForce; }
+  return pack::NamingStrategy::Flat;
+}
+
 auto shouldEnableJobState(appctx::AppConfig const& config) -> bool {
   if (config.processType == "video" && !config.packOnly) { return true; }
 
@@ -57,8 +65,7 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
       .compact = !ctx.config.fullProgress,
       .naming =
         pack::NamingConfig{
-          .layout = ctx.config.outputLayout,
-          .forceConflictHandling = ctx.config.forceNameConflictHandling,
+          .namingStrategy = toNamingStrategy(ctx.config),
         },
       .maxParallelJobs = ctx.config.maxParallelJobs,
       .jobState = ctx.runtime.jobState.get(),
