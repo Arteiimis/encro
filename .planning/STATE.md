@@ -5,7 +5,7 @@ milestone_name: Pack下沉收尾 — 消除调用方泄漏
 status: complete
 stopped_at: Milestone v1.5 verified — all 3033 assertions pass
 last_updated: "2026-05-05"
-last_activity: 2026-05-05
+last_activity: 2026-05-05 - Completed quick task 260505-vyf: 优化runPicturePackWorkflow函数
 milestone_status: closed
 milestone_closed: 2026-05-05
 progress:
@@ -79,6 +79,12 @@ Recent decisions affecting v1.5 work:
 - **Research gap:** Summary deduplication behavior (when first picture = summary cover) needs decision during Phase 16 planning.
 - **Research gap:** `collision_naming.h` final location — currently `src/core/`, but may migrate to `src/pack/` after Phase 17 if picture no longer uses it.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260505-vyf | 优化runPicturePackWorkflow函数 - 函数过长，可读性差，权责不明 | 2026-05-05 | 2e7d78b | [260505-vyf-runpicturepackworkflow](./quick/260505-vyf-runpicturepackworkflow/) |
+
 ### Pending Todos
 
 None yet.
@@ -92,7 +98,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-05T04:02:39.000Z
-Stopped at: v1.5 verified — milestone complete
+Last session: 2026-05-05T15:01:00.000Z
+Stopped at: Quick task 260505-vyf completed — refactored runPicturePackWorkflow to routing dispatcher
 Resume file: None
 Next: Ready for v1.6 or new milestone definition
