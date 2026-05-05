@@ -5,7 +5,7 @@ milestone_name: Pack下沉收尾 — 消除调用方泄漏
 status: complete
 stopped_at: Milestone v1.5 verified — all 3033 assertions pass
 last_updated: "2026-05-05"
-last_activity: 2026-05-05 - Completed quick task 260505-vyf: 优化runPicturePackWorkflow函数
+last_activity: 2026-05-05 - Completed quick task 260506-44c: 优化buildMediaPackPlan函数
 milestone_status: closed
 milestone_closed: 2026-05-05
 progress:
@@ -84,6 +84,7 @@ Recent decisions affecting v1.5 work:
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260505-vyf | 优化runPicturePackWorkflow函数 - 函数过长，可读性差，权责不明 | 2026-05-05 | 2e7d78b | [260505-vyf-runpicturepackworkflow](./quick/260505-vyf-runpicturepackworkflow/) |
+| 260506-44c | 优化buildMediaPackPlan函数 - 函数过长，降低认知负载 | 2026-05-05 | 6e6d31a | [260506-44c-buildmediapackplan](./quick/260506-44c-buildmediapackplan/) |
 
 ### Pending Todos
 
@@ -99,6 +100,6 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-05-05T15:01:00.000Z
-Stopped at: Quick task 260505-vyf completed — refactored runPicturePackWorkflow to routing dispatcher
+Stopped at: Quick task 260506-44c completed — refactored buildMediaPackPlan to 28-line orchestrator via 6 helpers
 Resume file: None
 Next: Ready for v1.6 or new milestone definition
