@@ -101,113 +101,136 @@ auto makeDefaultZipNameStrategy(
   };
 }
 
-// --- buildMediaPackPlan ---
-// Groups entries using two-layer partitioning (groupPackEntriesWithSubparts),
-// reads NamingConfig for baseName and zipNameStrategy, applies entryNameForFile
-// callback, and returns a PackPlan ready for execution.
-auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
-  constexpr auto kMaxEntriesPerPart = std::size_t{2000};
+constexpr auto kMaxEntriesPerPart = std::size_t{2000};
+
+// --- collectPackInputs ---
+// Converts PackRequest entries (or entryInputs pass-through) into a
+// PackEntryInput vector, resolving naming strategy and computing
+// the common ancestor root for NamingStrategy::Keep.
+auto collectPackInputs(PackRequest const& request)
+  -> std::vector<pack::detail::PackEntryInput> {
+  // Pass-through: if entryInputs provided, return as-is
+  if (!request.entryInputs.empty()) { return request.entryInputs; }
+
+  auto const namingStrategy =
+    request.naming.has_value() ? request.naming->namingStrategy : NamingStrategy::Flat;
+
+  // Compute common ancestor directory for Keep strategy
+  auto commonRoot = fs::path{};
+  if (namingStrategy == NamingStrategy::Keep && !request.entries.empty()) {
+    commonRoot = request.entries[0].parent_path();
+    for (auto i = std::size_t{1}; i < request.entries.size() && !commonRoot.empty();
+         ++i) {
+      auto const& other = request.entries[i].parent_path();
+      auto it1 = commonRoot.begin();
+      auto const end1 = commonRoot.end();
+      auto it2 = other.begin();
+      auto const end2 = other.end();
+      auto newRoot = fs::path{};
+      for (; it1 != end1 && it2 != end2 && *it1 == *it2; ++it1, ++it2) {
+        newRoot /= *it1;
+      }
+      commonRoot = std::move(newRoot);
+    }
+  }
 
   auto packInputs = std::vector<pack::detail::PackEntryInput>{};
-  if (!request.entryInputs.empty()) {
-    packInputs = request.entryInputs;
-  } else {
-    // Resolve naming strategy: from NamingConfig or default Flat
-    auto const namingStrategy =
-      request.naming.has_value() ? request.naming->namingStrategy : NamingStrategy::Flat;
-
-    // Compute common ancestor directory for Keep strategy
-    auto commonRoot = fs::path{};
-    if (namingStrategy == NamingStrategy::Keep && !request.entries.empty()) {
-      commonRoot = request.entries[0].parent_path();
-      for (auto i = std::size_t{1}; i < request.entries.size() && !commonRoot.empty();
-           ++i) {
-        auto const& other = request.entries[i].parent_path();
-        auto it1 = commonRoot.begin();
-        auto const end1 = commonRoot.end();
-        auto it2 = other.begin();
-        auto const end2 = other.end();
-        auto newRoot = fs::path{};
-        for (; it1 != end1 && it2 != end2 && *it1 == *it2; ++it1, ++it2) {
-          newRoot /= *it1;
+  packInputs.reserve(request.entries.size());
+  for (auto const& entry: request.entries) {
+    auto zipName = std::string{};
+    switch (namingStrategy) {
+      case NamingStrategy::Flat: zipName = entry.filename().generic_string(); break;
+      case NamingStrategy::FlatWithForce:
+        zipName = naming::buildConflictHandledFlatName(
+          entry.parent_path(),
+          entry,
+          entry.stem().string(),
+          entry.extension().string()
+        );
+        break;
+      case NamingStrategy::Keep:
+        if (commonRoot.empty()) {
+          zipName = entry.filename().generic_string();
+        } else {
+          zipName = entry.lexically_relative(commonRoot).generic_string();
         }
-        commonRoot = std::move(newRoot);
+        break;
+    }
+    packInputs.emplace_back(
+      pack::detail::PackEntryInput{
+        .entry =
+          pack::PackFileEntry{
+            .sourcePath = entry,
+            .zipEntryName = std::move(zipName),
+          },
+        .sourceDir = entry.parent_path(),
+        .sourceKey = naming::stablePathString(entry.parent_path()),
+        .fileKey = naming::stablePathString(entry),
       }
-    }
+    );
+  }
+  return packInputs;
+}
 
-    packInputs.reserve(request.entries.size());
-    for (auto const& entry: request.entries) {
-      auto zipName = std::string{};
-      switch (namingStrategy) {
-        case NamingStrategy::Flat: zipName = entry.filename().generic_string(); break;
-        case NamingStrategy::FlatWithForce:
-          zipName = naming::buildConflictHandledFlatName(
-            entry.parent_path(),
-            entry,
-            entry.stem().string(),
-            entry.extension().string()
-          );
-          break;
-        case NamingStrategy::Keep:
-          if (commonRoot.empty()) {
-            zipName = entry.filename().generic_string();
-          } else {
-            zipName = entry.lexically_relative(commonRoot).generic_string();
-          }
-          break;
+// --- appendSummaryEntries ---
+// Appends summary PackEntryInput records to the packInputs vector when
+// SummaryConfig is enabled.
+auto appendSummaryEntries(
+  PackRequest const& request,
+  std::vector<pack::detail::PackEntryInput>& packInputs
+) -> void {
+  if (!request.summary.has_value() || !request.summary->enabled) { return; }
+  for (auto const& summaryEntry: request.summary->entries) {
+    packInputs.emplace_back(
+      pack::detail::PackEntryInput{
+        .entry =
+          pack::PackFileEntry{
+            .sourcePath = summaryEntry.sourcePath,
+            .zipEntryName = summaryEntry.zipEntryName,
+            .isSummary = true,
+          },
+        .sourceDir = summaryEntry.sourcePath.parent_path(),
+        .sourceKey = naming::stablePathString(summaryEntry.sourcePath.parent_path()),
+        .fileKey = naming::stablePathString(summaryEntry.sourcePath),
+        .isSummary = true,
       }
-      packInputs.emplace_back(
-        pack::detail::PackEntryInput{
-          .entry =
-            pack::PackFileEntry{
-              .sourcePath = entry,
-              .zipEntryName = std::move(zipName),
-            },
-          .sourceDir = entry.parent_path(),
-          .sourceKey = naming::stablePathString(entry.parent_path()),
-          .fileKey = naming::stablePathString(entry),
-        }
-      );
-    }
+    );
   }
+}
 
-  if (request.summary.has_value() && request.summary->enabled) {
-    for (auto const& summaryEntry: request.summary->entries) {
-      packInputs.emplace_back(
-        pack::detail::PackEntryInput{
-          .entry =
-            pack::PackFileEntry{
-              .sourcePath = summaryEntry.sourcePath,
-              .zipEntryName = summaryEntry.zipEntryName,
-              .isSummary = true,
-            },
-          .sourceDir = summaryEntry.sourcePath.parent_path(),
-          .sourceKey = naming::stablePathString(summaryEntry.sourcePath.parent_path()),
-          .fileKey = naming::stablePathString(summaryEntry.sourcePath),
-          .isSummary = true,
-        }
-      );
-    }
+// --- resolveKeepTogetherThreshold ---
+// Maps GroupingStrategy to the keep-together threshold value used by
+// two-layer partitioning.
+auto resolveKeepTogetherThreshold(PackRequest const& request)
+  -> std::optional<std::size_t> {
+  switch (request.groupingStrategy) {
+    case GroupingStrategy::PerSourceDir:
+      return std::optional<std::size_t>{kMaxEntriesPerPart};
+    case GroupingStrategy::PerSourceDirKeepTogether: return std::optional<std::size_t>{0};
   }
+}
 
-  auto const keepTogetherThreshold = [&]() -> std::optional<std::size_t> {
-    switch (request.groupingStrategy) {
-      case GroupingStrategy::PerSourceDir:
-        return std::optional<std::size_t>{kMaxEntriesPerPart};
-      case GroupingStrategy::PerSourceDirKeepTogether:
-        return std::optional<std::size_t>{0};
-    }
-  }();
-
+// --- partitionPackInputs ---
+// Runs two-layer partitioning via Packer, converts partitions to grouped
+// entries with subPart tracking, and stable_partitions summary entries to
+// the front of each group.
+auto partitionPackInputs(
+  std::vector<pack::detail::PackEntryInput> const& packInputs,
+  std::optional<std::size_t> keepTogetherThreshold
+)
+  -> std::tuple<
+    std::vector<std::vector<PackFileEntry>>,
+    std::vector<std::pair<std::size_t, std::size_t>>,
+    std::vector<std::size_t>
+  > {
   Packer packer;
   auto const partitions = packer.groupPackEntriesWithSubparts(
     packInputs,
-    kDefaultMaxArchiveGroupSize,
+    pack::kDefaultMaxArchiveGroupSize,
     kMaxEntriesPerPart,
     keepTogetherThreshold
   );
 
-  // Convert partitions to grouped entries with subPart tracking
   auto groupedEntries = std::vector<std::vector<PackFileEntry>>{};
   auto groupNameParts = std::vector<std::pair<std::size_t, std::size_t>>{};
   auto subPartCountsByPart = std::vector<std::size_t>{};
@@ -228,57 +251,91 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
     });
   }
 
-  // Apply entryNameForFile callback to override zip entry names
+  return {
+    std::move(groupedEntries),
+    std::move(groupNameParts),
+    std::move(subPartCountsByPart)
+  };
+}
+
+// --- applyEntryNameOverrides ---
+// Applies the entryNameForFile callback to override zip entry names when
+// entries are provided as raw paths (not via entryInputs).
+auto applyEntryNameOverrides(
+  PackRequest const& request,
+  std::vector<std::vector<PackFileEntry>>& groups
+) -> void {
   if (request.entryInputs.empty() && request.entryNameForFile) {
-    for (auto& group: groupedEntries) {
+    for (auto& group: groups) {
       for (auto& entry: group) {
         entry.zipEntryName = request.entryNameForFile(entry.sourcePath);
       }
     }
   }
+}
 
-  // Extract baseName from NamingConfig
-  auto baseName = std::string{};
-  if (request.naming.has_value() && request.naming->baseName.has_value()) {
-    baseName = request.naming->baseName.value();
-  }
-
-  auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groupedEntries);
-
-  // Build zip name lambda: consumer-provided strategy or default
-  std::function<std::string(std::size_t)> zipNameForIndex;
-
+// --- resolveZipNameStrategy ---
+// Returns a zipNameForIndex lambda. Uses the consumer-provided
+// zipNameStrategy if present; otherwise falls back to the default mode-based
+// naming via makeDefaultZipNameStrategy.
+auto resolveZipNameStrategy(
+  PackRequest const& request,
+  std::string baseName,
+  std::vector<FileOrdinalRange> const& ordinalRanges,
+  std::vector<std::pair<std::size_t, std::size_t>> groupNameParts,
+  std::vector<std::size_t> subPartCountsByPart
+) -> std::function<std::string(std::size_t)> {
   if (request.naming.has_value() && request.naming->zipNameStrategy) {
     auto strategy = request.naming->zipNameStrategy;
     auto ordRanges = ordinalRanges;
     auto nameParts = groupNameParts;
     auto subPartCounts = subPartCountsByPart;
     auto bName = baseName;
-    zipNameForIndex =  //
-      [strategy, ordRanges, nameParts, subPartCounts, bName](std::size_t index) {
-        auto const [partIndex, subPartIndex] = nameParts.at(index);
-        auto const totalSubParts = subPartCounts.at(partIndex - 1);
-        return strategy(
-          partIndex,
-          subPartIndex,
-          totalSubParts,
-          bName,
-          ordRanges.at(index)
-        );
-      };
-  } else {
-    zipNameForIndex = makeDefaultZipNameStrategy(
-      baseName,
-      ordinalRanges,
-      std::move(groupNameParts),
-      std::move(subPartCountsByPart)
-    );
+    return [strategy, ordRanges, nameParts, subPartCounts, bName](std::size_t index) {
+      auto const [partIndex, subPartIndex] = nameParts.at(index);
+      auto const totalSubParts = subPartCounts.at(partIndex - 1);
+      return strategy(partIndex, subPartIndex, totalSubParts, bName, ordRanges.at(index));
+    };
   }
 
+  return makeDefaultZipNameStrategy(
+    std::move(baseName),
+    ordinalRanges,
+    std::move(groupNameParts),
+    std::move(subPartCountsByPart)
+  );
+}
+
+// --- buildMediaPackPlan ---
+// Groups entries using two-layer partitioning (groupPackEntriesWithSubparts),
+// reads NamingConfig for baseName and zipNameStrategy, applies entryNameForFile
+// callback, and returns a PackPlan ready for execution.
+auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
+  // 1. Build packInputs + append summary
+  auto packInputs = collectPackInputs(request);
+  appendSummaryEntries(request, packInputs);
+  // 2. Partition + group
+  auto const keepTogether = resolveKeepTogetherThreshold(request);
+  auto [groups, nameParts, subPartCounts] = partitionPackInputs(packInputs, keepTogether);
+  // 3. Entry name overrides
+  applyEntryNameOverrides(request, groups);
+  // 4. Naming configuration
+  auto baseName = std::string{};
+  if (request.naming.has_value() && request.naming->baseName.has_value()) {
+    baseName = request.naming->baseName.value();
+  }
+  auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groups);
+  auto zipNameFn = resolveZipNameStrategy(
+    request,
+    baseName,
+    ordinalRanges,
+    std::move(nameParts),
+    std::move(subPartCounts)
+  );
   return PackPlan{
-    .groups = std::move(groupedEntries),
+    .groups = std::move(groups),
     .outputDir = request.outputDir,
-    .zipNameForIndex = std::move(zipNameForIndex),
+    .zipNameForIndex = std::move(zipNameFn),
     .maxParallelJobs = request.maxParallelJobs,
     .removeOnFailure = request.removeOnFailure,
     .compact = request.compact,
@@ -338,9 +395,9 @@ auto runResumable(PackPlan const& plan, jobstate::Store& store)
     std::vector<std::size_t> pendingIndexes;
   };
   auto resumableState = std::make_shared<ResumableState>(ResumableState{
-    &store,
-    std::move(mergedTasks),
-    std::move(pendingIndexes)
+    .store = &store,
+    .mergedTasks = std::move(mergedTasks),
+    .pendingIndexes = std::move(pendingIndexes)
   });
 
   pendingPlan.progressCallbacks.onGroupStart = [resumableState](std::size_t subsetIndex) {
