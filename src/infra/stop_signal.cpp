@@ -70,7 +70,7 @@ BOOL WINAPI handleConsoleCtrl(DWORD ctrlType) {
             .count()
         );
       auto expectedDeadline = 0ull;
-      if (
+      if (  //
         !gForceExitDeadlineMs
            .compare_exchange_strong(expectedDeadline, deadline, std::memory_order_acq_rel)
       ) {

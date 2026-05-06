@@ -38,13 +38,15 @@ TEST_CASE(
         .run = [&, index](taskexec::TaskContext& ctx) -> eh::Result<void> {
           auto const current = active.fetch_add(1, std::memory_order_acq_rel) + 1;
           auto peakNow = peak.load(std::memory_order_acquire);
-          while (current > peakNow
-                 && !peak.compare_exchange_weak(
-                   peakNow,
-                   current,
-                   std::memory_order_acq_rel,
-                   std::memory_order_acquire
-                 )) { }
+          while (
+            current > peakNow
+            && !peak.compare_exchange_weak(
+              peakNow,
+              current,
+              std::memory_order_acq_rel,
+              std::memory_order_acquire
+            )
+          ) { }
 
           seenSlots[index] = ctx.slot;
           std::this_thread::sleep_for(20ms);
