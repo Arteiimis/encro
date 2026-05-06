@@ -119,8 +119,9 @@ auto collectPackInputs(PackRequest const& request)
   auto commonRoot = fs::path{};
   if (namingStrategy == NamingStrategy::Keep && !request.entries.empty()) {
     commonRoot = request.entries[0].parent_path();
-    for (auto i = std::size_t{1}; i < request.entries.size() && !commonRoot.empty();
-         ++i) {
+    for (
+      auto i = std::size_t{1}; i < request.entries.size() && !commonRoot.empty(); ++i
+    ) {
       auto const& other = request.entries[i].parent_path();
       auto it1 = commonRoot.begin();
       auto const end1 = commonRoot.end();

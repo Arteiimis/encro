@@ -643,8 +643,11 @@ auto pack::Packer::groupPackEntriesWithSubparts(
       forceSourceCarryOverWithinPart ? std::optional<std::size_t>{0} : std::nullopt
     );
 
-    for (auto subPartIndex = std::size_t{0}; subPartIndex < physicalGroups.size();
-         ++subPartIndex) {
+    for (
+      auto subPartIndex = std::size_t{0};  //
+      subPartIndex < physicalGroups.size();
+      ++subPartIndex
+    ) {
       groupedPartitions.emplace_back(
         PackEntryPartition{
           .entries = std::move(physicalGroups[subPartIndex]),

@@ -19,9 +19,9 @@ inline auto commonAncestorPath(fs::path const& lhs, fs::path const& rhs)
   auto result = fs::path{};
   auto lhsIt = normalizedLhs.begin();
   auto rhsIt = normalizedRhs.begin();
-  while (lhsIt != normalizedLhs.end()
-         && rhsIt != normalizedRhs.end()
-         && *lhsIt == *rhsIt) {
+  while (
+    lhsIt != normalizedLhs.end() && rhsIt != normalizedRhs.end() && *lhsIt == *rhsIt
+  ) {
     result /= *lhsIt;
     ++lhsIt;
     ++rhsIt;
