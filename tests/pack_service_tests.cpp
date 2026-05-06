@@ -332,6 +332,115 @@ TEST_CASE(
   CHECK(progressUpdates == std::vector<std::string>{"0/1", "1/1"});
 }
 
+TEST_CASE("packGroups notifies group success callbacks in both modes", "[pack-service]") {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+
+  auto const f1 = createFile(srcDir, "a.txt");
+
+  auto runCase = [&](bool compact) {
+    auto callbackEvents = std::vector<std::string>{};
+    auto callbackZipPath = fs::path{};
+    auto const plan = pack::PackPlan{
+      .groups =
+        {
+          std::vector<pack::PackFileEntry>{
+            pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
+          },
+        },
+      .outputDir = outDir,
+      .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
+      .progressCallbacks = {
+        .onGroupStart =
+          [&](std::size_t index) {
+            callbackEvents.push_back(std::format("start:{}", index));
+          },
+        .onGroupSuccess =
+          [&](std::size_t index, fs::path const& zipPath) {
+            callbackEvents.push_back(std::format("success:{}", index));
+            callbackZipPath = zipPath;
+          },
+      },
+      .compact = compact,
+    };
+
+    auto const result = testService.packGroups(plan);
+
+    REQUIRE(result);
+    CHECK(callbackEvents == std::vector<std::string>{"start:0", "success:0"});
+    CHECK(callbackZipPath == outDir / "group1.zip");
+  };
+
+  SECTION("compact") {
+    runCase(true);
+  }
+
+  SECTION("full") {
+    runCase(false);
+  }
+}
+
+TEST_CASE(
+  "packGroups preserves group callback order across multiple groups in both modes",
+  "[pack-service]"
+) {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+
+  auto const f1 = createFile(srcDir, "a.txt");
+  auto const f2 = createFile(srcDir, "b.txt");
+
+  auto runCase = [&](bool compact) {
+    auto callbackEvents = std::vector<std::string>{};
+    auto const plan = pack::PackPlan{
+      .groups =
+        {
+          std::vector<pack::PackFileEntry>{
+            pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
+          },
+          std::vector<pack::PackFileEntry>{
+            pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
+          },
+        },
+      .outputDir = outDir,
+      .zipNameForIndex =
+        [](std::size_t index) { return std::format("group{}.zip", index + 1); },
+      .progressCallbacks = {
+        .onGroupStart =
+          [&](std::size_t index) {
+            callbackEvents.push_back(std::format("start:{}", index));
+          },
+        .onGroupSuccess =
+          [&](std::size_t index, fs::path const&) {
+            callbackEvents.push_back(std::format("success:{}", index));
+          },
+      },
+      .maxParallelJobs = 1,
+      .compact = compact,
+    };
+
+    auto const result = testService.packGroups(plan);
+
+    REQUIRE(result);
+    CHECK(
+      callbackEvents
+      == std::vector<std::string>{"start:0", "success:0", "start:1", "success:1"}
+    );
+  };
+
+  SECTION("compact") {
+    runCase(true);
+  }
+
+  SECTION("full") {
+    runCase(false);
+  }
+}
+
 TEST_CASE(
   "runPackPlan skips already completed archive tasks from job state",
   "[pack-service]"
