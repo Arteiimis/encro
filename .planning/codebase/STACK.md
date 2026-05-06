@@ -1,89 +1,107 @@
 # Technology Stack
 
-**Analysis Date:** 2026-04-28
+**Analysis Date:** 2026-05-07
 
 ## Languages
 
 **Primary:**
-- C++26 - All application code in `src/` and `tests/`
+- C++26 - Entire codebase (`src/`, `tests/`, `plugins/`)
 
-**Secondary:**
-- Lua - xmake build scripts (`xmake.lua`, `plugins/coverge/xmake.lua`, `plugins/format/xmake.lua`)
+**Build Scripting:**
+- Lua 5.x - xmake build script (`xmake.lua`, `plugins/*/xmake.lua`)
+
+**Shell Scripting:**
 - Bash - Git hooks (`.githooks/pre-commit`)
 
 ## Runtime
 
 **Environment:**
-- Native binary (no managed runtime / virtual machine)
-- Platform: Windows primary; cross-platform compatibility via conditional compilation (`src/utils/utils.cpp` has `#if defined(_WIN32)` blocks)
+- Native binary (compiled C++ executable `encro.exe`)
+- No managed runtime or VM
+
+**Build System:**
+- xmake - Cross-platform build system
+- Toolchain: `clang-cl` (Clang with MSVC-compatible CLI on Windows)
+- Linker: `lld-link` (LLVM linker)
+- Build modes: `debug`, `release`, `releasedbg`, `coverage`
 
 **Package Manager:**
-- xmake built-in package manager (declared in `xmake.lua`)
-- Lockfile: Not detected (xmake uses `.xmake/` cache directory)
+- xmake package manager (xrepo) — `add_requires()` in `xmake.lua`
+- Lockfile: Not present (xmake generates `.xmake/` cache directory)
 
 ## Frameworks
 
 **Core:**
-- C++ Standard Library (C++26) - filesystem, format, expected, chrono, threading, ranges
-- Boost (all modules) - program_options (CLI parsing), json (ffprobe output parsing and state serialization), process (subprocess management), stacktrace (crash diagnostics), uuid (unique IDs), lexical_cast
+- Boost (all modules) - Utility libraries: `program_options` (CLI parsing), `process::v1` (subprocess management), `json` (JSON parsing/generation), `stacktrace` (crash reporting), `uuid` (unique ID generation), `filesystem` (path manipulation)
+- No web framework, no GUI framework — pure CLI tool
 
 **Testing:**
-- Catch2 - Unit and integration test framework (`tests/test_main.cpp`, test files in `tests/`)
-- Test runner defined as xmake target `"tests"` in `xmake.lua:59`
+- Catch2 - Unit/Integration/E2E testing framework
+  - Test runner configured via xmake target `tests` and `e2e_tests`
+  - Test files: `tests/test_main.cpp` (unit), `tests/e2e/e2e_test_main.cpp` (e2e entry point)
 
 **Build/Dev:**
-- xmake 0.1.5 (project version) - Build system and package manager (`xmake.lua`)
-- clang-cl - Compiler toolchain (`xmake.lua:7`)
-- clang-format - Code formatter, invoked via `xmake format` (configured in `plugins/format/xmake.lua`)
-- LLVM tools (llvm-profdata, llvm-cov) - Code coverage instrumentation and reports (`plugins/coverge/xmake.lua`)
-- xpack - Packaging/installer generation for NSIS, zip, tarxz, source archives (`xmake.lua:94-103`)
+- clang-format - Code formatting (pre-commit hook + `xmake format` plugin)
+- llvm-cov / llvm-profdata - Code coverage (`xmake coverage` plugin, mode `coverage`)
 
 ## Key Dependencies
 
 **Critical:**
-- FFmpeg (external CLI) - Video encoding engine; called as subprocess via `exec2()` in `src/video/video_encode_runner.cpp`; configured via `EncodeConfig` in `src/video/encode_config.h`
-- FFprobe (external CLI) - Video metadata extraction; called as subprocess for JSON stream info in `src/video/video_info.cpp:287-319`
-- Boost.Process - Platform-abstracted subprocess execution in `src/utils/utils.cpp`
+| Dependency | Purpose | Files consuming it |
+|---|---|---|
+| `boost::program_options` | CLI argument parsing | `src/cmd/cmd.cpp`, `src/cmd/config_builder.cpp`, `src/utils/utils.cpp` |
+| `boost::process::v1` | Subprocess execution (FFmpeg/FFprobe) | `src/utils/utils.cpp` (exec2 implementation) |
+| `boost::json` | Video metadata parsing from FFprobe output | `src/video/video_info.cpp`, `src/core/app_context.h` |
+| `spdlog` | Structured logging | Used pervasively across all `src/` modules |
+| `fmt` | String formatting (standalone, spdlog uses external fmt) | Used pervasively |
+| `libzippp` + `libzip` | ZIP archive creation for output packaging | `src/pack/packer.h`, internal Packer implementation |
+| `immer` | Persistent/immutable data structures (`map`, `vector`, `atom`) | `src/video/video_process.cpp`, `src/core/app_context.h` |
+| `catch2` | Test framework | All `tests/*.cpp` files |
 
 **Infrastructure:**
-- spdlog (with external fmt) - Structured logging across all modules; header `src/infra/crash_runtime.cpp` uses `spdlog::default_logger_raw()`
-- fmt - String formatting; used for both log messages and ffmpeg command construction
-- indicators - Terminal progress bars via `indicators::DynamicProgress` and `indicators::ProgressBar` in `src/core/progress.h`
-- immer - Persistent/immutable maps for thread-safe video info caching (`immer::map`, `immer::atom`) in `src/core/app_context.h:93-113`
-- libzippp - ZIP archive creation for output packing; used in `src/pack/packer.h` and `src/pack/pack_service.h`
-- thread-pool - Concurrent task execution; used in `src/core/task_executor.h` and parallel processing in `src/core/parallel.h`
+| Dependency | Purpose |
+|---|---|
+| `indicators` | Console progress bars (`progress::ProgressContext`) |
+| `thread-pool` | Thread pool for parallel task execution |
+| `boost::stacktrace` | Crash stacktrace capture (fallback when `<stacktrace>` not available) |
+| `boost::uuid` | UUID generation for progress temp files |
+| `boost::lexical_cast` | Type conversion utilities |
 
 ## Configuration
 
 **Environment:**
-- No `.env` files detected
-- External tool paths resolved at runtime via system PATH or user-specified install directory (`src/infra/toolchain.cpp` finds ffmpeg/ffprobe)
-- Runtime configuration via CLI arguments parsed by Boost.ProgramOptions (`src/cmd/cmd.h`)
+- No `.env` files used — all configuration via CLI arguments
+- Runtime tool discovery: FFmpeg/FFprobe assumed on system PATH, or specified via `--ffmpeg-path` flag
+- State persistence: JSON state files written to disk (default: `<input>/encro_state.json`) via `jobstate::Store`
 
 **Build:**
-- `xmake.lua` - Root build configuration (compiler flags, dependencies, targets, packaging)
-- `.vscode/settings.json` - Editor configuration (debug target, format-on-save)
-- `compile_commands.json` - Generated in `build/` directory for IDE integration (via `plugin.compile_commands.autoupdate` rule)
+- `xmake.lua` — Project root build configuration
+  - Version: `0.1.5`
+  - C++ standard: `c++26`
+  - Windows defines: `NOMINMAX`, `WIN32_LEAN_AND_MEAN`, `_MSVC_STL_HARDENING=1`
+  - Release: LTO enabled
+  - Debug: Address Sanitizer enabled
+  - Coverage: LLVM source-based instrumentation
 
-**Build Modes:**
-- `debug`, `release`, `releasedbg`, `coverage` (defined in `xmake.lua:2`)
-- Coverage mode disables LTO and adds `-fprofile-instr-generate -fcoverage-mapping` flags (`xmake.lua:13-17`)
+**Formatting:**
+- `.githooks/pre-commit` — clang-format on staged C/C++ files
+- `plugins/format/xmake.lua` — `xmake format` command
+- `.clang-format` located at `D:/clangformat/.clang-format` (external path, not in repo)
 
 ## Platform Requirements
 
 **Development:**
-- C++26-capable compiler (clang-cl)
-- xmake build tool
-- Boost libraries (via xmake package manager)
-- FFmpeg and FFprobe available on PATH (or via `--ffmpeg-install-dir`)
-- clang-format (optional, for `xmake format`)
-- LLVM tools (optional, for `xmake coverage`)
+- Clang (clang-cl) compiler with C++26 support
+- xmake build system
+- FFmpeg and FFprobe on PATH (or installed separately)
+- Windows: `dbghelp` system library (linked for stacktrace support)
+- Unix: `dl` system library (linked for dynamic loading)
 
 **Production:**
-- Native Windows binary (linked to `dbghelp` for crash stacktrace resolution)
-- Cross-platform compatible (Linux/macOS use `dl` system lib instead of `dbghelp`)
-- FFmpeg and FFprobe must be installed on target system
+- Windows (primary target) — MSVC-compatible runtime
+- Cross-platform capable — POSIX subprocess code paths exist in `src/utils/utils.cpp`
+- FFmpeg/FFprobe runtime dependency (user-installed, not bundled)
 
 ---
 
-*Stack analysis: 2026-04-28*
+*Stack analysis: 2026-05-07*
