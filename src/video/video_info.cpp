@@ -202,35 +202,31 @@ auto finalizeVideoList(
   tasks.reserve(vids.size());
 
   for (auto index = std::size_t{0}; index < vids.size(); ++index) {
-    tasks.push_back(
-      taskexec::TaskSpec{
-        .id = vids[index].string(),
-        .label = vids[index].filename().string(),
-        .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
-          auto const& vidPath = vids[index];
-          auto const vidInfo = getVidInfo(toolchain, vidPath);
+    tasks.push_back({
+      .id = vids[index].string(),
+      .label = vids[index].filename().string(),
+      .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
+        auto const& vidPath = vids[index];
+        auto const vidInfo = getVidInfo(toolchain, vidPath);
 
-          if (config.outputFormat == "mp4" && isHevcEncodedInfo(vidInfo)) {
-            spdlog::debug("Skipping already HEVC encoded file: {}", vidPath.string());
-            return {};
-          }
-
-          runtime.videoInfoCache.set(vidPath, vidInfo);
-          keep[index] = 1;
+        if (config.outputFormat == "mp4" && isHevcEncodedInfo(vidInfo)) {
+          spdlog::debug("Skipping already HEVC encoded file: {}", vidPath.string());
           return {};
         }
-      }
-    );
+
+        runtime.videoInfoCache.set(vidPath, vidInfo);
+        keep[index] = 1;
+        return {};
+      }  //
+    });
   }
 
-  auto const _ = taskexec::runTasks(
-    taskexec::TaskPlan{
-      .tasks = std::move(tasks),
-      .maxConcurrency = maxParallelJobs,
-      .progress = nullptr,
-      .hideCursor = false,
-    }
-  );
+  auto const _ = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = maxParallelJobs,
+    .progress = nullptr,
+    .hideCursor = false,
+  });
 
   auto filtered = std::vector<fs::path>{};
   filtered.reserve(vids.size());
@@ -259,27 +255,23 @@ auto prewarmWebpVideoInfoCache(
   tasks.reserve(prewarmCount);
 
   for (auto index = std::size_t{0}; index < prewarmCount; ++index) {
-    tasks.push_back(
-      taskexec::TaskSpec{
-        .id = vids[index].string(),
-        .label = vids[index].filename().string(),
-        .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
-          auto const& vidPath = vids[index];
-          runtime.videoInfoCache.set(vidPath, getVidInfo(toolchain, vidPath));
-          return {};
-        }
-      }
-    );
+    tasks.push_back({
+      .id = vids[index].string(),
+      .label = vids[index].filename().string(),
+      .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
+        auto const& vidPath = vids[index];
+        runtime.videoInfoCache.set(vidPath, getVidInfo(toolchain, vidPath));
+        return {};
+      }  //
+    });
   }
 
-  auto const _ = taskexec::runTasks(
-    taskexec::TaskPlan{
-      .tasks = std::move(tasks),
-      .maxConcurrency = maxParallelJobs,
-      .progress = nullptr,
-      .hideCursor = false,
-    }
-  );
+  auto const _ = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = maxParallelJobs,
+    .progress = nullptr,
+    .hideCursor = false,
+  });
 }
 
 }  // namespace

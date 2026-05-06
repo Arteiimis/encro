@@ -249,26 +249,22 @@ auto compressImageBatch(
   auto taskSpecs = std::vector<taskexec::TaskSpec>{};
   taskSpecs.reserve(total);
   for (auto const& task: tasks) {
-    taskSpecs.push_back(
-      taskexec::TaskSpec{
-        .id = std::format("compress:{}", task.outputPath.string()),
-        .label = task.inputPath.filename().string(),
-        .run = [&state, &task, quality, total, barIndex](taskexec::TaskContext& _)
-          -> eh::Result<void> {
-          return compressImageTask(task, state, quality, total, barIndex);
-        }
-      }
-    );
+    taskSpecs.push_back({
+      .id = std::format("compress:{}", task.outputPath.string()),
+      .label = task.inputPath.filename().string(),
+      .run = [&state, &task, quality, total, barIndex](taskexec::TaskContext& _)
+        -> eh::Result<void> {
+        return compressImageTask(task, state, quality, total, barIndex);
+      }  //
+    });
   }
 
-  auto const runState = taskexec::runTasks(
-    taskexec::TaskPlan{
-      .tasks = std::move(taskSpecs),
-      .maxConcurrency = effectiveMaxParallel,
-      .progress = &progressCtx,
-      .hideCursor = true,
-    }
-  );
+  auto const runState = taskexec::runTasks({
+    .tasks = std::move(taskSpecs),
+    .maxConcurrency = effectiveMaxParallel,
+    .progress = &progressCtx,
+    .hideCursor = true,
+  });
 
   progressCtx.setTone(barIndex, progress::Tone::Success);
   progressCtx
