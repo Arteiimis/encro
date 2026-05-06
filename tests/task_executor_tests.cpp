@@ -31,40 +31,36 @@ TEST_CASE(
   auto tasks = std::vector<taskexec::TaskSpec>{};
   tasks.reserve(6);
   for (auto index = std::size_t{0}; index < 6; ++index) {
-    tasks.push_back(
-      taskexec::TaskSpec{
-        .id = std::format("task-{}", index),
-        .label = std::format("Task {}", index),
-        .run = [&, index](taskexec::TaskContext& ctx) -> eh::Result<void> {
-          auto const current = active.fetch_add(1, std::memory_order_acq_rel) + 1;
-          auto peakNow = peak.load(std::memory_order_acquire);
-          while (
-            current > peakNow
-            && !peak.compare_exchange_weak(
-              peakNow,
-              current,
-              std::memory_order_acq_rel,
-              std::memory_order_acquire
-            )
-          ) { }
+    tasks.push_back({
+      .id = std::format("task-{}", index),
+      .label = std::format("Task {}", index),
+      .run = [&, index](taskexec::TaskContext& ctx) -> eh::Result<void> {
+        auto const current = active.fetch_add(1, std::memory_order_acq_rel) + 1;
+        auto peakNow = peak.load(std::memory_order_acquire);
+        while (
+          current > peakNow
+          && !peak.compare_exchange_weak(
+            peakNow,
+            current,
+            std::memory_order_acq_rel,
+            std::memory_order_acquire
+          )
+        ) { }
 
-          seenSlots[index] = ctx.slot;
-          std::this_thread::sleep_for(20ms);
-          active.fetch_sub(1, std::memory_order_acq_rel);
-          return {};
-        }
-      }
-    );
+        seenSlots[index] = ctx.slot;
+        std::this_thread::sleep_for(20ms);
+        active.fetch_sub(1, std::memory_order_acq_rel);
+        return {};
+      }  //
+    });
   }
 
-  auto const result = taskexec::runTasks(
-    taskexec::TaskPlan{
-      .tasks = std::move(tasks),
-      .maxConcurrency = 2,
-      .progress = nullptr,
-      .hideCursor = false,
-    }
-  );
+  auto const result = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = 2,
+    .progress = nullptr,
+    .hideCursor = false,
+  });
 
   REQUIRE(result.attemptedCount == 6);
   REQUIRE(result.results.size() == 6);
@@ -102,14 +98,12 @@ TEST_CASE("runTasks preserves task failures", "[task-executor]") {
     },
   };
 
-  auto const result = taskexec::runTasks(
-    taskexec::TaskPlan{
-      .tasks = std::move(tasks),
-      .maxConcurrency = 3,
-      .progress = nullptr,
-      .hideCursor = false,
-    }
-  );
+  auto const result = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = 3,
+    .progress = nullptr,
+    .hideCursor = false,
+  });
 
   REQUIRE(result.attemptedCount == 3);
   REQUIRE(result.results.size() == 3);

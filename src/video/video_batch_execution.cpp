@@ -360,26 +360,22 @@ auto videobatch::runEncodingTasks(
   auto tasks = std::vector<taskexec::TaskSpec>{};
   tasks.reserve(vids.size());
   for (auto taskIndex = std::size_t{0}; taskIndex < vids.size(); ++taskIndex) {
-    tasks.push_back(
-      taskexec::TaskSpec{
-        .id = std::format("encode:{}", vids[taskIndex].string()),
-        .label = vids[taskIndex].filename().string(),
-        .run = [&, taskIndex, vidPath = vids[taskIndex]](taskexec::TaskContext& taskCtx)
-          -> eh::Result<void> {
-          return runEncodingTask(executionCtx, taskIndex, vidPath, taskCtx.slot);
-        }
-      }
-    );
+    tasks.push_back({
+      .id = std::format("encode:{}", vids[taskIndex].string()),
+      .label = vids[taskIndex].filename().string(),
+      .run = [&, taskIndex, vidPath = vids[taskIndex]](taskexec::TaskContext& taskCtx)
+        -> eh::Result<void> {
+        return runEncodingTask(executionCtx, taskIndex, vidPath, taskCtx.slot);
+      }  //
+    });
   }
 
-  auto const runState = taskexec::runTasks(
-    taskexec::TaskPlan{
-      .tasks = std::move(tasks),
-      .maxConcurrency = maxConcurrentJobs,
-      .progress = &progressState.progressCtx,
-      .hideCursor = true,
-    }
-  );
+  auto const runState = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = maxConcurrentJobs,
+    .progress = &progressState.progressCtx,
+    .hideCursor = true,
+  });
 
   monitorThread.join();
 
