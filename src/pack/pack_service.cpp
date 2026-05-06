@@ -229,27 +229,23 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
     auto const zipPath = plan.outputDir / zipName;
     auto const label = internal::resolveProgressLabelForIndex(plan, index);
 
-    tasks.push_back(
-      taskexec::TaskSpec{
-        .id = std::format("pack:{}", index),
-        .label = label,
-        .run =
-          [&, index, zipPath, label](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
-          recorder.notifyGroupStart(index);
-          return runGroup(index, zipPath, label, taskCtx, recorder);
-        }
-      }
-    );
+    tasks.push_back({
+      .id = std::format("pack:{}", index),
+      .label = label,
+      .run =
+        [&, index, zipPath, label](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
+        recorder.notifyGroupStart(index);
+        return runGroup(index, zipPath, label, taskCtx, recorder);
+      }  //
+    });
   }
 
-  auto const runRes = taskexec::runTasks(
-    taskexec::TaskPlan{
-      .tasks = std::move(tasks),
-      .maxConcurrency = maxParallelJobs,
-      .progress = nullptr,
-      .hideCursor = true,
-    }
-  );
+  auto const runRes = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = maxParallelJobs,
+    .progress = nullptr,
+    .hideCursor = true,
+  });
 
   if (runRes.canceled && runRes.attemptedCount < plan.groups.size()) {
     return eh::makeError("Packing canceled by user.");
