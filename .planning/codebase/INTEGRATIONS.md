@@ -1,84 +1,139 @@
 # External Integrations
 
-**Analysis Date:** 2026-04-28
+**Analysis Date:** 2026-05-07
 
 ## APIs & External Services
 
-**External CLI Tools (subprocess invocation):**
-- FFmpeg - Video encoding/transcoding engine
-  - SDK/Client: None (invoked as subprocess via `exec2()` in `src/utils/utils.cpp`)
-  - Command construction: `EncodeConfig::buildCMD()` in `src/video/encode_config.h:81-109`
-  - Location discovery: `findFFmpeg()` in `src/utils/utils.cpp:337-356` (searches PATH and optional install dir)
-  - Configuration: `--ffmpeg-install-dir` CLI option stored in `AppConfig::ffmpegInstallDir` (`src/core/app_context.h:60`)
+**No external network APIs or cloud services detected.** This is a fully offline/local CLI tool.
 
-- FFprobe - Video/audio metadata extraction (stream info, codec detection, frame counts)
-  - SDK/Client: None (invoked as subprocess via `exec2()`)
-  - JSON output parsed via `boost::json::parse()` in `src/video/video_info.cpp:287-319`
-  - Location discovery: `findFFprobe()` in `src/utils/utils.cpp:316-335`
-  - Consumed by: video scan pipeline (`readAllVids()`, `finalizeVideoList()`, `getVidTotalFrames()`)
+- No HTTP requests, no REST/gRPC/GraphQL clients
+- No cloud SDKs (AWS, GCP, Azure, etc.)
+- No authentication services
+- No telemetry or analytics endpoints
 
-**No External APIs:**
-- This is a local desktop CLI tool — no HTTP/HTTPS client code, no REST/gRPC/GraphQL APIs, no cloud service SDKs
-- No Stripe, Supabase, AWS, Azure, or any third-party service integrations detected
+## External Tools (Subprocess Invocations)
+
+**FFmpeg — Video/Audio encoding and transcoding:**
+- Discovery: System PATH or explicit `--ffmpeg-path` directory
+- Invocation: `boost::process::v1::child` via `exec2()` helper in `src/utils/utils.cpp`
+- Usage:
+  - Video encoding: `ffmpeg -hide_banner -nostats -loglevel error -y -i <input> -c:v hevc_nvenc -crf 20 -progress <progress_file> <output>` (`src/video/encode_config.h:81-108`)
+  - WebP encoding: `ffmpeg ... -vf "scale=-2:960:..." -c:v libwebp -q:v <quality> -loop 0 <output>` (`src/video/encode_config.h:92-96`)
+  - Image compression: `ffmpeg -hide_banner -nostats -loglevel error -y -i <input> -q:v <quality> <output>` (`src/picture/picture_compress.cpp:73-79`)
+  - Version check: `ffmpeg -version` (`src/utils/utils.cpp:338`)
+  - Stop signal handling: Process termination on user interrupt (`src/utils/utils.cpp:139-143`)
+
+**FFprobe — Video metadata inspection:**
+- Discovery: System PATH or explicit `--ffmpeg-path` directory
+- Invocation: Same `exec2()` helper
+- Usage:
+  - JSON metadata: `ffprobe -v quiet -print_format json -show_format -show_streams <video>` (`src/video/video_info.cpp:291-295`)
+  - Version check: `ffprobe -version` (`src/utils/utils.cpp:317`)
+  - Output parsed via `boost::json::parse()` for stream info, codec detection, frame counts
+- Key consumers: `src/video/video_info.cpp` (`getVidInfo()`, `getVidTotalFrames()`, `isHevcEncoded()`), `src/infra/toolchain.cpp`
+
+**clang-format — Code formatting (dev tool only):**
+- Invocation: Via pre-commit hook (`.githooks/pre-commit`) and xmake plugin (`plugins/format/xmake.lua`)
+- Config path: `D:/clangformat/.clang-format` (machine-local, not in repo)
+
+**llvm-cov / llvm-profdata — Code coverage (dev tool only):**
+- Invocation: Via xmake plugin (`plugins/coverge/xmake.lua`)
+- Data: `.profraw` files generated in `build/coverage/`, merged to `.profdata`
 
 ## Data Storage
 
 **Databases:**
-- None — no database client or ORM used
+- No database servers (no SQL, no NoSQL, no embedded database)
+- All data is file-based on local filesystem
 
 **File Storage:**
 - Local filesystem only
-- Input: user-specified file/directory paths (`.mp4`, `.mkv`, `.avi`, `.mov`, `.flv`, `.wmv` video files; image files for picture processing)
-- Output: encoded video files (`.mp4`/`.webp`), compressed images, ZIP archives
-- State persistence: JSON snapshot files written to disk via `jobstate::Store::flush()` in `src/core/job_state.h`
-- Temporary files: progress files written to `fs::temp_directory_path()` during encoding (`src/video/video_encode_runner.cpp:65-66`)
+- Input: User-specified directories or files on disk
+- Output: Encoded videos placed alongside inputs (or in user-specified output directory)
+- State persistence: JSON state files (`.encro_state.json` by default) for resumable encoding/packing
 
 **Caching:**
-- In-memory video info cache via `immer::map` in `RuntimeContext::videoInfoCache` (`src/core/app_context.h:93-113`)
-- No persistent cache / no Redis / no Memcached
+- In-memory immutable cache: `immer::map<fs::path, json::value>` in `appctx::RuntimeContext::VideoInfoCacheStore` for FFprobe results
+- Thread-safe via `immer::atom<>` wrapper (`src/core/app_context.h:95-114`)
+- No distributed cache or external caching system
+
+**ZIP Packaging:**
+- Library: `libzippp` (wraps `libzip`)
+- Output: ZIP archives written to `<output>/packed/` directory
+- Max archive size: ~490 MB (`kDefaultMaxArchiveGroupSize`)
 
 ## Authentication & Identity
 
-**Auth Provider:**
-- None — local CLI tool, no authentication required
+**No authentication providers.** The tool operates entirely on local filesystem with no user authentication, accounts, or identity management.
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- Built-in crash handler (`src/infra/crash_runtime.cpp`) captures stacktraces on unhandled exceptions and fatal signals
-- Stacktrace capture uses either `std::stacktrace` (C++23/26) or `boost::stacktrace` fallback (`src/infra/stacktrace.cpp`)
-- Crash messages written to spdlog (stderr fallback) with exit code 1
+- No external error tracking service
+- Built-in crash handler: SEH on Windows, signal handlers on Unix (`src/infra/crash_runtime.cpp`)
+- Stacktrace capture: `std::stacktrace` (C++23) or fallback to `boost::stacktrace` (`src/infra/stacktrace.cpp`)
+- All crashes written to stderr and `spdlog` logger
 
 **Logs:**
-- spdlog with external fmt (`src/infra/crash_runtime.cpp` uses `spdlog::default_logger_raw()`)
-- Log levels used: `info`, `warn`, `error`, `debug`, `critical`
-- No log aggregation service, no external monitoring
+- Framework: `spdlog` (with external `fmt`)
+- Output: Console (via `terminal::` module) and spdlog sinks
+- Configuration: Verbose mode (`--verbose`) enables spdlog debug output
+- No external log aggregation service
+
+**Progress:**
+- Console: `indicators` library for progress bars, spinners
+- Custom: `progress::ProgressContext` in `src/core/progress.h`
+- Status text: `terminal::println()` with structured message kinds (Info, Warning, Error, Success, Hint, Heading, Prompt)
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Local installation (distributed as NSIS installer, zip, tarxz via xpack in `xmake.lua:96-103`)
-- No cloud deployment platform detected
+- No deployment platform detected
+- Binary distribution: NSIS installer, source zip/tar archives via xpack (`xmake.lua:106-113`)
 
 **CI Pipeline:**
-- None detected — no `.github/workflows/`, no Jenkinsfile, no GitLab CI config, no CircleCI config
+- No CI/CD configuration files detected (no `.github/`, no `.gitlab-ci.yml`, no `Jenkinsfile`, no `azure-pipelines.yml`)
 
 ## Environment Configuration
 
-**Required env vars:**
-- None required for runtime (FFmpeg/FFprobe discovered via PATH or `--ffmpeg-install-dir`)
+**Required runtime dependencies (user-provided):**
+- FFmpeg binary (for video encoding/transcoding; required unless `--pack-only`)
+- FFprobe binary (for video metadata inspection)
 
-**Secrets location:**
-- Not applicable — no secrets needed (no API keys, no credentials)
+**No env vars required.** All configuration is CLI-based.
+
+**CLI flags (selected):**
+| Flag | Purpose |
+|---|---|
+| `-i` / `--input` | Input file/directory path |
+| `-I` / `--inputs` | Multiple input files (video only) |
+| `-o` / `--output` | Output directory (supports aliases: `+`, `=`, `input://`, `common://`) |
+| `--type` | Process type: `video` (default) or `picture` |
+| `--output-format` | Output codec: `mp4` (HEVC NVENC) or `webp` |
+| `--pack` | Enable ZIP packaging of encoded outputs |
+| `--pack-only` | Skip encoding, only pack existing files |
+| `--compress` | JPEG compress before packing (picture only) |
+| `--image-quality` | FFmpeg image quality (2-31) |
+| `--jobs` | Max parallel jobs |
+| `--recursive` | Recurse into subdirectories |
+| `--resume` / `--restart` | Job state resume/restart |
+| `--state-file` | Explicit state file path |
+| `--ffmpeg-path` | Explicit FFmpeg installation directory |
+| `--yes` / `-y` | Skip confirmation prompts |
+| `--flat` / `--keep` | Output directory layout |
+| `--verbose` / `--verbose-echo` | Debug logging |
+| `--full-progress` | Detailed progress bars (vs compact) |
+| `--folder-summary` | Include one summary pic per subfolder |
+| `--force-conflict-handling` | Enable collision-safe naming (`y`/`n`) |
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None — not a server process
+- None — no server component
 
 **Outgoing:**
-- None — no outbound HTTP/webhook calls
+- None — no outbound HTTP or webhook calls
 
 ---
 
-*Integration audit: 2026-04-28*
+*Integration audit: 2026-05-07*

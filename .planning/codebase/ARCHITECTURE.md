@@ -1,308 +1,253 @@
-<!-- refreshed: 2026-04-28 -->
+<!-- refreshed: 2026-05-07 -->
 # Architecture
 
-**Analysis Date:** 2026-04-28
+**Analysis Date:** 2026-05-07
 
 ## System Overview
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          Application Layer                              │
-│  `src/app/`                                                             │
-│  ┌──────────────┬──────────────────┬───────────────────────────────────┐│
-│  │  app_entry   │     prelude      │            pipeline               ││
-│  │  Bootstrap   │  Logging setup,  │  Dispatch to video/picture/pack   ││
-│  │  & orchestrate│ config summary  │  workflows                        ││
-│  └──────┬───────┴────────┬─────────┴───────────┬───────────────────────┘│
-└─────────┼────────────────┼─────────────────────┼────────────────────────┘
-          │                │                     │
-          ▼                ▼                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        Domain Layer                                      │
-│  ┌──────────┐  ┌──────────────┐  ┌──────────────────────────────────┐  │
-│  │  video/  │  │  picture/    │  │           pack/                   │  │
-│  │  Encode  │  │  Compress    │  │  ZIP archive creation & planning  │  │
-│  │  & batch │  │  & pack      │  │                                   │  │
-│  └────┬─────┘  └──────┬───────┘  └──────────────┬────────────────────┘  │
-└───────┼────────────────┼────────────────────────┼───────────────────────┘
-        │                │                        │
-        ▼                ▼                        ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          Core Layer                                      │
-│  `src/core/`                                                             │
-│  ┌────────────┬──────────────┬────────────┬────────────┬───────────────┐│
-│  │ appctx     │  jobstate    │ taskexec   │  progress  │ arc/collision ││
-│  │ Config &   │  Resumable   │ Parallel   │  Terminal  │ Archive plans ││
-│  │ shared ctx │  job state   │ task runner│  bars      │ & naming      ││
-│  └────────────┴──────────────┴────────────┴────────────┴───────────────┘│
-└─────────────────────────────────────────────────────────────────────────┘
-          │                │                     │
-          ▼                ▼                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                       Infrastructure Layer                               │
-│  `src/infra/`                │              `src/utils/`                 │
-│  ┌──────────┬──────────────┐ │  ┌───────────────────────────────────┐  │
-│  │ terminal │ crash_rt     │ │  │ exec2()         findFFmpeg()       │  │
-│  │ Color I/O│ Crash/except │ │  │ readUserIpt()   getUUID()          │  │
-│  ├──────────┼──────────────┤ │  │ getParamStr()                      │  │
-│  │toolchain │ stop_signal  │ │  └───────────────────────────────────┘  │
-│  │FFmpeg    │ Ctrl+C /     │ │                                          │
-│  │discovery │ graceful stop│ │                                          │
-│  ├──────────┼──────────────┤ │                                          │
-│  │stacktrace│console_width │ │                                          │
-│  └──────────┴──────────────┘ │                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                          CLI Entry Layer                              │
+│  `src/main.cpp` → `src/app/app_entry.cpp`                            │
+│  Parse args, init logging, route to pipeline                         │
+├───────────────┬──────────────────────────┬───────────────────────────┤
+│  `src/cmd/`   │  `src/app/prelude.cpp`   │  `src/infra/terminal.h`   │
+│  cmd::build   │  setupLogging,           │  styled terminal output    │
+│  Config()     │  initStartup()           │                            │
+└───────┬───────┴────────────┬─────────────┴────────────┬──────────────┘
+        │                    │                          │
+        ▼                    ▼                          ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│                     Pipeline Orchestration                            │
+│  `src/app/pipeline.cpp` — pipeline::run(appctx::AppContext&)          │
+│  Routes: processType → runVideo / runPicture / runPackOnly            │
+├─────────────────────┬──────────────────────┬──────────────────────────┤
+│   video_process     │   picture_process     │   pack::execute()        │
+│   `src/video/`      │   `src/picture/`      │   `src/pack/pack.h`      │
+└─────────┬───────────┴──────────┬───────────┴──────────┬───────────────┘
+          │                      │                      │
+          ▼                      ▼                      ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│                    Cross-Cutting Core Layer                            │
+│  `src/core/` — AppContext, JobState, TaskExecutor, Progress, MediaScan │
+├─────────────────────┬──────────────────────┬──────────────────────────┤
+│   infra             │   utils              │   External Tools          │
+│   `src/infra/`      │   `src/utils/`       │   ffmpeg / ffprobe        │
+│   crash, stop,      │   exec2(), readIpt,  │   libzippp (zip)          │
+│   terminal, stack   │   findFFmpeg         │   boost, immer, fmt       │
+└─────────────────────┴──────────────────────┴──────────────────────────┘
 ```
 
 ## Component Responsibilities
 
 | Component | Responsibility | File |
 |-----------|----------------|------|
-| Entry point | Install crash handlers, catch all exceptions, delegate to `appentry::run` | `src/main.cpp` |
-| App entry | Orchestrate startup: parse CLI, build config, resolve toolchain, run pipeline | `src/app/app_entry.cpp` |
-| Prelude | Setup spdlog logging, collect startup context, print config summary | `src/app/prelude.cpp` |
-| Pipeline | Dispatch request to correct workflow (video/picture/pack-only) | `src/app/pipeline.cpp` |
-| CLI parsing | Define Boost.ProgramOptions, parse args into `variables_map` | `src/cmd/cmd.cpp` |
-| Config builder | Translate `variables_map` into typed `AppConfig` with validation | `src/cmd/config_builder.cpp` |
-| App context | Central config + toolchain paths + runtime state container | `src/core/app_context.h` |
-| Job state store | Resumable job state: persists tasks, supports merge/restart/interrupt | `src/core/job_state.cpp` |
-| Task executor | Generic parallel task runner with progress bar per slot | `src/core/task_executor.cpp` |
-| Progress | Terminal progress bars via `indicators` library, cursor guard | `src/core/progress.cpp` |
-| Media scanner | Scan directories for files by extension | `src/core/media_scanner.cpp` |
-| Video process | Video workflow: scan, plan outputs, encode (single/multi/path) | `src/video/video_process.cpp` |
-| Video encode runner | Execute single `ffmpeg` encode, parse progress | `src/video/video_encode_runner.cpp` |
-| Video batch execution | Parallel encode task orchestration with progress tracking | `src/video/video_batch_execution.cpp` |
-| Video info | Extract video metadata via `ffprobe`, filter encodable videos | `src/video/video_info.cpp` |
-| Video output planning | Plan output file paths for a batch of input videos | `src/video/video_output_planning.cpp` |
-| Encode config | Build `ffmpeg` command-line from structured config | `src/video/encode_config.h` |
-| Video progress parser | Parse `ffmpeg -progress` output for frame count & status | `src/video/video_progress_parser.cpp` |
-| Picture process | Picture workflow: scan, compress, build pack plan, execute | `src/picture/picture_process.cpp` |
-| Picture compress | Image compression via `ffmpeg` to WebP | `src/picture/picture_compress.cpp` |
-| Packer | ZIP file creation via `libzippp`, file grouping by size | `src/pack/packer.cpp` |
-| Pack service | Declarative `PackPlan` execution with task executor | `src/pack/pack_service.cpp` |
-| Terminal I/O | Colored terminal output with `fmt`, stream management | `src/infra/terminal.cpp` |
-| Crash runtime | Windows SEH/vectored exception handler + `std::terminate` handler | `src/infra/crash_runtime.cpp` |
-| Stop signal | `SIGINT`/`Ctrl+C` handler with atomic flag | `src/infra/stop_signal.cpp` |
-| Toolchain | Discover `ffmpeg`/`ffprobe` on system PATH or custom install dir | `src/infra/toolchain.cpp` |
-| Path roots | Compute normalized root dir and common ancestor of paths | `src/core/path_roots.h` |
-| Collision naming | Conflict-safe flat file naming with FNV-1a hashing | `src/core/collision_naming.h` |
-| Display text | Unicode-aware text truncation, display width calculation | `src/core/display_text.h` |
-| Archive plan | Prepare resumable pack execution with job state integration | `src/core/archive_plan.cpp` |
-| Utilities | Process execution (popen), user prompt, UUID gen, FFmpeg discovery | `src/utils/utils.cpp` |
+| `main()` | Install crash handlers, delegate to `appentry::run()` | `src/main.cpp` |
+| `appentry::run()` | Startup init, parse args, build config, resolve toolchain, run pipeline | `src/app/app_entry.cpp` |
+| `prelude::initStartup()` | Parse CLI, configure terminal, setup spdlog logging | `src/app/prelude.cpp` |
+| `pipeline::run()` | Route by `processType` to video/picture/pack-only workflows, manage job state | `src/app/pipeline.cpp` |
+| `cmd::buildConfig()` | Convert Boost program_options `variables_map` into `AppConfig` | `src/cmd/config_builder.cpp` |
+| `video_process` | Video scanning, encoding workflow orchestration, post-encode packing | `src/video/video_process.cpp` |
+| `video_batch_execution` | Multi-threaded encoding with progress bars, slot-based worker pool | `src/video/video_batch_execution.h` |
+| `video_encode_runner` | Single video encode: build ffmpeg command, execute, parse progress | `src/video/video_encode_runner.cpp` |
+| `picture_process` | Picture scanning, compression, zip entry planning, pack orchestration | `src/picture/picture_process.cpp` |
+| `pack::execute()` | Public entry for all packing: build plan, group files, create ZIPs | `src/pack/pack.cpp` |
+| `pack::Packer` | Low-level ZIP creation via libzippp, file grouping/splitting | `src/pack/packer.h` |
+| `pack::PackService` | Mid-level pack orchestration: runs PackPlan, handles compact/full progress | `src/pack/pack_service.h` |
+| `jobstate::Store` | Resumable job state: task tracking, progress persistence, cancel support | `src/core/job_state.h` |
+| `taskexec::runTasks()` | Generic parallel task runner with progress bars | `src/core/task_executor.h` |
+| `progress::ProgressContext` | Terminal progress bars via `indicators` library | `src/core/progress.h` |
+| `media::scanByExtensions()` | Recursive directory scan filtered by file extensions | `src/core/media_scanner.h` |
+| `terminal` | Styled terminal output with color, badges, path formatting | `src/infra/terminal.h` |
+| `toolchain::resolve()` | Locate ffmpeg/ffprobe on system PATH or custom install dir | `src/infra/toolchain.h` |
 
 ## Pattern Overview
 
-**Overall:** Layered architecture with dependency inversion via dependency injection (the `AppContext` struct is passed through all layers).
+**Overall:** Layered architecture with a central pipeline orchestrator
 
 **Key Characteristics:**
-- **Central context container (`AppContext`)**: All modules receive a mutable reference to `appctx::AppContext` which holds config, toolchain paths, and runtime state (job state store, video info cache). No global mutable state — the `RuntimeContext` holds all shared runtime structures.
-- **Result type (`eh::Result<T>`)**: All fallible operations return `std::expected<T, std::string>`. The `eh::makeError(fmt, args...)` helper creates formatted error strings. Success is checked via `if (!result)`.
-- **Immutable data structures for concurrency**: `immer::map` and `immer::atom` are used for thread-safe shared state (video info cache, encoding results map, action ID map). Updates use persistent data structure semantics via `set()` and `update()`.
-- **Declarative task/pack plans**: Work is described as data (`TaskPlan`, `PackPlan`) and executed by generic runners (`taskexec::runTasks`, `pack::runPackPlan`).
-- **Progress as first-class concern**: The `progress::ProgressContext` wraps `indicators::DynamicProgress` with mutex-protected multi-bar management. Custom `Tone` colors differentiate bar states.
-- **Crash resilience**: `crash::installHandlers()` is called before any other logic. Vectored exception handler on Windows, `std::set_terminate`, and `std::set_unexpected` are all installed.
+- **Namespace-isolated modules** — each `src/` subdirectory has its own C++ namespace (e.g., `pack::`, `jobstate::`, `videobatch::`)
+- **Free-function public API** — core features exposed as free functions (`pack::execute()`, `pipeline::run()`), with internal classes (`Packer`, `PackService`) managed internally
+- **`eh::Result<T>` error handling** — `std::expected<T, std::string>` via the `eh` namespace alias; no exceptions for expected failures
+- **`appctx::AppContext` as shared state** — single struct holding config, toolchain paths, runtime context (video info cache, job state pointer); passed by mutable reference through the call stack
+- **Immutable data structures** — `immer::map`, `immer::vector`, `immer::atom` used for thread-safe shared state in progress tracking and video info caching
+- **Job state for resume** — `jobstate::Store` persists task records as JSON to disk, enabling interrupted encodes to resume
+- **Explicit CLI→Config→Pipeline flow** — Boost.ProgramOptions parses args into `CmdParseResult`, `cmd::buildConfig()` transforms to `AppConfig`, `pipeline::run()` consumes it
 
 ## Layers
 
-**Application Layer (`src/app/`):**
-- Purpose: Bootstrap the application, wire dependencies, route to correct workflow
-- Location: `src/app/`
-- Contains: `app_entry` (orchestration), `prelude` (logging/config summary), `pipeline` (dispatch)
-- Depends on: `cmd/`, `core/`, `infra/`, `video/`, `picture/`, `pack/`, `utils/`
-- Used by: `src/main.cpp`
+**CLI / Entry Layer:**
+- Purpose: Parse command-line arguments, initialize logging, route to pipeline
+- Location: `src/main.cpp`, `src/app/app_entry.cpp`, `src/app/prelude.cpp`, `src/cmd/`
+- Contains: `main()`, `appentry::run()`, `prelude::initStartup()`, `cmd::buildConfig()`, `cmd::commandLineInit()`
+- Depends on: `infra/terminal`, `infra/toolchain`, `core/app_context`
+- Used by: Nothing (top layer)
 
-**CLI Layer (`src/cmd/`):**
-- Purpose: Parse command-line arguments, build typed configuration
-- Location: `src/cmd/`
-- Contains: `cmd` (Boost.ProgramOptions parsing), `config_builder` (argument → `AppConfig` translation)
-- Depends on: `core/` (for `AppConfig`, `AppContext`, `Result`)
-- Used by: `src/app/app_entry.cpp`
+**Pipeline Orchestration Layer:**
+- Purpose: Route processing type, manage job state lifecycle, coordinate video/picture workflows
+- Location: `src/app/pipeline.cpp`
+- Contains: `pipeline::run()`, inline free functions for `runVideo`, `runPicture`, `runPackOnly`, `ensureJobState`
+- Depends on: `core/app_context`, `core/job_state`, `video/video_process`, `picture/picture_process`, `pack/pack`
+- Used by: `appentry::run()`
 
-**Core Layer (`src/core/`):**
-- Purpose: Shared domain types, configuration, state management, progress, generic task execution
-- Location: `src/core/`
-- Contains: `AppContext`, `AppConfig`, `RuntimeContext`, `EncodingState`, `jobstate::Store`, `taskexec`, `progress::ProgressContext`, `media::scanByExtensions`, `parallel::runIndexedTasks`, `collisionnaming`, `pathroots`, `displaytext`, `archiveplan`, `error_handle`
-- Depends on: `infra/`, `utils/`, external libs (`immer`, `indicators`, `boost`, `spdlog`)
-- Used by: `app/`, `video/`, `picture/`, `pack/`
+**Domain Processing Layer:**
+- Purpose: Video encoding workflow, picture compression/packing workflow
+- Location: `src/video/`, `src/picture/`
+- Contains: Video scanning, encode planning, batch execution, progress parsing; picture scanning, compression, zip-entry planning
+- Depends on: `core/`, `pack/pack`, `infra/`, `utils/utils`
+- Used by: `pipeline::run()`
 
-**Video Domain (`src/video/`):**
-- Purpose: Video encoding workflows — scanning, info extraction, output planning, encoding, progress parsing
-- Location: `src/video/`
-- Contains: `video_process`, `video_batch_execution`, `video_encode_runner`, `video_info`, `video_output_planning`, `encode_config`, `video_progress_parser`, `video_workflow_utils`
-- Depends on: `core/`, `infra/`, `utils/`
-- Used by: `app/pipeline.cpp`
-
-**Picture Domain (`src/picture/`):**
-- Purpose: Picture compression and packing workflows
-- Location: `src/picture/`
-- Contains: `picture_process`, `picture_compress`
-- Depends on: `core/`, `pack/`, `infra/`
-- Used by: `app/pipeline.cpp`
-
-**Pack Layer (`src/pack/`):**
-- Purpose: ZIP archive creation, file grouping, pack plan execution
+**Packing Layer:**
+- Purpose: ZIP archive creation with grouping, naming strategies, progress reporting
 - Location: `src/pack/`
-- Contains: `packer` (low-level ZIP operations), `pack_service` (high-level plan execution)
-- Depends on: `core/`, `libzippp`
-- Used by: `app/pipeline.cpp`, `video/video_process.cpp`, `picture/picture_process.cpp`
+- Contains: `pack::execute()` (public), `PackPlan`, `Packer`, `PackService`, internal types (`pack::detail::`)
+- Depends on: `core/app_context`, `core/progress`, `core/collision_naming`, `core/job_state`, `infra/terminal`
+- Used by: `video/video_process`, `picture/picture_process`, `app/pipeline`
 
-**Infrastructure Layer (`src/infra/`):**
-- Purpose: OS/platform abstractions — terminal I/O, crash handling, toolchain discovery, signal handling, stack traces, console width
+**Core Services Layer:**
+- Purpose: Shared abstractions — app context, job state, task execution, progress bars, media scanning, collision naming
+- Location: `src/core/`
+- Contains: `appctx::AppContext`, `jobstate::Store`, `taskexec::runTasks()`, `progress::ProgressContext`, `media::scanByExtensions()`, `collisionnaming::*`, `parallel::runIndexedTasks()`, `displaytext::*`, `pathroots::*`, `eh::Result<>`
+- Depends on: `boost`, `immer`, `indicators`, `spdlog`, `fmt`, filesystem
+- Used by: All layers above
+
+**Infrastructure Layer:**
+- Purpose: OS-level concerns — crash handling, terminal I/O, stack traces, stop signals, console width
 - Location: `src/infra/`
-- Contains: `terminal`, `crash_runtime`, `toolchain`, `stop_signal`, `stacktrace`, `console_width`
-- Depends on: `core/` (for types like `AppConfig`, `ToolchainPaths`, `Result`)
-- Used by: all layers
+- Contains: `crash::installHandlers()`, `terminal::*`, `stopsignal::*`, `toolchain::resolve()`, `stacktrace::capture*`, `consolewidth::resolveColumns()`
+- Depends on: `fmt`, `boost`, platform APIs (Windows `dbghelp`, `_dupenv_s`)
+- Used by: All layers
 
-**Utilities (`src/utils/`):**
-- Purpose: Generic helpers with no domain knowledge — process execution, user input, UUID generation, FFmpeg/FFprobe path discovery
-- Location: `src/utils/`
-- Contains: `exec2`, `readUserIpt`, `getUUID`, `findFFmpeg`, `findFFprobe`, `getParamStr`
-- Depends on: `boost` (program_options)
-- Used by: all layers
+**Utilities Layer:**
+- Purpose: External process execution, FFmpeg discovery, UUID generation, user input prompts
+- Location: `src/utils/utils.h`, `src/utils/utils.cpp`
+- Contains: `exec2()` (run subprocess, capture output), `readUserIpt()`, `findFFmpeg()`, `findFFprobe()`, `getUUID()`
+- Depends on: `boost::program_options`
+- Used by: Domain, packing, infrastructure layers
 
 ## Data Flow
 
-### Primary Request Path (video encoding)
+### Primary Request Path (video encoding + packing)
 
-1. **`src/main.cpp`**: `crash::installHandlers()` → `appentry::run(argc, argv)` (line 10)
-2. **`src/app/app_entry.cpp`** `run()`: Install stop signal → parse CLI via `commandLineInit` → setup logging via `prelude::initStartup` → validate `--help`/errors → `cmd::buildConfig(vm)` → `toolchain::resolve()` → `pipeline::run(ctx)` (lines 161-179)
-3. **`src/app/pipeline.cpp`** `run()`: Dispatch based on `processType` — calls `runVideo(ctx)` for video (line 92)
-4. **`src/app/pipeline.cpp`** `runVideo()` → `handlePathEncoding(ctx, inputPath)` (line 57)
-5. **`src/video/video_process.cpp`** `handlePathEncoding()`: `scanInputVideos()` → `runScannedEncodingWorkflow()` (line 490)
-6. **`src/video/video_process.cpp`** `runScannedEncodingWorkflow()`: `planVideoOutputFiles()` → `prepareEncodeActions()` (with job state merge) → `videobatch::runEncodingTasks()` → optionally `packEncodedVideos()` (lines 266-329)
-7. **`src/video/video_batch_execution.cpp`** `runEncodingTasks()`: Build `TaskPlan` with per-file `encodeVideo()` tasks → `taskexec::runTasks(plan)` (parallel execution via `thread-pool`)
-8. **`src/video/video_encode_runner.cpp`** `encodeVideo()`: Build `EncodeConfig` → construct `ffmpeg` command → `utils::exec2(cmd, onLine)` with progress file → parse progress → mark job state → return success/failure
-9. Outputs written to disk; `AppContext` mutated to track results in `immer::map`
+1. **CLI parse** — `main()` → `appentry::run()` → `prelude::initStartup()` calls `commandLineInit()` (`src/cmd/cmd.cpp`)
+2. **Config build** — `buildAppConfig()` calls `cmd::buildConfig(vm)` → `appctx::AppConfig` struct (`src/cmd/config_builder.cpp`)
+3. **Toolchain resolve** — `ensureToolchainReady()` calls `toolchain::resolve()` to find ffmpeg/ffprobe paths (`src/infra/toolchain.cpp`)
+4. **Pipeline route** — `pipeline::run(ctx)` checks `ctx.config.processType` → calls `runVideo(ctx)` (`src/app/pipeline.cpp`)
+5. **Video scan** — `handlePathEncoding()` → `scanInputVideos()` → `readAllVids()` → `media::scanByExtensions()` filters by `.mp4`, `.mkv`, etc. (`src/video/video_process.cpp` → `src/core/media_scanner.cpp`)
+6. **Output planning** — `planVideoOutputFiles()` builds `path_map<fs::path>` mapping each input to its planned output file (`src/video/video_output_planning.cpp`)
+7. **Job state merge** — `prepareEncodeActions()` merges planned tasks with persisted `jobstate::Store`, filters for pending tasks (`src/video/video_process.cpp`)
+8. **Batch encode** — `videobatch::runEncodingTasks()` spawns worker threads, each calls `encodeVideo()` → `exec2(ffmpeg_cmd)` (`src/video/video_batch_execution.h` → `src/video/video_encode_runner.cpp`)
+9. **Pack outputs** — `maybePackWorkflowOutputs()` → `packEncodedVideos()` → `pack::execute(PackRequest)` groups encoded files, creates ZIPs via `Packer` → `libzippp` (`src/video/video_process.cpp` → `src/pack/pack.cpp`)
+10. **Summary** — `printEncodingSummary()` reports success/failure counts (`src/video/video_process.cpp`)
 
-### Picture Pack Workflow
+### Picture Packing Path
 
-1. **`src/app/pipeline.cpp`** `run()` → `runPicture(ctx)` → `runPicturePackWorkflow(ctx, dirPath)` (line 79)
-2. **`src/picture/picture_process.cpp`** `runPicturePackWorkflow()`: `readAllPics()` → optionally compress images via `compressImageBatch()` → `buildPicturePackPlan()` → `pack::runPackPlan(ctx, plan)`
-3. **`src/pack/pack_service.cpp`** `runPackPlan()`: Build `TaskPlan` from `PackPlan` groups → `taskexec::runTasks(plan)`
-4. **`src/pack/packer.cpp`** `packFilesToZip()`: Create ZIP archive via `libzippp`, add files with progress callback
-
-### Pack-Only Workflow
-
-1. **`src/app/pipeline.cpp`** `runPackOnly()` → `runDirectoryPackWorkflow(ctx, dirPath)` (line 51)
-2. **`src/pack/packer.cpp`** `runDirectoryPackWorkflow()`: `buildDirectoryPackPlan()` → `pack::runPackPlan(ctx, plan)`
-
-### Job State Resume Flow
-
-1. **`src/app/pipeline.cpp`** `run()`: `shouldEnableJobState()` checks flags → `ensureJobState()` creates `jobstate::Store`
-2. **`src/core/job_state.cpp`** `initialize()`: Load JSON state file → detect config match → return `true` if resuming
-3. **`src/video/video_process.cpp`** `prepareEncodeActions()`: `store->mergeTasks(planned)` → return only tasks that `needsExecution()` → skip already-completed tasks
+1. **Pipeline route** — `pipeline::run(ctx)` with `processType == "picture"` → `runPicture(ctx)` (`src/app/pipeline.cpp`)
+2. **Workflow** — `runPicturePackWorkflow()` → either `executeCompressPackWorkflow()` (if `compressImages`) or `executeDirectPackWorkflow()` (`src/picture/picture_process.cpp`)
+3. **Compress path (if enabled):** `compressImageBatch()` → `exec2(ffmpeg -c:v libwebp)` per image, then pack compressed outputs (`src/picture/picture_compress.cpp`)
+4. **Direct path:** Plan zip entry names → build `PackEntryInput` list → `pack::execute()` (`src/picture/picture_process.cpp`)
 
 **State Management:**
-- `AppContext` struct is created on the stack in `appentry::run()` and passed by mutable reference through all layers. No global mutable state.
-- `RuntimeContext` holds shared runtime objects: `JobState` (`shared_ptr<Store>`), `VideoInfoCache` (`immer::atom<immer::map<...>>`)
-- Concurrent state uses `immer` persistent data structures or `std::mutex`-protected sections
+- `appctx::AppContext` is the sole mutable context object, passed by reference through all layers
+- `jobstate::Store` (when enabled) persists task records to a JSON file, enabling resume after interruption
+- `immer::atom<immer::map<...>>` provides lock-free shared state for video info caching (`RuntimeContext::videoInfoCache`) and encoding progress snapshots
+- `std::atomic` used for progress counters, stop signals, and `EncodingState::lastProgressAtomic`
+- `std::mutex` guards `EncodingState::mtx` for state transitions, `ProgressContext::mtx_` for bar operations, and `jobstate::Store::mtx_` for snapshot persistence
 
 ## Key Abstractions
 
-**`AppContext`:**
-- Purpose: Central dependency container bundling config, toolchain, and runtime state
-- Examples: `src/core/app_context.h` (definition), passed as `appctx::AppContext& ctx` throughout
-- Pattern: Dependency injection via mutable reference parameter — no service locator or DI container
+**`appctx::AppContext`:**
+- Purpose: Central context object holding all runtime state
+- Examples: `src/core/app_context.h` (struct definition), `pipeline::run()` (consumer), `toolchain::resolve()` (populator)
+- Pattern: Pass-by-mutable-reference through the call chain; `AppConfig` is a plain struct; `RuntimeContext` holds `immer::atom` caches and a `shared_ptr<jobstate::Store>`
 
 **`eh::Result<T>`:**
-- Purpose: Uniform error handling without exceptions for recoverable errors
-- Examples: `src/core/error_handle.h`
-- Pattern: `std::expected<T, std::string>` aliased; `eh::makeError(format, args...)` for error creation; checked via `if (!result)` or `result.has_value()`
+- Purpose: `std::expected<T, std::string>` — success value or string error message
+- Examples: `src/core/error_handle.h` (alias: `namespace eh = ErrorHandle`), used pervasively in `pack::execute()`, `pipeline::run()`, `videobatch::runEncodingTasks()`
+- Pattern: `eh::makeError(fmt_string, args...)` creates `std::unexpected`, checked with `if (!result)` or `result.has_value()`
 
 **`jobstate::Store`:**
-- Purpose: Resumable job state with atomic flush to JSON, merge logic for restarts
-- Examples: `src/core/job_state.h`, `src/core/job_state.cpp` (654 lines), `src/core/job_state_store.cpp` (250 lines)
-- Pattern: Owns `Snapshot` struct serializable to/from JSON; `mergeTasks()` combines planned tasks with persisted state; `flush()` writes atomically via temp file + rename
+- Purpose: Persistable job state — task records, progress, cancellations — enabling encode/pack resume
+- Examples: `src/core/job_state.h` (class definition), `src/core/job_state_detail.h` (serialization), `src/video/video_process.cpp:prepareEncodeActions()` (usage)
+- Pattern: Owns a `Snapshot` struct serialized as JSON; `mergeTasks()` merges planned tasks with persisted state; individual tasks marked Running/Succeeded/Failed/Interrupted
 
-**`taskexec::TaskPlan` / `runTasks()`:**
-- Purpose: Generic parallel task execution with progress bar integration
-- Examples: `src/core/task_executor.h`, `src/core/task_executor.cpp` (80 lines)
-- Pattern: Declarative plan with `vector<TaskSpec>` and `maxConcurrency`; each `TaskSpec` has an `id`, `label`, and `run` function returning `Result<void>`. Tasks execute on a thread pool with progress bar per slot.
-
-**`pack::PackPlan` / `runPackPlan()`:**
-- Purpose: Declarative ZIP archive creation with grouping, naming, and progress callbacks
-- Examples: `src/pack/pack_service.h`, `src/pack/pack_service.cpp` (319 lines)
-- Pattern: Plan contains groups of `PackFileEntry`, output dir, naming functions, and callbacks for lifecycle events; `runPackPlan()` converts to `TaskPlan` and delegates to `taskexec`
-
-**`EncodeConfig`:**
-- Purpose: Structured representation of `ffmpeg` encode configuration with validation and command-line generation
-- Examples: `src/video/encode_config.h` (110 lines, header-only)
-- Pattern: Value type with `validate()` returning `Result<void>` and `buildCMD()` returning the `ffmpeg` CLI string
+**`pack::PackRequest` → `pack::PackPlan` → `pack::Packer`:**
+- Purpose: Three-layer packing abstraction — `PackRequest` (public input), `PackPlan` (internal grouping), `Packer` (ZIP I/O)
+- Examples: `src/pack/pack.h` (PackRequest), `src/pack/pack_plan_internal.h` (PackPlan), `src/pack/packer.h` (Packer)
+- Pattern: `execute(PackRequest)` internally builds a `PackPlan` via `buildMediaPackPlan()` or `Packer::buildDirectoryPackPlan()`, then dispatches to `execute(PackPlan, jobState*)`
 
 **`progress::ProgressContext`:**
-- Purpose: Thread-safe multi-bar terminal progress display
-- Examples: `src/core/progress.h`, `src/core/progress.cpp` (230 lines)
-- Pattern: Wraps `indicators::DynamicProgress` with mutex; bars colored by `Tone` enum; `CursorGuard` RAII class hides cursor during progress
+- Purpose: Terminal progress bars via `indicators::DynamicProgress<indicators::ProgressBar>`
+- Examples: `src/core/progress.h` (class definition), `src/video/video_batch_execution.h:EncodingProgressState` (per-slot bars + overall bar)
+- Pattern: Thread-safe bar management with `std::mutex`; `addBar()` returns an index; `setProgress(index, float)` updates; `CursorGuard` hides cursor during progress display
+
+**`collisionnaming`:**
+- Purpose: Collision-safe flat naming for files from different source directories
+- Examples: `src/core/collision_naming.h` — `buildCollisionGroupPrefix()`, `buildConflictHandledFlatName()`, `sanitizeLabel()`, `shortPathHash()`
+- Pattern: FNV-1a 32-bit hash of normalized path → hex string embedded in filename prefix; used by both video output planning and picture zip entry naming
 
 ## Entry Points
 
-**Main entry point:**
+**`main()`:**
 - Location: `src/main.cpp`
-- Triggers: Process launch
-- Responsibilities: Crash handler installation → exception-safe delegate to `appentry::run()`
+- Triggers: Process launch with CLI arguments
+- Responsibilities: Install crash handlers, call `appentry::run(argc, argv)`, catch unhandled exceptions
 
-**`appentry::run()`:**
+**`appentry::run(int argc, char* argv[])`:**
 - Location: `src/app/app_entry.cpp`
-- Triggers: Called from `main()`
-- Responsibilities: Full startup lifecycle — stop signal, CLI parse, config build, toolchain resolve, pipeline execution, error reporting
+- Triggers: Called by `main()`
+- Responsibilities: Install stop signal handler, init startup (parse args + logging), handle `--help`, build `AppConfig`, resolve toolchain, run pipeline, return exit code
 
-**`pipeline::run()`:**
+**`pipeline::run(appctx::AppContext& ctx)`:**
 - Location: `src/app/pipeline.cpp`
-- Triggers: Called from `app_entry`
-- Responsibilities: Optional job state init → dispatch to `runVideo()`, `runPicture()`, or `runPackOnly()`
+- Triggers: Called by `appentry::run()` after config+toolchain are ready
+- Responsibilities: Conditionally enable job state, route by `processType` to `runVideo()` / `runPicture()` / `runPackOnly()`, return `eh::Result<int>`
 
-**E2E test tool:**
-- Location: `tests/e2e/fake_media_tool.cpp`
-- Triggers: Built as separate `encro_e2e_tool` target
-- Responsibilities: Generates fake media files for E2E tests
+**`pack::execute(PackRequest const&)`:**
+- Location: `src/pack/pack.cpp`
+- Triggers: Called by video post-encode packing, picture workflows, and pack-only mode
+- Responsibilities: Build `PackPlan` from request (Media or Directory mode), dispatch to resumable or non-resumable execution, return `eh::Result<PackRunResult>`
 
 ## Architectural Constraints
 
-- **Threading:** Uses `thread-pool` library for parallel task execution. `std::mutex` protects shared mutable state in `ProgressContext`, `jobstate::Store`, and `EncodingState`. Immutable `immer` data structures used for concurrent-read scenarios (video info cache, encode results).
-- **Global state:** No persistent global mutable state. `spdlog` uses a static async thread pool initialized once via `std::call_once`. `stop_signal` uses a file-scope atomic flag. `terminal` uses a file-scope `ColorMode` state.
-- **Circular imports:** Not detected. All includes follow the layered dependency direction (lower layers do not include higher layers).
-- **Platform:** Windows-first with conditional compilation (`_WIN32`/`_WIN64`) for Windows-specific APIs (`dbghelp` for stack traces, `_dupenv_s`, `GetConsoleScreenBufferInfo`). Non-Windows paths exist for `HOME`-based log directory and `dl` linking.
-- **Language:** C++26 with `clang-cl` toolchain. Uses `std::expected`, `std::format`, `std::span`, `std::ranges`.
+- **Threading:** `taskexec::runTasks()` uses `thread-pool` library for parallel task execution. `videobatch::runEncodingTasks()` uses `std::jthread` with `EncodingProgressState` managing slot-based worker slots. `parallel::runIndexedTasks()` provides a simpler indexed parallel for loop. Progress bars updated from worker threads via `std::atomic` counters and `immer::atom` snapshots — no locks on the hot path.
+- **Global state:** `src/infra/terminal.cpp` holds module-level color mode state (`terminal::colorMode()`). `src/infra/stop_signal.cpp` holds module-level `std::atomic_bool` stop flag. `src/app/prelude.cpp` holds `std::once_flag` for spdlog thread pool init. `src/infra/crash_runtime.cpp` holds module-level `std::atomic` handler-installed flag.
+- **Circular imports:** Not detected. Dependency graph is acyclic: `app` → `video`/`picture`/`pack`/`core` → `infra`/`utils`. `pack` → `core`. No reverse dependencies.
+- **Platform:** Windows-primary (`_WIN32` / `_WIN64` guards, `dbghelp` syslink, `clang-cl` toolchain). Non-Windows paths use `dl` syslink for stack unwinding and Unix-style environment (`HOME`, `~/.local/state`).
+- **C++ Standard:** C++26 (`set_languages("c++26")` in `xmake.lua`), with Clang-CL compiler on Windows.
 
 ## Anti-Patterns
 
-### God struct: `AppContext`
+### Tracing Callback via `std::function<>` Capture
 
-**What happens:** `appctx::AppContext` bundles config (20+ fields), toolchain paths, and runtime state (job state, video cache) into one struct passed to nearly every function.
-**Why it's wrong:** Functions receive and depend on the entire context even when they only need a subset. For example, `readAllVids` takes all three sub-structs (`config`, `toolchain`, `runtime`) but most video info functions only need `toolchain`.
-**Do this instead:** Split into focused parameter groups. `getVidInfo` already does this — it takes only `ToolchainPaths` and `videoPath`. Apply this pattern more broadly.
+**What happens:** `videobatch::EncodingExecutionContext` captures `appctx::AppContext& app` as a reference member. `EncodingProgressState` is created on the stack and referenced by `EncodingExecutionContext`. This works because both outlive the encoding tasks, but it's fragile under refactoring.
+**Why it's wrong:** Lifetime coupling between stack-allocated state objects (`EncodingProgressState`) and long-lived encoding threads (via `jthread`) is implicit. Moving either out of the stack frame would cause dangling references.
+**Do this instead:** Consider a shared ownership model (e.g., `shared_ptr` to a combined execution context) or clearly document that `EncodingExecutionContext` must be destroyed after all encoding tasks complete.
 
-### Mixed abstraction levels in `video_process.cpp`
+### Header-Only Abstractions in `core/`
 
-**What happens:** `video_process.cpp` (544 lines, ~17KB) mixes high-level workflow orchestration, low-level `ffmpeg` command construction, file I/O, progress formatting, and pack integration in a single file.
-**Why it's wrong:** The file has too many responsibilities — scanning, planning, encoding, packing, summary printing. Changes to any sub-concern risk affecting others.
-**Do this instead:** Extract `packEncodedVideos` to a separate pack-bridge module. Move `printEncodingSummary` to a reporting module. Keep `video_process.cpp` focused on workflow orchestration only.
-
-### `#include` of everything via `app_context.h`
-
-**What happens:** `app_context.h` includes `<boost/json.hpp>`, `<immer/atom.hpp>`, `<immer/map.hpp>`, and many std headers. Every file that includes `app_context.h` (which is most files) pays the compile-time cost.
-**Why it's wrong:** Long compile times; unnecessary recompilation when any dependency changes.
-**Do this instead:** Forward-declare `immer::map` and `boost::json::value` in `app_context.h`, move the full includes to `.cpp` files. The `RuntimeContext` nested types that use `immer::map` and `immer::atom` templates internally could use PIMPL.
+**What happens:** `src/core/collision_naming.h`, `src/core/path_roots.h`, and `src/core/display_text.h` are entirely inline/header-only — all functions defined in headers.
+**Why it's wrong:** Increases compile times for all translation units including these headers. Changes to any function body trigger recompilation of all dependent `.cpp` files.
+**Do this instead:** Move non-trivial function bodies to `.cpp` files. Keep only simple template/inline functions in headers. This is especially relevant for `collision_naming.h` (177 lines of inline code) and `display_text.h` (86 lines of inline code).
 
 ## Error Handling
 
-**Strategy:** Result-type based. Recoverable errors use `eh::Result<T>` (`std::expected<T, std::string>`). Unrecoverable errors (crashes, unhandled exceptions) are caught by `crash_runtime` handlers.
+**Strategy:** `std::expected<T, std::string>` via the `eh::Result<T>` alias. Operational failures return `eh::makeError(...)` with formatted messages. Catastrophic failures (bad_alloc, etc.) propagate as exceptions caught in `main()`.
 
 **Patterns:**
-- Functions return `eh::Result<T>`. Callers check with `if (!result)` and propagate or handle.
-- `eh::makeError(format_string, args...)` creates formatted error `std::string` inside `std::unexpected`.
-- Top-level `appentry::run()` converts `Result` errors to terminal output and exit codes.
-- `spdlog::error()` for logging failures in verbose mode; `terminal::println(Error, ...)` for user-facing errors.
-- Exceptions from `std::format`/`std::filesystem` are caught by `main()`'s catch-all and routed to `crash::reportCaughtException`.
+- Free functions return `eh::Result<T>` or `eh::Result<void>`: `pack::execute()`, `pipeline::run()`, `toolchain::resolve()`
+- Chain with early returns: `if (!res) { return eh::makeError("context: {}", res.error()); }`
+- Validation uses same pattern: `EncodeConfig::validate() -> eh::Result<void>` returns `makeError(...)` on invalid input
+- Local error state: `EncodingState::lastError` stores error string for reporting after task completion
 
 ## Cross-Cutting Concerns
 
-**Logging:** `spdlog` async logger created in `prelude::initStartup()`. Enabled only when `--verbose` flag is set. Logs to `%LOCALAPPDATA%/encro/logs/encro.verbose.log` (Windows) or `~/.local/state/encro/logs/` (Unix). Optional `--verbose-echo` mirrors logs to stdout.
+**Logging:** `spdlog` with async thread pool. Verbose logging (via `--verbose`) writes to `%LOCALAPPDATA%/encro/logs/encro.verbose.log`. Level: `debug` when verbose, `off` otherwise. Flush-on-error. Pattern: `spdlog::error()`, `spdlog::info()`, `spdlog::debug()` throughout the codebase.
 
-**Validation:** `EncodeConfig::validate()` returns `eh::Result<void>`. `cmd::buildConfig()` validates CLI args during translation. `AppConfig` uses `std::optional` for optional fields with defaults applied in `config_builder.cpp`.
+**Validation:** `EncodeConfig::validate()` checks input paths exist, CRF range (0–51), WebP quality range (0–100), format enum. `AppConfig` built from CLI options with bounds checking in `cmd::buildConfig()`.
 
-**Authentication:** Not applicable — this is a local CLI tool with no remote services.
+**Authentication:** Not applicable — offline CLI tool, no authentication required.
 
 ---
 
-*Architecture analysis: 2026-04-28*
+*Architecture analysis: 2026-05-07*
