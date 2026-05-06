@@ -1,230 +1,210 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-04-28
+**Analysis Date:** 2026-05-07
+
+## Language & Standard
+
+- **Language:** C++26 (`set_languages("c++26")` in `xmake.lua`)
+- **Compiler:** clang-cl (Windows), with lld-link linker
+- **Build system:** xmake (`xmake.lua`)
 
 ## Naming Patterns
 
-**Files:**
-- Source/header pairs: `snake_case.h` / `snake_case.cpp` (e.g., `task_executor.h`, `task_executor.cpp`)
-- Test files: `*_tests.cpp` (e.g., `job_state_tests.cpp`, `packer_tests.cpp`)
-- Headers use `#pragma once` exclusively; no include guards
+### Files
+- **snake_case** for all source and header files (e.g., `video_info.h`, `job_state.cpp`, `error_handle.h`, `crash_runtime.cpp`)
+- Test files: `*_tests.cpp` (e.g., `job_state_tests.cpp`, `pack_service_mock_tests.cpp`)
+- `_detail` suffix for implementation-detail headers (e.g., `job_state_detail.h`)
+- `_internal` suffix for internal-only headers (e.g., `pack_internal.h`, `pack_plan_internal.h`)
+- `_types` suffix for shared type headers (e.g., `pack_types.h`, `packer_types.h`)
 
-**Functions:**
-- camelCase: `runTasks`, `resolveWorkerCount`, `buildDefaultStateFilePath`, `parseTaskStatus`
-- Trailing return type used almost universally: `auto funcName(params) -> ReturnType`
-- `constexpr` used for compile-time constants and simple inline functions
-- `inline` used for header-defined free functions
+### Directories
+- **snake_case** (e.g., `src/core/`, `src/video/`, `tests/infra/`, `tests/e2e/`)
 
-**Variables:**
-- camelCase for locals and parameters: `taskIndex`, `workerCount`, `inputPath`, `maxGroupSize`
-- Private member variables: trailing underscore (`stateFilePath_`, `mtx_`, `snapshot_`, `bars_`, `lastFlushAtMs_`)
-- Atomic variables: `g` prefix for file-static globals (`gStopRequested`, `gInstalled`)
+### Namespaces
+- **lowercase with no separators** — run words together (e.g., `jobstate`, `appentry`, `taskexec`, `stopsignal`, `displaytext`, `collisionnaming`, `pathroots`, `videobatch`, `videoworkflow`, `consolewidth`)
+- One exception: `ErrorHandle` (PascalCase) in `src/core/error_handle.h`
+- Nested namespaces use `::` with no additional braces: `namespace jobstate::detail {` in `src/core/job_state_detail.h`
+- Common aliases at file scope:
+  - `namespace fs = std::filesystem;`
+  - `namespace json = boost::json;`
+  - `namespace po = boost::program_options;`
+  - `namespace eh = ErrorHandle;` (defined in `src/core/error_handle.h`)
+- Namespace closing comment: `}  // namespace jobstate` (two spaces before `//`)
 
-**Types (structs, classes, enums):**
-- PascalCase: `TaskContext`, `AppConfig`, `TaskRunResult`, `EncodingState`, `Snapshot`
-- Enum values: PascalCase: `Pending`, `Running`, `Succeeded`, `Failed`, `Interrupted`, `Flat`, `Keep`
-- Template parameters: short CamelCase: `Ty`, `Tys`
+### Classes, Structs, Types
+- **PascalCase**: `ConfigSnapshot`, `TaskRecord`, `PackService`, `ProgressContext`, `CmdParseResult`, `CursorGuard`, `ScopedEnvVar`
+- `final` used explicitly on leaf classes (e.g., `class PackService final` in `src/pack/pack_service.h`)
 
-**Constants:**
-- `inline constexpr auto kXxx` pattern: `kEncodeVideoKind`, `kBuildArchiveKind`, `kFlushIntervalMs`, `kDefaultMaxArchiveGroupSize`, `kCanceledExitCode`
-- `constexpr auto kXxx` for local scope: `kLogPattern`, `kFlatEntryPrefix`, `kForceExitGracePeriod`
+### Member Variables
+- **camelCase with trailing underscore**: `stateFilePath_`, `mtx_`, `lastFlushAtMs_`, `snapshot_`, `name_`
+- Public struct members use designated initializer style (no underscore): `.processType`, `.outputFormat`, `.recursive`
 
-**Namespaces:**
-- Project namespaces are lower_snake_case: `taskexec`, `jobstate`, `appctx`, `stopsignal`, `displaytext`, `collisionnaming`, `pathroots`, `videobatch`, `testutils`, `appentry`, `prelude`, `terminal`, `toolchain`, `parallel`, `progress`, `media`, `pack`, `crash`, `cmd`
-- Anonymous namespaces used extensively for file-local helpers (implementation details, local constants)
-- `namespace fs = std::filesystem;` declared at file/top-of-namespace scope in most files
-- Namespace aliases inside namespace blocks: `namespace json = boost::json;`, `namespace po = boost::program_options;`
-- `using enum terminal::MessageKind;` used in some `.cpp` files for cleaner enum usage
-- `using namespace std::chrono;` / `using namespace std::literals;` used within namespace blocks
-- Each namespace closed with `// namespace {name}` comment
+### Methods & Free Functions
+- **camelCase**: `initialize()`, `mergeTasks()`, `markRunning()`, `buildDefaultStateFilePath()`, `makeEncodeTask()`, `primarySourcePath()`, `needsExecution()`
+
+### Constants
+- **`k` prefix + PascalCase**: `kEncodeVideoKind`, `kBuildArchiveKind`, `kCanceledExitCode`, `kFlushIntervalMs`, `kStateVersion`, `kFlatEntryPrefix`, `kDefaultMaxArchiveGroupSize`
+- Usage: `inline constexpr auto kEncodeVideoKind = std::string_view{"encode_video"};` (in `src/core/job_state.h:20`)
+
+### Enums
+- **PascalCase** for both enum type and values: `TaskStatus::Pending`, `OutputLayout::Flat`, `MessageKind::Error`, `Tone::Default`, `ColorMode::Auto`
+
+### Template Parameters
+- Single type: `Ty`
+- Parameter pack: `Tys`
+- Used consistently across all files (see `src/core/error_handle.h`, `src/infra/terminal.h`)
 
 ## Code Style
 
-**Formatting:**
-- clang-format via external config at `D:/clangformat/.clang-format` (not committed to repo)
-- Pre-commit hook (`.githooks/pre-commit`) runs clang-format on staged C/C++ files
-- xmake `format` task (`plugins/format/xmake.lua`) for manual formatting via `xmake format`
-- VSCode configured for `formatOnSave`
-- No `.clang-format` or `.clang-tidy` file in the repo
+### Formatting
+- **Tool:** `clang-format` via pre-commit hook (config at `D:/clangformat/.clang-format`)
+- No in-repo `.clang-format` — configuration external to repo
+- Two-space indentation
+- Line length: relaxed (no strict limit in codebase; CLI help capped at 120 via `src/cmd/cmd.cpp`)
 
-**Key style patterns observed:**
-- Trailing return type for all function declarations and definitions
-- Designated initializers (C++20) used heavily for struct construction:
-  ```cpp
-  TaskRunResult{.results = ..., .attempted = ..., .attemptedCount = 0, .canceled = false}
-  ```
-- Braces on same line for control flow: `if (cond) { ... }`
-- `auto const` preferred over `const auto`
-- `static_cast` preferred over C-style casts
-- `std::size_t{0}` initialization form used consistently
-- Lambda captures use `[&]` for full-reference or `[&, index]` for mixed capture
+### Header Guards
+- **`#pragma once`** exclusively — no `#ifndef`/`#define` guards anywhere
 
-**Linting:**
-- No linting tools configured in the repo (no `.clang-tidy`, no cppcheck config)
-- Compiler warnings not explicitly shown in xmake.lua beyond standard flags
+### Braces & Whitespace
+- Opening brace on same line for functions, classes, control flow
+- Single-line simple functions inline in headers are common (e.g., in `src/core/display_text.h`, `src/core/collision_naming.h`)
+- Namespace does NOT add an indentation level — content starts at column 0
+
+### const Placement
+- **East const** (const on the right): `std::string const&`, `fs::path const&`, `TaskRecord const&`
+- Trailing return type: `auto functionName(params) -> ReturnType` is universal
+
+### Trailing Return Types
+- **All functions** use trailing return type syntax (`auto ... -> ReturnType`)
+- Examples:
+  - `auto stateFilePath() const -> fs::path const&;` (from `src/core/job_state.h:76`)
+  - `auto makeError(std::format_string<Tys...> const fmt, Tys&&... args) { ... }` (from `src/core/error_handle.h:12`)
+  - `auto run(int argc, char* argv[]) -> int;` (from `src/app/app_entry.h:9`)
+- Even `main` uses trailing return: `auto main(int argc, char* argv[]) -> int` (from `src/main.cpp:6`, `tests/test_main.cpp:39`)
+
+### Designated Initializers
+- Struct initialization uses designated initializers when constructing:
+```cpp
+return ConfigSnapshot{
+  .processType = config.processType,
+  .outputFormat = config.outputFormat,
+  .outputLayout = detail::outputLayoutToString(config.outputLayout),
+  .packOutput = config.packOutput,
+  // ...
+};
+```
 
 ## Import Organization
 
-**Order:**
-1. Corresponding header (for `.cpp` files): `#include "core/task_executor.h"`
-2. Other project headers: `#include "core/parallel.h"`, `#include "infra/stop_signal.h"`
-3. Third-party library headers: `#include <boost/json.hpp>`, `#include <spdlog/spdlog.h>`, `#include <catch2/catch_all.hpp>`
-4. Standard library headers: `#include <algorithm>`, `#include <filesystem>`, `#include <vector>`
+Include order pattern observed (e.g., `src/core/job_state.cpp`, `src/video/video_info.cpp`, `src/pack/packer.cpp`):
 
-**Patterns:**
-- Project headers use `#include "path/to/file.h"` (quotes, relative to `src/` or `tests/`)
-- External libraries use `#include <package/header.hpp>` (angle brackets)
-- No path aliases or module imports used
-- Each file includes only what it directly uses (no umbrella headers)
+1. **Own header first** (matching `.cpp` file with quoted include)
+2. **Project headers** — grouped by module, quoted paths (e.g., `"core/media_scanner.h"`, `"utils/utils.h"`)
+3. **Third-party libraries** — angle brackets, grouped by library:
+   - Boost headers
+   - Other libraries (`spdlog`, `indicators`, `libzippp`, `catch2`)
+4. **Standard library** — angle brackets, alphabetically ordered
+5. Blank line separating each group
+
+Example from `src/video/video_encode_runner.cpp`:
+```cpp
+#include "video/video_encode_runner.h"
+
+#include "video/video_progress_parser.h"
+
+#include "core/display_text.h"
+#include "infra/stop_signal.h"
+#include "utils/utils.h"
+#include "video/encode_config.h"
+
+#include <spdlog/spdlog.h>
+
+#include <cstdint>
+#include <format>
+```
+
+### Path Aliases
+- Project includes use paths relative to `src/` (since `add_includedirs("src", {public = true})` in `xmake.lua:58`)
+- Always use forward-slash paths even on Windows
 
 ## Error Handling
 
-**Primary pattern — `eh::Result<T>`:**
-- Defined in `src/core/error_handle.h`:
-  ```cpp
-  template<class Ty> using Result = std::expected<Ty, std::string>;
-  ```
-- Error creation via `eh::makeError(fmt, args...)` which wraps `std::format` + `std::unexpected`:
-  ```cpp
-  return eh::makeError("Failed to open state file: {}", path.string());
-  ```
-- Success returns use `return {};` or `return value;`
+### Result Type
+- Custom `Result<T>` alias defined in `src/core/error_handle.h`:
+  - `template<class Ty> using Result = std::expected<Ty, std::string>;`
+  - Accessed as `eh::Result<T>` via namespace alias `eh = ErrorHandle`
 
-**Namespace alias:**
-- `namespace eh = ErrorHandle;` declared in `error_handle.h` for convenient usage across the codebase
-
-**Exception handling:**
-- Exceptions caught at boundaries only:
-  - `main()` catches `std::exception` and `...` and routes to crash handler
-  - `taskexec::runTasks` catches exceptions from individual task lambdas and converts to `eh::Result` errors
-- `throw` used only for programmer errors (missing required fields) in `encode_config.h:49,71,86`
-- Crash runtime (`src/infra/crash_runtime.cpp`) installs handlers for uncaught exceptions
-
-**Result checking pattern:**
+### Error Creation
 ```cpp
-auto const result = someFunction();
-if (!result) {
-  spdlog::error("Operation failed: {}", result.error());
+return eh::makeError("Failed to open state file: {}", path.string());
+return eh::makeError("State file root must be a JSON object: {}", path.string());
+```
+- Uses `std::format` formatting strings
+- Error messages are descriptive plain English sentences
+
+### Check Pattern
+```cpp
+auto const initRes = store.initialize(config, false);
+REQUIRE(initRes);            // in tests: check has_value
+if (!initRes.has_value()) {  // in production: propagate
   return eh::makeError("...");
 }
-auto const value = result.value();
 ```
-Or in tests:
+
+### Exceptions
+- Top-level try/catch in `src/main.cpp` catches `std::exception` and `...`:
 ```cpp
-REQUIRE(result);
-CHECK_FALSE(result);
-CHECK(result.error() == "expected failure");
+try {
+  return appentry::run(argc, argv);
+} catch (std::exception const& ex) {
+  crash::reportCaughtException("unhandled exception in main", ex);
+  return 1;
+} catch (...) {
+  crash::reportUnknownException("unhandled exception in main");
+  return 1;
+}
 ```
+- `std::error_code` used for filesystem operations (never exceptions for those)
 
 ## Logging
 
-**Framework:** spdlog (async) via `#include <spdlog/spdlog.h>`
-
-**Setup** (in `src/app/prelude.cpp`):
-- Log pattern: `[%Y-%m-%dT%H:%M:%S.%e%z] [%^%l%$] %v`
-- Log directory: `%LOCALAPPDATA%/encro/logs/` (Windows) or `~/.local/state/encro/logs/` (Linux)
-- Log file: `encro.verbose.log`
-- Async logger with single worker thread, blocking overflow policy
-- `spdlog::level::off` when verbose mode not enabled
-- `spdlog::level::debug` when verbose
-- Flush on error level
-
-**Patterns:**
-- `spdlog::info("message with {} args", value)` — informational events (scanning, completion)
-- `spdlog::debug("message")` — detailed debugging (command construction, file skips)
-- `spdlog::warn("message")` — recoverable issues (fallback paths, skip decisions)
-- `spdlog::error("message")` — failures (pipeline errors, tool failures)
-- `spdlog::critical("message")` — crash runtime only
-- No custom logger instances; all code uses `spdlog::info()`, etc. (default logger)
-
-**Terminal output:**
-- `terminal::println(MessageKind, fmt, args...)` for user-facing output
-- `MessageKind` enum values: `Plain`, `Error`, `Warning`, `Success`, `Info`, `Hint`, `Prompt`, `Heading`
+- **Framework:** `spdlog` (header: `<spdlog/spdlog.h>`)
+- Used primarily in video processing and pack modules (e.g., `src/video/video_encode_runner.cpp`, `src/pack/packer.cpp`)
+- No structured logging conventions — ad-hoc `spdlog::info()`, `spdlog::error()` calls
 
 ## Comments
 
-**When to Comment:**
-- Minimal comments in production code; code is self-documenting
-- `// namespace {name}` at closing braces of namespaces
-- Test files occasionally have GREEN-phase refactoring comments (`// GREEN phase: extraction complete`)
-- No TODO/FIXME/HACK/XXX comments found in the codebase
-
-**JSDoc/TSDoc:**
-- Not applicable (C++ project). No Doxygen comments used.
+- **When to comment:** Minimal — code is self-documenting through naming
+- **No JSDoc/TSDoc/Doxygen** formats used
+- File-level comments only seen in specific test files (e.g., `tests/pack_api_standalone_compile_test.cpp` has a multi-line comment explaining the RED/GREEN phase purpose)
+- Implementation intent sometimes captured in test case descriptions (Catch2 `TEST_CASE("description")` strings)
 
 ## Function Design
 
-**Size:** Functions are generally small and focused (10-60 lines typical). The largest functions are in `video_process.cpp` and `job_state.cpp` (50-80 lines for complex orchestration).
-
-**Parameters:**
-- Pass by `const&` for complex types: `std::string_view`, `fs::path const&`, `std::span<T const>`
-- Pass by value for small types and sinks: `int`, `std::size_t`, `bool`, `std::string`
-- Optional parameters use `std::optional<T>` or default arguments
-- `std::span` used for array/vector views in function parameters
-
-**Return Values:**
-- `eh::Result<T>` for fallible operations
-- `std::optional<T>` for "may or may not exist"
-- `bool` for simple success/failure (rare, used mainly in `video_encode_runner.h`)
-- Direct value types for infallible operations
-
-**Trailing return type:**
-```cpp
-auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> fs::path;
-auto runTasks(TaskPlan const& plan) -> TaskRunResult;
-```
-Used on all function declarations and definitions.
+- **Parameters:** Complex types passed by `const&`, primitives by value
+- **Return values:** Never bare `void` from tested functions — return `Result<T>` or concrete types
+- **Overloads:** Used sparingly for convenience (e.g., `exec2` in `src/utils/utils.h` has 4 overloads)
+- **Inline:** Many small utility functions are `inline` in headers (e.g., all of `src/core/collision_naming.h`, `src/core/display_text.h`, `src/core/path_roots.h`)
 
 ## Module Design
 
-**Exports:**
-- One primary class/struct per header file (with associated free functions)
-- Free functions declared alongside types in headers
-- `constexpr` constants and type aliases declared in headers
-- No explicit export/visibility control (single binary target)
+### Structure
+- Each module: a directory under `src/` with a public header and implementation file(s)
+- Public API boundary enforced through what's included:
+  - e.g., `pack/pack.h` is the single public header for the pack module
+  - Internal types in `_detail`, `_internal`, or `_types` headers
+- Verified by standalone compile tests (e.g., `tests/pack_api_standalone_compile_test.cpp`, `tests/packer_standalone_compile_test.cpp`)
 
-**Header-only vs split:**
-- Small utility modules are header-only: `display_text.h`, `collision_naming.h`, `path_roots.h`, `error_handle.h`, `encode_config.h`
-- Most modules split: `.h` for declarations, `.cpp` for implementations
-- All functions in header-only files are `inline`
+### Class Visibility
+- Classes in headers expose full interface
+- Private implementation details in `.cpp` files or `detail` namespaces
+- Forward declarations in headers when only pointers needed (e.g., `namespace jobstate { class Store; }` in `src/core/app_context.h:19-22`)
 
-**Barrel Files:**
-- Not used. Each consumer includes the specific header it needs.
-
-**File organization:**
-- `src/main.cpp` — entry point
-- `src/app/` — application layer (entry, pipeline, prelude)
-- `src/cmd/` — CLI parsing and config building
-- `src/core/` — domain logic (task executor, job state, media scanner, progress, etc.)
-- `src/infra/` — infrastructure (crash handling, stacktrace, stop signal, terminal, toolchain)
-- `src/video/` — video processing domain
-- `src/picture/` — picture processing domain
-- `src/pack/` — packing/zipping domain
-- `src/utils/` — general utilities
-
-## Platform-Specific Code
-
-- `#if defined(_WIN32)` / `#else` guards for platform differences
-- Windows: Win32 API (`windows.h`, `SetConsoleCtrlHandler`, `_dupenv_s`, `_putenv_s`)
-- Windows: `dbghelp` linked for stack trace support
-- Linux: POSIX signals (`csignal`, `SIGINT`, `SIGTERM`)
-- `NOMINMAX` and `WIN32_LEAN_AND_MEAN` defined for Windows builds
-- `_MSVC_STL_HARDENING=1` for MSVC hardening checks
-
-## C++ Standard Features Used
-
-- **C++26** as the language standard (`set_languages("c++26")`)
-- `std::expected` (C++23) — core error handling
-- `std::format` (C++20) — string formatting
-- Designated initializers (C++20)
-- `std::span` (C++20)
-- `std::ranges` algorithms
-- `std::jthread` / `std::stop_token` (C++20)
-- `std::atomic` with memory ordering
-- `if constexpr` (C++17)
-- `static thread_local` storage
-- `clang-cl` toolchain on Windows
+### Shared State Protection
+- Mutexes for thread-safe access: `mutable std::mutex mtx_;` pattern
+- Atomic types for single values: `std::atomic<float>`
+- Persistent data structures for concurrent reads: `immer::atom<>` for video info cache
 
 ---
 
-*Convention analysis: 2026-04-28*
+*Convention analysis: 2026-05-07*
