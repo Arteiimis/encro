@@ -105,8 +105,9 @@ struct CompactProgressState {
     spinnerThread = std::jthread{[this, &onCompactStatusText](std::stop_token stopToken) {
       auto const frames = std::array{'|', '/', '-', '\\'};
       auto frameIndex = std::size_t{0};
-      while (!stopToken.stop_requested()
-             && !spinnerStop.load(std::memory_order_acquire)) {
+      while (
+        !stopToken.stop_requested() && !spinnerStop.load(std::memory_order_acquire)
+      ) {
         if (finalizingCount.load(std::memory_order_acquire) > 0) {
           auto lock = std::scoped_lock{mutex};
           auto const finalizingText = std::format("Finalizing {}", frames[frameIndex]);

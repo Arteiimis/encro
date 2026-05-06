@@ -30,8 +30,9 @@ auto scanDir(
 
   if (recursive) {
     auto ec = std::error_code{};
-    for (auto const& entry:
-         fs::recursive_directory_iterator(dirPath, kDirectoryOptions, ec)) {
+    for (
+      auto const& entry: fs::recursive_directory_iterator(dirPath, kDirectoryOptions, ec)
+    ) {
       if (ec) { break; }
       collectEntry(entry);
     }
