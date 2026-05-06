@@ -3,6 +3,7 @@
   "commit_docs": true,
   "response_language": "zh-CN",
   "runtime": "opencode",
+  "context_window": 1000000,
   "workflow": {
     "research": true,
     "plan_check": true,
