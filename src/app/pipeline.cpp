@@ -57,20 +57,18 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
 
   auto const outputDir = ctx.config.outputPath.value_or(ctx.config.inputPath) / "packed";
 
-  auto const packRes = pack::execute(
-    pack::PackRequest{
-      .entries = {ctx.config.inputPath},
-      .mode = pack::PackMode::Directory,
-      .outputDir = outputDir,
-      .compact = !ctx.config.fullProgress,
-      .naming =
-        pack::NamingConfig{
-          .namingStrategy = toNamingStrategy(ctx.config),
-        },
-      .maxParallelJobs = ctx.config.maxParallelJobs,
-      .jobState = ctx.runtime.jobState.get(),
-    }
-  );
+  auto const packRes = pack::execute({
+    .entries = {ctx.config.inputPath},
+    .mode = pack::PackMode::Directory,
+    .outputDir = outputDir,
+    .compact = !ctx.config.fullProgress,
+    .naming =
+      pack::NamingConfig{
+        .namingStrategy = toNamingStrategy(ctx.config),
+      },
+    .maxParallelJobs = ctx.config.maxParallelJobs,
+    .jobState = ctx.runtime.jobState.get(),
+  });
 
   if (!packRes) { return eh::makeError("{}", packRes.error()); }
   return packRes->exitCode;
