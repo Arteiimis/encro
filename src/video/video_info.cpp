@@ -20,13 +20,12 @@ using namespace std::literals;
 namespace {
 
 constexpr auto kVideoTypes = std::array{
-  // Common video file extensions
   ".mp4"sv,
   ".mkv"sv,
   ".avi"sv,
   ".mov"sv,
   ".flv"sv,
-  ".wmv"sv
+  ".wmv"sv,
 };
 constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 
@@ -40,11 +39,9 @@ auto jsonValToString(boost::json::value const& val) -> std::string {
   return "<object>";
 }
 
-auto parseDouble(std::string_view text) -> std::optional<double> {
-  try {
-    return std::stod(std::string{text});
-  } catch (...) { return std::nullopt; }
-}
+auto parseDouble(std::string_view text) -> std::optional<double> try {
+  return std::stod(std::string{text});
+} catch (...) { return std::nullopt; }
 
 auto parseFraction(std::string_view text) -> std::optional<double> {
   auto const slashPos = text.find('/');
@@ -122,17 +119,15 @@ auto isKnownVideoExtension(fs::path const& filePath) -> bool {
 
 auto tryReadFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t> {
   auto ec = std::error_code{};
-  auto const fileSize = fs::file_size(filePath, ec);
-  if (ec) {
-    spdlog::debug(
-      "Skipping file with unreadable size metadata: {} ({})",
-      filePath.string(),
-      ec.message()
-    );
-    return std::nullopt;
-  }
+  if (auto const fileSize = fs::file_size(filePath, ec); !ec) { return fileSize; }
 
-  return fileSize;
+  spdlog::debug(
+    "Skipping file with unreadable size metadata: {} ({})",
+    filePath.string(),
+    ec.message()
+  );
+
+  return std::nullopt;
 }
 
 auto keepsWebpInputSizeLimit(appctx::AppConfig const& config, fs::path const& filePath)
@@ -217,7 +212,7 @@ auto finalizeVideoList(
         runtime.videoInfoCache.set(vidPath, vidInfo);
         keep[index] = 1;
         return {};
-      }  //
+      },
     });
   }
 
@@ -245,9 +240,9 @@ auto prewarmWebpVideoInfoCache(
 ) -> void {
   if (vids.empty()) { return; }
 
-  auto const configuredOrDetected =
-    config.maxParallelJobs
-      .value_or(static_cast<std::size_t>(std::thread::hardware_concurrency()));
+  auto const configuredOrDetected = config.maxParallelJobs.value_or(
+    static_cast<std::size_t>(std::thread::hardware_concurrency())  //
+  );
   auto const maxParallelJobs = std::max<std::size_t>(1, configuredOrDetected);
   auto const workerCount = taskexec::resolveWorkerCount(vids.size(), maxParallelJobs);
   auto const prewarmCount = std::min(vids.size(), workerCount + 1);
