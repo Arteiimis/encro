@@ -363,10 +363,9 @@ auto videobatch::runEncodingTasks(
     tasks.push_back({
       .id = std::format("encode:{}", vids[taskIndex].string()),
       .label = vids[taskIndex].filename().string(),
-      .run = [&, taskIndex, vidPath = vids[taskIndex]](taskexec::TaskContext& taskCtx)
-        -> eh::Result<void> {
+      .run = [&, taskIndex, vidPath = vids[taskIndex]](taskexec::TaskContext& taskCtx) {
         return runEncodingTask(executionCtx, taskIndex, vidPath, taskCtx.slot);
-      }  //
+      },
     });
   }
 

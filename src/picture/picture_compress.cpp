@@ -176,13 +176,11 @@ void retryFailedTasks(
     auto const success = compressImage(ctx, task.inputPath, task.outputPath, quality);
     if (success) {
       auto lock = std::scoped_lock{resultsMutex};
-      results.push_back(
-        CompressResult{
-          .originalPath = task.inputPath,
-          .compressedPath = task.outputPath,
-          .entryName = task.entryName,
-        }
-      );
+      results.push_back({
+        .originalPath = task.inputPath,
+        .compressedPath = task.outputPath,
+        .entryName = task.entryName,
+      });
       ++recovered;
     }
 
@@ -250,10 +248,9 @@ auto compressImageBatch(
     taskSpecs.push_back({
       .id = std::format("compress:{}", task.outputPath.string()),
       .label = task.inputPath.filename().string(),
-      .run = [&state, &task, quality, total, barIndex](taskexec::TaskContext& _)
-        -> eh::Result<void> {
+      .run = [&state, &task, quality, total, barIndex](taskexec::TaskContext& _) {
         return compressImageTask(task, state, quality, total, barIndex);
-      }  //
+      },
     });
   }
 
