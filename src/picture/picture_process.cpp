@@ -515,20 +515,18 @@ auto packAllPicsToZip(
   packInputs.reserve(scannedPics.size() + summaryPics.size());
 
   for (auto const& summaryPic: summaryPics) {
-    packInputs.emplace_back(
-      pack::PackEntryInput{
-        .entry =
-          pack::PackFileEntry{
-            .sourcePath = summaryPic,
-            .zipEntryName = buildSummaryPictureEntryName(dirPath, summaryPic),
-            .isSummary = true,
-          },
-        .sourceDir = summaryPic.parent_path(),
-        .sourceKey = naming::stablePathString(summaryPic.parent_path()),
-        .fileKey = naming::stablePathString(summaryPic),
-        .isSummary = true,
-      }
-    );
+    packInputs.push_back({
+      .entry =
+        pack::PackFileEntry{
+          .sourcePath = summaryPic,
+          .zipEntryName = buildSummaryPictureEntryName(dirPath, summaryPic),
+          .isSummary = true,
+        },
+      .sourceDir = summaryPic.parent_path(),
+      .sourceKey = naming::stablePathString(summaryPic.parent_path()),
+      .fileKey = naming::stablePathString(summaryPic),
+      .isSummary = true,
+    });
   }
 
   for (auto const& picPath: scannedPics) {
@@ -536,18 +534,16 @@ auto packAllPicsToZip(
     auto const entryName = plannedNameIt != plannedEntryNames.end()
       ? plannedNameIt->second
       : picPath.filename().generic_string();
-    packInputs.emplace_back(
-      pack::PackEntryInput{
-        .entry =
-          pack::PackFileEntry{
-            .sourcePath = picPath,
-            .zipEntryName = entryName,
-          },
-        .sourceDir = picPath.parent_path(),
-        .sourceKey = naming::stablePathString(picPath.parent_path()),
-        .fileKey = naming::stablePathString(picPath),
-      }
-    );
+    packInputs.push_back({
+      .entry =
+        pack::PackFileEntry{
+          .sourcePath = picPath,
+          .zipEntryName = entryName,
+        },
+      .sourceDir = picPath.parent_path(),
+      .sourceKey = naming::stablePathString(picPath.parent_path()),
+      .fileKey = naming::stablePathString(picPath),
+    });
   }
 
   auto request = pack::PackRequest{

@@ -232,11 +232,10 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
     tasks.push_back({
       .id = std::format("pack:{}", index),
       .label = label,
-      .run =
-        [&, index, zipPath, label](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
+      .run = [&, index, zipPath, label](taskexec::TaskContext& taskCtx) {
         recorder.notifyGroupStart(index);
         return runGroup(index, zipPath, label, taskCtx, recorder);
-      }  //
+      },
     });
   }
 
