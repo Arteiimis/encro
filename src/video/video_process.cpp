@@ -130,27 +130,29 @@ void printNoEncodableVideosMessage(
   appctx::ToolchainPaths const& toolchain,
   fs::path const& inputPath
 ) {
-  if (fs::is_regular_file(inputPath)) {
-    if (config.outputFormat == "mp4" && isHevcEncoded(toolchain, inputPath)) {
-      terminal::println(
-        Hint,
-        "Video is already HEVC encoded: {}",
-        terminal::path(inputPath)
-      );
-    } else {
-      terminal::println(
-        Hint,
-        "No encodable videos found for file: {}",
-        terminal::path(inputPath)
-      );
-    }
-  } else {
+  if (!fs::is_regular_file(inputPath)) {
     terminal::println(
       Hint,
       "No encodable videos found in path: {}",
       terminal::path(inputPath)
     );
+    return;
   }
+
+  if (config.outputFormat == "mp4" && isHevcEncoded(toolchain, inputPath)) {
+    terminal::println(
+      Hint,
+      "Video is already HEVC encoded: {}",
+      terminal::path(inputPath)
+    );
+    return;
+  }
+
+  terminal::println(
+    Hint,
+    "No encodable videos found for file: {}",
+    terminal::path(inputPath)
+  );
 }
 
 auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
@@ -360,12 +362,10 @@ auto collectEncodedOutputFiles(
       continue;
     }
 
-    encodedOutputFiles.emplace_back(
-      EncodedVideoPackFile{
-        .sourcePath = vidPath,
-        .outputPath = outFile.value(),
-      }
-    );
+    encodedOutputFiles.push_back({
+      .sourcePath = vidPath,
+      .outputPath = outFile.value(),
+    });
   }
 
   return encodedOutputFiles;
