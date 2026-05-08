@@ -157,18 +157,16 @@ auto collectPackInputs(PackRequest const& request)
         }
         break;
     }
-    packInputs.emplace_back(
-      pack::detail::PackEntryInput{
-        .entry =
-          pack::PackFileEntry{
-            .sourcePath = entry,
-            .zipEntryName = std::move(zipName),
-          },
-        .sourceDir = entry.parent_path(),
-        .sourceKey = naming::stablePathString(entry.parent_path()),
-        .fileKey = naming::stablePathString(entry),
-      }
-    );
+    packInputs.push_back({
+      .entry =
+        pack::PackFileEntry{
+          .sourcePath = entry,
+          .zipEntryName = std::move(zipName),
+        },
+      .sourceDir = entry.parent_path(),
+      .sourceKey = naming::stablePathString(entry.parent_path()),
+      .fileKey = naming::stablePathString(entry),
+    });
   }
   return packInputs;
 }
@@ -182,20 +180,18 @@ auto appendSummaryEntries(
 ) -> void {
   if (!request.summary.has_value() || !request.summary->enabled) { return; }
   for (auto const& summaryEntry: request.summary->entries) {
-    packInputs.emplace_back(
-      pack::detail::PackEntryInput{
-        .entry =
-          pack::PackFileEntry{
-            .sourcePath = summaryEntry.sourcePath,
-            .zipEntryName = summaryEntry.zipEntryName,
-            .isSummary = true,
-          },
-        .sourceDir = summaryEntry.sourcePath.parent_path(),
-        .sourceKey = naming::stablePathString(summaryEntry.sourcePath.parent_path()),
-        .fileKey = naming::stablePathString(summaryEntry.sourcePath),
-        .isSummary = true,
-      }
-    );
+    packInputs.push_back({
+      .entry =
+        pack::PackFileEntry{
+          .sourcePath = summaryEntry.sourcePath,
+          .zipEntryName = summaryEntry.zipEntryName,
+          .isSummary = true,
+        },
+      .sourceDir = summaryEntry.sourcePath.parent_path(),
+      .sourceKey = naming::stablePathString(summaryEntry.sourcePath.parent_path()),
+      .fileKey = naming::stablePathString(summaryEntry.sourcePath),
+      .isSummary = true,
+    });
   }
 }
 

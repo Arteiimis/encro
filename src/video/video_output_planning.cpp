@@ -24,12 +24,13 @@ auto buildConflictHandledOutputPath(
   fs::path const& inputPath,
   fs::path const& candidatePath
 ) -> fs::path {
-  return candidatePath.parent_path()
+  return  //
+    candidatePath.parent_path()
     / naming::buildConflictHandledFlatName(
-           sourceRootDir,
-           inputPath,
-           candidatePath.stem().string(),
-           candidatePath.extension().string()
+      sourceRootDir,
+      inputPath,
+      candidatePath.stem().string(),
+      candidatePath.extension().string()
     );
 }
 
