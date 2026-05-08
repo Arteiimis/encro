@@ -26,24 +26,21 @@ static_assert(std::is_class_v<pack::NamingConfig>, "NamingConfig must be a class
 
 // Verification: PackRequest can be constructed with designated initializers
 // (compile-time check only — no runtime catch2 test needed)
-inline auto kSampleRequest = [] {
-  // Designated initializer construction
-  pack::PackRequest req{
+inline auto kSampleRequest = [] {  // Designated initializer construction
+  return pack::PackRequest{
     .entries = {},
     .mode = pack::PackMode::Media,
     .outputDir = fs::path{},
     .compact = true,
   };
-  return req;
 }();
 
 // Verify new Phase 16 fields on PackRequest
 inline auto kSampleRequestPhase16 = [] {
-  pack::PackRequest req{
+  return pack::PackRequest{
     .groupingStrategy = pack::GroupingStrategy::PerSourceDirKeepTogether,
     .summary = pack::SummaryConfig{.enabled = false},
   };
-  return req;
 }();
 
 // Verify SummaryConfig aggregate

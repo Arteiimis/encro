@@ -1,5 +1,7 @@
 {
-  "model_profile": "balanced",
+  "mode": "yolo",
+  "granularity": "coarse",
+  "model_profile": "inherit",
   "commit_docs": true,
   "response_language": "zh-CN",
   "runtime": "opencode",
@@ -25,6 +27,7 @@
     "use_worktrees": true
   },
   "parallelization": {
+    "enabled": true,
     "max_concurrent_agents": 5
   },
   "intel": {
