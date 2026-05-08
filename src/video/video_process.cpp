@@ -14,11 +14,14 @@
 
 #include <immer/vector.hpp>
 #include <spdlog/spdlog.h>
+#include <boost/lambda2.hpp>
 
 #include <algorithm>
 #include <cstdint>
 
 namespace fs = std::filesystem;
+using boost::lambda2::_1;
+using boost::lambda2::second;
 using enum terminal::MessageKind;
 using pathroots::commonAncestorPath;
 using pathroots::normalizeInputRootDir;
@@ -433,8 +436,7 @@ void printEncodingSummary(
   terminal::println(Heading, "Summary:");
   terminal::println(Info, "  Total videos found: {}", terminal::count(vids.size()));
 
-  auto const successCount =
-    std::ranges::count_if(vidsRunRes, [](auto const& entry) { return entry.second; });
+  auto const successCount = std::ranges::count_if(vidsRunRes, _1->*second);
   auto const failureCount = vidsRunRes.size() - successCount;
 
   spdlog::info(
@@ -456,7 +458,7 @@ void printEncodingSummary(
 }
 
 auto hasEncodingFailures(EncodeResultsMap const& vidsRunRes) -> bool {
-  return std::ranges::any_of(vidsRunRes, [](auto const& entry) { return !entry.second; });
+  return std::ranges::any_of(vidsRunRes, !(_1->*second));
 }
 
 }  // namespace
