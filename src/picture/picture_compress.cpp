@@ -47,13 +47,11 @@ auto compressImageTask(
 
   if (success) {
     auto lock = std::scoped_lock{state.resultsMutex};
-    state.results.push_back(
-      CompressResult{
-        .originalPath = task.inputPath,
-        .compressedPath = task.outputPath,
-        .entryName = task.entryName,
-      }
-    );
+    state.results.push_back({
+      .originalPath = task.inputPath,
+      .compressedPath = task.outputPath,
+      .entryName = task.entryName,
+    });
   }
 
   auto const percent = static_cast<float>(done) / static_cast<float>(total) * 100.0f;

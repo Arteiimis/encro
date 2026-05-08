@@ -77,15 +77,13 @@ TEST_CASE(
   auto const f2 = createSparseSizedFile(inputDir, "b.jpg", kSize);
   auto const f3 = createSparseSizedFile(inputDir, "c.jpg", kSize);
 
-  auto const result = pack::execute(
-    pack::PackRequest{
-      .entries = {f1, f2, f3},
-      .mode = pack::PackMode::Media,
-      .outputDir = outputDir,
-      .compact = true,
-      .removeOnFailure = true,
-    }
-  );
+  auto const result = pack::execute({
+    .entries = {f1, f2, f3},
+    .mode = pack::PackMode::Media,
+    .outputDir = outputDir,
+    .compact = true,
+    .removeOnFailure = true,
+  });
 
   REQUIRE(result.has_value());
   REQUIRE(result->exitCode == 0);
@@ -116,19 +114,17 @@ TEST_CASE(
   auto const b1 = createSparseSizedFile(dirB, "alpha.jpg", 32);
   auto const b2 = createSparseSizedFile(dirB, "beta.jpg", 32);
 
-  auto const result = pack::execute(
-    pack::PackRequest{
-      .entries = {a1, a2, b1, b2},
-      .mode = pack::PackMode::Media,
-      .outputDir = outputDir,
-      .compact = true,
-      .removeOnFailure = true,
-      .naming = pack::NamingConfig{
-        .namingStrategy = pack::NamingStrategy::Flat,
-        .baseName = "pics",
-      },
-    }
-  );
+  auto const result = pack::execute({
+    .entries = {a1, a2, b1, b2},
+    .mode = pack::PackMode::Media,
+    .outputDir = outputDir,
+    .compact = true,
+    .removeOnFailure = true,
+    .naming = pack::NamingConfig{
+      .namingStrategy = pack::NamingStrategy::Flat,
+      .baseName = "pics",
+    },
+  });
 
   REQUIRE(result.has_value());
   REQUIRE(result->exitCode == 0);

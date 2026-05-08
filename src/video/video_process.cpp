@@ -406,16 +406,14 @@ auto packEncodedVideos(
     zipOutputDir.string()
   );
 
-  auto const packRes = pack::execute(
-    pack::PackRequest{
-      .entries = std::move(filePaths),
-      .mode = pack::PackMode::Media,
-      .outputDir = zipOutputDir,
-      .compact = !ctx.config.fullProgress,
-      .maxParallelJobs = ctx.config.maxParallelJobs,
-      .jobState = ctx.runtime.jobState.get(),
-    }
-  );
+  auto const packRes = pack::execute({
+    .entries = std::move(filePaths),
+    .mode = pack::PackMode::Media,
+    .outputDir = zipOutputDir,
+    .compact = !ctx.config.fullProgress,
+    .maxParallelJobs = ctx.config.maxParallelJobs,
+    .jobState = ctx.runtime.jobState.get(),
+  });
 
   if (!packRes) {
     spdlog::error("Failed to pack encoded videos: {}", packRes.error());
