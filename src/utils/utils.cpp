@@ -358,10 +358,3 @@ auto findFFmpeg(std::optional<fs::path> const& installDir) -> std::optional<fs::
 std::string getUUID() {
   return boost::lexical_cast<std::string>(boost::uuids::random_generator{}());
 }
-
-auto getParamStr(
-  boost::program_options::variables_map const& vm,
-  std::string_view paramName
-) -> std::string {
-  return boost::trim_copy(vm.at(paramName.data()).as<std::string>());
-}

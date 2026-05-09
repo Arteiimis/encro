@@ -1,7 +1,5 @@
 #pragma once
 
-#include <boost/program_options/variables_map.hpp>
-
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -30,8 +28,3 @@ auto findFFprobe(std::optional<fs::path> const& installDir) -> std::optional<fs:
 auto findFFmpeg(std::optional<fs::path> const& installDir) -> std::optional<fs::path>;
 
 std::string getUUID();
-
-auto getParamStr(
-  boost::program_options::variables_map const& vm,
-  std::string_view paramName
-) -> std::string;
