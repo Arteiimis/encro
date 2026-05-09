@@ -1,4 +1,5 @@
 #include "cmd/cmd.h"
+#include "infra/terminal.h"
 
 #include <catch2/catch_all.hpp>
 
@@ -241,4 +242,77 @@ TEST_CASE("commandLineInit default jobs is not set", "[cmd]") {
   // Either way is acceptable — the field has the correct default
   CHECK(result.yesToAll == false);
   CHECK(result.fullProgress == false);
+}
+
+// ── Phase 20-02: colored --help smoke tests ──
+
+TEST_CASE("help text contains ANSI escape codes when color is always", "[cmd][color]") {
+  terminal::configure(terminal::ColorMode::Always);
+
+  auto const result = parseArgs({"encro", "--help"});
+  auto const& help = result.helpText;
+
+  // After Phase 20 color injection, help text SHOULD contain ANSI escape codes
+  CHECK(help.find("\x1b[") != std::string::npos);
+
+  terminal::reset();
+}
+
+TEST_CASE("help text contains NO ANSI codes when color is never", "[cmd][color]") {
+  terminal::configure(terminal::ColorMode::Never);
+
+  auto const result = parseArgs({"encro", "--help"});
+  auto const& help = result.helpText;
+
+  // When color is disabled, no ANSI escape codes should be present
+  CHECK(help.find("\x1b[") == std::string::npos);
+
+  terminal::reset();
+}
+
+TEST_CASE("help text contains NO ANSI codes when NO_COLOR is set", "[cmd][color]") {
+  auto const noColorGuard = ScopedEnvVar{"NO_COLOR", "1"};
+
+  auto const result = parseArgs({"encro", "--help"});
+  auto const& help = result.helpText;
+
+  CHECK(help.find("\x1b[") == std::string::npos);
+}
+
+TEST_CASE(
+  "help text contains expected option names after color injection",
+  "[cmd][color]"
+) {
+  auto const result = parseArgs({"encro"});
+  auto const& help = result.helpText;
+
+  // Content must survive color injection — plain text substrings still embedded
+  // Note: --help is a main-app flag (not in any group) so it's not rendered
+  CHECK(help.find("--input") != std::string::npos);
+  CHECK(help.find("--verbose") != std::string::npos);
+  CHECK(help.find("--output-format") != std::string::npos);
+  CHECK(help.find("--pack") != std::string::npos);
+}
+
+TEST_CASE(
+  "help text contains expected group headers after color injection",
+  "[cmd][color]"
+) {
+  auto const result = parseArgs({"encro"});
+  auto const& help = result.helpText;
+
+  // Group descriptions (used by formatGroupHeader via get_description())
+  CHECK(help.find("General") != std::string::npos);
+  CHECK(help.find("Input/Output") != std::string::npos);
+  CHECK(help.find("Processing") != std::string::npos);
+  CHECK(help.find("File operation") != std::string::npos);
+}
+
+TEST_CASE("help text non-empty after color injection", "[cmd][color]") {
+  auto const result = parseArgs({"encro"});
+  auto const& help = result.helpText;
+
+  CHECK_FALSE(help.empty());
+  // Help output should be substantial (multiple options rendered)
+  CHECK(help.size() > 200);
 }
