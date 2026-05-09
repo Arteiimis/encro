@@ -1,9 +1,29 @@
-# Requirements: encro — v1.5 Pack下沉收尾
+# Requirements: encro — v1.6 CLI体验增强
 
-**Defined:** 2026-05-04
+**Defined:** 2026-05-09
 **Core Value:** Progress visibility — compact single-bar progress by default
 
-## v1.5 Requirements
+## v1.6 Requirements
+
+Requirements for CLI library migration and terminal color deepening.
+
+### CLI11 迁移
+
+- [ ] **CLI11-01**: 26个 option 通过 CLI11 API 定义（add_flag/add_option/add_option_group，4组），cmd.cpp (138行) 完全重写
+- [ ] **CLI11-02**: 58处 vm.count()/vm.at() 调用适配为 CLI11 访问模式（config_builder 17 + prelude 2 + terminal 1 + utils 1 + app_entry 2，共 6 consumer files）
+- [ ] **CLI11-03**: 自适应列宽保留 — consolewidth::resolveColumns() + resolveHelpTextLayout() 传递到 formatter_fn
+- [ ] **CLI11-04**: cmd_cmd_tests.cpp (244行) + cmd_config_builder_tests.cpp (732行) CLI11 测试重写
+- [ ] **CLI11-05**: 全部 3033 assertions 零行为回归，所有 CLI flow 等价输出
+
+### CLI着色深化
+
+- [ ] **COLR-01**: --help 输出按 section 着色（Usage/OptionGroup/OptionName/OptionDesc），通过 formatter_fn 注入 terminal::println()
+- [ ] **COLR-02**: MessageKind 枚举扩展 5 个新值（Usage/OptionGroup/OptionName/OptionDesc/Version）+ styleFor() 映射
+- [ ] **COLR-03**: 错误信息统一使用 terminal::println(Error, ...) / terminal::eprintln()，覆盖解析错误、缺失选项、无效值
+- [ ] **COLR-04**: --version 输出着色化
+- [ ] **COLR-05**: NO_COLOR 标准（no-color.org）在所有新着色路径中遵守 — colorsEnabled() 门控，piped 输出降级
+
+## v1.5 Requirements (Complete)
 
 Requirements for eliminating picture_process.cpp's pack internal dependencies and extending PackRequest API.
 
@@ -37,6 +57,23 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 
 ## Traceability
 
+### v1.6
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| CLI11-01 | — | Pending |
+| CLI11-02 | — | Pending |
+| CLI11-03 | — | Pending |
+| CLI11-04 | — | Pending |
+| CLI11-05 | — | Pending |
+| COLR-01 | — | Pending |
+| COLR-02 | — | Pending |
+| COLR-03 | — | Pending |
+| COLR-04 | — | Pending |
+| COLR-05 | — | Pending |
+
+### v1.5 (Complete)
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SINK-01 | Phase 15 | Complete |
@@ -45,10 +82,10 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 | SINK-04 | Phase 18 | Complete |
 
 **Coverage:**
-- v1.5 requirements: 4 total
-- Mapped to phases: 4 ✓
-- Unmapped: 0
+- v1.6 requirements: 10 total
+- Mapped to phases: 0
+- Unmapped: 10 ⚠️
 
 ---
-*Requirements defined: 2026-05-04*
-*Last updated: 2026-05-04 after initial definition*
+*Requirements defined: 2026-05-09*
+*Last updated: 2026-05-09 after v1.6 milestone definition*
