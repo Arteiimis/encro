@@ -78,7 +78,7 @@
 **Milestone Goal:** CLI11 替换 boost::program_options，终端输出全面语义着色（--help / --version / errors），NO_COLOR 标准合规。
 
 - [x] **Phase 19: CLI11 Migration (No Color Change)** — CLI11 replaces boost::po; project builds, 26 options parse, 3033 assertions pass, zero user-visible change (completed 2026-05-09)
-- [ ] **Phase 20: CLI Color Deepening** — MessageKind extended, formatter_fn colored --help, --version colored, errors via terminal::println, NO_COLOR compliance
+- [x] **Phase 20: CLI Color Deepening** — MessageKind extended, formatter_fn colored --help, --version colored, errors via terminal::println, NO_COLOR compliance (completed 2026-05-09)
 
 ## Phase Details
 
@@ -180,7 +180,7 @@ Plans:
 Plans:
 - [x] 20-01-PLAN.md — MessageKind enum extension (5 new values: Usage, OptionGroup, OptionName, OptionDesc, Version) + styleFor()/defaultBadgeLabel() mappings (TDD)
 - [x] 20-02-PLAN.md — Colored --help output via formatter_fn styledText() injection — Usage/steel_blue, OptionGroup/steel_blue+bold, OptionName/light_cyan, OptionDesc/plain (TDD)
-- [ ] 20-03-PLAN.md — --version flag + colored version output via MessageKind::Version + COLR-03 error path verification
+- [x] 20-03-PLAN.md — --version flag + colored version output via MessageKind::Version + COLR-03 error path verification
 
 ## Progress
 
