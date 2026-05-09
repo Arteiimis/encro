@@ -1,390 +1,181 @@
-# Pitfalls Research
+# Domain Pitfalls: CLI Help Coloring & Terminal Color Deepening
 
-**Domain:** C++ pack/archive API refactoring — adding naming strategy abstraction + grouping config to existing 3-consumer system
-**Researched:** 2026-05-04
+**Domain:** CLI tool colored output via semantic color layer
+**Researched:** 2026-05-09
 **Confidence:** HIGH
 
 ## Critical Pitfalls
 
-### Pitfall 1: Summary Entry Ordering Breaks When Grouping Config Is Introduced
+Mistakes that cause rewrites or major regressions.
 
-**What goes wrong:**
-Picture's summary feature depends on a fragile implicit ordering contract: summary entries must be placed first in each logical bucket, and the `sourceKey` prefix `"0000__"` ensures lexicographic ordering. When grouping configuration is added (e.g., `keepSourceDirsTogetherWhenTotalFilesExceed` param exposed, or reordering logic touches groups), the summary-first invariant can silently break. The zip output will still be valid but summary entries may appear mid-archive or after non-summary files.
+### Pitfall 1: formatter_fn Is a Replacement, Not a Decorator
 
-**Why it happens:**
-The ordering depends on two mechanisms working in tandem: (a) `buildPictureLogicalBuckets()` inserts summary entries before iterating regular entries in `buildPictureLogicalParts()`, and (b) `isSummaryPicturePackEntry()` checks `sourceKey->starts_with("0000__")` to identify summaries. If the grouping config abstraction changes either the sourceKey generation or the ordering within `groupPackEntries`, summaries slide out of position. This is a *temporal coupling* between naming strategy and grouping config — they are implemented as independent abstractions but share a hidden invariant.
+**What goes wrong:** Developer assumes `formatter_fn` wraps/enhances the default formatter's output. Writes a lambda that tries to colorize the default output — but there is no default output available. The lambda receives raw data (App*, string, mode) and must produce the entire help string.
 
-**How to avoid:**
-1. **Enforce summary-first with a structural guarantee, not a string prefix convention**: Add a dedicated `bool isSummary` field to `PackEntryInput` (or use a tagged variant), then have `buildMediaPackPlan()` (in `pack.cpp`) explicitly copy-summary-entries-first regardless of sourceKey ordering.
-2. **Test invariant explicitly**: Add a `TEST_CASE` in `packer_tests.cpp` that verifies when summary entries are present, they appear first in every group/partition after `groupPackEntriesWithSubparts`.
-3. **Do not couple summary-first to naming strategy**: Summary position is a grouping concern. Keep it in grouping logic, not in naming.
+**Why it happens:** CLI11's documentation uses the word "formatter" and "callback" without emphasizing that this is a complete replacement. The name `formatter_fn` sounds like a hook, not a takeover.
 
-**Warning signs:**
-- Summary entries appearing after file entries in zip listing
-- Any change to `sourceKey` generation that doesn't preserve `"0000__"` prefix
-- Tests that check zip entry names but not entry ordering
+**Consequences:** Help output is missing entirely or incomplete. Column alignment broken. Option names and descriptions don't appear. User sees garbled or empty help.
 
-**Phase to address:**
-Phase 1 (Grouping Config addition to PackRequest) — this is the earliest it can break. Must be tested before any naming strategy change.
+**Prevention:** Before writing `formatter_fn`, understand that you are reimplementing `CLI::Formatter::make_help()`. Read CLI11's default formatter source (`CLI/Formatter.hpp`) to understand what it does. Budget 60-80 lines for the formatter_fn lambda.
 
----
+**Detection:** Test `encro --help` immediately after setting `formatter_fn`. Compare output against the pre-migration `boost::program_options` help text. Every option group, every option, every description must appear.
 
-### Pitfall 2: Naming Strategy Enum Explosion — Binding Enum Values to Consumer-Specific Modes
+### Pitfall 2: ColorsEnabled() Gating Is Per-Stream, Not Global
 
-**What goes wrong:**
-Picture has 3 naming modes (Flat, Keep, FlatForce). If the new `NamingStrategy` enum directly encodes these 3 modes, it creates a leaky abstraction: (a) the enum is useless for video consumers (they don't use these modes), (b) the enum is useless for directory pack-only consumers (they use `buildConflictHandledPackEntryName` differently), (c) adding a 4th picture mode requires modifying the shared enum and all consumers' compilation units. The enum should describe *strategy intent*, not *consumer identity*.
+**What goes wrong:** Developer calls `terminal::colorsEnabled()` without specifying stream, gets the default (`Stream::Stdout`), and uses the result to decide whether to color stderr output.
 
-**Why it happens:**
-The natural temptation is to "codify what picture already does" — but picture's 3 modes are a combination of layout (Keep vs Flat) + forceConflictHandling flag. They are not 3 independent strategies; they are 2 axes (layout × conflict handling) producing 3 meaningful combinations. Hardcoding the 3 combos as enum values forecloses future combinations and forces all consumers to carry unused variants.
+**Why it happens:** The overload `colorsEnabled(Stream stream = Stream::Stdout)` has a default parameter. Easy to call `colorsEnabled()` when you meant `colorsEnabled(Stream::Stderr)`.
 
-**How to avoid:**
-1. **Keep `OutputLayout` + `forceConflictHandling` as two independent fields** in `NamingConfig`. The enum already exists. The naming strategy is determined by `(layout, forceConflictHandling)` tuple, not a flat enum. Do not add a separate `NamingStrategy` enum unless it truly orthogonal dimensions.
-2. If an enum IS needed (e.g., for `zipNameStrategy` dispatch), make it describe *how to build the entry name*, not *which picture mode is active*. Example: `EntryNameStyle::RelativePath`, `EntryNameStyle::FlatWithPrefix`, `EntryNameStyle::FlatWithCollisionGroup`. These map to the actual naming operations, not to picture modes.
-3. **Validate all enum × layout × forceConflictHandling combinations in tests** — there are only 6 possible combos (2 layouts × 2 conflictHandling bools × entry types). Test all, even the "impossible" ones, to catch regressions.
+**Consequences:** When stdout is piped to a file but stderr is still a terminal: error messages lose their color (should retain it). Or, when both are piped: no consequence (both return false). The bug is asymmetric — only visible in specific pipe configurations.
 
-**Warning signs:**
-- New enum with values named after picture-specific concepts (e.g., `PictureFlat`, `PictureKeep`)
-- `switch(namingStrategy)` in non-picture code paths
-- `static_assert` for enum count that needs updating every milestone
+**Prevention:** Always explicitly pass the stream: `colorsEnabled(Stream::Stderr)` for error output, `colorsEnabled(Stream::Stdout)` for normal output. The existing `terminal::eprintln()` template already does this correctly — don't bypass it.
 
-**Phase to address:**
-Phase 2 (Naming Strategy Abstraction) — define the abstraction before implementing picture migration.
+**Detection:** Test with `encro --bad-flag 2>&1 | cat` — errors should still have ANSI codes if stderr is a TTY. Test with `encro --bad-flag 2>/dev/null` to ensure colors are suppressed when stderr is redirected.
 
----
+### Pitfall 3: NO_COLOR Semantics — Present + Non-Empty, Any Value
 
-### Pitfall 3: PackPlan Still Leaks to Consumers After "Internal-Only" Claim
+**What goes wrong:** Developer checks `NO_COLOR=1` specifically, or checks `NO_COLOR=true`, or requires a specific value.
 
-**What goes wrong:**
-The goal is to make PackPlan internal-only (`pack.h` no longer exposes it). But picture_process.cpp currently constructs PackPlan directly in `buildPicturePackPlan()` and passes it to `pack::execute(PackPlan, jobState*)`. If the migration only wraps this into `PackRequest` but leaves PackPlan visible in the header or adds a backdoor getter, PackPlan remains a transitive dependency of every consumer.
+**Why it happens:** Natural to think `NO_COLOR=1` is the expected value. The spec at no-color.org says "when present and not an empty string (regardless of its value)."
 
-**Why it happens:**
-There are 4 call sites in picture_process.cpp that use `buildPicturePackPlan()` → `pack::execute(*plan, ...)`. Three of them use the PackPlan overload. The "quick" migration is to build a PackRequest that internally constructs the PackPlan — but if `pack_types.h` keeps declaring PackPlan, consumers can still `#include "pack/pack_types.h"` and see it. The `static_assert(std::is_aggregate_v<PackPlan>)` in `pack_types.h` is a reverse-dependency marker: it exists BECAUSE external code constructs PackPlan. Removing it is a signal that internalization succeeded.
+**Consequences:** `NO_COLOR=0` (a valid way to say "I want no color") is ignored. `NO_COLOR=yes` is ignored. `NO_COLOR=true` is ignored. Users who follow the spec get color they tried to disable.
 
-**How to avoid:**
-1. **After all consumers migrate to `pack::execute(PackRequest)` only, move PackPlan to `pack_internal.h`** (or a new `pack_detail.h` that is NOT in the public include path). Remove it from `pack_types.h`.
-2. **Delete the `execute(PackPlan, jobState*)` public overload** or make it `namespace pack::detail` only. Only `pack::execute(PackRequest)` should be public.
-3. **Verification test**: Add a compilation check — `#include "pack/pack.h"` should NOT give access to `pack::PackPlan`. If any consumer outside `src/pack/` uses PackPlan, compilation must fail.
-4. **Remove the `static_assert(std::is_aggregate_v<PackPlan>)`** once internalization is complete — it was a guard against external mutation, no longer needed internally.
+**Prevention:** The existing `terminal::noColorRequested()` implementation is correct: it checks `readEnvVar("NO_COLOR").has_value()`. Do not add value checking. Do not add `== "1"` or `== "true"`.
 
-**Warning signs:**
-- `pack_types.h` still contains PackPlan after "done" claim
-- Picture (or any consumer) still `#include "pack/pack_types.h"` after migration
-- The `execute(PackPlan, jobState*)` overload remains public
+**Detection:** Test with `NO_COLOR=0 encro --help`, `NO_COLOR=yes encro --help`, `NO_COLOR= anything encro --help` — all should produce plain text.
 
-**Phase to address:**
-Phase 3 (Picture elimination of detail/internal dependencies) — this is the final step after consumer migration.
+### Pitfall 4: CLI11 Option Group API Differs from boost::program_options
 
----
+**What goes wrong:** Developer writes `formatter_fn` assuming CLI11's option group iteration works like `boost::program_options::options_description`. Tries `group.options()` or `group.begin()`.
 
-### Pitfall 4: Two-Layer Partitioning Logic Leaks Through PackRequest Grouping Config
+**Why it happens:** Both libraries have "option groups" — but the APIs are different. CLI11 uses `App::get_option_groups()` → `Option_group*` → `get_options()` → `Option*`.
 
-**What goes wrong:**
-Picture currently has its own two-layer partitioning: (1) logical buckets → (2) physical groups via `packer.groupPackEntries()` with `keepSourceDirsTogetherWhenTotalFilesExceed = 0`. This is the MOST complex grouping behavior in the entire system. If the new grouping config on PackRequest tries to abstract this with simple knobs (e.g., just `maxFilesPerGroup`), the abstraction either:
-- (a) Fails to express picture's needs, forcing picture to keep calling Packer directly
-- (b) Adds too many parameters, leaking Packer's grouping internals into the public PackRequest
+**Consequences:** Compilation errors. Or worse: the formatter_fn compiles but silently skips groups or options because the iteration logic is wrong.
 
-**Why it happens:**
-The two-layer partitioning exists because picture has a unique constraint: summary entries from the same source directory must stay with their regular entries in the same logical part. Without this, you'd get summaries for directory B in the middle of directory A's files. The `keepSourceDirsTogetherWhenTotalFilesExceed = 0` parameter means "never split a source directory across packs, even if it means exceeding the file count limit." This is a semantic constraint, not just a size threshold.
+**Prevention:** During implementation, read CLI11's `App.hpp` and `Option_group.hpp` to understand the exact iteration API. Test with a single-group, single-option CLI first before adding all 4 groups and 26 options.
 
-**How to avoid:**
-1. **Make `keepSourceDirsTogether` a first-class grouping strategy field on PackRequest**, not a hidden optional parameter. Something like:
-   ```cpp
-   enum class GroupingStrategy {
-     Simple,           // groupPackEntries — size-based only
-     SourceDirAware,   // groupPackEntriesWithSubparts — keep source dirs intact
-   };
-   ```
-2. **Picture's logical partitioning (buckets → parts) should remain inside the pack module**, driven by `GroupingStrategy::SourceDirAware`. Do not expose `keepSourceDirsTogetherWhenTotalFilesExceed` value directly.
-3. **Add `maxEntriesPerLogicalPart` to PackRequest** — picture's `kMaxPicturesPerPack = 2000` constraint must be expressible. This is currently done in `buildPictureLogicalParts()` and needs to become internal logic inside `buildMediaPackPlan()`.
-4. **Test that the two-layer partitioning produces identical group/partition counts** before and after migration. Compare `packer.groupPackEntriesWithSubparts()` output for the same inputs.
+**Detection:** Test `encro --help` and verify all 4 groups appear (General, I/O, Processing, File ops) with all 26 options.
 
-**Warning signs:**
-- PackRequest getting a raw `std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed` field (this is a Packer detail)
-- Picture code still calling `packer.groupPackEntries()` directly after "migration complete"
-- Different group counts for the same picture directory in old vs new code path
+### Pitfall 5: MessageKind Destruction of Backward Compatibility
 
-**Phase to address:**
-Phase 1 (Grouping Config) — must be designed correctly before picture migration.
+**What goes wrong:** Removing or renumbering existing `MessageKind` enum values. Adding new values in the middle of the enum. Changing the style mapping for existing values.
 
----
+**Why it happens:** Enum modification seems harmless. But `MessageKind` is used across the entire codebase — changing `Error`'s style from red to orange, or reordering enum values, can affect every error output path.
 
-### Pitfall 5: Behavioral Drift From Naming Strategy Callback Migration
+**Consequences:** Subtle visual regressions. Error messages that were red become orange (unexpected for users). Enum values used in serialization or comparison could break.
 
-**What goes wrong:**
-When picture's `planPictureZipEntryNames()` is replaced by `NamingConfig` + `entryNameForFile` callback + `NamingStrategy` enum, the exact entry names produced must be byte-for-byte identical. A mismatch in edge cases (trailing slashes, unicode paths, filenames with dots, relative path normalization) causes existing zip archives to be incompatible with resumable job state, and E2E tests to fail on seemingly unrelated assertions.
+**Prevention:** Only add new values at the END of the `MessageKind` enum. Never remove or renumber existing values. Never change the style mapping of existing values without explicit user-visible rationale. The existing mappings (Error=red, Warning=yellow, Success=green) are industry conventions — don't deviate.
 
-**Why it happens:**
-Picture's naming logic in `planPictureZipEntryNames()` has several non-obvious behaviors:
-1. **Keep layout**: Uses `lexically_relative()` — the root directory is `dirPath`, and entries relative to it. If `dirPath` normalization changes (trailing slash vs no slash), the relative path changes.
-2. **Flat layout without conflict**: Uses `buildFlatPictureEntryName()` which hardcodes `"1000__"` prefix — no collision group prefix.
-3. **Flat layout with conflict (FlatForce)**: Uses `buildConflictHandledPictureEntryName()` → `collisionnaming::buildConflictHandledFlatName()` which produces `{groupLabel}__{hash}__{stem}__{hash}{ext}`. The group label via `buildCollisionGroupPrefix(dirPath, filePath)` normalizes `dirPath` and `filePath` through `stablePathString()` which lowercases.
-4. **Summary entries**: `buildSummaryPictureEntryName()` hardcodes `"0000__summary__{prefix}__{filename}"`.
-5. **Compress path additionally calls `toJpgEntryName()`** which replaces the extension with `.jpg`.
-
-If the new `entryNameForFile` callback or naming strategy produces different strings for any of these paths, the zip entry names differ from v1.4, breaking resumable state continuity.
-
-**How to avoid:**
-1. **Snapshot reference entry names first**: Write a test that runs `planPictureZipEntryNames()` on a known test directory and captures ALL entry names as golden strings. Commit this test BEFORE starting migration. The migration is complete only when the same inputs produce exactly the same golden strings through the new code path.
-2. **Decouple naming from grouping**: `planPictureZipEntryNames()` currently BOTH assigns names AND resolves collisions (grouping same-named files). The migration should separate: naming strategy produces candidate names, Packer's `makeUniqueZipEntryName` handles collisions. But the candidate names must match.
-3. **Handle the `preferredEntryName` edge case**: In the current code, when `plannedEntryNames.find(picPath)` returns `end()`, the fallback is `picPath.filename().generic_string()`. The new code path must replicate this exactly including `generic_string()` normalization.
-4. **Compress path `toJpgEntryName`**: This is currently applied AFTER naming. Make sure the new abstraction doesn't bake JPG conversion into the naming strategy — it's a compression concern, not a naming concern.
-
-**Warning signs:**
-- `entryNameForFile` callback producing filenames that differ from the golden set
-- Unicode paths producing different hashes (case folding in `stablePathString`)
-- Summary entries getting `1000__` prefix instead of `0000__summary__`
-
-**Phase to address:**
-Phase 2 (Naming Strategy) — golden tests must be committed before implementation begins.
-
----
-
-### Pitfall 6: `collisionnaming` Namespace Scope Leak — Picture Still Depends on It Post-Migration
-
-**What goes wrong:**
-Picture_process.cpp currently uses `collisionnaming::stablePathString`, `collisionnaming::buildCollisionGroupPrefix`, `collisionnaming::buildConflictHandledFlatName`, and `collisionnaming::shortPathHash` directly. After naming strategy abstraction, picture should NOT still depend on these functions — the naming logic is now the pack module's responsibility. If picture keeps these includes, it means the abstraction didn't fully internalize naming.
-
-**Why it happens:**
-The `using namespace collisionnaming` at line 25 and the `#include "core/collision_naming.h"` at line 5 of picture_process.cpp are transitively justified because picture builds its own entry names. When naming is "internalized", these become dead includes but the compiler won't warn about unused includes. They can persist indefinitely, maintaining a hidden coupling.
-
-**How to avoid:**
-1. **Remove `#include "core/collision_naming.h"` from picture_process.cpp as a migration acceptance criterion.** If compilation fails after removal, the naming abstraction is incomplete.
-2. **Move collision-naming-dependent types into pack module types**: `sourceKey`, `fileKey` generation should happen inside `buildMediaPackPlan()`, not in picture's `makePictureSummaryPackEntry()` / `makePictureRegularPackEntry()`.
-3. **Track includes in the migration checklist**: Each removed `#include` is a verified decoupling.
-
-**Warning signs:**
-- `using namespace collisionnaming` still present in picture_process.cpp after "done"
-- `collisionnaming::buildCollisionGroupPrefix` called from picture code
-- `naming::stablePathString` alias in picture's anonymous namespace still exists
-
-**Phase to address:**
-Phase 3 (Picture elimination) — verify includes removed.
-
----
-
-### Pitfall 7: Resumable Job State Incompatibility From Changed Zip Names
-
-**What goes wrong:**
-The resumable execution system (`pack::execute(PackPlan, jobState*)`) stores archive tasks keyed by zip file name (`jobstate::makeArchiveTask(plan.outputDir / zipName, ...)` at pack.cpp:228). If the naming strategy produces a different zip name for the same input set, the job state store won't recognize the archive as already completed. This causes:
-- (a) Redundant re-execution of already-packed archives
-- (b) Orphaned job state entries that can never be matched
-- (c) Silent data loss if the old archive is overwritten with a differently-named new one
-
-**Why it happens:**
-The zip file naming (`zipNameForIndex` lambda on `PackPlan`) includes part/subpart indices and ordinal range suffixes via `appendOrdinalRangeSuffix`. If the new naming strategy changes any of: baseName computation, partIndex assignment, subPartIndex assignment, or ordinal range calculation, the resulting zip filenames differ. The resumable store uses zip filenames as the stable identity of an archive task.
-
-**How to avoid:**
-1. **Zip name MUST be deterministic from the pack request inputs**: For the same directory, same config, same files, the zip names must be identical. Add a test that builds PackPlan from request twice and asserts `zipNameForIndex(i)` returns the same string both times.
-2. **Preserve the existing `buildPicturePackBaseName` / `buildPackZipBaseName` logic** exactly — this is already internalized in `pack.cpp::buildPackZipBaseName()`. Do not change the format `{baseName}_part{X}.{Y}.zip` or `part{X}.zip` patterns.
-3. **Ordinal ranges must be computed identically**: `buildGroupOrdinalRanges()` in `pack_internal.h` must produce the same ranges after migration. This depends on group partitioning being identical.
-
-**Warning signs:**
-- Resumable tests that previously skipped archives now process them again
-- Job state `.json` files contain archive IDs that don't match generated zip names
-- `--resume` flag produces duplicate archives with different names
-
-**Phase to address:**
-Phase 2 (Naming Strategy) before picture migration — must validate zip name stability.
-
----
-
-### Pitfall 8: Compress Path vs Non-Compress Path Divergence Post-Abstraction
-
-**What goes wrong:**
-Picture has two nearly identical code paths (compress and non-compress) that share 80%+ logic but differ subtly:
-- Compress: sourcePath points to compressed file in tempDir, entryName gets `.jpg` extension
-- Non-compress: sourcePath is the original file, entryName keeps original extension
-
-After migrating both to `pack::execute(PackRequest)`, future changes to one path but not the other cause silent divergence. A developer adds a naming feature to the compress path, tests pass (compress tests cover it), but the non-compress path produces wrong entry names.
-
-**Why it happens:**
-The two paths are currently forced to share logic through `buildPicturePackPlan()` which is called by both. But the naming is applied at the PackEntryInput level BEFORE the shared plan builder. If the new abstraction applies naming at a different level (e.g., inside `buildMediaPackPlan()` via `entryNameForFile` callback), the source of truth splits: compress path provides entryName differently than non-compress.
-
-**How to avoid:**
-1. **Ensure `entryNameForFile` produces the same names for original and compressed variants of the same file** — only the sourcePath differs, not the zip entry name. This means the callback must use the original source file's path, not the compressed temp file's path.
-2. **Consolidate compress + non-compress into a single `buildPicturePackRequest()` factory** that takes optional compressed-path mapping. Both paths call the same `pack::execute(PackRequest)`. The only difference is whether `entryInputs` use original or compressed source paths.
-3. **Add a parameterized test that exercises both paths** with the same input directory and asserts identical zip entry names (differing only in file content, not zip structure).
-
-**Warning signs:**
-- Separate `buildPackRequestForCompress()` and `buildPackRequestForNonCompress()` that duplicate naming logic
-- `entryNameForFile` callback that depends on whether the file exists at a given path (temp vs original)
-- One path getting a new feature that the other doesn't
-
-**Phase to address:**
-Phase 3 (Picture migration) — consolidation should happen during migration, not after.
-
----
+**Detection:** Existing 3033 assertions should catch unexpected output changes. Visual comparison of before/after error output.
 
 ## Moderate Pitfalls
 
-### Pitfall M1: `entryNameForFile` Callback Lifetime Issues
+### Pitfall 6: Console Width Race Condition
 
-**What goes wrong:**
-The callback `entryNameForFile` on PackRequest is a `std::function<std::string(fs::path const&)>`. If it captures by reference and the PackRequest outlives the captured variables (common when PackRequest is moved into `execute()`), the callback becomes dangling. Calling it produces UB — typically a crash or garbage zip entry names.
+**What goes wrong:** `formatter_fn` is called lazily (when `--help` is processed), but `console_width.h` reads terminal dimensions. If the terminal is resized between CLI initialization and help display, the cached width is stale.
 
-**Why it happens:**
-In `buildMediaPackPlan()` (pack.cpp:154), the callback is called on every entry after grouping. The PackRequest is passed by const-ref to `execute()`, then its `entryInputs` are moved/copied. If `entryNameForFile` captured e.g., `const auto& plannedNames` from picture_process.cpp and PackRequest is moved, the reference dangles.
+**Why it happens:** `resolveHelpTextLayout()` caches `lineLength` at CLI init time in current code. The formatter_fn is called later.
 
-The current picture code avoids this by building names into `PackEntryInput.entry.zipEntryName` BEFORE constructing `PackEntryInput` — the callback is never involved. Post-migration, if picture sets `request.entryNameForFile = [&](...) { ... };`, this becomes a ticking time bomb.
+**Consequences:** Help output wraps at wrong column if user resized terminal after launching the program (rare, but possible in long-running help scenarios or when help is displayed after a delayed error).
 
-**How to avoid:**
-1. **Picture should NOT use `entryNameForFile` callback at all.** Instead, build entry names directly into `PackEntryInput.entry.zipEntryName` before adding to `PackRequest.entryInputs`. This is the pattern already established.
-2. If `entryNameForFile` MUST be used, document that it must outlive the PackRequest. Accept by value in appropriate contexts.
-3. Add a test that moves a PackRequest with a lambda-capturing callback into execute() and verifies no use-after-free (e.g., with AddressSanitizer).
+**Prevention:** Call `console_width::resolveColumns()` inside `formatter_fn`, not at CLI init time. Width detection is cheap (single `ioctl`/`GetConsoleScreenBufferInfo` call). Alternatively, accept the current behavior — terminal resize during `--help` display is an edge case.
 
-**Warning signs:**
-- `entryNameForFile = [&](...)` (capture by reference)
-- PackRequest stored in a local then moved to execute()
-- Random zip entry names or crashes in packer when reading entry names
+**Detection:** Test by running `encro --help` in a terminal, resizing before output appears. Check if wrapping matches new width.
 
-**Phase to address:**
-Phase 2 (Naming Strategy) — the callback API definition.
+### Pitfall 7: formatter_fn Is Not Tested by Existing Assertions
 
----
+**What goes wrong:** The 3033 existing assertions test CLI parsing and business logic, not the visual output of `--help`. The formatter_fn has zero test coverage unless explicitly tested.
 
-### Pitfall M2: `PackRequest` Grows Without Bound — Optional Everything Becomes Unmanageable
+**Why it happens:** The existing tests are integration/unit tests focused on parsing correctness. Help output formatting was previously handled by `boost::program_options::print()` which was assumed correct.
 
-**What goes wrong:**
-PackRequest currently has 10 fields, 4 of which are `std::optional`. Adding `groupingStrategy`, `summaryConfig`, `namingStrategy` with their own optional sub-structs creates a combinatorial explosion of optional fields. Consumers must understand which combinations are valid. Invalid combinations (e.g., `summaryConfig` with `PackMode::Directory`) are silently ignored rather than rejected at compile time.
+**Consequences:** Help rendering bugs (missing options, broken alignment, wrong grouping) go undetected. A regression in the formatter_fn won't be caught by CI.
 
-**Why it happens:**
-Each new feature gets a `std::optional<T>` field. This is the safe choice (backward compatible), but it defers validation to runtime. The API surface becomes: "10 fields, 4 required, 6 optional, some combinations mutually exclusive, others silently ignored." This is hard to test and easy to misuse.
+**Prevention:** Add at least smoke tests for the formatter_fn: capture help output string, assert it contains expected option names ("--input", "--output", "--pack"), group headers ("General options", "Input/Output options"), and the usage line. Test both color-enabled and color-disabled (NO_COLOR=1) paths.
 
-**How to avoid:**
-1. **Use `PackMode` to scope valid fields**: `summaryConfig` is only valid for `PackMode::Media`. `groupingStrategy` might be valid for both but with different semantics. Document in the struct, but also **add a `validate()` method or free function** that checks consistency and returns `eh::Result<void>`.
-2. **Group related optional fields into sub-structs**: Already done with `NamingConfig`. Do the same for `GroupingConfig` and `SummaryConfig`. A consumer sets `.grouping = GroupingConfig{...}` or leaves it `std::nullopt`.
-3. **Limit to one level of nesting**: Don't let sub-struct options themselves have nested optionals. `SummaryConfig` should have a simple `bool enabled = false` + maybe `perSourceDir = true`.
+**Detection:** Missing test coverage → CI doesn't catch help rendering bugs.
 
-**Warning signs:**
-- PackRequest fields exceeding 15
-- More than 3 levels of `std::optional` nesting
-- "silently ignore" comments in `execute()` body
+### Pitfall 8: Incorrect StyleFor() for OptionDesc
 
-**Phase to address:**
-Phase 1 (Grouping Config) — design PackRequest extension carefully.
+**What goes wrong:** Setting `OptionDesc` to a colored style (e.g., `fg(gray)`) instead of plain `{}`.
 
----
+**Why it happens:** Temptation to "color everything." Developer thinks dimmed descriptions look more polished.
 
-### Pitfall M3: Picture's `packAllPicsToZip` Legacy Path Gets Ignored
+**Consequences:** Description text becomes harder to read (low contrast). Users with visual impairments may find colored body text problematic. Violates the industry convention (cargo, ripgrep, fd all use plain descriptions).
 
-**What goes wrong:**
-`packAllPicsToZip()` (line 718-770 of picture_process.cpp) is a standalone function that packs pictures into a single zip directory (no two-layer partitioning, no max file count). It's called from non-CLI contexts (potentially external consumers). If the migration only refactors `runPicturePackWorkflow()`, this function is left using the old PackPlan API while everything else moves to PackRequest. It becomes a permanent anomaly.
+**Prevention:** Map `OptionDesc` to `{}` (no style). Description text is the highest-volume content in help output — readability trumps aesthetics. If users complain about visual distinction, consider increasing spacing between columns, not coloring descriptions.
 
-**Why it happens:**
-This function is the simplest of the 3 picture packing functions — it has no compress path, no resumable execution, no two-layer partitioning. It's easy to overlook because it's at the bottom of the file and uses minimal dependencies. But it still constructs PackPlan directly and passes it to `pack::execute(*plan)`.
+**Detection:** Visual review of --help output. If descriptions are colored, it's wrong.
 
-**How to avoid:**
-1. **Audit ALL callers of `pack::execute(PackPlan, ...)` before starting migration.** There are 4 call sites in picture_process.cpp: 3 from `runPicturePackWorkflow()` + 1 from `packAllPicsToZip()`.
-2. **Migrate `packAllPicsToZip()` first** — it's the simplest and validates that the `PackRequest` path works for basic picture packing without complex grouping.
-3. **Search for `pack::execute(` across the full codebase** — anything passing a PackPlan is a migration target.
+### Pitfall 9: Forgetting to Update defaultBadgeLabel()
 
-**Warning signs:**
-- `pack::execute(*plan, ...)` still in picture_process.cpp after "done"
-- `buildPicturePackPlan()` still exists and is called
-- grep shows `PackPlan` usage in non-pack source files
+**What goes wrong:** Adding new `MessageKind` values without adding cases to `defaultBadgeLabel()`.
 
-**Phase to address:**
-Phase 3 (Picture migration) — part of the comprehensive audit.
+**Why it happens:** `defaultBadgeLabel()` has a switch with explicit cases for each kind. New values that don't match any case fall through to `return {}` — which is accidentally correct for help kinds (no badge). But it's fragile.
 
----
+**Consequences:** If a future `MessageKind` value should have a badge but falls through the switch, the badge silently disappears. The inverse (a help kind accidentally getting a badge) would produce `[] OptionGroup header` which looks broken.
 
-### Pitfall M4: `forceConflictHandling` Default Semantics Change
+**Prevention:** Add explicit cases for ALL new `MessageKind` values in `defaultBadgeLabel()`, returning `{}` for help kinds. Add a default case that asserts/logs on unexpected values in debug builds. Consider `[[nodiscard]]` or compiler warnings.
 
-**What goes wrong:**
-In `AppConfig`, `forceNameConflictHandling = true` (default). In `NamingConfig`, `forceConflictHandling = false` (default). If picture migration changes from reading `AppConfig.forceNameConflictHandling` to using `NamingConfig.forceConflictHandling` without carrying the AppConfig default, the effective default changes from `true` → `false` — reversing the conflict handling behavior for all picture processing.
+**Detection:** Test that `terminal::renderMessage(Stream::Stdout, MessageKind::OptionGroup, "Test")` does not prepend a badge. The output should be just the styled text, not `[] Test`.
 
-**Why it happens:**
-The `NamingConfig` was designed for the Directory mode where `forceConflictHandling = false` is the sensible default (directory trees naturally avoid name conflicts). But picture's Flat mode defaults to `forceConflictHandling = true`. The NamingConfig default was chosen for the majority use case (Directory), not for pictures.
+## Minor Pitfalls
 
-**How to avoid:**
-1. **Picture must explicitly set `NamingConfig.forceConflictHandling` from `AppConfig.forceNameConflictHandling`** — never rely on NamingConfig's default.
-2. **Document the default discrepancy** in `NamingConfig`'s struct comment.
-3. **Add a test** that verifies picture Flat mode with `forceNameConflictHandling = true` (the default) produces collision-handled names.
+### Pitfall 10: Emoji in Terminal Output
 
-**Warning signs:**
-- `request.naming = NamingConfig{.layout = ...}` without `.forceConflictHandling`
-- Conflict-handling tests pass with default `false` but fail with `true`
-- Non-obvious behavior change surfacing in E2E tests
+**What goes wrong:** Using emoji as badge replacements (e.g., ❌ for errors, ⚠️ for warnings).
 
-**Phase to address:**
-Phase 2 (Naming Strategy) — config mapping must preserve existing defaults.
+**Why it happens:** Modern terminals support emoji. Some tools use them (e.g., Homebrew uses 🍺). Seems "modern."
 
----
+**Consequences:** Breaks on older terminals, monospace fonts without emoji support, some Windows console configurations. Emoji width is unpredictable (some are double-width). Inconsistent with the tool's existing `[error]` badge convention.
 
-## Technical Debt Patterns
+**Prevention:** Stick to ASCII badges: `[error]`, `[warn]`, `[done]`, `[info]`, `[hint]`, `[?]`. These are universally supported, monospace-safe, and already in use.
 
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| Hardcode `"1000__"` and `"0000__summary__"` prefixes in naming strategy mapping | Fast implementation | Magic strings become undocumented invariants; prefix collision risk if video consumer also uses these | Never — extract to named constants in pack module |
-| Keep `collisionnaming` namespace import in picture_process.cpp "just for stablePathString" | Avoid extra refactoring | Breaks the "naming is internal to pack" invariant; picture remains coupled to naming implementation details | Only if `stablePathString` is genuinely a core utility (it is), but then it must move to a non-pack, non-picture utility header |
-| Add `summaryEnabled` bool directly to `PackRequest` instead of a `SummaryConfig` sub-struct | One less struct to define | Forces all consumers to know about summary concept; breaks separation of concerns | Never — summary is picture-specific, not universal |
-| Use `std::function` for grouping strategy instead of enum + dispatch table | Flexibility | No compile-time validation of valid strategies; type erasure hides intent | Only if grouping strategies need runtime composition (they don't here) |
-| Copy `buildPicturePackBaseName` logic into new naming strategy enum handler | One less function to extract | Duplicated zip naming logic — change one, forget the other | Never — single source of truth for zip name format |
+### Pitfall 11: Not Testing with TERM=dumb
 
-## Integration Gotchas
+**What goes wrong:** Developer only tests with a modern terminal emulator (Windows Terminal, iTerm2, GNOME Terminal). Doesn't test with `TERM=dumb` or on a bare TTY.
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| picture → pack::execute() | Passing AppConfig raw instead of translating to NamingConfig+GroupingConfig | Picture builds a PackRequest with explicit config mapping; no AppConfig types cross the boundary |
-| video → pack::execute() | Setting `entryNameForFile` callback that captures video-specific state by reference | Video should use `entryInputs` with pre-computed names, not callbacks (same pattern as current code) |
-| pipeline → pack::execute() | Different PackRequest construction for video vs picture vs directory modes | All modes use `pack::execute(PackRequest)`, mode-switching logic in pipeline, not in pack module |
-| pack::internal → consumers | Accidentally exposing `packer_types.h` types through PackRequest fields | PackRequest only uses types from `pack.h` and `pack_types.h` (public headers); never include `packer_types.h` or `pack_internal.h` in public API |
-| collisionnaming → multiple modules | Pack and picture both `using namespace collisionnaming` and calling the same functions from different contexts | After migration, only `pack/` module includes collision_naming.h; picture only calls pack::execute() |
+**Why it happens:** Modern terminals Just Work(TM). It's easy to forget the fallback paths.
 
-## Performance Traps
+**Consequences:** On CI systems (which often set `TERM=dumb` or run without a TTY), color escape sequences appear as garbage characters in logs. `[31m[1m[error][0m file not found` instead of clean text.
 
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| `std::function` copy in `buildMediaPackPlan` hot path | Increased memory allocs per archive; slower packing with many small groups | The callback is captured once per PackPlan, copied once per lambda closure — negligible for 1-100 archives. **Not a real concern** but verify with heap profiling if archive count > 1000 | >1000 archive groups |
-| `unordered_map` rehashing in `buildPictureLogicalBuckets` | `bucketsByDir.reserve(packInputs.size())` already prevents most rehashing | Existing code is already optimized. New grouping must maintain `.reserve()` calls | Not a concern — already addressed |
-| String copying in entry name generation | `std::format` return values copied into `std::string` zipEntryName | Use `std::move` when returning from format. Current code does this implicitly via RVO | Already handled by C++17 guaranteed copy elision |
+**Prevention:** `terminal::colorsEnabled()` already handles `TERM=dumb`. The prevention is testing: run `TERM=dumb encro --help` and verify no ANSI codes appear in output.
 
-## "Looks Done But Isn't" Checklist
+**Detection:** CI logs show raw escape sequences instead of clean text.
 
-- [ ] **PackPlan not visible:** `#include "pack/pack.h"` in a test file gives no access to `pack::PackPlan`
-- [ ] **No collisionnaming in picture:** `#include "core/collision_naming.h"` removed from `picture_process.cpp`
-- [ ] **No Packer direct access:** `#include "pack/packer.h"` removed from `picture_process.cpp`
-- [ ] **All 4 picture call sites migrated:** 3 `runPicturePackWorkflow()` + 1 `packAllPicsToZip()` all use `pack::execute(PackRequest)`
-- [ ] **Summary ordering preserved:** Summary entries appear first in zip listing for every archive
-- [ ] **Golden zip entry names match:** Byte-identical zip entry names for test input directory before vs after migration
-- [ ] **Resumable state compatible:** Running `--resume` after interrupted migration build reuses the same zip names
-- [ ] **Compile-time validation:** `static_assert` that `PackRequest` works with all 3 modes at compile time (no runtime dispatch needed for basic validation)
-- [ ] **`forceConflictHandling` default preserved:** Picture's Flat mode still defaults to `true` (inherited from AppConfig, not NamingConfig default)
-- [ ] **Video consumer untouched:** Video's `pack::execute(PackRequest{...})` call still works without any changes (backward compat)
+### Pitfall 12: Windows Console Host (conhost.exe) Before Win10 1903
 
-## Recovery Strategies
+**What goes wrong:** ANSI escape sequences don't render on older Windows 10 builds or Windows 8.1.
 
-| Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| Summary ordering breaks | MEDIUM | Revert to explicit summary-first insertion in buildMediaPackPlan; add `isSummary` flag to PackEntryInput; re-run golden tests |
-| Naming enum explosion | LOW | Revert enum to `OutputLayout` + `forceConflictHandling` tuple; delete enum definition from header (assuming no consumer adopted it yet) |
-| PackPlan still leaks | HIGH | Requires touching all consumers' includes; find-replace `pack/pack_types.h` → `pack/pack.h` across codebase; verify compilation |
-| Golden entry name mismatch | MEDIUM | Diff golden names vs actual names; fix naming strategy mapping; re-run golden test; if fundamental mismatch, revert naming abstraction |
-| Resumable state broken | HIGH | Old job state files are incompatible with new zip names; either provide a migration script or accept that `--resume` from v1.4 requires redoing packing |
-| callback lifetime bug | LOW | Change lambda capture from reference to value; add AddressSanitizer test |
+**Why it happens:** Microsoft added Virtual Terminal support in Windows 10 version 1903 (build 18362). Older builds need the legacy Console API for colors.
 
-## Pitfall-to-Phase Mapping
+**Consequences:** Garbled output on older Windows systems. `←[1;34mGeneral options←[0m` instead of colored text.
 
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Summary ordering break (P1) | Phase 1 — Grouping Config | Test that summary entries are first in every zip archive listing |
-| Enum explosion (P2) | Phase 2 — Naming Strategy | Code review: enum values express strategy intent, not consumer identity |
-| PackPlan leak (P3) | Phase 3 — Picture Migration | Compile test: `#include "pack/pack.h"` doesn't expose PackPlan |
-| Two-layer partitioning leak (P4) | Phase 1 — Grouping Config | Test identical group/partition counts for same inputs |
-| Behavioral drift (P5) | Phase 2 — Naming Strategy | Golden test: byte-identical zip entry names for test directory |
-| collisionnaming scope leak (P6) | Phase 3 — Picture Migration | Search: no `collisionnaming` references in non-pack source files |
-| Resumable state incompatibility (P7) | Phase 2 — Naming Strategy | Test: `--resume` reuses same zip names |
-| Compress/non-compress divergence (P8) | Phase 3 — Picture Migration | Parameterized test: both paths produce identical entry names |
+**Prevention:** `terminal::colorsEnabled()` already calls `enableVirtualTerminal(Stream stream)` which uses `SetConsoleMode(ENABLE_VIRTUAL_TERMINAL_PROCESSING)`. If this fails (old Windows), `colorsEnabled()` returns `false` and all output is plain text. This is the correct behavior — plain text is better than garbage. No code changes needed.
+
+**Detection:** Test on Windows 10 build < 18362 (or simulate by temporarily disabling VT processing in code).
+
+## Phase-Specific Warnings
+
+| Phase Topic | Likely Pitfall | Mitigation |
+|-------------|---------------|------------|
+| MessageKind enum extension | Adding values in the middle, breaking existing switch cases | Add only at the end. Add explicit cases to all switches (`styleFor`, `defaultBadgeLabel`). |
+| formatter_fn implementation | Undocumented CLI11 option group iteration API | Read CLI11 headers (`App.hpp`, `Option_group.hpp`) during implementation. Start with single-group test. |
+| Error/warning coloring audit | Missing call sites — some errors still use raw `fmt::print` or `std::cerr` | Grep for `std::cerr`, `fmt::print(stderr`, `std::cout <<.*error` patterns. Audit all 945+ test assertion messages. |
+| Version output coloring | Over-coloring — making the entire version block bright | Only the version NUMBER is bright/bold. Build metadata, copyright, license info should be dim/plain. |
+| --color flag priority | `--color never` after `NO_COLOR` handling causes confusion | Priority is: `--color always` > `--color never` > `NO_COLOR` > isatty. Documented in no-color.org FAQ. Already correct in `colorsEnabled()`. |
+| Progress bar color (deferred) | Mixing terminal:: colors with progress bar library's internal ANSI | Evaluate as separate phase. Do not attempt in v1.6. |
 
 ## Sources
 
-- **Codebase analysis:** `src/pack/pack.h`, `src/pack/pack_types.h`, `src/pack/packer.h`, `src/pack/packer_types.h`, `src/pack/pack_internal.h`, `src/pack/pack.cpp`, `src/pack/packer.cpp`, `src/picture/picture_process.cpp`, `src/video/video_process.cpp`, `src/app/pipeline.cpp`, `src/core/collision_naming.h`, `src/core/app_context.h` — HIGH confidence (primary sources)
-- **Design patterns:** Refactoring.Guru — Strategy pattern (https://refactoring.guru/design-patterns/strategy) — HIGH confidence (canonical reference)
-- **C++ pitfalls:** Training data + codebase analysis — MEDIUM confidence (std::function lifetime, optional explosion, enum design — validated against codebase patterns)
-- **v1.4 context:** `.planning/PROJECT.md` — HIGH confidence (official project state)
-- **Project principles:** Design decisions document in PROJECT.md (aggregate preservation, encapsulation, zero hot-path overhead) — HIGH confidence
+- **NO_COLOR Specification:** https://no-color.org/ — HIGH confidence (authoritative). Spec: "present and not an empty string (regardless of its value)." FAQ: command-line args override NO_COLOR; bold/italic/underline NOT affected.
+- **CLI11 formatter_fn:** Context7 `/cliutils/cli11` — HIGH confidence (official docs). `formatter_fn` is a complete replacement, not a decorator. AppFormatMode: Normal, All, Sub.
+- **CLI11 Rang pitfalls:** Context7 `/cliutils/cli11` (README) — HIGH confidence. The README shows Rang integration with `std::atexit` for reset — explicitly rejected for encro per design notes (rang lacks NO_COLOR support).
+- **Windows VT support:** `src/infra/terminal.cpp` lines 82-93 — HIGH confidence (primary source). `enableVirtualTerminal()` uses `SetConsoleMode(ENABLE_VIRTUAL_TERMINAL_PROCESSING)`. Falls back to false on failure → plain text.
+- **Existing terminal:: architecture:** `src/infra/terminal.h`, `src/infra/terminal.cpp` — HIGH confidence (primary source). `colorsEnabled()` check order: ColorMode → NO_COLOR → isatty → TERM=dumb → VT enable.
+- **rang known issues:** GitHub issue #140 (NO_COLOR support), #133 (style::reset bug) — MEDIUM confidence (training data, not live-fetched). Confirmed by CLI note in `.planning/notes/cli-library-selection.md`.
+- **Industry conventions:** cargo, ripgrep, fd, gh — MEDIUM confidence (training data). Patterns consistent across tools: plain descriptions, bold option names, colored section headers.
 
 ---
 
-*Pitfalls research for: encrō v1.5 — Adding naming strategy abstraction + grouping config to existing pack API*
-*Researched: 2026-05-04*
+*Pitfalls research for: encrō v1.6 CLI Color Deepening*
+*Researched: 2026-05-09*
