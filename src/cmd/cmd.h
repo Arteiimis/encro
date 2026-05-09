@@ -10,6 +10,7 @@
 struct CmdParseResult {
   // ── General options ────────────────────────────────────────────
   bool help = false;
+  bool version = false;
   bool verbose = false;
   bool verboseEcho = false;
   bool fullProgress = false;
