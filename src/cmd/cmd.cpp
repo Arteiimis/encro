@@ -1,6 +1,7 @@
 #include "cmd/cmd.h"
 
 #include "infra/console_width.h"
+#include "infra/terminal.h"
 
 #include <CLI/CLI.hpp>
 
@@ -10,6 +11,7 @@
 #include <string_view>
 
 using namespace std::literals;
+using enum terminal::MessageKind;
 
 namespace {
 
@@ -88,10 +90,28 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth) -> std::string 
     auto const line = (newlinePos == std::string_view::npos)
       ? description.substr(lineStart)
       : description.substr(lineStart, newlinePos - lineStart);
+    auto const coloredName = terminal::styledText(
+      terminal::Stream::Stdout,
+      terminal::MessageKind::OptionName,
+      nameStr
+    );
+    auto const coloredDesc = terminal::styledText(
+      terminal::Stream::Stdout,
+      terminal::MessageKind::OptionDesc,
+      line
+    );
     if (lineNum == 0) {
-      result += std::format("  {}{:<{}}{}\n", firstCol, "", gap, line);
+      result += std::format(
+        "  {}{}{}{:<{}}{}\n",
+        coloredName,
+        typeStr,
+        defaultStr,
+        "",
+        gap,
+        coloredDesc
+      );
     } else {
-      result += std::format("{}{}\n", indent, line);
+      result += std::format("{}{}\n", indent, coloredDesc);
     }
     if (newlinePos == std::string_view::npos) break;
     lineStart = newlinePos + 1;
@@ -104,7 +124,12 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth) -> std::string 
 
 auto formatGroupHeader(std::string const& name) -> std::string {
   if (name.empty()) return {};
-  return std::format("\n{}:\n", name);
+  auto const coloredName = terminal::styledText(
+    terminal::Stream::Stdout,
+    terminal::MessageKind::OptionGroup,
+    name
+  );
+  return std::format("\n{}:\n", coloredName);
 }
 
 auto makeHelpFormatter(
@@ -121,7 +146,11 @@ auto makeHelpFormatter(
     auto result = std::string{};
     auto const desc = app_ptr->get_description();
     if (!desc.empty()) {
-      result += desc;
+      result += terminal::styledText(
+        terminal::Stream::Stdout,
+        terminal::MessageKind::Usage,
+        desc
+      );
       result += "\n\n";
     }
     auto const groupIter = std::array{general, io, processing, fileop};
