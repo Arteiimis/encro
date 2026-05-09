@@ -79,7 +79,7 @@ auto parseArgs(std::vector<std::string> const& args) -> CmdParseResult {
   for (auto& arg: storage) { argv.push_back(arg.data()); }
   argv.push_back(nullptr);
 
-  return commandLineInit(static_cast<int>(argv.size() - 1), argv.data());
+  return commandLineInit(static_cast<int>(argv.size() - 1), argv.data(), "");
 }
 
 auto longestHelpLine(std::string_view text) -> std::size_t {

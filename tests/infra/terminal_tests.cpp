@@ -72,3 +72,91 @@ TEST_CASE("path and count helpers style key values independently", "[terminal]")
   CHECK(styledCount.find("42") != std::string::npos);
   CHECK(styledCount.find("\x1b[") != std::string::npos);
 }
+
+// ── Phase 20: New MessageKind value tests ──────────────────────────
+
+TEST_CASE("styleFor(Usage) produces ANSI escapes", "[terminal]") {
+  auto const style = terminal::styleFor(terminal::MessageKind::Usage);
+  auto const text = fmt::format(style, "{}", "test");
+  CHECK(text.find("\x1b[") != std::string::npos);
+}
+
+TEST_CASE("styleFor(OptionGroup) equals styleFor(Usage)", "[terminal]") {
+  auto const usageStyle = terminal::styleFor(terminal::MessageKind::Usage);
+  auto const groupStyle = terminal::styleFor(terminal::MessageKind::OptionGroup);
+  auto const usageText = fmt::format(usageStyle, "{}", "test");
+  auto const groupText = fmt::format(groupStyle, "{}", "test");
+  CHECK(usageText == groupText);
+}
+
+TEST_CASE("styleFor(OptionName) produces ANSI but not bold", "[terminal]") {
+  auto const style = terminal::styleFor(terminal::MessageKind::OptionName);
+  auto const text = fmt::format(style, "{}", "test");
+  CHECK(text.find("\x1b[") != std::string::npos);
+  // light_cyan has no bold — verify it differs from a bold style
+  auto const boldStyle = terminal::styleFor(terminal::MessageKind::Usage);
+  auto const boldText = fmt::format(boldStyle, "{}", "test");
+  CHECK(text != boldText);
+}
+
+TEST_CASE("styleFor(OptionDesc) returns empty style", "[terminal]") {
+  auto const style = terminal::styleFor(terminal::MessageKind::OptionDesc);
+  auto const text = fmt::format(style, "{}", "test");
+  CHECK(text.find("\x1b[") == std::string::npos);
+  CHECK(text == "test");
+}
+
+TEST_CASE("styleFor(Version) produces ANSI escapes", "[terminal]") {
+  auto const style = terminal::styleFor(terminal::MessageKind::Version);
+  auto const text = fmt::format(style, "{}", "test");
+  CHECK(text.find("\x1b[") != std::string::npos);
+}
+
+TEST_CASE("format with Usage has no badge prefix", "[terminal]") {
+  auto const _ = ScopedTerminalReset{};
+  terminal::configure(terminal::ColorMode::Always);
+
+  auto const text =
+    terminal::format(terminal::Stream::Stdout, terminal::MessageKind::Usage, "test");
+
+  CHECK(text.find("[usage]") == std::string::npos);
+}
+
+TEST_CASE("format with OptionGroup has no badge prefix", "[terminal]") {
+  auto const _ = ScopedTerminalReset{};
+  terminal::configure(terminal::ColorMode::Always);
+
+  auto const text = terminal::format(
+    terminal::Stream::Stdout,
+    terminal::MessageKind::OptionGroup,
+    "test"
+  );
+
+  CHECK(text.find("[optiongroup]") == std::string::npos);
+}
+
+TEST_CASE("styledText with OptionName emits ANSI when Always", "[terminal]") {
+  auto const _ = ScopedTerminalReset{};
+  terminal::configure(terminal::ColorMode::Always);
+
+  auto const text = terminal::styledText(
+    terminal::Stream::Stdout,
+    terminal::MessageKind::OptionName,
+    "test"
+  );
+
+  CHECK(text.find("\x1b[") != std::string::npos);
+}
+
+TEST_CASE("styledText with OptionName returns plain when Never", "[terminal]") {
+  auto const _ = ScopedTerminalReset{};
+  terminal::configure(terminal::ColorMode::Never);
+
+  auto const text = terminal::styledText(
+    terminal::Stream::Stdout,
+    terminal::MessageKind::OptionName,
+    "test"
+  );
+
+  CHECK(text == "test");
+}
