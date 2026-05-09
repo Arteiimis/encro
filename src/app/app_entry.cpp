@@ -68,7 +68,7 @@ auto compileTimestamp() -> std::string {
 auto printHelp(CmdParseResult const& cmd) -> void {
   terminal::println(Heading, "{}", appentry::helpIntroLine());
   std::cout << '\n';
-  cmd.desc.print(std::cout);
+  std::cout << cmd.helpText;
 }
 
 auto printHelpHint() -> void {
@@ -91,18 +91,18 @@ auto failWithHint(
 }
 
 auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional<int> {
-  auto const& [desc, vm, error] = startup.cmd;
+  auto const& cmd = startup.cmd;
 
-  if (error.has_value()) {
+  if (cmd.error.has_value()) {
     return failWithHint(
       startup,
-      std::format("Invalid arguments: {}", error.value()),
+      std::format("Invalid arguments: {}", cmd.error.value()),
       true
     );
   }
 
-  if (vm.count("help")) {
-    printHelp(startup.cmd);
+  if (cmd.help) {
+    printHelp(cmd);
     return 0;
   }
 
@@ -111,9 +111,7 @@ auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional
 
 auto buildAppConfig(prelude::StartupContext const& startup)
   -> std::optional<appctx::AppConfig> {
-  auto const& vm = startup.cmd.vm;
-
-  auto configRes = cmd::buildConfig(vm);
+  auto configRes = cmd::buildConfig(startup.cmd);
   if (!configRes) {
     failWithHint(startup, configRes.error(), true);
     return std::nullopt;
