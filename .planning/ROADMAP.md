@@ -155,7 +155,14 @@ Plans:
   3. The project builds with CLI11 as the sole CLI parsing dependency — `boost::program_options` removed from xmake.lua
   4. All 3033 existing test assertions pass with zero behavioral regression — cmd_cmd_tests and cmd_config_builder_tests rewritten for CLI11 but verify identical semantics
   5. All 58 vm.count()/vm.at() call sites across 6 consumer files (config_builder, prelude, terminal, utils, app_entry) compile and produce the same AppConfig results as pre-migration
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 19-01-PLAN.md — cmd.h CmdParseResult struct + cmd.cpp CLI11 parsing with formatter_fn and resolveHelpTextLayout()
+- [ ] 19-02-PLAN.md — config_builder.h/.cpp migration: buildConfig(CmdParseResult const&), 29 vm references adapted
+- [ ] 19-03-PLAN.md — Consumer adaptation: prelude, terminal, utils, app_entry — zero boost::po references
+- [ ] 19-04-PLAN.md — xmake.lua: CLI11 wired into encro/tests/e2e_tests targets
+- [ ] 19-05-PLAN.md — Test rewrites: cmd_cmd_tests (CLI11 integration) + cmd_config_builder_tests (results struct fixture)
 
 ### Phase 20: CLI Color Deepening
 **Goal**: All CLI output (--help, --version, errors) uses semantic terminal coloring with full NO_COLOR standard compliance
@@ -192,7 +199,7 @@ Plans:
 | 16. Grouping + Summary on PackRequest | 16-grouping-summary | v1.5 | 2/2 | Complete | 2026-05-04 |
 | 17. Picture Leak Elimination | 17-picture-leak | v1.5 | 1/1 | Complete | 2026-05-04 |
 | 18. PackPlan Internalization | 18-packplan-internalize | v1.5 | 1/1 | Complete | 2026-05-04 |
-| 19. CLI11 Migration | 19-cli11-migration | v1.6 | 0/0 | Not started | - |
+| 19. CLI11 Migration | 19-cli11-migration | v1.6 | 0/5 | Planned | - |
 | 20. CLI Color Deepening | 20-cli-color-deepening | v1.6 | 0/0 | Not started | - |
 
 ---
