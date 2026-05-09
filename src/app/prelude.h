@@ -13,7 +13,7 @@ struct StartupContext {
   std::optional<std::filesystem::path> verboseLogFilePath;
 };
 
-auto initStartup(int argc, char* argv[]) -> StartupContext;
+auto initStartup(int argc, char* argv[], std::string const& introLine) -> StartupContext;
 
 void printVerboseLogDirHint(
   std::optional<std::filesystem::path> const& verboseLogFilePath
