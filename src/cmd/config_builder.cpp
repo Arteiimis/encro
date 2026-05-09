@@ -1,7 +1,6 @@
 #include "cmd/config_builder.h"
 
 #include "core/path_roots.h"
-#include "utils/utils.h"
 
 #include <algorithm>
 #include <array>
@@ -57,11 +56,8 @@ auto requireRegularFile(fs::path const& path, std::string_view label)
   return {};
 }
 
-auto readProcessType(boost::program_options::variables_map const& vm)
-  -> eh::Result<std::string> {
-  if (!vm.count("type")) { return std::string{"video"}; }
-
-  auto const typeStr = getParamStr(vm, "type");
+auto readProcessType(CmdParseResult const& result) -> eh::Result<std::string> {
+  auto const typeStr = result.processType;
   if (typeStr == "vid") { return std::string{"video"}; }
   if (typeStr == "pic") { return std::string{"picture"}; }
 
@@ -76,11 +72,8 @@ auto readProcessType(boost::program_options::variables_map const& vm)
   return typeStr;
 }
 
-auto readOutputFormat(boost::program_options::variables_map const& vm)
-  -> eh::Result<std::string> {
-  if (!vm.count("output-format")) { return std::string{"mp4"}; }
-
-  auto const outputFormat = getParamStr(vm, "output-format");
+auto readOutputFormat(CmdParseResult const& result) -> eh::Result<std::string> {
+  auto const outputFormat = result.outputFormat;
   constexpr auto validFormats = std::array{"mp4", "webp"};
   if (!std::ranges::contains(validFormats, outputFormat)) {
     return eh::makeError(
@@ -92,20 +85,19 @@ auto readOutputFormat(boost::program_options::variables_map const& vm)
   return outputFormat;
 }
 
-auto readMaxParallelJobs(boost::program_options::variables_map const& vm)
+auto readMaxParallelJobs(CmdParseResult const& result)
   -> eh::Result<std::optional<std::size_t>> {
-  if (!vm.count("jobs")) { return std::nullopt; }
+  if (!result.maxJobs.has_value()) { return std::nullopt; }
 
-  auto const jobs = vm.at("jobs").as<std::size_t>();
+  auto const jobs = result.maxJobs.value();
   if (jobs == 0) { return eh::makeError("Invalid jobs value: 0. --jobs must be >= 1."); }
 
   return jobs;
 }
 
-auto readOutputLayout(boost::program_options::variables_map const& vm)
-  -> eh::Result<appctx::OutputLayout> {
-  auto const useFlat = vm.count("flat") > 0;
-  auto const useKeep = vm.count("keep") > 0;
+auto readOutputLayout(CmdParseResult const& result) -> eh::Result<appctx::OutputLayout> {
+  auto const useFlat = result.flat;
+  auto const useKeep = result.keep;
 
   if (useFlat && useKeep) {
     return eh::makeError("--flat and --keep cannot be used together.");
@@ -116,11 +108,8 @@ auto readOutputLayout(boost::program_options::variables_map const& vm)
   return appctx::OutputLayout::Flat;
 }
 
-auto readForceNameConflictHandling(boost::program_options::variables_map const& vm)
-  -> eh::Result<bool> {
-  if (!vm.count("force-conflict-handling")) { return true; }
-
-  auto value = getParamStr(vm, "force-conflict-handling");
+auto readForceNameConflictHandling(CmdParseResult const& result) -> eh::Result<bool> {
+  auto value = result.forceConflictHandling;
   std::ranges::transform(value, value.begin(), [](unsigned char ch) {
     return static_cast<char>(std::tolower(ch));
   });
@@ -131,9 +120,8 @@ auto readForceNameConflictHandling(boost::program_options::variables_map const& 
   return eh::makeError("--force-conflict-handling must be set to y or n.");
 }
 
-auto readPictureFolderSummary(boost::program_options::variables_map const& vm)
-  -> eh::Result<bool> {
-  return vm.count("folder-summary") > 0;
+auto readPictureFolderSummary(CmdParseResult const& result) -> eh::Result<bool> {
+  return result.folderSummary;
 }
 
 enum class OutputPathAliasKind {
@@ -277,51 +265,50 @@ auto resolveOutputPathSpec(appctx::AppConfig const& config, std::string_view raw
 
 namespace cmd {
 
-auto buildConfig(boost::program_options::variables_map const& vm)
-  -> eh::Result<appctx::AppConfig> {
+auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> {
   auto config = appctx::AppConfig{};
 
-  config.resumeState = vm.count("resume") > 0;
-  config.restartState = vm.count("restart") > 0;
+  config.resumeState = result.resume;
+  config.restartState = result.restart;
 
   if (config.resumeState && config.restartState) {
     return eh::makeError("--resume and --restart cannot be used together.");
   }
 
-  auto typeRes = readProcessType(vm);
+  auto typeRes = readProcessType(result);
   if (!typeRes) { return eh::makeError("{}", typeRes.error()); }
   config.processType = typeRes.value();
 
-  auto formatRes = readOutputFormat(vm);
+  auto formatRes = readOutputFormat(result);
   if (!formatRes) { return eh::makeError("{}", formatRes.error()); }
   config.outputFormat = formatRes.value();
 
-  auto jobsRes = readMaxParallelJobs(vm);
+  auto jobsRes = readMaxParallelJobs(result);
   if (!jobsRes) { return eh::makeError("{}", jobsRes.error()); }
   config.maxParallelJobs = jobsRes.value();
 
-  auto layoutRes = readOutputLayout(vm);
+  auto layoutRes = readOutputLayout(result);
   if (!layoutRes) { return eh::makeError("{}", layoutRes.error()); }
   config.outputLayout = layoutRes.value();
 
-  auto forceNamingRes = readForceNameConflictHandling(vm);
+  auto forceNamingRes = readForceNameConflictHandling(result);
   if (!forceNamingRes) { return eh::makeError("{}", forceNamingRes.error()); }
   config.forceNameConflictHandling = forceNamingRes.value();
 
-  auto pictureFolderSummaryRes = readPictureFolderSummary(vm);
+  auto pictureFolderSummaryRes = readPictureFolderSummary(result);
   if (!pictureFolderSummaryRes) {
     return eh::makeError("{}", pictureFolderSummaryRes.error());
   }
   config.pictureFolderSummary = pictureFolderSummaryRes.value();
 
-  config.compressImages = vm.count("compress") > 0;
+  config.compressImages = result.compress;
 
   if (config.processType != "picture" && config.compressImages) {
     return eh::makeError("--compress is only supported when --type is picture.");
   }
 
-  if (vm.count("image-quality")) {
-    auto const quality = vm.at("image-quality").as<int>();
+  if (result.imageQuality.has_value()) {
+    auto const quality = result.imageQuality.value();
     if (quality < 2 || quality > 31) {
       return eh::makeError("--image-quality must be between 2 and 31.");
     }
@@ -332,29 +319,29 @@ auto buildConfig(boost::program_options::variables_map const& vm)
     }
   }
 
-  config.yesToAll = vm.count("yes") > 0;
-  config.recursive = vm.count("recursive") > 0;
-  config.packOutput = vm.count("pack") > 0;
-  config.packOnly = vm.count("pack-only") > 0;
-  config.verbose = vm.count("verbose") > 0;
-  config.verboseEcho = vm.count("verbose-echo") > 0;
-  config.fullProgress = vm.count("full-progress") > 0;
+  config.yesToAll = result.yesToAll;
+  config.recursive = result.recursive;
+  config.packOutput = result.pack;
+  config.packOnly = result.packOnly;
+  config.verbose = result.verbose;
+  config.verboseEcho = result.verboseEcho;
+  config.fullProgress = result.fullProgress;
 
-  if (vm.count("state-file")) {
+  if (result.stateFile.has_value()) {
     config.stateFilePath =
-      fs::absolute(fs::path{getParamStr(vm, "state-file")}).lexically_normal();
+      fs::absolute(fs::path{result.stateFile.value()}).lexically_normal();
   }
 
-  if (vm.count("ffmpeg-path")) {
-    auto const iptPath = fs::path{getParamStr(vm, "ffmpeg-path")};
+  if (result.ffmpegPath.has_value()) {
+    auto const iptPath = fs::path{result.ffmpegPath.value()};
     if (auto const validDir = requireDir(iptPath, "FFmpeg"); !validDir) {
       return eh::makeError("{}", validDir.error());
     }
     config.ffmpegInstallDir = iptPath;
   }
 
-  auto const hasSingleInput = vm.count("input") > 0;
-  auto const hasMultiInputs = vm.count("inputs") > 0;
+  auto const hasSingleInput = result.input.has_value();
+  auto const hasMultiInputs = result.inputs.has_value();
 
   if (hasSingleInput && hasMultiInputs) {
     return eh::makeError("Use either -i/--input or -I/--inputs, not both.");
@@ -373,7 +360,7 @@ auto buildConfig(boost::program_options::variables_map const& vm)
       return eh::makeError("-I/--inputs is not supported with pack-only.");
     }
 
-    auto const inputs = vm.at("inputs").as<std::vector<std::string>>();
+    auto const inputs = result.inputs.value();
     if (inputs.empty()) { return eh::makeError("Input path is required."); }
 
     config.inputPaths.reserve(inputs.size());
@@ -388,15 +375,14 @@ auto buildConfig(boost::program_options::variables_map const& vm)
       config.inputPaths.emplace_back(path);
     }
   } else {
-    config.inputPath =
-      fs::absolute(fs::path{getParamStr(vm, "input")}).lexically_normal();
+    config.inputPath = fs::absolute(fs::path{result.input.value()}).lexically_normal();
     if (auto const exists = requireExists(config.inputPath, "input"); !exists) {
       return eh::makeError("{}", exists.error());
     }
   }
 
-  if (vm.count("output")) {
-    auto outputPathRes = resolveOutputPathSpec(config, getParamStr(vm, "output"));
+  if (result.output.has_value()) {
+    auto outputPathRes = resolveOutputPathSpec(config, result.output.value());
     if (!outputPathRes) { return eh::makeError("{}", outputPathRes.error()); }
 
     config.outputPath = outputPathRes.value();
