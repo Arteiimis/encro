@@ -96,13 +96,18 @@ auto enableVirtualTerminal(Stream stream) -> bool {
 auto defaultBadgeLabel(MessageKind kind) -> std::string_view {
   switch (kind) {
     case MessageKind::Plain:
-    case MessageKind::Heading: return {};
-    case MessageKind::Error  : return "error";
-    case MessageKind::Warning: return "warn";
-    case MessageKind::Success: return "done";
-    case MessageKind::Info   : return "info";
-    case MessageKind::Hint   : return "hint";
-    case MessageKind::Prompt : return "?";
+    case MessageKind::Heading    : return {};
+    case MessageKind::Error      : return "error";
+    case MessageKind::Warning    : return "warn";
+    case MessageKind::Success    : return "done";
+    case MessageKind::Info       : return "info";
+    case MessageKind::Hint       : return "hint";
+    case MessageKind::Prompt     : return "?";
+    case MessageKind::Usage      : return {};
+    case MessageKind::OptionGroup: return {};
+    case MessageKind::OptionName : return {};
+    case MessageKind::OptionDesc : return {};
+    case MessageKind::Version    : return {};
   }
 
   return {};
@@ -188,14 +193,19 @@ auto styleFor(MessageKind kind) -> fmt::text_style {
   using fmt::fg;
 
   switch (kind) {
-    case MessageKind::Plain  : return {};
-    case MessageKind::Error  : return fg(fmt::terminal_color::red) | emphasis::bold;
-    case MessageKind::Warning: return fg(fmt::terminal_color::yellow) | emphasis::bold;
-    case MessageKind::Success: return fg(fmt::terminal_color::green) | emphasis::bold;
-    case MessageKind::Info   : return fg(fmt::color::steel_blue);
-    case MessageKind::Hint   : return fg(fmt::color::slate_gray);
-    case MessageKind::Prompt : return fg(fmt::terminal_color::cyan) | emphasis::bold;
-    case MessageKind::Heading: return fg(fmt::color::steel_blue) | emphasis::bold;
+    case MessageKind::Plain      : return {};
+    case MessageKind::Error      : return fg(fmt::terminal_color::red) | emphasis::bold;
+    case MessageKind::Warning    : return fg(fmt::terminal_color::yellow) | emphasis::bold;
+    case MessageKind::Success    : return fg(fmt::terminal_color::green) | emphasis::bold;
+    case MessageKind::Info       : return fg(fmt::color::steel_blue);
+    case MessageKind::Hint       : return fg(fmt::color::slate_gray);
+    case MessageKind::Prompt     : return fg(fmt::terminal_color::cyan) | emphasis::bold;
+    case MessageKind::Heading    : return fg(fmt::color::steel_blue) | emphasis::bold;
+    case MessageKind::Usage      : return fg(fmt::color::steel_blue) | emphasis::bold;
+    case MessageKind::OptionGroup: return fg(fmt::color::steel_blue) | emphasis::bold;
+    case MessageKind::OptionName : return fg(fmt::color::light_cyan);
+    case MessageKind::OptionDesc : return {};
+    case MessageKind::Version    : return fg(fmt::color::steel_blue) | emphasis::bold;
   }
 
   return {};
