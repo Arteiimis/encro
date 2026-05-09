@@ -186,7 +186,8 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
   auto* io = app.add_option_group("IO", "Input/Output options");
 
   auto* inputOpt = io->add_option("-i,--input", "input file or directory path");
-  auto* inputsOpt = io->add_option("-I,--inputs", "input video file paths");
+  auto* inputsOpt =
+    io->add_option("-I,--inputs", "input video file paths")->expected(0, 1000000);
   auto* outputOpt = io->add_option(
     "-o,--output",
     "custom output directory path\n  aliases: + or input:// for input root, = or "
