@@ -30,6 +30,12 @@ enum class MessageKind {
   Hint,
   Prompt,
   Heading,
+  // ── Phase 20 additions ──
+  Usage,
+  OptionGroup,
+  OptionName,
+  OptionDesc,
+  Version,
 };
 
 auto parseColorMode(std::string_view text) -> std::optional<ColorMode>;
