@@ -1,6 +1,5 @@
 #pragma once
 
-#include <boost/program_options/variables_map.hpp>
 #include <fmt/color.h>
 #include <fmt/format.h>
 
@@ -41,8 +40,7 @@ void reset();
 
 auto colorMode() -> ColorMode;
 
-auto configureFromVariablesMap(boost::program_options::variables_map const& vm)
-  -> std::optional<std::string>;
+auto configureFromColorString(std::string_view colorValue) -> std::optional<std::string>;
 
 auto colorsEnabled(Stream stream = Stream::Stdout) -> bool;
 
