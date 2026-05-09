@@ -161,7 +161,7 @@ Plans:
 - [ ] 19-01-PLAN.md — cmd.h CmdParseResult struct + cmd.cpp CLI11 parsing with formatter_fn and resolveHelpTextLayout()
 - [ ] 19-02-PLAN.md — config_builder.h/.cpp migration: buildConfig(CmdParseResult const&), 29 vm references adapted
 - [ ] 19-03-PLAN.md — Consumer adaptation: prelude, terminal, utils, app_entry — zero boost::po references
-- [ ] 19-04-PLAN.md — xmake.lua: CLI11 wired into encro/tests/e2e_tests targets
+- [x] 19-04-PLAN.md — xmake.lua: CLI11 wired into encro/tests/e2e_tests targets
 - [ ] 19-05-PLAN.md — Test rewrites: cmd_cmd_tests (CLI11 integration) + cmd_config_builder_tests (results struct fixture)
 
 ### Phase 20: CLI Color Deepening
