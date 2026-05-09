@@ -110,7 +110,20 @@ Pack subsystem:
 - ✓ SINK-04: PackPlan 移入 pack_plan_internal.h，编译期边界强制 via `__if_exists` — v1.5
 - ✓ 3033 assertions across 244 test cases pass with zero behavioral regression — v1.5
 
-## Current Milestone: ✅ All milestones complete (v1.0–v1.5 shipped)
+## Current Milestone: v1.6 CLI体验增强
+
+**Goal:** 现代化 CLI 选项解析并统一终端着色体验
+
+**Target features:**
+- CLI11 迁移 — boost::program_options → CLI11，26个 option，colored --help
+- CLI着色深化 — 将 terminal:: 语义着色推广到 errors、warnings、--version（progress bar 待定）
+
+**Key context:**
+- 零新依赖着色 — 复用现有 `fmtlib color` + `terminal::` 语义层
+- ~138行 cmd.cpp 重写 + ~30处 vm 调用适配
+- xmake.lua / boost 依赖由用户自行处理
+- Progress bar 着色归属不确定 — progress bar lib 可能有自有颜色体系，需单独评估
+- 所有行为回归由现有 3033 assertions 守卫
 
 ### Out of Scope
 

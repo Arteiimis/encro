@@ -1,19 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: Pack下沉收尾 — 消除调用方泄漏
-status: complete
-stopped_at: Milestone v1.5 verified — all 3033 assertions pass
-last_updated: "2026-05-05"
-last_activity: 2026-05-05 - Completed quick task 260506-44c: 优化buildMediaPackPlan函数
-milestone_status: closed
-milestone_closed: 2026-05-05
+milestone: v1.6
+milestone_name: CLI体验增强
+status: planning
+last_updated: "2026-05-09T09:23:10.229Z"
+last_activity: 2026-05-09
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -27,12 +24,10 @@ See: .planning/PROJECT.md (updated 2026-05-04)
 
 ## Current Position
 
-Phase: 18 (packplan-pure-internalization) — COMPLETE
-Plan: 1 of 1
-Status: v1.5 milestone complete — all 4 phases shipped
-Last activity: 2026-05-04
-
-Progress: [██████████] 100%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-09 — Milestone v1.6 started
 
 ## Performance Metrics
 
