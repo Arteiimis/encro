@@ -4,6 +4,7 @@
 
 #include <CLI/CLI.hpp>
 
+#include <algorithm>
 #include <format>
 #include <string>
 #include <string_view>
@@ -59,29 +60,45 @@ auto formatOptionName(CLI::Option const* opt) -> std::string {
   return names;
 }
 
-auto formatOptionHelp(CLI::Option const* opt, unsigned nameWidth) -> std::string {
+auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth) -> std::string {
   auto const nameStr = formatOptionName(opt);
 
-  // Type placeholder
   auto typeStr = std::string{};
   if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
     auto const typeName = opt->get_type_name();
     if (typeName != "TEXT"sv && typeName != "text"sv) { typeStr = " " + typeName; }
   }
 
-  // Default value display
   auto defaultStr = std::string{};
   if (!opt->get_default_str().empty()) {
     defaultStr = " (=" + opt->get_default_str() + ")";
   }
 
+  // Pad the full first column (name + type + default) to colWidth for alignment
+  auto const firstCol = nameStr + typeStr + defaultStr;
+  auto const gap = firstCol.size() < colWidth ? colWidth - firstCol.size() : 2u;
+  auto const indent = std::string(static_cast<std::size_t>(colWidth + 2), ' ');
+
   auto const description = opt->get_description();
+  auto result = std::string{};
+  auto lineStart = std::size_t{0};
+  auto lineNum = 0u;
+  while (lineStart < description.size()) {
+    auto const newlinePos = description.find('\n', lineStart);
+    auto const line = (newlinePos == std::string_view::npos)
+      ? description.substr(lineStart)
+      : description.substr(lineStart, newlinePos - lineStart);
+    if (lineNum == 0) {
+      result += std::format("  {}{:<{}}{}\n", firstCol, "", gap, line);
+    } else {
+      result += std::format("{}{}\n", indent, line);
+    }
+    if (newlinePos == std::string_view::npos) break;
+    lineStart = newlinePos + 1;
+    ++lineNum;
+  }
 
-  // Calculate padding
-  auto const paddedName = nameStr + typeStr + defaultStr;
-  auto const padSize = paddedName.size() < nameWidth ? nameWidth - paddedName.size() : 2u;
-
-  auto result = std::format("  {}{}{:<{}}{}", paddedName, "", "", padSize, description);
+  if (result.ends_with('\n')) result.pop_back();
   return result;
 }
 
@@ -90,20 +107,30 @@ auto formatGroupHeader(std::string const& name) -> std::string {
   return std::format("\n{}:\n", name);
 }
 
-auto makeHelpFormatter(unsigned lineLength, unsigned minDescriptionLength) -> auto {
-  return [lineLength, minDescriptionLength](
+auto makeHelpFormatter(
+  CLI::App const* general,
+  CLI::App const* io,
+  CLI::App const* processing,
+  CLI::App const* fileop
+) -> auto {
+  return [general, io, processing, fileop](
            CLI::App const* app_ptr,
            std::string /*prev*/,
            CLI::AppFormatMode /*mode*/
          ) -> std::string {
-    auto const& app = *app_ptr;
     auto result = std::string{};
-    result += formatGroupHeader(app.get_description());
+    auto const desc = app_ptr->get_description();
+    if (!desc.empty()) {
+      result += desc;
+      result += "\n\n";
+    }
+    auto const groupIter = std::array{general, io, processing, fileop};
 
-    // Determine name width for adaptive column sizing
-    auto maxNameLen = 0u;
-    for (auto const* opt: app.get_options()) {
-      if (!opt->get_lnames().empty() || !opt->get_snames().empty()) {
+    // Determine max column width across all options (name + type + default)
+    auto maxColLen = 0u;
+    for (auto const* group: groupIter) {
+      for (auto const* opt: group->get_options()) {
+        if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
         auto const nameStr = formatOptionName(opt);
         auto typeStr = std::string{};
         if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
@@ -114,37 +141,20 @@ auto makeHelpFormatter(unsigned lineLength, unsigned minDescriptionLength) -> au
         if (!opt->get_default_str().empty()) {
           defaultStr = " (=" + opt->get_default_str() + ")";
         }
-        auto const fullLen = nameStr.size() + typeStr.size() + defaultStr.size() + 2;
-        maxNameLen = std::max(maxNameLen, static_cast<unsigned>(fullLen));
+        maxColLen = std::max(
+          maxColLen,
+          static_cast<unsigned>(nameStr.size() + typeStr.size() + defaultStr.size())
+        );
       }
     }
 
-    // Clamp name width
-    auto const nameWidth = std::max(
-      minDescriptionLength,
-      std::min(maxNameLen, lineLength - minDescriptionLength)
-    );
+    auto const colWidth = std::clamp(maxColLen, 34u, 48u);
 
-    // Walk subgroups (option groups) in defined order
-    auto const& subgroups = app.get_subcommands();
-    for (auto const* sub: subgroups) {
-      result += formatGroupHeader(sub->get_description());
-      for (auto const* opt: sub->get_options()) {
+    for (auto const* group: groupIter) {
+      result += formatGroupHeader(group->get_description());
+      for (auto const* opt: group->get_options()) {
         if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
-        result += formatOptionHelp(opt, nameWidth);
-        result += '\n';
-      }
-    }
-
-    // Also print any options directly on the app (not in a group)
-    auto directOpts =
-      app.get_options([](CLI::Option const* opt) { return opt->get_group().empty(); });
-    if (!directOpts.empty()) {
-      for (auto const* opt: directOpts) {
-        if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
-        // Skip help/version flags handled by CLI11
-        if (opt->get_lnames().size() == 1 && opt->get_lnames()[0] == "help") continue;
-        result += formatOptionHelp(opt, nameWidth);
+        result += formatOptionHelp(opt, colWidth);
         result += '\n';
       }
     }
@@ -155,10 +165,12 @@ auto makeHelpFormatter(unsigned lineLength, unsigned minDescriptionLength) -> au
 
 }  // namespace
 
-auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
+auto commandLineInit(int argc, char* argv[], std::string const& introLine)
+  -> CmdParseResult {
   auto const layout = resolveHelpTextLayout();
 
   auto app = CLI::App{"Allowed options"};
+  app.description(introLine);
 
   // Disable automatic help flag so we can handle --help manually
   // (CLI11's built-in help would throw CLI::Success before result.help is set)
@@ -250,7 +262,7 @@ auto commandLineInit(int argc, char* argv[]) -> CmdParseResult {
     fileop->add_flag("-w,--overwrite", "overwrite existing files without prompt");
 
   // ── Configure formatter ────────────────────────────────────
-  app.formatter_fn(makeHelpFormatter(layout.lineLength, layout.minDescriptionLength));
+  app.formatter_fn(makeHelpFormatter(general, io, processing, fileop));
 
   // ── Parse ──────────────────────────────────────────────────
   auto result = CmdParseResult{};

@@ -49,4 +49,5 @@ struct CmdParseResult {
   std::optional<std::string> error;
 };
 
-auto commandLineInit(int argc, char* argv[]) -> CmdParseResult;
+auto commandLineInit(int argc, char* argv[], std::string const& introLine)
+  -> CmdParseResult;
