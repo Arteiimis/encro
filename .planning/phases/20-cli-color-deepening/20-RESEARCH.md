@@ -380,7 +380,7 @@ All runtime state (color mode, NO_COLOR detection) is already managed by the exi
 | A1 | Phase 19 formatter_fn maxColLen computation is already correct and computes plain-text widths (no ANSI codes present) | Architecture Patterns, Pitfall 1 | LOW — Phase 19 explicitly excluded color; confirmation is just verifying the existing code doesn't accidentally include escape codes (it doesn't per source review) |
 | A2 | `fmt::color::light_cyan` compiles with the project's fmt version | Standard Stack | LOW — VERIFIED in fmt/color.h source from GitHub; the fmt version in xmake (`add_requires("fmt")` without version pin) pulls latest which includes this color |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should --version have a short flag like -V?**
    - What we know: D-03 specifies --version in General group after --help, no short flag mentioned
