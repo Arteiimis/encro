@@ -178,7 +178,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 20-01-PLAN.md — MessageKind enum extension (5 new values: Usage, OptionGroup, OptionName, OptionDesc, Version) + styleFor()/defaultBadgeLabel() mappings (TDD)
+- [x] 20-01-PLAN.md — MessageKind enum extension (5 new values: Usage, OptionGroup, OptionName, OptionDesc, Version) + styleFor()/defaultBadgeLabel() mappings (TDD)
 - [ ] 20-02-PLAN.md — Colored --help output via formatter_fn styledText() injection — Usage/steel_blue, OptionGroup/steel_blue+bold, OptionName/light_cyan, OptionDesc/plain (TDD)
 - [ ] 20-03-PLAN.md — --version flag + colored version output via MessageKind::Version + COLR-03 error path verification
 
