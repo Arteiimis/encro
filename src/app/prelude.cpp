@@ -57,12 +57,12 @@ auto resolveCommonLogDir() -> fs::path {
   return fs::temp_directory_path() / "encro" / "logs";
 }
 
-auto setupLogging(po::variables_map const& vm) -> std::optional<fs::path> {
+auto setupLogging(CmdParseResult const& cmd) -> std::optional<fs::path> {
   constexpr auto kLogPattern = "[%Y-%m-%dT%H:%M:%S.%e%z] [%^%l%$] %v";
   spdlog::set_pattern(kLogPattern);
 
-  auto const verboseEnabled = vm.count("verbose") > 0;
-  auto const verboseEchoEnabled = vm.count("verbose-echo") > 0;
+  auto const verboseEnabled = cmd.verbose;
+  auto const verboseEchoEnabled = cmd.verboseEcho;
 
   if (!verboseEnabled) {
     spdlog::set_level(spdlog::level::off);
@@ -136,13 +136,13 @@ auto initStartup(int argc, char* argv[]) -> StartupContext {
   auto cmd = commandLineInit(argc, argv);
 
   if (
-    auto const terminalError = terminal::configureFromVariablesMap(cmd.vm);
+    auto const terminalError = terminal::configureFromColorString(cmd.color);
     terminalError.has_value() && !cmd.error.has_value()
   ) {
     cmd.error = terminalError;
   }
 
-  auto verboseLogFilePath = setupLogging(cmd.vm);
+  auto verboseLogFilePath = setupLogging(cmd);
   return StartupContext{std::move(cmd), std::move(verboseLogFilePath)};
 }
 
