@@ -12,7 +12,7 @@ Requirements for CLI library migration and terminal color deepening.
 - [x] **CLI11-01**: 26个 option 通过 CLI11 API 定义（add_flag/add_option/add_option_group，4组），cmd.cpp (138行) 完全重写
 - [x] **CLI11-02**: 58处 vm.count()/vm.at() 调用适配为 CLI11 访问模式（config_builder 17 + prelude 2 + terminal 1 + utils 1 + app_entry 2，共 6 consumer files）
 - [x] **CLI11-03**: 自适应列宽保留 — consolewidth::resolveColumns() + resolveHelpTextLayout() 传递到 formatter_fn
-- [ ] **CLI11-04**: cmd_cmd_tests.cpp (244行) + cmd_config_builder_tests.cpp (732行) CLI11 测试重写
+- [x] **CLI11-04**: cmd_cmd_tests.cpp (244行) + cmd_config_builder_tests.cpp (732行) CLI11 测试重写
 - [x] **CLI11-05**: 全部 3033 assertions 零行为回归，所有 CLI flow 等价输出
 
 ### CLI着色深化
@@ -64,7 +64,7 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 | CLI11-01 | Phase 19 | Complete |
 | CLI11-02 | Phase 19 | Complete |
 | CLI11-03 | Phase 19 | Complete |
-| CLI11-04 | Phase 19 | Pending |
+| CLI11-04 | Phase 19 | Complete |
 | CLI11-05 | Phase 19 | Complete |
 | COLR-01 | Phase 20 | Pending |
 | COLR-02 | Phase 20 | Pending |
