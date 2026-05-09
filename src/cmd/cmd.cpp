@@ -85,16 +85,16 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth) -> std::string 
   auto result = std::string{};
   auto lineStart = std::size_t{0};
   auto lineNum = 0u;
+  auto const coloredName = terminal::styledText(
+    terminal::Stream::Stdout,
+    terminal::MessageKind::OptionName,
+    nameStr
+  );
   while (lineStart < description.size()) {
     auto const newlinePos = description.find('\n', lineStart);
     auto const line = (newlinePos == std::string_view::npos)
       ? description.substr(lineStart)
       : description.substr(lineStart, newlinePos - lineStart);
-    auto const coloredName = terminal::styledText(
-      terminal::Stream::Stdout,
-      terminal::MessageKind::OptionName,
-      nameStr
-    );
     auto const coloredDesc = terminal::styledText(
       terminal::Stream::Stdout,
       terminal::MessageKind::OptionDesc,
