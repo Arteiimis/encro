@@ -6,7 +6,7 @@
 
 ## What This Is
 
-A fast, resumable CLI tool for batch video encoding and image compression with intelligent packing into zip archives. Pack subsystem has a single public entry point `pack::execute(PackRequest)` with zero internal type leakage to consumers. Compact progress bars by default with `--full-progress` for detailed per-worker/per-archive display.
+A fast, resumable CLI tool for batch video encoding and image compression with intelligent packing into zip archives. CLI11-based argument parsing with colored --help output. Pack subsystem has a single public entry point `pack::execute(PackRequest)` with zero internal type leakage to consumers. Compact progress bars by default with `--full-progress` for detailed per-worker/per-archive display.
 
 ## Core Value
 
@@ -29,7 +29,7 @@ Users run a single command (`encro -i <path> --pack`) to encode and pack entire 
 
 ## Context
 
-Shipped v1.0 (compact progress mode), v1.1 (lambda readability refactor), v1.2 (tech debt & code quality), v1.3 (pack subsystem OO refactor), v1.4 (PackRequest declarative API & IPacker removal), and v1.5 (Pack下沉收尾 — 消除调用方泄漏).
+Shipped v1.0 (compact progress mode), v1.1 (lambda readability refactor), v1.2 (tech debt & code quality), v1.3 (pack subsystem OO refactor), v1.4 (PackRequest declarative API & IPacker removal), v1.5 (Pack下沉收尾 — 消除调用方泄漏), and v1.6 (CLI11 migration + colored --help/--version output).
 
 v1.5 pack subsystem architecture (shipped):
 - `pack.h`: single public header — PackRequest, PackMode, NamingConfig, NamingStrategy, GroupingStrategy, SummaryConfig, execute() declaration
@@ -45,22 +45,33 @@ v1.5 pack subsystem architecture (shipped):
 - SummaryConfig with isSummary structural flag replaces "0000__" prefix convention
 - PackPlan fully internalized — compile-time enforced boundary via __if_exists
 
-Tech stack: C++26, clang-cl, boost::program_options, libzippp, FFmpeg, Catch2, xmake.
-157 assertions pass (packer + pack-service integration tests), 945 total E2E assertions preserved.
+Tech stack: C++26, clang-cl, CLI11 (option parsing), boost (json/filesystem/stacktrace), libzippp, FFmpeg, Catch2, xmake.
+3078 assertions pass, 264/265 test cases (1 pre-existing COLUMNS=72 failure).
 
 ## Current State
 
-**Shipped:** v1.0 through v1.5. All milestones complete.
+**Shipped:** v1.0 through v1.6. All milestones complete.
 
-Pack subsystem:
-- PackRequest declarative single-entry API: `pack::execute(request)` — consumers describe intent, all orchestration internal
-- Naming internalized: `NamingConfig` with `NamingStrategy` enum (Flat/FlatWithForce/Keep), no call-site naming logic
-- Grouping declarative: `GroupingStrategy` enum (PerSourceDir/PerSourceDirKeepTogether) on PackRequest
-- Summary structural: `SummaryConfig` with `isSummary` flag, replaces "0000__" string prefix convention
-- Configuration centralized: compact from `AppConfig.fullProgress`, all CLI params injected via PackRequest fields
-- No abstract layer: Packer used directly by value, IPacker/MockPacker deleted
-- PackPlan fully internalized: moved to `pack_plan_internal.h`, unreachable from public `pack.h`
-- Architecture: Packer (I/O) → PackService (orchestration, owns Packer) → `pack::execute()` (free function entry point)
+v1.6 shipped features:
+- CLI11 replaces boost::program_options — `CmdParseResult` flat struct, `commandLineInit()` with 26 options, `formatter_fn` custom help
+- Colored --help output — 3-layer semantic coloring via `terminal::styledText()` (Usage/dodger_blue+bold, OptionGroup/steel_blue, OptionName/gold, OptionDesc/plain)
+- `--version` flag — colored output via `terminal::println(Version, ...)`
+- `MessageKind` enum extended 8→13 values (Usage, OptionGroup, OptionName, OptionDesc, Version)
+- NO_COLOR standard compliance — all color paths gated via `colorsEnabled()`
+- `--no-color` flag (General group) for explicit color disabling
+- Error messages unified — all `failWithHint()` / `terminal::println(Error, ...)`
+
+### Architecture (current v1.6)
+
+- `pack.h`: single public header — PackRequest, PackMode, NamingConfig, NamingStrategy, GroupingStrategy, SummaryConfig, execute() declaration
+- `pack_types.h`: public types — PackFileEntry, PackEntryInput, FileOrdinalRange
+- `pack_plan_internal.h`: internal-only — PackPlan struct, execute(PackPlan) declaration
+- Packer: zip I/O, grouping, file copy — internal-only, direct value semantics, no abstract base
+- PackService: orchestration, owns Packer by value, internal executor
+- `pack::execute()`: free function entry point, all grouping/naming/Plan construction internal
+- `pack::internal::` namespace: demoted static helpers, detail types, internal constants
+- 3 consumers (pipeline/video/picture) use pack::execute(PackRequest) exclusively — zero internal pack type includes
+- All legacy patterns preserved: compact progress, resumability, conflict handling
 
 ## Requirements
 
@@ -110,7 +121,19 @@ Pack subsystem:
 - ✓ SINK-04: PackPlan 移入 pack_plan_internal.h，编译期边界强制 via `__if_exists` — v1.5
 - ✓ 3033 assertions across 244 test cases pass with zero behavioral regression — v1.5
 
-## Current Milestone: v1.6 CLI体验增强
+**v1.6 CLI体験增强:**
+- ✓ CLI11-01: 26个 option 通过 CLI11 API 定义（4组），cmd.cpp 完全重写 — v1.6
+- ✓ CLI11-02: 58处 vm.count()/vm.at() 调用适配为 CLI11 访问模式（6 consumer files） — v1.6
+- ✓ CLI11-03: 自适应列宽保留 — consolewidth::resolveColumns() + resolveHelpTextLayout() 传递到 formatter_fn — v1.6
+- ✓ CLI11-04: cmd_cmd_tests.cpp + cmd_config_builder_tests.cpp CLI11 测试重写 — v1.6
+- ✓ CLI11-05: 3033 assertions 零行为回归（实际 3078 assertions, 264/265 pass） — v1.6
+- ✓ COLR-01: --help 输出按 section 着色（Usage/OptionGroup/OptionName/OptionDesc），通过 formatter_fn 注入 terminal::styledText() — v1.6
+- ✓ COLR-02: MessageKind 枚举扩展 5 个新值 + styleFor() 映射 — v1.6
+- ✓ COLR-03: 错误信息统一使用 terminal::println(Error, ...) — v1.6
+- ✓ COLR-04: --version 输出着色化 via MessageKind::Version — v1.6
+- ✓ COLR-05: NO_COLOR 标准在所有新着色路径中遵守 — v1.6
+
+## Current Milestone: v1.6 CLI体験增强
 
 **Goal:** 现代化 CLI 选项解析并统一终端着色体验
 
@@ -188,10 +211,16 @@ Pack subsystem:
 | [Phase 16]: GroupingStrategy::PerSourceDirKeepTogether is SEMANTIC not mechanical | ✓ Prevents two-layer partitioning leak, threshold=0 rejected |
 | [Phase 17]: ~200 lines dead code deleted from picture_process.cpp — PackRequest eliminates 14 functions | ✓ -565 lines in picture_process.cpp, -228 net across project |
 | [Phase 18]: __if_exists (MSVC/clang extension) for compile-boundary test — SFINAE cannot detect namespaces | ✓ PackPlan unreachable from pack.h, compile-time enforced |
+| [Phase 19]: Direct CLI11 API (no shim), CmdParseResult flat struct | ✓ 34 call sites adapted, zero boost::po references, full build passes |
+| [Phase 19]: formatter_fn as complete replacement (not decorator) | ✓ 82-line lambda, 4 option groups, 26 options, adaptive column width |
+| [Phase 20 D-01]: 3-layer color scheme — Usage/dodger_blue+bold, OptionGroup/steel_blue, OptionName/gold, OptionDesc/plain | ✓ Clear visual hierarchy, distinct colors |
+| [Phase 20 D-02]: ANSI padding before color injection | ✓ Column alignment preserved, maxColLen computed on plain text only |
+| [Phase 20 D-07]: MessageKind enum additive-only — 5 values appended at end | ✓ Indices 0-7 preserved, backward compat maintained |
+| [Phase 20 D-09]: All color paths via terminal::styledText() → colorsEnabled() gate | ✓ Automatic NO_COLOR compliance, zero new env code |
 
 ## Known Issues / Tech Debt
 
-None — all v1.0–v1.5 items resolved or intentionally dropped.
+None — all v1.0–v1.6 items resolved or intentionally dropped.
 
 ## Evolution
 
@@ -212,4 +241,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-05-05 after v1.5 milestone completion*
+*Last updated: 2026-05-09 after v1.6 milestone completion*

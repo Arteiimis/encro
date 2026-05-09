@@ -66,11 +66,11 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 | CLI11-03 | Phase 19 | Complete |
 | CLI11-04 | Phase 19 | Complete |
 | CLI11-05 | Phase 19 | Complete |
-| COLR-01 | Phase 20 | Pending |
-| COLR-02 | Phase 20 | Pending |
-| COLR-03 | Phase 20 | Pending |
-| COLR-04 | Phase 20 | Pending |
-| COLR-05 | Phase 20 | Pending |
+| COLR-01 | Phase 20 | Complete |
+| COLR-02 | Phase 20 | Complete |
+| COLR-03 | Phase 20 | Complete |
+| COLR-04 | Phase 20 | Complete |
+| COLR-05 | Phase 20 | Complete |
 
 ### v1.5 (Complete)
 

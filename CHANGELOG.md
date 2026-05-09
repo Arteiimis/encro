@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-10
+
+### Added
+
+- `--version` reports the build the binary came from.
+- `--help` is coloured and laid out per option group.
+
+### Changed
+
+- Argument parsing moved from Boost.Program_options to CLI11, which changes the wording of usage and validation errors.
+- The default answer for interactive confirmation prompts changed from N to Y.
+- Packs can be given explicit entry inputs instead of only being derived from the output directory.
+
 ## [1.5.0] - 2026-05-05
 
 ### Changed
@@ -110,7 +123,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v1.5.0...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/Arteiimis/encro/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/Arteiimis/encro/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/Arteiimis/encro/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Arteiimis/encro/compare/v1.2.0...v1.3.0
