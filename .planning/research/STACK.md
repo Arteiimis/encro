@@ -1,110 +1,75 @@
-# Stack Research
+# Technology Stack: CLI Help Coloring
 
-**Domain:** C++ CLI tool — pack subsystem naming/grouping/summary abstraction layer
-**Researched:** 2026-05-04
+**Project:** encro — CLI tool for video/picture encoding and zip packing
+**Researched:** 2026-05-09
 **Confidence:** HIGH
 
 ## Recommended Stack
 
-### Core Technologies
+### Core Coloring Infrastructure (Existing — No Changes)
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| C++26 (clang-cl) | C++26 | Language standard | Already established; `enum class`, `std::optional`, `std::string_view`, designated initializers, `std::expected`-style error handling via `eh::Result` cover all new features |
-| xmake | current | Build system | Already established; no new package requirements |
-| boost::program_options | current | CLI parsing | Already established; no new CLI flags needed beyond what PackRequest fields absorb |
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| `terminal::` layer (custom) | In-project | Semantic color system: `MessageKind` enum → `fmt::text_style` mapping. Single source of truth for all terminal styling. | Already built, tested, and integrated. Handles NO_COLOR, `--color`, `isatty()`, `TERM=dumb`, Windows VT enable. Zero new development for the gating layer. |
+| `fmtlib` (fmt) | ≥11.x (bundled) | ANSI escape code generation: `fmt::fg()`, `fmt::bg()`, `fmt::emphasis`, `fmt::terminal_color`. | Already a project dependency. Used by `terminal::styleFor()` to produce `fmt::text_style` values. No additional dependency. |
 
-### Supporting Libraries
+### CLI Framework (Migration Target)
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| *(none new)* | — | — | All new features are pure C++ standard library types |
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| CLI11 | ≥2.4.x (header-only) | Command-line parsing. Replaces `boost::program_options`. Provides `formatter_fn` lambda for full help customization. | Chosen per `.planning/notes/cli-library-selection.md`. Only CLI library with `formatter_fn` callback that gives full control over help output rendering — the injection point for `terminal::println()` calls. Fluent API replaces disliked `operator()` chaining. |
 
-No new supporting libraries are required. The four v1.5 features are all internal C++ abstractions:
+### Help Layout Utilities (Existing — Carry Forward)
 
-1. **`NamingStrategy` enum class** (`Flat` / `Keep` / `FlatForce`) — standard `enum class`, replaces the implicit `OutputLayout` + `forceNameConflictHandling` boolean combo. Lives in `pack.h`.
-2. **`GroupingStrategy`** struct on `PackRequest` — captures `maxEntriesPerGroup` (`std::optional<std::size_t>`) and `sourceDirAffinity` (bool); standard C++ aggregate. Lives in `pack.h`.
-3. **`SummaryConfig`** — a boolean `summary` toggle + `std::optional<std::string> summaryPrefix`; standard C++ types. Lives in `pack.h` or as fields directly on `PackRequest`.
-4. **`PackPlan` internalization** — architectural change moving `pack_types.h` to internal-only; no new types or libraries.
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| `console_width.h` (custom) | In-project | Adaptive column width detection: reads terminal width, provides min/max bounds for help text layout. | Already used by current `boost::program_options` help formatter. Must be carried forward into CLI11 `formatter_fn` to preserve adaptive layout. |
 
-### Development Tools
+### Removed Dependencies
 
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| Catch2 | Unit/integration testing | Existing; existing packer + pack-service integration tests continue to cover new grouping/naming paths |
-| clang-cl (LLVM) | Compiler | Existing; C++26 `enum class`, `std::optional`, designated initializers all supported |
-| xmake | Build orchestration | Existing; no `add_requires()` changes needed |
-
-## Installation
-
-No new dependencies. The existing `xmake.lua` `add_requires()` list is unchanged:
-
-```bash
-# No additions — all new features use standard C++ types
-# Existing build command unchanged:
-xmake build encro
-xmake build tests && xmake run tests
-```
+| Technology | Reason for Removal |
+|------------|-------------------|
+| `boost::program_options` | Replaced by CLI11. No built-in color support, sealed `print()` API, disliked `operator()` chaining. May retain `boost::uuid` and `boost::lexical_cast` if used elsewhere. |
 
 ## Alternatives Considered
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| `enum class NamingStrategy` (Flat/Keep/FlatForce) | Keep separate `OutputLayout` + `forceConflictHandling` boolean | Only if backward compat with existing `AppConfig.outputLayout` must be maintained long-term (not the case — v1.5 explicitly abstracts this) |
-| `struct GroupingStrategy` aggregate on PackRequest | `std::variant<FlatGrouping, SourceDirGrouping>` discriminated union | Only if grouping strategies diverge into fundamentally different algorithms with incompatible state (not the case — both are configurable via the same max-entries + affinity parameters) |
-| `SummaryConfig` as a PackRequest sub-struct | Summary fields flat on PackRequest | Flat fields are simpler for 2 fields; sub-struct only warranted if summary configuration grows beyond 3 fields |
-| PackPlan in internal-only header (`pack/pack_internal.h` or new `pack/pack_plan.h`) | PackPlan remains in `pack_types.h` with that header still public | `pack_types.h` must be internal if PackPlan is internal — consumers should never include it. Move PackPlan + PackFileEntry + PackProgressCallbacks to `pack_plan.h` (internal) and keep PackEntryInput in `pack_types.h` only if needed by Packer's internal API |
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| Color library | `terminal::` + `fmtlib` (existing) | **rang** | No NO_COLOR support (open issue #140), known `style::reset` bug (#133). Single-header but semantically weak. |
+| Color library | `terminal::` + `fmtlib` (existing) | **Hand-written ANSI escape sequences** | Reinvents wheel. No semantic layer. Scattered magic strings. No NO_COLOR gating. |
+| Color library | `terminal::` + `fmtlib` (existing) | **Raw `fmt::fg()` calls everywhere** | Bypasses `terminal::` semantic layer. Duplicates NO_COLOR gating. Violates single source of truth principle. |
+| CLI parser | CLI11 | **cxxopts** | No `formatter_fn` equivalent — only `set_width()`, no help rendering hook. Cannot inject `terminal::println()`. |
+| CLI parser | CLI11 | **Keep boost::program_options** | No built-in color. Formatter is sealed (can only inject ANSI into description strings, not full layout). Would require walking `options_description::options()` vector manually — same effort as CLI11 migration but with worse API. |
 
-## What NOT to Use
+## Installation
 
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| Boost.DI or any DI framework | Constructor injection already sufficient; PackService owns Packer by value (v1.4 decision). Adding DI for grouping/naming strategies is over-engineering | Direct struct/field assignment on PackRequest |
-| Strategy pattern with abstract base + virtual dispatch | Hot-path overhead violates "zero hot-path overhead" principle. Naming strategy is resolved once per archive, not per file | `enum class` switch or `std::function` callback (existing pattern in `NamingConfig::zipNameStrategy`) |
-| `std::variant` for naming strategy | Three variants (Flat, Keep, FlatForce) are mutually exclusive config states, not runtime-polymorphic algorithms | `enum class` with 3 enumerators + optional prefix string |
-| New library for "grouping strategy" (e.g., range-v3) | Grouping is a simple size+count threshold with optional source-dir affinity; existing `Packer::groupPackEntriesWithSubparts` already implements it | `std::optional<std::size_t> maxEntriesPerGroup` + `bool sourceDirAffinity` on PackRequest |
-| `immer` or persistent data structures for naming/grouping config | Config is set once on PackRequest construction, never mutated during execution | Plain C++ value types (bool, enum, optional, string) |
-| Exposing `pack::detail::PackEntryInput` in `pack.h` | Would leak internal grouping representation to consumers (the exact problem SINK-03 fixes) | Consumers use `PackRequest::entries` (flat `vector<fs::path>`) and `PackRequest::entryInputs` (already public `PackEntryInput`); internal grouping keys stay in pack.cpp |
+```bash
+# CLI11 is header-only — add to xmake.lua or as a git submodule
+# No new packages to install if using vcpkg/conan with CLI11
 
-## Stack Patterns by Variant
-
-**If naming strategy is Flat:**
-- Use `NamingStrategy::Flat` + optional prefix → `buildConflictHandledFlatName` path in `pack.cpp`
-- Applies collision prefixes (source-dir group label + hash) to avoid name conflicts
-- Same behavior as current `config.outputLayout == Flat && !forceConflictNaming` path
-
-**If naming strategy is FlatForce:**
-- Use `NamingStrategy::FlatForce` → ALWAYS applies collision prefixes even for single-file names
-- Same behavior as current `config.outputLayout == Flat && config.forceNameConflictHandling` path
-
-**If naming strategy is Keep:**
-- Use `NamingStrategy::Keep` → preserves relative directory structure as zip entry names
-- Same behavior as current `config.outputLayout == Keep` path
-
-**If grouping strategy specifies sourceDirAffinity:**
-- Pass through to `Packer::groupPackEntriesWithSubparts` → `keepSourceDirsTogetherWhenTotalFilesExceed` parameter
-- Already implemented in Packer; just needs to be configurable from PackRequest
-
-**If summary is enabled:**
-- `pack::execute()` internally calls summary collection (currently `collectFolderSummaryPictures` in picture_process.cpp, moved to `pack.cpp`)
-- Summary entries get a dedicated prefix (e.g., `"0000__"`) in their zip entry names
-- Summary logic moves from picture_process.cpp consumer into pack subsystem
+# Existing dependencies (already in project):
+# fmtlib — already bundled and linked
+# boost (uuid, lexical_cast only if still needed after migration)
+```
 
 ## Version Compatibility
 
-| Package A | Compatible With | Notes |
-|-----------|-----------------|-------|
-| C++26 `enum class` | clang-cl (current) | Fully supported; no ABI concerns since enum is internal to pack subsystem |
-| `std::optional<std::string>` | clang-cl (current) | Already used extensively in PackRequest and NamingConfig |
-| `PackRequest` designated initializers | clang-cl (current) | Existing pattern; new fields extend the aggregate, backward-compat via default member initializers |
+| Component | Min Version | Notes |
+|-----------|-------------|-------|
+| CLI11 | 2.3.0+ | `formatter_fn` available since v2.0. Formatter subclassing API stable since v1.9. |
+| fmtlib | 10.0+ | `fmt::terminal_color`, `fmt::emphasis`, `fmt::styled()` all stable. |
+| C++ Standard | C++20 | Required by project. CLI11 is C++11+. fmtlib requires C++20 for `std::format` interop. |
+| Windows | 10 (1903+) | Virtual Terminal support required for ANSI. `terminal::colorsEnabled()` already enables VT processing via `SetConsoleMode(ENABLE_VIRTUAL_TERMINAL_PROCESSING)`. |
 
 ## Sources
 
-- **Codebase analysis** (`src/pack/pack.h`, `src/pack/pack.cpp`, `src/pack/pack_types.h`, `src/pack/packer_types.h`, `src/pack/pack_internal.h`, `src/pack/packer.h`, `src/picture/picture_process.cpp`, `src/core/collision_naming.h`, `src/core/app_context.h`) — HIGH confidence — direct inspection of current types, includes, and dependency graph
-- **`.planning/PROJECT.md`** — HIGH confidence — documents v1.4 shipped architecture, v1.5 milestone scope (SINK-01 through SINK-04), and key decisions against framework introduction
-- **`xmake.lua`** — HIGH confidence — confirms current dependency list: boost, thread-pool, spdlog, fmt, indicators, immer, libzippp, catch2
+- **CLI11:** Context7 `/cliutils/cli11` — HIGH confidence (official docs). `formatter_fn` API, `CLI::Formatter` subclassing, `App::get_formatter()`, `AppFormatMode` enum.
+- **fmtlib:** Context7 `/fmtlib/fmt` — HIGH confidence (official docs). Color API, `text_style`, `fg()`, `bg()`, `emphasis`, `terminal_color`, `rgb()`.
+- **Terminal layer:** `src/infra/terminal.h`, `src/infra/terminal.cpp` — HIGH confidence (primary source). `MessageKind` enum, `styleFor()`, `colorsEnabled()`, NO_COLOR handling.
+- **CLI library selection:** `.planning/notes/cli-library-selection.md` — HIGH confidence (design authority). CLI11 vs cxxopts vs boost::po comparison, migration scope.
+- **NO_COLOR standard:** https://no-color.org/ — HIGH confidence (authoritative). Formal specification, FAQ, 200+ tool adoption list.
 
 ---
 
-*Stack research for: encrō v1.5 pack naming/grouping/summary abstraction*
-*Researched: 2026-05-04*
+*Stack research for: encrō v1.6 CLI Color Deepening*
+*Researched: 2026-05-09*
