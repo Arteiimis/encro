@@ -3,6 +3,7 @@ title: Migrate from boost::program_options to CLI11
 date: 2026-05-09
 priority: medium
 source: /gsd-explore CLI library comparison
+resolves_phase: 19
 ---
 
 ## Description
