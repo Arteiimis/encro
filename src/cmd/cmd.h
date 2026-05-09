@@ -1,15 +1,51 @@
 #pragma once
 
-#include <boost/program_options.hpp>
+#include <CLI/CLI.hpp>
 
+#include <cstddef>
 #include <optional>
 #include <string>
-
-namespace po = boost::program_options;
+#include <vector>
 
 struct CmdParseResult {
-  po::options_description desc;
-  po::variables_map vm;
+  // ── General options ────────────────────────────────────────────
+  bool help = false;
+  bool verbose = false;
+  bool verboseEcho = false;
+  bool fullProgress = false;
+  std::string color = "auto";
+  bool yesToAll = false;
+
+  // ── Input/Output options ───────────────────────────────────────
+  std::optional<std::string> input;
+  std::optional<std::vector<std::string>> inputs;
+  std::optional<std::string> output;
+  std::optional<std::string> stateFile;
+  std::string outputFormat = "mp4";
+  bool flat = false;
+  bool keep = false;
+  std::string forceConflictHandling = "y";
+  bool folderSummary = false;
+  bool recursive = false;
+
+  // ── Processing options ─────────────────────────────────────────
+  std::string processType = "video";
+  std::optional<std::size_t> maxJobs;
+  bool resume = false;
+  bool restart = false;
+  std::optional<std::string> ffmpegPath;
+  bool compress = false;
+  std::optional<int> imageQuality;
+
+  // ── File operation options ─────────────────────────────────────
+  bool pack = false;
+  bool packOnly = false;
+  bool overwrite = false;
+
+  // ── Help output (rendered by formatter_fn) ─────────────────────
+  std::string helpText;
+
+  // ── Parse error (CLI11-native message) ─────────────────────────
   std::optional<std::string> error;
 };
 
