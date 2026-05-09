@@ -153,23 +153,15 @@ auto colorMode() -> ColorMode {
   return g_colorMode.load(std::memory_order_acquire);
 }
 
-auto configureFromVariablesMap(boost::program_options::variables_map const& vm)
-  -> std::optional<std::string> {
-  auto mode = ColorMode::Auto;
-
-  if (vm.count("color") > 0) {
-    auto const raw = vm.at("color").as<std::string>();
-    auto const parsed = parseColorMode(raw);
-    if (!parsed.has_value()) {
-      return std::format(
-        "Invalid color mode: {}. Valid values are: auto, always, never.",
-        raw
-      );
-    }
-    mode = parsed.value();
+auto configureFromColorString(std::string_view colorValue) -> std::optional<std::string> {
+  auto const parsed = parseColorMode(colorValue);
+  if (!parsed.has_value()) {
+    return std::format(
+      "Invalid color mode: {}. Valid values are: auto, always, never.",
+      colorValue
+    );
   }
-
-  configure(mode);
+  configure(parsed.value());
   return std::nullopt;
 }
 
