@@ -1,7 +1,7 @@
+#include "cmd/cmd.h"
 #include "cmd/config_builder.h"
 #include "test_utils.h"
 
-#include <boost/program_options/variables_map.hpp>
 #include <catch2/catch_all.hpp>
 
 #include <filesystem>
@@ -13,25 +13,52 @@ using testutils::writeFile;
 
 namespace {
 
-auto makeVm(
-  std::vector<std::pair<std::string, std::string>> const& options,
-  std::vector<std::string> const& flags = {},
-  std::vector<std::pair<std::string, int>> const& intOptions = {}
-) -> boost::program_options::variables_map {
-  namespace po = boost::program_options;
+// Helper: create a default CmdParseResult with all defaults, then override specific fields
+auto makeResult(
+  std::optional<std::string> input = std::nullopt,
+  std::optional<std::vector<std::string>> inputs = std::nullopt,
+  std::optional<std::string> output = std::nullopt,
+  std::optional<std::string> stateFile = std::nullopt,
+  std::string processType = "video",
+  std::string outputFormat = "mp4",
+  std::string forceConflictHandling = "y",
+  std::string color = "auto",
+  std::optional<std::size_t> maxJobs = std::nullopt,
+  std::vector<std::string> flags = {},
+  std::optional<int> imageQuality = std::nullopt
+) -> CmdParseResult {
+  auto result = CmdParseResult{};
+  result.input = std::move(input);
+  result.inputs = std::move(inputs);
+  result.output = std::move(output);
+  result.stateFile = std::move(stateFile);
+  result.processType = std::move(processType);
+  result.outputFormat = std::move(outputFormat);
+  result.forceConflictHandling = std::move(forceConflictHandling);
+  result.color = std::move(color);
+  result.maxJobs = maxJobs;
+  result.imageQuality = imageQuality;
 
-  auto vm = po::variables_map{};
-  for (auto const& [key, value]: options) {
-    vm.insert({key, po::variable_value(boost::any{value}, false)});
-  }
+  // Process flag list
   for (auto const& flag: flags) {
-    vm.insert({flag, po::variable_value(boost::any{}, false)});
-  }
-  for (auto const& [key, value]: intOptions) {
-    vm.insert({key, po::variable_value(boost::any{value}, false)});
+    if (flag == "yes") result.yesToAll = true;
+    else if (flag == "recursive") result.recursive = true;
+    else if (flag == "pack") result.pack = true;
+    else if (flag == "pack-only") result.packOnly = true;
+    else if (flag == "resume") result.resume = true;
+    else if (flag == "restart") result.restart = true;
+    else if (flag == "flat") result.flat = true;
+    else if (flag == "keep") result.keep = true;
+    else if (flag == "folder-summary") result.folderSummary = true;
+    else if (flag == "verbose") result.verbose = true;
+    else if (flag == "verbose-echo") result.verboseEcho = true;
+    else if (flag == "compress") result.compress = true;
+    else if (flag == "full-progress") result.fullProgress = true;
+    else if (flag == "overwrite") result.overwrite = true;
+    else if (flag == "help") result.help = true;
   }
 
-  return vm;
+  return result;
 }
 
 }  // namespace
@@ -41,8 +68,8 @@ TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm({{"input", inputPath.string()}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(inputPath.string());
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   auto const config = configRes.value();
@@ -68,8 +95,19 @@ TEST_CASE("buildConfig reads keep output layout", "[cmd][config]") {
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm({{"input", inputPath.string()}}, {"keep"});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"keep"}
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   CHECK(configRes->outputLayout == appctx::OutputLayout::Keep);
@@ -80,9 +118,8 @@ TEST_CASE("buildConfig reads forced conflict handling flag", "[cmd][config]") {
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm =
-    makeVm({{"input", inputPath.string()}, {"force-conflict-handling", "y"}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(inputPath.string());
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   CHECK(configRes->forceNameConflictHandling);
@@ -93,9 +130,16 @@ TEST_CASE("buildConfig reads disabled conflict handling flag", "[cmd][config]") 
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm =
-    makeVm({{"input", inputPath.string()}, {"force-conflict-handling", "n"}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "n"
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   CHECK_FALSE(configRes->forceNameConflictHandling);
@@ -106,8 +150,19 @@ TEST_CASE("buildConfig reads enabled folder summary flag", "[cmd][config]") {
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm({{"input", inputPath.string()}}, {"folder-summary"});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"folder-summary"}
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   CHECK(configRes->pictureFolderSummary);
@@ -118,9 +173,16 @@ TEST_CASE("buildConfig rejects invalid conflict-handling value", "[cmd][config]"
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm =
-    makeVm({{"input", inputPath.string()}, {"force-conflict-handling", "maybe"}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "maybe"
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("must be set to y or n") != std::string::npos);
@@ -131,8 +193,19 @@ TEST_CASE("buildConfig rejects conflicting output layouts", "[cmd][config]") {
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm({{"input", inputPath.string()}}, {"flat", "keep"});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"flat", "keep"}
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("--flat and --keep") != std::string::npos);
@@ -144,11 +217,19 @@ TEST_CASE("buildConfig reads resume restart and state-file options", "[cmd][conf
   auto const statePath = temp.path / "encro.job-state.json";
   writeFile(inputPath);
 
-  auto const vm = makeVm(
-    {{"input", inputPath.string()}, {"state-file", statePath.string()}},
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    statePath.string(),
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
     {"resume"}
   );
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   CHECK(configRes->resumeState);
@@ -162,32 +243,34 @@ TEST_CASE("buildConfig rejects conflicting resume and restart", "[cmd][config]")
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm({{"input", inputPath.string()}}, {"resume", "restart"});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"resume", "restart"}
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("--resume and --restart") != std::string::npos);
 }
 
 TEST_CASE("buildConfig supports multiple inputs", "[cmd][config]") {
-  namespace po = boost::program_options;
-
   TempDir temp;
   auto const inputA = temp.path / "a.mp4";
   auto const inputB = temp.path / "b.mp4";
   writeFile(inputA);
   writeFile(inputB);
 
-  auto vm = makeVm({{"type", "video"}});
-  vm.insert(
-    {"inputs",
-     po::variable_value(
-       boost::any{std::vector<std::string>{inputA.string(), inputB.string()}},
-       false
-     )}
-  );
-
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result =
+    makeResult(std::nullopt, std::vector<std::string>{inputA.string(), inputB.string()});
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   auto const config = configRes.value();
@@ -199,29 +282,22 @@ TEST_CASE("buildConfig supports multiple inputs", "[cmd][config]") {
 }
 
 TEST_CASE("buildConfig rejects both input and inputs", "[cmd][config]") {
-  namespace po = boost::program_options;
-
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto vm = makeVm({{"input", inputPath.string()}, {"type", "video"}});
-  vm.insert(
-    std::pair{
-      "inputs",
-      po::variable_value(boost::any{std::vector<std::string>{inputPath.string()}}, false)
-    }
-  );
-
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result =
+    makeResult(inputPath.string(), std::vector<std::string>{inputPath.string()});
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("either -i/--input or -I/--inputs") != std::string::npos);
 }
 
 TEST_CASE("buildConfig rejects invalid process type", "[cmd][config]") {
-  auto const vm = makeVm({{"type", "bad"}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result =
+    makeResult(std::nullopt, std::nullopt, std::nullopt, std::nullopt, "bad");
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("Invalid process type") != std::string::npos);
@@ -232,8 +308,9 @@ TEST_CASE("buildConfig maps vid alias to video", "[cmd][config]") {
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm({{"input", inputPath.string()}, {"type", "vid"}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result =
+    makeResult(inputPath.string(), std::nullopt, std::nullopt, std::nullopt, "vid");
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   CHECK(configRes->processType == "video");
@@ -244,63 +321,61 @@ TEST_CASE("buildConfig maps pic alias to picture", "[cmd][config]") {
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm({{"input", inputPath.string()}, {"type", "pic"}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result =
+    makeResult(inputPath.string(), std::nullopt, std::nullopt, std::nullopt, "pic");
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   CHECK(configRes->processType == "picture");
 }
 
 TEST_CASE("buildConfig rejects multi-input for picture type", "[cmd][config]") {
-  namespace po = boost::program_options;
-
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto vm = makeVm({{"type", "picture"}});
-  vm.insert(
-    {"inputs",
-     po::variable_value(boost::any{std::vector<std::string>{inputPath.string()}}, false)}
+  auto const result = makeResult(
+    std::nullopt,
+    std::vector<std::string>{inputPath.string()},
+    std::nullopt,
+    std::nullopt,
+    "picture"
   );
-
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("only supported for video") != std::string::npos);
 }
 
 TEST_CASE("buildConfig rejects multi-input with pack-only", "[cmd][config]") {
-  namespace po = boost::program_options;
-
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto vm = makeVm({{"type", "video"}}, {"pack-only"});
-  vm.insert(
-    {"inputs",
-     po::variable_value(boost::any{std::vector<std::string>{inputPath.string()}}, false)}
+  auto const result = makeResult(
+    std::nullopt,
+    std::vector<std::string>{inputPath.string()},
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"pack-only"}
   );
-
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("not supported with pack-only") != std::string::npos);
 }
 
 TEST_CASE("buildConfig rejects multi-input directory path", "[cmd][config]") {
-  namespace po = boost::program_options;
-
   TempDir temp;
 
-  auto vm = makeVm({{"type", "video"}});
-  vm.insert(
-    {"inputs",
-     po::variable_value(boost::any{std::vector<std::string>{temp.path.string()}}, false)}
-  );
-
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result =
+    makeResult(std::nullopt, std::vector<std::string>{temp.path.string()});
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("not a file") != std::string::npos);
@@ -311,24 +386,31 @@ TEST_CASE("buildConfig rejects invalid output format", "[cmd][config]") {
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm({{"output-format", "mkv"}, {"input", inputPath.string()}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mkv"
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("Invalid output format") != std::string::npos);
 }
 
 TEST_CASE("buildConfig requires input path", "[cmd][config]") {
-  auto const vm = makeVm({});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult();
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("Input path is required") != std::string::npos);
 }
 
 TEST_CASE("buildConfig rejects missing input path", "[cmd][config]") {
-  auto const vm = makeVm({{"input", "missing.mp4"}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult("missing.mp4");
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("does not exist") != std::string::npos);
@@ -341,9 +423,8 @@ TEST_CASE("buildConfig rejects output path that is not a directory", "[cmd][conf
   writeFile(inputPath);
   writeFile(outputFile);
 
-  auto const vm =
-    makeVm({{"input", inputPath.string()}, {"output", outputFile.string()}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(inputPath.string(), std::nullopt, outputFile.string());
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("output path is not a directory") != std::string::npos);
@@ -355,8 +436,8 @@ TEST_CASE("buildConfig accepts output path that does not exist yet", "[cmd][conf
   auto const outputDir = temp.path / "new_output";
   writeFile(inputPath);
 
-  auto const vm = makeVm({{"input", inputPath.string()}, {"output", outputDir.string()}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(inputPath.string(), std::nullopt, outputDir.string());
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   REQUIRE(configRes->outputPath.has_value());
@@ -371,8 +452,8 @@ TEST_CASE(
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm = makeVm({{"input", inputPath.string()}, {"output", "+"}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(inputPath.string(), std::nullopt, "+");
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   REQUIRE(configRes->outputPath.has_value());
@@ -384,9 +465,9 @@ TEST_CASE("buildConfig resolves input alias with relative suffix", "[cmd][config
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm =
-    makeVm({{"input", inputPath.string()}, {"output", "input://encoded/webp"}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result =
+    makeResult(inputPath.string(), std::nullopt, "input://encoded/webp");
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   REQUIRE(configRes->outputPath.has_value());
@@ -397,8 +478,6 @@ TEST_CASE(
   "buildConfig resolves = alias to nearest common ancestor for multi-input",
   "[cmd][config]"
 ) {
-  namespace po = boost::program_options;
-
   TempDir temp;
   auto const inputA = temp.path / "group_a" / "clip_a.mp4";
   auto const inputB = temp.path / "group_b" / "clip_b.mp4";
@@ -407,16 +486,12 @@ TEST_CASE(
   writeFile(inputA);
   writeFile(inputB);
 
-  auto vm = makeVm({{"type", "video"}, {"output", "=/encoded"}});
-  vm.insert(
-    {"inputs",
-     po::variable_value(
-       boost::any{std::vector<std::string>{inputA.string(), inputB.string()}},
-       false
-     )}
+  auto const result = makeResult(
+    std::nullopt,
+    std::vector<std::string>{inputA.string(), inputB.string()},
+    "=/encoded"
   );
-
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   REQUIRE(configRes->outputPath.has_value());
@@ -427,8 +502,6 @@ TEST_CASE(
   "buildConfig rejects input alias for multi-input without shared parent",
   "[cmd][config]"
 ) {
-  namespace po = boost::program_options;
-
   TempDir temp;
   auto const inputA = temp.path / "group_a" / "clip_a.mp4";
   auto const inputB = temp.path / "group_b" / "clip_b.mp4";
@@ -437,16 +510,12 @@ TEST_CASE(
   writeFile(inputA);
   writeFile(inputB);
 
-  auto vm = makeVm({{"type", "video"}, {"output", "+/encoded"}});
-  vm.insert(
-    {"inputs",
-     po::variable_value(
-       boost::any{std::vector<std::string>{inputA.string(), inputB.string()}},
-       false
-     )}
+  auto const result = makeResult(
+    std::nullopt,
+    std::vector<std::string>{inputA.string(), inputB.string()},
+    "+/encoded"
   );
-
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("share the same parent directory") != std::string::npos);
@@ -456,8 +525,6 @@ TEST_CASE(
   "buildConfig resolves input alias for multi-input with shared parent",
   "[cmd][config]"
 ) {
-  namespace po = boost::program_options;
-
   TempDir temp;
   auto const sharedDir = temp.path / "shared";
   auto const inputA = sharedDir / "clip_a.mp4";
@@ -466,16 +533,12 @@ TEST_CASE(
   writeFile(inputA);
   writeFile(inputB);
 
-  auto vm = makeVm({{"type", "video"}, {"output", "+\\encoded"}});
-  vm.insert(
-    {"inputs",
-     po::variable_value(
-       boost::any{std::vector<std::string>{inputA.string(), inputB.string()}},
-       false
-     )}
+  auto const result = makeResult(
+    std::nullopt,
+    std::vector<std::string>{inputA.string(), inputB.string()},
+    "+\\encoded"
   );
-
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   REQUIRE(configRes->outputPath.has_value());
@@ -489,9 +552,23 @@ TEST_CASE("buildConfig rejects ffmpeg path that is not a directory", "[cmd][conf
   writeFile(inputPath);
   writeFile(ffmpegFile);
 
-  auto const vm =
-    makeVm({{"input", inputPath.string()}, {"ffmpeg-path", ffmpegFile.string()}});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {},
+    std::nullopt
+  );
+  // Need to set ffmpegPath manually since makeResult doesn't have it as a param
+  auto overriddenResult = result;
+  overriddenResult.ffmpegPath = ffmpegFile.string();
+  auto const configRes = cmd::buildConfig(overriddenResult);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("FFmpeg") != std::string::npos);
@@ -504,14 +581,19 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
   writeFile(inputPath);
   fs::create_directories(outputDir);
 
-  auto const vm = makeVm(
-    {{"input", inputPath.string()},
-     {"output", outputDir.string()},
-     {"type", "picture"},
-     {"output-format", "webp"}},
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    outputDir.string(),
+    std::nullopt,
+    "picture",
+    "webp",
+    "y",
+    "auto",
+    std::nullopt,
     {"yes", "recursive", "pack", "pack-only", "folder-summary", "verbose", "verbose-echo"}
   );
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   auto const config = configRes.value();
@@ -529,16 +611,22 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
 }
 
 TEST_CASE("buildConfig reads custom max parallel jobs", "[cmd][config]") {
-  namespace po = boost::program_options;
-
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto vm = makeVm({{"input", inputPath.string()}});
-  vm.insert({"jobs", po::variable_value(boost::any{std::size_t{4}}, false)});
-
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::size_t{4}
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   REQUIRE(configRes->maxParallelJobs.has_value());
@@ -546,16 +634,22 @@ TEST_CASE("buildConfig reads custom max parallel jobs", "[cmd][config]") {
 }
 
 TEST_CASE("buildConfig rejects jobs = 0", "[cmd][config]") {
-  namespace po = boost::program_options;
-
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto vm = makeVm({{"input", inputPath.string()}});
-  vm.insert({"jobs", po::variable_value(boost::any{std::size_t{0}}, false)});
-
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::size_t{0}
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("--jobs must be >= 1") != std::string::npos);
@@ -566,9 +660,19 @@ TEST_CASE("buildConfig enables compressImages with --compress", "[cmd][config]")
   auto const inputPath = temp.path / "pics";
   fs::create_directories(inputPath);
 
-  auto const vm =
-    makeVm({{"input", inputPath.string()}, {"type", "picture"}}, {"compress"});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"compress"}
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   CHECK(configRes->compressImages == true);
@@ -580,9 +684,19 @@ TEST_CASE("buildConfig rejects --compress without picture type", "[cmd][config]"
   auto const inputPath = temp.path / "input.mp4";
   writeFile(inputPath);
 
-  auto const vm =
-    makeVm({{"input", inputPath.string()}, {"type", "video"}}, {"compress"});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"compress"}
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(
@@ -596,15 +710,20 @@ TEST_CASE("buildConfig reads --image-quality with --compress", "[cmd][config]") 
   auto const inputPath = temp.path / "pics";
   fs::create_directories(inputPath);
 
-  auto const vm = makeVm(
-    {
-      {"input", inputPath.string()},
-      {"type", "picture"},
-    },
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
     {"compress"},
-    {{"image-quality", 10}}
+    10
   );
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   CHECK(configRes->compressImages == true);
@@ -617,12 +736,20 @@ TEST_CASE("buildConfig rejects --image-quality without --compress", "[cmd][confi
   auto const inputPath = temp.path / "pics";
   fs::create_directories(inputPath);
 
-  auto const vm = makeVm(
-    {{"input", inputPath.string()}, {"type", "picture"}},
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
     {},
-    {{"image-quality", 10}}
+    10
   );
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(
@@ -635,15 +762,20 @@ TEST_CASE("buildConfig rejects --image-quality below 2", "[cmd][config]") {
   auto const inputPath = temp.path / "pics";
   fs::create_directories(inputPath);
 
-  auto const vm = makeVm(
-    {
-      {"input", inputPath.string()},
-      {"type", "picture"},
-    },
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
     {"compress"},
-    {{"image-quality", 1}}
+    1
   );
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(
@@ -657,15 +789,20 @@ TEST_CASE("buildConfig rejects --image-quality above 31", "[cmd][config]") {
   auto const inputPath = temp.path / "pics";
   fs::create_directories(inputPath);
 
-  auto const vm = makeVm(
-    {
-      {"input", inputPath.string()},
-      {"type", "picture"},
-    },
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
     {"compress"},
-    {{"image-quality", 32}}
+    32
   );
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
   CHECK(
@@ -679,15 +816,20 @@ TEST_CASE("buildConfig accepts --image-quality at minimum 2", "[cmd][config]") {
   auto const inputPath = temp.path / "pics";
   fs::create_directories(inputPath);
 
-  auto const vm = makeVm(
-    {
-      {"input", inputPath.string()},
-      {"type", "picture"},
-    },
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
     {"compress"},
-    {{"image-quality", 2}}
+    2
   );
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   REQUIRE(configRes->imageQuality.has_value());
@@ -699,15 +841,20 @@ TEST_CASE("buildConfig accepts --image-quality at maximum 31", "[cmd][config]") 
   auto const inputPath = temp.path / "pics";
   fs::create_directories(inputPath);
 
-  auto const vm = makeVm(
-    {
-      {"input", inputPath.string()},
-      {"type", "picture"},
-    },
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
     {"compress"},
-    {{"image-quality", 31}}
+    31
   );
-  auto const configRes = cmd::buildConfig(vm);
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   REQUIRE(configRes->imageQuality.has_value());
@@ -722,9 +869,19 @@ TEST_CASE(
   auto const inputPath = temp.path / "pics";
   fs::create_directories(inputPath);
 
-  auto const vm =
-    makeVm({{"input", inputPath.string()}, {"type", "picture"}}, {"compress"});
-  auto const configRes = cmd::buildConfig(vm);
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"compress"}
+  );
+  auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
   CHECK(configRes->compressImages == true);
