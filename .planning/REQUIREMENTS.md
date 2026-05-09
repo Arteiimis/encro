@@ -61,16 +61,16 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CLI11-01 | — | Pending |
-| CLI11-02 | — | Pending |
-| CLI11-03 | — | Pending |
-| CLI11-04 | — | Pending |
-| CLI11-05 | — | Pending |
-| COLR-01 | — | Pending |
-| COLR-02 | — | Pending |
-| COLR-03 | — | Pending |
-| COLR-04 | — | Pending |
-| COLR-05 | — | Pending |
+| CLI11-01 | Phase 19 | Pending |
+| CLI11-02 | Phase 19 | Pending |
+| CLI11-03 | Phase 19 | Pending |
+| CLI11-04 | Phase 19 | Pending |
+| CLI11-05 | Phase 19 | Pending |
+| COLR-01 | Phase 20 | Pending |
+| COLR-02 | Phase 20 | Pending |
+| COLR-03 | Phase 20 | Pending |
+| COLR-04 | Phase 20 | Pending |
+| COLR-05 | Phase 20 | Pending |
 
 ### v1.5 (Complete)
 
@@ -83,8 +83,8 @@ Requirements for eliminating picture_process.cpp's pack internal dependencies an
 
 **Coverage:**
 - v1.6 requirements: 10 total
-- Mapped to phases: 0
-- Unmapped: 10 ⚠️
+- Mapped to phases: 10
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-09*

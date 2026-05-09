@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: CLI体验增强
 status: planning
-last_updated: "2026-05-09T09:23:10.229Z"
+last_updated: "2026-05-09T10:00:00.000Z"
 last_activity: 2026-05-09
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,69 +17,62 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-04)
+See: .planning/PROJECT.md (updated 2026-05-05)
 
 **Core value:** Progress visibility — compact single-bar progress by default
-**Current focus:** Phase 18 — packplan-pure-internalization
+**Current focus:** Phase 19 — CLI11 Migration
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 19 of 20 (CLI11 Migration)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-09 — Milestone v1.6 started
+Status: Ready to plan
+Last activity: 2026-05-09 — v1.6 roadmap created (2 phases, 10 requirements mapped)
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total phases completed: 14 (v1.0 + v1.1 + v1.2 + v1.3 + v1.4)
+- Total phases completed: 18 (v1.0 through v1.5)
 - Total plans completed: 37
 - Average duration: —
 - Total execution time: —
 
-**By Phase (v1.4+):**
+**By Phase (v1.5-v1.6):**
 
 | Phase | Plans | Milestone | Status |
 |-------|-------|-----------|--------|
-| 12. PackRequest API | 4 | v1.4 | Complete |
-| 13. Grouping & Naming | 4 | v1.4 | Complete |
-| 14. Remove IPacker | 1 | v1.4 | Complete |
 | 15. Naming Strategy | 2 | v1.5 | Complete |
 | 16. Grouping + Summary | 2 | v1.5 | Complete |
 | 17. Picture Leak Elim. | 1 | v1.5 | Complete |
 | 18. PackPlan Internalize | 1 | v1.5 | Complete |
+| 19. CLI11 Migration | 0 | v1.6 | Not started |
+| 20. CLI Color Deepening | 0 | v1.6 | Not started |
 
 *Updated after each plan completion*
-| Phase 18-packplan-pure-internalization P01 | 23min | 8 tasks | 12 files |
-| Phase 17-picture-process-leak-elimination P01 | — | 2 tasks | 1 file |
 
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting v1.5 work:
+Recent decisions affecting v1.6 work:
 
-- [Research]: Single `NamingStrategy` enum (Flat/FlatWithForce/Keep) adopted — two-axis model rejected as it represents invalid state combination `{Keep, forceConflictHandling=true}`
-- [Research]: Summary entry ordering enforced structurally via `bool isSummary` flag, not fragile string prefix convention (`"0000__"` lexicographic ordering)
-- [Research]: `GroupingStrategy::PerSourceDirKeepTogether` is SEMANTIC ("keep source dirs together"), not mechanical ("threshold = 0") — prevents two-layer partitioning leak
-- [Research]: Phase ordering MUST be strict: SINK-01 → SINK-02 → SINK-03 → SINK-04 (C++ type declaration dependencies are non-negotiable)
-- [Roadmap]: 4 phases (15-18), 1:1 mapping to SINK-01 through SINK-04, 100% requirement coverage
-- [Phase 18-packplan-pure-internalization]: Used __if_exists (MSVC/clang extension) instead of pure SFINAE for compile-boundary test — Namespaces cannot be used as C++ type template parameters
+- [Research]: Two-phase roadmap for v1.6 — CLI11 infrastructure first (Phase 19), color deepening second (Phase 20). Phase ordering is strict: formatter_fn + terminal:: extension depend on CLI11 migration.
+- [Research]: formatter_fn is a complete replacement, not a decorator — must hand-roll entire help string layout inside the lambda (~60-80 lines). The default CLI11 formatter's layout is bypassed entirely.
+- [Research]: MessageKind extension is additive only — 5 new values appended at enum end, no renumbering or removal of existing values. Backward compatibility preserved.
+- [Research]: ANSI padding must happen before color injection — compute max plain-text option name width first, pad to that width, THEN apply terminal::styledText(). Padding after coloring misaligns columns due to invisible escape codes.
+- [Research]: CLI11 v2.6.2 confirmed for C++26 compatibility. `configureFromColorString()` must replace `configureFromVariablesMap()` before boost::po removal.
+- [Roadmap]: 2 phases (19-20), coarse granularity, 100% requirement coverage (10/10 REQ-IDs mapped).
 
 ### Blockers/Concerns
 
-- **Phase 17 risk:** Behavioral drift in picture zip entry names could break resumable job state continuity. Mitigation: golden tests committed before implementation.
-- **Research gap:** Summary deduplication behavior (when first picture = summary cover) needs decision during Phase 16 planning.
-- **Research gap:** `collision_naming.h` final location — currently `src/core/`, but may migrate to `src/pack/` after Phase 17 if picture no longer uses it.
-
-### Quick Tasks Completed
-
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 260505-vyf | 优化runPicturePackWorkflow函数 - 函数过长，可读性差，权责不明 | 2026-05-05 | 2e7d78b | [260505-vyf-runpicturepackworkflow](./quick/260505-vyf-runpicturepackworkflow/) |
-| 260506-44c | 优化buildMediaPackPlan函数 - 函数过长，降低认知负载 | 2026-05-05 | 6e6d31a | [260506-44c-buildmediapackplan](./quick/260506-44c-buildmediapackplan/) |
+- **Phase 19 risk:** formatter_fn complexity — the lambda must replicate boost::po's help layout (4 option groups, 26 options, adaptive column width, description wrapping). Budget 60-80 lines. Test with `encro --help` immediately after wiring.
+- **Phase 19 risk:** 58 vm call sites across 6 files — adapter pattern recommended to avoid simultaneous breakage. All must compile and produce identical AppConfig results.
+- **Phase 20 risk:** Pitfall #7 from research — formatter_fn has zero test coverage from existing assertions. Smoke tests must be added: capture help string, assert it contains expected option names and group headers.
+- **Phase 20 risk:** Pitfall #2 from research — colorsEnabled() gating is per-stream. Always pass explicit stream parameter to avoid asymmetric coloring bugs in piped output scenarios.
 
 ### Pending Todos
 
@@ -91,10 +84,11 @@ None yet.
 |----------|------|--------|-------------|
 | E2E CLI verification | Picture E2E tests require test media + FFmpeg | Deferred | v1.3 |
 | E2E CLI verification | 8 E2E paths deferred (environment dependency) | Deferred | v1.4 |
+| Progress bar coloring | indicators library has own color system — separate evaluation needed | Deferred to v2+ | v1.6 |
 
 ## Session Continuity
 
-Last session: 2026-05-05T15:01:00.000Z
-Stopped at: Quick task 260506-44c completed — refactored buildMediaPackPlan to 28-line orchestrator via 6 helpers
+Last session: 2026-05-09T10:00:00.000Z
+Stopped at: v1.6 roadmap created — Phase 19 and 20 defined, ready for planning
 Resume file: None
-Next: Ready for v1.6 or new milestone definition
+Next: `/gsd-plan-phase 19`

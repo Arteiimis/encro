@@ -8,6 +8,7 @@
 - ✅ **v1.3 Pack Subsystem OO Refactor** — Phases 8-11 (shipped 2026-04-30)
 - ✅ **v1.4 Pack 接口简化 & 抽象层清理** — Phases 12-14 (shipped 2026-05-01)
 - ✅ **v1.5 Pack下沉收尾 — 消除调用方泄漏** — Phases 15-18 (shipped 2026-05-04)
+- 🚧 **v1.6 CLI体验增强** — Phases 19-20 (in progress)
 
 ## Phases
 
@@ -71,6 +72,13 @@
 - [x] **Phase 16: Grouping Strategy + Summary Config on PackRequest** — `GroupingStrategy` enum + `SummaryConfig` struct; picture's two-layer partitioning declarative (2/2 plans) (completed 2026-05-04)
 - [x] **Phase 17: Picture Process Leak Elimination** — `picture_process.cpp` replaces `buildPicturePackPlan()` with `pack::execute(PackRequest)` (completed 2026-05-04)
 - [x] **Phase 18: PackPlan Pure Internalization** — `PackPlan` moved to internal header; compile-time enforcement of consumer invisibility (completed 2026-05-04)
+
+### 🚧 v1.6 CLI体验增强 (In Progress)
+
+**Milestone Goal:** CLI11 替换 boost::program_options，终端输出全面语义着色（--help / --version / errors），NO_COLOR 标准合规。
+
+- [ ] **Phase 19: CLI11 Migration (No Color Change)** — CLI11 replaces boost::po; project builds, 26 options parse, 3033 assertions pass, zero user-visible change
+- [ ] **Phase 20: CLI Color Deepening** — MessageKind extended, formatter_fn colored --help, --version colored, errors via terminal::println, NO_COLOR compliance
 
 ## Phase Details
 
@@ -136,6 +144,32 @@ Plans:
 Plans:
 - [x] 18-01-PLAN.md — Move PackPlan to internal header, compile-time boundary enforcement
 
+### Phase 19: CLI11 Migration (No Color Change)
+**Goal**: CLI11 replaces boost::program_options — project compiles, all 26 options parse correctly, all 3033 tests pass, zero user-visible behavioral change
+
+**Depends on**: Phase 18 (v1.5 baseline)
+**Requirements**: CLI11-01, CLI11-02, CLI11-03, CLI11-04, CLI11-05
+**Success Criteria** (what must be TRUE):
+  1. User invokes `encro` with any valid combination of the 26 options and gets identical parsing behavior (same defaults, same validation, same error messages for invalid input) as pre-migration
+  2. User runs `encro --help` and sees the same help text layout — all 4 option groups, 26 option names/descriptions, adaptive column width — matching the pre-migration boost::po output
+  3. The project builds with CLI11 as the sole CLI parsing dependency — `boost::program_options` removed from xmake.lua
+  4. All 3033 existing test assertions pass with zero behavioral regression — cmd_cmd_tests and cmd_config_builder_tests rewritten for CLI11 but verify identical semantics
+  5. All 58 vm.count()/vm.at() call sites across 6 consumer files (config_builder, prelude, terminal, utils, app_entry) compile and produce the same AppConfig results as pre-migration
+**Plans**: TBD
+
+### Phase 20: CLI Color Deepening
+**Goal**: All CLI output (--help, --version, errors) uses semantic terminal coloring with full NO_COLOR standard compliance
+
+**Depends on**: Phase 19
+**Requirements**: COLR-01, COLR-02, COLR-03, COLR-04, COLR-05
+**Success Criteria** (what must be TRUE):
+  1. User runs `encro --help` and sees colored output: Usage/Heading in steel_blue, option group headers in bold steel_blue, option names in light_cyan, descriptions in plain text — all rendered via formatter_fn calling terminal::println()
+  2. User runs `encro --version` and sees the version number rendered in colored output via MessageKind::Version
+  3. User passes invalid options and sees error messages consistently colored in red with `[error]` badge prefix — all error paths use terminal::println(Error, ...) or terminal::eprintln()
+  4. User runs `NO_COLOR=1 encro --help` and sees plain text output with zero ANSI escape codes in all sections — colorsEnabled() gates all color paths
+  5. MessageKind enum has 5 new values (Usage, OptionGroup, OptionName, OptionDesc, Version) — each with completed styleFor() mapping and defaultBadgeLabel() case, added at enum end preserving backward compatibility
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Directory | Milestone | Plans Complete | Status | Completed |
@@ -158,6 +192,8 @@ Plans:
 | 16. Grouping + Summary on PackRequest | 16-grouping-summary | v1.5 | 2/2 | Complete | 2026-05-04 |
 | 17. Picture Leak Elimination | 17-picture-leak | v1.5 | 1/1 | Complete | 2026-05-04 |
 | 18. PackPlan Internalization | 18-packplan-internalize | v1.5 | 1/1 | Complete | 2026-05-04 |
+| 19. CLI11 Migration | 19-cli11-migration | v1.6 | 0/0 | Not started | - |
+| 20. CLI Color Deepening | 20-cli-color-deepening | v1.6 | 0/0 | Not started | - |
 
 ---
 
