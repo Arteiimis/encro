@@ -1,5 +1,22 @@
 # MILESTONES.md
 
+## v1.6 CLI体验增强 (Shipped: 2026-05-09)
+
+**Phases completed:** 2 phases, 8 plans, 11 tasks
+
+**Key accomplishments:**
+
+- One-liner:
+- One-liner:
+- One-liner:
+- Verified existing CLI11 package wiring across all 3 build targets (encro, tests, e2e_tests) — no changes required; `xmake build encro` succeeds with CLI11 headers resolved from xrepo.
+- 14 CLI11 integration tests + 40 CmdParseResult fixture-based tests replacing boost::program_options in test suite with zero boost references
+- MessageKind enum extended from 8 to 13 values with steel_blue+bold, light_cyan, and empty style mappings — TDD cycle with 9 new test cases
+- Semantic terminal coloring injected into formatter_fn via styledText() — intro line (Usage/steel_blue+bold), group headers (OptionGroup/steel_blue+bold), option names (OptionName/light_cyan), descriptions (OptionDesc/plain). ANSI padding rule (D-02) enforced: plain-text column widths computed first, color applied after alignment.
+- --version flag registered in General group with CmdParseResult.version field, colored output via terminal::println(Version, "encro v1.6 (build: ...)", compileTimestamp()), and 4 new test assertions. COLR-03 error path audit confirmed all consumer errors use terminal::println(Error, ...).
+
+---
+
 ## v1.4 Pack 接口简化 & 抽象层清理 (Shipped: 2026-05-01)
 
 **Phases completed:** 3 phases, 9 plans, 16 tasks
