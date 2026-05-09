@@ -132,8 +132,8 @@ auto setupLogging(CmdParseResult const& cmd) -> std::optional<fs::path> {
 
 namespace prelude {
 
-auto initStartup(int argc, char* argv[]) -> StartupContext {
-  auto cmd = commandLineInit(argc, argv);
+auto initStartup(int argc, char* argv[], std::string const& introLine) -> StartupContext {
+  auto cmd = commandLineInit(argc, argv, introLine);
 
   if (
     auto const terminalError = terminal::configureFromColorString(cmd.color);

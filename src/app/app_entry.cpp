@@ -66,8 +66,6 @@ auto compileTimestamp() -> std::string {
 }
 
 auto printHelp(CmdParseResult const& cmd) -> void {
-  terminal::println(Heading, "{}", appentry::helpIntroLine());
-  std::cout << '\n';
   std::cout << cmd.helpText;
 }
 
@@ -160,7 +158,8 @@ auto run(int argc, char* argv[]) -> int {
   stopsignal::installHandler();
   stopsignal::reset();
 
-  auto const startup = prelude::initStartup(argc, argv);
+  auto const introLine = helpIntroLine();
+  auto const startup = prelude::initStartup(argc, argv, introLine);
 
   if (auto const earlyExit = handleParseAndHelp(startup); earlyExit.has_value()) {
     return earlyExit.value();
