@@ -81,19 +81,19 @@ TEST_CASE("styleFor(Usage) produces ANSI escapes", "[terminal]") {
   CHECK(text.find("\x1b[") != std::string::npos);
 }
 
-TEST_CASE("styleFor(OptionGroup) equals styleFor(Usage)", "[terminal]") {
+TEST_CASE("styleFor(OptionGroup) differs from styleFor(Usage)", "[terminal]") {
   auto const usageStyle = terminal::styleFor(terminal::MessageKind::Usage);
   auto const groupStyle = terminal::styleFor(terminal::MessageKind::OptionGroup);
   auto const usageText = fmt::format(usageStyle, "{}", "test");
   auto const groupText = fmt::format(groupStyle, "{}", "test");
-  CHECK(usageText == groupText);
+  CHECK(usageText != groupText);
 }
 
 TEST_CASE("styleFor(OptionName) produces ANSI but not bold", "[terminal]") {
   auto const style = terminal::styleFor(terminal::MessageKind::OptionName);
   auto const text = fmt::format(style, "{}", "test");
   CHECK(text.find("\x1b[") != std::string::npos);
-  // light_cyan has no bold — verify it differs from a bold style
+  // gold has no bold — verify it differs from a bold style
   auto const boldStyle = terminal::styleFor(terminal::MessageKind::Usage);
   auto const boldText = fmt::format(boldStyle, "{}", "test");
   CHECK(text != boldText);
