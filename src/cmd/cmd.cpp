@@ -138,58 +138,61 @@ auto makeHelpFormatter(
   CLI::App const* processing,
   CLI::App const* fileop
 ) -> auto {
-  return [general, io, processing, fileop](
-           CLI::App const* app_ptr,
-           std::string /*prev*/,
-           CLI::AppFormatMode /*mode*/
-         ) -> std::string {
-    auto result = std::string{};
-    auto const desc = app_ptr->get_description();
-    if (!desc.empty()) {
-      result += terminal::styledText(
-        terminal::Stream::Stdout,
-        terminal::MessageKind::Usage,
-        desc
-      );
-      result += "\n\n";
-    }
-    auto const groupIter = std::array{general, io, processing, fileop};
-
-    // Determine max column width across all options (name + type + default)
-    auto maxColLen = 0u;
-    for (auto const* group: groupIter) {
-      for (auto const* opt: group->get_options()) {
-        if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
-        auto const nameStr = formatOptionName(opt);
-        auto typeStr = std::string{};
-        if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
-          auto const typeName = opt->get_type_name();
-          if (typeName != "TEXT"sv && typeName != "text"sv) { typeStr = " " + typeName; }
-        }
-        auto defaultStr = std::string{};
-        if (!opt->get_default_str().empty()) {
-          defaultStr = " (=" + opt->get_default_str() + ")";
-        }
-        maxColLen = std::max(
-          maxColLen,
-          static_cast<unsigned>(nameStr.size() + typeStr.size() + defaultStr.size())
+  return  //
+    [general, io, processing, fileop](
+      CLI::App const* app_ptr,
+      std::string /*prev*/,
+      CLI::AppFormatMode /*mode*/
+    ) -> std::string {
+      auto result = std::string{};
+      auto const desc = app_ptr->get_description();
+      if (!desc.empty()) {
+        result += terminal::styledText(
+          terminal::Stream::Stdout,
+          terminal::MessageKind::Usage,
+          desc
         );
+        result += "\n\n";
       }
-    }
+      auto const groupIter = std::array{general, io, processing, fileop};
 
-    auto const colWidth = std::clamp(maxColLen, 34u, 48u);
-
-    for (auto const* group: groupIter) {
-      result += formatGroupHeader(group->get_description());
-      for (auto const* opt: group->get_options()) {
-        if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
-        result += formatOptionHelp(opt, colWidth);
-        result += '\n';
+      // Determine max column width across all options (name + type + default)
+      auto maxColLen = 0u;
+      for (auto const* group: groupIter) {
+        for (auto const* opt: group->get_options()) {
+          if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
+          auto const nameStr = formatOptionName(opt);
+          auto typeStr = std::string{};
+          if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
+            auto const typeName = opt->get_type_name();
+            if (typeName != "TEXT"sv && typeName != "text"sv) {
+              typeStr = " " + typeName;
+            }
+          }
+          auto defaultStr = std::string{};
+          if (!opt->get_default_str().empty()) {
+            defaultStr = " (=" + opt->get_default_str() + ")";
+          }
+          maxColLen = std::max(
+            maxColLen,
+            static_cast<unsigned>(nameStr.size() + typeStr.size() + defaultStr.size())
+          );
+        }
       }
-    }
 
-    return result;
-  };
+      auto const colWidth = std::clamp(maxColLen, 34u, 48u);
+
+      for (auto const* group: groupIter) {
+        result += formatGroupHeader(group->get_description());
+        for (auto const* opt: group->get_options()) {
+          if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
+          result += formatOptionHelp(opt, colWidth);
+          result += '\n';
+        }
+      }
+
+      return result;
+    };
 }
 
 }  // namespace

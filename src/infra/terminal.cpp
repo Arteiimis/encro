@@ -201,11 +201,11 @@ auto styleFor(MessageKind kind) -> fmt::text_style {
     case MessageKind::Hint       : return fg(fmt::color::slate_gray);
     case MessageKind::Prompt     : return fg(fmt::terminal_color::cyan) | emphasis::bold;
     case MessageKind::Heading    : return fg(fmt::color::steel_blue) | emphasis::bold;
-    case MessageKind::Usage      : return fg(fmt::color::dodger_blue) | emphasis::bold;
-    case MessageKind::OptionGroup: return fg(fmt::color::steel_blue);
-    case MessageKind::OptionName : return fg(fmt::color::gold);
+    case MessageKind::Usage      : return {};
+    case MessageKind::OptionGroup: return emphasis::bold;
+    case MessageKind::OptionName : return fg(fmt::color(0x41abbb));
     case MessageKind::OptionDesc : return {};
-    case MessageKind::Version    : return fg(fmt::color::dodger_blue) | emphasis::bold;
+    case MessageKind::Version    : return {};
   }
 
   return {};
