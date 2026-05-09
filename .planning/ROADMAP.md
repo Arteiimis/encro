@@ -8,7 +8,7 @@
 - ✅ **v1.3 Pack Subsystem OO Refactor** — Phases 8-11 (shipped 2026-04-30)
 - ✅ **v1.4 Pack 接口简化 & 抽象层清理** — Phases 12-14 (shipped 2026-05-01)
 - ✅ **v1.5 Pack下沉收尾 — 消除调用方泄漏** — Phases 15-18 (shipped 2026-05-04)
-- 🚧 **v1.6 CLI体验增强** — Phases 19-20 (in progress)
+- ✅ **v1.6 CLI体验增强** — Phases 19-20 (shipped 2026-05-09)
 
 ## Phases
 
@@ -72,14 +72,17 @@
 - [x] **Phase 16: Grouping Strategy + Summary Config on PackRequest** — `GroupingStrategy` enum + `SummaryConfig` struct; picture's two-layer partitioning declarative (2/2 plans) (completed 2026-05-04)
 - [x] **Phase 17: Picture Process Leak Elimination** — `picture_process.cpp` replaces `buildPicturePackPlan()` with `pack::execute(PackRequest)` (completed 2026-05-04)
 - [x] **Phase 18: PackPlan Pure Internalization** — `PackPlan` moved to internal header; compile-time enforcement of consumer invisibility (completed 2026-05-04)
-
-### 🚧 v1.6 CLI体验增强 (In Progress)
+<details>
+<summary>✅ v1.6 CLI体验增强 (Phases 19-20) — SHIPPED 2026-05-09</summary>
 
 **Milestone Goal:** CLI11 替换 boost::program_options，终端输出全面语义着色（--help / --version / errors），NO_COLOR 标准合规。
 
-- [x] **Phase 19: CLI11 Migration (No Color Change)** — CLI11 replaces boost::po; project builds, 26 options parse, 3033 assertions pass, zero user-visible change (completed 2026-05-09)
-- [x] **Phase 20: CLI Color Deepening** — MessageKind extended, formatter_fn colored --help, --version colored, errors via terminal::println, NO_COLOR compliance (completed 2026-05-09)
+- [x] Phase 19: CLI11 Migration (5/5 plans) — completed 2026-05-09
+  - CLI11 replaces boost::po; project builds, 26 options parse, 3033 assertions pass, zero user-visible change
+- [x] Phase 20: CLI Color Deepening (3/3 plans) — completed 2026-05-09
+  - MessageKind extended, formatter_fn colored --help, --version colored, errors via terminal::println, NO_COLOR compliance
 
+</details>
 ## Phase Details
 
 ### Phase 15: Naming Strategy Enum + NamingConfig Migration
@@ -204,9 +207,9 @@ Plans:
 | 16. Grouping + Summary on PackRequest | 16-grouping-summary | v1.5 | 2/2 | Complete | 2026-05-04 |
 | 17. Picture Leak Elimination | 17-picture-leak | v1.5 | 1/1 | Complete | 2026-05-04 |
 | 18. PackPlan Internalization | 18-packplan-internalize | v1.5 | 1/1 | Complete | 2026-05-04 |
-| 19. CLI11 Migration | 19-cli11-migration | v1.6 | 5/5 | Complete | - |
-| 20. CLI Color Deepening | 20-cli-color-deepening | v1.6 | 0/3 | Planned | - |
+| 19. CLI11 Migration | 19-cli11-migration | v1.6 | 5/5 | Complete | 2026-05-09 |
+| 20. CLI Color Deepening | 20-cli-color-deepening | v1.6 | 3/3 | Complete | 2026-05-09 |
 
 ---
 
-_Archive: `.planning/milestones/v1.0-ROADMAP.md`, `.planning/milestones/v1.1-ROADMAP.md`, `.planning/milestones/v1.2-ROADMAP.md`, `.planning/milestones/v1.3-ROADMAP.md`, `.planning/milestones/v1.4-ROADMAP.md`_
+_Archive: `.planning/milestones/v1.0-ROADMAP.md`, `.planning/milestones/v1.1-ROADMAP.md`, `.planning/milestones/v1.2-ROADMAP.md`, `.planning/milestones/v1.3-ROADMAP.md`, `.planning/milestones/v1.4-ROADMAP.md`, `.planning/milestones/v1.6-ROADMAP.md`_
