@@ -175,7 +175,12 @@ Plans:
   3. User passes invalid options and sees error messages consistently colored in red with `[error]` badge prefix — all error paths use terminal::println(Error, ...) or terminal::eprintln()
   4. User runs `NO_COLOR=1 encro --help` and sees plain text output with zero ANSI escape codes in all sections — colorsEnabled() gates all color paths
   5. MessageKind enum has 5 new values (Usage, OptionGroup, OptionName, OptionDesc, Version) — each with completed styleFor() mapping and defaultBadgeLabel() case, added at enum end preserving backward compatibility
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 20-01-PLAN.md — MessageKind enum extension (5 new values: Usage, OptionGroup, OptionName, OptionDesc, Version) + styleFor()/defaultBadgeLabel() mappings (TDD)
+- [ ] 20-02-PLAN.md — Colored --help output via formatter_fn styledText() injection — Usage/steel_blue, OptionGroup/steel_blue+bold, OptionName/light_cyan, OptionDesc/plain (TDD)
+- [ ] 20-03-PLAN.md — --version flag + colored version output via MessageKind::Version + COLR-03 error path verification
 
 ## Progress
 
@@ -199,8 +204,8 @@ Plans:
 | 16. Grouping + Summary on PackRequest | 16-grouping-summary | v1.5 | 2/2 | Complete | 2026-05-04 |
 | 17. Picture Leak Elimination | 17-picture-leak | v1.5 | 1/1 | Complete | 2026-05-04 |
 | 18. PackPlan Internalization | 18-packplan-internalize | v1.5 | 1/1 | Complete | 2026-05-04 |
-| 19. CLI11 Migration | 19-cli11-migration | v1.6 | 0/5 | Planned | - |
-| 20. CLI Color Deepening | 20-cli-color-deepening | v1.6 | 0/0 | Not started | - |
+| 19. CLI11 Migration | 19-cli11-migration | v1.6 | 5/5 | Complete | - |
+| 20. CLI Color Deepening | 20-cli-color-deepening | v1.6 | 0/3 | Planned | - |
 
 ---
 
