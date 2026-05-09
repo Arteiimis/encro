@@ -209,6 +209,7 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   auto* general = app.add_option_group("General", "General options");
 
   auto* helpFlag = app.add_flag("-h,--help", "produce help message");
+  auto* versionFlag = app.add_flag("--version", "show version information");
 
   auto* verboseFlag = general->add_flag("-v,--verbose", "enable verbose output");
   auto* verboseEchoFlag = general->add_flag(
@@ -301,6 +302,7 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
     // ── Populate result struct ───────────────────────────────
     // General
     result.help = helpFlag->count() > 0;
+    result.version = versionFlag->count() > 0;
     result.verbose = verboseFlag->count() > 0;
     result.verboseEcho = verboseEchoFlag->count() > 0;
     result.fullProgress = fullProgressFlag->count() > 0;
