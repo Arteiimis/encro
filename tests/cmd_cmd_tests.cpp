@@ -114,6 +114,21 @@ TEST_CASE("commandLineInit exposes defaults", "[cmd]") {
   CHECK(result.verbose == false);
   CHECK(result.verboseEcho == false);
   CHECK(result.help == false);
+  CHECK(result.version == false);
+}
+
+TEST_CASE("commandLineInit --version flag sets version=true", "[cmd]") {
+  auto const result = parseArgs({"encro", "--version"});
+
+  CHECK(result.version == true);
+  CHECK(result.help == false);
+  CHECK_FALSE(result.error.has_value());
+}
+
+TEST_CASE("commandLineInit --version is not set by default", "[cmd]") {
+  auto const result = parseArgs({"encro"});
+
+  CHECK(result.version == false);
 }
 
 TEST_CASE("commandLineInit parses flag and option values", "[cmd]") {
