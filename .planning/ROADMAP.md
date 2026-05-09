@@ -77,7 +77,7 @@
 
 **Milestone Goal:** CLI11 替换 boost::program_options，终端输出全面语义着色（--help / --version / errors），NO_COLOR 标准合规。
 
-- [ ] **Phase 19: CLI11 Migration (No Color Change)** — CLI11 replaces boost::po; project builds, 26 options parse, 3033 assertions pass, zero user-visible change
+- [x] **Phase 19: CLI11 Migration (No Color Change)** — CLI11 replaces boost::po; project builds, 26 options parse, 3033 assertions pass, zero user-visible change (completed 2026-05-09)
 - [ ] **Phase 20: CLI Color Deepening** — MessageKind extended, formatter_fn colored --help, --version colored, errors via terminal::println, NO_COLOR compliance
 
 ## Phase Details
@@ -162,7 +162,7 @@ Plans:
 - [x] 19-02-PLAN.md — config_builder.h/.cpp migration: buildConfig(CmdParseResult const&), 29 vm references adapted
 - [x] 19-03-PLAN.md — Consumer adaptation: prelude, terminal, utils, app_entry — zero boost::po references
 - [x] 19-04-PLAN.md — xmake.lua: CLI11 wired into encro/tests/e2e_tests targets
-- [ ] 19-05-PLAN.md — Test rewrites: cmd_cmd_tests (CLI11 integration) + cmd_config_builder_tests (results struct fixture)
+- [x] 19-05-PLAN.md — Test rewrites: cmd_cmd_tests (CLI11 integration) + cmd_config_builder_tests (results struct fixture)
 
 ### Phase 20: CLI Color Deepening
 **Goal**: All CLI output (--help, --version, errors) uses semantic terminal coloring with full NO_COLOR standard compliance
