@@ -203,7 +203,7 @@ auto styleFor(MessageKind kind) -> fmt::text_style {
     case MessageKind::Heading    : return fg(fmt::color::steel_blue) | emphasis::bold;
     case MessageKind::Usage      : return {};
     case MessageKind::OptionGroup: return emphasis::bold;
-    case MessageKind::OptionName : return fg(fmt::color(0x41abbb));
+    case MessageKind::OptionName : return fg(fmt::color::medium_turquoise);
     case MessageKind::OptionDesc : return {};
     case MessageKind::Version    : return {};
   }
