@@ -71,13 +71,19 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth) -> std::string 
     if (typeName != "TEXT"sv && typeName != "text"sv) { typeStr = " " + typeName; }
   }
 
-  auto defaultStr = std::string{};
+  auto defaultText = std::string{};
+  auto styledDefaultText = std::string{};
   if (!opt->get_default_str().empty()) {
-    defaultStr = " (=" + opt->get_default_str() + ")";
+    defaultText = " (=" + opt->get_default_str() + ")";
+    styledDefaultText = terminal::styledText(
+      terminal::Stream::Stdout,
+      terminal::MessageKind::Hint,
+      defaultText
+    );
   }
 
   // Pad the full first column (name + type + default) to colWidth for alignment
-  auto const firstCol = nameStr + typeStr + defaultStr;
+  auto const firstCol = nameStr + typeStr + defaultText;
   auto const gap = firstCol.size() < colWidth ? colWidth - firstCol.size() : 2u;
   auto const indent = std::string(static_cast<std::size_t>(colWidth + 2), ' ');
 
@@ -105,7 +111,7 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth) -> std::string 
         "  {}{}{}{:<{}}{}\n",
         coloredName,
         typeStr,
-        defaultStr,
+        styledDefaultText,
         "",
         gap,
         coloredDesc

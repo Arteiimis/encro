@@ -3,7 +3,9 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <cctype>
 #include <cstdlib>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -98,6 +100,47 @@ auto longestHelpLine(std::string_view text) -> std::size_t {
   }
 
   return longest;
+}
+
+auto stripAnsi(std::string_view text) -> std::string {
+  auto result = std::string{};
+  result.reserve(text.size());
+
+  auto index = std::size_t{0};
+  while (index < text.size()) {
+    if (text[index] == '\x1b' && index + 1 < text.size() && text[index + 1] == '[') {
+      index += 2;
+      while (
+        index < text.size() && !std::isalpha(static_cast<unsigned char>(text[index]))
+      ) {
+        ++index;
+      }
+      if (index < text.size()) { ++index; }
+      continue;
+    }
+
+    result += text[index];
+    ++index;
+  }
+
+  return result;
+}
+
+auto findHelpLine(std::string_view text, std::string_view needle)
+  -> std::optional<std::string> {
+  auto start = std::size_t{0};
+
+  while (start <= text.size()) {
+    auto const end = text.find('\n', start);
+    auto const line = end == std::string_view::npos ? text.substr(start)
+                                                    : text.substr(start, end - start);
+
+    if (line.find(needle) != std::string_view::npos) { return std::string{line}; }
+    if (end == std::string_view::npos) { break; }
+    start = end + 1;
+  }
+
+  return std::nullopt;
 }
 
 }  // namespace
@@ -281,6 +324,40 @@ TEST_CASE("help text contains NO ANSI codes when color is never", "[cmd][color]"
 
   // When color is disabled, no ANSI escape codes should be present
   CHECK(help.find("\x1b[") == std::string::npos);
+
+  terminal::reset();
+}
+
+TEST_CASE(
+  "help text keeps aligned description columns when default values are colored",
+  "[cmd][color]"
+) {
+  terminal::configure(terminal::ColorMode::Always);
+
+  auto const result = parseArgs({"encro", "--help"});
+  auto const plainHelp = stripAnsi(result.helpText);
+
+  auto const flatLine = findHelpLine(plainHelp, "--flat");
+  auto const outputFormatLine = findHelpLine(plainHelp, "--output-format");
+  auto const forceConflictLine = findHelpLine(plainHelp, "--force-conflict-handling");
+
+  REQUIRE(flatLine.has_value());
+  REQUIRE(outputFormatLine.has_value());
+  REQUIRE(forceConflictLine.has_value());
+
+  auto const flatColumn =
+    flatLine->find("flatten output names inside the output directory");
+  auto const outputFormatColumn = outputFormatLine->find("target format: mp4 or webp");
+  auto const forceConflictColumn =
+    forceConflictLine
+      ->find("control collision-safe file names for unique flat outputs: y or n");
+
+  REQUIRE(flatColumn != std::string::npos);
+  REQUIRE(outputFormatColumn != std::string::npos);
+  REQUIRE(forceConflictColumn != std::string::npos);
+
+  CHECK(outputFormatColumn == flatColumn);
+  CHECK(forceConflictColumn == flatColumn);
 
   terminal::reset();
 }
