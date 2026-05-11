@@ -7,8 +7,11 @@
 
 #include <algorithm>
 #include <format>
+#include <functional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 using namespace std::literals;
 using enum terminal::MessageKind;
@@ -314,156 +317,186 @@ constexpr auto FileOpFlags = std::array<CmdFlagDef, 3>{{
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   -> CmdParseResult {
-  auto const layout = resolveHelpTextLayout();
-
   auto app = CLI::App{"Allowed options"};
   app.description(introLine);
-
-  // Disable automatic help flag so we can handle --help manually
-  // (CLI11's built-in help would throw CLI::Success before result.help is set)
   app.set_help_flag("");
 
-  // ── General options ────────────────────────────────────────
+  // Create option groups
   auto* general = app.add_option_group("General", "General options");
-
-  auto* helpFlag = app.add_flag("-h,--help", "produce help message");
-  auto* versionFlag = app.add_flag("--version", "show version information");
-
-  auto* verboseFlag = general->add_flag("-v,--verbose", "enable verbose output");
-  auto* verboseEchoFlag = general->add_flag(
-    "-e,--verbose-echo",
-    "echo verbose logs to console (disable progress bars)"
-  );
-  auto* fullProgressFlag = general->add_flag(
-    "-F,--full-progress",
-    "show full progress with per-worker encoding bars and per-archive packing bars"
-  );
-  auto* colorOpt = general->add_option("--color", "terminal colors: auto, always, never")
-                     ->default_str("auto");
-  auto* yesFlag = general->add_flag("-y,--yes", "automatic yes to prompts");
-
-  // ── Input/Output options ───────────────────────────────────
   auto* io = app.add_option_group("IO", "Input/Output options");
-
-  auto* inputOpt = io->add_option("-i,--input", "input file or directory path");
-  auto* inputsOpt =
-    io->add_option("-I,--inputs", "input video file paths")->expected(0, 1000000);
-  auto* outputOpt = io->add_option(
-    "-o,--output",
-    "custom output directory path\n  aliases: + or input:// for input root, = or "
-    "common:// for common root"
-  );
-  auto* stateFileOpt = io->add_option("--state-file", "custom job state file path");
-  auto* outputFormatOpt =
-    io->add_option("-f,--output-format", "target format: mp4 or webp")
-      ->default_str("mp4");
-  auto* flatFlag =
-    io->add_flag("--flat", "flatten output names inside the output directory (default)");
-  auto* keepFlag = io->add_flag(
-    "--keep",
-    "preserve relative input subdirectories inside the output directory"
-  );
-  auto* forceConflictOpt =
-    io->add_option(
-        "--force-conflict-handling",
-        "control collision-safe file names for unique flat outputs: y or n"
-    )
-      ->default_str("y");
-  auto* folderSummaryFlag = io->add_flag(
-    "-s,--folder-summary",
-    "enable picture-mode folder summary images in flat packs"
-  );
-  auto* recursiveFlag = io->add_flag("-r,--recursive", "enable recursively search");
-
-  // ── Processing options ─────────────────────────────────────
   auto* processing = app.add_option_group("Processing", "Processing options");
-
-  auto* typeOpt =
-    processing->add_option("-t,--type", "process type: video(vid)|picture(pic)")
-      ->default_str("video");
-  auto* jobsOpt =
-    processing->add_option("-j,--jobs", "max parallel jobs (>=1, default=10)")
-      ->default_str("10");
-  auto* resumeFlag =
-    processing
-      ->add_flag("--resume", "resume previous unfinished job state when available");
-  auto* restartFlag =
-    processing->add_flag("--restart", "ignore previous job state and start a fresh run");
-  auto* ffmpegPathOpt =
-    processing->add_option("-x,--ffmpeg-path", "custom ffmpeg install path");
-  auto* compressFlag =
-    processing
-      ->add_flag("-c,--compress", "enable JPEG compression during picture processing");
-  auto* imageQualityOpt = processing->add_option(
-    "-q,--image-quality",
-    "JPEG compression quality (2-31, default=5, lower=better)"
-  );
-
-  // ── File operation options ─────────────────────────────────
   auto* fileop = app.add_option_group("FileOp", "File operation options");
 
-  auto* packFlag =
-    fileop->add_flag("-p,--pack", "pack encoded video outputs into zip files");
-  auto* packOnlyFlag =
-    fileop->add_flag("-z,--pack-only", "pack only: zip all files in input directory");
-  auto* overwriteFlag =
-    fileop->add_flag("-w,--overwrite", "overwrite existing files without prompt");
+  // Registry for CLI::Option* lookups after parse
+  std::unordered_map<std::string_view, CLI::Option*> optRegistry;
 
-  // ── Configure formatter ────────────────────────────────────
+  // Data-driven flag registration helper
+  auto registerFlag = [&](CmdFlagDef const& def, CLI::App* target) {
+    auto const expectedMin = def.defaultValue.empty() ? 1 : 0;
+    std::string const name{def.name};
+    std::string const desc{def.description};
+    CLI::Option* opt = nullptr;
+    switch (def.kind) {
+      case CmdFlagKind::Bool: opt = target->add_flag(name, desc); break;
+      case CmdFlagKind::String:
+        opt = target->add_option(name, desc);
+        if (expectedMin == 0) {
+          opt->expected(0, 1)->default_str(std::string{def.defaultValue});
+        } else {
+          opt->expected(1);
+        }
+        break;
+      case CmdFlagKind::Int:
+        opt = target->add_option(name, desc);
+        if (expectedMin == 0) {
+          opt->expected(0, 1)->default_str(std::string{def.defaultValue});
+        } else {
+          opt->expected(1);
+        }
+        break;
+      case CmdFlagKind::SizeT:
+        opt = target->add_option(name, desc);
+        if (expectedMin == 0) {
+          opt->expected(0, 1)->default_str(std::string{def.defaultValue});
+        } else {
+          opt->expected(1);
+        }
+        break;
+      case CmdFlagKind::VecString:
+        opt = target->add_option(name, desc)->expected(0, def.expectedMax);
+        break;
+    }
+    if (opt) { optRegistry[def.name] = opt; }
+  };
+
+  // Register help and version on app (not in any group)
+  for (auto const& def: std::span{GeneralFlags}.subspan(0, 2)) {
+    registerFlag(def, &app);
+  }
+
+  // Register remaining GeneralFlags on general group
+  for (auto const& def: std::span{GeneralFlags}.subspan(2)) {
+    registerFlag(def, general);
+  }
+
+  // Register IOFrags on io group
+  for (auto const& def: IOFrags) { registerFlag(def, io); }
+
+  // Register ProcessingFlags on processing group
+  for (auto const& def: ProcessingFlags) { registerFlag(def, processing); }
+
+  // Register FileOpFlags on fileop group
+  for (auto const& def: FileOpFlags) { registerFlag(def, fileop); }
+
+  // Configure formatter (unchanged)
   app.formatter_fn(makeHelpFormatter(general, io, processing, fileop));
 
-  // ── Parse ──────────────────────────────────────────────────
+  // ── applyMap: per-flag result population ──
+  using ResultSetter = std::function<void(CmdParseResult&, CLI::Option const*)>;
+  std::unordered_map<std::string_view, ResultSetter> applyMap;
+
+  // General (app-level)
+  applyMap["-h,--help"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.help = o->count() > 0;
+  };
+  applyMap["--version"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.version = o->count() > 0;
+  };
+
+  // General (group)
+  applyMap["-v,--verbose"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.verbose = o->count() > 0;
+  };
+  applyMap["-e,--verbose-echo"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.verboseEcho = o->count() > 0;
+  };
+  applyMap["-F,--full-progress"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.fullProgress = o->count() > 0;
+  };
+  applyMap["--color"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.color = o->as<std::string>();
+  };
+  applyMap["-y,--yes"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.yesToAll = o->count() > 0;
+  };
+
+  // IO
+  applyMap["-i,--input"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() > 0) { r.input = o->as<std::string>(); }
+  };
+  applyMap["-I,--inputs"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() > 0) { r.inputs = o->as<std::vector<std::string>>(); }
+  };
+  applyMap["-o,--output"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() > 0) { r.output = o->as<std::string>(); }
+  };
+  applyMap["--state-file"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() > 0) { r.stateFile = o->as<std::string>(); }
+  };
+  applyMap["-f,--output-format"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.outputFormat = o->as<std::string>();
+  };
+  applyMap["--flat"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.flat = o->count() > 0;
+  };
+  applyMap["--keep"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.keep = o->count() > 0;
+  };
+  applyMap["--force-conflict-handling"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.forceConflictHandling = o->as<std::string>();
+  };
+  applyMap["-s,--folder-summary"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.folderSummary = o->count() > 0;
+  };
+  applyMap["-r,--recursive"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.recursive = o->count() > 0;
+  };
+
+  // Processing
+  applyMap["-t,--type"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.processType = o->as<std::string>();
+  };
+  applyMap["-j,--jobs"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() > 0) { r.maxJobs = o->as<std::size_t>(); }
+  };
+  applyMap["--resume"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.resume = o->count() > 0;
+  };
+  applyMap["--restart"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.restart = o->count() > 0;
+  };
+  applyMap["-x,--ffmpeg-path"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() > 0) { r.ffmpegPath = o->as<std::string>(); }
+  };
+  applyMap["-c,--compress"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.compress = o->count() > 0;
+  };
+  applyMap["-q,--image-quality"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() > 0) { r.imageQuality = o->as<int>(); }
+  };
+
+  // FileOp
+  applyMap["-p,--pack"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.pack = o->count() > 0;
+  };
+  applyMap["-z,--pack-only"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.packOnly = o->count() > 0;
+  };
+  applyMap["-w,--overwrite"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.overwrite = o->count() > 0;
+  };
+
+  // ── Parse and populate ──
   auto result = CmdParseResult{};
   try {
     app.parse(argc, argv);
-
-    // ── Populate result struct ───────────────────────────────
-    // General
-    result.help = helpFlag->count() > 0;
-    result.version = versionFlag->count() > 0;
-    result.verbose = verboseFlag->count() > 0;
-    result.verboseEcho = verboseEchoFlag->count() > 0;
-    result.fullProgress = fullProgressFlag->count() > 0;
-    result.color = colorOpt->as<std::string>();
-    result.yesToAll = yesFlag->count() > 0;
-
-    // Input/Output
-    if (inputOpt->count() > 0) { result.input = inputOpt->as<std::string>(); }
-    if (inputsOpt->count() > 0) {
-      result.inputs = inputsOpt->as<std::vector<std::string>>();
+    for (auto const& [name, setter]: applyMap) {
+      auto const it = optRegistry.find(name);
+      if (it != optRegistry.end()) { setter(result, it->second); }
     }
-    if (outputOpt->count() > 0) { result.output = outputOpt->as<std::string>(); }
-    if (stateFileOpt->count() > 0) { result.stateFile = stateFileOpt->as<std::string>(); }
-    result.outputFormat = outputFormatOpt->as<std::string>();
-    result.flat = flatFlag->count() > 0;
-    result.keep = keepFlag->count() > 0;
-    result.forceConflictHandling = forceConflictOpt->as<std::string>();
-    result.folderSummary = folderSummaryFlag->count() > 0;
-    result.recursive = recursiveFlag->count() > 0;
-
-    // Processing
-    result.processType = typeOpt->as<std::string>();
-    if (jobsOpt->count() > 0) { result.maxJobs = jobsOpt->as<std::size_t>(); }
-    result.resume = resumeFlag->count() > 0;
-    result.restart = restartFlag->count() > 0;
-    if (ffmpegPathOpt->count() > 0) {
-      result.ffmpegPath = ffmpegPathOpt->as<std::string>();
-    }
-    result.compress = compressFlag->count() > 0;
-    if (imageQualityOpt->count() > 0) {
-      result.imageQuality = imageQualityOpt->as<int>();
-    }
-
-    // File operation
-    result.pack = packFlag->count() > 0;
-    result.packOnly = packOnlyFlag->count() > 0;
-    result.overwrite = overwriteFlag->count() > 0;
-
-    // Help text (always rendered, displayed only when --help is set)
     result.helpText = app.help();
   } catch (CLI::ParseError const& ex) {
     result.error = ex.what();
-    // Still populate helpText for error display context
     result.helpText = app.help();
   }
 
