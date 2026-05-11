@@ -203,6 +203,115 @@ auto makeHelpFormatter(
 
 }  // namespace
 
+enum class CmdFlagKind {
+  Bool,
+  String,
+  Int,
+  SizeT,
+  VecString
+};
+
+struct CmdFlagDef {
+  std::string_view name;  // CLI11-native format: "-v,--verbose" or "--version"
+  CmdFlagKind kind;       // Bool | String | Int | SizeT | VecString
+  std::string_view description;
+  std::string_view
+    defaultValue;  // "" → no default (expectedMin=1); non-empty → has default (expectedMin=0)
+  int expectedMax;  // 0=flag, 1=single value, >1=multi-value upper bound
+};
+
+// ── General flags (7) ──  help/version on app, rest on general group ──
+constexpr auto GeneralFlags = std::array<CmdFlagDef, 7>{{
+  {"-h,--help", CmdFlagKind::Bool, "produce help message", "", 0},
+  {"--version", CmdFlagKind::Bool, "show version information", "", 0},
+  {"-v,--verbose", CmdFlagKind::Bool, "enable verbose output", "", 0},
+  {"-e,--verbose-echo",
+   CmdFlagKind::Bool,
+   "echo verbose logs to console (disable progress bars)",
+   "",
+   0},
+  {"-F,--full-progress",
+   CmdFlagKind::Bool,
+   "show full progress with per-worker encoding bars and per-archive packing bars",
+   "",
+   0},
+  {"--color", CmdFlagKind::String, "terminal colors: auto, always, never", "auto", 1},
+  {"-y,--yes", CmdFlagKind::Bool, "automatic yes to prompts", "", 0},
+}};
+
+// ── Input/Output flags (10) ──
+constexpr auto IOFrags = std::array<CmdFlagDef, 10>{{
+  {"-i,--input", CmdFlagKind::String, "input file or directory path", "", 1},
+  {"-I,--inputs", CmdFlagKind::VecString, "input video file paths", "", 1000000},
+  {"-o,--output",
+   CmdFlagKind::String,
+   "custom output directory path\n  aliases: + or input:// for input root, = or "
+   "common:// for common root",
+   "",
+   1},
+  {"--state-file", CmdFlagKind::String, "custom job state file path", "", 1},
+  {"-f,--output-format", CmdFlagKind::String, "target format: mp4 or webp", "mp4", 1},
+  {"--flat",
+   CmdFlagKind::Bool,
+   "flatten output names inside the output directory (default)",
+   "",
+   0},
+  {"--keep",
+   CmdFlagKind::Bool,
+   "preserve relative input subdirectories inside the output directory",
+   "",
+   0},
+  {"--force-conflict-handling",
+   CmdFlagKind::String,
+   "control collision-safe file names for unique flat outputs: y or n",
+   "y",
+   1},
+  {"-s,--folder-summary",
+   CmdFlagKind::Bool,
+   "enable picture-mode folder summary images in flat packs",
+   "",
+   0},
+  {"-r,--recursive", CmdFlagKind::Bool, "enable recursively search", "", 0},
+}};
+
+// ── Processing flags (7) ──
+constexpr auto ProcessingFlags = std::array<CmdFlagDef, 7>{{
+  {"-t,--type", CmdFlagKind::String, "process type: video(vid)|picture(pic)", "video", 1},
+  {"-j,--jobs", CmdFlagKind::SizeT, "max parallel jobs (>=1, default=10)", "10", 1},
+  {"--resume",
+   CmdFlagKind::Bool,
+   "resume previous unfinished job state when available",
+   "",
+   0},
+  {"--restart",
+   CmdFlagKind::Bool,
+   "ignore previous job state and start a fresh run",
+   "",
+   0},
+  {"-x,--ffmpeg-path", CmdFlagKind::String, "custom ffmpeg install path", "", 1},
+  {"-c,--compress",
+   CmdFlagKind::Bool,
+   "enable JPEG compression during picture processing",
+   "",
+   0},
+  {"-q,--image-quality",
+   CmdFlagKind::Int,
+   "JPEG compression quality (2-31, default=5, lower=better)",
+   "",
+   1},
+}};
+
+// ── File operation flags (3) ──
+constexpr auto FileOpFlags = std::array<CmdFlagDef, 3>{{
+  {"-p,--pack", CmdFlagKind::Bool, "pack encoded video outputs into zip files", "", 0},
+  {"-z,--pack-only",
+   CmdFlagKind::Bool,
+   "pack only: zip all files in input directory",
+   "",
+   0},
+  {"-w,--overwrite", CmdFlagKind::Bool, "overwrite existing files without prompt", "", 0},
+}};
+
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   -> CmdParseResult {
   auto const layout = resolveHelpTextLayout();
