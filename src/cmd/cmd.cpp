@@ -224,96 +224,212 @@ struct CmdFlagDef {
 };
 
 // ── General flags (7) ──  help/version on app, rest on general group ──
-constexpr auto GeneralFlags = std::array<CmdFlagDef, 7>{{
-  {"-h,--help", CmdFlagKind::Bool, "produce help message", "", 0},
-  {"--version", CmdFlagKind::Bool, "show version information", "", 0},
-  {"-v,--verbose", CmdFlagKind::Bool, "enable verbose output", "", 0},
-  {"-e,--verbose-echo",
-   CmdFlagKind::Bool,
-   "echo verbose logs to console (disable progress bars)",
-   "",
-   0},
-  {"-F,--full-progress",
-   CmdFlagKind::Bool,
-   "show full progress with per-worker encoding bars and per-archive packing bars",
-   "",
-   0},
-  {"--color", CmdFlagKind::String, "terminal colors: auto, always, never", "auto", 1},
-  {"-y,--yes", CmdFlagKind::Bool, "automatic yes to prompts", "", 0},
-}};
+constexpr auto GeneralFlags = std::array{
+  CmdFlagDef{
+    .name = "-h,--help",
+    .kind = CmdFlagKind::Bool,
+    .description = "produce help message",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "--version",
+    .kind = CmdFlagKind::Bool,
+    .description = "show version information",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "-v,--verbose",
+    .kind = CmdFlagKind::Bool,
+    .description = "enable verbose output",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "-e,--verbose-echo",
+    .kind = CmdFlagKind::Bool,
+    .description = "echo verbose logs to console (disable progress bars)",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "-F,--full-progress",
+    .kind = CmdFlagKind::Bool,
+    .description =
+      "show full progress with per-worker encoding bars and per-archive packing bars",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "--color",
+    .kind = CmdFlagKind::String,
+    .description = "terminal colors: auto, always, never",
+    .defaultValue = "auto",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "-y,--yes",
+    .kind = CmdFlagKind::Bool,
+    .description = "automatic yes to prompts",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+};
 
 // ── Input/Output flags (10) ──
-constexpr auto IOFrags = std::array<CmdFlagDef, 10>{{
-  {"-i,--input", CmdFlagKind::String, "input file or directory path", "", 1},
-  {"-I,--inputs", CmdFlagKind::VecString, "input video file paths", "", 1000000},
-  {"-o,--output",
-   CmdFlagKind::String,
-   "custom output directory path\n  aliases: + or input:// for input root, = or "
-   "common:// for common root",
-   "",
-   1},
-  {"--state-file", CmdFlagKind::String, "custom job state file path", "", 1},
-  {"-f,--output-format", CmdFlagKind::String, "target format: mp4 or webp", "mp4", 1},
-  {"--flat",
-   CmdFlagKind::Bool,
-   "flatten output names inside the output directory (default)",
-   "",
-   0},
-  {"--keep",
-   CmdFlagKind::Bool,
-   "preserve relative input subdirectories inside the output directory",
-   "",
-   0},
-  {"--force-conflict-handling",
-   CmdFlagKind::String,
-   "control collision-safe file names for unique flat outputs: y or n",
-   "y",
-   1},
-  {"-s,--folder-summary",
-   CmdFlagKind::Bool,
-   "enable picture-mode folder summary images in flat packs",
-   "",
-   0},
-  {"-r,--recursive", CmdFlagKind::Bool, "enable recursively search", "", 0},
-}};
+constexpr auto IOFrags = std::array{
+  CmdFlagDef{
+    .name = "-i,--input",
+    .kind = CmdFlagKind::String,
+    .description = "input file or directory path",
+    .defaultValue = "",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "-I,--inputs",
+    .kind = CmdFlagKind::VecString,
+    .description = "input video file paths",
+    .defaultValue = "",
+    .expectedMax = 1000000
+  },
+  CmdFlagDef{
+    .name = "-o,--output",
+    .kind = CmdFlagKind::String,
+    .description =
+      "custom output directory path\n  aliases: + or input:// for input root, = or "
+      "common:// for common root",
+    .defaultValue = "",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "--state-file",
+    .kind = CmdFlagKind::String,
+    .description = "custom job state file path",
+    .defaultValue = "",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "-f,--output-format",
+    .kind = CmdFlagKind::String,
+    .description = "target format: mp4 or webp",
+    .defaultValue = "mp4",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "--flat",
+    .kind = CmdFlagKind::Bool,
+    .description = "flatten output names inside the output directory (default)",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "--keep",
+    .kind = CmdFlagKind::Bool,
+    .description = "preserve relative input subdirectories inside the output directory",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "--force-conflict-handling",
+    .kind = CmdFlagKind::String,
+    .description = "control collision-safe file names for unique flat outputs: y or n",
+    .defaultValue = "y",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "-s,--folder-summary",
+    .kind = CmdFlagKind::Bool,
+    .description = "enable picture-mode folder summary images in flat packs",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "-r,--recursive",
+    .kind = CmdFlagKind::Bool,
+    .description = "enable recursively search",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+};
 
 // ── Processing flags (7) ──
-constexpr auto ProcessingFlags = std::array<CmdFlagDef, 7>{{
-  {"-t,--type", CmdFlagKind::String, "process type: video(vid)|picture(pic)", "video", 1},
-  {"-j,--jobs", CmdFlagKind::SizeT, "max parallel jobs (>=1, default=10)", "10", 1},
-  {"--resume",
-   CmdFlagKind::Bool,
-   "resume previous unfinished job state when available",
-   "",
-   0},
-  {"--restart",
-   CmdFlagKind::Bool,
-   "ignore previous job state and start a fresh run",
-   "",
-   0},
-  {"-x,--ffmpeg-path", CmdFlagKind::String, "custom ffmpeg install path", "", 1},
-  {"-c,--compress",
-   CmdFlagKind::Bool,
-   "enable JPEG compression during picture processing",
-   "",
-   0},
-  {"-q,--image-quality",
-   CmdFlagKind::Int,
-   "JPEG compression quality (2-31, default=5, lower=better)",
-   "",
-   1},
-}};
+constexpr auto ProcessingFlags = std::array<CmdFlagDef, 7>{
+  CmdFlagDef{
+    .name = "-t,--type",
+    .kind = CmdFlagKind::String,
+    .description = "process type: video(vid)|picture(pic)",
+    .defaultValue = "video",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "-j,--jobs",
+    .kind = CmdFlagKind::SizeT,
+    .description = "max parallel jobs (>=1, default=10)",
+    .defaultValue = "10",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "--resume",
+    .kind = CmdFlagKind::Bool,
+    .description = "resume previous unfinished job state when available",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "--restart",
+    .kind = CmdFlagKind::Bool,
+    .description = "ignore previous job state and start a fresh run",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "-x,--ffmpeg-path",
+    .kind = CmdFlagKind::String,
+    .description = "custom ffmpeg install path",
+    .defaultValue = "",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "-c,--compress",
+    .kind = CmdFlagKind::Bool,
+    .description = "enable JPEG compression during picture processing",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "-q,--image-quality",
+    .kind = CmdFlagKind::Int,
+    .description = "JPEG compression quality (2-31, default=5, lower=better)",
+    .defaultValue = "",
+    .expectedMax = 1
+  },
+};
 
 // ── File operation flags (3) ──
-constexpr auto FileOpFlags = std::array<CmdFlagDef, 3>{{
-  {"-p,--pack", CmdFlagKind::Bool, "pack encoded video outputs into zip files", "", 0},
-  {"-z,--pack-only",
-   CmdFlagKind::Bool,
-   "pack only: zip all files in input directory",
-   "",
-   0},
-  {"-w,--overwrite", CmdFlagKind::Bool, "overwrite existing files without prompt", "", 0},
-}};
+constexpr auto FileOpFlags = std::array<CmdFlagDef, 3>{
+  CmdFlagDef{
+    .name = "-p,--pack",
+    .kind = CmdFlagKind::Bool,
+    .description = "pack encoded video outputs into zip files",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "-z,--pack-only",
+    .kind = CmdFlagKind::Bool,
+    .description = "pack only: zip all files in input directory",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
+    .name = "-w,--overwrite",
+    .kind = CmdFlagKind::Bool,
+    .description = "overwrite existing files without prompt",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+};
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   -> CmdParseResult {
