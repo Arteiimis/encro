@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: CLI体验增强
 status: executing
-stopped_at: Phase 20 context gathered
-last_updated: "2026-05-09T19:33:41.953Z"
-last_activity: 2026-05-09
+stopped_at: Completed quick task 260511-wk8
+last_updated: "2026-05-11T16:15:27.000Z"
+last_activity: 2026-05-12 - Completed quick task 260511-wk8: centralized CLI flag management via CmdFlagDef arrays
 progress:
   total_phases: 6
   completed_phases: 2
@@ -89,6 +89,7 @@ Recent decisions affecting v1.6 work:
 |---|-------------|------|--------|-----------|
 | 260509-tjc | 迁移CLI11 help输出中的encro描述部分，移除历史颜色代码，统一用CLI11处理 | 2026-05-09 | f53ca6c | [260509-tjc-cli11-help-encro-cli11-cli11-cli11-phase](./quick/260509-tjc-cli11-help-encro-cli11-cli11-cli11-phase/) |
 | 260510-1tv | 优化--help输出配色方案 (dodger_blue/gold/steel_blue 三色分层) | 2026-05-09 | 5c580e6 | [260510-1tv-help](./quick/260510-1tv-help/) |
+| 260511-wk8 | Refactor cmd.cpp to centrally manage all 27 CLI flags via data-driven CmdFlagDef arrays + applyMap | 2026-05-11 | 5394c2c | [260511-wk8-refactor-cmd-cpp-to-centrally-manage-all](./quick/260511-wk8-refactor-cmd-cpp-to-centrally-manage-all/) |
 
 ### Pending Todos
 
