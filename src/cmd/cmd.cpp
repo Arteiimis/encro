@@ -354,7 +354,7 @@ constexpr auto IOFrags = std::array{
 };
 
 // ── Processing flags (7) ──
-constexpr auto ProcessingFlags = std::array<CmdFlagDef, 7>{
+constexpr auto ProcessingFlags = std::array{
   CmdFlagDef{
     .name = "-t,--type",
     .kind = CmdFlagKind::String,
@@ -407,7 +407,7 @@ constexpr auto ProcessingFlags = std::array<CmdFlagDef, 7>{
 };
 
 // ── File operation flags (3) ──
-constexpr auto FileOpFlags = std::array<CmdFlagDef, 3>{
+constexpr auto FileOpFlags = std::array{
   CmdFlagDef{
     .name = "-p,--pack",
     .kind = CmdFlagKind::Bool,
