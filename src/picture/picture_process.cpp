@@ -4,6 +4,7 @@
 
 #include "core/collision_naming.h"
 #include "core/media_scanner.h"
+#include "infra/stop_signal.h"
 #include "infra/terminal.h"
 #include "pack/pack.h"
 #include "utils/utils.h"
@@ -176,6 +177,10 @@ auto confirmPicturePack(appctx::AppConfig const& config) -> bool {
   );
 }
 
+auto canceledExitCodeForPromptAbort() -> int {
+  return stopsignal::isStopRequested() ? stopsignal::kCanceledExitCode : 0;
+}
+
 // --- Extracted helper functions ---
 
 auto buildCompressedResultLookup(std::vector<CompressResult> const& compressResults)
@@ -293,7 +298,7 @@ auto executeDirectPackWorkflow(
 
   if (!confirmPicturePack(ctx.config)) {
     terminal::println(Warning, "Packing task canceled by user.");
-    return 0;
+    return canceledExitCodeForPromptAbort();
   }
 
   auto const plannedEntryNames =
@@ -359,7 +364,7 @@ auto executeCompressPackWorkflow(
 
   if (!confirmPicturePack(ctx.config)) {
     terminal::println(Warning, "Packing task canceled by user.");
-    return 0;
+    return canceledExitCodeForPromptAbort();
   }
 
   auto const tempDir = outputDir / ".compress_tmp";

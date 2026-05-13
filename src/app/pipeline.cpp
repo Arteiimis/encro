@@ -2,10 +2,12 @@
 
 #include "core/job_state.h"
 #include "infra/terminal.h"
+#include "infra/stop_signal.h"
 #include "pack/pack.h"
 #include "picture/picture_process.h"
 #include "video/video_process.h"
 
+#include <algorithm>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -44,6 +46,26 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
   }
 
   return {};
+}
+
+auto jobStateNeverStarted(jobstate::Store const& store) -> bool {
+  auto const tasks = store.tasks();
+  return std::ranges::all_of(tasks, [](jobstate::TaskRecord const& task) {
+    return task.status == jobstate::TaskStatus::Pending && task.attemptCount == 0;
+  });
+}
+
+auto maybeRemoveUnstartedCanceledJobState(
+  appctx::AppContext& ctx,
+  eh::Result<int> const& runRes
+) -> void {
+  if (!runRes || runRes.value() != stopsignal::kCanceledExitCode) { return; }
+  if (!ctx.runtime.jobState) { return; }
+  if (!jobStateNeverStarted(*ctx.runtime.jobState)) { return; }
+
+  auto ec = std::error_code{};
+  fs::remove(ctx.runtime.jobState->stateFilePath(), ec);
+  ctx.runtime.jobState.reset();
 }
 
 auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
@@ -110,11 +132,25 @@ auto run(appctx::AppContext& ctx) -> eh::Result<int> {
     if (!stateRes) { return eh::makeError("{}", stateRes.error()); }
   }
 
-  if (ctx.config.packOnly) { return runPackOnly(ctx); }
+  auto runRes = eh::Result<int>{};
 
-  if (ctx.config.processType == "video") { return runVideo(ctx); }
+  if (ctx.config.packOnly) {
+    runRes = runPackOnly(ctx);
+    maybeRemoveUnstartedCanceledJobState(ctx, runRes);
+    return runRes;
+  }
 
-  if (ctx.config.processType == "picture") { return runPicture(ctx); }
+  if (ctx.config.processType == "video") {
+    runRes = runVideo(ctx);
+    maybeRemoveUnstartedCanceledJobState(ctx, runRes);
+    return runRes;
+  }
+
+  if (ctx.config.processType == "picture") {
+    runRes = runPicture(ctx);
+    maybeRemoveUnstartedCanceledJobState(ctx, runRes);
+    return runRes;
+  }
 
   return eh::makeError(
     "Invalid process type: {}. Valid types are: video, picture.",
