@@ -96,18 +96,19 @@ auto enableVirtualTerminal(Stream stream) -> bool {
 auto defaultBadgeLabel(MessageKind kind) -> std::string_view {
   switch (kind) {
     case MessageKind::Plain:
-    case MessageKind::Heading    : return {};
-    case MessageKind::Error      : return "error";
-    case MessageKind::Warning    : return "warn";
-    case MessageKind::Success    : return "done";
-    case MessageKind::Info       : return "info";
-    case MessageKind::Hint       : return "hint";
-    case MessageKind::Prompt     : return "?";
-    case MessageKind::Usage      : return {};
-    case MessageKind::OptionGroup: return {};
-    case MessageKind::OptionName : return {};
-    case MessageKind::OptionDesc : return {};
-    case MessageKind::Version    : return {};
+    case MessageKind::Heading      : return {};
+    case MessageKind::Error        : return "error";
+    case MessageKind::Warning      : return "warn";
+    case MessageKind::Success      : return "done";
+    case MessageKind::Info         : return "info";
+    case MessageKind::Hint         : return "hint";
+    case MessageKind::Prompt       : return "?";
+    case MessageKind::Usage        : return {};
+    case MessageKind::OptionGroup  : return {};
+    case MessageKind::OptionName   : return {};
+    case MessageKind::OptionDefault: return {};
+    case MessageKind::OptionDesc   : return {};
+    case MessageKind::Version      : return {};
   }
 
   return {};
@@ -116,11 +117,12 @@ auto defaultBadgeLabel(MessageKind kind) -> std::string_view {
 auto styleForToken(TokenKind kind, MessageKind messageKind) -> fmt::text_style {
   using fmt::emphasis;
   using fmt::fg;
+  using c = fmt::color;
 
   switch (kind) {
     case TokenKind::Badge: return styleFor(messageKind) | emphasis::bold;
-    case TokenKind::Value: return fg(fmt::color::floral_white) | emphasis::bold;
-    case TokenKind::Path : return fg(fmt::color::light_sky_blue) | emphasis::bold;
+    case TokenKind::Value: return fg(c::floral_white) | emphasis::bold;
+    case TokenKind::Path : return fg(c::light_sky_blue) | emphasis::bold;
   }
 
   return {};
@@ -191,21 +193,24 @@ auto colorsEnabled(Stream stream) -> bool {
 auto styleFor(MessageKind kind) -> fmt::text_style {
   using fmt::emphasis;
   using fmt::fg;
+  using c = fmt::color;
+  using tc = fmt::terminal_color;
 
   switch (kind) {
-    case MessageKind::Plain      : return {};
-    case MessageKind::Error      : return fg(fmt::terminal_color::red) | emphasis::bold;
-    case MessageKind::Warning    : return fg(fmt::terminal_color::yellow) | emphasis::bold;
-    case MessageKind::Success    : return fg(fmt::terminal_color::green) | emphasis::bold;
-    case MessageKind::Info       : return fg(fmt::color::steel_blue);
-    case MessageKind::Hint       : return fg(fmt::color::slate_gray);
-    case MessageKind::Prompt     : return fg(fmt::terminal_color::cyan) | emphasis::bold;
-    case MessageKind::Heading    : return fg(fmt::color::steel_blue) | emphasis::bold;
-    case MessageKind::Usage      : return {};
-    case MessageKind::OptionGroup: return emphasis::bold;
-    case MessageKind::OptionName : return fg(fmt::color::medium_turquoise);
-    case MessageKind::OptionDesc : return {};
-    case MessageKind::Version    : return {};
+    case MessageKind::Plain        : return {};
+    case MessageKind::Error        : return fg(tc::red) | emphasis::bold;
+    case MessageKind::Warning      : return fg(tc::yellow) | emphasis::bold;
+    case MessageKind::Success      : return fg(tc::green) | emphasis::bold;
+    case MessageKind::Info         : return fg(c::steel_blue);
+    case MessageKind::Hint         : return fg(c::slate_gray);
+    case MessageKind::Prompt       : return fg(tc::cyan) | emphasis::bold;
+    case MessageKind::Heading      : return fg(c::steel_blue) | emphasis::bold;
+    case MessageKind::Usage        : return {};
+    case MessageKind::OptionGroup  : return emphasis::bold;
+    case MessageKind::OptionName   : return fg(tc::cyan);
+    case MessageKind::OptionDefault: return fg(tc::cyan) | emphasis::faint;
+    case MessageKind::OptionDesc   : return {};
+    case MessageKind::Version      : return {};
   }
 
   return {};
