@@ -1,4 +1,6 @@
+#include "app/pipeline.h"
 #include "core/app_context.h"
+#include "core/job_state.h"
 #include "infra/stop_signal.h"
 #include "test_utils.h"
 #include "video/video_process.h"
@@ -67,6 +69,16 @@ for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
 exit /b 0
 )"
   );
+  writeTextFile(scriptPath, script);
+}
+
+void writeFakeFfprobeScript(fs::path const& scriptPath) {
+  auto const script = R"(
+@echo off
+setlocal EnableExtensions
+echo {"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]}
+exit /b 0
+)";
   writeTextFile(scriptPath, script);
 }
 
@@ -159,6 +171,35 @@ TEST_CASE(
   CHECK(result == stopsignal::kCanceledExitCode);
   CHECK_FALSE(fs::exists(temp.path / "encoded_webp" / "slow.webp"));
   CHECK_FALSE(fs::exists(strayProgressPath));
+}
+
+TEST_CASE(
+  "video pipeline removes empty state file when canceled before encoding starts",
+  "[video-process][orchestration][pipeline]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const inputPath = temp.path / "slow.mp4";
+  auto const ffprobeScriptPath = temp.path / "fake_ffprobe.cmd";
+  auto const stateFilePath = temp.path / "encro.job-state.json";
+  writeTextFile(inputPath, "slow-video");
+  writeFakeFfprobeScript(ffprobeScriptPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "video";
+  ctx.config.outputFormat = "webp";
+  ctx.config.inputPath = inputPath;
+  ctx.config.stateFilePath = stateFilePath;
+  ctx.toolchain.ffprobePath = makeCmdScriptCommand(ffprobeScriptPath);
+
+  stopsignal::requestStop();
+
+  auto const result = pipeline::run(ctx);
+
+  REQUIRE(result);
+  CHECK(result.value() == stopsignal::kCanceledExitCode);
+  CHECK_FALSE(fs::exists(temp.path / "encoded_webp" / "slow.webp"));
+  CHECK_FALSE(fs::exists(stateFilePath));
 }
 #endif
 

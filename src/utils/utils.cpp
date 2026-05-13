@@ -301,13 +301,20 @@ auto exec2(
 }
 
 bool readUserIpt(bool yesToAll, std::string_view prompt) {
+  if (stopsignal::isStopRequested()) { return false; }
   if (yesToAll) { return true; }
 
-  if (!prompt.empty()) { terminal::print(Prompt, "{}", prompt); }
+  auto const promptShown = !prompt.empty();
+  if (promptShown) { terminal::print(Prompt, "{}", prompt); }
 
   auto response = 'y';
   auto input = std::string{};
-  std::getline(std::cin, input);
+  if (!std::getline(std::cin, input)) {
+    std::cin.clear();
+    if (promptShown) { terminal::write(terminal::Stream::Stdout, "", true); }
+    return false;
+  }
+  if (stopsignal::isStopRequested()) { return false; }
   if (!input.empty()) { std::istringstream(input) >> response; }
 
   return response == 'y' || response == 'Y';
