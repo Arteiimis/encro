@@ -34,6 +34,7 @@ enum class MessageKind {
   Usage,
   OptionGroup,
   OptionName,
+  OptionDefault,
   OptionDesc,
   Version,
 };

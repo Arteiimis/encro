@@ -80,7 +80,7 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth) -> std::string 
     defaultText = " (=" + opt->get_default_str() + ")";
     styledDefaultText = terminal::styledText(
       terminal::Stream::Stdout,
-      terminal::MessageKind::Hint,
+      terminal::MessageKind::OptionDefault,
       defaultText
     );
   }
