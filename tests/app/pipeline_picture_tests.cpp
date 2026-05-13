@@ -1,5 +1,6 @@
 #include "app/pipeline.h"
 #include "core/job_state.h"
+#include "infra/stop_signal.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
@@ -10,6 +11,7 @@
 namespace fs = std::filesystem;
 
 using testutils::listZipRegularEntryNames;
+using testutils::ScopedStopSignalReset;
 using testutils::touchFile;
 
 #if defined(_WIN32)
@@ -71,6 +73,32 @@ TEST_CASE("picture pipeline skips job state by default", "[pipeline]") {
   auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
+  CHECK_FALSE(fs::exists(stateFilePath));
+}
+
+TEST_CASE(
+  "picture pipeline removes empty state file when canceled before packing starts",
+  "[pipeline]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const stateFilePath = temp.path / "encro.job-state.json";
+  fs::create_directories(inputDir);
+  touchFile(inputDir / "a.jpg");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = false;
+  ctx.config.inputPath = inputDir;
+  ctx.config.stateFilePath = stateFilePath;
+
+  stopsignal::requestStop();
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == stopsignal::kCanceledExitCode);
+  CHECK_FALSE(fs::exists(inputDir / "packed"));
   CHECK_FALSE(fs::exists(stateFilePath));
 }
 

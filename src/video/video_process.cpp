@@ -268,6 +268,10 @@ auto maybePackWorkflowOutputs(
   return maybePackOutputs(ctx, packInputPath.value(), plannedOutputFiles, vidsRunRes);
 }
 
+auto canceledExitCodeForPromptAbort() -> int {
+  return stopsignal::isStopRequested() ? stopsignal::kCanceledExitCode : 0;
+}
+
 auto runScannedEncodingWorkflow(
   appctx::AppContext& ctx,
   std::vector<fs::path> const& vids,
@@ -295,7 +299,7 @@ auto runScannedEncodingWorkflow(
     prepared.totalActions,
     prepared.initialResults.size()
   );
-  if (!runRes.has_value()) { return 0; }
+  if (!runRes.has_value()) { return canceledExitCodeForPromptAbort(); }
 
   auto const vidsRunRes = mergeEncodeResults(prepared.initialResults, runRes.value());
 
@@ -317,7 +321,7 @@ auto runScannedEncodingWorkflow(
     );
     if (!proceed) {
       terminal::println(Warning, "Packing task canceled by user.");
-      return 0;
+      return canceledExitCodeForPromptAbort();
     }
   }
 
