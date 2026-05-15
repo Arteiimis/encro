@@ -257,6 +257,113 @@
 
 ---
 
+## Milestone: v1.5 — Pack下沉收尾 — 消除调用方泄漏
+
+**Shipped:** 2026-05-04
+**Phases:** 4 | **Plans:** 6 | **Tasks:** 6
+
+### What Was Built
+
+- NamingStrategy enum (Flat/FlatWithForce/Keep) replacing OutputLayout+boolean pair — invalid states eliminated at type level
+- GroupingStrategy enum (PerSourceDir/PerSourceDirKeepTogether) on PackRequest — declarative partitioning intent
+- SummaryConfig struct with isSummary structural flag — replaces "0000__"/"1000__" fragile string prefix convention
+- picture_process.cpp fully migrated — all 3 internal pack includes removed, ~200 lines dead code deleted, call sites use pack::execute() exclusively
+- PackPlan moved to pack_plan_internal.h — compile-time enforced boundary via __if_exists (MSVC/clang extension)
+- 3033 assertions across 244 test cases pass with zero behavioral regression
+
+### What Worked
+
+- Sequential dependency chain (15→16→17→18) was the right ordering — each phase built precisely on the prior
+- NamingStrategy single enum was cleaner than the two-axis model (strategy + force flag) — eliminated the representable-but-invalid state
+- isSummary flag ordering was structurally enforced, not fragile lexicographic — more robust than prefix-based sorting
+- __if_exists compile-time boundary test was clever — SFINAE cannot detect namespaces, but this MSVC/clang extension worked
+- Picture consumer dead code cleanup removed complexity proportional to the new API's expressiveness
+
+### What Was Inefficient
+
+- Phase 15-16 concurrent design exploration happened inline — could have been parallelized
+- No REQUIREMENTS.md for SINK-01 through SINK-04 — traceability inferred from milestone description
+
+### Patterns Established
+
+- enum over boolean-pair for intent declaration — eliminates representable-invalid states
+- isSummary structural flag over string prefix — ordering guarantees at type level
+- Compile-time boundary enforcement via __if_exists — PackPlan provably invisible to consumers
+- Single switch dispatch for NamingStrategy — clear, testable, exhaustive
+
+### Key Lessons
+
+1. Enum-based intent declaration beats boolean combinations — invalid states shouldn't be representable
+2. Structural ordering (isSummary flag) beats lexicographic ordering (string prefixes) for correctness guarantees
+3. Compile-time encapsulation is enforceable even without C++20 modules — __if_exists fills the gap
+
+### Cost Observations
+
+- Model: deepseek-v4-pro
+- 4 phases, 6 plans, 6 tasks executed
+- ~228 lines net reduction across project
+- 3033 assertions, 244 test cases, 0 regressions
+
+---
+
+## Milestone: v1.6 — CLI体验增强
+
+**Shipped:** 2026-05-09
+**Phases:** 2 | **Plans:** 8 | **Tasks:** 11
+
+### What Was Built
+
+- CLI11 replaces boost::program_options — CmdParseResult flat struct (26 typed fields), commandLineInit() rewritten, formatter_fn custom help
+- 34 call sites across 6 consumer files adapted to CmdParseResult — zero boost::po references remain
+- Colored --help output — 3-layer semantic coloring: Usage/dodger_blue+bold, OptionGroup/steel_blue, OptionName/gold, OptionDesc/plain
+- --version flag — colored output via terminal::println(Version, ...), CmdParseResult.version field
+- MessageKind enum extended 8→13 values (Usage, OptionGroup, OptionName, OptionDesc, Version) — additive only, indices 0-7 preserved
+- NO_COLOR standard compliance — all color paths gated via colorsEnabled(); --no-color flag for explicit disable
+- Error messages unified — all consumer errors use terminal::println(Error, ...)
+- ANSI padding rule: plain-text column widths computed first, color applied after — prevents escape-code misalignment
+- Quick task 260511-wk8: centralized CLI flag management via CmdFlagDef arrays + applyMap pattern
+- 3078 assertions, 264/265 test cases (1 pre-existing COLUMNS=72 failure)
+
+### What Worked
+
+- Two-phase roadmap (CLI11 infrastructure → color deepening) was right — color depends on parsing infrastructure
+- formatter_fn as complete replacement (not decorator) gave full control over help layout
+- TDD cycle for MessageKind extension (9 new test cases) caught missing implementations before code shipped
+- ANSI padding rule (compute plain-text width → pad → apply color) was the correct design — misalignment caught early
+- CLI11 v2.6.2 confirmed for C++26 compatibility — no breaking changes needed
+- boost[all] preserved for non-program_options modules — no unnecessary dependency surgery
+
+### What Was Inefficient
+
+- formatter_fn has zero test coverage from existing assertions — smoke tests added retroactively (Pitfall #7)
+- colorsEnabled() gating is per-stream — asymmetric coloring bugs possible in piped output (Pitfall #2)
+- Progress bar coloring deferred to v2+ — indicators library has its own color system, needs separate evaluation
+- 14 quick tasks / todos formally deferred (4th milestone carrying this gap)
+
+### Patterns Established
+
+- formatter_fn as lambda-based custom formatter — bypasses CLI11 default formatter for full layout control
+- ANSI padding rule: compute width on plain text → pad → apply styledText() — critical for column alignment
+- CmdFlagDef arrays with kind enum + applyMap for data-driven flag registration
+- Enum additive extension pattern: append at end, preserve indices, no renumbering
+
+### Key Lessons
+
+1. Custom formatters (formatter_fn) give complete control when library defaults don't match requirements
+2. ANSI escape codes break column alignment — must compute widths on plain text before injecting color
+3. Per-stream color gating can cause asymmetric behavior — always pass explicit stream parameter
+4. CLI11 `configureFromColorString()` must replace `configureFromVariablesMap()` before boost::po removal
+
+### Cost Observations
+
+- Model: deepseek-v4-pro
+- 2 phases, 8 plans, 11 tasks executed
+- 33 source files changed, +2380/-1289 lines
+- ~80 commits over ~8 days (2026-05-05 to 2026-05-12)
+- 3078 assertions preserved, 3 quick tasks completed post-phase
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -267,7 +374,8 @@
 | v1.1 | 3 | 7 | 8 | Pure refactoring: TDD RED gate cycle introduced |
 | v1.2 | 2 | 4 | 6 | Debt resolution: research-first, forensics audit |
 | v1.3 | 4 | 11 | 11 | OO refactor: incremental delivery, facade bridge, DI + mocks |
-| v1.4 | 3 | 9 | 16 | Interface simplification: single-entry API, abstraction removal |
+| v1.5 | 4 | 6 | 6 | Leak elimination: enum intent over flags, compile-time boundary |
+| v1.6 | 2 | 8 | 11 | CLI modernization: CLI11 migration, colored output, NO_COLOR |
 
 ### Cumulative Quality
 
@@ -277,7 +385,8 @@
 | v1.1 | 215 | 910 | 4 `.cpp` files | 0 |
 | v1.2 | 215 | 909 | 8 source files | 1 (narrow D-01 exception) |
 | v1.3 | 225 | 945 | 19 source files + 2 new headers | 5 new/rewritten headers |
-| v1.4 | 222 | 945 | 12 source files | 2 deleted, 1 simplified |
+| v1.5 | 244 | 3033 | 15 source files | 1 header rewrite |
+| v1.6 | 265 | 3078 | 33 source files | 2 header rewrites |
 
 ### Top Lessons (Verified Across Milestones)
 
