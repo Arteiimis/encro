@@ -241,4 +241,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-05-09 after v1.6 milestone completion*
+*Last updated: 2026-05-16 after v1.6 milestone archive*

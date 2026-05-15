@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: CLI体验增强
-status: executing
-stopped_at: Completed quick task 260511-wk8
-last_updated: "2026-05-11T16:15:27.000Z"
-last_activity: 2026-05-12 - Completed quick task 260511-wk8: centralized CLI flag management via CmdFlagDef arrays
+status: Awaiting next milestone
+stopped_at: Phase 20 context gathered
+last_updated: "2026-05-15T18:00:56.122Z"
+last_activity: 2026-05-15 — Milestone v1.6 completed and archived
 progress:
-  total_phases: 6
+  total_phases: 2
   completed_phases: 2
   total_plans: 8
   completed_plans: 8
@@ -25,12 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-05)
 
 ## Current Position
 
-Phase: 20 (cli-color-deepening) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 20
-Last activity: 2026-05-09
-
-Progress: [██████████] 100%
+Phase: Milestone v1.6 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-15 — Milestone v1.6 completed and archived
 
 ## Performance Metrics
 
@@ -103,9 +101,32 @@ None yet.
 | E2E CLI verification | 8 E2E paths deferred (environment dependency) | Deferred | v1.4 |
 | Progress bar coloring | indicators library has own color system — separate evaluation needed | Deferred to v2+ | v1.6 |
 
+Items acknowledged and deferred at milestone close on 2026-05-16:
+
+| Category | Item | Status |
+|----------|------|--------|
+| quick_task | 260429-1iq-pack-progress-bar-fix | missing |
+| quick_task | 260429-1yf-zip-100 | missing |
+| quick_task | 260429-2gx-fix-finalizing-spinner-flashing-before-f | missing |
+| quick_task | 260429-2tn-archive-completion-hook-flashes-packing- | missing |
+| quick_task | 260429-34v-refactor-packgroups-function-in-pack-ser | missing |
+| quick_task | 260502-abc-default-confirm-y | missing |
+| quick_task | 260502-n3j-refactor-long-lambda-capture-list-in-pic | missing |
+| quick_task | 260502-vwq-change-default-user-confirmation-from-n- | missing |
+| quick_task | 260505-vyf-runpicturepackworkflow | missing |
+| quick_task | 260506-44c-buildmediapackplan | missing |
+| quick_task | 260509-tjc-cli11-help-encro-cli11-cli11-cli11-phase | missing |
+| quick_task | 260510-1tv-help | missing |
+| quick_task | 260511-wk8-refactor-cmd-cpp-to-centrally-manage-all | missing |
+| todo | 2026-05-09-enhance-cli-option-conflict-error-messages.md | pending |
+
 ## Session Continuity
 
 Last session: 2026-05-09T15:30:33.487Z
 Stopped at: Phase 20 context gathered
 Resume file: .planning\phases\20-cli-color-deepening\20-CONTEXT.md
 Next: `/gsd-plan-phase 19`
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
