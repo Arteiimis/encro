@@ -23,14 +23,13 @@ namespace {
 
 #if defined(_WIN32) || defined(_WIN64)
 auto readWindowsEnvPath(char const* name) -> std::optional<fs::path> {
-  char* value = nullptr;
-  std::size_t size = 0;
-  if (_dupenv_s(&value, &size, name) != 0 || value == nullptr || size == 0) {
+  auto value = std::unique_ptr<char>{};
+  auto size = std::size_t{0};
+  if (_dupenv_s(std::out_ptr(value), &size, name) != 0 || value == nullptr || size == 0) {
     return std::nullopt;
   }
 
-  auto result = fs::path{value};
-  std::free(value);
+  auto result = fs::path{value.get()};
   if (result.empty()) { return std::nullopt; }
 
   return result;
