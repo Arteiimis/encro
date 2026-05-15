@@ -1,17 +1,21 @@
 #include "cmd/cmd.h"
 
-#include "infra/console_width.h"
 #include "infra/terminal.h"
 
 #include <CLI/CLI.hpp>
 
 #include <algorithm>
+#include <charconv>
+#include <cctype>
+#include <cstdlib>
 #include <format>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 using namespace std::literals;
 using enum terminal::MessageKind;
@@ -21,18 +25,57 @@ namespace {
 struct HelpTextLayout {
   unsigned lineLength;
   unsigned minDescriptionLength;
+  bool explicitWidthConstraint;
 };
 
+auto readEnvVar(std::string_view name) -> std::optional<std::string> {
+#if defined(_WIN32) || defined(_WIN64)
+  auto value = std::unique_ptr<char>{};
+  auto len = std::size_t{0};
+  auto const key = std::string{name};
+  if (_dupenv_s(std::out_ptr(value), &len, key.c_str()) != 0 || value == nullptr) {
+    return std::nullopt;
+  }
+
+  auto result = std::optional<std::string>{};
+  if (len > 1) { result = std::string{value.get()}; }
+  return result;
+#else
+  auto const key = std::string{name};
+  if (auto const* value = std::getenv(key.c_str()); value != nullptr && *value != '\0') {
+    return std::string{value};
+  }
+  return std::nullopt;
+#endif
+}
+
+auto readHelpColumnsOverride() -> std::optional<unsigned> {
+  auto const columns = readEnvVar("COLUMNS");
+  if (!columns.has_value()) { return std::nullopt; }
+
+  auto value = unsigned{0};
+  auto const view = std::string_view{columns.value()};
+  auto const [end, error] =
+    std::from_chars(view.data(), view.data() + view.size(), value);
+  if (error != std::errc{} || end != view.data() + view.size() || value == 0) {
+    return std::nullopt;
+  }
+
+  return value;
+}
+
 auto resolveHelpTextLayout() -> HelpTextLayout {
-  auto const lineLength = static_cast<unsigned>(consolewidth::resolveColumns({
-    .defaultColumns = 80,
-    .minColumns = 40,
-    .maxColumns = 120,
-  }));
+  auto lineLength = 120u;
+  auto explicitWidthConstraint = false;
+  if (auto const override = readHelpColumnsOverride(); override.has_value()) {
+    lineLength = std::clamp(override.value(), 40u, 120u);
+    explicitWidthConstraint = true;
+  }
 
   return {
     .lineLength = lineLength,
     .minDescriptionLength = lineLength / 2,
+    .explicitWidthConstraint = explicitWidthConstraint,
   };
 }
 
@@ -65,7 +108,97 @@ auto formatOptionName(CLI::Option const* opt) -> std::string {
   return names;
 }
 
-auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth) -> std::string {
+auto countLeadingWhitespace(std::string_view text) -> std::size_t {
+  auto count = std::size_t{0};
+  while (
+    count < text.size() && std::isspace(static_cast<unsigned char>(text[count])) != 0
+  ) {
+    ++count;
+  }
+  return count;
+}
+
+auto wrapDescriptionLine(
+  std::string_view line,
+  unsigned firstWidth,
+  unsigned continuationWidth
+) -> std::vector<std::string> {
+  auto wrapped = std::vector<std::string>{};
+  if (firstWidth == 0 || continuationWidth == 0) {
+    wrapped.emplace_back(line);
+    return wrapped;
+  }
+
+  auto const leadingWhitespace = countLeadingWhitespace(line);
+  auto const prefix = std::string(leadingWhitespace, ' ');
+  auto remaining = line.substr(leadingWhitespace);
+  auto const firstContentWidth =
+    std::max<unsigned>(1, firstWidth - static_cast<unsigned>(prefix.size()));
+  auto const continuationContentWidth =
+    std::max<unsigned>(1, continuationWidth - static_cast<unsigned>(prefix.size()));
+
+  if (remaining.empty()) {
+    wrapped.push_back(prefix);
+    return wrapped;
+  }
+
+  auto isFirstLine = true;
+  while (!remaining.empty()) {
+    auto const contentWidth = isFirstLine ? firstContentWidth : continuationContentWidth;
+    if (remaining.size() <= contentWidth) {
+      wrapped.push_back(prefix + std::string{remaining});
+      break;
+    }
+
+    auto split = remaining.rfind(' ', contentWidth);
+    if (split == std::string_view::npos || split == 0) { split = contentWidth; }
+
+    wrapped.push_back(prefix + std::string{remaining.substr(0, split)});
+    remaining.remove_prefix(split);
+    while (!remaining.empty() && remaining.front() == ' ') { remaining.remove_prefix(1); }
+    isFirstLine = false;
+  }
+
+  return wrapped;
+}
+
+auto wrapDescription(
+  std::string_view description,
+  unsigned firstWidth,
+  unsigned continuationWidth
+) -> std::vector<std::string> {
+  auto wrapped = std::vector<std::string>{};
+  auto start = std::size_t{0};
+  auto isFirstLine = true;
+
+  while (start <= description.size()) {
+    auto const end = description.find('\n', start);
+    auto const line = end == std::string_view::npos
+      ? description.substr(start)
+      : description.substr(start, end - start);
+    auto lines = wrapDescriptionLine(
+      line,
+      isFirstLine ? firstWidth : continuationWidth,
+      continuationWidth
+    );
+    wrapped.insert(wrapped.end(), lines.begin(), lines.end());
+
+    if (end == std::string_view::npos) { break; }
+    start = end + 1;
+    isFirstLine = false;
+  }
+
+  if (wrapped.empty()) { wrapped.emplace_back(); }
+
+  return wrapped;
+}
+
+auto formatOptionHelp(
+  CLI::Option const* opt,
+  unsigned colWidth,
+  unsigned lineLength,
+  bool explicitWidthConstraint
+) -> std::string {
   auto const nameStr = formatOptionName(opt);
 
   auto typeStr = std::string{};
@@ -85,25 +218,34 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth) -> std::string 
     );
   }
 
-  // Pad the full first column (name + type + default) to colWidth for alignment
-  auto const firstCol = nameStr + typeStr + defaultText;
-  auto const gap = firstCol.size() < colWidth ? colWidth - firstCol.size() : 2u;
-  auto const indent = std::string(static_cast<std::size_t>(colWidth + 2), ' ');
-
-  auto const description = opt->get_description();
-  auto result = std::string{};
-  auto lineStart = std::size_t{0};
-  auto lineNum = 0u;
   auto const coloredName = terminal::styledText(
     terminal::Stream::Stdout,
     terminal::MessageKind::OptionName,
     nameStr
   );
-  while (lineStart < description.size()) {
-    auto const newlinePos = description.find('\n', lineStart);
-    auto const line = (newlinePos == std::string_view::npos)
-      ? description.substr(lineStart)
-      : description.substr(lineStart, newlinePos - lineStart);
+
+  // Pad the full first column (name + type + default) to colWidth for alignment
+  auto const firstCol = nameStr + typeStr + defaultText;
+  auto const gap = firstCol.size() < colWidth ? colWidth - firstCol.size() : 2u;
+  auto const displayDescriptionColumn = static_cast<unsigned>(2 + firstCol.size() + gap);
+  auto const renderedDescriptionColumn = static_cast<unsigned>(
+    2 + coloredName.size() + typeStr.size() + styledDefaultText.size() + gap
+  );
+  auto const indent = std::string(displayDescriptionColumn, ' ');
+  auto const firstLineDescriptionColumn =
+    explicitWidthConstraint ? renderedDescriptionColumn : displayDescriptionColumn;
+  auto const firstLineWidth = firstLineDescriptionColumn < lineLength
+    ? lineLength - firstLineDescriptionColumn
+    : 1u;
+  auto const continuationWidth =
+    displayDescriptionColumn < lineLength ? lineLength - displayDescriptionColumn : 1u;
+
+  auto const description = opt->get_description();
+  auto const wrappedDescription =
+    wrapDescription(description, firstLineWidth, continuationWidth);
+  auto result = std::string{};
+  for (auto lineNum = 0u; lineNum < wrappedDescription.size(); ++lineNum) {
+    auto const& line = wrappedDescription[lineNum];
     auto const coloredDesc = terminal::styledText(
       terminal::Stream::Stdout,
       terminal::MessageKind::OptionDesc,
@@ -122,9 +264,6 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth) -> std::string 
     } else {
       result += std::format("{}{}\n", indent, coloredDesc);
     }
-    if (newlinePos == std::string_view::npos) break;
-    lineStart = newlinePos + 1;
-    ++lineNum;
   }
 
   if (result.ends_with('\n')) result.pop_back();
@@ -154,6 +293,7 @@ auto makeHelpFormatter(
       CLI::AppFormatMode /*mode*/
     ) -> std::string {
       auto result = std::string{};
+      auto const layout = resolveHelpTextLayout();
       auto const desc = app_ptr->get_description();
       if (!desc.empty()) {
         result += terminal::styledText(
@@ -189,13 +329,26 @@ auto makeHelpFormatter(
         }
       }
 
-      auto const colWidth = std::clamp(maxColLen, 34u, 48u);
+      auto const maxColWidthFromLayout =
+        layout.lineLength > layout.minDescriptionLength + 2
+        ? layout.lineLength - layout.minDescriptionLength - 2
+        : 1u;
+      auto const colWidth = std::clamp(
+        maxColLen,
+        std::min(34u, maxColWidthFromLayout),
+        std::min(48u, maxColWidthFromLayout)
+      );
 
       for (auto const* group: groupIter) {
         result += formatGroupHeader(group->get_description());
         for (auto const* opt: group->get_options()) {
           if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
-          result += formatOptionHelp(opt, colWidth);
+          result += formatOptionHelp(
+            opt,
+            colWidth,
+            layout.lineLength,
+            layout.explicitWidthConstraint
+          );
           result += '\n';
         }
       }

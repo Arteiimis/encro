@@ -75,10 +75,11 @@ TEST_CASE("path and count helpers style key values independently", "[terminal]")
 
 // ── Phase 20: New MessageKind value tests ──────────────────────────
 
-TEST_CASE("styleFor(Usage) produces ANSI escapes", "[terminal]") {
+TEST_CASE("styleFor(Usage) returns empty style", "[terminal]") {
   auto const style = terminal::styleFor(terminal::MessageKind::Usage);
   auto const text = fmt::format(style, "{}", "test");
-  CHECK(text.find("\x1b[") != std::string::npos);
+  CHECK(text.find("\x1b[") == std::string::npos);
+  CHECK(text == "test");
 }
 
 TEST_CASE("styleFor(OptionGroup) differs from styleFor(Usage)", "[terminal]") {
@@ -93,10 +94,9 @@ TEST_CASE("styleFor(OptionName) produces ANSI but not bold", "[terminal]") {
   auto const style = terminal::styleFor(terminal::MessageKind::OptionName);
   auto const text = fmt::format(style, "{}", "test");
   CHECK(text.find("\x1b[") != std::string::npos);
-  // gold has no bold — verify it differs from a bold style
-  auto const boldStyle = terminal::styleFor(terminal::MessageKind::Usage);
-  auto const boldText = fmt::format(boldStyle, "{}", "test");
-  CHECK(text != boldText);
+  auto const plainStyle = terminal::styleFor(terminal::MessageKind::Usage);
+  auto const plainText = fmt::format(plainStyle, "{}", "test");
+  CHECK(text != plainText);
 }
 
 TEST_CASE("styleFor(OptionDesc) returns empty style", "[terminal]") {
@@ -106,10 +106,11 @@ TEST_CASE("styleFor(OptionDesc) returns empty style", "[terminal]") {
   CHECK(text == "test");
 }
 
-TEST_CASE("styleFor(Version) produces ANSI escapes", "[terminal]") {
+TEST_CASE("styleFor(Version) returns empty style", "[terminal]") {
   auto const style = terminal::styleFor(terminal::MessageKind::Version);
   auto const text = fmt::format(style, "{}", "test");
-  CHECK(text.find("\x1b[") != std::string::npos);
+  CHECK(text.find("\x1b[") == std::string::npos);
+  CHECK(text == "test");
 }
 
 TEST_CASE("format with Usage has no badge prefix", "[terminal]") {
