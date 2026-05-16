@@ -13,7 +13,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <unordered_map>
@@ -406,6 +405,12 @@ auto executeCompressPackWorkflow(
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
   auto const compressResults =
     compressImageBatch(ctx, compressTasks, quality, maxParallel);
+
+  if (stopsignal::isStopRequested()) {
+    fs::remove_all(tempDir, ec);
+    terminal::println(Warning, "Compression task canceled by user.");
+    return stopsignal::kCanceledExitCode;
+  }
 
   if (compressResults.empty()) {
     fs::remove_all(tempDir, ec);
