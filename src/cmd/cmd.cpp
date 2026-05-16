@@ -553,7 +553,7 @@ constexpr auto ProcessingFlags = std::array{
   CmdFlagDef{
     .name = "-q,--image-quality",
     .kind = CmdFlagKind::Int,
-    .description = "JPEG compression quality (2-31, default=5, lower=better)",
+    .description = "JPEG compression quality (2-31, default=2, lower=better)",
     .defaultValue = "",
     .expectedMax = 1
   },

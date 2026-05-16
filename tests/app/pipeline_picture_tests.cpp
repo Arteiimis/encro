@@ -32,7 +32,7 @@ goto parse
 :done
 if "%outputPath%"=="" exit /b 2
 for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
->"%outputPath%" echo fake-compressed-jpeg
+type nul > "%outputPath%"
 exit /b 0
 )"};
   testutils::writeTextFile(scriptPath, script);
