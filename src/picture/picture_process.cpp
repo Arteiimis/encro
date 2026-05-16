@@ -28,6 +28,7 @@ namespace {
 using PictureEntryPlan = std::unordered_map<fs::path, std::string>;
 
 constexpr auto kMaxPicturesPerPack = std::size_t{2000};
+constexpr auto kPictureArchiveBaseName = std::string_view{"pics"};
 
 auto buildFlatPictureEntryName(std::string_view entryName) -> std::string {
   return std::format("1000__{}", entryName);
@@ -198,8 +199,7 @@ auto buildCompressedResultLookup(std::vector<CompressResult> const& compressResu
 auto buildPicturePackRequest(
   std::vector<pack::PackEntryInput>&& packInputs,
   fs::path const& outputDir,
-  appctx::AppContext const& ctx,
-  std::string const& baseName
+  appctx::AppContext const& ctx
 ) -> pack::PackRequest {
   return pack::PackRequest{
     .entryInputs = std::move(packInputs),
@@ -210,7 +210,7 @@ auto buildPicturePackRequest(
     .naming =
       pack::NamingConfig{
         .namingStrategy = pack::NamingStrategy::Flat,
-        .baseName = baseName,
+        .baseName = std::string{kPictureArchiveBaseName},
       },
     .groupingStrategy = pack::GroupingStrategy::PerSourceDirKeepTogether,
     .maxParallelJobs = ctx.config.maxParallelJobs,
@@ -323,12 +323,7 @@ auto executeDirectPackWorkflow(
     identityTransform
   );
 
-  auto const request = buildPicturePackRequest(
-    std::move(packInputs),
-    outputDir,
-    ctx,
-    dirPath.filename().string()
-  );
+  auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
   auto const packRes = pack::execute(request);
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
@@ -454,8 +449,7 @@ auto executeCompressPackWorkflow(
     terminal::count(packInputs.size())
   );
 
-  auto const request =
-    buildPicturePackRequest(std::move(packInputs), outputDir, ctx, std::string{});
+  auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
   auto const packRes = pack::execute(request);
   fs::remove_all(tempDir, ec);
@@ -565,7 +559,7 @@ auto packAllPicsToZip(
     .naming =
       pack::NamingConfig{
         .namingStrategy = pack::NamingStrategy::Flat,
-        .baseName = dirPath.filename().string(),
+        .baseName = std::string{kPictureArchiveBaseName},
       },
     .groupingStrategy = pack::GroupingStrategy::PerSourceDirKeepTogether,
     .maxParallelJobs = config.maxParallelJobs,
