@@ -261,6 +261,18 @@ auto compressImageBatch(
     .hideCursor = true,
   });
 
+  if (runState.canceled) {
+    progressCtx.setTone(barIndex, progress::Tone::Failure);
+    progressCtx
+      .setPostfixText(barIndex, std::format("Canceled: {}/{}", results.size(), total));
+    spdlog::info(
+      "Image compression batch canceled: {}/{} succeeded before stop",
+      results.size(),
+      total
+    );
+    return results;
+  }
+
   progressCtx.setTone(barIndex, progress::Tone::Success);
   progressCtx
     .setPostfixText(barIndex, std::format("Compressed: {}/{}", results.size(), total));
