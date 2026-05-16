@@ -360,7 +360,7 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    testutils::listZipRegularEntryNames(inputDir / "packed" / "part1[1~2#2p].zip");
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0].ends_with(".jpg"));
   CHECK(entryNames[1].ends_with(".jpg"));
@@ -397,7 +397,7 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    testutils::listZipRegularEntryNames(inputDir / "packed" / "part1[1~2#2p].zip");
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0].ends_with(".jpg"));
   CHECK(entryNames[1].ends_with(".jpg"));
@@ -448,7 +448,7 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    testutils::listZipRegularEntryNames(inputDir / "packed" / "part1[1~6#6p].zip");
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~6#6p].zip");
   REQUIRE(entryNames.size() == 6);
 
   for (auto const& name: entryNames) { CHECK(name.ends_with(".jpg")); }
@@ -549,7 +549,7 @@ TEST_CASE(
 
   REQUIRE(runRes);
   CHECK(runRes.value() == stopsignal::kCanceledExitCode);
-  CHECK_FALSE(fs::exists(inputDir / "packed" / "part1[1~1#1p].zip"));
+  CHECK_FALSE(fs::exists(inputDir / "packed" / "pics_part1[1~1#1p].zip"));
 }
 
 TEST_CASE(
@@ -579,7 +579,7 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    testutils::listZipRegularEntryNames(inputDir / "packed" / "part1[1~2#2p].zip");
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0].ends_with(".jpg"));
   CHECK(entryNames[1].ends_with(".jpg"));

@@ -35,6 +35,7 @@ using ActionIdMap = videobatch::ActionIdMap;
 using EncodeResultsMap = videobatch::EncodeResultsMap;
 using PendingVidList = immer::vector<fs::path>;
 using PendingActionIdList = immer::vector<std::string>;
+constexpr auto kVideoArchiveBaseName = std::string_view{"videos"};
 
 template<class Ty>
 auto toStdVector(immer::vector<Ty> const& values) -> std::vector<Ty> {
@@ -418,6 +419,11 @@ auto packEncodedVideos(
     .mode = pack::PackMode::Media,
     .outputDir = zipOutputDir,
     .compact = !ctx.config.fullProgress,
+    .naming =
+      pack::NamingConfig{
+        .namingStrategy = pack::NamingStrategy::Flat,
+        .baseName = std::string{kVideoArchiveBaseName},
+      },
     .maxParallelJobs = ctx.config.maxParallelJobs,
     .jobState = ctx.runtime.jobState.get(),
   });
