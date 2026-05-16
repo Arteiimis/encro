@@ -146,6 +146,7 @@ TEST_CASE(
   CHECK(result == 0);
   REQUIRE(packedFiles.size() == 1);
   CHECK(packedFiles.front().extension() == ".zip");
+  CHECK(packedFiles.front().filename().string().starts_with("videos_part1["));
   CHECK_FALSE(fs::exists(strayProgressPath));
 }
 

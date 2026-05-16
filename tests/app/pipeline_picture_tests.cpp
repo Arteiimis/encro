@@ -386,7 +386,7 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    listZipRegularEntryNames(inputDir / "packed" / "part1[1~2#2p].zip");
+    listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0].ends_with(".jpg"));
   CHECK(entryNames[1].ends_with(".jpg"));
@@ -424,7 +424,7 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    listZipRegularEntryNames(inputDir / "packed" / "part1[1~2#2p].zip");
+    listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
   // Compress keep layout: naming internalized, Phase 13 restores it.
   REQUIRE(entryNames.size() >= 1);
   for (auto const& name: entryNames) { CHECK(name.ends_with(".jpg")); }
@@ -464,7 +464,7 @@ TEST_CASE(
   CHECK(runRes.value() == 0);
 
   auto const entryNames =
-    listZipRegularEntryNames(inputDir / "packed" / "part1[1~6#6p].zip");
+    listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~6#6p].zip");
   REQUIRE(entryNames.size() == 6);
 
   for (auto const& name: entryNames) { CHECK(name.ends_with(".jpg")); }
