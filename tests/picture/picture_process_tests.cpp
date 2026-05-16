@@ -42,6 +42,15 @@ auto makeCmdScriptCommand(fs::path const& scriptPath) -> fs::path {
   return fs::path{std::format("cmd.exe /d /c call \"{}\"", scriptPath.string())};
 }
 
+auto readTextFile(fs::path const& filePath) -> std::string {
+  auto in = std::ifstream{filePath, std::ios::binary};
+  REQUIRE(in.is_open());
+  return std::string{
+    std::istreambuf_iterator<char>{in},
+    std::istreambuf_iterator<char>{}
+  };
+}
+
 void writeFakeFfmpegScript(fs::path const& scriptPath) {
   auto const script = std::string{R"(@echo off
 set "outputPath="
@@ -56,6 +65,62 @@ for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
 >"%outputPath%" echo fake-compressed-jpeg
 exit /b 0
 )"};
+  testutils::writeTextFile(scriptPath, script);
+}
+
+void writeFakeFfmpegCaptureArgsScript(
+  fs::path const& scriptPath,
+  fs::path const& argsPath
+) {
+  auto const script = std::format(
+    R"(@echo off
+setlocal EnableExtensions
+>"{}" echo %*
+set "outputPath="
+:parse
+if "%~1"=="" goto done
+set "outputPath=%~1"
+shift
+goto parse
+:done
+if "%outputPath%"=="" exit /b 2
+for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
+>"%outputPath%" echo fake-compressed-jpeg
+exit /b 0
+)",
+    argsPath.string()
+  );
+  testutils::writeTextFile(scriptPath, script);
+}
+
+void writeFakeFfmpegLargerOutputScript(fs::path const& scriptPath) {
+  auto const script = std::string{R"(@echo off
+setlocal EnableExtensions
+set "outputPath="
+:parse
+if "%~1"=="" goto done
+set "outputPath=%~1"
+shift
+goto parse
+:done
+if "%outputPath%"=="" exit /b 2
+for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
+>"%outputPath%" (
+  echo line01
+  echo line02
+  echo line03
+  echo line04
+  echo line05
+  echo line06
+  echo line07
+  echo line08
+  echo line09
+  echo line10
+  echo line11
+  echo line12
+)
+exit /b 0
+ )"};
   testutils::writeTextFile(scriptPath, script);
 }
 
@@ -364,6 +429,67 @@ TEST_CASE(
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0].ends_with(".jpg"));
   CHECK(entryNames[1].ends_with(".jpg"));
+}
+
+TEST_CASE(
+  "runPicturePackWorkflow compress uses quality 2 by default",
+  "[picture-process][compress]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const scriptPath = temp.path / "fake_ffmpeg_capture.cmd";
+  auto const argsPath = temp.path / "ffmpeg-args.txt";
+  fs::create_directories(inputDir);
+  createSparseSizedFile(inputDir, "a.png", 32);
+  writeFakeFfmpegCaptureArgsScript(scriptPath, argsPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.verbose = true;
+  ctx.config.verboseEcho = true;
+  ctx.config.compressImages = true;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+
+  auto const argsText = readTextFile(argsPath);
+  CHECK(argsText.find("-q:v 2") != std::string::npos);
+}
+
+TEST_CASE(
+  "runPicturePackWorkflow compress falls back to source file when JPEG is larger",
+  "[picture-process][compress]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const scriptPath = temp.path / "fake_ffmpeg_large.cmd";
+  fs::create_directories(inputDir);
+  createSparseSizedFile(inputDir, "a.png", 8);
+  writeFakeFfmpegLargerOutputScript(scriptPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.verbose = true;
+  ctx.config.verboseEcho = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+
+  auto const entryNames =
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~1#1p].zip");
+  REQUIRE(entryNames.size() == 1);
+  CHECK(entryNames.front().starts_with("1000__"));
+  CHECK(entryNames.front().ends_with(".png"));
 }
 
 TEST_CASE(

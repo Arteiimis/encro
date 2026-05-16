@@ -29,6 +29,7 @@ using PictureEntryPlan = std::unordered_map<fs::path, std::string>;
 
 constexpr auto kMaxPicturesPerPack = std::size_t{2000};
 constexpr auto kPictureArchiveBaseName = std::string_view{"pics"};
+constexpr auto kDefaultPictureCompressQuality = 2;
 
 auto buildFlatPictureEntryName(std::string_view entryName) -> std::string {
   return std::format("1000__{}", entryName);
@@ -166,6 +167,7 @@ auto addCompressTask(
       .inputPath = picPath,
       .outputPath = outputPath,
       .entryName = jpgEntryName,
+      .originalEntryName = entryName,
     }
   );
 }
@@ -184,14 +186,11 @@ auto canceledExitCodeForPromptAbort() -> int {
 // --- Extracted helper functions ---
 
 auto buildCompressedResultLookup(std::vector<CompressResult> const& compressResults)
-  -> std::unordered_map<std::string, fs::path> {
-  auto lookup = std::unordered_map<std::string, fs::path>{};
+  -> std::unordered_map<std::string, CompressResult> {
+  auto lookup = std::unordered_map<std::string, CompressResult>{};
   lookup.reserve(compressResults.size());
   for (auto const& result: compressResults) {
-    lookup.emplace(
-      buildCompressTaskKey(result.originalPath, result.entryName),
-      result.compressedPath
-    );
+    lookup.emplace(buildCompressTaskKey(result.originalPath, result.entryName), result);
   }
   return lookup;
 }
@@ -347,7 +346,7 @@ auto executeCompressPackWorkflow(
     return eh::makeError("No pictures found in directory: {}", dirPath.string());
   }
 
-  auto const quality = ctx.config.imageQuality.value_or(5);
+  auto const quality = ctx.config.imageQuality.value_or(kDefaultPictureCompressQuality);
   terminal::println(
     Info,
     "Picture scan completed, {} picture(s) found, will be compressed to JPEG "
@@ -414,7 +413,7 @@ auto executeCompressPackWorkflow(
 
   terminal::println(
     Info,
-    "{} picture(s) compressed, preparing pack plan...",
+    "{} picture(s) prepared for packing, preparing pack plan...",
     terminal::count(compressResults.size())
   );
 
@@ -423,10 +422,16 @@ auto executeCompressPackWorkflow(
   auto const resolveSource =
     [&compressedByTaskKey](fs::path const& picPath, std::string const& entryName)
     -> std::optional<std::pair<fs::path, std::string>> {
-    auto const taskKey = buildCompressTaskKey(picPath, entryName);
+    auto const taskKey = buildCompressTaskKey(picPath, toJpgEntryName(entryName));
     auto const it = compressedByTaskKey.find(taskKey);
     if (it == compressedByTaskKey.end()) { return std::nullopt; }
-    return std::pair{it->second, entryName};
+
+    auto const& result = it->second;
+    if (result.usedCompressed) {
+      return std::pair{result.compressedPath, result.entryName};
+    }
+
+    return std::pair{picPath, result.originalEntryName};
   };
 
   auto packInputs = buildPackEntryInputs(
@@ -435,7 +440,7 @@ auto executeCompressPackWorkflow(
     plannedEntryNames,
     dirPath,
     resolveSource,
-    toJpgEntryName
+    [](std::string const& name) -> std::string { return name; }
   );
 
   if (packInputs.empty()) {
@@ -445,7 +450,7 @@ auto executeCompressPackWorkflow(
 
   terminal::println(
     Info,
-    "Packing {} compressed picture entry(s) into archives...",
+    "Packing {} picture entry(s) into archives...",
     terminal::count(packInputs.size())
   );
 
