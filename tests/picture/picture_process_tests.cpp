@@ -1,15 +1,18 @@
 #include "picture/picture_process.h"
+#include "infra/stop_signal.h"
 #include "pack/pack.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -53,6 +56,36 @@ for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
 >"%outputPath%" echo fake-compressed-jpeg
 exit /b 0
 )"};
+  testutils::writeTextFile(scriptPath, script);
+}
+
+void writeFakeFfmpegSecondCallSlowScript(
+  fs::path const& scriptPath,
+  fs::path const& counterPath
+) {
+  auto const script = std::format(
+    R"(@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+set "outputPath="
+set "counterPath={}"
+:parse
+if "%~1"=="" goto done
+set "outputPath=%~1"
+shift
+goto parse
+:done
+if "%outputPath%"=="" exit /b 2
+set /a count=0
+if exist "%counterPath%" set /p count=<"%counterPath%"
+set /a count+=1
+>"%counterPath%" echo(!count!
+if !count! GEQ 2 ping -n 8 127.0.0.1 >nul
+for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
+>%outputPath% echo fake-compressed-jpeg
+exit /b 0
+)",
+    counterPath.string()
+  );
   testutils::writeTextFile(scriptPath, script);
 }
 
@@ -478,6 +511,45 @@ TEST_CASE(
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
   REQUIRE(!runRes);
   CHECK(runRes.error() == "All picture compressions failed.");
+}
+
+TEST_CASE(
+  "runPicturePackWorkflow compress stops immediately when cancellation happens mid-batch",
+  "[picture-process][compress]"
+) {
+  using namespace std::chrono_literals;
+
+  testutils::ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const scriptPath = temp.path / "fake_ffmpeg_slow.cmd";
+  auto const counterPath = temp.path / "compress-count.txt";
+  fs::create_directories(inputDir);
+  createSparseSizedFile(inputDir, "fast.png", 32);
+  createSparseSizedFile(inputDir, "slow.png", 32);
+  writeFakeFfmpegSecondCallSlowScript(scriptPath, counterPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.verbose = true;
+  ctx.config.verboseEcho = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.maxParallelJobs = 1;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto requester = std::jthread([](std::stop_token token) {
+    std::this_thread::sleep_for(1200ms);
+    if (!token.stop_requested()) { stopsignal::requestStop(); }
+  });
+
+  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+
+  REQUIRE(runRes);
+  CHECK(runRes.value() == stopsignal::kCanceledExitCode);
+  CHECK_FALSE(fs::exists(inputDir / "packed" / "part1[1~1#1p].zip"));
 }
 
 TEST_CASE(
