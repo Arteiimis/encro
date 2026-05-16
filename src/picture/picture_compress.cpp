@@ -30,6 +30,34 @@ struct BatchState {
   progress::ProgressContext& progressCtx;
 };
 
+auto shouldUseCompressedOutput(fs::path const& inputPath, fs::path const& outputPath)
+  -> bool {
+  auto ec = std::error_code{};
+  auto const inputSize = fs::file_size(inputPath, ec);
+  if (ec) {
+    spdlog::warn(
+      "Unable to read source image size, keeping compressed output: input={} error={}",
+      inputPath.string(),
+      ec.message()
+    );
+    return true;
+  }
+
+  ec.clear();
+  auto const outputSize = fs::file_size(outputPath, ec);
+  if (ec) {
+    spdlog::warn(
+      "Unable to read compressed image size, keeping compressed output: output={} "
+      "error={}",
+      outputPath.string(),
+      ec.message()
+    );
+    return true;
+  }
+
+  return outputSize <= inputSize;
+}
+
 auto compressImageTask(
   CompressTask const& task,
   BatchState const& state,
@@ -46,11 +74,25 @@ auto compressImageTask(
   auto const done = state.completed.fetch_add(1, std::memory_order_release) + 1;
 
   if (success) {
+    auto const usedCompressed =
+      shouldUseCompressedOutput(task.inputPath, task.outputPath);
+    if (!usedCompressed) {
+      auto ec = std::error_code{};
+      fs::remove(task.outputPath, ec);
+      spdlog::info(
+        "Skipping oversized JPEG output and keeping original file: input={} output={}",
+        task.inputPath.string(),
+        task.outputPath.string()
+      );
+    }
+
     auto lock = std::scoped_lock{state.resultsMutex};
     state.results.push_back({
       .originalPath = task.inputPath,
       .compressedPath = task.outputPath,
       .entryName = task.entryName,
+      .originalEntryName = task.originalEntryName,
+      .usedCompressed = usedCompressed,
     });
   }
 
@@ -155,7 +197,7 @@ void retryFailedTasks(
   auto failedTasks = std::vector<CompressTask>{};
   for (auto const& task: allTasks) {
     auto const found = std::ranges::any_of(results, [&](CompressResult const& r) {
-      return r.originalPath == task.inputPath;
+      return r.originalPath == task.inputPath && r.entryName == task.entryName;
     });
     if (!found) { failedTasks.push_back(task); }
   }
@@ -175,11 +217,25 @@ void retryFailedTasks(
     auto const& task = failedTasks[i];
     auto const success = compressImage(ctx, task.inputPath, task.outputPath, quality);
     if (success) {
+      auto const usedCompressed =
+        shouldUseCompressedOutput(task.inputPath, task.outputPath);
+      if (!usedCompressed) {
+        auto ec = std::error_code{};
+        fs::remove(task.outputPath, ec);
+        spdlog::info(
+          "Skipping oversized JPEG output and keeping original file: input={} output={}",
+          task.inputPath.string(),
+          task.outputPath.string()
+        );
+      }
+
       auto lock = std::scoped_lock{resultsMutex};
       results.push_back({
         .originalPath = task.inputPath,
         .compressedPath = task.outputPath,
         .entryName = task.entryName,
+        .originalEntryName = task.originalEntryName,
+        .usedCompressed = usedCompressed,
       });
       ++recovered;
     }

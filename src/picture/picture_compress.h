@@ -13,7 +13,7 @@ struct ImageCompressConfig {
   std::optional<fs::path> ffmpegPath = "ffmpeg";
   fs::path inputPath;
   fs::path outputPath;
-  int quality = 5;
+  int quality = 2;
 
   auto buildCMD() const -> std::string;
 };
@@ -22,12 +22,15 @@ struct CompressTask {
   fs::path inputPath;
   fs::path outputPath;
   std::string entryName;
+  std::string originalEntryName;
 };
 
 struct CompressResult {
   fs::path originalPath;
   fs::path compressedPath;
   std::string entryName;
+  std::string originalEntryName;
+  bool usedCompressed = true;
 };
 
 auto compressImage(
