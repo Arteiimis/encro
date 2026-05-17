@@ -405,7 +405,7 @@ TEST_CASE(
   REQUIRE(examplesPos != std::string::npos);
   REQUIRE(generalOptionsPos != std::string::npos);
 
-  CHECK(help.find("encro [options] --input <path>") != std::string::npos);
+  CHECK(help.find("encro -i <input> | -I <file>...") != std::string::npos);
   CHECK(help.find("encro -i input.mp4") != std::string::npos);
   CHECK(usagePos < examplesPos);
   CHECK(examplesPos < generalOptionsPos);
