@@ -5,6 +5,7 @@
 
 #include <CLI/CLI.hpp>
 
+#include <array>
 #include <algorithm>
 #include <charconv>
 #include <cctype>
@@ -259,6 +260,39 @@ auto formatGroupHeader(std::string const& name) -> std::string {
   return std::format("\n{}:\n", coloredName);
 }
 
+auto formatIndentedLines(std::span<std::string_view const> lines, unsigned lineLength)
+  -> std::string {
+  auto result = std::string{};
+  constexpr auto indentWidth = 2u;
+  auto const contentWidth = lineLength > indentWidth ? lineLength - indentWidth : 1u;
+
+  for (auto const line: lines) {
+    auto const wrappedLines = wrapDescriptionLine(line, contentWidth, contentWidth);
+    for (auto const& wrappedLine: wrappedLines) {
+      result += std::format("  {}\n", wrappedLine);
+    }
+  }
+
+  if (result.ends_with('\n')) { result.pop_back(); }
+  return result;
+}
+
+auto formatHelpSection(
+  std::string_view title,
+  std::span<std::string_view const> lines,
+  unsigned lineLength
+) -> std::string {
+  auto const coloredTitle = terminal::styledText(
+    terminal::Stream::Stdout,
+    terminal::MessageKind::OptionGroup,
+    title
+  );
+
+  auto result = std::format("{}:\n", coloredTitle);
+  result += formatIndentedLines(lines, lineLength);
+  return result;
+}
+
 auto makeHelpFormatter(
   CLI::App const* general,
   CLI::App const* io,
@@ -271,6 +305,17 @@ auto makeHelpFormatter(
       std::string /*prev*/,
       CLI::AppFormatMode /*mode*/
     ) -> std::string {
+      constexpr auto usageLines = std::array{
+        "encro [options] --input <path>"sv,
+        "encro [options] --inputs <path> [<path>...]"sv,
+      };
+      constexpr auto exampleLines = std::array{
+        "encro -i input.mp4"sv,
+        "encro -i media --pack -o encoded"sv,
+        "encro -I a.mp4 b.mkv -f webp"sv,
+        "encro -t picture -i photos --compress -q 4"sv,
+      };
+
       auto result = std::string{};
       auto const layout = resolveHelpTextLayout();
       auto const desc = app_ptr->get_description();
@@ -282,6 +327,11 @@ auto makeHelpFormatter(
         );
         result += "\n\n";
       }
+      result += formatHelpSection("Usage", std::span{usageLines}, layout.lineLength);
+      result += "\n\n";
+      result += formatHelpSection("Examples", std::span{exampleLines}, layout.lineLength);
+      result += '\n';
+
       auto const groupIter = std::array{general, io, processing, fileop};
 
       // Determine max column width across all options (name + type + default)
