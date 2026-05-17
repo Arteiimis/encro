@@ -1,10 +1,11 @@
 #include "infra/terminal.h"
 
+#include "infra/env.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cstdio>
-#include <cstdlib>
 #include <format>
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -38,35 +39,14 @@ auto streamFile(Stream stream) -> FILE* {
   return stream == Stream::Stdout ? stdout : stderr;
 }
 
-auto readEnvVar(std::string_view name) -> std::optional<std::string> {
-#if defined(_WIN32) || defined(_WIN64)
-  char* value = nullptr;
-  auto size = std::size_t{0};
-  auto const key = std::string{name};
-  if (_dupenv_s(&value, &size, key.c_str()) != 0 || value == nullptr || size == 0) {
-    return std::nullopt;
-  }
-
-  auto result = std::string{value};
-  std::free(value);
-  if (result.empty()) { return std::nullopt; }
-  return result;
-#else
-  auto const key = std::string{name};
-  auto const* value = std::getenv(key.c_str());
-  if (value == nullptr || *value == '\0') { return std::nullopt; }
-  return std::string{value};
-#endif
-}
-
 auto envVarEquals(std::string_view name, std::string_view expected) -> bool {
-  auto const value = readEnvVar(name);
+  auto const value = processenv::readNonEmptyEnvVar(name);
   if (!value.has_value()) { return false; }
   return toLowerCopy(value.value()) == toLowerCopy(expected);
 }
 
 auto noColorRequested() -> bool {
-  return readEnvVar("NO_COLOR").has_value();
+  return processenv::readNonEmptyEnvVar("NO_COLOR").has_value();
 }
 
 auto streamIsTerminal(Stream stream) -> bool {

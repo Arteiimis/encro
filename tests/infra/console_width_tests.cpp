@@ -1,37 +1,17 @@
 #include "infra/console_width.h"
+#include "infra/env.h"
 
 #include <catch2/catch_all.hpp>
 
-#include <cstdlib>
 #include <string>
 
 namespace {
-
-auto readEnvVar(std::string const& name) -> std::optional<std::string> {
-#if defined(_WIN32) || defined(_WIN64)
-  auto* value = static_cast<char*>(nullptr);
-  auto len = std::size_t{0};
-  if (_dupenv_s(&value, &len, name.c_str()) != 0 || value == nullptr) {
-    return std::nullopt;
-  }
-
-  auto result = std::optional<std::string>{};
-  if (len > 1) { result = std::string{value}; }
-  std::free(value);
-  return result;
-#else
-  if (auto const* value = std::getenv(name.c_str()); value != nullptr) {
-    return std::string{value};
-  }
-  return std::nullopt;
-#endif
-}
 
 class ScopedEnvVar {
 public:
   ScopedEnvVar(std::string name, std::string value)
     : name_(std::move(name)), hadOriginal_(false) {
-    if (auto const current = readEnvVar(name_); current.has_value()) {
+    if (auto const current = processenv::readEnvVar(name_); current.has_value()) {
       originalValue_ = current.value();
       hadOriginal_ = true;
     }

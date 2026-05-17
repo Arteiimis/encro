@@ -1,5 +1,7 @@
 #include "e2e_test_utils.h"
 
+#include "infra/env.h"
+
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/process/v1.hpp>
 #include <libzippp/libzippp.h>
@@ -36,25 +38,6 @@ auto readProcessStream(bp::ipstream& stream) -> std::string {
   return std::string{std::istreambuf_iterator<char>{stream}, {}};
 }
 
-auto readEnvVar(std::string const& key) -> std::optional<std::string> {
-#if defined(_WIN32)
-  auto const required = ::GetEnvironmentVariableA(key.c_str(), nullptr, 0);
-  if (required == 0) {
-    if (::GetLastError() == ERROR_ENVVAR_NOT_FOUND) { return std::nullopt; }
-    return std::string{};
-  }
-
-  auto buffer = std::string(required, '\0');
-  auto const written = ::GetEnvironmentVariableA(key.c_str(), buffer.data(), required);
-  buffer.resize(written);
-  return buffer;
-#else
-  auto const* value = std::getenv(key.c_str());
-  if (value == nullptr) { return std::nullopt; }
-  return std::string{value};
-#endif
-}
-
 auto setEnvVar(std::string const& key, std::optional<std::string> const& value) -> void {
 #if defined(_WIN32)
   ::SetEnvironmentVariableA(key.c_str(), value.has_value() ? value->c_str() : nullptr);
@@ -74,7 +57,7 @@ public:
   ) {
     originals_.reserve(overrides.size());
     for (auto const& [key, value]: overrides) {
-      originals_.emplace_back(key, readEnvVar(key));
+      originals_.emplace_back(key, processenv::readEnvVar(key));
       setEnvVar(key, value);
     }
   }
