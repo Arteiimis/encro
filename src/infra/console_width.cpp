@@ -1,8 +1,9 @@
 #include "infra/console_width.h"
 
+#include "infra/env.h"
+
 #include <algorithm>
 #include <charconv>
-#include <cstdlib>
 #include <string>
 #include <string_view>
 
@@ -16,28 +17,6 @@
 namespace consolewidth {
 
 namespace {
-
-auto readEnvVar(std::string_view name) -> std::optional<std::string> {
-#if defined(_WIN32) || defined(_WIN64)
-  auto* value = static_cast<char*>(nullptr);
-  auto len = std::size_t{0};
-  auto const nameText = std::string{name};
-  if (_dupenv_s(&value, &len, nameText.c_str()) != 0 || value == nullptr) {
-    return std::nullopt;
-  }
-
-  auto result = std::optional<std::string>{};
-  if (len > 1) { result = std::string{value}; }
-  std::free(value);
-  return result;
-#else
-  auto const nameText = std::string{name};
-  if (auto const* value = std::getenv(nameText.c_str()); value != nullptr) {
-    return std::string{value};
-  }
-  return std::nullopt;
-#endif
-}
 
 auto parsePositiveColumnCount(char const* text) -> std::optional<std::size_t> {
   if (text == nullptr || *text == '\0') { return std::nullopt; }
@@ -54,7 +33,7 @@ auto parsePositiveColumnCount(char const* text) -> std::optional<std::size_t> {
 }
 
 auto detectRawColumns() -> std::optional<std::size_t> {
-  if (auto const env = readEnvVar("COLUMNS"); env.has_value()) {
+  if (auto const env = processenv::readNonEmptyEnvVar("COLUMNS"); env.has_value()) {
     if (auto const parsed = parsePositiveColumnCount(env->c_str()); parsed.has_value()) {
       return parsed;
     }
