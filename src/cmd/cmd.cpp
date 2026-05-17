@@ -1,5 +1,6 @@
 #include "cmd/cmd.h"
 
+#include "infra/env.h"
 #include "infra/terminal.h"
 
 #include <CLI/CLI.hpp>
@@ -7,7 +8,6 @@
 #include <algorithm>
 #include <charconv>
 #include <cctype>
-#include <cstdlib>
 #include <format>
 #include <functional>
 #include <optional>
@@ -28,29 +28,8 @@ struct HelpTextLayout {
   bool explicitWidthConstraint;
 };
 
-auto readEnvVar(std::string_view name) -> std::optional<std::string> {
-#if defined(_WIN32) || defined(_WIN64)
-  auto value = std::unique_ptr<char>{};
-  auto len = std::size_t{0};
-  auto const key = std::string{name};
-  if (_dupenv_s(std::out_ptr(value), &len, key.c_str()) != 0 || value == nullptr) {
-    return std::nullopt;
-  }
-
-  auto result = std::optional<std::string>{};
-  if (len > 1) { result = std::string{value.get()}; }
-  return result;
-#else
-  auto const key = std::string{name};
-  if (auto const* value = std::getenv(key.c_str()); value != nullptr && *value != '\0') {
-    return std::string{value};
-  }
-  return std::nullopt;
-#endif
-}
-
 auto readHelpColumnsOverride() -> std::optional<unsigned> {
-  auto const columns = readEnvVar("COLUMNS");
+  auto const columns = processenv::readNonEmptyEnvVar("COLUMNS");
   if (!columns.has_value()) { return std::nullopt; }
 
   auto value = unsigned{0};
