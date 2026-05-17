@@ -306,8 +306,10 @@ auto makeHelpFormatter(
       CLI::AppFormatMode /*mode*/
     ) -> std::string {
       constexpr auto usageLines = std::array{
-        "encro [options] --input <path>"sv,
-        "encro [options] --inputs <path> [<path>...]"sv,
+        "encro -i <input> | -I <file>... [-o <output>] [-f mp4|webp] [-r] [-j <n>] [-p] [--resume|--restart]"sv,
+        "encro -t picture -i <input> [-c [-q <n>]] [-s] [-p]"sv,
+        "encro -z -i <input> [-o <output>]"sv,
+        "encro -h | --version"sv,
       };
       constexpr auto exampleLines = std::array{
         "encro -i input.mp4"sv,
