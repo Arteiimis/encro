@@ -155,37 +155,31 @@ TEST_CASE("commandLineInit --version is not set by default", "[cmd]") {
   CHECK(result.version == false);
 }
 
-TEST_CASE("commandLineInit parses flag and option values", "[cmd]") {
+TEST_CASE("commandLineInit parses non-conflicting flags and option values", "[cmd]") {
   auto const result = parseArgs(
     {"encro",
      "--yes",
      "--recursive",
-     "--pack",
-     "--pack-only",
-     "--resume",
-     "--restart",
-     "--flat",
-     "--keep",
      "--force-conflict-handling=n",
      "--folder-summary",
      "--color=always",
      "--verbose",
-     "--verbose-echo"}
+     "--verbose-echo",
+     "--full-progress",
+     "--overwrite",
+     "--compress"}
   );
 
   CHECK(result.yesToAll == true);
   CHECK(result.recursive == true);
-  CHECK(result.pack == true);
-  CHECK(result.packOnly == true);
-  CHECK(result.resume == true);
-  CHECK(result.restart == true);
-  CHECK(result.flat == true);
-  CHECK(result.keep == true);
   CHECK(result.forceConflictHandling == "n");
   CHECK(result.folderSummary == true);
   CHECK(result.color == "always");
   CHECK(result.verbose == true);
   CHECK(result.verboseEcho == true);
+  CHECK(result.fullProgress == true);
+  CHECK(result.overwrite == true);
+  CHECK(result.compress == true);
 }
 
 TEST_CASE("commandLineInit parses state-file option", "[cmd]") {
