@@ -96,15 +96,7 @@ auto readMaxParallelJobs(CmdParseResult const& result)
 }
 
 auto readOutputLayout(CmdParseResult const& result) -> eh::Result<appctx::OutputLayout> {
-  auto const useFlat = result.flat;
-  auto const useKeep = result.keep;
-
-  if (useFlat && useKeep) {
-    return eh::makeError("--flat and --keep cannot be used together.");
-  }
-
-  if (useKeep) { return appctx::OutputLayout::Keep; }
-
+  if (result.keep) { return appctx::OutputLayout::Keep; }
   return appctx::OutputLayout::Flat;
 }
 
@@ -270,10 +262,6 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
 
   config.resumeState = result.resume;
   config.restartState = result.restart;
-
-  if (config.resumeState && config.restartState) {
-    return eh::makeError("--resume and --restart cannot be used together.");
-  }
 
   auto typeRes = readProcessType(result);
   if (!typeRes) { return eh::makeError("{}", typeRes.error()); }
