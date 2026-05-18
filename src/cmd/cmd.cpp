@@ -460,7 +460,10 @@ constexpr auto IOFrags = std::array{
     .kind = CmdFlagKind::String,
     .description = "input file or directory path",
     .defaultValue = "",
-    .expectedMax = 1
+    .expectedMax = 1,
+    .excludes = "-I,--inputs",
+    .excludesDesc =
+      "Use -i for a single input path, or -I for multiple input paths — not both."
   },
   CmdFlagDef{
     .name = "-I,--inputs",
@@ -497,7 +500,11 @@ constexpr auto IOFrags = std::array{
     .kind = CmdFlagKind::Bool,
     .description = "flatten output names inside the output directory (default)",
     .defaultValue = "",
-    .expectedMax = 0
+    .expectedMax = 0,
+    .excludes = "--keep",
+    .excludesDesc = "--flat (default) flattens output names; use --keep to preserve "
+                    "subdirectory structure "
+                    "instead."
   },
   CmdFlagDef{
     .name = "--keep",
@@ -550,7 +557,10 @@ constexpr auto ProcessingFlags = std::array{
     .kind = CmdFlagKind::Bool,
     .description = "resume previous unfinished job state when available",
     .defaultValue = "",
-    .expectedMax = 0
+    .expectedMax = 0,
+    .excludes = "--restart",
+    .excludesDesc =
+      "--resume continues a previous job; use --restart to discard state and begin fresh."
   },
   CmdFlagDef{
     .name = "--restart",
@@ -589,7 +599,9 @@ constexpr auto FileOpFlags = std::array{
     .kind = CmdFlagKind::Bool,
     .description = "pack encoded video outputs into zip files",
     .defaultValue = "",
-    .expectedMax = 0
+    .expectedMax = 0,
+    .excludes = "-z,--pack-only",
+    .excludesDesc = "--pack encodes then packs; use --pack-only to pack without encoding."
   },
   CmdFlagDef{
     .name = "-z,--pack-only",
@@ -693,9 +705,7 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   // Resolve deferred exclusions
   for (auto const& pe: pendingExcludes) {
     auto it = optRegistry.find(pe.targetName);
-    if (it != optRegistry.end()) {
-      pe.option->excludes(it->second, std::string{pe.description});
-    }
+    if (it != optRegistry.end()) { pe.option->excludes(it->second); }
   }
 
   // Configure formatter (unchanged)
