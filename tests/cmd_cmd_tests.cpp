@@ -222,6 +222,37 @@ TEST_CASE("commandLineInit reports unknown options", "[cmd]") {
   CHECK_FALSE(result.error.value().empty());
 }
 
+TEST_CASE("commandLineInit rejects --flat with --keep", "[cmd]") {
+  auto const result = parseArgs({"encro", "--flat", "--keep", "-i", "input.mp4"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--flat") != std::string::npos);
+  CHECK(result.error.value().find("--keep") != std::string::npos);
+}
+
+TEST_CASE("commandLineInit rejects --resume with --restart", "[cmd]") {
+  auto const result = parseArgs({"encro", "--resume", "--restart", "-i", "input.mp4"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--resume") != std::string::npos);
+  CHECK(result.error.value().find("--restart") != std::string::npos);
+}
+
+TEST_CASE("commandLineInit rejects -i with -I", "[cmd]") {
+  auto const result = parseArgs({"encro", "-i", "a.mp4", "-I", "b.mp4"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("-i") != std::string::npos);
+  CHECK(result.error.value().find("-I") != std::string::npos);
+}
+
+TEST_CASE("commandLineInit rejects --pack with --pack-only", "[cmd]") {
+  auto const result = parseArgs({"encro", "--pack", "--pack-only", "-i", "input.mp4"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--pack") != std::string::npos);
+}
+
 TEST_CASE("commandLineInit caps help output to configured maximum width", "[cmd]") {
   auto const columnsVar = ScopedEnvVar{"COLUMNS", "200"};
 
