@@ -394,7 +394,9 @@ struct CmdFlagDef {
   std::string_view description;
   std::string_view
     defaultValue;  // "" → no default (expectedMin=1); non-empty → has default (expectedMin=0)
-  int expectedMax;  // 0=flag, 1=single value, >1=multi-value upper bound
+  int expectedMax;            // 0=flag, 1=single value, >1=multi-value upper bound
+  std::string_view excludes;  // flag name this excludes ("" = none); CLI11 ->excludes()
+  std::string_view excludesDesc;  // custom error message for the exclusion
 };
 
 // ── General flags (7) ──  help/version on app, rest on general group ──
@@ -603,6 +605,12 @@ constexpr auto FileOpFlags = std::array{
     .defaultValue = "",
     .expectedMax = 0
   },
+};
+
+struct PendingExclusion {
+  CLI::Option* option;
+  std::string_view targetName;
+  std::string_view description;
 };
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)
