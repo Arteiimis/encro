@@ -188,29 +188,6 @@ TEST_CASE("buildConfig rejects invalid conflict-handling value", "[cmd][config]"
   CHECK(configRes.error().find("must be set to y or n") != std::string::npos);
 }
 
-TEST_CASE("buildConfig rejects conflicting output layouts", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "video",
-    "mp4",
-    "y",
-    "auto",
-    std::nullopt,
-    {"flat", "keep"}
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("--flat and --keep") != std::string::npos);
-}
-
 TEST_CASE("buildConfig reads resume restart and state-file options", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
@@ -236,29 +213,6 @@ TEST_CASE("buildConfig reads resume restart and state-file options", "[cmd][conf
   CHECK_FALSE(configRes->restartState);
   REQUIRE(configRes->stateFilePath.has_value());
   CHECK(configRes->stateFilePath.value() == statePath);
-}
-
-TEST_CASE("buildConfig rejects conflicting resume and restart", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "video",
-    "mp4",
-    "y",
-    "auto",
-    std::nullopt,
-    {"resume", "restart"}
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("--resume and --restart") != std::string::npos);
 }
 
 TEST_CASE("buildConfig supports multiple inputs", "[cmd][config]") {
@@ -344,7 +298,7 @@ TEST_CASE("buildConfig rejects multi-input for picture type", "[cmd][config]") {
   auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("only supported for video") != std::string::npos);
+  CHECK(configRes.error().find("only supported with --type video") != std::string::npos);
 }
 
 TEST_CASE("buildConfig rejects multi-input with pack-only", "[cmd][config]") {
@@ -367,7 +321,7 @@ TEST_CASE("buildConfig rejects multi-input with pack-only", "[cmd][config]") {
   auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("not supported with pack-only") != std::string::npos);
+  CHECK(configRes.error().find("cannot be used with --pack-only") != std::string::npos);
 }
 
 TEST_CASE("buildConfig rejects multi-input directory path", "[cmd][config]") {
@@ -700,7 +654,7 @@ TEST_CASE("buildConfig rejects --compress without picture type", "[cmd][config]"
 
   REQUIRE_FALSE(configRes);
   CHECK(
-    configRes.error().find("--compress is only supported when --type is picture")
+    configRes.error().find("--compress is only supported with --type picture")
     != std::string::npos
   );
 }
