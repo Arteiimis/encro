@@ -242,8 +242,8 @@ TEST_CASE("commandLineInit rejects -i with -I", "[cmd]") {
   auto const result = parseArgs({"encro", "-i", "a.mp4", "-I", "b.mp4"});
 
   REQUIRE(result.error.has_value());
-  CHECK(result.error.value().find("-i") != std::string::npos);
-  CHECK(result.error.value().find("-I") != std::string::npos);
+  CHECK(result.error.value().find("--input") != std::string::npos);
+  CHECK(result.error.value().find("--inputs") != std::string::npos);
 }
 
 TEST_CASE("commandLineInit rejects --pack with --pack-only", "[cmd]") {
