@@ -5,7 +5,7 @@ milestone_name: CLI体验增强
 status: Awaiting next milestone
 stopped_at: Phase 20 context gathered
 last_updated: "2026-05-15T18:00:56.122Z"
-last_activity: 2026-05-15 — Milestone v1.6 completed and archived
+last_activity: 2026-05-19 — Completed quick task 260519-1ym: --dry-run implementation
 progress:
   total_phases: 2
   completed_phases: 2
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-05-05)
 Phase: Milestone v1.6 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-05-15 — Milestone v1.6 completed and archived
+Last activity: 2026-05-19 — Completed quick task 260519-1ym: --dry-run implementation
 
 ## Performance Metrics
 
@@ -88,6 +88,7 @@ Recent decisions affecting v1.6 work:
 | 260509-tjc | 迁移CLI11 help输出中的encro描述部分，移除历史颜色代码，统一用CLI11处理 | 2026-05-09 | f53ca6c | [260509-tjc-cli11-help-encro-cli11-cli11-cli11-phase](./quick/260509-tjc-cli11-help-encro-cli11-cli11-cli11-phase/) |
 | 260510-1tv | 优化--help输出配色方案 (dodger_blue/gold/steel_blue 三色分层) | 2026-05-09 | 5c580e6 | [260510-1tv-help](./quick/260510-1tv-help/) |
 | 260511-wk8 | Refactor cmd.cpp to centrally manage all 27 CLI flags via data-driven CmdFlagDef arrays + applyMap | 2026-05-11 | 5394c2c | [260511-wk8-refactor-cmd-cpp-to-centrally-manage-all](./quick/260511-wk8-refactor-cmd-cpp-to-centrally-manage-all/) |
+| 260519-1ym | 实现--dry-run选项：三层输出结构(Validation→Scan→Plan)，job state只读不写 | 2026-05-18 | 66f142f | [260519-1ym-dry-run-validation-scan-plan-job-state](./quick/260519-1ym-dry-run-validation-scan-plan-job-state/) |
 
 ### Pending Todos
 
