@@ -627,6 +627,7 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
 
   // Registry for CLI::Option* lookups after parse
   std::unordered_map<std::string_view, CLI::Option*> optRegistry;
+  std::vector<PendingExclusion> pendingExcludes;
 
   // Data-driven flag registration helper
   auto registerFlag = [&](CmdFlagDef const& def, CLI::App* target) {
@@ -665,6 +666,9 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
         break;
     }
     if (opt) { optRegistry[def.name] = opt; }
+    if (opt && !def.excludes.empty()) {
+      pendingExcludes.emplace_back(opt, def.excludes, def.excludesDesc);
+    }
   };
 
   // Register help and version on app (not in any group)
@@ -685,6 +689,14 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
 
   // Register FileOpFlags on fileop group
   for (auto const& def: FileOpFlags) { registerFlag(def, fileop); }
+
+  // Resolve deferred exclusions
+  for (auto const& pe: pendingExcludes) {
+    auto it = optRegistry.find(pe.targetName);
+    if (it != optRegistry.end()) {
+      pe.option->excludes(it->second, std::string{pe.description});
+    }
+  }
 
   // Configure formatter (unchanged)
   app.formatter_fn(makeHelpFormatter(general, io, processing, fileop));
