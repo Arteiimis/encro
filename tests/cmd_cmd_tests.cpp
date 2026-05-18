@@ -390,23 +390,16 @@ TEST_CASE("help text non-empty after color injection", "[cmd][color]") {
   CHECK(help.size() > 200);
 }
 
-TEST_CASE(
-  "help text includes usage synopsis and examples before option groups",
-  "[cmd]"
-) {
+TEST_CASE("help text includes usage synopsis before option groups", "[cmd]") {
   auto const result = parseArgs({"encro", "--help"});
   auto const help = stripAnsi(result.helpText);
 
   auto const usagePos = help.find("Usage:");
-  auto const examplesPos = help.find("Examples:");
   auto const generalOptionsPos = help.find("General options:");
 
   REQUIRE(usagePos != std::string::npos);
-  REQUIRE(examplesPos != std::string::npos);
   REQUIRE(generalOptionsPos != std::string::npos);
 
   CHECK(help.find("encro -i <input> | -I <file>...") != std::string::npos);
-  CHECK(help.find("encro -i input.mp4") != std::string::npos);
-  CHECK(usagePos < examplesPos);
-  CHECK(examplesPos < generalOptionsPos);
+  CHECK(usagePos < generalOptionsPos);
 }

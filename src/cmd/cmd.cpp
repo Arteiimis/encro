@@ -311,13 +311,6 @@ auto makeHelpFormatter(
         "encro -z -i <input> [-o <output>]"sv,
         "encro -h | --version"sv,
       };
-      constexpr auto exampleLines = std::array{
-        "encro -i input.mp4"sv,
-        "encro -i media --pack -o encoded"sv,
-        "encro -I a.mp4 b.mkv -f webp"sv,
-        "encro -t picture -i photos --compress -q 4"sv,
-      };
-
       auto result = std::string{};
       auto const layout = resolveHelpTextLayout();
       auto const desc = app_ptr->get_description();
@@ -330,10 +323,7 @@ auto makeHelpFormatter(
         result += "\n\n";
       }
       result += formatHelpSection("Usage", std::span{usageLines}, layout.lineLength);
-      result += "\n\n";
-      result += formatHelpSection("Examples", std::span{exampleLines}, layout.lineLength);
-      result += '\n';
-
+      result += "\n";
       auto const groupIter = std::array{general, io, processing, fileop};
 
       // Determine max column width across all options (name + type + default)
