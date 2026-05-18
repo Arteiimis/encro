@@ -292,7 +292,7 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
   config.compressImages = result.compress;
 
   if (config.processType != "picture" && config.compressImages) {
-    return eh::makeError("--compress is only supported when --type is picture.");
+    return eh::makeError("--compress is only supported with --type picture.");
   }
 
   if (result.imageQuality.has_value()) {
@@ -341,11 +341,13 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
 
   if (hasMultiInputs) {
     if (config.processType != "video") {
-      return eh::makeError("-I/--inputs is only supported for video type.");
+      return eh::makeError("-I/--inputs is only supported with --type video.");
     }
 
     if (config.packOnly) {
-      return eh::makeError("-I/--inputs is not supported with pack-only.");
+      return eh::makeError(
+        "-I/--inputs cannot be used with --pack-only; use -i for single-input packing."
+      );
     }
 
     auto const inputs = result.inputs.value();
