@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:using-superpowers)",
+      "Bash(xmake run *)",
+      "Bash(./build/windows/x64/release/tests.exe \"[cmd]\")"
+    ]
+  }
+}
