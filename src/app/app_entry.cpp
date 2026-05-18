@@ -177,6 +177,14 @@ auto run(int argc, char* argv[]) -> int {
 
   if (!ensureToolchainReady(ctx, startup)) { return 1; }
 
+  if (ctx.config.dryRun) {
+    auto dryRes = pipeline::runDryRun(ctx);
+    if (!dryRes) {
+      return failWithHint(startup, std::format("Dry-run failed: {}", dryRes.error()));
+    }
+    return dryRes.value();
+  }
+
   return runAppPipeline(ctx, startup);
 }
 
