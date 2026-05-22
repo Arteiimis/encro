@@ -24,7 +24,7 @@
 #include <stop_token>
 #include <thread>
 
-DEFINE_LOGGER(logtags::PACK_ZIP)
+DEFINE_LOGGER(logtags::PACK_ZIP);
 
 namespace fs = std::filesystem;
 using namespace indicators;

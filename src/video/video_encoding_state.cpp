@@ -14,7 +14,7 @@
 #include <chrono>
 #include <thread>
 
-DEFINE_LOGGER(logtags::VIDEO_STATE)
+DEFINE_LOGGER(logtags::VIDEO_STATE);
 
 namespace fs = std::filesystem;
 using videoworkflow::withActionJobState;

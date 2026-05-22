@@ -18,7 +18,7 @@
 #include <memory>
 #include <unordered_map>
 
-DEFINE_LOGGER(logtags::PICTURE_PROCESS)
+DEFINE_LOGGER(logtags::PICTURE_PROCESS);
 
 namespace fs = std::filesystem;
 using namespace std::literals;

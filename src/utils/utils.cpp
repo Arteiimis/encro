@@ -21,7 +21,7 @@
   #include <memory>
 #endif
 
-DEFINE_LOGGER(logtags::UTILS_SUBPROCESS)
+DEFINE_LOGGER(logtags::UTILS_SUBPROCESS);
 
 using enum terminal::MessageKind;
 

@@ -18,7 +18,7 @@ namespace fs = std::filesystem;
 using pathroots::commonAncestorPath;
 using pathroots::normalizeInputRootDir;
 
-DEFINE_LOGGER(logtags::CMD_CONFIG)
+DEFINE_LOGGER(logtags::CMD_CONFIG);
 
 namespace {
 

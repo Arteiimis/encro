@@ -17,7 +17,7 @@ namespace fs = std::filesystem;
 
 using enum terminal::MessageKind;
 
-DEFINE_LOGGER(logtags::APP_PIPELINE)
+DEFINE_LOGGER(logtags::APP_PIPELINE);
 
 namespace pipeline {
 

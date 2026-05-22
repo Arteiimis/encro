@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <format>
 
-DEFINE_LOGGER(logtags::VIDEO_ENCODE)
+DEFINE_LOGGER(logtags::VIDEO_ENCODE);
 
 namespace fs = std::filesystem;
 
@@ -53,7 +53,7 @@ auto failEncoding(appctx::EncodingState& state, std::string const& error) -> boo
     auto lock = std::scoped_lock{state.mtx};
     state.lastError = error;
   }
-  LOG_ERROR(error);
+  LOG_ERROR("{}", error);
   return false;
 }
 
@@ -145,7 +145,7 @@ auto runWebpEncodingStep(
   };
 
   if (auto const res = cfg.validate(); !res) {
-    LOG_ERROR(res.error());
+    LOG_ERROR("{}", res.error());
     return {-1, std::nullopt};
   }
 

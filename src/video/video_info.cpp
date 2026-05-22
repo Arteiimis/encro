@@ -15,7 +15,7 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
-DEFINE_LOGGER(logtags::VIDEO_INFO)
+DEFINE_LOGGER(logtags::VIDEO_INFO);
 
 namespace fs = std::filesystem;
 using namespace std::literals;

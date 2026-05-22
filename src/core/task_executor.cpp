@@ -12,7 +12,7 @@
 #include <format>
 #include <optional>
 
-DEFINE_LOGGER(logtags::CORE_TASK)
+DEFINE_LOGGER(logtags::CORE_TASK);
 
 namespace taskexec {
 
