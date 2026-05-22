@@ -221,3 +221,125 @@ TEST_CASE("Nested ScopedTimer produces correct ordering", "[logging][scoped_time
 TEST_CASE("ScopedTimer destructor is noexcept", "[logging][scoped_timer]") {
   STATIC_CHECK(std::is_nothrow_destructible_v<logging::ScopedTimer>);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 7 — Empty stage name edge case
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("ScopedTimer with empty stage name logs correctly", "[logging][scoped_timer]") {
+  auto [logger, oss] = registerCapturingLoggerForTimer(logtags::TEST_INFRA);
+
+  {
+    logging::ScopedTimer timer("");
+    logger->flush();
+    auto const afterBegin = oss->str();
+    CAPTURE(afterBegin);
+    // Should produce begin message without crashing
+    CHECK(afterBegin.find("begin") != std::string::npos);
+  }
+  logger->flush();
+
+  auto const output = oss->str();
+  CAPTURE(output);
+  // Should produce completed message without crashing
+  CHECK(output.find("completed in") != std::string::npos);
+  CHECK(output.find("ms") != std::string::npos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 8 — Move assignment operator
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("ScopedTimer move assignment works", "[logging][scoped_timer]") {
+  auto [logger, oss] = registerCapturingLoggerForTimer(logtags::TEST_INFRA);
+
+  {
+    logging::ScopedTimer t1("first");
+    logging::ScopedTimer t2("second");
+    logger->flush();  // flush both begin messages
+
+    // Move-assign t2 into t1. t1 now owns "second", t2 is moved-from.
+    t1 = std::move(t2);
+
+    // t2 (moved-from) destructs — should NOT log completion for "second"
+    // (goes out of scope at end of this block, but we can't easily isolate
+    //  since t1 also goes out of scope)
+
+    // Both t1 and t2 go out of scope here (order: t2 first, then t1)
+    // t2 is moved-from — no "second completed" from t2
+    // t1 owns "second" — should log exactly one "second completed"
+  }
+  logger->flush();
+
+  auto const output = oss->str();
+  CAPTURE(output);
+
+  // There should be exactly one "first begin" (from t1's original constructor)
+  auto firstBeginCount = std::size_t{0};
+  auto fbpos = output.find("first begin");
+  while (fbpos != std::string::npos) {
+    ++firstBeginCount;
+    fbpos = output.find("first begin", fbpos + 1);
+  }
+  CHECK(firstBeginCount == 1);
+
+  // There should be exactly one "second begin" (from t2's constructor)
+  auto secondBeginCount = std::size_t{0};
+  auto sbpos = output.find("second begin");
+  while (sbpos != std::string::npos) {
+    ++secondBeginCount;
+    sbpos = output.find("second begin", sbpos + 1);
+  }
+  CHECK(secondBeginCount == 1);
+
+  // There should be exactly one "second completed" (from t1 after move-assign)
+  auto secondCompleteCount = std::size_t{0};
+  auto scpos = output.find("second completed");
+  while (scpos != std::string::npos) {
+    ++secondCompleteCount;
+    scpos = output.find("second completed", scpos + 1);
+  }
+  CHECK(secondCompleteCount == 1);
+
+  // "first completed" should NOT appear (t1 was overwritten by move-assign
+  // before it destructed, so it logs "second completed", not "first completed")
+  CHECK(output.find("first completed") == std::string::npos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 9 — Self-move-assignment is safe
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("self-move-assignment is safe", "[logging][scoped_timer]") {
+  auto [logger, oss] = registerCapturingLoggerForTimer(logtags::TEST_INFRA);
+
+  {
+    logging::ScopedTimer t("self");
+    logger->flush();  // flush begin
+
+    // Self-move-assignment — should be a no-op
+    t = std::move(t);
+    // t should still be valid and owned (not moved-from)
+  }
+  logger->flush();
+
+  auto const output = oss->str();
+  CAPTURE(output);
+
+  // Should have exactly one "self begin" and one "self completed"
+  auto beginCount = std::size_t{0};
+  auto bpos = output.find("self begin");
+  while (bpos != std::string::npos) {
+    ++beginCount;
+    bpos = output.find("self begin", bpos + 1);
+  }
+  CHECK(beginCount == 1);
+
+  auto completeCount = std::size_t{0};
+  auto cpos = output.find("self completed");
+  while (cpos != std::string::npos) {
+    ++completeCount;
+    cpos = output.find("self completed", cpos + 1);
+  }
+  CHECK(completeCount == 1);
+}
