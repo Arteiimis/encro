@@ -9,11 +9,11 @@
 
 日志框架层的核心基础。所有业务代码通过宏与日志系统交互，与 spdlog 具体 API 解耦。
 
-- [ ] **INF-01**: 所有源文件使用 `SPDLOG_INFO/DEBUG/WARN/ERROR` 宏替代 `spdlog::info/debug/warn/error()` 直接调用
-- [ ] **INF-02**: 全局启用 `SPDLOG_ACTIVE_LEVEL` 编译期优化（release 模式可剥离 trace/debug）
-- [ ] **INF-03**: 定义层级式模块标签命名规范，如 `video.encode`、`video.probe`、`pack.zip`、`picture.compress`
-- [ ] **INF-04**: 每个 .cpp 文件通过 `DEFINE_LOGGER("name")` 注册模块 logger，共享文件+控制台 sink
-- [ ] **INF-05**: 日志配置与业务逻辑严格分离 — `src/logging/setup.cpp` 负责所有 sink 创建和 logger 注册
+- [x] **INF-01**: 所有源文件使用 `SPDLOG_INFO/DEBUG/WARN/ERROR` 宏替代 `spdlog::info/debug/warn/error()` 直接调用
+- [x] **INF-02**: 全局启用 `SPDLOG_ACTIVE_LEVEL` 编译期优化（release 模式可剥离 trace/debug）
+- [x] **INF-03**: 定义层级式模块标签命名规范，如 `video.encode`、`video.probe`、`pack.zip`、`picture.compress`
+- [x] **INF-04**: 每个 .cpp 文件通过 `DEFINE_LOGGER("name")` 注册模块 logger，共享文件+控制台 sink
+- [x] **INF-05**: 日志配置与业务逻辑严格分离 — `src/logging/setup.cpp` 负责所有 sink 创建和 logger 注册
 
 ### File Management
 
@@ -29,10 +29,10 @@
 
 每条日志自带来源信息和耗时，让日志"自解释"。
 
-- [ ] **OBS-01**: 每条日志包含源文件路径和行号（通过 `%@` 或 `%s:%#` 模式标记渲染）
-- [ ] **OBS-02**: 每条日志包含模块/组件标签（通过 `%n` 模式标记渲染 named logger 名称）
+- [x] **OBS-01**: 每条日志包含源文件路径和行号（通过 `%@` 或 `%s:%#` 模式标记渲染）
+- [x] **OBS-02**: 每条日志包含模块/组件标签（通过 `%n` 模式标记渲染 named logger 名称）
 - [ ] **OBS-03**: pipeline 各阶段（scan → probe → encode → pack）自动记录起止和耗时（RAII ScopedTimer）
-- [ ] **OBS-04**: 日志格式清晰可读：`[时间戳] [级别] [模块] [文件:行] 消息 [耗时(可选)]`
+- [x] **OBS-04**: 日志格式清晰可读：`[时间戳] [级别] [模块] [文件:行] 消息 [耗时(可选)]`
 
 ### Forensics
 
@@ -73,14 +73,14 @@ Deferred to future release.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INF-01 | Phase 1 | Pending |
-| INF-02 | Phase 1 | Pending |
-| INF-03 | Phase 1 | Pending |
-| INF-04 | Phase 1 | Pending |
-| INF-05 | Phase 1 | Pending |
-| OBS-01 | Phase 1 | Pending |
-| OBS-02 | Phase 1 | Pending |
-| OBS-04 | Phase 1 | Pending |
+| INF-01 | Phase 1 | Complete |
+| INF-02 | Phase 1 | Complete |
+| INF-03 | Phase 1 | Complete |
+| INF-04 | Phase 1 | Complete |
+| INF-05 | Phase 1 | Complete |
+| OBS-01 | Phase 1 | Complete |
+| OBS-02 | Phase 1 | Complete |
+| OBS-04 | Phase 1 | Complete |
 | FILE-01 | Phase 2 | Pending |
 | FILE-02 | Phase 2 | Pending |
 | FILE-03 | Phase 2 | Pending |
