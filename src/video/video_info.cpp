@@ -299,11 +299,7 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
   try {
     return json::parse(output);
   } catch (std::exception const& ex) {
-    LOG_DEBUG(
-      "Failed to parse ffprobe output for {}: {}",
-      videoPath.string(),
-      ex.what()
-    );
+    LOG_DEBUG("Failed to parse ffprobe output for {}: {}", videoPath.string(), ex.what());
     return json::object{};
   }
 }

@@ -6,10 +6,10 @@
 namespace logging {
 
 struct LogConfig {
-    bool verboseEnabled{false};
-    bool verboseEchoEnabled{false};
-    bool colorsEnabled{true};
-    std::optional<std::filesystem::path> customLogDir;
+  bool verboseEnabled{false};
+  bool verboseEchoEnabled{false};
+  bool colorsEnabled{true};
+  std::optional<std::filesystem::path> customLogDir;
 };
 
 // 初始化日志系统: 创建共享 sink、注册 24 个 named async_logger、设置 default_logger。
