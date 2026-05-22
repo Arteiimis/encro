@@ -1,40 +1,49 @@
 # MILESTONES.md
 
-## v1.6 CLI体验增强 (Shipped: 2026-05-15)
-
-**Phases completed:** 2 phases, 8 plans, 11 tasks
-
-**Key accomplishments:**
-
-- One-liner:
-- One-liner:
-- One-liner:
-- Verified existing CLI11 package wiring across all 3 build targets (encro, tests, e2e_tests) — no changes required; `xmake build encro` succeeds with CLI11 headers resolved from xrepo.
-- 14 CLI11 integration tests + 40 CmdParseResult fixture-based tests replacing boost::program_options in test suite with zero boost references
-- MessageKind enum extended from 8 to 13 values with steel_blue+bold, light_cyan, and empty style mappings — TDD cycle with 9 new test cases
-- Semantic terminal coloring injected into formatter_fn via styledText() — intro line (Usage/steel_blue+bold), group headers (OptionGroup/steel_blue+bold), option names (OptionName/light_cyan), descriptions (OptionDesc/plain). ANSI padding rule (D-02) enforced: plain-text column widths computed first, color applied after alignment.
-- --version flag registered in General group with CmdParseResult.version field, colored output via terminal::println(Version, "encro v1.6 (build: ...)", compileTimestamp()), and 4 new test assertions. COLR-03 error path audit confirmed all consumer errors use terminal::println(Error, ...).
-
----
-
 ## v1.6 CLI体验增强 (Shipped: 2026-05-09)
 
 **Phases completed:** 2 phases, 8 plans, 11 tasks
 
 **Key accomplishments:**
 
-- One-liner:
-- One-liner:
-- One-liner:
-- Verified existing CLI11 package wiring across all 3 build targets (encro, tests, e2e_tests) — no changes required; `xmake build encro` succeeds with CLI11 headers resolved from xrepo.
-- 14 CLI11 integration tests + 40 CmdParseResult fixture-based tests replacing boost::program_options in test suite with zero boost references
-- MessageKind enum extended from 8 to 13 values with steel_blue+bold, light_cyan, and empty style mappings — TDD cycle with 9 new test cases
-- Semantic terminal coloring injected into formatter_fn via styledText() — intro line (Usage/steel_blue+bold), group headers (OptionGroup/steel_blue+bold), option names (OptionName/light_cyan), descriptions (OptionDesc/plain). ANSI padding rule (D-02) enforced: plain-text column widths computed first, color applied after alignment.
-- --version flag registered in General group with CmdParseResult.version field, colored output via terminal::println(Version, "encro v1.6 (build: ...)", compileTimestamp()), and 4 new test assertions. COLR-03 error path audit confirmed all consumer errors use terminal::println(Error, ...).
+1. CLI11 replaces boost::program_options — CmdParseResult flat struct, 26 options across 4 groups, formatter_fn custom help, zero user-visible change
+2. 58 vm.count()/vm.at() call sites adapted across 6 consumer files — zero boost::po references remain, project builds clean
+3. Test suite rewritten: 14 CLI11 integration tests + 40 CmdParseResult fixture-based tests, 3078 assertions pass (264/265)
+4. MessageKind enum extended 8→13 values — 5 semantic color mappings (Usage/OptionGroup/OptionName/OptionDesc/Version) with TDD cycle
+5. Colored --help via formatter_fn styledText() — 3-layer color scheme (dodger_blue+bold/steel_blue/gold), ANSI padding-before-color rule enforced
+6. --version flag with colored output via MessageKind::Version + NO_COLOR standard compliance — all color paths gated via colorsEnabled()
 
 ### Known Gaps
 
-- Known deferred items at close: 14 (13 quick tasks missing formal status, 1 pending todo — see STATE.md Deferred Items)
+- Known deferred items at close: 15 (14 quick tasks missing formal status, 1 pending todo — see STATE.md Deferred Items)
+
+### Archives
+
+- `.planning/milestones/v1.6-ROADMAP.md` — Full milestone roadmap
+- `.planning/milestones/v1.6-REQUIREMENTS.md` — Requirements archive
+
+---
+
+## v1.5 Pack下沉收尾 — 消除调用方泄漏 (Shipped: 2026-05-04)
+
+---
+
+## v1.5 Pack下沉收尾 — 消除调用方泄漏 (Shipped: 2026-05-04)
+
+**Phases completed:** 4 phases, 6 plans, 12 tasks
+
+**Key accomplishments:**
+
+1. NamingStrategy enum (Flat/FlatWithForce/Keep) replaces OutputLayout+boolean pair — all 3 naming strategies produce byte-identical zip entries
+2. GroupingStrategy enum + SummaryConfig struct on PackRequest — isSummary structural flag replaces "0000__" string prefix convention
+3. picture_process.cpp leak eliminated — 3 internal pack includes removed, ~200 lines dead code deleted, zero internal type dependencies
+4. PackPlan fully internalized — moved to pack_plan_internal.h, compile-time boundary enforced via __if_exists
+5. 3033 assertions across 244 test cases pass with zero behavioral regression
+
+### Archives
+
+- `.planning/milestones/v1.5-ROADMAP.md` — Full milestone roadmap
+- `.planning/milestones/v1.5-REQUIREMENTS.md` — Requirements archive
 
 ---
 

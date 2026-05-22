@@ -64,7 +64,8 @@
 
 </details>
 
-### ✅ v1.5 Pack下沉收尾 — 消除调用方泄漏
+<details>
+<summary>✅ v1.5 Pack下沉收尾 — 消除调用方泄漏 (Phases 15-18) — SHIPPED 2026-05-04</summary>
 
 **Milestone Goal:** 彻底消除 picture_process.cpp 对 pack 内部类型的依赖，所有调用方统一通过 `pack::execute(PackRequest)` 交互。命名冲突处理抽象为策略枚举 + 前缀配置，PackRequest API 扩展 summary/分组策略字段，PackPlan 退化为纯内部类型。
 
@@ -72,6 +73,8 @@
 - [x] **Phase 16: Grouping Strategy + Summary Config on PackRequest** — `GroupingStrategy` enum + `SummaryConfig` struct; picture's two-layer partitioning declarative (2/2 plans) (completed 2026-05-04)
 - [x] **Phase 17: Picture Process Leak Elimination** — `picture_process.cpp` replaces `buildPicturePackPlan()` with `pack::execute(PackRequest)` (completed 2026-05-04)
 - [x] **Phase 18: PackPlan Pure Internalization** — `PackPlan` moved to internal header; compile-time enforcement of consumer invisibility (completed 2026-05-04)
+
+</details>
 <details>
 <summary>✅ v1.6 CLI体验增强 (Phases 19-20) — SHIPPED 2026-05-09</summary>
 
