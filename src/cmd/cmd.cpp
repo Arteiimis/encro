@@ -451,13 +451,6 @@ constexpr auto GeneralFlags = std::array{
     .defaultValue = "",
     .expectedMax = 0
   },
-  CmdFlagDef{
-    .name = "--dry-run",
-    .kind = CmdFlagKind::Bool,
-    .description = "perform a dry-run: validate, scan, and preview without writing any files",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
 };
 
 // ── Input/Output flags (10) ──
@@ -745,9 +738,6 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   };
   applyMap["-y,--yes"] = [](CmdParseResult& r, CLI::Option const* o) {
     r.yesToAll = o->count() > 0;
-  };
-  applyMap["--dry-run"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.dryRun = o->count() > 0;
   };
 
   // IO
