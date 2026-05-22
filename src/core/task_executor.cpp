@@ -3,11 +3,16 @@
 #include "core/parallel.h"
 #include "infra/stop_signal.h"
 
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
 #include <algorithm>
 #include <atomic>
 #include <exception>
 #include <format>
 #include <optional>
+
+DEFINE_LOGGER(logtags::CORE_TASK)
 
 namespace taskexec {
 

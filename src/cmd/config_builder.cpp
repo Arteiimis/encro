@@ -2,6 +2,9 @@
 
 #include "core/path_roots.h"
 
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -14,6 +17,8 @@
 namespace fs = std::filesystem;
 using pathroots::commonAncestorPath;
 using pathroots::normalizeInputRootDir;
+
+DEFINE_LOGGER(logtags::CMD_CONFIG)
 
 namespace {
 
