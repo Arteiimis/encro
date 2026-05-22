@@ -12,7 +12,10 @@
 #include <string>
 #include <thread>
 
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
+DEFINE_LOGGER(logtags::VIDEO_INFO)
 
 namespace fs = std::filesystem;
 using namespace std::literals;
@@ -121,7 +124,7 @@ auto tryReadFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t> 
   auto ec = std::error_code{};
   if (auto const fileSize = fs::file_size(filePath, ec); !ec) { return fileSize; }
 
-  spdlog::debug(
+  LOG_DEBUG(
     "Skipping file with unreadable size metadata: {} ({})",
     filePath.string(),
     ec.message()
@@ -138,7 +141,7 @@ auto keepsWebpInputSizeLimit(appctx::AppConfig const& config, fs::path const& fi
   if (!fileSize.has_value()) { return false; }
   if (fileSize.value() < kWebpInputMaxSize) { return true; }
 
-  spdlog::debug(
+  LOG_DEBUG(
     "Skipping large video file for webp output: {} ({} bytes)",
     filePath.string(),
     fileSize.value()
@@ -150,7 +153,7 @@ auto tryCollectVideoInput(appctx::AppConfig const& config, fs::path const& fileP
   -> std::optional<fs::path> {
 
   if (!fs::is_regular_file(filePath)) {
-    spdlog::debug("Skipping non-regular file: {}", filePath.string());
+    LOG_DEBUG("Skipping non-regular file: {}", filePath.string());
     return std::nullopt;
   }
 
@@ -205,7 +208,7 @@ auto finalizeVideoList(
         auto const vidInfo = getVidInfo(toolchain, vidPath);
 
         if (config.outputFormat == "mp4" && isHevcEncodedInfo(vidInfo)) {
-          spdlog::debug("Skipping already HEVC encoded file: {}", vidPath.string());
+          LOG_DEBUG("Skipping already HEVC encoded file: {}", vidPath.string());
           return {};
         }
 
@@ -284,7 +287,7 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
   auto const [exitCode, output] = exec2(cmd, false);
 
   if (exitCode != 0) {
-    spdlog::debug(
+    LOG_DEBUG(
       "ffprobe exit code {} for {} (output bytes: {})",
       exitCode,
       videoPath.string(),
@@ -296,7 +299,7 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
   try {
     return json::parse(output);
   } catch (std::exception const& ex) {
-    spdlog::debug(
+    LOG_DEBUG(
       "Failed to parse ffprobe output for {}: {}",
       videoPath.string(),
       ex.what()
@@ -317,7 +320,7 @@ auto getVidTotalFrames(
   auto const& obj = vidInfo.as_object();
   auto const streamsIt = obj.find("streams");
   if (streamsIt == obj.end() || !streamsIt->value().is_array()) {
-    spdlog::debug("Missing stream info for {}", videoPath.string());
+    LOG_DEBUG("Missing stream info for {}", videoPath.string());
     return eh::makeError("Missing stream info");
   }
 
@@ -358,7 +361,7 @@ auto getVidTotalFrames(
   }
 
   if (!debug.hasVideoStream) {
-    spdlog::debug(
+    LOG_DEBUG(
       "No video stream found for {} (streams: {})",
       videoPath.string(),
       streamsIt->value().as_array().size()
@@ -366,7 +369,7 @@ auto getVidTotalFrames(
     return eh::makeError("Failed to retrieve total frames");
   }
 
-  spdlog::debug(
+  LOG_DEBUG(
     "No nb_frames for {}. format.duration={}, avg_frame_rate={}, r_frame_rate={}, "
     "duration={}, duration_ts={}, time_base={}",
     videoPath.string(),
@@ -406,7 +409,7 @@ auto readAllVids(
   fs::path const& dirPath
 ) -> std::vector<fs::path> {
   if (!fs::is_directory(dirPath) && !fs::is_regular_file(dirPath)) {
-    spdlog::warn("Provided path is not a file or directory: {}", dirPath.string());
+    LOG_WARN("Provided path is not a file or directory: {}", dirPath.string());
     return {};
   }
 

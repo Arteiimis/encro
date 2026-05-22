@@ -7,7 +7,8 @@
 #include "pack/pack_internal.h"
 
 #include <libzippp/libzippp.h>
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 
 #include <algorithm>
 #include <array>
@@ -22,6 +23,8 @@
 #include <unordered_set>
 #include <stop_token>
 #include <thread>
+
+DEFINE_LOGGER(logtags::PACK_ZIP)
 
 namespace fs = std::filesystem;
 using namespace indicators;
@@ -413,7 +416,7 @@ auto pack::Packer::packFilesToZip(
       progressCtx.setProgress(progressBarIndex, static_cast<float>(progress));
     }
 
-    spdlog::debug(
+    LOG_DEBUG(
       "Packing progress: {}%, File: {} -> {}",
       progress,
       entry.sourcePath.string(),
@@ -470,7 +473,7 @@ auto pack::Packer::packFilesToZip(
     }
     ++processedCount;
     if (onEntryPacked) { onEntryPacked(processedCount, totalCount); }
-    spdlog::debug(
+    LOG_DEBUG(
       "Packing (no-progress): {} -> {}",
       entry.sourcePath.string(),
       entry.zipEntryName

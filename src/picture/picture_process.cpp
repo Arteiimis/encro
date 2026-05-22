@@ -9,13 +9,16 @@
 #include "pack/pack.h"
 #include "utils/utils.h"
 
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 
 #include <algorithm>
 #include <array>
 #include <filesystem>
 #include <memory>
 #include <unordered_map>
+
+DEFINE_LOGGER(logtags::PICTURE_PROCESS)
 
 namespace fs = std::filesystem;
 using namespace std::literals;
@@ -577,7 +580,7 @@ auto packAllPicsToZip(
       zipFileDir.string(),
       packRes.error()
     );
-    spdlog::error(errMsg);
+    LOG_ERROR("{}", errMsg);
     return eh::makeError("{}", errMsg);
   }
   if (packRes->exitCode != 0) {
