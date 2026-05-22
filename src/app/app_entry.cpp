@@ -8,7 +8,8 @@
 #include "infra/stop_signal.h"
 #include "infra/toolchain.h"
 
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 
 #include <array>
 #include <format>
@@ -18,6 +19,8 @@
 #include <string_view>
 
 using enum terminal::MessageKind;
+
+DEFINE_LOGGER(logtags::APP_ENTRY)
 
 namespace {
 
@@ -79,7 +82,7 @@ auto failWithHint(
   bool showHelpHint = false
 ) -> int {
   if (startup.verboseLogFilePath.has_value()) {
-    spdlog::error("{}", message);
+    LOG_ERROR("{}", message);
   } else {
     terminal::println(Error, "Error: {}", message);
   }
