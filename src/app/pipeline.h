@@ -7,6 +7,4 @@ namespace pipeline {
 
 auto run(appctx::AppContext& ctx) -> eh::Result<int>;
 
-auto runDryRun(appctx::AppContext const& ctx) -> eh::Result<int>;
-
 }  // namespace pipeline
