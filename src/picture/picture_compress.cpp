@@ -6,13 +6,16 @@
 #include "infra/stop_signal.h"
 #include "utils/utils.h"
 
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 
 #include <algorithm>
 #include <atomic>
 #include <format>
 #include <mutex>
 #include <vector>
+
+DEFINE_LOGGER(logtags::PICTURE_COMPRESS)
 
 namespace fs = std::filesystem;
 
@@ -35,7 +38,7 @@ auto shouldUseCompressedOutput(fs::path const& inputPath, fs::path const& output
   auto ec = std::error_code{};
   auto const inputSize = fs::file_size(inputPath, ec);
   if (ec) {
-    spdlog::warn(
+    LOG_WARN(
       "Unable to read source image size, keeping compressed output: input={} error={}",
       inputPath.string(),
       ec.message()
@@ -46,7 +49,7 @@ auto shouldUseCompressedOutput(fs::path const& inputPath, fs::path const& output
   ec.clear();
   auto const outputSize = fs::file_size(outputPath, ec);
   if (ec) {
-    spdlog::warn(
+    LOG_WARN(
       "Unable to read compressed image size, keeping compressed output: output={} "
       "error={}",
       outputPath.string(),
@@ -79,7 +82,7 @@ auto compressImageTask(
     if (!usedCompressed) {
       auto ec = std::error_code{};
       fs::remove(task.outputPath, ec);
-      spdlog::info(
+      LOG_INFO(
         "Skipping oversized JPEG output and keeping original file: input={} output={}",
         task.inputPath.string(),
         task.outputPath.string()
@@ -133,11 +136,11 @@ auto compressImage(
   };
 
   auto const cmd = cfg.buildCMD();
-  spdlog::debug("Compress image: {}", cmd);
+  LOG_DEBUG("Compress image: {}", cmd);
 
   auto const [exitCode, output] = exec2(cmd);
   if (exitCode != 0) {
-    spdlog::warn(
+    LOG_WARN(
       "Image compression failed: input={} exitCode={}",
       inputPath.string(),
       exitCode
@@ -146,7 +149,7 @@ auto compressImage(
   }
 
   if (!fs::exists(outputPath)) {
-    spdlog::warn(
+    LOG_WARN(
       "Image compression produced no output: input={} expected={}",
       inputPath.string(),
       outputPath.string()
@@ -154,7 +157,7 @@ auto compressImage(
     return false;
   }
 
-  spdlog::debug(
+  LOG_DEBUG(
     "Image compressed: {} -> {} ({} bytes)",
     inputPath.string(),
     outputPath.string(),
@@ -204,7 +207,7 @@ void retryFailedTasks(
 
   if (failedTasks.empty()) { return; }
 
-  spdlog::info("Retrying {} failed compression(s) sequentially...", failedTasks.size());
+  LOG_INFO("Retrying {} failed compression(s) sequentially...", failedTasks.size());
 
   auto const retryBarIndex =
     progressCtx
@@ -222,7 +225,7 @@ void retryFailedTasks(
       if (!usedCompressed) {
         auto ec = std::error_code{};
         fs::remove(task.outputPath, ec);
-        spdlog::info(
+        LOG_INFO(
           "Skipping oversized JPEG output and keeping original file: input={} output={}",
           task.inputPath.string(),
           task.outputPath.string()
@@ -255,7 +258,7 @@ void retryFailedTasks(
     std::format("Retried: {}/{}", recovered, failedTasks.size())
   );
 
-  spdlog::info("Retry completed: {}/{} recovered", recovered, failedTasks.size());
+  LOG_INFO("Retry completed: {}/{} recovered", recovered, failedTasks.size());
 }
 
 }  // namespace
@@ -271,7 +274,7 @@ auto compressImageBatch(
   auto const maxFileSize = probeMaxFileSize(tasks);
   auto const effectiveMaxParallel = capConcurrencyByFileSize(maxFileSize, maxParallel);
   if (effectiveMaxParallel != maxParallel) {
-    spdlog::info(
+    LOG_INFO(
       "Adaptive concurrency: capped from {} to {} (max input file ~{} MB)",
       maxParallel,
       effectiveMaxParallel,
@@ -321,7 +324,7 @@ auto compressImageBatch(
     progressCtx.setTone(barIndex, progress::Tone::Failure);
     progressCtx
       .setPostfixText(barIndex, std::format("Canceled: {}/{}", results.size(), total));
-    spdlog::info(
+    LOG_INFO(
       "Image compression batch canceled: {}/{} succeeded before stop",
       results.size(),
       total
@@ -337,12 +340,12 @@ auto compressImageBatch(
     std::ranges::count_if(runState.results, [](eh::Result<void> const& result) {
       return result.has_value();
     });
-  spdlog::info("Image compression batch completed: {}/{} succeeded", succeeded, total);
+  LOG_INFO("Image compression batch completed: {}/{} succeeded", succeeded, total);
 
   retryFailedTasks(ctx, tasks, results, resultsMutex, quality, progressCtx);
 
   auto const finalSucceeded = results.size();
-  spdlog::info("Image compression final: {}/{} images compressed", finalSucceeded, total);
+  LOG_INFO("Image compression final: {}/{} images compressed", finalSucceeded, total);
 
   return results;
 }
