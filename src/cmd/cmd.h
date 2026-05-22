@@ -16,7 +16,6 @@ struct CmdParseResult {
   bool fullProgress = false;
   std::string color = "auto";
   bool yesToAll = false;
-  bool dryRun = false;
 
   // ── Input/Output options ───────────────────────────────────────
   std::optional<std::string> input;
