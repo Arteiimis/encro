@@ -13,11 +13,14 @@
 #include "utils/utils.h"
 
 #include <immer/vector.hpp>
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 #include <boost/lambda2.hpp>
 
 #include <algorithm>
 #include <cstdint>
+
+DEFINE_LOGGER(logtags::VIDEO_PROCESS)
 
 namespace fs = std::filesystem;
 using boost::lambda2::_1;
@@ -166,14 +169,14 @@ auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
     "Scanning input path for videos: {} ...",
     terminal::path(inputPath)
   );
-  spdlog::info("Scanning input path: {}", inputPath.string());
+  LOG_INFO("Scanning input path: {}", inputPath.string());
   auto vids = readAllVids(ctx.config, ctx.toolchain, ctx.runtime, inputPath);
   terminal::println(
     Info,
     "Video scan completed, found {} candidate file(s).",
     terminal::count(vids.size())
   );
-  spdlog::info("Scan completed: {} candidate video(s)", vids.size());
+  LOG_INFO("Scan completed: {} candidate video(s)", vids.size());
   return vids;
 }
 
@@ -186,14 +189,14 @@ auto scanInputVideosFromFiles(
     "Scanning input files for videos: {} file(s) ...",
     terminal::count(inputPaths.size())
   );
-  spdlog::info("Scanning {} provided input file(s)", inputPaths.size());
+  LOG_INFO("Scanning {} provided input file(s)", inputPaths.size());
   auto vids = readAllVidsFromFiles(ctx.config, ctx.toolchain, ctx.runtime, inputPaths);
   terminal::println(
     Info,
     "Video scan completed, found {} candidate file(s).",
     terminal::count(vids.size())
   );
-  spdlog::info("Scan completed from files: {} candidate video(s)", vids.size());
+  LOG_INFO("Scan completed from files: {} candidate video(s)", vids.size());
   return vids;
 }
 
@@ -259,7 +262,7 @@ auto maybePackWorkflowOutputs(
   if (!ctx.config.packOutput) { return 0; }
 
   if (!packInputPath.has_value()) {
-    spdlog::error(
+    LOG_ERROR(
       "Multiple input files must share the same parent directory or specify "
       "--output/-o."
     );
@@ -283,7 +286,7 @@ auto runScannedEncodingWorkflow(
   auto const plannedOutputFilesRes =
     planVideoOutputFiles(ctx.config, vids, planningRootDir);
   if (!plannedOutputFilesRes) {
-    spdlog::error(plannedOutputFilesRes.error());
+    LOG_ERROR(plannedOutputFilesRes.error());
     return 1;
   }
 
@@ -347,7 +350,7 @@ auto collectEncodedOutputFiles(
 
   auto encodedOutputFiles = std::vector<EncodedVideoPackFile>{};
   encodedOutputFiles.reserve(vidsRunRes.size());
-  spdlog::debug(
+  LOG_DEBUG(
     "Collecting encoded outputs for packing: success-map-size={}",
     vidsRunRes.size()
   );
@@ -385,7 +388,7 @@ auto packEncodedVideos(
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes
 ) -> int {
-  spdlog::info("Packing encoded outputs for input: {}", inputPath.string());
+  LOG_INFO("Packing encoded outputs for input: {}", inputPath.string());
   auto const encodedOutputFiles =
     collectEncodedOutputFiles(ctx, plannedOutputFiles, vidsRunRes);
   if (encodedOutputFiles.empty()) {
@@ -408,7 +411,7 @@ auto packEncodedVideos(
     "Packing {} encoded video(s)...",
     terminal::count(filePaths.size())
   );
-  spdlog::info(
+  LOG_INFO(
     "Packing plan: files={} output-dir={}",
     filePaths.size(),
     zipOutputDir.string()
@@ -429,12 +432,12 @@ auto packEncodedVideos(
   });
 
   if (!packRes) {
-    spdlog::error("Failed to pack encoded videos: {}", packRes.error());
+    LOG_ERROR("Failed to pack encoded videos: {}", packRes.error());
     return 1;
   }
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
-  spdlog::info("Packing completed: archive-count={}", packRes->zippedFiles.size());
+  LOG_INFO("Packing completed: archive-count={}", packRes->zippedFiles.size());
   return 0;
 }
 
@@ -449,7 +452,7 @@ void printEncodingSummary(
   auto const successCount = std::ranges::count_if(vidsRunRes, _1->*second);
   auto const failureCount = vidsRunRes.size() - successCount;
 
-  spdlog::info(
+  LOG_INFO(
     "Encoding summary: total={} success={} failed={}",
     vids.size(),
     successCount,
@@ -478,7 +481,7 @@ int handleSingleFileEncoding(appctx::AppContext& ctx, fs::path const& videoPath)
 }
 
 int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
-  spdlog::info("Handle path encoding: {}", inputPath.string());
+  LOG_INFO("Handle path encoding: {}", inputPath.string());
   auto const vids = scanInputVideos(ctx, inputPath);
 
   if (vids.empty()) {
@@ -488,7 +491,7 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
 
   auto const sourceRootDir = normalizeInputRootDir(inputPath);
   return runScannedEncodingWorkflow(ctx, vids, sourceRootDir, inputPath, [&] {
-    spdlog::info("Path encoding done: {}", inputPath.string());
+    LOG_INFO("Path encoding done: {}", inputPath.string());
   });
 }
 
@@ -496,7 +499,7 @@ int handleMultiFileEncoding(
   appctx::AppContext& ctx,
   std::span<fs::path const> inputPaths
 ) {
-  spdlog::info("Handle multi-file encoding: input-count={}", inputPaths.size());
+  LOG_INFO("Handle multi-file encoding: input-count={}", inputPaths.size());
   auto const vids = scanInputVideosFromFiles(ctx, inputPaths);
 
   if (vids.empty()) {
@@ -510,7 +513,7 @@ int handleMultiFileEncoding(
     && !ctx.config.outputPath.has_value()
     && !basePath.has_value()
   ) {
-    spdlog::error(
+    LOG_ERROR(
       "Multiple input files must share the same parent directory or specify "
       "--output/-o."
     );
@@ -522,13 +525,13 @@ int handleMultiFileEncoding(
     && ctx.config.outputPath.has_value()
     && !basePath.has_value()
   ) {
-    spdlog::error(
+    LOG_ERROR(
       "--keep requires multiple input files to share the same parent directory."
     );
     return 1;
   }
 
   return runScannedEncodingWorkflow(ctx, vids, basePath, basePath, [&] {
-    spdlog::info("Multi-file encoding done: input-count={}", inputPaths.size());
+    LOG_INFO("Multi-file encoding done: input-count={}", inputPaths.size());
   });
 }

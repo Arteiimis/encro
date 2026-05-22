@@ -8,10 +8,13 @@
 #include "core/job_state.h"
 #include "infra/stop_signal.h"
 
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 
 #include <chrono>
 #include <thread>
+
+DEFINE_LOGGER(logtags::VIDEO_STATE)
 
 namespace fs = std::filesystem;
 using videoworkflow::withActionJobState;
@@ -82,7 +85,7 @@ void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& execu
     if (executionCtx.finished() >= executionCtx.overallTotal()) { break; }
 
     if (stopsignal::isStopRequested() && activeStates.empty()) {
-      spdlog::info(
+      LOG_INFO(
         "Encoding monitor exiting after stop request; no active tasks remain."
       );
       break;

@@ -6,7 +6,8 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/process/v1.hpp>
 #include <boost/uuid.hpp>
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 
 #include <chrono>
 #include <iostream>
@@ -19,6 +20,8 @@
   #include <future>
   #include <memory>
 #endif
+
+DEFINE_LOGGER(logtags::UTILS_SUBPROCESS)
 
 using enum terminal::MessageKind;
 
@@ -37,7 +40,7 @@ auto exec2Impl(
   constexpr auto kReaderWaitTimeout = 250ms;
 #endif
 
-  spdlog::debug("Executing command: {}", cmd);
+  LOG_DEBUG("Executing command: {}", cmd);
 
 #if defined(_WIN32)
   auto onLineCopy = onLine != nullptr ? *onLine : std::function<void(std::string_view)>{};
@@ -95,7 +98,7 @@ auto exec2Impl(
         ) {
           return totalRead;
         }
-        spdlog::debug(
+        LOG_DEBUG(
           "PeekNamedPipe failed for {} with error {}",
           cmd,
           static_cast<unsigned long>(error)
@@ -136,11 +139,11 @@ auto exec2Impl(
 
     try {
       if (process.running()) {
-        spdlog::info("Terminating child process due to stop request: {}", cmd);
+        LOG_INFO("Terminating child process due to stop request: {}", cmd);
         process.terminate();
       }
     } catch (std::exception const& ex) {
-      spdlog::warn(
+      LOG_WARN(
         "Failed to terminate child process on stop request: {} ({})",
         cmd,
         ex.what()
@@ -150,7 +153,7 @@ auto exec2Impl(
     closePipeSource();
 
     if (!waitForExitUntil(std::chrono::steady_clock::now() + kTerminateWaitTimeout)) {
-      spdlog::warn(
+      LOG_WARN(
         "Child process did not exit within {} ms after terminate, detaching handle: {}",
         kTerminateWaitTimeout.count(),
         cmd
@@ -207,7 +210,7 @@ auto exec2Impl(
     try {
       pipeStream->close();
     } catch (std::exception const& ex) {
-      spdlog::debug("Failed to close command output pipe for {}: {}", cmd, ex.what());
+      LOG_DEBUG("Failed to close command output pipe for {}: {}", cmd, ex.what());
     }
   };
 
@@ -232,12 +235,12 @@ auto exec2Impl(
 
     try {
       if (process.running()) {
-        spdlog::info("Terminating child process due to stop request: {}", cmd);
+        LOG_INFO("Terminating child process due to stop request: {}", cmd);
         process.terminate();
         terminatedByStop.store(true, std::memory_order_release);
       }
     } catch (std::exception const& ex) {
-      spdlog::warn(
+      LOG_WARN(
         "Failed to terminate child process on stop request: {} ({})",
         cmd,
         ex.what()
@@ -248,7 +251,7 @@ auto exec2Impl(
     closePipe();
 
     if (!waitForExitUntil(std::chrono::steady_clock::now() + kTerminateWaitTimeout)) {
-      spdlog::warn(
+      LOG_WARN(
         "Child process did not exit within {} ms after terminate, detaching handle: {}",
         kTerminateWaitTimeout.count(),
         cmd
@@ -260,7 +263,7 @@ auto exec2Impl(
       return {stopsignal::kCanceledExitCode, joinReader()};
     }
 
-    spdlog::warn(
+    LOG_WARN(
       "Command output reader did not finish within {} ms after stop request; returning "
       "partial output: {}",
       kReaderWaitTimeout.count(),
