@@ -1,5 +1,8 @@
 #include "infra/stop_signal.h"
 
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
 #include <atomic>
 
 #if defined(_WIN32)
@@ -12,6 +15,8 @@
 #else
   #include <csignal>
 #endif
+
+DEFINE_LOGGER(logtags::INFRA_SIGNAL)
 
 namespace {
 
