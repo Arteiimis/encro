@@ -7,6 +7,7 @@
 
 #include <fmt/format.h>
 
+#include <chrono>
 #include <memory>
 
 // ── 短文件名提取 ────────────────────────────────────────────────────────────
@@ -123,3 +124,44 @@ namespace logging::detail {
     __LINE__,                             \
     fmt::format(__VA_ARGS__)              \
   )
+
+// ── ScopedTimer (D-08~D-12: RAII stage timing) ──
+// RED phase stub — compiles but does not log. Tests will fail at runtime.
+// Full implementation with LOG_INFO calls comes in GREEN phase.
+
+namespace logging {
+
+class ScopedTimer {
+    std::string_view stageName_{};
+    std::chrono::steady_clock::time_point start_{};
+    bool movedFrom_{false};
+
+public:
+    explicit ScopedTimer(std::string_view stageName)
+        : stageName_(stageName)
+        , start_(std::chrono::steady_clock::now()) {
+    }
+
+    ~ScopedTimer() noexcept {
+    }
+
+    ScopedTimer(ScopedTimer const&) = delete;
+    auto operator=(ScopedTimer const&) -> ScopedTimer& = delete;
+
+    ScopedTimer(ScopedTimer&& other) noexcept
+        : stageName_(other.stageName_)
+        , start_(other.start_) {
+        other.movedFrom_ = true;
+    }
+
+    auto operator=(ScopedTimer&& other) noexcept -> ScopedTimer& {
+        if (this != &other) {
+            stageName_ = other.stageName_;
+            start_ = other.start_;
+            other.movedFrom_ = true;
+        }
+        return *this;
+    }
+};
+
+}  // namespace logging
