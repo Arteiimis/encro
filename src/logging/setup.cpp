@@ -1,15 +1,20 @@
 #include "logging/setup.h"
 
+#include "infra/terminal.h"
 #include "logging/log_tags.h"
 
 #include <spdlog/async.h>
 #include <spdlog/logger.h>
-#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <array>
+#include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <system_error>
@@ -63,8 +68,6 @@ auto resolveCommonLogDir() -> fs::path {
 }
 
 // ── 单一日志 pattern (D-03 兼容 —— 源位置在消息体中，不用 %s:%#) ──────
-// D-03: 源位置直接注入消息体格式 "file.cpp:line"
-// D-11: %^%l%$ 提供 level 颜色标记
 
 constexpr auto kLogPattern = "[%Y-%m-%dT%H:%M:%S.%e%z] [%^%l%$] [%n] %v";
 
@@ -83,6 +86,41 @@ auto allModuleTags() -> std::vector<char const*> {
   };
 }
 
+// ── 日志文件保留清理 (D-04~D-07) ─────────────────────────────────────────
+
+auto retainRecentLogs(fs::path const& logDir, int const maxKeep) -> std::size_t {
+  try {
+    auto entries = std::vector<fs::path>{};
+    auto ec = std::error_code{};
+    for (auto const& entry: fs::directory_iterator{logDir, ec}) {
+      if (ec) { break; }
+      if (!entry.is_regular_file()) { continue; }
+      auto const filename = entry.path().filename().string();
+      if (!filename.starts_with("encro_")) { continue; }
+      if (filename.find(".log") == std::string::npos) { continue; }
+      entries.push_back(entry.path());
+    }
+
+    if (entries.size() <= static_cast<std::size_t>(maxKeep)) { return 0; }
+
+    // D-06: 按文件名字典序排序 — YYYYMMDD_HHMMSS 格式 = 时间顺序
+    std::sort(entries.begin(), entries.end());
+
+    auto const total = entries.size();
+    auto const toRemove = total - static_cast<std::size_t>(maxKeep);
+
+    for (auto i = std::size_t{0}; i < toRemove; ++i) {
+      auto ec2 = std::error_code{};
+      fs::remove(entries[i], ec2);
+    }
+
+    return toRemove;
+  } catch (...) {
+    // 尽最大努力清理 — 文件系统错误不传播
+    return 0;
+  }
+}
+
 }  // namespace
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -91,6 +129,10 @@ auto allModuleTags() -> std::vector<char const*> {
 
 namespace logging {
 
+// ── 当前日志文件路径 (D-13: crash handler 集成) ──────────────────────────
+
+static auto gCurrentLogFilePath = std::optional<fs::path>{};
+
 auto setup(LogConfig const& config) -> std::optional<fs::path> {
   // 1. 如果 --verbose 未启用，关闭所有日志
   if (!config.verboseEnabled) {
@@ -98,31 +140,80 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     return std::nullopt;
   }
 
-  // 2. 解析日志目录
+  // 2. 解析日志目录 (D-21: 强化回退链)
   auto logDir =
     config.customLogDir.has_value() ? config.customLogDir.value() : resolveCommonLogDir();
   auto ec = std::error_code{};
   fs::create_directories(logDir, ec);
+
+  auto fileSinkEnabled = true;
+
   if (ec) {
-    spdlog::warn(
-      "Cannot create log directory '{}': {}. Fallback to temp directory.",
-      logDir.string(),
-      ec.message()
-    );
+    // 主目录创建失败 — 回退到临时目录
     logDir = fs::temp_directory_path() / "encro" / "logs";
-    fs::create_directories(logDir, ec);
+    auto ec2 = std::error_code{};
+    fs::create_directories(logDir, ec2);
+    if (!ec2) {
+      // D-22: 回退到临时目录时警告用户
+      terminal::println(
+        terminal::MessageKind::Warning,
+        "Warning: Using temporary log directory: {}",
+        terminal::path(logDir)
+      );
+    } else {
+      // D-21: 临时目录也创建失败 — 跳过文件 sink，仅 console
+      terminal::eprintln(
+        terminal::MessageKind::Error,
+        "Cannot create log directory; logging to console only."
+      );
+      fileSinkEnabled = false;
+    }
   }
 
-  // 3. 日志文件路径 (Phase 1 使用现有文件名；Phase 2 改为时间戳命名)
-  auto const logFilePath = logDir / "encro.verbose.log";
-
-  // 4. 创建共享 sink
+  // 3. 创建文件 sink (D-01~D-03, D-17~D-18)
   auto sinks = std::vector<spdlog::sink_ptr>{};
-  sinks.emplace_back(
-    std::make_shared<spdlog::sinks::basic_file_sink_mt>(logFilePath.string(), true)
-  );
+  auto logFilePath = std::optional<fs::path>{};
 
-  // 5. 可选的 console sink
+  if (fileSinkEnabled) {
+    // D-04~D-07: 保留最近 10 个日志文件 (在创建新文件之前)
+    retainRecentLogs(logDir, 10);
+
+    // D-01: 生成时间戳文件名 encro_YYYYMMDD_HHMMSS.log
+    auto const now = std::chrono::system_clock::now();
+    auto const t = std::chrono::system_clock::to_time_t(now);
+    auto tm = std::tm{};
+#if defined(_WIN32) || defined(_WIN64)
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    auto tsBuf = std::array<char, 64>{};
+    std::strftime(tsBuf.data(), tsBuf.size(), "encro_%Y%m%d_%H%M%S.log", &tm);
+    auto filePath = logDir / tsBuf.data();
+
+    // D-02: PID 冲突检测 — 同一秒内多次启动
+    if (fs::exists(filePath)) {
+      std::strftime(tsBuf.data(), tsBuf.size(), "encro_%Y%m%d_%H%M%S", &tm);
+#if defined(_WIN32) || defined(_WIN64)
+      auto const pid = _getpid();
+#else
+      auto const pid = getpid();
+#endif
+      filePath = logDir / fmt::format("{}_{}.log", tsBuf.data(), pid);
+    }
+
+    logFilePath = filePath;
+
+    // D-17~D-18: rotating_file_sink_mt, 10 MB 上限, 3 个旋转文件
+    sinks.emplace_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+      filePath.string(), 10 * 1024 * 1024, 3
+    ));
+
+    // D-13: 存储当前日志文件路径供 crash handler 直接写入
+    gCurrentLogFilePath = filePath;
+  }
+
+  // 4. 可选的 console sink
   if (config.verboseEchoEnabled) {
     if (config.colorsEnabled) {
       sinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
@@ -131,16 +222,16 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     }
   }
 
-  // 6. 初始化全局 thread pool (可重置标志，支持测试环境中 setup/shutdown/setup)
+  // 5. 初始化全局 thread pool (可重置标志，支持测试环境中 setup/shutdown/setup)
   {
     auto lock = std::lock_guard{gPoolInitMutex};
     if (!gPoolInitialized.exchange(true)) { spdlog::init_thread_pool(8192, 1); }
   }
 
-  // 7. 为每个模组标签创建 named async_logger，共享同一组 sink
+  // 6. 为每个模组标签创建 named async_logger，共享同一组 sink
   for (auto const* tag: allModuleTags()) {
     auto logger = std::make_shared<spdlog::async_logger>(
-      tag,  // logger 名称 = 模块标签
+      tag,
       sinks.begin(),
       sinks.end(),
       spdlog::thread_pool(),
@@ -152,7 +243,7 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     spdlog::register_logger(std::move(logger));
   }
 
-  // 8. 设置 default logger (crash handler 通过 default_logger_raw() 访问)
+  // 7. 设置 default logger (crash handler 通过 default_logger_raw() 访问)
   auto defaultLogger = std::make_shared<spdlog::async_logger>(
     "encro",
     sinks.begin(),
@@ -173,7 +264,12 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
 
 auto shutdown() -> void {
   spdlog::shutdown();
-  gPoolInitialized = false;  // 允许测试环境中重新初始化 thread pool
+  gPoolInitialized = false;
+  gCurrentLogFilePath = std::nullopt;
+}
+
+auto currentLogFilePath() -> std::optional<fs::path> {
+  return gCurrentLogFilePath;
 }
 
 }  // namespace logging
