@@ -7,10 +7,13 @@
 #include "utils/utils.h"
 #include "video/encode_config.h"
 
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 
 #include <cstdint>
 #include <format>
+
+DEFINE_LOGGER(logtags::VIDEO_ENCODE)
 
 namespace fs = std::filesystem;
 
@@ -50,7 +53,7 @@ auto failEncoding(appctx::EncodingState& state, std::string const& error) -> boo
     auto lock = std::scoped_lock{state.mtx};
     state.lastError = error;
   }
-  spdlog::error(error);
+  LOG_ERROR(error);
   return false;
 }
 
@@ -125,7 +128,7 @@ auto runWebpEncodingStep(
 ) -> WebpEncodeStep {
   clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
 
-  spdlog::debug(
+  LOG_DEBUG(
     "WebP encoding step: input={} quality={} output={}",
     encodeCtx.inputVidPath.string(),
     quality,
@@ -142,7 +145,7 @@ auto runWebpEncodingStep(
   };
 
   if (auto const res = cfg.validate(); !res) {
-    spdlog::error(res.error());
+    LOG_ERROR(res.error());
     return {-1, std::nullopt};
   }
 
@@ -150,7 +153,7 @@ auto runWebpEncodingStep(
     reportEncodingDiagnostic(encodeCtx.statusUpdater, line);
   });
   if (exitCode != 0) {
-    spdlog::warn(
+    LOG_WARN(
       "WebP encoding step failed: input={} quality={} exitCode={}",
       encodeCtx.inputVidPath.string(),
       quality,
@@ -160,7 +163,7 @@ auto runWebpEncodingStep(
   }
   if (!fs::exists(outputFile)) { return {exitCode, std::nullopt}; }
 
-  spdlog::debug(
+  LOG_DEBUG(
     "WebP encoding step output size: input={} quality={} bytes={}",
     encodeCtx.inputVidPath.string(),
     quality,
@@ -178,7 +181,7 @@ auto encodeWebpWithTargetSize(
 
   auto const abortForStopRequest = [&] {
     clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
-    spdlog::info(
+    LOG_INFO(
       "WebP adaptive encoding canceled: input={} output={}",
       encodeCtx.inputVidPath.string(),
       outputFile.string()
@@ -186,7 +189,7 @@ auto encodeWebpWithTargetSize(
     return false;
   };
 
-  spdlog::debug(
+  LOG_DEBUG(
     "WebP adaptive encoding start: input={} output={} target={} bytes",
     encodeCtx.inputVidPath.string(),
     outputFile.string(),
@@ -212,7 +215,7 @@ auto encodeWebpWithTargetSize(
       return abortForStopRequest();
     }
     if (stepRes.exitCode != 0) {
-      spdlog::error(
+      LOG_ERROR(
         "WebP encoding step failed permanently: input={} quality={} exitCode={}",
         encodeCtx.inputVidPath.string(),
         quality,
@@ -221,7 +224,7 @@ auto encodeWebpWithTargetSize(
       return false;
     }
     if (!stepRes.outputSize.has_value()) {
-      spdlog::error(
+      LOG_ERROR(
         "WebP encoding step produced no output file: input={} quality={} output={}",
         encodeCtx.inputVidPath.string(),
         quality,
@@ -232,7 +235,7 @@ auto encodeWebpWithTargetSize(
 
     auto const outputSize = stepRes.outputSize.value();
     if (outputSize < kWebpTargetMaxSize) {
-      spdlog::debug(
+      LOG_DEBUG(
         "WebP encoded under target size: {} ({} bytes, q={})",
         outputFile.string(),
         outputSize,
@@ -253,7 +256,7 @@ auto encodeWebpWithTargetSize(
   }
 
   if (fs::exists(outputFile)) {
-    spdlog::warn(
+    LOG_WARN(
       "WebP encoding reached minimum quality but still over target: input={} "
       "output={} bytes={}",
       encodeCtx.inputVidPath.string(),
@@ -268,7 +271,7 @@ auto encodeWebpWithTargetSize(
     return true;
   }
 
-  spdlog::error(
+  LOG_ERROR(
     "WebP adaptive encoding failed: input={} output={}",
     encodeCtx.inputVidPath.string(),
     outputFile.string()
@@ -286,7 +289,7 @@ auto runStandardEncoding(
     reportEncodingDiagnostic(statusUpdater, line);
   });
   if (exitCode != 0) {
-    spdlog::warn(
+    LOG_WARN(
       "ffmpeg exited with non-zero code: input={} exitCode={}",
       state.inputPath.string(),
       exitCode
@@ -309,7 +312,7 @@ bool encodeVideo(
   auto const& executionPlan = executionPlanRes.value();
   auto const cfg = buildEncodeConfig(ctx, state, executionPlan);
 
-  spdlog::debug(
+  LOG_DEBUG(
     "Encode config: input={} output-format={} output-file={} progress-file={}",
     state.inputPath.string(),
     ctx.config.outputFormat,
@@ -320,7 +323,7 @@ bool encodeVideo(
   auto const validationResult = cfg.validate();
   if (!validationResult) { return failEncoding(state, validationResult.error()); }
 
-  spdlog::debug("Encoding video: {}", state.inputPath.string());
+  LOG_DEBUG("Encoding video: {}", state.inputPath.string());
 
   if (ctx.config.outputFormat == "webp") {
     return encodeWebpWithTargetSize(
