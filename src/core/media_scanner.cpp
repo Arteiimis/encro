@@ -3,7 +3,7 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
-DEFINE_LOGGER(logtags::CORE_SCAN)
+DEFINE_LOGGER(logtags::CORE_SCAN);
 
 namespace media {
 

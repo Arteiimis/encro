@@ -14,7 +14,7 @@
 namespace fs = std::filesystem;
 namespace naming = collisionnaming;
 
-DEFINE_LOGGER(logtags::VIDEO_OUTPUT)
+DEFINE_LOGGER(logtags::VIDEO_OUTPUT);
 
 namespace {
 

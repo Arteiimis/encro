@@ -19,6 +19,10 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// 可重置的 thread-pool 初始化守卫，shutdown() 后允许重新初始化
+static auto gPoolInitialized = std::atomic<bool>{false};
+static auto gPoolInitMutex = std::mutex{};
+
 // ── 环境变量读取 (Windows) ──────────────────────────────────────────────────
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -143,9 +147,13 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
         }
     }
 
-    // 6. 初始化全局 thread pool (复用现有 once_flag 模式)
-    static auto poolInitFlag = std::once_flag{};
-    std::call_once(poolInitFlag, [] { spdlog::init_thread_pool(8192, 1); });
+    // 6. 初始化全局 thread pool (可重置标志，支持测试环境中 setup/shutdown/setup)
+    {
+        auto lock = std::lock_guard{gPoolInitMutex};
+        if (!gPoolInitialized.exchange(true)) {
+            spdlog::init_thread_pool(8192, 1);
+        }
+    }
 
     // 7. 为每个模组标签创建 named async_logger，共享同一组 sink
     for (auto const* tag : allModuleTags()) {
@@ -183,6 +191,7 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
 
 auto shutdown() -> void {
     spdlog::shutdown();
+    gPoolInitialized = false;  // 允许测试环境中重新初始化 thread pool
 }
 
 }  // namespace logging

@@ -11,7 +11,7 @@
 
 namespace fs = std::filesystem;
 
-DEFINE_LOGGER(logtags::VIDEO_PROGRESS)
+DEFINE_LOGGER(logtags::VIDEO_PROGRESS);
 
 namespace {
 

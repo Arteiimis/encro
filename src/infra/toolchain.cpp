@@ -5,7 +5,7 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
-DEFINE_LOGGER(logtags::INFRA_TOOLCHAIN)
+DEFINE_LOGGER(logtags::INFRA_TOOLCHAIN);
 
 namespace toolchain {
 

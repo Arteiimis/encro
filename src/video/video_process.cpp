@@ -20,7 +20,7 @@
 #include <algorithm>
 #include <cstdint>
 
-DEFINE_LOGGER(logtags::VIDEO_PROCESS)
+DEFINE_LOGGER(logtags::VIDEO_PROCESS);
 
 namespace fs = std::filesystem;
 using boost::lambda2::_1;
@@ -286,7 +286,7 @@ auto runScannedEncodingWorkflow(
   auto const plannedOutputFilesRes =
     planVideoOutputFiles(ctx.config, vids, planningRootDir);
   if (!plannedOutputFilesRes) {
-    LOG_ERROR(plannedOutputFilesRes.error());
+    LOG_ERROR("{}", plannedOutputFilesRes.error());
     return 1;
   }
 

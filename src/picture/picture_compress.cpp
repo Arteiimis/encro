@@ -15,7 +15,7 @@
 #include <mutex>
 #include <vector>
 
-DEFINE_LOGGER(logtags::PICTURE_COMPRESS)
+DEFINE_LOGGER(logtags::PICTURE_COMPRESS);
 
 namespace fs = std::filesystem;
 

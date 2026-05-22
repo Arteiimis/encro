@@ -19,7 +19,7 @@
 #include <format>
 #include <thread>
 
-DEFINE_LOGGER(logtags::VIDEO_BATCH)
+DEFINE_LOGGER(logtags::VIDEO_BATCH);
 
 namespace fs = std::filesystem;
 using enum terminal::MessageKind;

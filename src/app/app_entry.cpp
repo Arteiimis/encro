@@ -20,7 +20,7 @@
 
 using enum terminal::MessageKind;
 
-DEFINE_LOGGER(logtags::APP_ENTRY)
+DEFINE_LOGGER(logtags::APP_ENTRY);
 
 namespace {
 
