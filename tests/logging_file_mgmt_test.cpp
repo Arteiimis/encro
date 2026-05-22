@@ -4,6 +4,8 @@
 
 #include <fmt/format.h>
 
+#include <spdlog/spdlog.h>
+
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -172,14 +174,14 @@ TEST_CASE("setup returns valid timestamped log file path", "[logging][file_mgmt]
   // The file must be physically present on disk
   CHECK(fs::exists(logFilePath));
 
-  // Verify the file has non-zero size (a log message was written)
+  // Shutdown (drains async queue, writes pending log messages)
+  logging::shutdown();
+
+  // After shutdown, the log file must have non-zero size
   auto ec = std::error_code{};
   auto const fileSize = fs::file_size(logFilePath, ec);
   CHECK(!ec);
   CHECK(fileSize > 0);
-
-  // Shutdown should clear state
-  logging::shutdown();
 
   // Cleanup
   removeDir(testDir);

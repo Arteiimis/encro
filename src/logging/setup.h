@@ -19,4 +19,8 @@ struct LogConfig {
 // 销毁: flush + 关闭所有 logger
 auto shutdown() -> void;
 
+// 返回当前活跃的日志文件路径 (D-13: crash handler 集成)
+// 如果 setup() 未调用或 verbose 未启用，返回 std::nullopt
+[[nodiscard]] auto currentLogFilePath() -> std::optional<std::filesystem::path>;
+
 }  // namespace logging
