@@ -4,12 +4,17 @@
 
 #include "video/encode_config.h"
 
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
 #include <algorithm>
 #include <format>
 #include <ranges>
 
 namespace fs = std::filesystem;
 namespace naming = collisionnaming;
+
+DEFINE_LOGGER(logtags::VIDEO_OUTPUT)
 
 namespace {
 
