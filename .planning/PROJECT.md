@@ -133,21 +133,6 @@ v1.6 shipped features:
 - ✓ COLR-04: --version 输出着色化 via MessageKind::Version — v1.6
 - ✓ COLR-05: NO_COLOR 标准在所有新着色路径中遵守 — v1.6
 
-## Current Milestone: v1.6 CLI体験增强
-
-**Goal:** 现代化 CLI 选项解析并统一终端着色体验
-
-**Target features:**
-- CLI11 迁移 — boost::program_options → CLI11，26个 option，colored --help
-- CLI着色深化 — 将 terminal:: 语义着色推广到 errors、warnings、--version（progress bar 待定）
-
-**Key context:**
-- 零新依赖着色 — 复用现有 `fmtlib color` + `terminal::` 语义层
-- ~138行 cmd.cpp 重写 + ~30处 vm 调用适配
-- xmake.lua / boost 依赖由用户自行处理
-- Progress bar 着色归属不确定 — progress bar lib 可能有自有颜色体系，需单独评估
-- 所有行为回归由现有 3033 assertions 守卫
-
 ### Out of Scope
 
 - GUI interface — CLI-first approach
@@ -157,19 +142,6 @@ v1.6 shipped features:
 - DI framework (Boost.DI, etc.) — constructor injection sufficient
 - Getter/setter for every data field — anti-pattern per C++ Core Guidelines
 - PackPlan → class with private data — 16 designated-initializer sites preserved as aggregate
-
-### Architecture (current v1.5)
-
-- `pack.h`: single public header — PackRequest, PackMode, NamingConfig, NamingStrategy, GroupingStrategy, SummaryConfig, execute() declaration
-- `pack_types.h`: public types — PackFileEntry, PackEntryInput, FileOrdinalRange
-- `pack_plan_internal.h`: internal-only — PackPlan struct, execute(PackPlan) declaration
-- Packer: zip I/O, grouping, file copy — internal-only, direct value semantics, no abstract base
-- PackService: orchestration, owns Packer by value, internal executor
-- `pack::execute()`: free function entry point, all grouping/naming/Plan construction internal
-- `pack::internal::` namespace: demoted static helpers, detail types, internal constants
-- IPacker / MockPacker: deleted — mock tests rewritten as real Packer + TempDir integration tests
-- 3 consumers (pipeline/video/picture) use pack::execute(PackRequest) exclusively — zero internal pack type includes
-- All legacy patterns preserved: compact progress, resumability, conflict handling
 
 ## Key Decisions
 
@@ -241,4 +213,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-05-16 after v1.6 milestone archive*
+*Last updated: 2026-05-22 after v1.6 milestone re-archive*
