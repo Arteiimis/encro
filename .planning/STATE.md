@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: CLI体验增强
-status: Awaiting next milestone
-stopped_at: Phase 20 context gathered
-last_updated: "2026-05-15T18:00:56.122Z"
-last_activity: 2026-05-19 — Completed quick task 260519-1ym: --dry-run implementation
+status: Complete — awaiting next milestone
+stopped_at: v1.6 milestone archived
+last_updated: "2026-05-22T15:40:00.000Z"
+last_activity: 2026-05-22 — v1.6 milestone re-archived with fixed MILESTONES.md entries
 progress:
   total_phases: 2
   completed_phases: 2
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-05-05)
 
 Phase: Milestone v1.6 complete
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-19 — Completed quick task 260519-1ym: --dry-run implementation
+Status: All milestones complete — ready for v1.7
+Last activity: 2026-05-22 — v1.6 milestone archived
 
 ## Performance Metrics
 
@@ -102,7 +102,7 @@ None yet.
 | E2E CLI verification | 8 E2E paths deferred (environment dependency) | Deferred | v1.4 |
 | Progress bar coloring | indicators library has own color system — separate evaluation needed | Deferred to v2+ | v1.6 |
 
-Items acknowledged and deferred at milestone close on 2026-05-16:
+Items acknowledged and deferred at milestone close on 2026-05-22:
 
 | Category | Item | Status |
 |----------|------|--------|
@@ -119,6 +119,7 @@ Items acknowledged and deferred at milestone close on 2026-05-16:
 | quick_task | 260509-tjc-cli11-help-encro-cli11-cli11-cli11-phase | missing |
 | quick_task | 260510-1tv-help | missing |
 | quick_task | 260511-wk8-refactor-cmd-cpp-to-centrally-manage-all | missing |
+| quick_task | 260519-1ym-dry-run-validation-scan-plan-job-state | missing |
 | todo | 2026-05-09-enhance-cli-option-conflict-error-messages.md | pending |
 
 ## Session Continuity
