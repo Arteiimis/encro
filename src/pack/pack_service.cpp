@@ -6,6 +6,9 @@
 
 #include "infra/terminal.h"
 
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -18,6 +21,8 @@
 
 namespace fs = std::filesystem;
 using enum terminal::MessageKind;
+
+DEFINE_LOGGER(logtags::PACK_SERVICE)
 
 namespace pack {
 namespace {
