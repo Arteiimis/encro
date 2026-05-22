@@ -4,7 +4,7 @@ plan: 01
 status: complete
 type: tdd
 tasks: 3
-commits: 2
+commits: 3
 ---
 
 # Plan 02-01 Summary: File Management Infrastructure
@@ -22,7 +22,7 @@ Timestamped per-run log file naming, rotating file sink, retention cleanup, dire
 |------|--------|-------------|
 | `src/logging/setup.cpp` | Modified | Timestamped naming (`encro_YYYYMMDD_HHMMSS.log` + PID collision), `rotating_file_sink_mt` (10MB/3), `retainRecentLogs()` cleanup, hardened fallback chain, `gCurrentLogFilePath` storage |
 | `src/logging/setup.h` | Modified | Added `currentLogFilePath()` declaration |
-| `tests/logging_file_mgmt_test.cpp` | Created | 5 TDD tests, 39 assertions |
+| `tests/logging_file_mgmt_test.cpp` | Created | 8 TDD tests, 50 assertions |
 
 ### Decisions Honored
 - D-01~03: Timestamp format, PID suffix, sink created once at startup
@@ -41,6 +41,9 @@ Timestamped per-run log file naming, rotating file sink, retention cleanup, dire
 | cleanup retains at most 10 log files | FILE-02, D-04~06 | File count ≤ 11, oldest deleted, newest kept |
 | cleanup matches rotation files | D-05, D-18 | `.log.N` files counted and cleaned |
 | cleanup does not delete current log file | D-04 | Current file exists after cleanup |
+| setup falls back when primary dir unwritable | FILE-05, D-21~22 | Fallback to temp dir, terminal warning, file exists |
+| setup returns nullopt when verbose is off | — | Returns nullopt, currentLogFilePath returns nullopt |
+| rotating file sink is configured and functional | FILE-03, D-17 | Sink exists, write + read-back verification |
 
 ## Requirements Covered
 - **FILE-01** ✓ — Timestamped per-run log files
@@ -51,3 +54,4 @@ Timestamped per-run log file naming, rotating file sink, retention cleanup, dire
 ## Commits
 1. `24d4e3f` — `test(logging): add RED phase tests for file management (timestamped naming, retention cleanup, rotation)`
 2. `18b3189` — `feat(02-01): implement timestamped naming, rotating sink, retention cleanup, fallback chain`
+3. `14fa788` — `test(logging): add edge case tests for fallback, verbose-off, and rotating sink verification`
