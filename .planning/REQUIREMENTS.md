@@ -1,4 +1,4 @@
-# Requirements: Encro — 日志系统优化
+# Requirements: Encro -- 日志系统优化
 
 **Defined:** 2026-05-23
 **Core Value:** 每条日志都能回答三个问题：从哪来的、在干什么、花了多久。
@@ -78,15 +78,15 @@ Deferred to future release.
 | INF-03 | Phase 1 | Pending |
 | INF-04 | Phase 1 | Pending |
 | INF-05 | Phase 1 | Pending |
-| FILE-01 | Phase 2 | Pending |
-| FILE-02 | Phase 2 | Pending |
-| FILE-03 | Phase 1 | Pending |
-| FILE-04 | Phase 2 | Pending |
-| FILE-05 | Phase 1 | Pending |
 | OBS-01 | Phase 1 | Pending |
 | OBS-02 | Phase 1 | Pending |
-| OBS-03 | Phase 2 | Pending |
 | OBS-04 | Phase 1 | Pending |
+| FILE-01 | Phase 2 | Pending |
+| FILE-02 | Phase 2 | Pending |
+| FILE-03 | Phase 2 | Pending |
+| FILE-04 | Phase 2 | Pending |
+| FILE-05 | Phase 2 | Pending |
+| OBS-03 | Phase 2 | Pending |
 | FOR-01 | Phase 3 | Pending |
 | FOR-02 | Phase 3 | Pending |
 | FOR-03 | Phase 3 | Pending |
@@ -101,4 +101,4 @@ Deferred to future release.
 
 ---
 *Requirements defined: 2026-05-23*
-*Last updated: 2026-05-23 after initial definition*
+*Last updated: 2026-05-23 — traceability updated after roadmap creation*
