@@ -125,9 +125,30 @@ namespace logging::detail {
     fmt::format(__VA_ARGS__)              \
   )
 
+// ── loggerPtr forward declaration ───────────────────────────────────────────
+// ScopedTimer's inline methods call LOG_INFO which references loggerPtr().
+// DEFINE_LOGGER (in each .cpp file) provides the definition. This forward
+// declaration ensures the compiler knows the signature before parsing
+// ScopedTimer's inline bodies.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wundefined-internal"
+static auto loggerPtr() noexcept -> spdlog::logger*;
+#pragma clang diagnostic pop
+
 // ── ScopedTimer (D-08~D-12: RAII stage timing) ──
-// RED phase stub — compiles but does not log. Tests will fail at runtime.
-// Full implementation with LOG_INFO calls comes in GREEN phase.
+//
+// D-08: Constructor logs "[stage] begin" at LOG_INFO.
+//       Destructor logs "[stage] completed in Xms" at LOG_INFO.
+// D-09: Freeform std::string_view stage name — descriptive, not machine-parseable.
+// D-10: steady_clock for duration measurement — never mixed with system_clock
+//       spdlog timestamps (Pitfall #4 prevention).
+// D-11: Destructor is noexcept — always completes even during exception unwinding.
+// D-12: Nesting naturally supported — each ScopedTimer holds independent start_
+//       timepoint. C++ destruction order (reverse of construction) produces
+//       correctly ordered begin/complete pairs.
+//
+// Move-only: copy deleted. Move transfers timing ownership — moved-from
+// instances are no-ops on destruction to prevent double-logging.
 
 namespace logging {
 
@@ -140,9 +161,15 @@ public:
     explicit ScopedTimer(std::string_view stageName)
         : stageName_(stageName)
         , start_(std::chrono::steady_clock::now()) {
+        LOG_INFO("{} begin", stageName_);
     }
 
     ~ScopedTimer() noexcept {
+        if (movedFrom_) { return; }
+        auto const elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - start_)
+                                 .count();
+        LOG_INFO("{} completed in {}ms", stageName_, elapsed);
     }
 
     ScopedTimer(ScopedTimer const&) = delete;
@@ -158,6 +185,7 @@ public:
         if (this != &other) {
             stageName_ = other.stageName_;
             start_ = other.start_;
+            movedFrom_ = false;
             other.movedFrom_ = true;
         }
         return *this;
