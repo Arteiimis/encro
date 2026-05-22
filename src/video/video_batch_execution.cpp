@@ -10,13 +10,16 @@
 #include "infra/terminal.h"
 #include "utils/utils.h"
 
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <format>
 #include <thread>
+
+DEFINE_LOGGER(logtags::VIDEO_BATCH)
 
 namespace fs = std::filesystem;
 using enum terminal::MessageKind;
@@ -125,7 +128,7 @@ auto runEncodingTask(
     return eh::makeError("Encoding canceled by user.");
   }
 
-  spdlog::debug(
+  LOG_DEBUG(
     "[slot:{} task:{}/{}] start encoding: {}",
     slot + 1,
     taskIndex + 1,
@@ -194,7 +197,7 @@ auto runEncodingTask(
   );
 
   if (result) {
-    spdlog::info(
+    LOG_INFO(
       "[slot:{} task:{}/{}] encoded success: {} -> {} ({} ms)",
       slot + 1,
       taskIndex + 1,
@@ -204,7 +207,7 @@ auto runEncodingTask(
       elapsedMs
     );
   } else {
-    spdlog::warn(
+    LOG_WARN(
       "[slot:{} task:{}/{}] encoded failed: {} ({} ms)",
       slot + 1,
       taskIndex + 1,
@@ -232,7 +235,7 @@ auto runEncodingWithoutProgress(
 ) -> videobatch::EncodeResultsMap {
   auto vidsRunRes = videobatch::EncodeResultsMap{};
 
-  spdlog::info(
+  LOG_INFO(
     "Running encoding without progress bars (verbose echo mode), total={}.",
     vids.size()
   );
@@ -253,7 +256,7 @@ auto runEncodingWithoutProgress(
       state.outputPath = state.plannedOutputFile->parent_path();
     }
 
-    spdlog::debug("Start encoding (no-progress): {}", vidPath.string());
+    LOG_DEBUG("Start encoding (no-progress): {}", vidPath.string());
     markRunningNoProgress(ctx, state.actionId);
 
     auto const success = encodeVideo(ctx, state, {});
@@ -269,9 +272,9 @@ auto runEncodingWithoutProgress(
       state.lastError.value_or("encoding failed")
     );
     if (success) {
-      spdlog::info("Encoded success (no-progress): {}", vidPath.string());
+      LOG_INFO("Encoded success (no-progress): {}", vidPath.string());
     } else {
-      spdlog::warn("Encoded failed (no-progress): {}", vidPath.string());
+      LOG_WARN("Encoded failed (no-progress): {}", vidPath.string());
     }
   }
 
@@ -292,7 +295,7 @@ auto videobatch::runEncodingTasks(
 
   if (vids.empty()) { return EncodeResultsMap{}; }
 
-  spdlog::info(
+  LOG_INFO(
     "Preparing encoding batch: pending={} overall={} completed-before-start={} "
     "output-format={} pack-output={}",
     vids.size(),
@@ -311,13 +314,13 @@ auto videobatch::runEncodingTasks(
   );
   if (!proceed) {
     terminal::println(Warning, "Encoding tasks canceled by user.");
-    spdlog::info("Encoding canceled by user.");
+    LOG_INFO("Encoding canceled by user.");
     return std::nullopt;
   }
 
   if (ctx.config.verbose && ctx.config.verboseEcho) {
     terminal::println(Warning, "Verbose echo enabled: progress bars are disabled.");
-    spdlog::debug("Progress bars disabled due to verbose echo mode.");
+    LOG_DEBUG("Progress bars disabled due to verbose echo mode.");
     return runEncodingWithoutProgress(ctx, vids, plannedOutputFiles, actionIds);
   }
 
@@ -339,7 +342,7 @@ auto videobatch::runEncodingTasks(
     terminal::count(vids.size()),
     terminal::count(workerCount)
   );
-  spdlog::info(
+  LOG_INFO(
     "Scheduling encoding workers: workers={} pending={} overall={} "
     "completed-before-start={}",
     workerCount,
@@ -384,7 +387,7 @@ auto videobatch::runEncodingTasks(
     results = results.set(vids[taskIndex], runState.results[taskIndex].has_value());
   }
 
-  spdlog::info(
+  LOG_INFO(
     "Encoding batch completed: attempted={} completed={} ",
     runState.attemptedCount,
     results.size()
