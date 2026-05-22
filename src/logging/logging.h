@@ -17,11 +17,11 @@
 namespace logging::detail {
 
 [[nodiscard]] inline auto shortFile(char const* path) noexcept -> char const* {
-    auto const* last = path;
-    for (auto const* p = path; *p != '\0'; ++p) {
-        if (*p == '/' || *p == '\\') { last = p + 1; }
-    }
-    return last;
+  auto const* last = path;
+  for (auto const* p = path; *p != '\0'; ++p) {
+    if (*p == '/' || *p == '\\') { last = p + 1; }
+  }
+  return last;
 }
 
 }  // namespace logging::detail
@@ -41,13 +41,13 @@ namespace logging::detail {
 //
 // 使用裸指针而非 shared_ptr — logger 生命周期由 spdlog registry 保证。
 
-#define DEFINE_LOGGER(tag) \
-    static auto loggerPtr() noexcept -> spdlog::logger* { \
-        if (auto* p = spdlog::get(tag).get()) return p; \
-        if (auto* p = spdlog::default_logger_raw()) return p; \
-        static auto fallback = std::make_shared<spdlog::logger>("__encro_null__"); \
-        return fallback.get(); \
-    }
+#define DEFINE_LOGGER(tag)                                                     \
+  static auto loggerPtr() noexcept -> spdlog::logger* {                        \
+    if (auto* p = spdlog::get(tag).get()) return p;                            \
+    if (auto* p = spdlog::default_logger_raw()) return p;                      \
+    static auto fallback = std::make_shared<spdlog::logger>("__encro_null__"); \
+    return fallback.get();                                                     \
+  }
 
 // ── 日志宏 (D-01: 自定义封装层，内部使用 SPDLOG_LOGGER_CALL) ─────────────
 //
@@ -64,56 +64,62 @@ namespace logging::detail {
 //   %n → named logger 名称 → 模块标签 (如 "video.encode")
 //   %v → 消息体 (已含 "[file:line] actual message")
 
-#define LOG_TRACE(...) \
-    SPDLOG_LOGGER_CALL( \
-        loggerPtr(), \
-        spdlog::level::trace, \
-        "[{}:{}] {}", \
-        logging::detail::shortFile(__FILE__), \
-        __LINE__, \
-        fmt::format(__VA_ARGS__))
+#define LOG_TRACE(...)                    \
+  SPDLOG_LOGGER_CALL(                     \
+    loggerPtr(),                          \
+    spdlog::level::trace,                 \
+    "[{}:{}] {}",                         \
+    logging::detail::shortFile(__FILE__), \
+    __LINE__,                             \
+    fmt::format(__VA_ARGS__)              \
+  )
 
-#define LOG_DEBUG(...) \
-    SPDLOG_LOGGER_CALL( \
-        loggerPtr(), \
-        spdlog::level::debug, \
-        "[{}:{}] {}", \
-        logging::detail::shortFile(__FILE__), \
-        __LINE__, \
-        fmt::format(__VA_ARGS__))
+#define LOG_DEBUG(...)                    \
+  SPDLOG_LOGGER_CALL(                     \
+    loggerPtr(),                          \
+    spdlog::level::debug,                 \
+    "[{}:{}] {}",                         \
+    logging::detail::shortFile(__FILE__), \
+    __LINE__,                             \
+    fmt::format(__VA_ARGS__)              \
+  )
 
-#define LOG_INFO(...) \
-    SPDLOG_LOGGER_CALL( \
-        loggerPtr(), \
-        spdlog::level::info, \
-        "[{}:{}] {}", \
-        logging::detail::shortFile(__FILE__), \
-        __LINE__, \
-        fmt::format(__VA_ARGS__))
+#define LOG_INFO(...)                     \
+  SPDLOG_LOGGER_CALL(                     \
+    loggerPtr(),                          \
+    spdlog::level::info,                  \
+    "[{}:{}] {}",                         \
+    logging::detail::shortFile(__FILE__), \
+    __LINE__,                             \
+    fmt::format(__VA_ARGS__)              \
+  )
 
-#define LOG_WARN(...) \
-    SPDLOG_LOGGER_CALL( \
-        loggerPtr(), \
-        spdlog::level::warn, \
-        "[{}:{}] {}", \
-        logging::detail::shortFile(__FILE__), \
-        __LINE__, \
-        fmt::format(__VA_ARGS__))
+#define LOG_WARN(...)                     \
+  SPDLOG_LOGGER_CALL(                     \
+    loggerPtr(),                          \
+    spdlog::level::warn,                  \
+    "[{}:{}] {}",                         \
+    logging::detail::shortFile(__FILE__), \
+    __LINE__,                             \
+    fmt::format(__VA_ARGS__)              \
+  )
 
-#define LOG_ERROR(...) \
-    SPDLOG_LOGGER_CALL( \
-        loggerPtr(), \
-        spdlog::level::err, \
-        "[{}:{}] {}", \
-        logging::detail::shortFile(__FILE__), \
-        __LINE__, \
-        fmt::format(__VA_ARGS__))
+#define LOG_ERROR(...)                    \
+  SPDLOG_LOGGER_CALL(                     \
+    loggerPtr(),                          \
+    spdlog::level::err,                   \
+    "[{}:{}] {}",                         \
+    logging::detail::shortFile(__FILE__), \
+    __LINE__,                             \
+    fmt::format(__VA_ARGS__)              \
+  )
 
-#define LOG_CRITICAL(...) \
-    SPDLOG_LOGGER_CALL( \
-        loggerPtr(), \
-        spdlog::level::critical, \
-        "[{}:{}] {}", \
-        logging::detail::shortFile(__FILE__), \
-        __LINE__, \
-        fmt::format(__VA_ARGS__))
+#define LOG_CRITICAL(...)                 \
+  SPDLOG_LOGGER_CALL(                     \
+    loggerPtr(),                          \
+    spdlog::level::critical,              \
+    "[{}:{}] {}",                         \
+    logging::detail::shortFile(__FILE__), \
+    __LINE__,                             \
+    fmt::format(__VA_ARGS__)              \
+  )

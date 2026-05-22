@@ -16,34 +16,30 @@ using enum terminal::MessageKind;
 namespace {
 
 auto setupLogging(CmdParseResult const& cmd) -> std::optional<fs::path> {
-    if (!cmd.verbose) {
-        spdlog::set_level(spdlog::level::off);
-        if (cmd.verboseEcho) {
-            terminal::println(
-                Warning,
-                "Warning: --verbose-echo requires --verbose; option ignored."
-            );
-        }
-        return std::nullopt;
+  if (!cmd.verbose) {
+    spdlog::set_level(spdlog::level::off);
+    if (cmd.verboseEcho) {
+      terminal::println(
+        Warning,
+        "Warning: --verbose-echo requires --verbose; option ignored."
+      );
     }
+    return std::nullopt;
+  }
 
-    auto const logConfig = logging::LogConfig{
-        .verboseEnabled     = cmd.verbose,
-        .verboseEchoEnabled = cmd.verboseEcho,
-        .colorsEnabled      = terminal::colorsEnabled(),
-    };
+  auto const logConfig = logging::LogConfig{
+    .verboseEnabled = cmd.verbose,
+    .verboseEchoEnabled = cmd.verboseEcho,
+    .colorsEnabled = terminal::colorsEnabled(),
+  };
 
-    auto const logFilePath = logging::setup(logConfig);
+  auto const logFilePath = logging::setup(logConfig);
 
-    if (logFilePath.has_value() && !cmd.verboseEcho) {
-        terminal::println(
-            Hint,
-            "Verbose log file: {}",
-            terminal::path(logFilePath.value())
-        );
-    }
+  if (logFilePath.has_value() && !cmd.verboseEcho) {
+    terminal::println(Hint, "Verbose log file: {}", terminal::path(logFilePath.value()));
+  }
 
-    return logFilePath;
+  return logFilePath;
 }
 
 }  // namespace
@@ -94,9 +90,7 @@ void logConfigSummary(appctx::AppConfig const& config) {
     LOG_INFO("Collision-safe file naming disabled for unique flat outputs.");
   }
 
-  if (config.pictureFolderSummary) {
-    LOG_INFO("Picture folder summary images enabled.");
-  }
+  if (config.pictureFolderSummary) { LOG_INFO("Picture folder summary images enabled."); }
 
   if (config.ffmpegInstallDir.has_value()) {
     LOG_INFO(
