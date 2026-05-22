@@ -1,5 +1,8 @@
 #include "video/video_progress_parser.h"
 
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
 #include <boost/parser/parser.hpp>
 
 #include <cctype>
@@ -7,6 +10,8 @@
 #include <fstream>
 
 namespace fs = std::filesystem;
+
+DEFINE_LOGGER(logtags::VIDEO_PROGRESS)
 
 namespace {
 
