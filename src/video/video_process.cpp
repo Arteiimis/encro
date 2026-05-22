@@ -164,6 +164,7 @@ void printNoEncodableVideosMessage(
 
 auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
   -> std::vector<fs::path> {
+  logging::ScopedTimer timer("video.scan");
   terminal::println(
     Info,
     "Scanning input path for videos: {} ...",
@@ -184,6 +185,7 @@ auto scanInputVideosFromFiles(
   appctx::AppContext& ctx,
   std::span<fs::path const> inputPaths
 ) -> std::vector<fs::path> {
+  logging::ScopedTimer timer("video.scan");
   terminal::println(
     Info,
     "Scanning input files for videos: {} file(s) ...",
@@ -295,17 +297,20 @@ auto runScannedEncodingWorkflow(
 
   auto const prepared = prepareEncodeActions(ctx, vids, plannedOutputFiles);
   auto const pendingVids = toStdVector(prepared.pendingVids);
-  auto const runRes = videobatch::runEncodingTasks(
-    ctx,
-    pendingVids,
-    plannedOutputFiles,
-    prepared.actionIds,
-    prepared.totalActions,
-    prepared.initialResults.size()
-  );
-  if (!runRes.has_value()) { return canceledExitCodeForPromptAbort(); }
-
-  auto const vidsRunRes = mergeEncodeResults(prepared.initialResults, runRes.value());
+  auto vidsRunRes = EncodeResultsMap{};
+  {
+    logging::ScopedTimer timer("video.encode");
+    auto const runRes = videobatch::runEncodingTasks(
+      ctx,
+      pendingVids,
+      plannedOutputFiles,
+      prepared.actionIds,
+      prepared.totalActions,
+      prepared.initialResults.size()
+    );
+    if (!runRes.has_value()) { return canceledExitCodeForPromptAbort(); }
+    vidsRunRes = mergeEncodeResults(prepared.initialResults, runRes.value());
+  }
 
   if (
     auto const stopExit = maybeHandleInterruptedEncoding(ctx, prepared);
@@ -388,6 +393,7 @@ auto packEncodedVideos(
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes
 ) -> int {
+  logging::ScopedTimer timer("video.pack");
   LOG_INFO("Packing encoded outputs for input: {}", inputPath.string());
   auto const encodedOutputFiles =
     collectEncodedOutputFiles(ctx, plannedOutputFiles, vidsRunRes);
