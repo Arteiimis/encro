@@ -22,7 +22,13 @@ Four phases transform encro's flat, single-file logging into a production-grade 
   2. Each .cpp file registers a module logger with a single DEFINE_LOGGER("video.encode") call, and every log line from that file carries the module tag (e.g., `[video.encode]`).
   3. All logger creation, sink wiring, and spdlog registration is confined to `src/logging/setup.cpp` -- business code files contain only `DEFINE_LOGGER` and `LOG_*` macro invocations, never direct spdlog API calls.
   4. Module tag constants are declared in a single header (`src/logging/log_tags.h`) with a documented dot-notation hierarchy (`video.encode`, `pack.zip`), and all DEFINE_LOGGER calls reference these constants -- no ad-hoc tag strings exist anywhere.
-**Plans**: TBD
+**Plans**: 4 plans in 2 waves
+
+Plans:
+- [ ] 01-01-PLAN.md — Logging infrastructure: log_tags.h, logging.h, setup.h, setup.cpp, TDD tests (Wave 1)
+- [ ] 01-02-PLAN.md — Build system (SPDLOG_ACTIVE_LEVEL) + prelude.cpp refactoring (Wave 2)
+- [ ] 01-03-PLAN.md — Migration of 11 spdlog-active files to LOG_* macros (Wave 2)
+- [ ] 01-04-PLAN.md — DEFINE_LOGGER for 10 files without current spdlog usage (Wave 2)
 
 ### Phase 2: File Management + Runtime Observability
 **Goal**: Each CLI invocation produces a self-contained, time-aware log file with automatic lifecycle management -- users get per-run isolation, automatic cleanup, and stage-level timing in every log.
@@ -63,7 +69,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Logging Foundation | 0/0 | Not started | - |
+| 1. Logging Foundation | 0/4 | Planned | - |
 | 2. File Management + Runtime Observability | 0/0 | Not started | - |
 | 3. Forensics | 0/0 | Not started | - |
 | 4. JSON Tooling | 0/0 | Not started | - |
