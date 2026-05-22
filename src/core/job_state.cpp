@@ -20,7 +20,7 @@ namespace jobstate {
 namespace json = boost::json;
 using namespace std::chrono;
 
-DEFINE_LOGGER(logtags::CORE_JOB)
+DEFINE_LOGGER(logtags::CORE_JOB);
 
 namespace detail {
 

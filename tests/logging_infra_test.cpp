@@ -81,20 +81,20 @@ TEST_CASE("log_tags.h: tag constants use dot-notation format", "[logging][infra]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DEFINE_LOGGER 必须在文件作用域 — 展开为 file-static 函数，C++ 不允许嵌套函数
+DEFINE_LOGGER(logtags::TEST_INFRA);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Test 2 — DEFINE_LOGGER + LOG_INFO macro expansion
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("DEFINE_LOGGER + LOG_INFO: macro expansion produces correct output", "[logging][infra]") {
-    // Register a capturing logger before DEFINE_LOGGER evaluates.
-    // DEFINE_LOGGER is placed inside the function body so the static is a
-    // function-local lazy static (C++11 magic statics), initialized on first
-    // execution — after the logger is already registered.
+    // 懒初始化 (C++11 magic statics): loggerPtr() 首次调用时初始化，
+    // logger 已经过 registerCapturingLogger 注册
     auto [logger, oss] = registerCapturingLogger(logtags::TEST_INFRA);
 
-    DEFINE_LOGGER(logtags::TEST_INFRA)
-
-    // Verify gLoggerPtr is accessible and non-null
-    REQUIRE(gLoggerPtr != nullptr);
+    // Verify loggerPtr() returns non-null after registration
+    REQUIRE(loggerPtr() != nullptr);
 
     LOG_INFO("test message {}", 42);
     logger->flush();
@@ -135,10 +135,10 @@ TEST_CASE("LOG_INFO: source location injected in message body", "[logging][infra
     auto const expectedShort = std::string_view{shortName};
     CAPTURE(expectedShort);
     CHECK(output.find(expectedShort) != std::string::npos);
-    // Message should start with '[' and contain ']:' pattern
+    // Message should start with '[' and contain ']' pattern
     CHECK(output.find('[') != std::string::npos);
-    auto const colonBracket = output.find("]:");
-    CHECK(colonBracket != std::string::npos);
+    auto const bracketSpace = output.find("] ");
+    CHECK(bracketSpace != std::string::npos);
     // After the bracket and colon there should be the actual message
     CHECK(output.find("hello from test 3") != std::string::npos);
 }

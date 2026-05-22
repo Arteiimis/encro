@@ -7,7 +7,7 @@
 
 #include <algorithm>
 
-DEFINE_LOGGER(logtags::CORE_PARALLEL)
+DEFINE_LOGGER(logtags::CORE_PARALLEL);
 
 namespace parallel {
 

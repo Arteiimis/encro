@@ -48,7 +48,7 @@ auto setupLogging(CmdParseResult const& cmd) -> std::optional<fs::path> {
 
 }  // namespace
 
-DEFINE_LOGGER(logtags::APP_PRELUDE)
+DEFINE_LOGGER(logtags::APP_PRELUDE);
 
 namespace prelude {
 

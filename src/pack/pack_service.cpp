@@ -22,7 +22,7 @@
 namespace fs = std::filesystem;
 using enum terminal::MessageKind;
 
-DEFINE_LOGGER(logtags::PACK_SERVICE)
+DEFINE_LOGGER(logtags::PACK_SERVICE);
 
 namespace pack {
 namespace {

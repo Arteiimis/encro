@@ -16,7 +16,7 @@
   #include <csignal>
 #endif
 
-DEFINE_LOGGER(logtags::INFRA_SIGNAL)
+DEFINE_LOGGER(logtags::INFRA_SIGNAL);
 
 namespace {
 
