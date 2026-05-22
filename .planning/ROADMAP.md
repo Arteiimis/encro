@@ -40,7 +40,13 @@ Plans:
   3. The encoding pipeline logs entry and exit of each major stage (scan, probe, encode, pack) with elapsed time -- developers add timing by placing a single RAII guard at stage entry, and the elapsed duration appears in the log on scope exit.
   4. If the log directory cannot be created or written to (e.g., permissions, disk full), encro falls back to a temporary directory and continues execution -- the user's encoding workflow is never blocked by logging infrastructure failures.
   5. When the crash handler fires, the final critical log message and any buffered spdlog content are appended directly to the current run's log file via a bypass path, ensuring crash diagnostics survive even if the async queue has been drained.
-**Plans**: TBD
+**Plans**: 4 plans in 2 waves
+
+Plans:
+- [ ] 02-01-PLAN.md — File management: timestamped naming, retention cleanup, rotating sink, fallback chain, currentLogFilePath() (Wave 1)
+- [ ] 02-02-PLAN.md — ScopedTimer: RAII stage timing class with TDD tests (Wave 1)
+- [ ] 02-03-PLAN.md — Crash handler: direct file append bypass path, 3-tier fallback chain (Wave 2)
+- [ ] 02-04-PLAN.md — Pipeline instrumentation: ScopedTimer at video/picture/pack stage entry points (Wave 2)
 
 ### Phase 3: Forensics
 **Goal**: When an error occurs, the log contains a complete diagnostic chain -- what was being processed, at which stage, after how many attempts, and the system state at failure time -- enabling root-cause identification without reproduction.
@@ -70,6 +76,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Logging Foundation | 4/4 | Complete    | 2026-05-22 |
-| 2. File Management + Runtime Observability | 0/0 | Not started | - |
+| 2. File Management + Runtime Observability | 0/4 | Planned | - |
 | 3. Forensics | 0/0 | Not started | - |
 | 4. JSON Tooling | 0/0 | Not started | - |
