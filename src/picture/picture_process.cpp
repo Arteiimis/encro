@@ -286,7 +286,10 @@ auto executeDirectPackWorkflow(
   fs::path const& dirPath,
   fs::path const& outputDir
 ) -> eh::Result<int> {
-  auto const scannedPics = readAllPics(ctx.config, dirPath);
+  auto const scannedPics = [&]() {
+    logging::ScopedTimer timer("picture.scan");
+    return readAllPics(ctx.config, dirPath);
+  }();
   if (scannedPics.empty()) {
     return eh::makeError("No pictures found in directory: {}", dirPath.string());
   }
@@ -327,7 +330,10 @@ auto executeDirectPackWorkflow(
 
   auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
-  auto const packRes = pack::execute(request);
+  auto const packRes = [&]() {
+    logging::ScopedTimer timer("picture.pack");
+    return pack::execute(request);
+  }();
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
@@ -344,7 +350,10 @@ auto executeCompressPackWorkflow(
   fs::path const& dirPath,
   fs::path const& outputDir
 ) -> eh::Result<int> {
-  auto const scannedPics = readAllPics(ctx.config, dirPath);
+  auto const scannedPics = [&]() {
+    logging::ScopedTimer timer("picture.scan");
+    return readAllPics(ctx.config, dirPath);
+  }();
   if (scannedPics.empty()) {
     return eh::makeError("No pictures found in directory: {}", dirPath.string());
   }
@@ -400,8 +409,10 @@ auto executeCompressPackWorkflow(
   );
 
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
-  auto const compressResults =
-    compressImageBatch(ctx, compressTasks, quality, maxParallel);
+  auto const compressResults = [&]() {
+    logging::ScopedTimer timer("picture.compress");
+    return compressImageBatch(ctx, compressTasks, quality, maxParallel);
+  }();
 
   if (stopsignal::isStopRequested()) {
     fs::remove_all(tempDir, ec);
@@ -459,7 +470,10 @@ auto executeCompressPackWorkflow(
 
   auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
-  auto const packRes = pack::execute(request);
+  auto const packRes = [&]() {
+    logging::ScopedTimer timer("picture.pack");
+    return pack::execute(request);
+  }();
   fs::remove_all(tempDir, ec);
 
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
