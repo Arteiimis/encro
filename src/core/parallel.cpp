@@ -1,8 +1,13 @@
 #include "parallel.h"
 
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
 #include <BS_thread_pool.hpp>
 
 #include <algorithm>
+
+DEFINE_LOGGER(logtags::CORE_PARALLEL)
 
 namespace parallel {
 
