@@ -2,7 +2,10 @@
 
 #include "utils/utils.h"
 
-#include <spdlog/spdlog.h>
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
+DEFINE_LOGGER(logtags::INFRA_TOOLCHAIN)
 
 namespace toolchain {
 
@@ -22,8 +25,8 @@ auto resolve(appctx::AppConfig const& config, appctx::ToolchainPaths& out)
     );
   }
 
-  spdlog::info("Using FFmpeg at: {}", out.ffmpegPath.value().string());
-  spdlog::info("Using FFprobe at: {}", out.ffprobePath.value().string());
+  LOG_INFO("Using FFmpeg at: {}", out.ffmpegPath.value().string());
+  LOG_INFO("Using FFprobe at: {}", out.ffprobePath.value().string());
 
   return {};
 }
