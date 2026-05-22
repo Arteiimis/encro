@@ -6,7 +6,7 @@ Four phases transform encro's flat, single-file logging into a production-grade 
 
 ## Phases
 
-- [ ] **Phase 1: Logging Foundation** - Macros, module tag convention, logger registry, and centralized config
+- [x] **Phase 1: Logging Foundation** - Macros, module tag convention, logger registry, and centralized config (completed 2026-05-22)
 - [ ] **Phase 2: File Management + Runtime Observability** - Per-run timestamped files, retention cleanup, and scoped stage timing
 - [ ] **Phase 3: Forensics** - Error context chain traceback and environment snapshots on failure
 - [ ] **Phase 4: JSON Tooling** - NDJSON structured output via --log-json with custom formatter
@@ -25,10 +25,10 @@ Four phases transform encro's flat, single-file logging into a production-grade 
 **Plans**: 4 plans in 2 waves
 
 Plans:
-- [ ] 01-01-PLAN.md — Logging infrastructure: log_tags.h, logging.h, setup.h, setup.cpp, TDD tests (Wave 1)
-- [ ] 01-02-PLAN.md — Build system (SPDLOG_ACTIVE_LEVEL) + prelude.cpp refactoring (Wave 2)
-- [ ] 01-03-PLAN.md — Migration of 11 spdlog-active files to LOG_* macros (Wave 2)
-- [ ] 01-04-PLAN.md — DEFINE_LOGGER for 10 files without current spdlog usage (Wave 2)
+- [x] 01-01-PLAN.md — Logging infrastructure: log_tags.h, logging.h, setup.h, setup.cpp, TDD tests (Wave 1)
+- [x] 01-02-PLAN.md — Build system (SPDLOG_ACTIVE_LEVEL) + prelude.cpp refactoring (Wave 2)
+- [x] 01-03-PLAN.md — Migration of 11 spdlog-active files to LOG_* macros (Wave 2)
+- [x] 01-04-PLAN.md — DEFINE_LOGGER for 10 files without current spdlog usage (Wave 2)
 
 ### Phase 2: File Management + Runtime Observability
 **Goal**: Each CLI invocation produces a self-contained, time-aware log file with automatic lifecycle management -- users get per-run isolation, automatic cleanup, and stage-level timing in every log.
@@ -69,7 +69,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Logging Foundation | 0/4 | Planned | - |
+| 1. Logging Foundation | 4/4 | Complete   | 2026-05-22 |
 | 2. File Management + Runtime Observability | 0/0 | Not started | - |
 | 3. Forensics | 0/0 | Not started | - |
 | 4. JSON Tooling | 0/0 | Not started | - |
