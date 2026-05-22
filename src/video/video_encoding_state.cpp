@@ -85,9 +85,7 @@ void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& execu
     if (executionCtx.finished() >= executionCtx.overallTotal()) { break; }
 
     if (stopsignal::isStopRequested() && activeStates.empty()) {
-      LOG_INFO(
-        "Encoding monitor exiting after stop request; no active tasks remain."
-      );
+      LOG_INFO("Encoding monitor exiting after stop request; no active tasks remain.");
       break;
     }
 

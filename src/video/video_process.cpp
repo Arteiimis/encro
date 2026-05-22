@@ -525,9 +525,7 @@ int handleMultiFileEncoding(
     && ctx.config.outputPath.has_value()
     && !basePath.has_value()
   ) {
-    LOG_ERROR(
-      "--keep requires multiple input files to share the same parent directory."
-    );
+    LOG_ERROR("--keep requires multiple input files to share the same parent directory.");
     return 1;
   }
 
