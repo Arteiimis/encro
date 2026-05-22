@@ -7,12 +7,17 @@
 #include "picture/picture_process.h"
 #include "video/video_process.h"
 
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
 #include <algorithm>
 #include <filesystem>
 
 namespace fs = std::filesystem;
 
 using enum terminal::MessageKind;
+
+DEFINE_LOGGER(logtags::APP_PIPELINE)
 
 namespace pipeline {
 
