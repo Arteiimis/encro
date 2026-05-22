@@ -3,6 +3,9 @@
 
 #include "core/collision_naming.h"
 
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+
 #include <boost/json.hpp>
 
 #include <algorithm>
@@ -16,6 +19,8 @@ namespace jobstate {
 
 namespace json = boost::json;
 using namespace std::chrono;
+
+DEFINE_LOGGER(logtags::CORE_JOB)
 
 namespace detail {
 
