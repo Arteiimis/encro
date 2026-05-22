@@ -350,3 +350,116 @@ TEST_CASE("cleanup does not delete current log file", "[logging][file_mgmt]") {
   // Cleanup
   removeDir(testDir);
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Test 6 — setup continues when primary log dir is unwritable (D-21, D-22)
+// ══════════════════════════════════════════════════════════════════════════════
+
+TEST_CASE("setup falls back when primary log dir is unwritable", "[logging][file_mgmt]") {
+  auto const testDir = makeTestDir("test6_unwritable");
+
+  // Create a FILE at the path where setup() would try to create directories.
+  // This causes fs::create_directories() to fail because the parent path
+  // component is a file, not a directory.
+  auto const blockingFilePath = testDir / "blocked";
+  auto blockFile = std::ofstream{blockingFilePath};
+  blockFile << "block\n";
+  blockFile.close();
+
+  // customLogDir points to a path whose parent component is a file
+  auto const blockedLogDir = blockingFilePath / "encro" / "logs";
+
+  auto const config = logging::LogConfig{
+    .verboseEnabled = true,
+    .verboseEchoEnabled = false,
+    .colorsEnabled = false,
+    .customLogDir = blockedLogDir,
+  };
+
+  // D-21: setup() must NOT throw or crash when primary dir is unwritable
+  auto const result = logging::setup(config);
+
+  // D-21: Fallback should succeed — setup() returns a valid path (the temp fallback)
+  REQUIRE(result.has_value());
+
+  auto const logFilePath = result.value();
+  CAPTURE(logFilePath.string());
+
+  // The fallback path must exist and have a timestamped name
+  CHECK(fs::exists(logFilePath));
+  CHECK(isTimestampedName(logFilePath));
+
+  // Cleanup
+  logging::shutdown();
+  removeDir(testDir);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Test 7 — setup returns nullopt when verboseEnabled is false
+// ══════════════════════════════════════════════════════════════════════════════
+
+TEST_CASE("setup returns nullopt when verbose is disabled", "[logging][file_mgmt]") {
+  auto const config = logging::LogConfig{
+    .verboseEnabled = false,
+    .verboseEchoEnabled = false,
+    .colorsEnabled = false,
+  };
+
+  auto const result = logging::setup(config);
+  CHECK_FALSE(result.has_value());
+  CHECK_FALSE(logging::currentLogFilePath().has_value());
+
+  logging::shutdown();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Test 8 — rotating file sink is configured and functional (D-17, D-18)
+// ══════════════════════════════════════════════════════════════════════════════
+
+TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgmt]") {
+  auto const testDir = makeTestDir("test8_rotating_sink");
+
+  auto const config = logging::LogConfig{
+    .verboseEnabled = true,
+    .verboseEchoEnabled = false,
+    .colorsEnabled = false,
+    .customLogDir = testDir,
+  };
+
+  auto const result = logging::setup(config);
+  REQUIRE(result.has_value());
+
+  auto const logFilePath = result.value();
+  CAPTURE(logFilePath.string());
+
+  // Verify the file sink exists by checking the default logger's sinks
+  auto const* logger = spdlog::default_logger_raw();
+  REQUIRE(logger != nullptr);
+
+  auto const& sinks = logger->sinks();
+  CHECK_FALSE(sinks.empty());
+
+  // D-17: The log file must exist and be writable
+  CHECK(fs::exists(logFilePath));
+
+  // Write a test message and verify it reaches the file
+  auto const testMsg = "rotating_sink_test_" + std::to_string(
+    std::chrono::system_clock::now().time_since_epoch().count()
+  );
+  spdlog::info("{}", testMsg);
+  spdlog::default_logger()->flush();
+
+  // Shutdown to flush all pending writes
+  logging::shutdown();
+
+  // Read back the file content and verify our message is there
+  auto ifs = std::ifstream{logFilePath};
+  REQUIRE(ifs.is_open());
+  auto content = std::string{std::istreambuf_iterator<char>{ifs},
+                              std::istreambuf_iterator<char>{}};
+  CAPTURE(content);
+  CHECK(content.find(testMsg) != std::string::npos);
+
+  // Cleanup
+  removeDir(testDir);
+}
