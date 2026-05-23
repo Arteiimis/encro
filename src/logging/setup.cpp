@@ -210,11 +210,10 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
 
     // D-17~D-18: human-readable rotating file sink (only when verbose)
     if (config.verboseEnabled) {
-      sinks.emplace_back(
-        std::make_shared<
-          spdlog::sinks::rotating_file_sink_mt
-        >(filePath.string(), 10 * 1024 * 1024, 3)
-      );
+      auto hrSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+        filePath.string(), 10 * 1024 * 1024, 3);
+      hrSink->set_pattern(kLogPattern);
+      sinks.emplace_back(std::move(hrSink));
     }
 
     // D-03/D-04: Companion NDJSON sink with JsonFormatter when --log-json is active
@@ -234,9 +233,13 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
   // 4. 可选的 console sink
   if (config.verboseEchoEnabled) {
     if (config.colorsEnabled) {
-      sinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+      auto consoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+      consoleSink->set_pattern(kLogPattern);
+      sinks.emplace_back(std::move(consoleSink));
     } else {
-      sinks.emplace_back(std::make_shared<spdlog::sinks::stdout_sink_mt>());
+      auto consoleSink = std::make_shared<spdlog::sinks::stdout_sink_mt>();
+      consoleSink->set_pattern(kLogPattern);
+      sinks.emplace_back(std::move(consoleSink));
     }
   }
 
@@ -255,7 +258,6 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
       spdlog::thread_pool(),
       spdlog::async_overflow_policy::block
     );
-    logger->set_pattern(kLogPattern);
     logger->set_level(spdlog::level::debug);
     logger->flush_on(spdlog::level::err);
     spdlog::register_logger(std::move(logger));
@@ -269,7 +271,6 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     spdlog::thread_pool(),
     spdlog::async_overflow_policy::block
   );
-  defaultLogger->set_pattern(kLogPattern);
   defaultLogger->set_level(spdlog::level::debug);
   defaultLogger->flush_on(spdlog::level::err);
   spdlog::set_default_logger(std::move(defaultLogger));
