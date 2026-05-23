@@ -136,10 +136,7 @@ TEST_CASE(
 // Test 4 — Snapshot is safe with null encoding context (minimal snapshot)
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE(
-  "Snapshot is safe with null encoding context",
-  "[logging][snapshot]"
-) {
+TEST_CASE("Snapshot is safe with null encoding context", "[logging][snapshot]") {
   ScopedForensicReset reset;
 
   appctx::AppContext mockCtx{};
@@ -160,10 +157,7 @@ TEST_CASE(
 // Test 5 — Snapshot emitted after LOG_ERROR with context chain
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE(
-  "Snapshot emitted after LOG_ERROR",
-  "[logging][snapshot]"
-) {
+TEST_CASE("Snapshot emitted after LOG_ERROR", "[logging][snapshot]") {
   ScopedForensicReset reset;
   auto [logger, oss] = registerCapturingLoggerForSnapshot(logtags::TEST_INFRA);
 
