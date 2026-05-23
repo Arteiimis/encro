@@ -80,7 +80,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 03-03-PLAN.md — Pipeline placement of ScopedErrorContext at all stage boundaries and retry loops (Wave 3)
+- [x] 03-03-PLAN.md — Pipeline placement of ScopedErrorContext at all stage boundaries and retry loops (Wave 3)
 
 ### Phase 4: JSON Tooling
 
@@ -104,5 +104,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Logging Foundation | 4/4 | Complete    | 2026-05-22 |
 | 2. File Management + Runtime Observability | 4/4 | Complete | 2026-05-23 |
-| 3. Forensics | 2/3 | In Progress|  |
+| 3. Forensics | 3/3 | Complete   | 2026-05-23 |
 | 4. JSON Tooling | 0/0 | Not started | - |
