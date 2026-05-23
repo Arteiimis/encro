@@ -417,7 +417,8 @@ auto executeCompressPackWorkflow(
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
   auto const compressResults = [&]() {
     logging::ScopedTimer timer("picture.compress");
-    auto const compressLabel = std::format("{} picture(s) q={}", compressTasks.size(), quality);
+    auto const compressLabel =
+      std::format("{} picture(s) q={}", compressTasks.size(), quality);
     logging::ScopedErrorContext scopedCtx("picture.compress", compressLabel);
     return compressImageBatch(ctx, compressTasks, quality, maxParallel);
   }();
