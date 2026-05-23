@@ -93,7 +93,12 @@ Plans:
   2. When `--log-json` is active, the terminal/stderr output continues to display human-readable text lines -- JSON is written only to the file sink, preserving developer experience at the console.
   3. JSON output correctly handles edge cases in log message content: Windows file paths with backslashes, Unicode text from FFmpeg (CJK error messages), embedded double quotes, and newline characters -- all properly escaped per the JSON specification.
 
-**Plans**: TBD
+**Plans**: 2 plans in 2 waves
+
+Plans:
+
+- [ ] 04-01-PLAN.md — JsonFormatter: custom spdlog::formatter subclass with boost::json NDJSON output (TDD, Wave 1)
+- [ ] 04-02-PLAN.md — CLI flag wiring (--log-json), config chain, setup.cpp integration, NDJSON retention (Wave 2)
 
 ## Progress
 
@@ -105,4 +110,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Logging Foundation | 4/4 | Complete    | 2026-05-22 |
 | 2. File Management + Runtime Observability | 4/4 | Complete | 2026-05-23 |
 | 3. Forensics | 3/3 | Complete   | 2026-05-23 |
-| 4. JSON Tooling | 0/0 | Not started | - |
+| 4. JSON Tooling | 0/2 | Planned | - |
