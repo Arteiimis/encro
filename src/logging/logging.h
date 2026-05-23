@@ -106,25 +106,61 @@ namespace logging::detail {
     fmt::format(__VA_ARGS__)              \
   )
 
-#define LOG_ERROR(...)                    \
-  SPDLOG_LOGGER_CALL(                     \
-    loggerPtr(),                          \
-    spdlog::level::err,                   \
-    "[{}:{}] {}",                         \
-    logging::detail::shortFile(__FILE__), \
-    __LINE__,                             \
-    fmt::format(__VA_ARGS__)              \
-  )
+#define LOG_ERROR(...)                                                    \
+  do {                                                                     \
+    auto const __encro_ctx_chain = logging::detail::formatContextChain();    \
+    SPDLOG_LOGGER_CALL(                                                     \
+      loggerPtr(),                                                          \
+      spdlog::level::err,                                                   \
+      "[{}:{}] {}{}",                                                       \
+      logging::detail::shortFile(__FILE__),                                 \
+      __LINE__,                                                             \
+      fmt::format(__VA_ARGS__),                                             \
+      __encro_ctx_chain                                                     \
+    );                                                                      \
+    auto const __encro_snapshot = logging::captureEnvironmentSnapshot();     \
+    if (!__encro_snapshot.empty()) {                                         \
+      SPDLOG_LOGGER_CALL(                                                    \
+        loggerPtr(),                                                         \
+        spdlog::level::info,                                                 \
+        "[{}:{}] {}",                                                        \
+        logging::detail::shortFile(__FILE__),                                \
+        __LINE__,                                                            \
+        __encro_snapshot                                                     \
+      );                                                                     \
+    }                                                                        \
+  } while(0)
 
-#define LOG_CRITICAL(...)                 \
-  SPDLOG_LOGGER_CALL(                     \
-    loggerPtr(),                          \
-    spdlog::level::critical,              \
-    "[{}:{}] {}",                         \
-    logging::detail::shortFile(__FILE__), \
-    __LINE__,                             \
-    fmt::format(__VA_ARGS__)              \
-  )
+#define LOG_CRITICAL(...)                                                 \
+  do {                                                                     \
+    auto const __encro_ctx_chain = logging::detail::formatContextChain();    \
+    SPDLOG_LOGGER_CALL(                                                     \
+      loggerPtr(),                                                          \
+      spdlog::level::critical,                                              \
+      "[{}:{}] {}{}",                                                       \
+      logging::detail::shortFile(__FILE__),                                 \
+      __LINE__,                                                             \
+      fmt::format(__VA_ARGS__),                                             \
+      __encro_ctx_chain                                                     \
+    );                                                                      \
+    auto const __encro_snapshot = logging::captureEnvironmentSnapshot();     \
+    if (!__encro_snapshot.empty()) {                                         \
+      SPDLOG_LOGGER_CALL(                                                    \
+        loggerPtr(),                                                         \
+        spdlog::level::info,                                                 \
+        "[{}:{}] {}",                                                        \
+        logging::detail::shortFile(__FILE__),                                \
+        __LINE__,                                                            \
+        __encro_snapshot                                                     \
+      );                                                                     \
+    }                                                                        \
+  } while(0)
+
+// ── Forward declarations for logging types used by macros ───────────────────
+
+namespace logging {
+[[nodiscard]] auto captureEnvironmentSnapshot() -> std::string;
+}  // namespace logging
 
 // ── loggerPtr forward declaration ───────────────────────────────────────────
 // ScopedTimer's inline methods call LOG_INFO which references loggerPtr().

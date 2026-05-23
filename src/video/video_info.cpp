@@ -284,7 +284,7 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
     videoPath.string()
   );
 
-  auto const [exitCode, output] = exec2(cmd, false);
+  auto const [exitCode, output, pid] = exec2(cmd, false);
 
   if (exitCode != 0) {
     LOG_DEBUG(

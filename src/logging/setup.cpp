@@ -1,5 +1,6 @@
 #include "logging/setup.h"
 
+#include "core/app_context.h"
 #include "infra/terminal.h"
 #include "logging/log_tags.h"
 
@@ -205,9 +206,11 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     logFilePath = filePath;
 
     // D-17~D-18: rotating_file_sink_mt, 10 MB 上限, 3 个旋转文件
-    sinks.emplace_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-      filePath.string(), 10 * 1024 * 1024, 3
-    ));
+    sinks.emplace_back(
+      std::make_shared<
+        spdlog::sinks::rotating_file_sink_mt
+      >(filePath.string(), 10 * 1024 * 1024, 3)
+    );
 
     // D-13: 存储当前日志文件路径供 crash handler 直接写入
     gCurrentLogFilePath = filePath;
@@ -270,6 +273,67 @@ auto shutdown() -> void {
 
 auto currentLogFilePath() -> std::optional<fs::path> {
   return gCurrentLogFilePath;
+}
+
+// ── Forensic context state ──────────────────────────────────────────────────
+
+static auto gForensicAppCtx = std::atomic<void*>{nullptr};
+static auto gForensicExecCtx = std::atomic<void*>{nullptr};
+static auto gForensicSnapshotData = EnvironmentSnapshot{};
+
+auto setForensicAppContext(void* appCtx) -> void {
+  gForensicAppCtx.store(appCtx, std::memory_order_release);
+}
+
+auto setForensicExecContext(void* execCtx) -> void {
+  gForensicExecCtx.store(execCtx, std::memory_order_release);
+}
+
+auto setForensicSnapshotData(EnvironmentSnapshot const& data) -> void {
+  gForensicSnapshotData = data;
+}
+
+auto clearForensicSnapshotData() -> void {
+  gForensicAppCtx.store(nullptr, std::memory_order_release);
+  gForensicExecCtx.store(nullptr, std::memory_order_release);
+  gForensicSnapshotData = EnvironmentSnapshot{};
+}
+
+auto captureEnvironmentSnapshot() -> std::string {
+  auto* const appCtx = static_cast<appctx::AppContext*>(
+    gForensicAppCtx.load(std::memory_order_acquire)
+  );
+  if (appCtx == nullptr) { return ""; }
+
+  auto const processType = appCtx->config.processType;
+
+  if (!gForensicSnapshotData.hasEncodingContext) {
+    return fmt::format(
+      "Environment: pipeline={} (no encoding slots)",
+      processType
+    );
+  }
+
+  auto const& data = gForensicSnapshotData;
+  auto subprocessStr = std::string{};
+  if (data.subprocessPid.has_value()) {
+    subprocessStr = fmt::format("subprocess=[pid={}", data.subprocessPid.value());
+    if (data.subprocessCmdline.has_value()) {
+      subprocessStr +=
+        fmt::format(" cmd='{}'", data.subprocessCmdline.value());
+    }
+    subprocessStr += "]";
+  }
+
+  return fmt::format(
+    "Environment: active-slots={}/{} pending={} finished={}{}{}",
+    data.activeSlots,
+    data.totalSlots,
+    data.pending,
+    data.finished,
+    subprocessStr.empty() ? "" : " ",
+    subprocessStr
+  );
 }
 
 }  // namespace logging

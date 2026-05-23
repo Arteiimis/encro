@@ -149,7 +149,7 @@ auto runWebpEncodingStep(
     return {-1, std::nullopt};
   }
 
-  auto const [exitCode, _] = exec2(cfg.buildCMD(), [&](std::string_view line) {
+  auto const [exitCode, _, pid] = exec2(cfg.buildCMD(), [&](std::string_view line) {
     reportEncodingDiagnostic(encodeCtx.statusUpdater, line);
   });
   if (exitCode != 0) {
@@ -285,7 +285,7 @@ auto runStandardEncoding(
   EncodeConfig const& cfg,
   function_ref statusUpdater
 ) -> bool {
-  auto const [exitCode, _] = exec2(cfg.buildCMD(), [&](std::string_view line) {
+  auto const [exitCode, _, pid] = exec2(cfg.buildCMD(), [&](std::string_view line) {
     reportEncodingDiagnostic(statusUpdater, line);
   });
   if (exitCode != 0) {

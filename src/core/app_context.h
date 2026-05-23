@@ -81,6 +81,8 @@ struct EncodingState {
   std::optional<std::string> lastStatus;
   std::optional<std::string> lastError;
   std::optional<int64_t> totalFrames;
+  std::optional<int> subprocessPid;
+  std::optional<std::string> subprocessCmdline;
   bool finished = false;
   bool success = false;
   std::mutex mtx;
