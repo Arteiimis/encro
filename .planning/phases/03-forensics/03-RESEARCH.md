@@ -414,27 +414,19 @@ public:
 | A4 | The `do { ... } while(0)` wrapper on LOG_ERROR (Phase 3 addition) is compatible with all existing LOG_ERROR call sites | Code Examples | LOW -- do-while(0) is the standard C macro safety wrapper; existing call sites are all complete statements ending with `;` |
 | A5 | `ContextFrame` with `std::string_view` fields does not need heap allocation and is safe with the max-16-frames limit | Architecture Patterns | LOW -- string_view is trivially copyable and trivially destructible; vector of 16 frames is ~32 bytes per frame on 64-bit (two pointers) |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **How does `captureEnvironmentSnapshot()` access `EncodingExecutionContext`?**
-   - What we know: The execution context (`EncodingExecutionContext`) is a local variable in `videobatch::runEncodingTasks()`. It is not stored in `AppContext` or `RuntimeContext`. The snapshot function needs a reference to it.
-   - What's unclear: Whether to (a) store a pointer in RuntimeContext during encoding, (b) pass the execution context through the encode call chain to where LOG_ERROR fires, or (c) use a thread-local pointer set by the encoding task.
-   - Recommendation: Option (a) -- store a `std::atomic<EncodingExecutionContext*>` in RuntimeContext, set at encoding start, cleared at encoding end. The snapshot function reads this atomically. This is safe because the pointer is only read (not dereferenced for mutation) and the pointed-to object outlives the encoding task.
+   RESOLVED: Option (a) -- store a `std::atomic<EncodingExecutionContext*>` in RuntimeContext, set at encoding start, cleared at encoding end. The snapshot function reads this atomically. This is safe because the pointer is only read (not dereferenced for mutation) and the pointed-to object outlives the encoding task.
 
 2. **Should context frames show detail when detail is empty?**
-   - What we know: D-04 specifies `stage(detail)` format but does not address the empty-detail case.
-   - What's unclear: Whether to render `"encode()"` or just `"encode"` when detail is empty.
-   - Recommendation: Render as `"stage"` when detail is empty (no parentheses). This is cleaner: `"scan > probe > encode"` vs `"scan() > probe() > encode()"`. Only show `stage(detail)` when detail is non-empty.
+   RESOLVED: Render as `"stage"` when detail is empty (no parentheses). Only show `stage(detail)` when detail is non-empty.
 
 3. **Is the snapshot a single line or multi-line block?**
-   - What we know: D-05 says "separate log block immediately after error line" but does not specify single vs multi-line.
-   - What's unclear: Whether to emit one INFO line with all snapshot data or multiple lines.
-   - Recommendation: Single INFO line using key=value format (`"Environment: active-slots=3/8 pending=12 ..."`). Multi-line snapshots break grep-ability and complicate Phase 4 JSON output.
+   RESOLVED: Single INFO line using key=value format (`"Environment: active-slots=3/8 pending=12 ..."`).
 
 4. **Should LOG_WARN also trigger the environment snapshot?**
-   - What we know: D-05 says "triggered by LOG_ERROR/LOG_CRITICAL" only.
-   - What's unclear: Whether warnings during encoding (e.g., `"ffmpeg exited with non-zero code"` at `video_encode_runner.cpp:292`) should also capture snapshot context.
-   - Recommendation: Follow the spec exactly -- snapshot only on LOG_ERROR and LOG_CRITICAL. The LOG_WARN at line 292 is followed by a return value check that may trigger LOG_ERROR if the overall encode fails. Adding snapshot to LOG_WARN would produce redundant output on retry-able warnings.
+   RESOLVED: Follow the spec exactly -- snapshot only on LOG_ERROR and LOG_CRITICAL. LOG_WARN during encoding does not trigger snapshot.
 
 ## Environment Availability
 
