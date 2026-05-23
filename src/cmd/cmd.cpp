@@ -423,6 +423,13 @@ constexpr auto GeneralFlags = std::array{
     .expectedMax = 0
   },
   CmdFlagDef{
+    .name = "--log-json",
+    .kind = CmdFlagKind::Bool,
+    .description = "enable NDJSON structured log output (one JSON object per line)",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
     .name = "-e,--verbose-echo",
     .kind = CmdFlagKind::Bool,
     .description = "echo verbose logs to console (disable progress bars)",
@@ -726,6 +733,9 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   // General (group)
   applyMap["-v,--verbose"] = [](CmdParseResult& r, CLI::Option const* o) {
     r.verbose = o->count() > 0;
+  };
+  applyMap["--log-json"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.jsonEnabled = o->count() > 0;
   };
   applyMap["-e,--verbose-echo"] = [](CmdParseResult& r, CLI::Option const* o) {
     r.verboseEcho = o->count() > 0;
