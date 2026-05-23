@@ -8,7 +8,7 @@ Four phases transform encro's flat, single-file logging into a production-grade 
 
 - [x] **Phase 1: Logging Foundation** - Macros, module tag convention, logger registry, and centralized config (completed 2026-05-22)
 - [x] **Phase 2: File Management + Runtime Observability** - Per-run timestamped files, retention cleanup, and scoped stage timing
-- [ ] **Phase 3: Forensics** - Error context chain traceback and environment snapshots on failure
+- [x] **Phase 3: Forensics** - Error context chain traceback and environment snapshots on failure
 - [ ] **Phase 4: JSON Tooling** - NDJSON structured output via --log-json with custom formatter
 
 ## Phase Details
@@ -56,7 +56,12 @@ Plans:
   1. When an error is logged, the output includes a full operation context chain: which input file, which pipeline stage, how many retries, and the specific error -- e.g., "input.mkv -> encode stage -> retry 2/3 -> FFmpeg exit code 1".
   2. On error, the log captures a snapshot of the encoding runtime: which concurrent slots were active, how many files remained in the queue, and the FFmpeg subprocess state -- answering "what else was happening?" at failure time.
   3. Error context is accumulated automatically via RAII scoped guards -- developers add context by placing `ScopedErrorContext ctx("stage", detail)` at function boundaries, and the full accumulated chain is serialized inline whenever any `LOG_ERROR` fires within that scope, without requiring manual context threading or spdlog MDC.
-**Plans**: TBD
+**Plans**: 3 plans in 3 waves
+
+Plans:
+- [ ] 03-01-PLAN.md — ScopedErrorContext RAII class, TLS context stack, and formatContextChain() (TDD, Wave 1)
+- [ ] 03-02-PLAN.md — LOG_ERROR/LOG_CRITICAL context chain injection and environment snapshot (TDD, Wave 2)
+- [ ] 03-03-PLAN.md — Pipeline placement of ScopedErrorContext at all stage boundaries and retry loops (Wave 3)
 
 ### Phase 4: JSON Tooling
 **Goal**: Logs can be emitted as structured NDJSON for programmatic consumption (log analyzers, CI pipelines) while console output remains human-readable.
@@ -77,5 +82,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Logging Foundation | 4/4 | Complete    | 2026-05-22 |
 | 2. File Management + Runtime Observability | 4/4 | Complete | 2026-05-23 |
-| 3. Forensics | 0/0 | Not started | - |
+| 3. Forensics | 0/3 | Planned | 2026-05-23 |
 | 4. JSON Tooling | 0/0 | Not started | - |
