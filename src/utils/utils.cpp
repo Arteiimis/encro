@@ -48,6 +48,7 @@ auto exec2Impl(
   auto process = mergeStdErr
     ? bp::child(cmd.data(), bp::std_out > outputPipe, bp::std_err > outputPipe)
     : bp::child(cmd.data(), bp::std_out > outputPipe, bp::std_err > bp::null);
+  auto const capturedPid = static_cast<int>(process.id());
 
   auto closePipeSink = [&] {
     auto const sink = outputPipe.native_sink();
@@ -161,14 +162,14 @@ auto exec2Impl(
       process.detach();
     }
 
-    return {stopsignal::kCanceledExitCode, result};
+    return {stopsignal::kCanceledExitCode, result, capturedPid};
   }
 
   process.wait();
   while (drainAvailableOutput(true) > 0) { }
   closePipeSource();
 
-  return {process.exit_code(), result};
+  return {process.exit_code(), result, capturedPid};
 #else
 
   auto pipeStream = std::make_shared<bp::ipstream>();
@@ -177,6 +178,7 @@ auto exec2Impl(
   auto process = mergeStdErr
     ? bp::child(cmd.data(), bp::std_out > *pipeStream, bp::std_err > *pipeStream)
     : bp::child(cmd.data(), bp::std_out > *pipeStream, bp::std_err > bp::null);
+  auto const capturedPid = static_cast<int>(process.id());
   auto terminatedByStop = std::atomic<bool>{false};
   auto outputPromise = std::promise<std::string>{};
   auto outputFuture = outputPromise.get_future();
@@ -260,7 +262,7 @@ auto exec2Impl(
     }
 
     if (outputFuture.wait_for(kReaderWaitTimeout) == std::future_status::ready) {
-      return {stopsignal::kCanceledExitCode, joinReader()};
+      return {stopsignal::kCanceledExitCode, joinReader(), capturedPid};
     }
 
     LOG_WARN(
@@ -270,13 +272,13 @@ auto exec2Impl(
       cmd
     );
     if (pipeReader.joinable()) { pipeReader.detach(); }
-    return {stopsignal::kCanceledExitCode, {}};
+    return {stopsignal::kCanceledExitCode, {}, capturedPid};
   }
 
   process.wait();
   closePipe();
 
-  return {process.exit_code(), joinReader()};
+  return {process.exit_code(), joinReader(), capturedPid};
 #endif
 }
 
