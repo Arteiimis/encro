@@ -507,6 +507,8 @@ auto PackService::runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
 
 auto PackService::packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   logging::ScopedTimer timer("pack.execute");
+  auto const packLabel = std::format("{} group(s)", plan.groups.size());
+  logging::ScopedErrorContext ctx("pack.execute", packLabel);
   if (plan.compact) { return packGroupsCompact(plan); }
   return packGroupsFull(plan);
 }
