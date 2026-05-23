@@ -49,6 +49,7 @@ struct AppConfig {
   bool verbose = false;
   bool verboseEcho = false;
   bool fullProgress = false;
+  bool jsonEnabled = false;
   std::optional<std::size_t> maxParallelJobs;
   OutputLayout outputLayout = OutputLayout::Flat;
   std::string processType = "video";

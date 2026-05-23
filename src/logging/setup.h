@@ -10,6 +10,7 @@ namespace logging {
 struct LogConfig {
   bool verboseEnabled{false};
   bool verboseEchoEnabled{false};
+  bool jsonEnabled{false};
   bool colorsEnabled{true};
   std::optional<std::filesystem::path> customLogDir;
 };

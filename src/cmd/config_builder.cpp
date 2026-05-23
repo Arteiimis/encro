@@ -319,6 +319,7 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
   config.verbose = result.verbose;
   config.verboseEcho = result.verboseEcho;
   config.fullProgress = result.fullProgress;
+  config.jsonEnabled = result.jsonEnabled;
 
   if (result.stateFile.has_value()) {
     config.stateFilePath =
