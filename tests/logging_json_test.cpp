@@ -87,7 +87,7 @@ TEST_CASE("JsonFormatter emits correct level strings for all levels", "[logging]
     {spdlog::level::trace,    "trace"},
     {spdlog::level::debug,    "debug"},
     {spdlog::level::info,     "info"},
-    {spdlog::level::warn,     "warn"},
+    {spdlog::level::warn,     "warning"},
     {spdlog::level::err,      "error"},
     {spdlog::level::critical, "critical"},
   };
@@ -97,10 +97,10 @@ TEST_CASE("JsonFormatter emits correct level strings for all levels", "[logging]
     auto oss2 = std::ostringstream{};
     auto sink2 = std::make_shared<spdlog::sinks::ostream_sink_mt>(oss2);
     sink2->set_formatter(std::make_unique<logging::JsonFormatter>());
-    auto lvlLogger = std::make_shared<spdlog::logger>("level_tester", sink2);
+    auto lvlName = std::string{"level_tester_"} + std::string{expected};
+    auto lvlLogger = std::make_shared<spdlog::logger>(lvlName, sink2);
     lvlLogger->set_level(spdlog::level::trace);
     lvlLogger->flush_on(spdlog::level::trace);
-    auto lvlName = std::string{"level_tester_"} + std::string{expected};
     auto existing = spdlog::get(lvlName);
     if (existing != nullptr) { spdlog::drop(lvlName); }
     spdlog::register_logger(lvlLogger);
