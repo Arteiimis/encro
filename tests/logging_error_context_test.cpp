@@ -57,12 +57,14 @@ DEFINE_LOGGER(logtags::TEST_INFRA);
 // Test 1 — ScopedErrorContext pushes frame on construction
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("ScopedErrorContext pushes frame on construction",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "ScopedErrorContext pushes frame on construction",
+  "[logging][error_context][scoped_error_context]"
+) {
   ScopedContextReset reset;
 
-  auto constexpr kStage = std::string_view{"test_stage"};
-  auto constexpr kDetail = std::string_view{"test_detail"};
+  constexpr auto kStage = std::string_view{"test_stage"};
+  constexpr auto kDetail = std::string_view{"test_detail"};
 
   logging::ScopedErrorContext ctx(kStage, kDetail);
   auto const chain = logging::detail::formatContextChain();
@@ -76,8 +78,10 @@ TEST_CASE("ScopedErrorContext pushes frame on construction",
 // Test 2 — ScopedErrorContext pops frame on destruction
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("ScopedErrorContext pops frame on destruction",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "ScopedErrorContext pops frame on destruction",
+  "[logging][error_context][scoped_error_context]"
+) {
   ScopedContextReset reset;
 
   std::string insideChain;
@@ -97,8 +101,10 @@ TEST_CASE("ScopedErrorContext pops frame on destruction",
 // Test 3 — ScopedErrorContext is not copyable
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("ScopedErrorContext is not copyable",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "ScopedErrorContext is not copyable",
+  "[logging][error_context][scoped_error_context]"
+) {
   STATIC_CHECK_FALSE(std::is_copy_constructible_v<logging::ScopedErrorContext>);
   STATIC_CHECK_FALSE(std::is_copy_assignable_v<logging::ScopedErrorContext>);
 }
@@ -107,8 +113,10 @@ TEST_CASE("ScopedErrorContext is not copyable",
 // Test 4 — ScopedErrorContext destructor is noexcept
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("ScopedErrorContext destructor is noexcept",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "ScopedErrorContext destructor is noexcept",
+  "[logging][error_context][scoped_error_context]"
+) {
   STATIC_CHECK(std::is_nothrow_destructible_v<logging::ScopedErrorContext>);
 }
 
@@ -116,8 +124,10 @@ TEST_CASE("ScopedErrorContext destructor is noexcept",
 // Test 5 — Moved-from ScopedErrorContext does not double-pop
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("Moved-from ScopedErrorContext does not double-pop",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "Moved-from ScopedErrorContext does not double-pop",
+  "[logging][error_context][scoped_error_context]"
+) {
   ScopedContextReset reset;
 
   {
@@ -147,8 +157,10 @@ TEST_CASE("Moved-from ScopedErrorContext does not double-pop",
 // Test 6 — Nested ScopedErrorContext produces correctly ordered chain
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("Nested ScopedErrorContext produces ordered chain",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "Nested ScopedErrorContext produces ordered chain",
+  "[logging][error_context][scoped_error_context]"
+) {
   ScopedContextReset reset;
 
   {
@@ -176,8 +188,10 @@ TEST_CASE("Nested ScopedErrorContext produces ordered chain",
 // Test 7 — Self-move-assignment is safe
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("Self-move-assignment is safe",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "Self-move-assignment is safe",
+  "[logging][error_context][scoped_error_context]"
+) {
   ScopedContextReset reset;
 
   {
@@ -203,8 +217,10 @@ TEST_CASE("Self-move-assignment is safe",
 // Test 8 — Context depth limit 16 frames with truncation
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("Context depth limit 16 frames with truncation",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "Context depth limit 16 frames with truncation",
+  "[logging][error_context][scoped_error_context]"
+) {
   ScopedContextReset reset;
 
   {
@@ -222,9 +238,7 @@ TEST_CASE("Context depth limit 16 frames with truncation",
 
     std::vector<logging::ScopedErrorContext> guards;
     guards.reserve(20);
-    for (auto i = 0; i < 20; ++i) {
-      guards.emplace_back(stageStrings[i], "");
-    }
+    for (auto i = 0; i < 20; ++i) { guards.emplace_back(stageStrings[i], ""); }
 
     auto const chain = logging::detail::formatContextChain();
     CAPTURE(chain);
@@ -256,8 +270,10 @@ TEST_CASE("Context depth limit 16 frames with truncation",
 // Test 9 — Empty stage name edge case
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("Empty stage name edge case",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "Empty stage name edge case",
+  "[logging][error_context][scoped_error_context]"
+) {
   ScopedContextReset reset;
 
   {
@@ -278,8 +294,10 @@ TEST_CASE("Empty stage name edge case",
 // Test 10 — Context chain format matches D-03/D-04
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("Context chain format matches design spec",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "Context chain format matches design spec",
+  "[logging][error_context][scoped_error_context]"
+) {
   ScopedContextReset reset;
 
   // Sub-test A: two frames with details → " [context: encode(retry 2/3) > ffmpeg(exit 1)]"
@@ -309,8 +327,10 @@ TEST_CASE("Context chain format matches design spec",
 // Test 11 — Empty TLS stack produces empty string
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("Empty TLS stack produces empty string",
-          "[logging][error_context][scoped_error_context]") {
+TEST_CASE(
+  "Empty TLS stack produces empty string",
+  "[logging][error_context][scoped_error_context]"
+) {
   ScopedContextReset reset;
 
   auto const chain = logging::detail::formatContextChain();

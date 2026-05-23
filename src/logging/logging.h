@@ -154,43 +154,42 @@ static auto loggerPtr() noexcept -> spdlog::logger*;
 namespace logging {
 
 class ScopedTimer {
-    std::string_view stageName_{};
-    std::chrono::steady_clock::time_point start_{};
-    bool movedFrom_{false};
+  std::string_view stageName_{};
+  std::chrono::steady_clock::time_point start_{};
+  bool movedFrom_{false};
 
 public:
-    explicit ScopedTimer(std::string_view stageName)
-        : stageName_(stageName)
-        , start_(std::chrono::steady_clock::now()) {
-        LOG_INFO("{} begin", stageName_);
-    }
+  explicit ScopedTimer(std::string_view stageName)
+    : stageName_(stageName), start_(std::chrono::steady_clock::now()) {
+    LOG_INFO("{} begin", stageName_);
+  }
 
-    ~ScopedTimer() noexcept {
-        if (movedFrom_) { return; }
-        auto const elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::steady_clock::now() - start_)
-                                 .count();
-        LOG_INFO("{} completed in {}ms", stageName_, elapsed);
-    }
+  ~ScopedTimer() noexcept {
+    if (movedFrom_) { return; }
+    auto const elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::steady_clock::now() - start_
+    )
+                           .count();
+    LOG_INFO("{} completed in {}ms", stageName_, elapsed);
+  }
 
-    ScopedTimer(ScopedTimer const&) = delete;
-    auto operator=(ScopedTimer const&) -> ScopedTimer& = delete;
+  ScopedTimer(ScopedTimer const&) = delete;
+  auto operator=(ScopedTimer const&) -> ScopedTimer& = delete;
 
-    ScopedTimer(ScopedTimer&& other) noexcept
-        : stageName_(other.stageName_)
-        , start_(other.start_) {
-        other.movedFrom_ = true;
-    }
+  ScopedTimer(ScopedTimer&& other) noexcept
+    : stageName_(other.stageName_), start_(other.start_) {
+    other.movedFrom_ = true;
+  }
 
-    auto operator=(ScopedTimer&& other) noexcept -> ScopedTimer& {
-        if (this != &other) {
-            stageName_ = other.stageName_;
-            start_ = other.start_;
-            movedFrom_ = false;
-            other.movedFrom_ = true;
-        }
-        return *this;
+  auto operator=(ScopedTimer&& other) noexcept -> ScopedTimer& {
+    if (this != &other) {
+      stageName_ = other.stageName_;
+      start_ = other.start_;
+      movedFrom_ = false;
+      other.movedFrom_ = true;
     }
+    return *this;
+  }
 };
 
 // ── ScopedErrorContext ──
@@ -202,102 +201,95 @@ public:
 // D-03/D-04: formatContextChain() serializes frames as " [context: stage(detail) > ...]".
 
 struct ContextFrame {
-    std::string_view stage;
-    std::string_view detail;
+  std::string_view stage;
+  std::string_view detail;
 };
 
 namespace detail {
 
 inline auto contextStack() -> std::vector<ContextFrame>& {
-    thread_local auto stack = std::vector<ContextFrame>{};
-    return stack;
+  thread_local auto stack = std::vector<ContextFrame>{};
+  return stack;
 }
 
 inline auto truncatedFrameCount() -> int& {
-    thread_local auto count = int{0};
-    return count;
+  thread_local auto count = int{0};
+  return count;
 }
 
 inline auto pushContextFrame(std::string_view stage, std::string_view detail) -> void {
-    auto& stack = contextStack();
-    if (stack.size() >= 16) {
-        stack.erase(stack.begin());
-        ++truncatedFrameCount();
-    }
-    stack.push_back({stage, detail});
+  auto& stack = contextStack();
+  if (stack.size() >= 16) {
+    stack.erase(stack.begin());
+    ++truncatedFrameCount();
+  }
+  stack.push_back({stage, detail});
 }
 
 inline auto popContextFrame() -> void {
-    auto& stack = contextStack();
-    if (!stack.empty()) {
-        stack.pop_back();
-    }
+  auto& stack = contextStack();
+  if (!stack.empty()) { stack.pop_back(); }
 }
 
 inline auto resetContextStack() -> void {
-    contextStack().clear();
-    truncatedFrameCount() = 0;
+  contextStack().clear();
+  truncatedFrameCount() = 0;
 }
 
 inline auto formatContextChain() -> std::string {
-    auto const& stack = contextStack();
-    if (stack.empty()) {
-        return "";
-    }
+  auto const& stack = contextStack();
+  if (stack.empty()) { return ""; }
 
-    std::string chain;
-    auto const truncated = truncatedFrameCount();
-    if (truncated > 0) {
-        chain += "[truncated: ";
-        chain += std::to_string(truncated);
-        chain += "] > ";
-    }
+  std::string chain;
+  auto const truncated = truncatedFrameCount();
+  if (truncated > 0) {
+    chain += "[truncated: ";
+    chain += std::to_string(truncated);
+    chain += "] > ";
+  }
 
-    for (auto i = std::size_t{0}; i < stack.size(); ++i) {
-        if (i > 0) {
-            chain += " > ";
-        }
-        chain += stack[i].stage;
-        if (!stack[i].detail.empty()) {
-            chain += "(";
-            chain += stack[i].detail;
-            chain += ")";
-        }
+  for (auto i = std::size_t{0}; i < stack.size(); ++i) {
+    if (i > 0) { chain += " > "; }
+    chain += stack[i].stage;
+    if (!stack[i].detail.empty()) {
+      chain += "(";
+      chain += stack[i].detail;
+      chain += ")";
     }
+  }
 
-    return " [context: " + chain + "]";
+  return " [context: " + chain + "]";
 }
 
 }  // namespace detail
 
 class ScopedErrorContext {
-    bool movedFrom_{false};
+  bool movedFrom_{false};
 
 public:
-    ScopedErrorContext(std::string_view stage, std::string_view detail) {
-        detail::pushContextFrame(stage, detail);
-    }
+  ScopedErrorContext(std::string_view stage, std::string_view detail) {
+    detail::pushContextFrame(stage, detail);
+  }
 
-    ~ScopedErrorContext() noexcept {
-        if (movedFrom_) { return; }
-        detail::popContextFrame();
-    }
+  ~ScopedErrorContext() noexcept {
+    if (movedFrom_) { return; }
+    detail::popContextFrame();
+  }
 
-    ScopedErrorContext(ScopedErrorContext const&) = delete;
-    auto operator=(ScopedErrorContext const&) -> ScopedErrorContext& = delete;
+  ScopedErrorContext(ScopedErrorContext const&) = delete;
+  auto operator=(ScopedErrorContext const&) -> ScopedErrorContext& = delete;
 
-    ScopedErrorContext(ScopedErrorContext&& other) noexcept
-        : movedFrom_(false) {
-        other.movedFrom_ = true;
-    }
+  ScopedErrorContext(ScopedErrorContext&& other) noexcept: movedFrom_(false) {
+    other.movedFrom_ = true;
+  }
 
-    auto operator=(ScopedErrorContext&& other) noexcept -> ScopedErrorContext& {
-        if (this != &other) {
-            movedFrom_ = false;
-            other.movedFrom_ = true;
-        }
-        return *this;
+  auto operator=(ScopedErrorContext&& other) noexcept -> ScopedErrorContext& {
+    if (this != &other) {
+      movedFrom_ = false;
+      other.movedFrom_ = true;
     }
+    return *this;
+  }
 };
 
 }  // namespace logging
