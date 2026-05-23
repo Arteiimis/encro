@@ -338,3 +338,112 @@ TEST_CASE(
   CHECK(chain.empty());
   CHECK(chain == "");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 12 — LOG_ERROR appends context chain when ScopedErrorContext is active
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+  "LOG_ERROR appends context chain",
+  "[logging][error_context]"
+) {
+  ScopedContextReset reset;
+  auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
+
+  logging::ScopedErrorContext ctx("encode", "input.mkv");
+  LOG_ERROR("ffmpeg failed");
+  logger->flush();
+
+  auto const output = oss->str();
+  CAPTURE(output);
+  CHECK(output.find("ffmpeg failed") != std::string::npos);
+  CHECK(output.find("[context: encode(input.mkv)]") != std::string::npos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 13 — LOG_ERROR without context produces no context suffix
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+  "LOG_ERROR without context has no suffix",
+  "[logging][error_context]"
+) {
+  ScopedContextReset reset;
+  auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
+
+  LOG_ERROR("plain error");
+  logger->flush();
+
+  auto const output = oss->str();
+  CAPTURE(output);
+  CHECK(output.find("plain error") != std::string::npos);
+  CHECK(output.find("[context:") == std::string::npos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 14 — LOG_ERROR with nested context produces ordered chain
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+  "LOG_ERROR with nested context produces ordered chain",
+  "[logging][error_context]"
+) {
+  ScopedContextReset reset;
+  auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
+
+  {
+    logging::ScopedErrorContext ctx1("outer", "");
+    {
+      auto detail2 = std::string{"file.mkv"};
+      logging::ScopedErrorContext ctx2("inner", detail2);
+      LOG_ERROR("fail");
+      logger->flush();
+    }
+  }
+
+  auto const output = oss->str();
+  CAPTURE(output);
+  CHECK(output.find("[context: outer > inner(file.mkv)]") != std::string::npos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 15 — LOG_CRITICAL appends context chain
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+  "LOG_CRITICAL appends context chain",
+  "[logging][error_context]"
+) {
+  ScopedContextReset reset;
+  auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
+
+  logging::ScopedErrorContext ctx("critical_stage", "details");
+  LOG_CRITICAL("catastrophic failure");
+  logger->flush();
+
+  auto const output = oss->str();
+  CAPTURE(output);
+  CHECK(output.find("catastrophic failure") != std::string::npos);
+  CHECK(output.find("[context: critical_stage(details)]") != std::string::npos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 16 — LOG_INFO does NOT append context chain
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+  "LOG_INFO does not append context chain",
+  "[logging][error_context]"
+) {
+  ScopedContextReset reset;
+  auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
+
+  logging::ScopedErrorContext ctx("encode", "test.mkv");
+  LOG_INFO("info message");
+  logger->flush();
+
+  auto const output = oss->str();
+  CAPTURE(output);
+  CHECK(output.find("info message") != std::string::npos);
+  CHECK(output.find("[context:") == std::string::npos);
+}
