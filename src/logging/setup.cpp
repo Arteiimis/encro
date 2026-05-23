@@ -2,6 +2,7 @@
 
 #include "core/app_context.h"
 #include "infra/terminal.h"
+#include "logging/json_formatter.h"
 #include "logging/log_tags.h"
 
 #include <spdlog/async.h>
@@ -98,7 +99,9 @@ auto retainRecentLogs(fs::path const& logDir, int const maxKeep) -> std::size_t 
       if (!entry.is_regular_file()) { continue; }
       auto const filename = entry.path().filename().string();
       if (!filename.starts_with("encro_")) { continue; }
-      if (filename.find(".log") == std::string::npos) { continue; }
+      auto hasLogExt    = filename.find(".log")   != std::string::npos;
+      auto hasNdjsonExt = filename.find(".ndjson") != std::string::npos;
+      if (!hasLogExt && !hasNdjsonExt) { continue; }
       entries.push_back(entry.path());
     }
 
@@ -135,8 +138,8 @@ namespace logging {
 static auto gCurrentLogFilePath = std::optional<fs::path>{};
 
 auto setup(LogConfig const& config) -> std::optional<fs::path> {
-  // 1. 如果 --verbose 未启用，关闭所有日志
-  if (!config.verboseEnabled) {
+  // 1. 如果 --verbose 和 --log-json 都未启用，关闭所有日志
+  if (!config.verboseEnabled && !config.jsonEnabled) {
     spdlog::set_level(spdlog::level::off);
     return std::nullopt;
   }
@@ -205,12 +208,24 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
 
     logFilePath = filePath;
 
-    // D-17~D-18: rotating_file_sink_mt, 10 MB 上限, 3 个旋转文件
-    sinks.emplace_back(
-      std::make_shared<
-        spdlog::sinks::rotating_file_sink_mt
-      >(filePath.string(), 10 * 1024 * 1024, 3)
-    );
+    // D-17~D-18: human-readable rotating file sink (only when verbose)
+    if (config.verboseEnabled) {
+      sinks.emplace_back(
+        std::make_shared<
+          spdlog::sinks::rotating_file_sink_mt
+        >(filePath.string(), 10 * 1024 * 1024, 3)
+      );
+    }
+
+    // D-03/D-04: Companion NDJSON sink with JsonFormatter when --log-json is active
+    if (config.jsonEnabled) {
+      auto ndjsonPath = filePath;
+      ndjsonPath.replace_extension(".ndjson");
+      auto jsonSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+        ndjsonPath.string(), 10 * 1024 * 1024, 3);
+      jsonSink->set_formatter(std::make_unique<logging::JsonFormatter>());
+      sinks.emplace_back(std::move(jsonSink));
+    }
 
     // D-13: 存储当前日志文件路径供 crash handler 直接写入
     gCurrentLogFilePath = filePath;
