@@ -132,9 +132,8 @@ TEST_CASE("ScopedTimer move transfers ownership", "[logging][scoped_timer]") {
   // Move-from also ensured that the moved-from internal state was updated.
   // Verify: create one, move it, then let both the original (moved-from) and
   // moved-to destruct. The stream should show exactly one begin and one complete.
-  auto [logger2, oss2] = registerCapturingLoggerForTimer(
-    logtags::TEST_INFRA
-  );  // re-register for clean slate
+  auto [logger2, oss2] =
+    registerCapturingLoggerForTimer(logtags::TEST_INFRA);  // re-register for clean slate
 
   {
     logging::ScopedTimer t1("ownership_test");

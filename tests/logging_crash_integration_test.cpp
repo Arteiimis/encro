@@ -142,7 +142,8 @@ TEST_CASE(
   REQUIRE(fs::exists(logPath));
 
   // Simulate crash handler: append directly to the persisted file
-  auto const crashMessage = std::string{"[CRASH POST-SHUTDOWN] message after logger death"};
+  auto const crashMessage =
+    std::string{"[CRASH POST-SHUTDOWN] message after logger death"};
   {
     auto ofs = std::ofstream(logPath, std::ios::app);
     REQUIRE(ofs.is_open());
@@ -199,11 +200,8 @@ TEST_CASE(
     auto tsBuf = std::array<char, 64>{};
     std::strftime(tsBuf.data(), tsBuf.size(), "%Y-%m-%dT%H:%M:%S", &tm);
 
-    auto const formatted = std::format(
-      "[{}] [critical] [infra.crash] {}\n",
-      tsBuf.data(),
-      testBody
-    );
+    auto const formatted =
+      std::format("[{}] [critical] [infra.crash] {}\n", tsBuf.data(), testBody);
     ofs.write(formatted.data(), static_cast<std::streamsize>(formatted.size()));
     ofs.close();
   }

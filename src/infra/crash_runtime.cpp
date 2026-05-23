@@ -55,17 +55,12 @@ auto tryWriteDirectToLogFile(std::string const& message) -> bool {
     auto tsBuf = std::array<char, 64>{};
     std::strftime(tsBuf.data(), tsBuf.size(), "%Y-%m-%dT%H:%M:%S", &tm);
 
-    auto const formatted = std::format(
-      "[{}] [critical] [infra.crash] {}\n",
-      tsBuf.data(),
-      message
-    );
+    auto const formatted =
+      std::format("[{}] [critical] [infra.crash] {}\n", tsBuf.data(), message);
 
     ofs.write(formatted.data(), static_cast<std::streamsize>(formatted.size()));
     return true;
-  } catch (...) {
-    return false;
-  }
+  } catch (...) { return false; }
 }
 
 auto tryWriteToLogger(std::string const& message) -> bool {
