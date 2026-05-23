@@ -4,6 +4,8 @@
 
 - ✅ **v1.0 日志系统优化** — Phases 1-4 (shipped 2026-05-23)
 
+> **Tag note:** This GSD milestone was built on project v1.6. Next milestone will tag as v1.7.
+
 ## Phases
 
 <details>
