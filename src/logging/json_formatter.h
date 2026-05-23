@@ -39,9 +39,8 @@ inline auto JsonFormatter::format(spdlog::details::log_msg const& msg,
 
   // Fixed fields (always present per D-10)
   obj["timestamp"] = formatTimestamp(msg.time);
-  obj["level"] =
-    json::string{spdlog::level::to_string_view(msg.level).data(),
-                 spdlog::level::to_string_view(msg.level).size()};
+  auto const levelSv = spdlog::level::to_string_view(msg.level);
+  obj["level"] = json::string{levelSv.data(), levelSv.size()};
   obj["module"] =
     json::string{msg.logger_name.data(), msg.logger_name.size()};
 
