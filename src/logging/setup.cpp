@@ -300,18 +300,14 @@ auto clearForensicSnapshotData() -> void {
 }
 
 auto captureEnvironmentSnapshot() -> std::string {
-  auto* const appCtx = static_cast<appctx::AppContext*>(
-    gForensicAppCtx.load(std::memory_order_acquire)
-  );
+  auto* const appCtx =
+    static_cast<appctx::AppContext*>(gForensicAppCtx.load(std::memory_order_acquire));
   if (appCtx == nullptr) { return ""; }
 
   auto const processType = appCtx->config.processType;
 
   if (!gForensicSnapshotData.hasEncodingContext) {
-    return fmt::format(
-      "Environment: pipeline={} (no encoding slots)",
-      processType
-    );
+    return fmt::format("Environment: pipeline={} (no encoding slots)", processType);
   }
 
   auto const& data = gForensicSnapshotData;
@@ -319,8 +315,7 @@ auto captureEnvironmentSnapshot() -> std::string {
   if (data.subprocessPid.has_value()) {
     subprocessStr = fmt::format("subprocess=[pid={}", data.subprocessPid.value());
     if (data.subprocessCmdline.has_value()) {
-      subprocessStr +=
-        fmt::format(" cmd='{}'", data.subprocessCmdline.value());
+      subprocessStr += fmt::format(" cmd='{}'", data.subprocessCmdline.value());
     }
     subprocessStr += "]";
   }
