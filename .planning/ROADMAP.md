@@ -72,7 +72,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — ScopedErrorContext RAII class, TLS context stack, and formatContextChain() (TDD, Wave 1)
+- [x] 03-01-PLAN.md — ScopedErrorContext RAII class, TLS context stack, and formatContextChain() (TDD, Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -104,5 +104,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Logging Foundation | 4/4 | Complete    | 2026-05-22 |
 | 2. File Management + Runtime Observability | 4/4 | Complete | 2026-05-23 |
-| 3. Forensics | 0/3 | Planned | 2026-05-23 |
+| 3. Forensics | 1/3 | In Progress|  |
 | 4. JSON Tooling | 0/0 | Not started | - |

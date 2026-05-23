@@ -40,7 +40,7 @@
 
 - [ ] **FOR-01**: 出错时自动输出操作链路回溯（处理文件 → 阶段 → 重试次数 → 具体错误）
 - [ ] **FOR-02**: 出错时输出环境快照（并发槽位状态、已处理/剩余文件数、FFmpeg 进程状态）
-- [ ] **FOR-03**: 错误上下文使用 thread-local RAII 作用域栈，在调用点序列化（不依赖 spdlog MDC）
+- [x] **FOR-03**: 错误上下文使用 thread-local RAII 作用域栈，在调用点序列化（不依赖 spdlog MDC）
 
 ### Tooling
 
@@ -89,7 +89,7 @@ Deferred to future release.
 | OBS-03 | Phase 2 | Pending |
 | FOR-01 | Phase 3 | Pending |
 | FOR-02 | Phase 3 | Pending |
-| FOR-03 | Phase 3 | Pending |
+| FOR-03 | Phase 3 | Complete |
 | TOOL-01 | Phase 4 | Pending |
 | TOOL-02 | Phase 4 | Pending |
 | TOOL-03 | Phase 4 | Pending |
