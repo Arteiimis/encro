@@ -208,12 +208,22 @@ TEST_CASE("Context depth limit 16 frames with truncation",
   ScopedContextReset reset;
 
   {
-    // Push 20 frames inside a block — need a container to hold the guards
+    // Push 20 frames inside a block — need a container to hold the guards.
+    // Stage strings must outlive the ScopedErrorContext instances because
+    // ContextFrame stores std::string_view (zero-copy, not owned).
+    // Zero-padded names prevent substring false matches (e.g., "stage1" in "stage10").
+    std::vector<std::string> stageStrings;
+    stageStrings.reserve(20);
+    for (auto i = 0; i < 20; ++i) {
+      auto const num = i + 1;
+      auto const padded = (num < 10) ? "0" + std::to_string(num) : std::to_string(num);
+      stageStrings.push_back(std::string{"s"} + padded);
+    }
+
     std::vector<logging::ScopedErrorContext> guards;
     guards.reserve(20);
     for (auto i = 0; i < 20; ++i) {
-      auto const stageStr = std::string{"stage"} + std::to_string(i + 1);
-      guards.emplace_back(stageStr, "");
+      guards.emplace_back(stageStrings[i], "");
     }
 
     auto const chain = logging::detail::formatContextChain();
@@ -223,18 +233,18 @@ TEST_CASE("Context depth limit 16 frames with truncation",
     CHECK(chain.find("[truncated: 4]") != std::string::npos);
 
     // Should contain the 16 most recent frames (stages 5-20)
-    CHECK(chain.find("stage5") != std::string::npos);
-    CHECK(chain.find("stage20") != std::string::npos);
+    CHECK(chain.find("s05") != std::string::npos);
+    CHECK(chain.find("s20") != std::string::npos);
 
     // Should NOT contain the 4 oldest frames (stages 1-4)
-    CHECK(chain.find("stage1") == std::string::npos);
-    CHECK(chain.find("stage2") == std::string::npos);
-    CHECK(chain.find("stage3") == std::string::npos);
-    CHECK(chain.find("stage4") == std::string::npos);
+    CHECK(chain.find("s01") == std::string::npos);
+    CHECK(chain.find("s02") == std::string::npos);
+    CHECK(chain.find("s03") == std::string::npos);
+    CHECK(chain.find("s04") == std::string::npos);
 
     // The truncation marker should appear before the frame content
     auto const truncPos = chain.find("[truncated: 4]");
-    auto const frame5Pos = chain.find("stage5");
+    auto const frame5Pos = chain.find("s05");
     CHECK(truncPos < frame5Pos);
   }
 
