@@ -6,9 +6,9 @@ encro CLI 的日志系统已完成生产级增强。每条日志携带源位置�
 
 ## Core Value
 
-每条日志都能回答三个问题：从哪来的、在干什么、花了多久。—— **已交付，v1.0 验证通过。**
+每条日志都能回答三个问题：从哪来的、在干什么、花了多久。—— **已交付，v1.7 验证通过。**
 
-## Current State (v1.0 — shipped 2026-05-23)
+## Current State (v1.7 — shipped 2026-05-23)
 
 - **Phases completed:** 4（13 plans, 26 tasks）
 - **Requirements delivered:** 20/20（INF-01~05, OBS-01~04, FILE-01~05, FOR-01~03, TOOL-01~03）
@@ -28,26 +28,26 @@ encro CLI 的日志系统已完成生产级增强。每条日志携带源位置�
 
 ### Validated
 
-- ✓ INF-01: 宏替代直接 spdlog 调用 — v1.0
-- ✓ INF-02: `SPDLOG_ACTIVE_LEVEL` 编译期优化 — v1.0
-- ✓ INF-03: 层级式模块标签（`video.encode`, `pack.zip`）— v1.0
-- ✓ INF-04: 每 .cpp 一个 `DEFINE_LOGGER` — v1.0
-- ✓ INF-05: 日志配置集中在 `setup.cpp` — v1.0
-- ✓ OBS-01: 每条日志含源文件路径和行号 — v1.0
-- ✓ OBS-02: 每条日志含模块标签 — v1.0
-- ✓ OBS-03: Pipeline 阶段自动计时（ScopedTimer）— v1.0
-- ✓ OBS-04: 统一日志格式 — v1.0
-- ✓ FILE-01: Per-run 时间戳日志文件 — v1.0
-- ✓ FILE-02: 保留最近 10 个日志文件 — v1.0
-- ✓ FILE-03: rotating_file_sink_mt 10MB/3 — v1.0
-- ✓ FILE-04: Crash handler 直接文件追加 — v1.0
-- ✓ FILE-05: Fallback 到临时目录 — v1.0
-- ✓ FOR-01: 操作链路回溯 — v1.0
-- ✓ FOR-02: 环境快照 — v1.0
-- ✓ FOR-03: Thread-local RAII 错误上下文栈 — v1.0
-- ✓ TOOL-01: `--log-json` NDJSON 输出 — v1.0
-- ✓ TOOL-02: 自定义 `JsonFormatter`（boost::json）— v1.0
-- ✓ TOOL-03: Console 保持人类可读 — v1.0
+- ✓ INF-01: 宏替代直接 spdlog 调用 — v1.7
+- ✓ INF-02: `SPDLOG_ACTIVE_LEVEL` 编译期优化 — v1.7
+- ✓ INF-03: 层级式模块标签（`video.encode`, `pack.zip`）— v1.7
+- ✓ INF-04: 每 .cpp 一个 `DEFINE_LOGGER` — v1.7
+- ✓ INF-05: 日志配置集中在 `setup.cpp` — v1.7
+- ✓ OBS-01: 每条日志含源文件路径和行号 — v1.7
+- ✓ OBS-02: 每条日志含模块标签 — v1.7
+- ✓ OBS-03: Pipeline 阶段自动计时（ScopedTimer）— v1.7
+- ✓ OBS-04: 统一日志格式 — v1.7
+- ✓ FILE-01: Per-run 时间戳日志文件 — v1.7
+- ✓ FILE-02: 保留最近 10 个日志文件 — v1.7
+- ✓ FILE-03: rotating_file_sink_mt 10MB/3 — v1.7
+- ✓ FILE-04: Crash handler 直接文件追加 — v1.7
+- ✓ FILE-05: Fallback 到临时目录 — v1.7
+- ✓ FOR-01: 操作链路回溯 — v1.7
+- ✓ FOR-02: 环境快照 — v1.7
+- ✓ FOR-03: Thread-local RAII 错误上下文栈 — v1.7
+- ✓ TOOL-01: `--log-json` NDJSON 输出 — v1.7
+- ✓ TOOL-02: 自定义 `JsonFormatter`（boost::json）— v1.7
+- ✓ TOOL-03: Console 保持人类可读 — v1.7
 
 ### Active
 
@@ -66,7 +66,7 @@ encro CLI 的日志系统已完成生产级增强。每条日志携带源位置�
 
 ## Context
 
-**v1.0 交付总结：**
+**v1.7 交付总结：**
 - 4 个 phase 在 2 天内执行完毕（discuss → plan → execute 全自动）
 - 总计 ~30 个源文件修改，~1200 行新增代码，~500 行测试代码
 - 15 个测试文件新建（error_context, snapshot, json）
@@ -90,4 +90,4 @@ This document evolves at phase transitions and milestone boundaries.
 
 ---
 
-*Last updated: 2026-05-23 after v1.0 milestone*
+*Last updated: 2026-05-23 after v1.7 milestone*
