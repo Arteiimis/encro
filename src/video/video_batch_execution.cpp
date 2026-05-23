@@ -12,6 +12,7 @@
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
+#include "logging/setup.h"
 
 #include <algorithm>
 #include <chrono>
@@ -358,6 +359,17 @@ auto videobatch::runEncodingTasks(
     actionIds,
   };
   executionCtx.updateOverall();
+
+  logging::setForensicAppContext(&ctx);
+  logging::setForensicExecContext(&executionCtx);
+  struct ForensicContextGuard {
+    ~ForensicContextGuard() {
+      logging::setForensicExecContext(nullptr);
+      logging::setForensicAppContext(nullptr);
+    }
+  };
+  auto forensicGuard = ForensicContextGuard{};
+
   auto monitorThread = videobatch::detail::startEncodingMonitor(executionCtx);
 
   auto tasks = std::vector<taskexec::TaskSpec>{};
