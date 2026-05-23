@@ -138,7 +138,7 @@ auto compressImage(
   auto const cmd = cfg.buildCMD();
   LOG_DEBUG("Compress image: {}", cmd);
 
-  auto const [exitCode, output] = exec2(cmd);
+  auto const [exitCode, output, pid] = exec2(cmd);
   if (exitCode != 0) {
     LOG_WARN(
       "Image compression failed: input={} exitCode={}",

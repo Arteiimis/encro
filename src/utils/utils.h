@@ -9,6 +9,7 @@ namespace fs = std::filesystem;
 struct ExecResult {
   int exitCode;
   std::string output;
+  std::optional<int> pid;
 };
 
 auto exec2(std::string_view cmd) -> ExecResult;
