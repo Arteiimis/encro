@@ -288,6 +288,8 @@ auto executeDirectPackWorkflow(
 ) -> eh::Result<int> {
   auto const scannedPics = [&]() {
     logging::ScopedTimer timer("picture.scan");
+    auto const scanPathStr = dirPath.string();
+    logging::ScopedErrorContext scopedCtx("picture.scan", scanPathStr);
     return readAllPics(ctx.config, dirPath);
   }();
   if (scannedPics.empty()) {
@@ -332,6 +334,8 @@ auto executeDirectPackWorkflow(
 
   auto const packRes = [&]() {
     logging::ScopedTimer timer("picture.pack");
+    auto const packLabel = std::format("{} picture(s)", scannedPics.size());
+    logging::ScopedErrorContext scopedCtx("picture.pack", packLabel);
     return pack::execute(request);
   }();
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
@@ -352,6 +356,8 @@ auto executeCompressPackWorkflow(
 ) -> eh::Result<int> {
   auto const scannedPics = [&]() {
     logging::ScopedTimer timer("picture.scan");
+    auto const scanPathStr = dirPath.string();
+    logging::ScopedErrorContext scopedCtx("picture.scan", scanPathStr);
     return readAllPics(ctx.config, dirPath);
   }();
   if (scannedPics.empty()) {
@@ -411,6 +417,8 @@ auto executeCompressPackWorkflow(
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
   auto const compressResults = [&]() {
     logging::ScopedTimer timer("picture.compress");
+    auto const compressLabel = std::format("{} picture(s) q={}", compressTasks.size(), quality);
+    logging::ScopedErrorContext scopedCtx("picture.compress", compressLabel);
     return compressImageBatch(ctx, compressTasks, quality, maxParallel);
   }();
 
@@ -472,6 +480,8 @@ auto executeCompressPackWorkflow(
 
   auto const packRes = [&]() {
     logging::ScopedTimer timer("picture.pack");
+    auto const packLabel = std::format("{} entry(s)", packInputs.size());
+    logging::ScopedErrorContext scopedCtx("picture.pack", packLabel);
     return pack::execute(request);
   }();
   fs::remove_all(tempDir, ec);

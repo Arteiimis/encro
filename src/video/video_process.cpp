@@ -165,6 +165,8 @@ void printNoEncodableVideosMessage(
 auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
   -> std::vector<fs::path> {
   logging::ScopedTimer timer("video.scan");
+  auto const scanPathStr = inputPath.string();
+  logging::ScopedErrorContext scopedCtx("video.scan", scanPathStr);
   terminal::println(
     Info,
     "Scanning input path for videos: {} ...",
@@ -186,6 +188,8 @@ auto scanInputVideosFromFiles(
   std::span<fs::path const> inputPaths
 ) -> std::vector<fs::path> {
   logging::ScopedTimer timer("video.scan");
+  auto const scanLabel = std::format("{} file(s)", inputPaths.size());
+  logging::ScopedErrorContext scopedCtx("video.scan", scanLabel);
   terminal::println(
     Info,
     "Scanning input files for videos: {} file(s) ...",
@@ -300,6 +304,8 @@ auto runScannedEncodingWorkflow(
   auto vidsRunRes = EncodeResultsMap{};
   {
     logging::ScopedTimer timer("video.encode");
+    auto const encodeLabel = std::format("{} video(s)", vids.size());
+    logging::ScopedErrorContext scopedCtx("video.encode", encodeLabel);
     auto const runRes = videobatch::runEncodingTasks(
       ctx,
       pendingVids,
@@ -394,6 +400,8 @@ auto packEncodedVideos(
   EncodeResultsMap const& vidsRunRes
 ) -> int {
   logging::ScopedTimer timer("video.pack");
+  auto const packPathStr = inputPath.string();
+  logging::ScopedErrorContext scopedCtx("video.pack", packPathStr);
   LOG_INFO("Packing encoded outputs for input: {}", inputPath.string());
   auto const encodedOutputFiles =
     collectEncodedOutputFiles(ctx, plannedOutputFiles, vidsRunRes);

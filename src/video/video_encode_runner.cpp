@@ -198,6 +198,9 @@ auto encodeWebpWithTargetSize(
     kWebpTargetMaxSize
   );
 
+  auto const inputPathStr = encodeCtx.inputVidPath.string();
+  logging::ScopedErrorContext ctx("video.encode.webp", inputPathStr);
+
   auto const qualityStepForSize = [](std::uintmax_t outputSize) {
     auto const sizeGap = outputSize - kWebpTargetMaxSize;
     return sizeGap <= kWebpSmallGapThreshold ? kWebpFineQualityStep : kWebpQualityStep;
@@ -205,6 +208,10 @@ auto encodeWebpWithTargetSize(
 
   auto quality = 80u;
   while (quality >= kWebpMinQuality) {
+    auto const attemptDetail =
+      std::format("q={} target={} bytes", quality, kWebpTargetMaxSize);
+    logging::ScopedErrorContext attemptCtx("webp.attempt", attemptDetail);
+
     if (stopsignal::isStopRequested()) { return abortForStopRequest(); }
 
     if (encodeCtx.statusUpdater) {
@@ -333,6 +340,9 @@ bool encodeVideo(
     auto lock = std::scoped_lock{state.mtx};
     state.subprocessCmdline = cfg.buildCMD();
   }
+
+  auto const inputPathStr = state.inputPath.string();
+  logging::ScopedErrorContext scopedCtx("video.encode", inputPathStr);
 
   LOG_DEBUG("Encoding video: {}", state.inputPath.string());
 
