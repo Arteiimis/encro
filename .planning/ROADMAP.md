@@ -7,7 +7,7 @@ Four phases transform encro's flat, single-file logging into a production-grade 
 ## Phases
 
 - [x] **Phase 1: Logging Foundation** - Macros, module tag convention, logger registry, and centralized config (completed 2026-05-22)
-- [ ] **Phase 2: File Management + Runtime Observability** - Per-run timestamped files, retention cleanup, and scoped stage timing
+- [x] **Phase 2: File Management + Runtime Observability** - Per-run timestamped files, retention cleanup, and scoped stage timing
 - [ ] **Phase 3: Forensics** - Error context chain traceback and environment snapshots on failure
 - [ ] **Phase 4: JSON Tooling** - NDJSON structured output via --log-json with custom formatter
 
@@ -43,10 +43,10 @@ Plans:
 **Plans**: 4 plans in 2 waves
 
 Plans:
-- [ ] 02-01-PLAN.md — File management: timestamped naming, retention cleanup, rotating sink, fallback chain, currentLogFilePath() (Wave 1)
-- [ ] 02-02-PLAN.md — ScopedTimer: RAII stage timing class with TDD tests (Wave 1)
-- [ ] 02-03-PLAN.md — Crash handler: direct file append bypass path, 3-tier fallback chain (Wave 2)
-- [ ] 02-04-PLAN.md — Pipeline instrumentation: ScopedTimer at video/picture/pack stage entry points (Wave 2)
+- [x] 02-01-PLAN.md — File management: timestamped naming, retention cleanup, rotating sink, fallback chain, currentLogFilePath() (Wave 1)
+- [x] 02-02-PLAN.md — ScopedTimer: RAII stage timing class with TDD tests (Wave 1)
+- [x] 02-03-PLAN.md — Crash handler: direct file append bypass path, 3-tier fallback chain (Wave 2)
+- [x] 02-04-PLAN.md — Pipeline instrumentation: ScopedTimer at video/picture/pack stage entry points (Wave 2)
 
 ### Phase 3: Forensics
 **Goal**: When an error occurs, the log contains a complete diagnostic chain -- what was being processed, at which stage, after how many attempts, and the system state at failure time -- enabling root-cause identification without reproduction.
@@ -76,6 +76,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Logging Foundation | 4/4 | Complete    | 2026-05-22 |
-| 2. File Management + Runtime Observability | 0/4 | Planned | - |
+| 2. File Management + Runtime Observability | 4/4 | Complete | 2026-05-23 |
 | 3. Forensics | 0/0 | Not started | - |
 | 4. JSON Tooling | 0/0 | Not started | - |
