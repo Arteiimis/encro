@@ -9,7 +9,7 @@ Four phases transform encro's flat, single-file logging into a production-grade 
 - [x] **Phase 1: Logging Foundation** - Macros, module tag convention, logger registry, and centralized config (completed 2026-05-22)
 - [x] **Phase 2: File Management + Runtime Observability** - Per-run timestamped files, retention cleanup, and scoped stage timing
 - [x] **Phase 3: Forensics** - Error context chain traceback and environment snapshots on failure
-- [ ] **Phase 4: JSON Tooling** - NDJSON structured output via --log-json with custom formatter
+- [x] **Phase 4: JSON Tooling** - NDJSON structured output via --log-json with custom formatter (completed 2026-05-23)
 
 ## Phase Details
 
@@ -98,7 +98,7 @@ Plans:
 Plans:
 
 - [x] 04-01-PLAN.md — JsonFormatter: custom spdlog::formatter subclass with boost::json NDJSON output (TDD, Wave 1)
-- [ ] 04-02-PLAN.md — CLI flag wiring (--log-json), config chain, setup.cpp integration, NDJSON retention (Wave 2)
+- [x] 04-02-PLAN.md — CLI flag wiring (--log-json), config chain, setup.cpp integration, NDJSON retention (Wave 2)
 
 ## Progress
 
@@ -110,4 +110,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Logging Foundation | 4/4 | Complete    | 2026-05-22 |
 | 2. File Management + Runtime Observability | 4/4 | Complete | 2026-05-23 |
 | 3. Forensics | 3/3 | Complete   | 2026-05-23 |
-| 4. JSON Tooling | 1/2 | In Progress | - |
+| 4. JSON Tooling | 2/2 | Complete   | 2026-05-23 |
