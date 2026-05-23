@@ -1,19 +1,18 @@
 # Milestones
 
-## v1.0 日志系统优化 (Shipped: 2026-05-23)
+## GSD-tracked: 日志系统优化 (Shipped: 2026-05-23)
 
-**Phases completed:** 4 phases, 13 plans, 15 tasks
+> **Version note:** This milestone was tracked by GSD as its first cycle. The project's git tags were at v1.6 when this work began. The next milestone will tag as v1.7.
+
+**Phases:** 4 | **Plans:** 13 | **Tasks:** 26 | **Requirements:** 20/20
 
 **Key accomplishments:**
+- LOG_* macro layer with automatic source location + module tag injection (24 named async_loggers)
+- Per-run timestamped log files + automatic retention cleanup (10 most recent) + crash handler 3-tier fallback
+- ScopedTimer RAII stage timing at 7 pipeline boundary sites + ScopedErrorContext error context chains
+- NDJSON structured log output via --log-json flag (JsonFormatter using boost::json, dual-sink architecture)
+- 340 tests, 3423 assertions, zero regressions
 
-- Phase:
-- 1. [Rule 1 - Bug] Fixed compilation error: `loggerPtr` undeclared in ScopedTimer inline methods
-- One-liner:
-- Commit:
-- 1. [Rule 1 - Bug] Fixed dangling string_view in Test 8
-- 1. [Rule 1 - Bug] Fixed structured bindings for new ExecResult field
-- video_process.cpp (4 sites):
-- JsonFormatter
-- 1. [Rule 1 - Bug] Fixed designated initializer ordering in prelude.cpp LogConfig construction
+**Archive:** `.planning/milestones/v1.0-ROADMAP.md`, `.planning/milestones/v1.0-REQUIREMENTS.md`
 
 ---

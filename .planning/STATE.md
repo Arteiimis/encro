@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
+milestone: v1.7
+milestone_name: 日志系统优化 (GSD-tracked)
 status: Awaiting next milestone
-stopped_at: Phase 4 context gathered
+stopped_at: Milestone completed and archived (4 phases, 13 plans)
 last_updated: "2026-05-23T12:27:20.634Z"
-last_activity: 2026-05-23 — Milestone v1.0 completed and archived
+last_activity: 2026-05-23 — GSD milestone completed (aligned to project v1.6; next tag = v1.7)
 progress:
   total_phases: 4
   completed_phases: 4
