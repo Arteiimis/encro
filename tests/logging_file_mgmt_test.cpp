@@ -41,14 +41,15 @@ auto createFakeLogFile(fs::path const& dir, std::string const& filename) -> void
 }
 
 auto countEncroFiles(fs::path const& dir) -> std::size_t {
-  auto const logPattern = std::regex{R"(encro_.*\.log.*)"};
+  auto const logPattern = std::regex{R"(encro_.*\.(log|ndjson).*)"};
   auto count = std::size_t{0};
   auto ec = std::error_code{};
   for (auto const& entry: fs::directory_iterator{dir, ec}) {
     if (ec) { break; }
-    if (entry.is_regular_file()
-        && std::regex_match(entry.path().filename().string(), logPattern))
-    {
+    if (
+      entry.is_regular_file()
+      && std::regex_match(entry.path().filename().string(), logPattern)
+    ) {
       ++count;
     }
   }
@@ -61,9 +62,10 @@ auto sortedEncroFiles(fs::path const& dir) -> std::vector<fs::path> {
   auto ec = std::error_code{};
   for (auto const& entry: fs::directory_iterator{dir, ec}) {
     if (ec) { break; }
-    if (entry.is_regular_file()
-        && std::regex_match(entry.path().filename().string(), logPattern))
-    {
+    if (
+      entry.is_regular_file()
+      && std::regex_match(entry.path().filename().string(), logPattern)
+    ) {
       files.push_back(entry.path());
     }
   }
@@ -197,8 +199,7 @@ TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
   // Create 15 fake encro_*.log files with different timestamps.
   // Lexicographically unique timestamps ensure deterministic sort order.
   for (auto i = 0; i < 15; ++i) {
-    auto const filename =
-      fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i);
+    auto const filename = fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i);
     createFakeLogFile(testDir, filename);
   }
 
@@ -264,7 +265,8 @@ TEST_CASE("cleanup matches rotation files", "[logging][file_mgmt]") {
   // Create 8 regular log files and 7 rotation files (.log.1, .log.2, .log.3)
   for (auto i = 0; i < 8; ++i) {
     createFakeLogFile(
-      testDir, fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i)
+      testDir,
+      fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i)
     );
   }
   // Rotation suffix files for the first few log files
@@ -443,9 +445,8 @@ TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgm
   CHECK(fs::exists(logFilePath));
 
   // Write a test message and verify it reaches the file
-  auto const testMsg = "rotating_sink_test_" + std::to_string(
-    std::chrono::system_clock::now().time_since_epoch().count()
-  );
+  auto const testMsg = "rotating_sink_test_"
+    + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
   spdlog::info("{}", testMsg);
   spdlog::default_logger()->flush();
 
@@ -455,8 +456,8 @@ TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgm
   // Read back the file content and verify our message is there
   auto ifs = std::ifstream{logFilePath};
   REQUIRE(ifs.is_open());
-  auto content = std::string{std::istreambuf_iterator<char>{ifs},
-                              std::istreambuf_iterator<char>{}};
+  auto content =
+    std::string{std::istreambuf_iterator<char>{ifs}, std::istreambuf_iterator<char>{}};
   CAPTURE(content);
   CHECK(content.find(testMsg) != std::string::npos);
 
