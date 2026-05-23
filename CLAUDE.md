@@ -120,5 +120,7 @@ Constraints:
 
 ## Git
 
+- **Commit message language:** ALL git commit messages, tag messages, and PR descriptions MUST be written in English. No Chinese characters in any git metadata.
+- **Commit format:** Use conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`). Keep subject lines under 72 characters.
 - **Pre-commit hook:** clang-format on staged C/C++ files (`.githooks/pre-commit`). Setup: `git config core.hooksPath .githooks`.
 - **clang-format config** at `D:/clangformat/.clang-format` (external path, not in repo). Both pre-commit hook and `xmake format` reference it.
