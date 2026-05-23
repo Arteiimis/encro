@@ -46,9 +46,9 @@
 
 可选的结构化输出，方便工具链集成。
 
-- [ ] **TOOL-01**: `--log-json` CLI flag，启用 NDJSON 格式（每行一个 JSON 对象）
+- [x] **TOOL-01**: `--log-json` CLI flag，启用 NDJSON 格式（每行一个 JSON 对象）
 - [x] **TOOL-02**: JSON 输出使用自定义 `json_formatter`（实现 `spdlog::formatter`），用 `boost::json` 序列化，确保正确的字符串转义
-- [ ] **TOOL-03**: JSON 格式下控制台输出保持人类可读文本格式
+- [x] **TOOL-03**: JSON 格式下控制台输出保持人类可读文本格式
 
 ## v2 Requirements
 
@@ -90,9 +90,9 @@ Deferred to future release.
 | FOR-01 | Phase 3 | Complete |
 | FOR-02 | Phase 3 | Complete |
 | FOR-03 | Phase 3 | Complete |
-| TOOL-01 | Phase 4 | Pending |
+| TOOL-01 | Phase 4 | Complete |
 | TOOL-02 | Phase 4 | Complete |
-| TOOL-03 | Phase 4 | Pending |
+| TOOL-03 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 20 total

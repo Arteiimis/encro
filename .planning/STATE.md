@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
+status: executing
 stopped_at: Phase 4 context gathered
-last_updated: "2026-05-23T11:12:35.099Z"
+last_updated: "2026-05-23T11:28:12.811Z"
 last_activity: 2026-05-23
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 12
-  percent: 75
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-23)
 ## Current Position
 
 Phase: 4
-Plan: 1 of 2 (04-01 complete)
-Status: executing
-Last activity: 2026-05-23 — 04-01 JsonFormatter complete
+Plan: 2 of 2 (04-01 complete)
+Status: Ready to execute
+Last activity: 2026-05-23
 
-Progress: [█████████░] 92%
+Progress: [██████████] 100%
 
 ## Phase 4 Plans
 
@@ -71,6 +71,7 @@ Progress: [█████████░] 92%
 
 *Updated after each plan completion*
 | Phase 03-forensics P02 | ~15m | 3 tasks | 11 files |
+| Phase 04-json-tooling P02 | 8.6m | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,10 @@ Recent decisions affecting current work:
 - ScopedErrorContext mirrors ScopedTimer move-only/noexcept/movedFrom_ pattern exactly
 - Context depth capped at 16 frames with FIFO eviction and [truncated: N] marker
 - [Phase ?]: LOG_ERROR/LOG_CRITICAL use do-while(0) blocks with __encro_ prefixed temporaries for collision-free macro expansion
+- [Phase 04]: jsonEnabled field on CmdParseResult, AppConfig, and LogConfig structs -- follows existing boolean field patterns exactly
+- [Phase 04]: Companion .ndjson file with per-sink JsonFormatter; human-readable .log sink guarded by config.verboseEnabled
+- [Phase 04]: retainRecentLogs() extended to clean encro_*.ndjson* files alongside encro_*.log* files
+- [Phase 04]: -log-json flag is independent of -verbose; gate allows jsonEnabled to proceed without verboseEnabled
 
 ### Pending Todos
 
@@ -106,6 +111,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-23T11:12:35.088Z
+Last session: 2026-05-23T11:27:08.193Z
 Stopped at: Phase 4 context gathered
 Resume file: None
