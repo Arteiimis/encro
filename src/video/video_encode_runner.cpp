@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <format>
+#include <mutex>
 
 DEFINE_LOGGER(logtags::VIDEO_ENCODE);
 
@@ -35,6 +36,7 @@ struct WebpEncodeContext {
 struct WebpEncodeStep {
   int exitCode;
   std::optional<std::uintmax_t> outputSize;
+  std::optional<int> pid;
 };
 
 struct EncodeExecutionPlan {
@@ -146,7 +148,7 @@ auto runWebpEncodingStep(
 
   if (auto const res = cfg.validate(); !res) {
     LOG_ERROR("{}", res.error());
-    return {-1, std::nullopt};
+    return {-1, std::nullopt, std::nullopt};
   }
 
   auto const [exitCode, _, pid] = exec2(cfg.buildCMD(), [&](std::string_view line) {
@@ -159,9 +161,9 @@ auto runWebpEncodingStep(
       quality,
       exitCode
     );
-    return {exitCode, std::nullopt};
+    return {exitCode, std::nullopt, pid};
   }
-  if (!fs::exists(outputFile)) { return {exitCode, std::nullopt}; }
+  if (!fs::exists(outputFile)) { return {exitCode, std::nullopt, pid}; }
 
   LOG_DEBUG(
     "WebP encoding step output size: input={} quality={} bytes={}",
@@ -170,7 +172,7 @@ auto runWebpEncodingStep(
     fs::file_size(outputFile)
   );
 
-  return {exitCode, fs::file_size(outputFile)};
+  return {exitCode, fs::file_size(outputFile), pid};
 }
 
 auto encodeWebpWithTargetSize(
@@ -281,13 +283,17 @@ auto encodeWebpWithTargetSize(
 }
 
 auto runStandardEncoding(
-  appctx::EncodingState const& state,
+  appctx::EncodingState& state,
   EncodeConfig const& cfg,
   function_ref statusUpdater
 ) -> bool {
   auto const [exitCode, _, pid] = exec2(cfg.buildCMD(), [&](std::string_view line) {
     reportEncodingDiagnostic(statusUpdater, line);
   });
+  if (pid.has_value()) {
+    auto lock = std::scoped_lock{state.mtx};
+    state.subprocessPid = pid.value();
+  }
   if (exitCode != 0) {
     LOG_WARN(
       "ffmpeg exited with non-zero code: input={} exitCode={}",
@@ -322,6 +328,11 @@ bool encodeVideo(
 
   auto const validationResult = cfg.validate();
   if (!validationResult) { return failEncoding(state, validationResult.error()); }
+
+  {
+    auto lock = std::scoped_lock{state.mtx};
+    state.subprocessCmdline = cfg.buildCMD();
+  }
 
   LOG_DEBUG("Encoding video: {}", state.inputPath.string());
 
