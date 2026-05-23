@@ -14,6 +14,7 @@ struct CmdParseResult {
   bool verbose = false;
   bool verboseEcho = false;
   bool fullProgress = false;
+  bool jsonEnabled = false;
   std::string color = "auto";
   bool yesToAll = false;
 

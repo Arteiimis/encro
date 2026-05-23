@@ -16,7 +16,7 @@ using enum terminal::MessageKind;
 namespace {
 
 auto setupLogging(CmdParseResult const& cmd) -> std::optional<fs::path> {
-  if (!cmd.verbose) {
+  if (!cmd.verbose && !cmd.jsonEnabled) {
     spdlog::set_level(spdlog::level::off);
     if (cmd.verboseEcho) {
       terminal::println(
@@ -30,6 +30,7 @@ auto setupLogging(CmdParseResult const& cmd) -> std::optional<fs::path> {
   auto const logConfig = logging::LogConfig{
     .verboseEnabled = cmd.verbose,
     .verboseEchoEnabled = cmd.verboseEcho,
+    .jsonEnabled = cmd.jsonEnabled,
     .colorsEnabled = terminal::colorsEnabled(),
   };
 
