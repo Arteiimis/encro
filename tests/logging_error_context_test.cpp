@@ -343,10 +343,7 @@ TEST_CASE(
 // Test 12 — LOG_ERROR appends context chain when ScopedErrorContext is active
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE(
-  "LOG_ERROR appends context chain",
-  "[logging][error_context]"
-) {
+TEST_CASE("LOG_ERROR appends context chain", "[logging][error_context]") {
   ScopedContextReset reset;
   auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
 
@@ -364,10 +361,7 @@ TEST_CASE(
 // Test 13 — LOG_ERROR without context produces no context suffix
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE(
-  "LOG_ERROR without context has no suffix",
-  "[logging][error_context]"
-) {
+TEST_CASE("LOG_ERROR without context has no suffix", "[logging][error_context]") {
   ScopedContextReset reset;
   auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
 
@@ -410,10 +404,7 @@ TEST_CASE(
 // Test 15 — LOG_CRITICAL appends context chain
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE(
-  "LOG_CRITICAL appends context chain",
-  "[logging][error_context]"
-) {
+TEST_CASE("LOG_CRITICAL appends context chain", "[logging][error_context]") {
   ScopedContextReset reset;
   auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
 
@@ -431,10 +422,7 @@ TEST_CASE(
 // Test 16 — LOG_INFO does NOT append context chain
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE(
-  "LOG_INFO does not append context chain",
-  "[logging][error_context]"
-) {
+TEST_CASE("LOG_INFO does not append context chain", "[logging][error_context]") {
   ScopedContextReset reset;
   auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
 
