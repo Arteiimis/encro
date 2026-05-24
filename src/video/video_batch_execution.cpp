@@ -361,12 +361,8 @@ auto videobatch::runEncodingTasks(
   executionCtx.updateOverall();
 
   logging::setForensicAppContext(&ctx);
-  logging::setForensicExecContext(&executionCtx);
   struct ForensicContextGuard {
-    ~ForensicContextGuard() {
-      logging::setForensicExecContext(nullptr);
-      logging::setForensicAppContext(nullptr);
-    }
+    ~ForensicContextGuard() { logging::setForensicAppContext(nullptr); }
   };
   auto forensicGuard = ForensicContextGuard{};
 
