@@ -10,6 +10,7 @@
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
+#include "logging/setup.h"
 
 #include <chrono>
 #include <thread>
@@ -174,6 +175,13 @@ void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& execu
     }
 
     executionCtx.updateOverall();
+
+    logging::updateForensicSnapshot(
+      static_cast<int>(activeStates.size()),
+      static_cast<int>(executionCtx.counters().workers),
+      static_cast<int>(executionCtx.pendingTotal()),
+      static_cast<int>(executionCtx.finished())
+    );
 
     std::this_thread::sleep_for(20ms);
   }
