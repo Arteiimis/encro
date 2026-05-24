@@ -5,7 +5,7 @@ milestone_name: 日志系统优化 (GSD-tracked)
 status: Awaiting next milestone
 stopped_at: Milestone v1.7 completed and archived (4 phases, 13 plans)
 last_updated: "2026-05-23T18:10:06.133Z"
-last_activity: 2026-05-23 — Quick task 260524-30f: 修复health检查发现的问题 (ROADMAP.md phase注册 + Phase 04 VALIDATION.md)
+last_activity: 2026-05-24 — Quick task 260524-ruq: 修复HEVC编码进度条槽位完成后状态不更新 (barDone替换barIdle)
 progress:
   total_phases: 4
   completed_phases: 4
@@ -104,6 +104,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260524-30f | 修复health检查发现的问题: W007 (ROADMAP.md phase注册) + W009 (Phase 04 VALIDATION.md) | 2026-05-23 | 06a95dd | [260524-30f-health-1-w007-phase-01-02-03-04-roadmap-](./quick/260524-30f-health-1-w007-phase-01-02-03-04-roadmap-/) |
+| 260524-ruq | 修复HEVC编码进度条槽位完成后状态不更新 (barDone替换barIdle) | 2026-05-24 | ea36c95 | [260524-ruq-hevc-idle](./quick/260524-ruq-hevc-idle/) |
 
 ## Deferred Items
 
