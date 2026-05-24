@@ -204,10 +204,11 @@ public:
 
   ~ScopedTimer() noexcept {
     if (movedFrom_) { return; }
-    auto const elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::steady_clock::now() - start_
-    )
-                           .count();
+    auto const elapsed =  //
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start_
+      )
+        .count();
     LOG_INFO("{} completed in {}ms", stageName_, elapsed);
   }
 
