@@ -218,7 +218,7 @@ auto runEncodingTask(
     );
   }
 
-  executionCtx.barIdle(barIndex, slot);
+  executionCtx.barDone(barIndex, result, fileLabel);
   executionCtx.clearActive(slot);
 
   executionCtx.markFinished();
