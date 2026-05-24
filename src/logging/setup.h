@@ -1,6 +1,5 @@
 #pragma once
 
-#include <atomic>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -16,7 +15,7 @@ struct LogConfig {
 };
 
 // ── Environment snapshot data for forensic diagnostics ──────────────────────
-// Populated via setForensicSnapshotData (tests) or setForensicExecContext (Plan 03-03).
+// Populated via updateForensicSnapshot (production) or setForensicSnapshotData (tests).
 
 struct EnvironmentSnapshot {
   std::string pipelineType{"unknown"};
@@ -44,8 +43,13 @@ auto shutdown() -> void;
 // Store app context pointer for environment snapshot access.
 auto setForensicAppContext(void* appCtx) -> void;
 
-// Store encoding execution context pointer (called in Plan 03-03).
-auto setForensicExecContext(void* execCtx) -> void;
+// Update the forensic snapshot with live encoding progress (called from monitor thread).
+auto updateForensicSnapshot(
+  int activeSlots,
+  int totalSlots,
+  int pending,
+  int finished
+) -> void;
 
 // Test-only: directly set snapshot data for test verification.
 auto setForensicSnapshotData(EnvironmentSnapshot const& data) -> void;

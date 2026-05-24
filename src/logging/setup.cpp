@@ -294,15 +294,23 @@ auto currentLogFilePath() -> std::optional<fs::path> {
 // ── Forensic context state ──────────────────────────────────────────────────
 
 static auto gForensicAppCtx = std::atomic<void*>{nullptr};
-static auto gForensicExecCtx = std::atomic<void*>{nullptr};
 static auto gForensicSnapshotData = EnvironmentSnapshot{};
 
 auto setForensicAppContext(void* appCtx) -> void {
   gForensicAppCtx.store(appCtx, std::memory_order_release);
 }
 
-auto setForensicExecContext(void* execCtx) -> void {
-  gForensicExecCtx.store(execCtx, std::memory_order_release);
+auto updateForensicSnapshot(
+  int const activeSlots,
+  int const totalSlots,
+  int const pending,
+  int const finished
+) -> void {
+  gForensicSnapshotData.hasEncodingContext = true;
+  gForensicSnapshotData.activeSlots = activeSlots;
+  gForensicSnapshotData.totalSlots = totalSlots;
+  gForensicSnapshotData.pending = pending;
+  gForensicSnapshotData.finished = finished;
 }
 
 auto setForensicSnapshotData(EnvironmentSnapshot const& data) -> void {
@@ -311,7 +319,6 @@ auto setForensicSnapshotData(EnvironmentSnapshot const& data) -> void {
 
 auto clearForensicSnapshotData() -> void {
   gForensicAppCtx.store(nullptr, std::memory_order_release);
-  gForensicExecCtx.store(nullptr, std::memory_order_release);
   gForensicSnapshotData = EnvironmentSnapshot{};
 }
 

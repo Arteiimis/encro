@@ -99,7 +99,7 @@ auto exec2Impl(
         ) {
           return totalRead;
         }
-        LOG_DEBUG(
+        LOG_WARN(
           "PeekNamedPipe failed for {} with error {}",
           cmd,
           static_cast<unsigned long>(error)
