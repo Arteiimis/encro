@@ -46,14 +46,20 @@ TEST_CASE(
   CHECK(results.size() == 0);
 }
 
-TEST_CASE("barDone sets Success tone and 100% progress on success", "[video-batch-execution]") {
+TEST_CASE(
+  "barDone sets Success tone and 100% progress on success",
+  "[video-batch-execution]"
+) {
   auto appCtx = appctx::AppContext{};
   auto progressState = videobatch::detail::EncodingProgressState{1, 1};
   auto plannedOutputFiles = appctx::path_map<fs::path>{};
   auto actionIds = videobatch::ActionIdMap{};
 
   auto execCtx = videobatch::detail::EncodingExecutionContext{
-    appCtx, progressState, plannedOutputFiles, actionIds
+    appCtx,
+    progressState,
+    plannedOutputFiles,
+    actionIds
   };
 
   auto barIdx = execCtx.barIndexOpt(0);
@@ -62,15 +68,20 @@ TEST_CASE("barDone sets Success tone and 100% progress on success", "[video-batc
   REQUIRE_NOTHROW(execCtx.barDone(barIdx, true, "test.mp4"));
 }
 
-TEST_CASE("barDone sets Failure tone and preserves progress on failure",
-          "[video-batch-execution]") {
+TEST_CASE(
+  "barDone sets Failure tone and preserves progress on failure",
+  "[video-batch-execution]"
+) {
   auto appCtx = appctx::AppContext{};
   auto progressState = videobatch::detail::EncodingProgressState{1, 1};
   auto plannedOutputFiles = appctx::path_map<fs::path>{};
   auto actionIds = videobatch::ActionIdMap{};
 
   auto execCtx = videobatch::detail::EncodingExecutionContext{
-    appCtx, progressState, plannedOutputFiles, actionIds
+    appCtx,
+    progressState,
+    plannedOutputFiles,
+    actionIds
   };
 
   auto barIdx = execCtx.barIndexOpt(0);
@@ -86,7 +97,10 @@ TEST_CASE("barDone is no-op when barIndex is nullopt", "[video-batch-execution]"
   auto actionIds = videobatch::ActionIdMap{};
 
   auto execCtx = videobatch::detail::EncodingExecutionContext{
-    appCtx, progressState, plannedOutputFiles, actionIds
+    appCtx,
+    progressState,
+    plannedOutputFiles,
+    actionIds
   };
 
   // barDone with nullopt barIndex should not throw or crash

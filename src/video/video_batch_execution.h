@@ -216,20 +216,21 @@ struct EncodingExecutionContext {
   }
 
   void barDone(
-      std::optional<std::size_t> barIndex,
-      bool success,
-      std::string_view fileLabel
-    ) {
-      if (!barIndex.has_value()) { return; }
-      progress().setTone(
-        barIndex.value(), success ? progress::Tone::Success : progress::Tone::Failure
-      );
-      if (success) { progress().setProgress(barIndex.value(), 100.0f); }
-      progress()
-        .setPostfixText(
-          barIndex.value(), std::format("{}: {}", success ? "Done" : "Failed", fileLabel)
-        );
-    }
+    std::optional<std::size_t> barIndex,
+    bool success,
+    std::string_view fileLabel
+  ) {
+    if (!barIndex.has_value()) { return; }
+    progress().setTone(
+      barIndex.value(),
+      success ? progress::Tone::Success : progress::Tone::Failure
+    );
+    if (success) { progress().setProgress(barIndex.value(), 100.0f); }
+    progress().setPostfixText(
+      barIndex.value(),
+      std::format("{}: {}", success ? "Done" : "Failed", fileLabel)
+    );
+  }
 
   void updateOverall() {
     if (!counters().overallBarIndex.has_value()) { return; }
