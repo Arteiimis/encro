@@ -10,7 +10,7 @@ add_cxxflags("-ftrivial-auto-var-init=pattern")
 
 add_plugindirs("./plugins/")
 
-if is_mode("release") then  
+if is_mode("release") then
   set_policy("build.optimization.lto", true)
 end
 
@@ -35,13 +35,13 @@ end
 -- release/releasedbg: strip TRACE and DEBUG at compile time
 -- debug/coverage: keep all levels for development
 if is_mode("release") then
-    add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO")
+  add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO")
 elseif is_mode("releasedbg") then
-    add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO")
+  add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO")
 elseif is_mode("debug") then
-    add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE")
+  add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE")
 elseif is_mode("coverage") then
-    add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE")
+  add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE")
 end
 
 add_requires("boost[all]")
