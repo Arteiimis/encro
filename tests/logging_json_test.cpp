@@ -93,7 +93,7 @@ TEST_CASE("JsonFormatter emits correct level strings for all levels", "[logging]
   };
   // clang-format on
 
-  for (auto const& [lvl, expected] : levels) {
+  for (auto const& [lvl, expected]: levels) {
     auto oss2 = std::ostringstream{};
     auto sink2 = std::make_shared<spdlog::sinks::ostream_sink_mt>(oss2);
     sink2->set_formatter(std::make_unique<logging::JsonFormatter>());
@@ -170,7 +170,10 @@ TEST_CASE("elapsed_ms absent for non-timer messages", "[logging][json]") {
 // Test 5 — error_context extracted from Phase 3 context chain suffix
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("error_context extracted from Phase 3 context chain suffix", "[logging][json]") {
+TEST_CASE(
+  "error_context extracted from Phase 3 context chain suffix",
+  "[logging][json]"
+) {
   auto [logger, oss] = registerCapturingLoggerForJson(logtags::TEST_INFRA);
 
   // Mimics LOG_ERROR output with context chain appended:
@@ -379,7 +382,9 @@ TEST_CASE("JsonFormatter::clone() returns independent instance", "[logging][json
   // Verify it's valid JSON
   auto const val = boost::json::parse(line);
   REQUIRE(val.is_object());
-  CHECK(val.as_object().at("message").as_string().find("clone test") != std::string::npos);
+  CHECK(
+    val.as_object().at("message").as_string().find("clone test") != std::string::npos
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
