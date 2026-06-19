@@ -99,7 +99,7 @@ auto retainRecentLogs(fs::path const& logDir, int const maxKeep) -> std::size_t 
       if (!entry.is_regular_file()) { continue; }
       auto const filename = entry.path().filename().string();
       if (!filename.starts_with("encro_")) { continue; }
-      auto hasLogExt    = filename.find(".log")   != std::string::npos;
+      auto hasLogExt = filename.find(".log") != std::string::npos;
       auto hasNdjsonExt = filename.find(".ndjson") != std::string::npos;
       if (!hasLogExt && !hasNdjsonExt) { continue; }
       entries.push_back(entry.path());
@@ -210,8 +210,9 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
 
     // D-17~D-18: human-readable rotating file sink (only when verbose)
     if (config.verboseEnabled) {
-      auto hrSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-        filePath.string(), 10 * 1024 * 1024, 3);
+      auto hrSink = std::make_shared<
+        spdlog::sinks::rotating_file_sink_mt
+      >(filePath.string(), 10 * 1024 * 1024, 3);
       hrSink->set_pattern(kLogPattern);
       sinks.emplace_back(std::move(hrSink));
     }
@@ -220,8 +221,9 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     if (config.jsonEnabled) {
       auto ndjsonPath = filePath;
       ndjsonPath.replace_extension(".ndjson");
-      auto jsonSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-        ndjsonPath.string(), 10 * 1024 * 1024, 3);
+      auto jsonSink = std::make_shared<
+        spdlog::sinks::rotating_file_sink_mt
+      >(ndjsonPath.string(), 10 * 1024 * 1024, 3);
       jsonSink->set_formatter(std::make_unique<logging::JsonFormatter>());
       sinks.emplace_back(std::move(jsonSink));
     }

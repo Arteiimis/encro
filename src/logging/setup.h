@@ -44,12 +44,8 @@ auto shutdown() -> void;
 auto setForensicAppContext(void* appCtx) -> void;
 
 // Update the forensic snapshot with live encoding progress (called from monitor thread).
-auto updateForensicSnapshot(
-  int activeSlots,
-  int totalSlots,
-  int pending,
-  int finished
-) -> void;
+auto updateForensicSnapshot(int activeSlots, int totalSlots, int pending, int finished)
+  -> void;
 
 // Test-only: directly set snapshot data for test verification.
 auto setForensicSnapshotData(EnvironmentSnapshot const& data) -> void;
