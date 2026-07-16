@@ -20,8 +20,9 @@ if is_mode("coverage") then
   add_ldflags("-fprofile-instr-generate", "-fcoverage-mapping", {force = true})
 end
 
-if is_mode("debug") then
-  set_runtimes("MD")
+if is_mode("releasedbg") then
+  set_strip("none")
+  add_runenvs("ASAN_OPTIONS", "poison_history_size=4096")
   set_policy("build.sanitizer.address", true)
 end
 
@@ -51,12 +52,8 @@ add_requires("spdlog[fmt_external]")
 add_requires("fmt")
 add_requires("indicators")
 add_requires("immer")
-if is_plat("windows") then
-  add_requires("libzippp[toolchains=clang-cl]")
-  add_requireconfs("libzippp.libzip", {configs = {toolchains = "clang"}})
-else
-  add_requires("libzippp")
-end
+add_requires("libzippp")
+add_requireconfs("libzippp.libzip", {configs = {toolchains = "clang"}})
 add_requires("catch2")
 
 target("encro")
