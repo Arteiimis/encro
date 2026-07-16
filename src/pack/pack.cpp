@@ -34,6 +34,12 @@ namespace pack {
 
 namespace {
 
+// ponytail: ASan workaround — extract optional to raw pointer before use
+// to prevent compiler speculative read across inline boundaries.
+__declspec(noinline) auto optNamingPtr(PackRequest const& r) -> NamingConfig const* {
+  return r.naming.has_value() ? &r.naming.value() : nullptr;
+}
+
 // --- runNonResumable ---
 // Packs all groups in the given plan using a fresh PackService/Packer pair.
 // Returns PackRunResult on success or eh::Result error on failure.
@@ -112,8 +118,8 @@ auto collectPackInputs(PackRequest const& request)
   // Pass-through: if entryInputs provided, return as-is
   if (!request.entryInputs.empty()) { return request.entryInputs; }
 
-  auto const namingStrategy =
-    request.naming.has_value() ? request.naming->namingStrategy : NamingStrategy::Flat;
+  auto const* naming = optNamingPtr(request);
+  auto const namingStrategy = naming ? naming->namingStrategy : NamingStrategy::Flat;
 
   // Compute common ancestor directory for Keep strategy
   auto commonRoot = fs::path{};
@@ -276,14 +282,14 @@ auto applyEntryNameOverrides(
 // zipNameStrategy if present; otherwise falls back to the default mode-based
 // naming via makeDefaultZipNameStrategy.
 auto resolveZipNameStrategy(
-  PackRequest const& request,
+  NamingConfig const* naming,
   std::string baseName,
   std::vector<FileOrdinalRange> const& ordinalRanges,
   std::vector<std::pair<std::size_t, std::size_t>> groupNameParts,
   std::vector<std::size_t> subPartCountsByPart
 ) -> std::function<std::string(std::size_t)> {
-  if (request.naming.has_value() && request.naming->zipNameStrategy) {
-    auto strategy = request.naming->zipNameStrategy;
+  if (naming && naming->zipNameStrategy) {
+    auto strategy = naming->zipNameStrategy;
     auto ordRanges = ordinalRanges;
     auto nameParts = groupNameParts;
     auto subPartCounts = subPartCountsByPart;
@@ -308,6 +314,8 @@ auto resolveZipNameStrategy(
 // reads NamingConfig for baseName and zipNameStrategy, applies entryNameForFile
 // callback, and returns a PackPlan ready for execution.
 auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
+  auto const* naming = optNamingPtr(request);
+
   // 1. Build packInputs + append summary
   auto packInputs = collectPackInputs(request);
   appendSummaryEntries(request, packInputs);
@@ -318,12 +326,12 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
   applyEntryNameOverrides(request, groups);
   // 4. Naming configuration
   auto baseName = std::string{};
-  if (request.naming.has_value() && request.naming->baseName.has_value()) {
-    baseName = request.naming->baseName.value();
+  if (naming && naming->baseName.has_value()) {
+    baseName = naming->baseName.value();
   }
   auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groups);
   auto zipNameFn = resolveZipNameStrategy(
-    request,
+    naming,
     baseName,
     ordinalRanges,
     std::move(nameParts),
@@ -452,12 +460,14 @@ auto execute(PackRequest const& request) -> eh::Result<PackRunResult> {
     }
 
     Packer packer;
+    auto const* naming = optNamingPtr(request);
+    auto const namingStrategy = naming ? naming->namingStrategy : NamingStrategy::Flat;
     auto const planRes = packer.buildDirectoryPackPlan(
       request.entries[0],  // directory path
       request.outputDir,
       kDefaultMaxArchiveGroupSize,
       request.recursive,
-      request.naming.has_value() ? request.naming->namingStrategy : NamingStrategy::Flat,
+      namingStrategy,
       request.maxParallelJobs,
       std::nullopt  // excludedPath — not needed for pack-only
     );
