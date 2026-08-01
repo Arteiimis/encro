@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -22,13 +24,28 @@ auto parseProgressFile(fs::path const& progressFilePath) -> std::optional<Progre
 
 auto parseSegmentEndUs(fs::path const& progressFilePath) -> std::optional<std::uint64_t>;
 
+inline auto segmentBaseFrameOffset(
+  std::uint64_t cumulativeDurationUs,
+  std::int64_t totalFrames,
+  std::uint64_t totalDurationUs
+) -> std::uint64_t {
+  if (totalFrames <= 0 || totalDurationUs == 0) { return 0; }
+  return static_cast<std::uint64_t>(std::llround(
+    static_cast<double>(cumulativeDurationUs)
+    * totalFrames
+    / static_cast<double>(totalDurationUs)
+  ));
+}
+
 inline auto progressPercent(
   std::uint64_t frameCount,
   std::uint64_t baseFrameOffset,
   std::int64_t totalFrames
 ) -> float {
   if (totalFrames <= 0) { return 0.0f; }
-  return (static_cast<float>(baseFrameOffset + frameCount)
-          / static_cast<float>(totalFrames))
-    * 100.0f;
+  return std::min(
+    (static_cast<float>(baseFrameOffset + frameCount) / static_cast<float>(totalFrames))
+      * 100.0f,
+    100.0f
+  );
 }
