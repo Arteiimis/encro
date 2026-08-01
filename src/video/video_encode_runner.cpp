@@ -1,18 +1,26 @@
 #include "video/video_encode_runner.h"
 
+#include "video/video_info.h"
 #include "video/video_progress_parser.h"
 
 #include "core/display_text.h"
+#include "core/job_state.h"
 #include "infra/stop_signal.h"
 #include "utils/utils.h"
 #include "video/encode_config.h"
+#include "video/segment_dir.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <mutex>
+#include <optional>
+#include <string>
 
 DEFINE_LOGGER(logtags::VIDEO_ENCODE);
 
@@ -25,6 +33,7 @@ constexpr auto kWebpMinQuality = 20;
 constexpr auto kWebpQualityStep = 10;
 constexpr auto kWebpFineQualityStep = 5;
 constexpr auto kWebpSmallGapThreshold = std::uintmax_t{3ULL * 1024ULL * 1024ULL};
+constexpr auto kSegmentDurationUs = std::uint64_t{10'000'000};
 
 struct WebpEncodeContext {
   fs::path inputVidPath;
@@ -289,11 +298,58 @@ auto encodeWebpWithTargetSize(
   return false;
 }
 
-auto runStandardEncoding(
+auto segmentFilePath(fs::path const& segmentDir, std::uint64_t index) -> fs::path {
+  return segmentDir / std::format("seg_{}.ts", index);
+}
+
+auto segmentProgressFilePath(fs::path const& segmentDir, std::uint64_t index)
+  -> fs::path {
+  return segmentDir / std::format("seg_{}.progress", index);
+}
+
+auto encodeOneSegment(
+  appctx::AppContext const& ctx,
   appctx::EncodingState& state,
-  EncodeConfig const& cfg,
-  function_ref statusUpdater
+  function_ref statusUpdater,
+  fs::path const& segmentDir,
+  std::uint64_t index,
+  std::uint64_t startUs,
+  std::uint64_t durationUs
 ) -> bool {
+  auto const segFile = segmentFilePath(segmentDir, index);
+  auto const segProgressFile = segmentProgressFilePath(segmentDir, index);
+  {
+    auto ec = std::error_code{};
+    fs::remove(segProgressFile, ec);
+  }
+
+  auto const cfg = EncodeConfig{
+    .ffmpegPath = ctx.toolchain.ffmpegPath,
+    .inputPath = state.inputPath,
+    .outputFormat = ctx.config.outputFormat,
+    .progressFilePath = segProgressFile,
+    .segmentIndex = index,
+    .segmentStartUs = startUs,
+    .segmentDurationUs = durationUs,
+    .tempOutputPath = segFile
+  };
+
+  if (auto const validationResult = cfg.validate(); !validationResult) {
+    LOG_ERROR(
+      "Segment config invalid: input={} segment={} error={}",
+      state.inputPath.string(),
+      index,
+      validationResult.error()
+    );
+    return false;
+  }
+
+  {
+    auto lock = std::scoped_lock{state.mtx};
+    state.progressFilePath = segProgressFile;
+    state.subprocessCmdline = cfg.buildCMD();
+  }
+
   auto const [exitCode, _, pid] = exec2(cfg.buildCMD(), [&](std::string_view line) {
     reportEncodingDiagnostic(statusUpdater, line);
   });
@@ -303,13 +359,225 @@ auto runStandardEncoding(
   }
   if (exitCode != 0) {
     LOG_WARN(
-      "ffmpeg exited with non-zero code: input={} exitCode={}",
+      "Segment encode exited with non-zero code: input={} segment={} exitCode={}",
+      state.inputPath.string(),
+      index,
+      exitCode
+    );
+    return false;
+  }
+
+  return fs::exists(segFile);
+}
+
+auto ensureAudioFile(
+  appctx::AppContext& ctx,
+  appctx::EncodingState const& state,
+  fs::path const& segmentDir,
+  function_ref statusUpdater
+) -> eh::Result<std::optional<fs::path>> {
+  auto const fallbackAudio = segmentDir / "audio.m4a";
+  if (fs::exists(fallbackAudio)) { return fallbackAudio; }
+
+  auto const copyAudio =
+    segmentDir / std::format("audio{}", state.inputPath.extension().string());
+  if (fs::exists(copyAudio)) { return copyAudio; }
+
+  auto const hasAudioRes = getVidHasAudio(ctx.toolchain, ctx.runtime, state.inputPath);
+  if (!hasAudioRes) {
+    return eh::makeError("Failed to probe audio stream: {}", hasAudioRes.error());
+  }
+  if (!hasAudioRes.value()) { return std::nullopt; }
+
+  auto const runExtraction = [&](bool aacFallback, fs::path const& audioPath) {
+    auto const cmd = buildAudioExtractionCmd(
+      ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"}),
+      state.inputPath,
+      audioPath,
+      aacFallback
+    );
+    auto const [exitCode, _, pid] = exec2(cmd, [&](std::string_view line) {
+      reportEncodingDiagnostic(statusUpdater, line);
+    });
+    if (pid.has_value()) { LOG_DEBUG("Audio extraction pid: {}", pid.value()); }
+    return exitCode == 0 && fs::exists(audioPath);
+  };
+
+  if (runExtraction(false, copyAudio)) { return copyAudio; }
+
+  auto ec = std::error_code{};
+  fs::remove(copyAudio, ec);
+
+  if (runExtraction(true, fallbackAudio)) { return fallbackAudio; }
+
+  return eh::makeError("Failed to extract audio from: {}", state.inputPath.string());
+}
+
+auto assembleSegments(
+  appctx::AppContext const& ctx,
+  appctx::EncodingState& state,
+  EncodeExecutionPlan const& plan,
+  fs::path const& segmentDir,
+  std::uint64_t segmentCount,
+  std::optional<fs::path> const& audioPath,
+  function_ref statusUpdater
+) -> bool {
+  auto const listPath = segmentDir / "list.txt";
+  {
+    auto out = std::ofstream{listPath};
+    if (!out) {
+      LOG_ERROR("Failed to write segment list: {}", listPath.string());
+      return false;
+    }
+    for (auto index = std::uint64_t{0}; index < segmentCount; ++index) {
+      auto pathStr = segmentFilePath(segmentDir, index).string();
+      std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
+      out << "file '" << pathStr << "'\n";
+    }
+  }
+
+  auto const cmd = buildSegmentAssemblyCmd(
+    ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"}),
+    listPath,
+    audioPath,
+    plan.outputFilePath
+  );
+
+  {
+    auto lock = std::scoped_lock{state.mtx};
+    state.subprocessCmdline = cmd;
+  }
+
+  auto const [exitCode, _, pid] = exec2(cmd, [&](std::string_view line) {
+    reportEncodingDiagnostic(statusUpdater, line);
+  });
+  if (pid.has_value()) {
+    auto lock = std::scoped_lock{state.mtx};
+    state.subprocessPid = pid.value();
+  }
+  if (exitCode != 0) {
+    LOG_WARN(
+      "Segment assembly exited with non-zero code: input={} exitCode={}",
       state.inputPath.string(),
       exitCode
     );
+    return false;
+  }
+  if (!fs::exists(plan.outputFilePath)) {
+    LOG_WARN(
+      "Segment assembly produced no output: input={} output={}",
+      state.inputPath.string(),
+      plan.outputFilePath.string()
+    );
+    return false;
   }
 
-  return exitCode == 0;
+  return true;
+}
+
+auto runSegmentedEncoding(
+  appctx::AppContext& ctx,
+  appctx::EncodingState& state,
+  EncodeExecutionPlan const& plan,
+  function_ref statusUpdater
+) -> bool {
+  auto const taskId =
+    state.actionId.value_or(std::format("encode:{}", state.inputPath.string()));
+  auto const segmentDir = videoseg::segmentDirForTask(taskId);
+
+  auto resumeSegment = std::uint64_t{0};
+  auto resumeTimeUs = std::uint64_t{0};
+  auto const store = ctx.runtime.jobState;
+  auto const task = store ? store->findTask(taskId) : std::nullopt;
+  if (task.has_value() && task->segmentIndex.has_value()) {
+    resumeSegment = task->segmentIndex.value();
+    resumeTimeUs = task->resumeTimeUs.value_or(0);
+  } else {
+    videoseg::removeSegmentDir(segmentDir);
+  }
+  videoseg::createSegmentDir(segmentDir);
+
+  for (auto index = std::uint64_t{0}; index < resumeSegment; ++index) {
+    if (!fs::exists(segmentFilePath(segmentDir, index))) {
+      resumeSegment = index;
+      resumeTimeUs = index * kSegmentDurationUs;
+      break;
+    }
+  }
+
+  auto const durationRes =
+    getVidTotalDurationUs(ctx.toolchain, ctx.runtime, state.inputPath);
+  if (!durationRes) { return failEncoding(state, durationRes.error()); }
+  auto const totalDurationUs = durationRes.value();
+  if (totalDurationUs == 0) {
+    return failEncoding(
+      state,
+      std::format("Cannot segment video with zero duration: {}", state.inputPath.string())
+    );
+  }
+  auto const segmentCount =
+    (totalDurationUs + kSegmentDurationUs - 1) / kSegmentDurationUs;
+
+  auto const audioRes = ensureAudioFile(ctx, state, segmentDir, statusUpdater);
+  if (!audioRes) { return failEncoding(state, audioRes.error()); }
+  auto const audioPath = audioRes.value();
+
+  if (
+    auto const framesRes = getVidTotalFrames(ctx.toolchain, ctx.runtime, state.inputPath);
+    framesRes.has_value()
+  ) {
+    state.baseFrameOffset = static_cast<std::uint64_t>(std::llround(
+      static_cast<double>(resumeTimeUs)
+      * framesRes.value()
+      / static_cast<double>(totalDurationUs)
+    ));
+  }
+
+  for (auto index = resumeSegment; index < segmentCount; ++index) {
+    if (stopsignal::isStopRequested()) { return false; }
+
+    auto const startUs = index * kSegmentDurationUs;
+    auto const durationUs = std::min(kSegmentDurationUs, totalDurationUs - startUs);
+
+    if (statusUpdater) {
+      statusUpdater(std::format("segment {}/{}", index + 1, segmentCount));
+    }
+
+    LOG_DEBUG(
+      "Encoding segment: input={} segment={}/{} start={}us duration={}us",
+      state.inputPath.string(),
+      index + 1,
+      segmentCount,
+      startUs,
+      durationUs
+    );
+
+    if (
+      !encodeOneSegment(ctx, state, statusUpdater, segmentDir, index, startUs, durationUs)
+    ) {
+      return false;
+    }
+
+    auto const actualUs =
+      parseSegmentEndUs(segmentProgressFilePath(segmentDir, index)).value_or(durationUs);
+    resumeTimeUs += actualUs;
+    if (store) { store->markSegmentProgress(taskId, index + 1, resumeTimeUs); }
+  }
+
+  if (!assembleSegments(
+        ctx,
+        state,
+        plan,
+        segmentDir,
+        segmentCount,
+        audioPath,
+        statusUpdater
+      )) {
+    return false;
+  }
+
+  videoseg::removeSegmentDir(segmentDir);
+  return true;
 }
 
 }  // namespace
@@ -358,5 +626,5 @@ bool encodeVideo(
     );
   }
 
-  return runStandardEncoding(state, cfg, statusUpdater);
+  return runSegmentedEncoding(ctx, state, executionPlan, statusUpdater);
 }

@@ -57,6 +57,8 @@ struct TaskRecord {
   std::optional<std::int64_t> startedAtMs;
   std::optional<std::int64_t> updatedAtMs;
   std::optional<std::int64_t> finishedAtMs;
+  std::optional<std::uint64_t> segmentIndex;
+  std::optional<std::uint64_t> resumeTimeUs;
 };
 
 struct Snapshot {
@@ -96,6 +98,12 @@ public:
     std::optional<float> progress = std::nullopt,
     std::optional<std::uint64_t> frameCount = std::nullopt,
     std::optional<std::string_view> status = std::nullopt
+  );
+
+  void markSegmentProgress(
+    std::string_view id,
+    std::uint64_t segmentIndex,
+    std::uint64_t resumeTimeUs
   );
 
   void markSucceeded(

@@ -295,6 +295,10 @@ auto toJson(TaskRecord const& task) -> json::object {
     task.updatedAtMs.has_value() ? json::value(*task.updatedAtMs) : json::value(nullptr);
   object["finishedAtMs"] = task.finishedAtMs.has_value() ? json::value(*task.finishedAtMs)
                                                          : json::value(nullptr);
+  object["segmentIndex"] = task.segmentIndex.has_value() ? json::value(*task.segmentIndex)
+                                                         : json::value(nullptr);
+  object["resumeTimeUs"] = task.resumeTimeUs.has_value() ? json::value(*task.resumeTimeUs)
+                                                         : json::value(nullptr);
   return object;
 }
 
@@ -328,6 +332,8 @@ auto fromJsonTask(json::object const& object) -> TaskRecord {
     .startedAtMs = optionalNumberFrom<std::int64_t>(object, "startedAtMs"),
     .updatedAtMs = optionalNumberFrom<std::int64_t>(object, "updatedAtMs"),
     .finishedAtMs = optionalNumberFrom<std::int64_t>(object, "finishedAtMs"),
+    .segmentIndex = optionalNumberFrom<std::uint64_t>(object, "segmentIndex"),
+    .resumeTimeUs = optionalNumberFrom<std::uint64_t>(object, "resumeTimeUs"),
   };
 }
 
@@ -406,6 +412,8 @@ void clearExecutionState(TaskRecord& task) {
   task.startedAtMs.reset();
   task.updatedAtMs.reset();
   task.finishedAtMs.reset();
+  task.segmentIndex.reset();
+  task.resumeTimeUs.reset();
 }
 
 void markRestoredSucceeded(
@@ -433,6 +441,13 @@ void normalizeExistingTask(TaskRecord& task) {
   if (fingerprintChanged(task)) {
     clearExecutionState(task);
     task.fingerprint = currentFingerprint(task);
+    return;
+  }
+
+  if (task.segmentIndex.has_value()) {
+    if (task.status == TaskStatus::Succeeded && !actionTargetExists(task)) {
+      clearExecutionState(task);
+    }
     return;
   }
 

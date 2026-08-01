@@ -173,3 +173,61 @@ TEST_CASE("getVidTotalFrames reads cached info from immer snapshot", "[video-inf
   REQUIRE(totalFrames);
   CHECK(totalFrames.value() == 42);
 }
+
+TEST_CASE("getVidTotalDurationUs reads cached format duration", "[video-info]") {
+  auto runtime = appctx::RuntimeContext{};
+  auto toolchain = appctx::ToolchainPaths{};
+  auto const videoPath = fs::path{"sample.mp4"};
+
+  runtime.videoInfoCache
+    .set(videoPath, boost::json::parse(R"({"format":{"duration":"2.5"}})"));
+
+  auto const durationUs = getVidTotalDurationUs(toolchain, runtime, videoPath);
+
+  REQUIRE(durationUs);
+  CHECK(durationUs.value() == 2'500'000);
+}
+
+TEST_CASE("getVidTotalDurationUs errors when duration missing", "[video-info]") {
+  auto runtime = appctx::RuntimeContext{};
+  auto toolchain = appctx::ToolchainPaths{};
+  auto const videoPath = fs::path{"sample.mp4"};
+
+  runtime.videoInfoCache.set(videoPath, boost::json::parse(R"({"format":{}})"));
+
+  auto const durationUs = getVidTotalDurationUs(toolchain, runtime, videoPath);
+
+  REQUIRE_FALSE(durationUs);
+}
+
+TEST_CASE("getVidHasAudio detects audio stream", "[video-info]") {
+  auto runtime = appctx::RuntimeContext{};
+  auto toolchain = appctx::ToolchainPaths{};
+  auto const videoPath = fs::path{"sample.mp4"};
+
+  runtime.videoInfoCache.set(
+    videoPath,
+    boost::json::parse(
+      R"({"streams":[{"codec_type":"video"},{"codec_type":"audio","codec_name":"aac"}]})"
+    )
+  );
+
+  auto const hasAudio = getVidHasAudio(toolchain, runtime, videoPath);
+
+  REQUIRE(hasAudio);
+  CHECK(hasAudio.value());
+}
+
+TEST_CASE("getVidHasAudio false without audio stream", "[video-info]") {
+  auto runtime = appctx::RuntimeContext{};
+  auto toolchain = appctx::ToolchainPaths{};
+  auto const videoPath = fs::path{"sample.mp4"};
+
+  runtime.videoInfoCache
+    .set(videoPath, boost::json::parse(R"({"streams":[{"codec_type":"video"}]})"));
+
+  auto const hasAudio = getVidHasAudio(toolchain, runtime, videoPath);
+
+  REQUIRE(hasAudio);
+  CHECK_FALSE(hasAudio.value());
+}
