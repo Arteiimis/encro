@@ -206,3 +206,20 @@ TEST_CASE(
   CHECK(progressPercent(5, 95, 100) == 100.0f);
   CHECK(progressPercent(0, 0, 0) == 0.0f);
 }
+
+TEST_CASE("progressPercent clamps above 100", "[video-process][progressPercent]") {
+  CHECK(progressPercent(10, 95, 100) == 100.0f);
+  CHECK(progressPercent(50, 80, 100) == 100.0f);
+}
+
+TEST_CASE(
+  "segmentBaseFrameOffset maps cumulative duration to frame offset",
+  "[video-process][segmentBaseFrameOffset]"
+) {
+  CHECK(segmentBaseFrameOffset(0, 2700, 90'000'000) == 0);
+  CHECK(segmentBaseFrameOffset(30'000'000, 2700, 90'000'000) == 900);
+  CHECK(segmentBaseFrameOffset(60'000'000, 2700, 90'000'000) == 1800);
+  CHECK(segmentBaseFrameOffset(90'000'000, 2700, 90'000'000) == 2700);
+  CHECK(segmentBaseFrameOffset(30'000'000, 0, 90'000'000) == 0);
+  CHECK(segmentBaseFrameOffset(30'000'000, 2700, 0) == 0);
+}
