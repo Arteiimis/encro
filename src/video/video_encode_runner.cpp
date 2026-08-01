@@ -522,16 +522,21 @@ auto runSegmentedEncoding(
   if (!audioRes) { return failEncoding(state, audioRes.error()); }
   auto const audioPath = audioRes.value();
 
+  auto totalFrames = std::int64_t{0};
   if (
     auto const framesRes = getVidTotalFrames(ctx.toolchain, ctx.runtime, state.inputPath);
     framesRes.has_value()
   ) {
-    state.baseFrameOffset = static_cast<std::uint64_t>(std::llround(
-      static_cast<double>(resumeTimeUs)
-      * framesRes.value()
-      / static_cast<double>(totalDurationUs)
-    ));
+    totalFrames = framesRes.value();
   }
+
+  auto const setBaseFrameOffset = [&](std::uint64_t cumulativeUs) {
+    auto const offset =
+      segmentBaseFrameOffset(cumulativeUs, totalFrames, totalDurationUs);
+    auto lock = std::scoped_lock{state.mtx};
+    state.baseFrameOffset = offset;
+  };
+  setBaseFrameOffset(resumeTimeUs);
 
   for (auto index = resumeSegment; index < segmentCount; ++index) {
     if (stopsignal::isStopRequested()) { return false; }
@@ -561,6 +566,7 @@ auto runSegmentedEncoding(
     auto const actualUs =
       parseSegmentEndUs(segmentProgressFilePath(segmentDir, index)).value_or(durationUs);
     resumeTimeUs += actualUs;
+    setBaseFrameOffset(resumeTimeUs);
     if (store) { store->markSegmentProgress(taskId, index + 1, resumeTimeUs); }
   }
 
