@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <format>
 #include <optional>
+#include <string>
 
 namespace fs = std::filesystem;
 
@@ -19,6 +20,10 @@ struct EncodeConfig {
   std::optional<int> crf = 20;
   std::optional<int> webpQuality = 80;
   std::optional<fs::path> progressFilePath;
+  std::optional<std::uint64_t> segmentIndex;
+  std::optional<std::uint64_t> segmentStartUs;
+  std::optional<std::uint64_t> segmentDurationUs;
+  std::optional<fs::path> tempOutputPath;
 
   eh::Result<void> validate() const {
     if (!inputPath.has_value()) { return eh::makeError("Input path is required."); }
@@ -85,7 +90,21 @@ struct EncodeConfig {
     if (!inputPath.has_value()) {
       throw std::runtime_error("Input path is required to build ffmpeg command.");
     }
-    cmd += std::format(" -i \"{}\"", inputPath->string());
+
+    auto const isSegmented = segmentIndex.has_value();
+    auto const seconds = [](std::uint64_t micros) {
+      return std::format("{:.6f}", static_cast<double>(micros) / 1'000'000.0);
+    };
+
+    if (isSegmented) {
+      auto const startSec = seconds(segmentStartUs.value());
+      cmd += std::format(" -ss {} -i \"{}\"", startSec, inputPath->string());
+      cmd += std::format(" -t {}", seconds(segmentDurationUs.value()));
+      cmd += " -force_key_frames 0";
+      cmd += " -an";
+    } else {
+      cmd += std::format(" -i \"{}\"", inputPath->string());
+    }
 
     auto const format = outputFormat.value_or("mp4");
     auto const codec = videoCodec.value_or("hevc_nvenc");
@@ -97,7 +116,9 @@ struct EncodeConfig {
       cmd += std::format(" -c:v {} -crf {}", codec, crf.value_or(20));
     }
 
-    auto const outputVidPath = buildOutputPath();
+    if (isSegmented) { cmd += " -f mpegts"; }
+
+    auto const outputVidPath = tempOutputPath.value_or(buildOutputPath());
 
     cmd += std::format(" \"{}\"", outputVidPath.string());
 
@@ -108,3 +129,34 @@ struct EncodeConfig {
     return cmd;
   }
 };
+
+inline auto buildAudioExtractionCmd(
+  fs::path const& ffmpegPath,
+  fs::path const& inputPath,
+  fs::path const& audioPath,
+  bool aacFallback
+) -> std::string {
+  auto cmd = std::string{ffmpegPath.string()};
+  cmd += " -hide_banner -nostats -loglevel error -y";
+  cmd += std::format(" -i \"{}\"", inputPath.string());
+  cmd += aacFallback ? " -vn -c:a aac -b:a 192k" : " -vn -c:a copy";
+  cmd += std::format(" \"{}\"", audioPath.string());
+  return cmd;
+}
+
+inline auto buildSegmentAssemblyCmd(
+  fs::path const& ffmpegPath,
+  fs::path const& listPath,
+  std::optional<fs::path> const& audioPath,
+  fs::path const& outputPath
+) -> std::string {
+  auto cmd = std::string{ffmpegPath.string()};
+  cmd += " -hide_banner -nostats -loglevel error -y";
+  cmd += std::format(" -f concat -safe 0 -i \"{}\"", listPath.string());
+  if (audioPath.has_value()) { cmd += std::format(" -i \"{}\"", audioPath->string()); }
+  cmd += " -map 0:v";
+  if (audioPath.has_value()) { cmd += " -map 1:a"; }
+  cmd += " -c copy";
+  cmd += std::format(" \"{}\"", outputPath.string());
+  return cmd;
+}

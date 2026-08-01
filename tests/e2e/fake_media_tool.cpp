@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <cstdlib>
 #include <chrono>
 #include <filesystem>
@@ -16,6 +17,8 @@ namespace {
 struct FfmpegInvocation {
   std::optional<fs::path> outputFile;
   std::optional<fs::path> progressFile;
+  std::optional<double> seekSeconds;
+  std::optional<double> durationSeconds;
 };
 
 auto readEnv(std::string const& key) -> std::optional<std::string> {
@@ -85,11 +88,16 @@ auto writeSizedFile(fs::path const& path, std::uintmax_t sizeInBytes) -> void {
   out.flush();
 }
 
-auto writeProgressFile(fs::path const& path, int frameCount) -> void {
-  fs::create_directories(path.parent_path());
-  auto out = std::ofstream{path};
-  out << "frame=" << frameCount << "\n";
-  out << "progress=end\n";
+auto parseDoubleArg(int argc, char* argv[], std::string_view name)
+  -> std::optional<double> {
+  for (auto index = 1; index + 1 < argc; ++index) {
+    if (std::string_view{argv[index]} == name) {
+      try {
+        return std::stod(argv[index + 1]);
+      } catch (...) { return std::nullopt; }
+    }
+  }
+  return std::nullopt;
 }
 
 auto parseFfmpegInvocation(int argc, char* argv[]) -> FfmpegInvocation {
@@ -120,6 +128,9 @@ auto parseFfmpegInvocation(int argc, char* argv[]) -> FfmpegInvocation {
       invocation.outputFile = fs::path{argv[index]};
     }
   }
+
+  invocation.seekSeconds = parseDoubleArg(argc, argv, "-ss");
+  invocation.durationSeconds = parseDoubleArg(argc, argv, "-t");
 
   return invocation;
 }
@@ -167,14 +178,31 @@ auto runFakeFfmpeg(int argc, char* argv[]) -> int {
     if (stderrText->empty() || stderrText->back() != '\n') { std::cerr << '\n'; }
   }
 
+  if (auto const failMatch = readEnv("ENCRO_FAKE_FFMPEG_FAIL_MATCH"); failMatch) {
+    if (
+      invocation.outputFile.has_value()
+      && invocation.outputFile->string().find(failMatch.value()) != std::string::npos
+    ) {
+      return readEnvInt("ENCRO_FAKE_FFMPEG_EXIT_CODE", 1);
+    }
+  }
+
   auto const delayMs = readEnvInt("ENCRO_FAKE_FFMPEG_DELAY_MS", 0);
   if (delayMs > 0) { std::this_thread::sleep_for(std::chrono::milliseconds(delayMs)); }
 
   if (invocation.progressFile.has_value()) {
-    writeProgressFile(
-      invocation.progressFile.value(),
-      readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_FRAMES", 10)
-    );
+    auto const frameCount = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_FRAMES", 10);
+    auto out = std::ofstream{invocation.progressFile.value()};
+    if (out.is_open()) {
+      out << "frame=" << frameCount << "\n";
+      if (invocation.seekSeconds.has_value() && invocation.durationSeconds.has_value()) {
+        auto const endUs = static_cast<std::uint64_t>(
+          (invocation.seekSeconds.value() + invocation.durationSeconds.value()) * 1e6
+        );
+        out << "out_time_us=" << endUs << "\n";
+      }
+      out << "progress=end\n";
+    }
   }
 
   auto const exitCode = readEnvInt("ENCRO_FAKE_FFMPEG_EXIT_CODE", 0);

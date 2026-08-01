@@ -177,6 +177,44 @@ auto allFilesUseCodec(std::vector<fs::path> const& files, std::string_view expec
   });
 }
 
+auto countLogLines(fs::path const& logPath, std::string_view needle) -> std::size_t {
+  auto const content = readTextFile(logPath);
+  auto stream = std::istringstream{content};
+  auto line = std::string{};
+  auto count = std::size_t{0};
+  while (std::getline(stream, line)) {
+    if (line.find(needle) != std::string::npos) { ++count; }
+  }
+  return count;
+}
+
+auto findOutputMp4(fs::path const& searchRoot) -> std::optional<fs::path> {
+  if (!fs::exists(searchRoot)) { return std::nullopt; }
+  for (auto const& entry: fs::recursive_directory_iterator{searchRoot}) {
+    if (entry.is_regular_file() && entry.path().extension() == ".mp4") {
+      return entry.path();
+    }
+  }
+  return std::nullopt;
+}
+
+auto segmentDirFromLog(fs::path const& logPath) -> fs::path {
+  auto const content = readTextFile(logPath);
+  auto stream = std::istringstream{content};
+  auto line = std::string{};
+  while (std::getline(stream, line)) {
+    auto tokenStream = std::istringstream{line};
+    auto token = std::string{};
+    while (std::getline(tokenStream, token, '\t')) {
+      if (token == "mpegts" && std::getline(tokenStream, token, '\t')) {
+        return fs::path{token}.parent_path();
+      }
+    }
+  }
+  FAIL("No segment invocation found in fake tool log");
+  return {};
+}
+
 }  // namespace
 
 TEST_CASE("encro help command exits successfully", "[e2e][cli]") {
@@ -549,4 +587,280 @@ TEST_CASE(
   REQUIRE(secondRun.exitCode == 0);
   CHECK(secondRun.stdoutText.find("Resuming job state from:") == std::string::npos);
   CHECK(countActualFfmpegEncodes(logPath) == 2);
+}
+
+TEST_CASE(
+  "encro resumes mp4 encode at first uncompleted segment",
+  "[e2e][resume][segment]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const probeJson = temp.path / "probe.json";
+  e2e::writeTextFile(inputPath, "fake-video");
+  e2e::writeTextFile(
+    probeJson,
+    R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
+  );
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto failEnv = env;
+  failEnv["ENCRO_FAKE_FFMPEG_FAIL_MATCH"] = "seg_1.ts";
+  auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, failEnv);
+  REQUIRE(firstRun.exitCode == 1);
+  CHECK(countLogLines(logPath, "seg_0.ts") == 1);
+  CHECK(countLogLines(logPath, "seg_1.ts") == 1);
+  CHECK(countLogLines(logPath, "seg_2.ts") == 0);
+
+  auto const state = loadJsonObject(statePath);
+  auto const& tasks = state.at("tasks").as_array();
+  REQUIRE(tasks.size() == 1);
+  CHECK(tasks.front().as_object().at("status").as_string() == "failed");
+  CHECK(tasks.front().as_object().at("segmentIndex").as_int64() == 1);
+
+  auto const secondRun = e2e::runEncro(baseArgs, std::nullopt, env);
+  REQUIRE(secondRun.exitCode == 0);
+
+  CHECK(countLogLines(logPath, "-ss\t0.000000") == 1);
+  CHECK(countLogLines(logPath, "-ss\t10.000000") == 2);
+  CHECK(countLogLines(logPath, "-ss\t20.000000") == 1);
+  CHECK(countLogLines(logPath, "seg_0.ts") == 1);
+  CHECK(countLogLines(logPath, "seg_1.ts") == 2);
+  CHECK(countLogLines(logPath, "seg_2.ts") == 1);
+  CHECK(countLogLines(logPath, "-f\tconcat") == 1);
+
+  auto const outputPath = findOutputMp4(temp.path);
+  REQUIRE(outputPath.has_value());
+  CHECK(fs::file_size(outputPath.value()) > 0);
+
+  auto const finalState = loadJsonObject(statePath);
+  auto const& finalTasks = finalState.at("tasks").as_array();
+  REQUIRE(finalTasks.size() == 1);
+  CHECK(finalTasks.front().as_object().at("status").as_string() == "succeeded");
+  CHECK(finalTasks.front().as_object().at("segmentIndex").as_int64() == 3);
+}
+
+TEST_CASE(
+  "encro mp4 resume reruns concat only when segments exist but output missing",
+  "[e2e][resume][segment]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const probeJson = temp.path / "probe.json";
+  e2e::writeTextFile(inputPath, "fake-video");
+  e2e::writeTextFile(
+    probeJson,
+    R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
+  );
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto failEnv = env;
+  failEnv["ENCRO_FAKE_FFMPEG_FAIL_MATCH"] = "hevc.mp4";
+  auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, failEnv);
+  REQUIRE(firstRun.exitCode == 1);
+  CHECK(countLogLines(logPath, "seg_2.ts") == 1);
+  CHECK(countLogLines(logPath, "-f\tconcat") == 1);
+
+  auto const secondRun = e2e::runEncro(baseArgs, std::nullopt, env);
+  REQUIRE(secondRun.exitCode == 0);
+  CHECK(countLogLines(logPath, "-f\tconcat") == 2);
+  CHECK(countLogLines(logPath, "-ss\t0.000000") == 1);
+
+  auto const outputPath = findOutputMp4(temp.path);
+  REQUIRE(outputPath.has_value());
+  CHECK(fs::file_size(outputPath.value()) > 0);
+}
+
+TEST_CASE(
+  "encro mp4 resume re-encodes from first missing segment",
+  "[e2e][resume][segment]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const probeJson = temp.path / "probe.json";
+  e2e::writeTextFile(inputPath, "fake-video");
+  e2e::writeTextFile(
+    probeJson,
+    R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
+  );
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto failEnv = env;
+  failEnv["ENCRO_FAKE_FFMPEG_FAIL_MATCH"] = "seg_1.ts";
+  auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, failEnv);
+  REQUIRE(firstRun.exitCode == 1);
+
+  fs::remove(segmentDirFromLog(logPath) / "seg_0.ts");
+
+  auto const secondRun = e2e::runEncro(baseArgs, std::nullopt, env);
+  REQUIRE(secondRun.exitCode == 0);
+  CHECK(countLogLines(logPath, "-ss\t0.000000") == 2);
+  CHECK(countLogLines(logPath, "seg_1.ts") == 2);
+
+  auto const outputPath = findOutputMp4(temp.path);
+  REQUIRE(outputPath.has_value());
+}
+
+TEST_CASE(
+  "encro restart cleans stale segments and starts fresh",
+  "[e2e][restart][segment]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const probeJson = temp.path / "probe.json";
+  e2e::writeTextFile(inputPath, "fake-video");
+  e2e::writeTextFile(
+    probeJson,
+    R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
+  );
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto failEnv = env;
+  failEnv["ENCRO_FAKE_FFMPEG_FAIL_MATCH"] = "seg_1.ts";
+  auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, failEnv);
+  REQUIRE(firstRun.exitCode == 1);
+  auto const staleSegmentDir = segmentDirFromLog(logPath);
+  REQUIRE(fs::exists(staleSegmentDir / "seg_0.ts"));
+
+  auto restartArgs = baseArgs;
+  restartArgs.push_back("--restart");
+  auto const secondRun = e2e::runEncro(restartArgs, std::nullopt, env);
+  REQUIRE(secondRun.exitCode == 0);
+  CHECK(countLogLines(logPath, "-ss\t0.000000") == 2);
+  CHECK(countLogLines(logPath, "-f\tconcat") == 1);
+
+  auto const outputPath = findOutputMp4(temp.path);
+  REQUIRE(outputPath.has_value());
+}
+
+TEST_CASE(
+  "encro mp4 encode extracts audio once and keeps it out of segments",
+  "[e2e][resume][segment][audio]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const probeJson = temp.path / "probe.json";
+  e2e::writeTextFile(inputPath, "fake-video");
+  e2e::writeTextFile(
+    probeJson,
+    R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"},{"codec_type":"audio","codec_name":"aac"}]})"
+  );
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto failEnv = env;
+  failEnv["ENCRO_FAKE_FFMPEG_FAIL_MATCH"] = "seg_1.ts";
+  auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, failEnv);
+  REQUIRE(firstRun.exitCode == 1);
+
+  auto const secondRun = e2e::runEncro(baseArgs, std::nullopt, env);
+  REQUIRE(secondRun.exitCode == 0);
+
+  CHECK(countLogLines(logPath, "-c:a\tcopy") == 1);
+  CHECK(countLogLines(logPath, "audio.avi") == 2);
+  CHECK(countLogLines(logPath, "-f\tmpegts") == 4);
+  CHECK(countLogLines(logPath, "-map\t0:v") == 1);
+  CHECK(countLogLines(logPath, "-map\t1:a") == 1);
+  CHECK(countLogLines(logPath, "-an") == 4);
+
+  auto const content = readTextFile(logPath);
+  auto stream = std::istringstream{content};
+  auto line = std::string{};
+  auto segmentLinesWithAudio = std::size_t{0};
+  while (std::getline(stream, line)) {
+    if (line.find("mpegts") == std::string::npos) { continue; }
+    if (line.find("-c:a") != std::string::npos) { ++segmentLinesWithAudio; }
+  }
+  CHECK(segmentLinesWithAudio == 0);
+
+  auto const outputPath = findOutputMp4(temp.path);
+  REQUIRE(outputPath.has_value());
 }

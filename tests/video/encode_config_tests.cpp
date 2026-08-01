@@ -265,3 +265,76 @@ TEST_CASE("EncodeConfig suppresses ffmpeg banner and info output", "[encode-conf
   CHECK(cmd.find("-nostats") != std::string::npos);
   CHECK(cmd.find("-loglevel error") != std::string::npos);
 }
+
+TEST_CASE("EncodeConfig builds segmented mp4 command", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const segOutput = temp.path / "segs" / "seg_3.ts";
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.crf = 22;
+  cfg.segmentIndex = 3;
+  cfg.segmentStartUs = 30'000'000;
+  cfg.segmentDurationUs = 10'000'000;
+  cfg.tempOutputPath = segOutput;
+  cfg.progressFilePath = temp.path / "seg_3.progress";
+
+  auto const validation = cfg.validate();
+  REQUIRE(validation);
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-ss 30.000000") != std::string::npos);
+  CHECK(cmd.find("-t 10.000000") != std::string::npos);
+  CHECK(cmd.find("-force_key_frames 0") != std::string::npos);
+  CHECK(cmd.find("-an") != std::string::npos);
+  CHECK(cmd.find("-c:v hevc_nvenc -crf 22") != std::string::npos);
+  CHECK(cmd.find("-f mpegts") != std::string::npos);
+  CHECK(cmd.find(segOutput.string()) != std::string::npos);
+  CHECK(
+    cmd.find(std::format("{}.hevc.mp4", inputPath.stem().string())) == std::string::npos
+  );
+}
+
+TEST_CASE("EncodeConfig builds audio extraction command", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const audioPath = temp.path / "audio.mp4";
+
+  auto const copyCmd =
+    buildAudioExtractionCmd("ffmpeg", inputPath, audioPath, /*aacFallback=*/false);
+  CHECK(copyCmd.find("-vn -c:a copy") != std::string::npos);
+  CHECK(copyCmd.find("-c:v") == std::string::npos);
+  CHECK(copyCmd.find(audioPath.string()) != std::string::npos);
+
+  auto const aacCmd =
+    buildAudioExtractionCmd("ffmpeg", inputPath, audioPath, /*aacFallback=*/true);
+  CHECK(aacCmd.find("-vn -c:a aac -b:a 192k") != std::string::npos);
+  CHECK(aacCmd.find(audioPath.string()) != std::string::npos);
+}
+
+TEST_CASE("EncodeConfig builds segment assembly command", "[encode-config]") {
+  TempDir temp;
+  auto const listPath = temp.path / "list.txt";
+  auto const audioPath = temp.path / "audio.m4a";
+  auto const outputPath = temp.path / "out.mp4";
+
+  auto const withAudio =
+    buildSegmentAssemblyCmd("ffmpeg", listPath, audioPath, outputPath);
+  CHECK(withAudio.find("-f concat -safe 0") != std::string::npos);
+  CHECK(withAudio.find(std::format("-i \"{}\"", listPath.string())) != std::string::npos);
+  CHECK(
+    withAudio.find(std::format("-i \"{}\"", audioPath.string())) != std::string::npos
+  );
+  CHECK(withAudio.find("-map 0:v") != std::string::npos);
+  CHECK(withAudio.find("-map 1:a") != std::string::npos);
+  CHECK(withAudio.find("-c copy") != std::string::npos);
+  CHECK(withAudio.find(std::format("\"{}\"", outputPath.string())) != std::string::npos);
+
+  auto const noAudio =
+    buildSegmentAssemblyCmd("ffmpeg", listPath, std::nullopt, outputPath);
+  CHECK(noAudio.find(std::format("-i \"{}\"", audioPath.string())) == std::string::npos);
+  CHECK(noAudio.find("-map 1:a") == std::string::npos);
+  CHECK(noAudio.find("-map 0:v") != std::string::npos);
+  CHECK(noAudio.find(std::format("\"{}\"", outputPath.string())) != std::string::npos);
+}
