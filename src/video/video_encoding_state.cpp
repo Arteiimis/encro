@@ -72,8 +72,11 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
     state.lastFrameCount = progressData->frameCount;
   }
 
-  return (static_cast<float>(progressData->frameCount) / state.totalFrames.value())
-    * 100.0f;
+  return progressPercent(
+    progressData->frameCount,
+    state.baseFrameOffset,
+    state.totalFrames.value()
+  );
 }
 
 void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& executionCtx) {

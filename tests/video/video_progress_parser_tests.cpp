@@ -145,3 +145,64 @@ TEST_CASE(
   CHECK(isLikelyFfmpegErrorLine("Option foo not found."));
   CHECK(isLikelyFfmpegErrorLine("[libwebp @ 000001] Error parsing option quality."));
 }
+
+TEST_CASE(
+  "parseSegmentEndUs extracts final out_time_us",
+  "[video-process][parseSegmentEndUs]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "progress.log";
+
+  {
+    std::ofstream out{filePath};
+    out << "frame=10\n";
+    out << "out_time_us=5040000\n";
+    out << "progress=continue\n";
+    out << "frame=50\n";
+    out << "out_time_us=10024000\n";
+    out << "progress=end\n";
+  }
+
+  auto const endUs = parseSegmentEndUs(filePath);
+  REQUIRE(endUs.has_value());
+  CHECK(endUs.value() == 10'024'000);
+}
+
+TEST_CASE(
+  "parseSegmentEndUs returns nullopt for missing file",
+  "[video-process][parseSegmentEndUs]"
+) {
+  TempDir temp;
+  auto const missingPath = temp.path / "missing.log";
+
+  auto const endUs = parseSegmentEndUs(missingPath);
+  CHECK_FALSE(endUs.has_value());
+}
+
+TEST_CASE(
+  "parseSegmentEndUs returns nullopt when out_time_us is absent",
+  "[video-process][parseSegmentEndUs]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "progress.log";
+
+  {
+    std::ofstream out{filePath};
+    out << "frame=50\n";
+    out << "progress=end\n";
+  }
+
+  auto const endUs = parseSegmentEndUs(filePath);
+  CHECK_FALSE(endUs.has_value());
+}
+
+TEST_CASE(
+  "progressPercent includes base frame offset",
+  "[video-process][progressPercent]"
+) {
+  CHECK(progressPercent(0, 0, 100) == 0.0f);
+  CHECK(progressPercent(10, 0, 40) == 25.0f);
+  CHECK(progressPercent(25, 50, 100) == 75.0f);
+  CHECK(progressPercent(5, 95, 100) == 100.0f);
+  CHECK(progressPercent(0, 0, 0) == 0.0f);
+}

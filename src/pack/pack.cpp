@@ -326,9 +326,7 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
   applyEntryNameOverrides(request, groups);
   // 4. Naming configuration
   auto baseName = std::string{};
-  if (naming && naming->baseName.has_value()) {
-    baseName = naming->baseName.value();
-  }
+  if (naming && naming->baseName.has_value()) { baseName = naming->baseName.value(); }
   auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groups);
   auto zipNameFn = resolveZipNameStrategy(
     naming,

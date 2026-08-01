@@ -82,6 +82,7 @@ struct EncodingState {
   std::optional<std::string> lastStatus;
   std::optional<std::string> lastError;
   std::optional<int64_t> totalFrames;
+  std::uint64_t baseFrameOffset = 0;
   std::optional<int> subprocessPid;
   std::optional<std::string> subprocessCmdline;
   bool finished = false;

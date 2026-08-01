@@ -155,3 +155,22 @@ auto parseProgressFile(fs::path const& progressFilePath) -> std::optional<Progre
 
   return ProgressData{frameCount.value(), progressStatus};
 }
+
+auto parseSegmentEndUs(fs::path const& progressFilePath) -> std::optional<std::uint64_t> {
+  namespace bp = boost::parser;
+
+  auto const lines = readLastNLines(progressFilePath, kProgressTailLines);
+  if (lines.empty()) { return std::nullopt; }
+
+  auto endUs = std::optional<std::uint64_t>{};
+
+  auto const endUsParser = bp::string("out_time_us=") >> bp::uint_;
+
+  for (auto const& line: lines) {
+    if (auto const& res = parse(line, endUsParser); res.has_value()) {
+      endUs = std::get<1>(res.value());
+    }
+  }
+
+  return endUs;
+}

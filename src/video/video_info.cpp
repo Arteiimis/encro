@@ -393,6 +393,59 @@ auto getVidTotalFrames(
   return eh::makeError("Failed to retrieve total frames");
 }
 
+auto getVidTotalDurationUs(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  fs::path const& videoPath
+) -> eh::Result<std::uint64_t> {
+  auto const vidInfo = loadCachedOrProbeVideoInfo(toolchain, runtime, videoPath);
+
+  if (!vidInfo.is_object()) { return eh::makeError("Invalid video info"); }
+
+  auto formatDuration = std::string{};
+  if (
+    auto const durationValue =
+      getFormatDurationValue(vidInfo.as_object(), formatDuration);
+    durationValue.has_value()
+  ) {
+    return static_cast<std::uint64_t>(std::llround(durationValue.value() * 1'000'000.0));
+  }
+
+  LOG_DEBUG("Missing format duration for {}", videoPath.string());
+  return eh::makeError("Failed to retrieve video duration");
+}
+
+auto getVidHasAudio(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  fs::path const& videoPath
+) -> eh::Result<bool> {
+  auto const vidInfo = loadCachedOrProbeVideoInfo(toolchain, runtime, videoPath);
+
+  if (!vidInfo.is_object()) { return eh::makeError("Invalid video info"); }
+
+  auto const& obj = vidInfo.as_object();
+  auto const streamsIt = obj.find("streams");
+  if (streamsIt == obj.end() || !streamsIt->value().is_array()) {
+    return eh::makeError("Missing stream info");
+  }
+
+  for (auto const& streamVal: streamsIt->value().as_array()) {
+    if (!streamVal.is_object()) { continue; }
+    auto const& stream = streamVal.as_object();
+    auto const codecTypeIt = stream.find("codec_type");
+    if (
+      codecTypeIt != stream.end()
+      && codecTypeIt->value().is_string()
+      && codecTypeIt->value().as_string() == "audio"
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 bool isHevcEncoded(appctx::ToolchainPaths const& toolchain, fs::path const& videoPath) {
   auto const vidInfo = getVidInfo(toolchain, videoPath);
   return isHevcEncodedInfo(vidInfo);

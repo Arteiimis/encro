@@ -171,6 +171,23 @@ void Store::markProgress(
   flushLocked(false);
 }
 
+void Store::markSegmentProgress(
+  std::string_view id,
+  std::uint64_t segmentIndex,
+  std::uint64_t resumeTimeUs
+) {
+  auto lock = std::scoped_lock{mtx_};
+  auto const index = indexFor(id);
+  if (!index.has_value()) { return; }
+
+  auto& task = snapshot_.tasks[index.value()];
+  task.segmentIndex = segmentIndex;
+  task.resumeTimeUs = resumeTimeUs;
+  task.updatedAtMs = detail::nowMs();
+  snapshot_.updatedAtMs = task.updatedAtMs.value();
+  flushLocked(true);
+}
+
 void Store::markSucceeded(std::string_view id, std::optional<std::string_view> status) {
   auto lock = std::scoped_lock{mtx_};
   auto const index = indexFor(id);
