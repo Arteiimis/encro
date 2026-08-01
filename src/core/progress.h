@@ -3,9 +3,12 @@
 #include <indicators/dynamic_progress.hpp>
 #include <indicators/progress_bar.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -28,6 +31,25 @@ using Manager = indicators::DynamicProgress<indicators::ProgressBar>;
 using BarPtr = std::unique_ptr<indicators::ProgressBar>;
 using BarCollection = std::vector<BarPtr>;
 
+class EtaEstimator {
+public:
+  static constexpr auto kSampleInterval = std::chrono::milliseconds{250};
+  static constexpr auto kEmaAlpha = 0.4f;
+  static constexpr auto kMaxRatePerSec = 200.0f;
+  static constexpr auto kStallDecayPerSample = 0.98f;
+
+  void sample(std::chrono::steady_clock::time_point now, float progress);
+  auto etaSeconds(float progress) const -> std::optional<float>;
+  auto lastProgress() const -> float;
+
+private:
+  std::chrono::steady_clock::time_point lastSampleAt_{};
+  float lastProgress_ = 0.0f;
+  float ratePerSec_ = 0.0f;
+  bool hasSample_ = false;
+  bool hasRate_ = false;
+};
+
 class ProgressContext {
 public:
   auto addBar(std::string_view promptText, Tone tone = Tone::Default) -> std::size_t;
@@ -39,10 +61,14 @@ public:
   auto manager() const -> Manager const&;
 
 private:
+  void applyBarText(std::size_t barIndex, float progress);
+
   std::mutex mtx_;
   Manager manager_;
   BarCollection bars_;
   std::vector<Tone> tones_;
+  std::vector<std::string> postfixes_;
+  std::vector<EtaEstimator> etas_;
 };
 
 auto makeBar(std::string_view promptText, Tone tone = Tone::Default) -> BarPtr;
