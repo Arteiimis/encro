@@ -192,6 +192,7 @@ struct EncodingExecutionContext {
     if (!vidState.barIndex.has_value()) { return; }
     auto const index = vidState.barIndex.value();
     progress().setTone(index, progress::Tone::Active);
+    progress().resetEta(index);
     progress().setPostfixText(index, std::format("Encoding: {}", fileLabel));
     progress().setProgress(index, 0.0f);
   }
