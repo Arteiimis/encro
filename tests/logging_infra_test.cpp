@@ -84,7 +84,8 @@ TEST_CASE("log_tags.h: tag constants use dot-notation format", "[logging][infra]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DEFINE_LOGGER 必须在文件作用域 — 展开为 file-static 函数，C++ 不允许嵌套函数
+// DEFINE_LOGGER must be at file scope — it expands to a file-static function,
+// and C++ forbids nested functions
 DEFINE_LOGGER(logtags::TEST_INFRA);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,8 +96,8 @@ TEST_CASE(
   "DEFINE_LOGGER + LOG_INFO: macro expansion produces correct output",
   "[logging][infra]"
 ) {
-  // 懒初始化 (C++11 magic statics): loggerPtr() 首次调用时初始化，
-  // logger 已经过 registerCapturingLogger 注册
+  // Lazy init (C++11 magic statics): loggerPtr() initializes on first call,
+  // after the logger has been registered via registerCapturingLogger
   auto [logger, oss] = registerCapturingLogger(logtags::TEST_INFRA);
 
   // Verify loggerPtr() returns non-null after registration
