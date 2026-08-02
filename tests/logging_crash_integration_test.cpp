@@ -29,8 +29,6 @@ TEST_CASE(
   TempDir temp;
 
   auto config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = temp.path,
   };
@@ -67,8 +65,6 @@ TEST_CASE(
   TempDir temp;
 
   auto config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = temp.path,
   };
@@ -95,8 +91,6 @@ TEST_CASE(
   TempDir temp;
 
   auto config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = temp.path,
   };
@@ -120,8 +114,6 @@ TEST_CASE(
   TempDir temp;
 
   auto config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = temp.path,
   };
@@ -163,8 +155,6 @@ TEST_CASE(
   TempDir temp;
 
   auto config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = temp.path,
   };

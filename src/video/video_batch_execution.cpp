@@ -232,7 +232,7 @@ auto runEncodingWithoutProgress(
   auto vidsRunRes = videobatch::EncodeResultsMap{};
 
   LOG_INFO(
-    "Running encoding without progress bars (verbose echo mode), total={}.",
+    "Running encoding without progress bars (verbose output mode), total={}.",
     vids.size()
   );
 
@@ -314,9 +314,8 @@ auto videobatch::runEncodingTasks(
     return std::nullopt;
   }
 
-  if (ctx.config.verbose && ctx.config.verboseEcho) {
-    terminal::println(Warning, "Verbose echo enabled: progress bars are disabled.");
-    LOG_DEBUG("Progress bars disabled due to verbose echo mode.");
+  if (ctx.config.verbose) {
+    terminal::println(Warning, "Verbose output enabled: progress bars are disabled.");
     return runEncodingWithoutProgress(ctx, vids, plannedOutputFiles, actionIds);
   }
 

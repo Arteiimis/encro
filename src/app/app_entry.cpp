@@ -10,6 +10,7 @@
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
+#include "logging/setup.h"
 
 #include <array>
 #include <format>
@@ -73,7 +74,7 @@ auto printHelp(CmdParseResult const& cmd) -> void {
 }
 
 auto printHelpHint() -> void {
-  terminal::println(Hint, "Run encro -h/--help to view usage.");
+  terminal::println(Hint, "Run encro -h for help (or -hh for all options).");
 }
 
 auto failWithHint(
@@ -81,12 +82,15 @@ auto failWithHint(
   std::string const& message,
   bool showHelpHint = false
 ) -> int {
-  if (startup.verboseLogFilePath.has_value()) {
+  if (startup.cmd.verbose) {
     LOG_ERROR("{}", message);
   } else {
     terminal::println(Error, "Error: {}", message);
+    LOG_ERROR("{}", message);
   }
-  prelude::printVerboseLogDirHint(startup.verboseLogFilePath);
+  // Drain the async queue so the error reaches the console echo and the log file
+  // before the process exits.
+  logging::shutdown();
   if (showHelpHint) { printHelpHint(); }
   return 1;
 }

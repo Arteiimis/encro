@@ -375,7 +375,6 @@ TEST_CASE(
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
-  ctx.config.verboseEcho = true;
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
@@ -412,7 +411,6 @@ TEST_CASE(
   ctx.config.yesToAll = true;
   ctx.config.recursive = true;
   ctx.config.verbose = true;
-  ctx.config.verboseEcho = true;
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.outputLayout = appctx::OutputLayout::Keep;
@@ -452,7 +450,6 @@ TEST_CASE(
   ctx.config.yesToAll = true;
   ctx.config.recursive = true;
   ctx.config.verbose = true;
-  ctx.config.verboseEcho = true;
   ctx.config.pictureFolderSummary = true;
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
@@ -491,7 +488,6 @@ TEST_CASE(
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
-  ctx.config.verboseEcho = true;
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;

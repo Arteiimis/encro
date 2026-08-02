@@ -7,13 +7,20 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
+#if defined(_WIN32)
+  #include <io.h>
+#else
+  #include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -119,6 +126,62 @@ inline auto listZipRegularEntryNames(fs::path const& zipPath)
   std::ranges::sort(entryNames);
   zip.close();
   return entryNames;
+}
+
+// Redirects stdout to a file until destroyed (used to assert console output).
+struct StdoutCapture {
+  fs::path file;
+  int oldFd = -1;
+
+  explicit StdoutCapture(fs::path const& capturePath): file(capturePath) {
+    std::fflush(stdout);
+#if defined(_WIN32)
+    oldFd = _dup(_fileno(stdout));
+    auto* cap = static_cast<std::FILE*>(nullptr);
+    fopen_s(&cap, file.string().c_str(), "w");
+#else
+    oldFd = dup(fileno(stdout));
+    auto* cap = std::fopen(file.string().c_str(), "w");
+#endif
+    REQUIRE(oldFd >= 0);
+    if (cap == nullptr) {
+#if defined(_WIN32)
+      _close(oldFd);
+#else
+      close(oldFd);
+#endif
+      oldFd = -1;
+    }
+    REQUIRE(cap != nullptr);
+#if defined(_WIN32)
+    _dup2(_fileno(cap), _fileno(stdout));
+#else
+    dup2(fileno(cap), fileno(stdout));
+#endif
+    std::fclose(cap);
+  }
+
+  StdoutCapture(StdoutCapture const&) = delete;
+  auto operator=(StdoutCapture const&) -> StdoutCapture& = delete;
+
+  ~StdoutCapture() {
+    std::fflush(stdout);
+    if (oldFd >= 0) {
+#if defined(_WIN32)
+      _dup2(oldFd, _fileno(stdout));
+      _close(oldFd);
+#else
+      dup2(oldFd, fileno(stdout));
+      close(oldFd);
+#endif
+    }
+  }
+};
+
+inline auto readTextFile(fs::path const& filePath) -> std::string {
+  auto ifs = std::ifstream{filePath};
+  REQUIRE(ifs.is_open());
+  return {std::istreambuf_iterator<char>{ifs}, std::istreambuf_iterator<char>{}};
 }
 
 }  // namespace testutils
