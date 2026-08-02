@@ -39,6 +39,7 @@ public:
   static constexpr auto kStallDecayPerSample = 0.98f;
 
   void sample(std::chrono::steady_clock::time_point now, float progress);
+  void reset();
   auto etaSeconds(float progress) const -> std::optional<float>;
   auto lastProgress() const -> float;
 
@@ -56,6 +57,7 @@ public:
   void setPostfixText(std::size_t barIndex, std::string_view promptText);
   void setProgress(std::size_t barIndex, float progress);
   void setTone(std::size_t barIndex, Tone tone);
+  void resetEta(std::size_t barIndex);
 
   auto manager() -> Manager&;
   auto manager() const -> Manager const&;
