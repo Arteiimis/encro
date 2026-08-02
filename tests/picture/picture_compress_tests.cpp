@@ -56,7 +56,6 @@ void configureCompressContext(
   ctx.config.inputPath = inputPath;
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
-  ctx.config.verboseEcho = true;
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.toolchain.ffmpegPath = makeCmdScriptCommand(ffmpegScriptPath);
@@ -265,7 +264,6 @@ TEST_CASE(
   auto ctx = appctx::AppContext{};
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
-  ctx.config.verboseEcho = true;
 
   auto const tasks = std::vector<CompressTask>{
     {

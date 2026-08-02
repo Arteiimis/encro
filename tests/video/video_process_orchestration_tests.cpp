@@ -10,11 +10,14 @@
 #include <array>
 #include <filesystem>
 #include <format>
+#include <string>
 
 namespace fs = std::filesystem;
 
 using testutils::listRegularFiles;
+using testutils::readTextFile;
 using testutils::ScopedStopSignalReset;
+using testutils::StdoutCapture;
 using testutils::writeTextFile;
 
 namespace {
@@ -92,7 +95,6 @@ void configureVideoContext(
   ctx.config.outputFormat = "webp";
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
-  ctx.config.verboseEcho = true;
   ctx.config.packOutput = packOutput;
   ctx.toolchain.ffmpegPath = makeCmdScriptCommand(ffmpegScriptPath);
 }
@@ -271,6 +273,39 @@ TEST_CASE(
   CHECK(result.value() == stopsignal::kCanceledExitCode);
   CHECK_FALSE(fs::exists(temp.path / "encoded_webp" / "slow.webp"));
   CHECK_FALSE(fs::exists(stateFilePath));
+}
+
+TEST_CASE(
+  "verbose mode alone disables progress bars and warns",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.mp4";
+  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
+  auto const capturePath = temp.path / "stdout.txt";
+  writeTextFile(inputPath, "fake-video");
+  writeFakeFfmpegScript(scriptPath);
+
+  auto ctx = appctx::AppContext{};
+  configureVideoContext(ctx, scriptPath, inputPath);
+
+  auto result = 0;
+  {
+    auto capture = StdoutCapture{capturePath};
+    result = handlePathEncoding(ctx, inputPath);
+  }
+
+  CHECK(result == 0);
+  auto const encodedFiles = listRegularFiles(temp.path / "encoded_webp");
+  REQUIRE(encodedFiles.size() == 1);
+
+  auto const captured = readTextFile(capturePath);
+  CHECK(
+    captured.find("Verbose output enabled: progress bars are disabled.")
+    != std::string::npos
+  );
+  CHECK(captured.find("Scheduling") == std::string::npos);
 }
 #endif
 

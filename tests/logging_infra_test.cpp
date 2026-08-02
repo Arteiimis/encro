@@ -156,8 +156,6 @@ TEST_CASE("logging::setup: registers all 24 named loggers", "[logging][infra]") 
   fs::create_directories(tempDir);
 
   auto config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = tempDir,
   };
@@ -211,8 +209,6 @@ TEST_CASE("logging::shutdown: cleans up spdlog global state", "[logging][infra]"
   fs::create_directories(tempDir);
 
   auto config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = tempDir,
   };
