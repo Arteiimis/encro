@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 
 namespace fs = std::filesystem;
 
@@ -42,9 +43,22 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
 
   auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config);
   ctx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
+  auto discardedMismatched = false;
   auto const initRes =
-    ctx.runtime.jobState->initialize(ctx.config, ctx.config.restartState);
+    ctx.runtime.jobState
+      ->initialize(ctx.config, ctx.config.restartState, &discardedMismatched);
   if (!initRes) { return eh::makeError("{}", initRes.error()); }
+
+  if (discardedMismatched) {
+    auto const message = std::format(
+      "Saved job state does not match the current command; discarding it and starting "
+      "a fresh run: {}",
+      stateFilePath.string()
+    );
+    // Under -v the LOG_WARN echo is the console warning; avoid double printing.
+    if (!ctx.config.verbose) { terminal::println(Warning, "{}", message); }
+    LOG_WARN("{}", message);
+  }
 
   if (initRes.value()) {
     terminal::println(Info, "Resuming job state from: {}", terminal::path(stateFilePath));

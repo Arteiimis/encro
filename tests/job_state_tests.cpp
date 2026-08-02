@@ -529,3 +529,76 @@ TEST_CASE(
   REQUIRE(resumed.size() == 1);
   CHECK(resumed.front().status == jobstate::TaskStatus::Pending);
 }
+
+TEST_CASE(
+  "job state reports discarded mismatch when auto-resume config differs",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(config, false);
+  REQUIRE(initRes);
+  store.flush();
+
+  auto changedConfig = makeConfig(inputPath, statePath);
+  changedConfig.outputFormat = "webp";
+
+  auto resumedStore = jobstate::Store{statePath};
+  auto discardedMismatched = false;
+  auto const resumeRes =
+    resumedStore.initialize(changedConfig, false, &discardedMismatched);
+  REQUIRE(resumeRes);
+  CHECK_FALSE(resumeRes.value());
+  CHECK(discardedMismatched);
+}
+
+TEST_CASE(
+  "job state does not report discarded mismatch without a state file",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto store = jobstate::Store{statePath};
+  auto discardedMismatched = true;
+  auto const initRes = store.initialize(config, false, &discardedMismatched);
+  REQUIRE(initRes);
+  CHECK_FALSE(initRes.value());
+  CHECK_FALSE(discardedMismatched);
+}
+
+TEST_CASE(
+  "job state does not discard or report mismatch on explicit resume error",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(config, false);
+  REQUIRE(initRes);
+  store.flush();
+
+  auto changedConfig = makeConfig(inputPath, statePath);
+  changedConfig.outputFormat = "webp";
+  changedConfig.resumeState = true;
+
+  auto resumedStore = jobstate::Store{statePath};
+  auto discardedMismatched = true;
+  auto const resumeRes =
+    resumedStore.initialize(changedConfig, false, &discardedMismatched);
+  REQUIRE_FALSE(resumeRes);
+  CHECK(resumeRes.error().find("does not match") != std::string::npos);
+  CHECK_FALSE(discardedMismatched);
+}
