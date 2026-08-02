@@ -11,7 +11,7 @@
 - **Coverage:** `xmake f -m coverage && xmake build tests && LLVM_PROFILE_FILE=build/coverage/tests-%p.profraw xmake run tests`
   - Or use the plugin: `xmake coverage` (see below)
 - **Format:** `xmake format` (apply), `xmake format -k check` (CI/check-only)
-- **ASan:** Debug mode enables Address Sanitizer (`xmake f -m debug`)
+- **ASan:** `releasedbg` mode enables Address Sanitizer (`xmake f -m releasedbg`)
 - **Dependency source paths:** read `build/compile_commands.json` (xmake's compile database) to find absolute include paths of installed packages (e.g., `F:\xmake\.xmake\packages\i\indicators\2.3\<hash>\include`). Dependency headers live there, NOT in the repo — never search `~/.xmake` or the user profile for them.
 
 ### xmake Custom Plugins
@@ -23,10 +23,12 @@
 
 | Mode         | Flags                                         |
 | ------------ | --------------------------------------------- |
-| `debug`      | ASan enabled                                  |
-| `release`    | LTO enabled                                   |
-| `releasedbg` | Optimized + debug info                        |
+| `debug`      | ASan disabled; all log levels kept            |
+| `release`    | LTO enabled; TRACE/DEBUG logs stripped        |
+| `releasedbg` | Optimized + debug info + ASan                 |
 | `coverage`   | `-fprofile-instr-generate -fcoverage-mapping` |
+
+`SPDLOG_ACTIVE_LEVEL`: debug/coverage keep TRACE, release/releasedbg strip TRACE+DEBUG at compile time.
 
 ## Code Conventions (strict — clang-format enforces layout)
 
@@ -46,16 +48,17 @@
 ## Architecture
 
 ```
-main → appentry::run → pipeline::run
+main → prelude::initStartup → appentry::run → pipeline::run
          ├─ runVideo() → video_process → video_batch_execution → video_encode_runner
          ├─ runPicture() → picture_process → picture_compress
          └─ runPackOnly() → pack::execute()
 
 src/
-  app/      CLI entry, pipeline orchestration
+  app/      CLI entry, startup init, pipeline orchestration
   cmd/      CLI11 command-line parsing, config builder
-  core/     AppContext, JobState, TaskExecutor, Progress, MediaScan, error_handle
-  infra/    Crash handler, terminal, stacktrace, stop_signal, toolchain discovery
+  core/     AppContext, JobState, TaskExecutor, Progress, media_scanner, error_handle, collision_naming, display_text, parallel, path_roots
+  infra/    Crash handler, terminal, console_width, env, stacktrace, stop_signal, toolchain discovery
+  logging/  spdlog setup (async, rotating file), JSON formatter, log tags
   pack/     ZIP creation (PackRequest → PackPlan → Packer → libzippp)
   picture/  Image compression + packaging (ffmpeg WebP)
   video/    Video encode orchestration, progress parsing, output planning
@@ -87,6 +90,17 @@ REQUIRE(result);  // in tests
 - **Compile-only tests:** `pack_api_standalone_compile_test.cpp`, `packer_standalone_compile_test.cpp` — `static_assert` to verify API boundaries. Compilation IS the test.
 - **Tag conventions:** `[job-state]`, `[cmd]`, `[pack-service]`, `[packer]`, `[video-info]`, `[e2e]`, etc.
 
+## Development Workflow (OpenSpec)
+
+Feature development follows the OpenSpec change workflow (proposal → specs → tasks → implementation), driven by skills in `.opencode/skills/openspec-*`:
+
+1. **Propose** — `openspec-propose` generates `openspec/changes/<date>-<slug>/` (proposal.md, design.md, specs/, tasks.md)
+2. **Apply** — `openspec-apply-change` implements tasks; **Update** — `openspec-update-change` revises artifacts
+3. **Sync** — `openspec-sync-specs` merges delta specs into `openspec/specs/` (no archive)
+4. **Archive** — `openspec-archive-change` moves the change to `openspec/changes/archive/`
+
+Each new feature must have at least one test case (see TDD below).
+
 ## Development Workflow (TDD)
 
 All new feature development must follow TDD (Test-Driven Development):
@@ -105,8 +119,8 @@ Constraints:
 ## Key Dependencies
 
 - **CLI11** — CLI argument parsing (migrated from Boost.ProgramOptions in v1.6)
-- **Boost** — json, process, stacktrace, uuid, filesystem, program_options (legacy)
-- **spdlog** — logging (async thread pool, verbose logs to `%LOCALAPPDATA%/encro/logs/`)
+- **Boost** — json, parser, lambda2, lexical_cast, process, stacktrace, uuid
+- **spdlog** — logging (async thread pool, verbose logs to `%LOCALAPPDATA%/encro/logs/`, rotating files, keep 10)
 - **fmt** — string formatting
 - **libzippp** — ZIP archive I/O
 - **immer** — persistent/immutable data structures for thread-safe shared state
