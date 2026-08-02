@@ -11,10 +11,10 @@
 #include <memory>
 #include <vector>
 
-// ── 短文件名提取 ────────────────────────────────────────────────────────────
-// clang-cl 上 __FILE__ 默认仅返回文件名 (无路径)，
-// 但若未来开启 /FC 或 -fmacro-prefix-map，可退回到运行时截取。
-// 运行时截取是 constexpr-friendly: 编译器对字符串字面量完全优化掉。
+// ── Short file name extraction ──────────────────────────────────────────────
+// On clang-cl, __FILE__ is just the file name (no path) by default.
+// If /FC or -fmacro-prefix-map is enabled later, fall back to runtime extraction.
+// Runtime extraction is constexpr-friendly: compilers fully optimize string literals.
 
 namespace logging::detail {
 
@@ -29,19 +29,20 @@ namespace logging::detail {
 }  // namespace logging::detail
 
 // ── DEFINE_LOGGER ──────────────────────────────────────────────────────────
-// 每个 .cpp 文件顶部调用一次:
+// Call once at the top of each .cpp file:
 //   DEFINE_LOGGER(logtags::VIDEO_ENCODE)
 //
-// 展开为一个 file-static 函数 loggerPtr()，每次调用检查 spdlog registry。
-// 不缓存指针 — 测试环境中 logging::shutdown() 会销毁 logger，
-// 缓存会导致悬垂指针。
+// Expands to a file-static loggerPtr() function that consults the spdlog
+// registry on every call. The pointer is not cached — logging::shutdown()
+// destroys loggers in tests, and caching would leave a dangling pointer.
 //
-// 回退顺序: named logger → default_logger → silent no-op logger
-// 最后一级回退确保 loggerPtr() 永不返回 null。
+// Fallback order: named logger → default_logger → silent no-op logger.
+// The last fallback guarantees loggerPtr() never returns null.
 //
-// D-05: 每个 .cpp 文件一个 named logger
+// D-05: one named logger per .cpp file
 //
-// 使用裸指针而非 shared_ptr — logger 生命周期由 spdlog registry 保证。
+// Uses a raw pointer instead of shared_ptr — logger lifetime is owned by the
+// spdlog registry.
 
 #define DEFINE_LOGGER(tag)                                                     \
   static auto loggerPtr() noexcept -> spdlog::logger* {                        \
@@ -51,20 +52,20 @@ namespace logging::detail {
     return fallback.get();                                                     \
   }
 
-// ── 日志宏 (D-01: 自定义封装层，内部使用 SPDLOG_LOGGER_CALL) ─────────────
+// ── Log macros (D-01: custom wrapper layer over SPDLOG_LOGGER_CALL) ────────
 //
-// D-02: LOG_INFO 命名，不加 ENCRO_ 前缀
-// D-03: 源位置注入消息体，格式 "file.cpp:128"
-// SPDLOG_LOGGER_CALL 内部已处理 SPDLOG_ACTIVE_LEVEL 剥离
+// D-02: LOG_INFO naming, no ENCRO_ prefix
+// D-03: source location injected into the message, format "file.cpp:128"
+// SPDLOG_LOGGER_CALL already handles SPDLOG_ACTIVE_LEVEL stripping
 //
-// 关键设计:
-//   - fmt::format(__VA_ARGS__) 在 call site 预格式化 — 避免 async TLS 问题
-//   - 源位置字符串完全复制到消息体中 (无悬垂指针风险)
-//   - 不需要 do { ... } while(0) 包装 — SPDLOG_LOGGER_CALL 自身是完整表达式
+// Key design:
+//   - fmt::format(__VA_ARGS__) pre-formats at the call site — avoids async TLS issues
+//   - source location is copied fully into the message (no dangling pointer risk)
+//   - no do { ... } while(0) wrapper needed — SPDLOG_LOGGER_CALL is already a complete expression
 //
 // Pattern reference:
-//   %n → named logger 名称 → 模块标签 (如 "video.encode")
-//   %v → 消息体 (已含 "[file:line] actual message")
+//   %n → named logger name → module tag (e.g. "video.encode")
+//   %v → message body (already contains "[file:line] actual message")
 
 #define LOG_TRACE(...)                    \
   SPDLOG_LOGGER_CALL(                     \
