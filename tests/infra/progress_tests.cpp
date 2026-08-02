@@ -114,6 +114,28 @@ TEST_CASE("EtaEstimator recovers rate after a progress dip", "[progress]") {
   CHECK(*eta < 8.0f);
 }
 
+TEST_CASE("EtaEstimator reset clears stale rate for bar reuse", "[progress]") {
+  progress::EtaEstimator est;
+  auto t = std::chrono::steady_clock::now();
+  est.sample(t, 0.0f);
+  for (auto i = 1; i <= 20; ++i) {
+    est.sample(t + std::chrono::milliseconds{250} * i, static_cast<float>(i) * 5.0f);
+  }
+  auto const etaBefore = est.etaSeconds(90.0f);
+  REQUIRE(etaBefore.has_value());
+  CHECK(*etaBefore < 2.0f);
+
+  est.reset();
+  CHECK_FALSE(est.etaSeconds(90.0f).has_value());
+
+  est.sample(t + std::chrono::milliseconds{250} * 22, 90.0f);
+  est.sample(t + std::chrono::milliseconds{250} * 23, 90.5f);
+  auto const eta = est.etaSeconds(90.5f);
+  REQUIRE(eta.has_value());
+  CHECK(*eta > 3.0f);
+  CHECK(*eta < 6.0f);
+}
+
 TEST_CASE("fitPostfixText returns fitting text verbatim", "[progress]") {
   auto const text = std::string{"Encoding: short.mp4 | 33%"};
 

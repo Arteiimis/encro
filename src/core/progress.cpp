@@ -221,6 +221,14 @@ void EtaEstimator::sample(std::chrono::steady_clock::time_point now, float progr
   }
 }
 
+void EtaEstimator::reset() {
+  lastSampleAt_ = {};
+  lastProgress_ = 0.0f;
+  ratePerSec_ = 0.0f;
+  hasSample_ = false;
+  hasRate_ = false;
+}
+
 auto EtaEstimator::etaSeconds(float progress) const -> std::optional<float> {
   if (!hasRate_ || progress <= 0.0f || progress >= 100.0f) { return std::nullopt; }
   return (100.0f - progress) / std::max(ratePerSec_, 0.01f);
@@ -271,6 +279,11 @@ void ProgressContext::setProgress(std::size_t barIndex, float progress) {
   bars_[barIndex]->set_progress(static_cast<std::size_t>(progress));
   applyBarText(barIndex, progress);
   manager_.print_progress();
+}
+
+void ProgressContext::resetEta(std::size_t barIndex) {
+  auto lock = std::scoped_lock{mtx_};
+  etas_[barIndex].reset();
 }
 
 void ProgressContext::setTone(std::size_t barIndex, Tone tone) {
