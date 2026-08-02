@@ -312,6 +312,14 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
     }
   }
 
+  if (result.crf.has_value()) {
+    auto const crf = result.crf.value();
+    if (crf < 0 || crf > 51) { return eh::makeError("--crf must be between 0 and 51."); }
+    config.crf = crf;
+  }
+
+  config.nvencPreset = result.nvencPreset;
+
   config.yesToAll = result.yesToAll;
   config.recursive = result.recursive;
   config.packOutput = result.pack;

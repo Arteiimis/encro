@@ -38,6 +38,8 @@ struct CmdParseResult {
   std::optional<std::string> ffmpegPath;
   bool compress = false;
   std::optional<int> imageQuality;
+  std::optional<int> crf;
+  std::optional<std::string> nvencPreset;
 
   // ── File operation options ─────────────────────────────────────
   bool pack = false;

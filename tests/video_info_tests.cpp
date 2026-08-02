@@ -200,6 +200,40 @@ TEST_CASE("getVidTotalDurationUs errors when duration missing", "[video-info]") 
   REQUIRE_FALSE(durationUs);
 }
 
+TEST_CASE("getVidDimensions reads cached video stream dimensions", "[video-info]") {
+  auto runtime = appctx::RuntimeContext{};
+  auto toolchain = appctx::ToolchainPaths{};
+  auto const videoPath = fs::path{"sample.mp4"};
+
+  runtime.videoInfoCache.set(
+    videoPath,
+    boost::json::parse(
+      R"({"streams":[{"codec_type":"audio"},{"codec_type":"video","width":2560,"height":1440}]})"
+    )
+  );
+
+  auto const dims = getVidDimensions(toolchain, runtime, videoPath);
+
+  REQUIRE(dims);
+  CHECK(dims->first == 2560);
+  CHECK(dims->second == 1440);
+}
+
+TEST_CASE("getVidDimensions errors when width missing", "[video-info]") {
+  auto runtime = appctx::RuntimeContext{};
+  auto toolchain = appctx::ToolchainPaths{};
+  auto const videoPath = fs::path{"sample.mp4"};
+
+  runtime.videoInfoCache.set(
+    videoPath,
+    boost::json::parse(R"({"streams":[{"codec_type":"video","height":1440}]})")
+  );
+
+  auto const dims = getVidDimensions(toolchain, runtime, videoPath);
+
+  REQUIRE_FALSE(dims);
+}
+
 TEST_CASE("getVidHasAudio detects audio stream", "[video-info]") {
   auto runtime = appctx::RuntimeContext{};
   auto toolchain = appctx::ToolchainPaths{};

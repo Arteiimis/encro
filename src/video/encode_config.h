@@ -17,7 +17,9 @@ struct EncodeConfig {
   std::optional<fs::path> outputFilePath;
   std::optional<std::string> outputFormat = "mp4";
   std::optional<std::string> videoCodec = "hevc_nvenc";
-  std::optional<int> crf = 20;
+  std::optional<int> crf = 26;
+  std::optional<std::string> nvencPreset = "p5";
+  std::optional<int> maxrateKbps;
   std::optional<int> webpQuality = 80;
   std::optional<fs::path> progressFilePath;
   std::optional<std::uint64_t> segmentIndex;
@@ -112,6 +114,22 @@ struct EncodeConfig {
       auto const quality = webpQuality.value_or(80);
       cmd += " -vf \"scale=-2:960:force_original_aspect_ratio=decrease\""
         + std::format(" -c:v libwebp -q:v {} -loop 0", quality);
+    } else if (codec.ends_with("_nvenc")) {
+      cmd += std::format(
+        " -c:v {} -preset {} -rc vbr -cq {} -b:v 0",
+        codec,
+        nvencPreset.value_or("p5"),
+        crf.value_or(26)
+      );
+      if (maxrateKbps.has_value()) {
+        cmd += std::format(
+          " -maxrate {}k -bufsize {}k",
+          maxrateKbps.value(),
+          maxrateKbps.value() * 2
+        );
+      }
+      if (codec == "hevc_nvenc") { cmd += " -tag:v hvc1"; }
+      cmd += " -pix_fmt yuv420p";
     } else {
       cmd += std::format(" -c:v {} -crf {}", codec, crf.value_or(20));
     }
@@ -129,6 +147,20 @@ struct EncodeConfig {
     return cmd;
   }
 };
+
+inline auto pickNvencPresetForDimensions(int width, int height) -> std::string {
+  auto const pixels = static_cast<std::int64_t>(width) * height;
+  if (pixels >= 3'686'400) { return "p7"; }  // 2K (2560x1440)
+  if (pixels >= 2'073'600) { return "p6"; }  // 1080p (1920x1080)
+  return "p5";
+}
+
+inline auto pickMaxrateKbpsForDimensions(int width, int height) -> int {
+  auto const pixels = static_cast<std::int64_t>(width) * height;
+  if (pixels >= 3'686'400) { return 15000; }  // 2K (2560x1440)
+  if (pixels >= 2'073'600) { return 10000; }  // 1080p (1920x1080)
+  return 6000;
+}
 
 inline auto buildAudioExtractionCmd(
   fs::path const& ffmpegPath,
