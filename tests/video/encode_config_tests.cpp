@@ -353,7 +353,7 @@ TEST_CASE("EncodeConfig uses custom nvenc preset", "[encode-config]") {
   CHECK(cmd.find("-tag:v hvc1") != std::string::npos);
 }
 
-TEST_CASE("EncodeConfig defaults to cq 26 for NVENC", "[encode-config]") {
+TEST_CASE("EncodeConfig defaults to cq 28 for NVENC", "[encode-config]") {
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "sample.mp4");
 
@@ -366,7 +366,7 @@ TEST_CASE("EncodeConfig defaults to cq 26 for NVENC", "[encode-config]") {
   REQUIRE(validation);
 
   auto const cmd = cfg.buildCMD();
-  CHECK(cmd.find("-cq 26") != std::string::npos);
+  CHECK(cmd.find("-cq 28") != std::string::npos);
 }
 
 TEST_CASE("EncodeConfig adds maxrate and bufsize when set", "[encode-config]") {
