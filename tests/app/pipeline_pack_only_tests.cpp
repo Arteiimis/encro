@@ -12,7 +12,9 @@ namespace fs = std::filesystem;
 using testutils::collisionGroupPrefix;
 using testutils::hasCollisionSafePrefix;
 using testutils::listZipRegularEntryNames;
+using testutils::readTextFile;
 using testutils::ScopedStopSignalReset;
+using testutils::StdoutCapture;
 using testutils::touchFile;
 
 TEST_CASE("pack-only pipeline rejects non-video type", "[pipeline]") {
@@ -186,4 +188,51 @@ TEST_CASE(
   CHECK(entryNames[1].find("__beta__") != std::string::npos);
   CHECK(entryNames[2].find("__alpha__") != std::string::npos);
   CHECK(entryNames[3].find("__beta__") != std::string::npos);
+}
+
+TEST_CASE(
+  "pipeline warns when saved job state does not match the command",
+  "[pipeline]"
+) {
+  TempDir temp;
+  auto const inputDirA = temp.path / "inputA";
+  auto const inputDirB = temp.path / "inputB";
+  auto const stateFilePath = temp.path / "state.json";
+  fs::create_directories(inputDirA);
+  fs::create_directories(inputDirB);
+  touchFile(inputDirA / "a.bin");
+  touchFile(inputDirB / "b.bin");
+
+  auto ctxA = appctx::AppContext{};
+  ctxA.config.packOnly = true;
+  ctxA.config.processType = "video";
+  ctxA.config.inputPath = inputDirA;
+  ctxA.config.stateFilePath = stateFilePath;
+  auto runResA = pipeline::run(ctxA);
+  REQUIRE(runResA);
+  CHECK(runResA.value() == 0);
+
+  auto ctxB = appctx::AppContext{};
+  ctxB.config.packOnly = true;
+  ctxB.config.processType = "video";
+  ctxB.config.inputPath = inputDirB;
+  ctxB.config.stateFilePath = stateFilePath;
+  ctxB.config.outputFormat = "webp";
+
+  auto const capturePath = temp.path / "stdout.txt";
+  auto exitCode = 0;
+  {
+    auto capture = StdoutCapture{capturePath};
+    auto const runResB = pipeline::run(ctxB);
+    REQUIRE(runResB);
+    exitCode = runResB.value();
+  }
+
+  CHECK(exitCode == 0);
+  CHECK(fs::exists(inputDirB / "packed"));
+
+  auto const captured = readTextFile(capturePath);
+  CHECK(captured.find("does not match") != std::string::npos);
+  CHECK(captured.find("discarding") != std::string::npos);
+  CHECK(captured.find("Resuming job state") == std::string::npos);
 }

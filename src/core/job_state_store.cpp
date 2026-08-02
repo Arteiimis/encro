@@ -12,9 +12,13 @@ auto Store::stateFilePath() const -> fs::path const& {
   return stateFilePath_;
 }
 
-auto Store::initialize(appctx::AppConfig const& config, bool restart)
-  -> eh::Result<bool> {
+auto Store::initialize(
+  appctx::AppConfig const& config,
+  bool restart,
+  bool* discardedMismatched
+) -> eh::Result<bool> {
   auto lock = std::scoped_lock{mtx_};
+  if (discardedMismatched != nullptr) { *discardedMismatched = false; }
   auto ec = std::error_code{};
   fs::create_directories(stateFilePath_.parent_path(), ec);
 
@@ -38,6 +42,7 @@ auto Store::initialize(appctx::AppConfig const& config, bool restart)
           stateFilePath_.string()
         );
       }
+      if (discardedMismatched != nullptr) { *discardedMismatched = true; }
     } else {
       snapshot_ = loaded.value();
       snapshot_.config = currentConfig;
