@@ -587,7 +587,7 @@ auto configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) -> bool
   return lhs.processType == rhs.processType
     && lhs.outputFormat == rhs.outputFormat
     && lhs.outputLayout == rhs.outputLayout
-    && lhs.packOutput == rhs.packOutput
+    && (!lhs.packOutput || lhs.packOutput == rhs.packOutput)
     && lhs.packOnly == rhs.packOnly
     && lhs.recursive == rhs.recursive
     && lhs.forceNameConflictHandling == rhs.forceNameConflictHandling

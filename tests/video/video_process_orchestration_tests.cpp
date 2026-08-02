@@ -151,6 +151,76 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "handlePathEncoding resumes encode-only state and packs on pack-enabled run",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const strayProgressPath = fs::current_path() / "-progress";
+  auto const inputDir = temp.path / "videos";
+  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
+  auto const stateFilePath = temp.path / "encro.job-state.json";
+  if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.mp4", "a");
+  writeTextFile(inputDir / "b.mov", "b");
+  writeFakeFfmpegScript(scriptPath);
+
+  auto ctx = appctx::AppContext{};
+  configureVideoContext(ctx, scriptPath, inputDir);
+  ctx.config.stateFilePath = stateFilePath;
+  ctx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
+  auto const initRes = ctx.runtime.jobState->initialize(ctx.config, false);
+  REQUIRE(initRes);
+
+  auto const encodeOnlyResult = handlePathEncoding(ctx, inputDir);
+  CHECK(encodeOnlyResult == 0);
+  CHECK_FALSE(fs::exists(inputDir / "packed"));
+
+  auto const encodeTaskBefore = [&]() {
+    auto const tasks = ctx.runtime.jobState->tasks();
+    auto const it = std::ranges::find_if(tasks, [](jobstate::TaskRecord const& task) {
+      return task.kind == jobstate::kEncodeVideoKind && task.label == "a.mp4";
+    });
+    REQUIRE(it != tasks.end());
+    return *it;
+  }();
+  CHECK(encodeTaskBefore.status == jobstate::TaskStatus::Succeeded);
+  CHECK(encodeTaskBefore.attemptCount == 1);
+
+  auto packCtx = appctx::AppContext{};
+  configureVideoContext(packCtx, scriptPath, inputDir, true);
+  packCtx.config.stateFilePath = stateFilePath;
+  packCtx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
+  auto const resumeRes = packCtx.runtime.jobState->initialize(packCtx.config, false);
+  REQUIRE(resumeRes);
+  CHECK(resumeRes.value());
+
+  auto const result = handlePathEncoding(packCtx, inputDir);
+  auto const packedFiles = listRegularFiles(inputDir / "packed");
+
+  CHECK(result == 0);
+  REQUIRE(packedFiles.size() == 1);
+  CHECK(packedFiles.front().extension() == ".zip");
+
+  auto const tasks = packCtx.runtime.jobState->tasks();
+  auto const encodeTaskAfter =
+    std::ranges::find_if(tasks, [](jobstate::TaskRecord const& task) {
+      return task.kind == jobstate::kEncodeVideoKind && task.label == "a.mp4";
+    });
+  REQUIRE(encodeTaskAfter != tasks.end());
+  CHECK(encodeTaskAfter->attemptCount == 1);
+  CHECK(encodeTaskAfter->finishedAtMs == encodeTaskBefore.finishedAtMs);
+
+  auto const archiveTaskCount =
+    std::ranges::count_if(tasks, [](jobstate::TaskRecord const& task) {
+      return task.kind == jobstate::kBuildArchiveKind;
+    });
+  CHECK(archiveTaskCount == 1);
+  CHECK_FALSE(fs::exists(strayProgressPath));
+}
+
+TEST_CASE(
   "handlePathEncoding returns canceled exit code after a stop request",
   "[video-process][orchestration]"
 ) {
