@@ -446,6 +446,50 @@ auto getVidHasAudio(
   return false;
 }
 
+auto getVidDimensions(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  fs::path const& videoPath
+) -> eh::Result<std::pair<int, int>> {
+  auto const vidInfo = loadCachedOrProbeVideoInfo(toolchain, runtime, videoPath);
+
+  if (!vidInfo.is_object()) { return eh::makeError("Invalid video info"); }
+
+  auto const& obj = vidInfo.as_object();
+  auto const streamsIt = obj.find("streams");
+  if (streamsIt == obj.end() || !streamsIt->value().is_array()) {
+    return eh::makeError("Missing stream info");
+  }
+
+  for (auto const& streamVal: streamsIt->value().as_array()) {
+    if (!streamVal.is_object()) { continue; }
+    auto const& stream = streamVal.as_object();
+    auto const codecTypeIt = stream.find("codec_type");
+    if (
+      codecTypeIt != stream.end()
+      && codecTypeIt->value().is_string()
+      && codecTypeIt->value().as_string() == "video"
+    ) {
+      auto const widthIt = stream.find("width");
+      auto const heightIt = stream.find("height");
+      if (
+        widthIt != stream.end()
+        && widthIt->value().is_int64()
+        && heightIt != stream.end()
+        && heightIt->value().is_int64()
+      ) {
+        return std::pair{
+          static_cast<int>(widthIt->value().as_int64()),
+          static_cast<int>(heightIt->value().as_int64())
+        };
+      }
+    }
+  }
+
+  LOG_DEBUG("Missing video dimensions for {}", videoPath.string());
+  return eh::makeError("Failed to retrieve video dimensions");
+}
+
 bool isHevcEncoded(appctx::ToolchainPaths const& toolchain, fs::path const& videoPath) {
   auto const vidInfo = getVidInfo(toolchain, videoPath);
   return isHevcEncodedInfo(vidInfo);

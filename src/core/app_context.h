@@ -46,6 +46,8 @@ struct AppConfig {
   bool pictureFolderSummary = false;
   bool compressImages = false;
   std::optional<int> imageQuality;
+  std::optional<int> crf;
+  std::optional<std::string> nvencPreset;
   bool verbose = false;
   bool verboseEcho = false;
   bool fullProgress = false;
