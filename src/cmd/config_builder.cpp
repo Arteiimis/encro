@@ -319,13 +319,15 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
   }
 
   config.nvencPreset = result.nvencPreset;
+  if (config.nvencPreset.has_value() && config.nvencPreset.value() == "auto") {
+    config.nvencPreset.reset();  // "auto" = pick by resolution
+  }
 
   config.yesToAll = result.yesToAll;
   config.recursive = result.recursive;
   config.packOutput = result.pack;
   config.packOnly = result.packOnly;
   config.verbose = result.verbose;
-  config.verboseEcho = result.verboseEcho;
   config.fullProgress = result.fullProgress;
   config.jsonEnabled = result.jsonEnabled;
 

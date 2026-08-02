@@ -136,7 +136,6 @@ TEST_CASE("commandLineInit exposes defaults", "[cmd]") {
   CHECK(result.imageQuality.has_value() == false);
   CHECK(result.folderSummary == false);
   CHECK(result.verbose == false);
-  CHECK(result.verboseEcho == false);
   CHECK(result.help == false);
   CHECK(result.version == false);
 }
@@ -164,7 +163,6 @@ TEST_CASE("commandLineInit parses non-conflicting flags and option values", "[cm
      "--folder-summary",
      "--color=always",
      "--verbose",
-     "--verbose-echo",
      "--full-progress",
      "--overwrite",
      "--compress"}
@@ -176,7 +174,6 @@ TEST_CASE("commandLineInit parses non-conflicting flags and option values", "[cm
   CHECK(result.folderSummary == true);
   CHECK(result.color == "always");
   CHECK(result.verbose == true);
-  CHECK(result.verboseEcho == true);
   CHECK(result.fullProgress == true);
   CHECK(result.overwrite == true);
   CHECK(result.compress == true);
@@ -216,12 +213,18 @@ TEST_CASE("commandLineInit reports unknown options", "[cmd]") {
   CHECK_FALSE(result.error.value().empty());
 }
 
-TEST_CASE("commandLineInit rejects --flat with --keep", "[cmd]") {
-  auto const result = parseArgs({"encro", "--flat", "--keep", "-i", "input.mp4"});
+TEST_CASE("commandLineInit rejects removed --flat flag", "[cmd]") {
+  auto const result = parseArgs({"encro", "--flat", "-i", "input.mp4"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--flat") != std::string::npos);
-  CHECK(result.error.value().find("--keep") != std::string::npos);
+}
+
+TEST_CASE("commandLineInit rejects removed -e flag", "[cmd]") {
+  auto const result = parseArgs({"encro", "-e", "-i", "input.mp4"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("-e") != std::string::npos);
 }
 
 TEST_CASE("commandLineInit rejects --resume with --restart", "[cmd]") {
@@ -323,6 +326,27 @@ TEST_CASE("commandLineInit does not set preset by default", "[cmd]") {
   CHECK(result.nvencPreset.has_value() == false);
 }
 
+TEST_CASE("commandLineInit rejects -q without a value", "[cmd]") {
+  auto const result = parseArgs({"encro", "-q"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--image-quality") != std::string::npos);
+}
+
+TEST_CASE("commandLineInit rejects --crf without a value", "[cmd]") {
+  auto const result = parseArgs({"encro", "--crf"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--crf") != std::string::npos);
+}
+
+TEST_CASE("commandLineInit rejects --preset without a value", "[cmd]") {
+  auto const result = parseArgs({"encro", "--preset"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--preset") != std::string::npos);
+}
+
 TEST_CASE("commandLineInit default jobs is not set", "[cmd]") {
   auto const result = parseArgs({"encro"});
   // jobs has a default_str of "10" but no default_value — so it should NOT be in result
@@ -366,30 +390,29 @@ TEST_CASE(
 ) {
   terminal::configure(terminal::ColorMode::Always);
 
-  auto const result = parseArgs({"encro", "--help"});
+  auto const result = parseArgs({"encro", "-hh"});
   auto const plainHelp = stripAnsi(result.helpText);
 
-  auto const flatLine = findHelpLine(plainHelp, "--flat");
+  auto const keepLine = findHelpLine(plainHelp, "--keep");
   auto const outputFormatLine = findHelpLine(plainHelp, "--output-format");
   auto const forceConflictLine = findHelpLine(plainHelp, "--force-conflict-handling");
 
-  REQUIRE(flatLine.has_value());
+  REQUIRE(keepLine.has_value());
   REQUIRE(outputFormatLine.has_value());
   REQUIRE(forceConflictLine.has_value());
 
-  auto const flatColumn =
-    flatLine->find("flatten output names inside the output directory");
+  auto const keepColumn =
+    keepLine->find("preserve relative input subdirectories inside the output directory");
   auto const outputFormatColumn = outputFormatLine->find("target format: mp4 or webp");
   auto const forceConflictColumn =
-    forceConflictLine
-      ->find("control collision-safe file names for unique flat outputs: y or n");
+    forceConflictLine->find("same-name collisions in flat output");
 
-  REQUIRE(flatColumn != std::string::npos);
+  REQUIRE(keepColumn != std::string::npos);
   REQUIRE(outputFormatColumn != std::string::npos);
   REQUIRE(forceConflictColumn != std::string::npos);
 
-  CHECK(outputFormatColumn == flatColumn);
-  CHECK(forceConflictColumn == flatColumn);
+  CHECK(outputFormatColumn == keepColumn);
+  CHECK(forceConflictColumn == keepColumn);
 
   terminal::reset();
 }
@@ -407,11 +430,11 @@ TEST_CASE(
   "help text contains expected option names after color injection",
   "[cmd][color]"
 ) {
-  auto const result = parseArgs({"encro"});
+  auto const result = parseArgs({"encro", "-hh"});
   auto const& help = result.helpText;
 
   // Content must survive color injection — plain text substrings still embedded
-  // Note: --help is a main-app flag (not in any group) so it's not rendered
+  // Full (-hh) tier renders every option, including the advanced ones
   CHECK(help.find("--input") != std::string::npos);
   CHECK(help.find("--verbose") != std::string::npos);
   CHECK(help.find("--output-format") != std::string::npos);

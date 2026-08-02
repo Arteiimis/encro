@@ -297,10 +297,12 @@ auto makeHelpFormatter(
   CLI::App const* general,
   CLI::App const* io,
   CLI::App const* processing,
-  CLI::App const* fileop
+  CLI::App const* fileop,
+  CLI::Option const* helpOpt,
+  std::span<std::string_view const> advancedLongNames
 ) -> auto {
   return  //
-    [general, io, processing, fileop](
+    [general, io, processing, fileop, helpOpt, advancedLongNames](
       CLI::App const* app_ptr,
       std::string /*prev*/,
       CLI::AppFormatMode /*mode*/
@@ -309,8 +311,29 @@ auto makeHelpFormatter(
         "encro -i <input> | -I <file>... [-o <output>] [-f mp4|webp] [-r] [-j <n>] [-p] [--resume|--restart]"sv,
         "encro -t picture -i <input> [-c [-q <n>]] [-s] [-p]"sv,
         "encro -z -i <input> [-o <output>]"sv,
-        "encro -h | --version"sv,
+        "encro -h | -hh | --version"sv,
       };
+      auto const fullTier = helpOpt->count() >= 2;
+      constexpr auto hintLine = "Run 'encro -hh' to view all options."sv;
+
+      auto const isAdvanced = [&](CLI::Option const* opt) {
+        auto const& lnames = opt->get_lnames();
+        return !lnames.empty()
+          && std::ranges::find(advancedLongNames, lnames.front())
+          != advancedLongNames.end();
+      };
+      auto const hasNames = [](CLI::Option const* opt) {
+        return !opt->get_lnames().empty() || !opt->get_snames().empty();
+      };
+      auto const visibleOptions = [&](CLI::App const* group) {
+        auto opts = std::vector<CLI::Option const*>{};
+        if (group == general) {
+          for (auto const* opt: app_ptr->get_options()) { opts.push_back(opt); }
+        }
+        for (auto const* opt: group->get_options()) { opts.push_back(opt); }
+        return opts;
+      };
+
       auto result = std::string{};
       auto const layout = resolveHelpTextLayout();
       auto const desc = app_ptr->get_description();
@@ -326,11 +349,12 @@ auto makeHelpFormatter(
       result += "\n";
       auto const groupIter = std::array{general, io, processing, fileop};
 
-      // Determine max column width across all options (name + type + default)
+      // Determine max column width across visible options (name + type + default)
       auto maxColLen = 0u;
       for (auto const* group: groupIter) {
-        for (auto const* opt: group->get_options()) {
-          if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
+        for (auto const* opt: visibleOptions(group)) {
+          if (!hasNames(opt)) continue;
+          if (!fullTier && isAdvanced(opt)) continue;
           auto const nameStr = formatOptionName(opt);
           auto typeStr = std::string{};
           if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
@@ -362,8 +386,9 @@ auto makeHelpFormatter(
 
       for (auto const* group: groupIter) {
         result += formatGroupHeader(group->get_description());
-        for (auto const* opt: group->get_options()) {
-          if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
+        for (auto const* opt: visibleOptions(group)) {
+          if (!hasNames(opt)) continue;
+          if (!fullTier && isAdvanced(opt)) continue;
           result += formatOptionHelp(
             opt,
             colWidth,
@@ -372,6 +397,15 @@ auto makeHelpFormatter(
           );
           result += '\n';
         }
+      }
+
+      if (!fullTier) {
+        result += "\n";
+        result += terminal::styledText(
+          terminal::Stream::Stdout,
+          terminal::MessageKind::Hint,
+          hintLine
+        );
       }
 
       return result;
@@ -396,7 +430,9 @@ struct CmdFlagDef {
     defaultValue;  // "" → no default (expectedMin=1); non-empty → has default (expectedMin=0)
   int expectedMax;            // 0=flag, 1=single value, >1=multi-value upper bound
   std::string_view excludes;  // flag name this excludes ("" = none); CLI11 ->excludes()
-  std::string_view excludesDesc;  // custom error message for the exclusion
+  std::string_view excludesDesc;    // custom error message for the exclusion
+  bool advanced = false;            // hidden from brief (-h) help
+  std::string_view defaultDisplay;  // "" = none; shown as (=value) in help
 };
 
 // ── General flags (7) ──  help/version on app, rest on general group ──
@@ -404,7 +440,7 @@ constexpr auto GeneralFlags = std::array{
   CmdFlagDef{
     .name = "-h,--help",
     .kind = CmdFlagKind::Bool,
-    .description = "produce help message",
+    .description = "show help; use -hh to show all options",
     .defaultValue = "",
     .expectedMax = 0
   },
@@ -418,23 +454,18 @@ constexpr auto GeneralFlags = std::array{
   CmdFlagDef{
     .name = "-v,--verbose",
     .kind = CmdFlagKind::Bool,
-    .description = "enable verbose output",
+    .description = "echo log lines to the console (disables progress bars)",
     .defaultValue = "",
-    .expectedMax = 0
+    .expectedMax = 0,
+    .advanced = true
   },
   CmdFlagDef{
     .name = "--log-json",
     .kind = CmdFlagKind::Bool,
     .description = "enable NDJSON structured log output (one JSON object per line)",
     .defaultValue = "",
-    .expectedMax = 0
-  },
-  CmdFlagDef{
-    .name = "-e,--verbose-echo",
-    .kind = CmdFlagKind::Bool,
-    .description = "echo verbose logs to console (disable progress bars)",
-    .defaultValue = "",
-    .expectedMax = 0
+    .expectedMax = 0,
+    .advanced = true
   },
   CmdFlagDef{
     .name = "-F,--full-progress",
@@ -442,14 +473,16 @@ constexpr auto GeneralFlags = std::array{
     .description =
       "show full progress with per-worker encoding bars and per-archive packing bars",
     .defaultValue = "",
-    .expectedMax = 0
+    .expectedMax = 0,
+    .advanced = true
   },
   CmdFlagDef{
     .name = "--color",
     .kind = CmdFlagKind::String,
     .description = "terminal colors: auto, always, never",
     .defaultValue = "auto",
-    .expectedMax = 1
+    .expectedMax = 1,
+    .advanced = true
   },
   CmdFlagDef{
     .name = "-y,--yes",
@@ -460,7 +493,7 @@ constexpr auto GeneralFlags = std::array{
   },
 };
 
-// ── Input/Output flags (10) ──
+// ── Input/Output flags (9) ──
 constexpr auto IOFrags = std::array{
   CmdFlagDef{
     .name = "-i,--input",
@@ -477,7 +510,8 @@ constexpr auto IOFrags = std::array{
     .kind = CmdFlagKind::VecString,
     .description = "input video file paths",
     .defaultValue = "",
-    .expectedMax = 1000000
+    .expectedMax = 1000000,
+    .advanced = true
   },
   CmdFlagDef{
     .name = "-o,--output",
@@ -493,7 +527,8 @@ constexpr auto IOFrags = std::array{
     .kind = CmdFlagKind::String,
     .description = "custom job state file path",
     .defaultValue = "",
-    .expectedMax = 1
+    .expectedMax = 1,
+    .advanced = true
   },
   CmdFlagDef{
     .name = "-f,--output-format",
@@ -503,29 +538,21 @@ constexpr auto IOFrags = std::array{
     .expectedMax = 1
   },
   CmdFlagDef{
-    .name = "--flat",
-    .kind = CmdFlagKind::Bool,
-    .description = "flatten output names inside the output directory (default)",
-    .defaultValue = "",
-    .expectedMax = 0,
-    .excludes = "--keep",
-    .excludesDesc = "--flat (default) flattens output names; use --keep to preserve "
-                    "subdirectory structure "
-                    "instead."
-  },
-  CmdFlagDef{
     .name = "--keep",
     .kind = CmdFlagKind::Bool,
-    .description = "preserve relative input subdirectories inside the output directory",
+    .description = "preserve relative input subdirectories inside the output directory "
+                   "(default: flatten)",
     .defaultValue = "",
     .expectedMax = 0
   },
   CmdFlagDef{
     .name = "--force-conflict-handling",
     .kind = CmdFlagKind::String,
-    .description = "control collision-safe file names for unique flat outputs: y or n",
+    .description =
+      "same-name collisions in flat output: y=auto-rename, n=allow duplicates",
     .defaultValue = "y",
-    .expectedMax = 1
+    .expectedMax = 1,
+    .advanced = true
   },
   CmdFlagDef{
     .name = "-s,--folder-summary",
@@ -543,7 +570,7 @@ constexpr auto IOFrags = std::array{
   },
 };
 
-// ── Processing flags (7) ──
+// ── Processing flags (9) ──
 constexpr auto ProcessingFlags = std::array{
   CmdFlagDef{
     .name = "-t,--type",
@@ -555,14 +582,14 @@ constexpr auto ProcessingFlags = std::array{
   CmdFlagDef{
     .name = "-j,--jobs",
     .kind = CmdFlagKind::SizeT,
-    .description = "max parallel jobs (>=1, default=10)",
+    .description = "max parallel jobs (>=1)",
     .defaultValue = "10",
     .expectedMax = 1
   },
   CmdFlagDef{
     .name = "--resume",
     .kind = CmdFlagKind::Bool,
-    .description = "resume previous unfinished job state when available",
+    .description = "require matching previous job state; error if missing or mismatched",
     .defaultValue = "",
     .expectedMax = 0,
     .excludes = "--restart",
@@ -581,7 +608,8 @@ constexpr auto ProcessingFlags = std::array{
     .kind = CmdFlagKind::String,
     .description = "custom ffmpeg install path",
     .defaultValue = "",
-    .expectedMax = 1
+    .expectedMax = 1,
+    .advanced = true
   },
   CmdFlagDef{
     .name = "-c,--compress",
@@ -593,23 +621,27 @@ constexpr auto ProcessingFlags = std::array{
   CmdFlagDef{
     .name = "-q,--image-quality",
     .kind = CmdFlagKind::Int,
-    .description = "JPEG compression quality (2-31, default=2, lower=better)",
+    .description = "JPEG compression quality (2-31, lower=better)",
     .defaultValue = "",
-    .expectedMax = 1
+    .expectedMax = 1,
+    .defaultDisplay = "2"
   },
   CmdFlagDef{
     .name = "--crf",
     .kind = CmdFlagKind::Int,
-    .description = "video encode quality (0-51, default=26, lower=better)",
+    .description = "video encode quality (0-51, lower=better)",
     .defaultValue = "",
-    .expectedMax = 1
+    .expectedMax = 1,
+    .defaultDisplay = "28"
   },
   CmdFlagDef{
     .name = "--preset",
     .kind = CmdFlagKind::String,
-    .description = "NVENC preset (p1-p7, default: auto by resolution)",
+    .description = "NVENC preset (p1-p7; auto picks by resolution)",
     .defaultValue = "",
-    .expectedMax = 1
+    .expectedMax = 1,
+    .advanced = true,
+    .defaultDisplay = "auto"
   },
 };
 
@@ -674,6 +706,8 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
         opt = target->add_option(name, desc);
         if (expectedMin == 0) {
           opt->expected(0, 1)->default_str(std::string{def.defaultValue});
+        } else if (!def.defaultDisplay.empty()) {
+          opt->expected(1)->default_str(std::string{def.defaultDisplay});
         } else {
           opt->expected(1);
         }
@@ -682,6 +716,8 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
         opt = target->add_option(name, desc);
         if (expectedMin == 0) {
           opt->expected(0, 1)->default_str(std::string{def.defaultValue});
+        } else if (!def.defaultDisplay.empty()) {
+          opt->expected(1)->default_str(std::string{def.defaultDisplay});
         } else {
           opt->expected(1);
         }
@@ -729,8 +765,34 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
     if (it != optRegistry.end()) { pe.option->excludes(it->second); }
   }
 
+  // Collect advanced long names from the same def arrays (single source of truth).
+  // -h/--help and --version are not marked advanced, so they never enter the set.
+  auto advancedLongNames = std::vector<std::string_view>{};
+  auto collectAdvanced = [&](auto const& defs) {
+    for (auto const& def: defs) {
+      if (!def.advanced) { continue; }
+      auto longName = def.name;
+      if (auto const comma = longName.find(','); comma != std::string_view::npos) {
+        longName.remove_prefix(comma + 1);
+      }
+      if (longName.starts_with("--")) { longName.remove_prefix(2); }
+      advancedLongNames.push_back(longName);
+    }
+  };
+  collectAdvanced(GeneralFlags);
+  collectAdvanced(IOFrags);
+  collectAdvanced(ProcessingFlags);
+  collectAdvanced(FileOpFlags);
+
   // Configure formatter (unchanged)
-  app.formatter_fn(makeHelpFormatter(general, io, processing, fileop));
+  app.formatter_fn(makeHelpFormatter(
+    general,
+    io,
+    processing,
+    fileop,
+    optRegistry.at("-h,--help"),
+    advancedLongNames
+  ));
 
   // ── applyMap: per-flag result population ──
   using ResultSetter = std::function<void(CmdParseResult&, CLI::Option const*)>;
@@ -750,9 +812,6 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   };
   applyMap["--log-json"] = [](CmdParseResult& r, CLI::Option const* o) {
     r.jsonEnabled = o->count() > 0;
-  };
-  applyMap["-e,--verbose-echo"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.verboseEcho = o->count() > 0;
   };
   applyMap["-F,--full-progress"] = [](CmdParseResult& r, CLI::Option const* o) {
     r.fullProgress = o->count() > 0;
@@ -779,9 +838,6 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   };
   applyMap["-f,--output-format"] = [](CmdParseResult& r, CLI::Option const* o) {
     r.outputFormat = o->as<std::string>();
-  };
-  applyMap["--flat"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.flat = o->count() > 0;
   };
   applyMap["--keep"] = [](CmdParseResult& r, CLI::Option const* o) {
     r.keep = o->count() > 0;
@@ -816,13 +872,28 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
     r.compress = o->count() > 0;
   };
   applyMap["-q,--image-quality"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() > 0) { r.imageQuality = o->as<int>(); }
+    if (o->count() == 0) { return; }
+    if (o->results().empty()) {
+      r.error = "Option --image-quality requires a value.";
+      return;
+    }
+    r.imageQuality = o->as<int>();
   };
   applyMap["--crf"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() > 0) { r.crf = o->as<int>(); }
+    if (o->count() == 0) { return; }
+    if (o->results().empty()) {
+      r.error = "Option --crf requires a value.";
+      return;
+    }
+    r.crf = o->as<int>();
   };
   applyMap["--preset"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() > 0) { r.nvencPreset = o->as<std::string>(); }
+    if (o->count() == 0) { return; }
+    if (o->results().empty()) {
+      r.error = "Option --preset requires a value.";
+      return;
+    }
+    r.nvencPreset = o->as<std::string>();
   };
 
   // FileOp

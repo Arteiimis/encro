@@ -47,11 +47,9 @@ auto makeResult(
     else if (flag == "pack-only") result.packOnly = true;
     else if (flag == "resume") result.resume = true;
     else if (flag == "restart") result.restart = true;
-    else if (flag == "flat") result.flat = true;
     else if (flag == "keep") result.keep = true;
     else if (flag == "folder-summary") result.folderSummary = true;
     else if (flag == "verbose") result.verbose = true;
-    else if (flag == "verbose-echo") result.verboseEcho = true;
     else if (flag == "compress") result.compress = true;
     else if (flag == "full-progress") result.fullProgress = true;
     else if (flag == "overwrite") result.overwrite = true;
@@ -84,7 +82,6 @@ TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config
   CHECK(config.forceNameConflictHandling);
   CHECK_FALSE(config.pictureFolderSummary);
   CHECK_FALSE(config.verbose);
-  CHECK_FALSE(config.verboseEcho);
   CHECK(config.outputLayout == appctx::OutputLayout::Flat);
   CHECK(config.inputPath == inputPath);
   CHECK(config.inputPath.is_absolute());
@@ -143,6 +140,19 @@ TEST_CASE("buildConfig reads disabled conflict handling flag", "[cmd][config]") 
 
   REQUIRE(configRes);
   CHECK_FALSE(configRes->forceNameConflictHandling);
+}
+
+TEST_CASE("buildConfig treats preset auto as unset", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto result = makeResult(inputPath.string());
+  result.nvencPreset = "auto";
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE(configRes);
+  CHECK_FALSE(configRes->nvencPreset.has_value());
 }
 
 TEST_CASE("buildConfig reads enabled folder summary flag", "[cmd][config]") {
@@ -545,7 +555,7 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
     "y",
     "auto",
     std::nullopt,
-    {"yes", "recursive", "pack", "pack-only", "folder-summary", "verbose", "verbose-echo"}
+    {"yes", "recursive", "pack", "pack-only", "folder-summary", "verbose"}
   );
   auto const configRes = cmd::buildConfig(result);
 
@@ -558,7 +568,6 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
   CHECK(config.packOutput);
   CHECK(config.packOnly);
   CHECK(config.verbose);
-  CHECK(config.verboseEcho);
   CHECK(config.pictureFolderSummary);
   CHECK(config.outputLayout == appctx::OutputLayout::Flat);
   CHECK(config.outputPath == outputDir);
