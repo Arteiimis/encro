@@ -54,9 +54,11 @@ struct EncodeExecutionPlan {
   fs::path outputFilePath;
 };
 
-auto truncateEncodingStatus(std::string const& text, std::size_t maxLen = 72)
+auto truncateEncodingStatus(std::string const& text, std::size_t maxLen = 256)
   -> std::string {
-  return displaytext::truncateWithEllipsis(text, maxLen);
+  auto sanitized = text;
+  sanitized.erase(std::remove(sanitized.begin(), sanitized.end(), '\r'), sanitized.end());
+  return displaytext::truncateWithEllipsis(sanitized, maxLen);
 }
 
 auto failEncoding(appctx::EncodingState& state, std::string const& error) -> bool {

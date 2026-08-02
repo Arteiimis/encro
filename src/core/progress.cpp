@@ -39,6 +39,12 @@ constexpr auto kMinBarWidth = std::size_t{18};
 constexpr auto kMaxBarWidth = std::size_t{52};
 constexpr auto kMinPostfixBudget = std::size_t{16};
 constexpr auto kReservedLayoutWidth = std::size_t{34};
+constexpr auto kScrollColsPerSec = std::size_t{8};
+constexpr auto kScrollPauseMs = std::uint64_t{1000};
+constexpr auto kMsPerCol = std::uint64_t{1000 / kScrollColsPerSec};
+constexpr auto kMinScrollHeadBudget = std::size_t{12};
+constexpr auto kPostfixDelim = std::string_view{" | "};
+constexpr auto kPostfixDelimWidth = std::size_t{3};
 
 auto trimCopy(std::string_view text) -> std::string {
   auto begin = text.find_first_not_of(" \t");
@@ -47,8 +53,20 @@ auto trimCopy(std::string_view text) -> std::string {
   return std::string{text.substr(begin, end - begin + 1)};
 }
 
-auto truncateWithEllipsis(std::string const& text, std::size_t maxLen) -> std::string {
-  return displaytext::truncateWithEllipsis(text, maxLen);
+auto splitPostfixParts(std::string_view text) -> std::vector<std::string> {
+  auto parts = std::vector<std::string>{};
+  auto start = 0ull;
+  while (start <= text.size()) {
+    auto const pos = text.find('|', start);
+    if (pos == std::string_view::npos) {
+      parts.push_back(trimCopy(text.substr(start)));
+      break;
+    }
+    parts.push_back(trimCopy(text.substr(start, pos - start)));
+    start = pos + 1;
+  }
+  if (parts.empty()) { parts.push_back(trimCopy(text)); }
+  return parts;
 }
 
 struct ProgressLayout {
@@ -68,100 +86,6 @@ auto resolveLayout(std::size_t columns) -> ProgressLayout {
   return {barWidth, postfixBudget};
 }
 
-auto splitPostfixParts(std::string_view text) -> std::vector<std::string> {
-  auto parts = std::vector<std::string>{};
-  auto start = 0ull;
-  while (start <= text.size()) {
-    auto const pos = text.find('|', start);
-    if (pos == std::string_view::npos) {
-      parts.push_back(trimCopy(text.substr(start)));
-      break;
-    }
-    parts.push_back(trimCopy(text.substr(start, pos - start)));
-    start = pos + 1;
-  }
-  if (parts.empty()) { parts.push_back(trimCopy(text)); }
-  return parts;
-}
-
-auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
-  if (budget == 0) { return {}; }
-
-  auto parts = splitPostfixParts(text);
-  if (parts.size() == 1) { return truncateWithEllipsis(parts.front(), budget); }
-
-  constexpr auto delim = std::string_view{" | "};
-  auto const delimTotal = displaytext::displayWidth(delim) * (parts.size() - 1);
-  if (budget <= delimTotal) { return truncateWithEllipsis(trimCopy(text), budget); }
-
-  auto contentBudget = budget - delimTotal;
-  auto alloc = std::vector<std::size_t>(parts.size(), 0);
-
-  auto totalLen = 0ull;
-  for (auto const& part: parts) { totalLen += displaytext::displayWidth(part); }
-  if (totalLen == 0) { return truncateWithEllipsis(trimCopy(text), budget); }
-
-  auto allocated = 0ull;
-  auto const firstWidth = displaytext::displayWidth(parts.front());
-  alloc.front() = std::min(firstWidth, contentBudget);
-  allocated += alloc.front();
-  auto const restLen = totalLen > firstWidth ? totalLen - firstWidth : 0;
-  auto const restBudget =
-    contentBudget > alloc.front() ? contentBudget - alloc.front() : 0;
-  for (auto i = 1ull; i < parts.size() && restLen > 0; ++i) {
-    auto const partWidth = displaytext::displayWidth(parts[i]);
-    auto share = (partWidth * restBudget) / restLen;
-    auto const minShare = std::size_t{4};
-    alloc[i] = std::min(partWidth, std::max(share, minShare));
-    allocated += alloc[i];
-  }
-
-  while (allocated > contentBudget) {
-    auto reduced = false;
-    for (auto i = 1ull; i < alloc.size() && allocated > contentBudget; ++i) {
-      if (alloc[i] > 4) {
-        --alloc[i];
-        --allocated;
-        reduced = true;
-      }
-    }
-    if (!reduced) { break; }
-  }
-
-  while (allocated < contentBudget) {
-    auto grown = false;
-    for (auto i = 0ull; i < alloc.size() && allocated < contentBudget; ++i) {
-      if (alloc[i] < displaytext::displayWidth(parts[i])) {
-        ++alloc[i];
-        ++allocated;
-        grown = true;
-      }
-    }
-    if (!grown) { break; }
-  }
-
-  auto const lastIndex = parts.size() - 1;
-  auto const lastWidth = displaytext::displayWidth(parts[lastIndex]);
-  if (alloc[lastIndex] < lastWidth) {
-    auto need = lastWidth - alloc[lastIndex];
-    for (auto i = 1ull; i < lastIndex && need > 0; ++i) {
-      if (alloc[i] > 4) {
-        auto const take = std::min(need, alloc[i] - 4);
-        alloc[i] -= take;
-        need -= take;
-      }
-    }
-    if (need == 0) { alloc[lastIndex] = lastWidth; }
-  }
-
-  auto out = std::string{};
-  for (auto i = 0ull; i < parts.size(); ++i) {
-    if (i > 0) { out += delim; }
-    out += truncateWithEllipsis(parts[i], alloc[i]);
-  }
-  return truncateWithEllipsis(out, budget);
-}
-
 void applyTone(indicators::ProgressBar& bar, Tone tone) {
   bar.set_option(
     indicators::option::ForegroundColor{resolveColor(tone, terminal::colorsEnabled())}
@@ -177,6 +101,103 @@ auto formatEtaPart(float etaSeconds) -> std::string {
 }
 
 }  // namespace
+
+auto scrollWindow(std::string_view text, std::size_t budget, std::size_t startCol)
+  -> std::string {
+  auto const textWidth = displaytext::displayWidth(text);
+  if (textWidth <= budget) { return std::string{text}; }
+
+  auto const maxCol = textWidth - budget;
+  auto const clamped = std::min(startCol, maxCol);
+  return displaytext::takeWindowByDisplayWidth(text, clamped, budget);
+}
+
+auto bounceOffset(std::uint64_t elapsedMs, std::size_t travel) -> std::size_t {
+  if (travel == 0) { return 0; }
+
+  auto const sweepMs = static_cast<std::uint64_t>(travel) * kMsPerCol;
+  auto const period = sweepMs * 2 + kScrollPauseMs * 2;
+  auto const t = elapsedMs % period;
+  if (t < sweepMs) { return static_cast<std::size_t>(t / kMsPerCol); }
+  if (t < sweepMs + kScrollPauseMs) { return travel; }
+  if (t < sweepMs * 2 + kScrollPauseMs) {
+    auto const back = t - sweepMs - kScrollPauseMs;
+    return travel - static_cast<std::size_t>(back / kMsPerCol);
+  }
+  return 0;
+}
+
+auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
+  if (budget == 0) { return {}; }
+  if (displaytext::displayWidth(text) <= budget) { return std::string{text}; }
+
+  auto const elapsedMs =
+    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()
+                                                            .time_since_epoch())
+      .count();
+  auto const travel = displaytext::displayWidth(text) - budget;
+  // ponytail: time-based trapezoid — bounce offset without per-bar state; a
+  // position+velocity state would desync from wall clock on redraw gaps
+  auto const offset = bounceOffset(static_cast<std::uint64_t>(elapsedMs), travel);
+  return scrollWindow(text, budget, offset);
+}
+
+auto fitPostfixWithEta(
+  std::optional<std::string> const& etaText,
+  std::string_view postfix,
+  std::size_t budget
+) -> std::string {
+  if (postfix.empty()) {
+    if (!etaText.has_value()) { return {}; }
+    return fitPostfixText(etaText.value(), budget);
+  }
+
+  auto const parts = splitPostfixParts(postfix);
+  auto const headPart = parts.front();
+  auto tailPart = std::string{};
+  for (auto i = 1ull; i < parts.size(); ++i) {
+    if (i > 1) { tailPart += kPostfixDelim; }
+    tailPart += parts[i];
+  }
+
+  auto const etaWidth =
+    etaText.has_value() ? displaytext::displayWidth(etaText.value()) : std::size_t{0};
+  auto const fixedPrefixWidth = etaWidth + (etaText.has_value() ? kPostfixDelimWidth : 0);
+
+  auto tailWidth = displaytext::displayWidth(tailPart);
+  auto tailDelimWidth = tailPart.empty() ? std::size_t{0} : kPostfixDelimWidth;
+
+  auto scrollBudget = std::size_t{0};
+  if (budget > fixedPrefixWidth + tailDelimWidth + tailWidth) {
+    scrollBudget = budget - fixedPrefixWidth - tailDelimWidth - tailWidth;
+  }
+  if (scrollBudget < kMinScrollHeadBudget) {
+    auto const availForTail =
+      budget >= fixedPrefixWidth + kMinScrollHeadBudget + kPostfixDelimWidth
+      ? budget - fixedPrefixWidth - kMinScrollHeadBudget - kPostfixDelimWidth
+      : std::size_t{0};
+    if (availForTail == 0) {
+      tailPart.clear();
+    } else {
+      tailPart = displaytext::truncateWithEllipsis(tailPart, availForTail);
+    }
+    if (tailPart.empty()) {
+      tailWidth = 0;
+      tailDelimWidth = 0;
+      scrollBudget = budget >= fixedPrefixWidth ? budget - fixedPrefixWidth : 0;
+    } else {
+      tailWidth = displaytext::displayWidth(tailPart);
+      tailDelimWidth = kPostfixDelimWidth;
+      scrollBudget = budget - fixedPrefixWidth - tailDelimWidth - tailWidth;
+    }
+  }
+
+  auto out = std::string{};
+  if (etaText.has_value()) { out += etaText.value() + std::string{kPostfixDelim}; }
+  out += fitPostfixText(headPart, scrollBudget);
+  if (!tailPart.empty()) { out += std::string{kPostfixDelim} + tailPart; }
+  return out;
+}
 
 void EtaEstimator::sample(std::chrono::steady_clock::time_point now, float progress) {
   if (!hasSample_) {
@@ -219,9 +240,9 @@ auto ProgressContext::addBar(std::string_view promptText, Tone tone) -> std::siz
 }
 
 void ProgressContext::applyBarText(std::size_t barIndex, float progress) {
-  auto text = postfixes_[barIndex];
+  auto etaText = std::optional<std::string>{};
   if (auto const eta = etas_[barIndex].etaSeconds(progress); eta.has_value()) {
-    text = std::format("[{}] | {}", formatEtaPart(eta.value()), text);
+    etaText = std::format("[{}]", formatEtaPart(eta.value()));
   }
 
   auto const layout = resolveLayout(
@@ -232,7 +253,9 @@ void ProgressContext::applyBarText(std::size_t barIndex, float progress) {
   );
   bars_[barIndex]->set_option(indicators::option::BarWidth{layout.barWidth});
   bars_[barIndex]->set_option(
-    indicators::option::PostfixText{fitPostfixText(text, layout.postfixBudget)}
+    indicators::option::PostfixText{
+      fitPostfixWithEta(etaText, postfixes_[barIndex], layout.postfixBudget)
+    }
   );
 }
 

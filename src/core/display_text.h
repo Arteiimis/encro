@@ -67,6 +67,40 @@ inline auto takePrefixByDisplayWidth(std::string_view text, std::size_t maxWidth
   return out;
 }
 
+inline auto takeWindowByDisplayWidth(
+  std::string_view text,
+  std::size_t startCol,
+  std::size_t maxWidth
+) -> std::string {
+  if (maxWidth == 0 || text.empty()) { return {}; }
+
+  auto index = std::size_t{0};
+  auto col = std::size_t{0};
+  while (index < text.size()) {
+    auto const length = utf8CodePointLength(text, index);
+    auto const nextWidth =
+      std::max<std::size_t>(1, displayWidth(text.substr(index, length)));
+    if (col + nextWidth > startCol) { break; }
+    col += nextWidth;
+    index += length;
+  }
+
+  auto out = std::string{};
+  out.reserve(text.size() - index);
+  auto width = std::size_t{0};
+  while (index < text.size()) {
+    auto const length = utf8CodePointLength(text, index);
+    auto const next = std::string{text.substr(index, length)};
+    auto const nextWidth = std::max<std::size_t>(1, displayWidth(next));
+    if (width + nextWidth > maxWidth) { break; }
+    out += next;
+    width += nextWidth;
+    index += length;
+  }
+
+  return out;
+}
+
 inline auto truncateWithEllipsis(std::string_view text, std::size_t maxWidth)
   -> std::string {
   if (maxWidth == 0) { return {}; }

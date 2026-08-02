@@ -28,15 +28,8 @@ void noteStopRequest(appctx::AppContext& ctx) {
   withJobState(ctx, [](jobstate::Store& store) { store.requestCancel(); });
 }
 
-auto truncateForProgressLabel(std::string const& text, std::size_t maxLen = 48)
-  -> std::string {
-  return displaytext::truncateWithEllipsis(text, maxLen);
-}
-
 auto getStateLabel(appctx::EncodingState const& state) -> std::string {
-  return truncateForProgressLabel(
-    displaytext::pathToUtf8String(state.inputPath.filename())
-  );
+  return displaytext::pathToUtf8String(state.inputPath.filename());
 }
 
 auto tryReadProgressData(fs::path const& progressFilePath)
