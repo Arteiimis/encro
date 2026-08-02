@@ -12,6 +12,7 @@
   - Or use the plugin: `xmake coverage` (see below)
 - **Format:** `xmake format` (apply), `xmake format -k check` (CI/check-only)
 - **ASan:** Debug mode enables Address Sanitizer (`xmake f -m debug`)
+- **Dependency source paths:** read `build/compile_commands.json` (xmake's compile database) to find absolute include paths of installed packages (e.g., `F:\xmake\.xmake\packages\i\indicators\2.3\<hash>\include`). Dependency headers live there, NOT in the repo — never search `~/.xmake` or the user profile for them.
 
 ### xmake Custom Plugins
 
