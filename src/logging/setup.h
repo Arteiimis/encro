@@ -28,15 +28,16 @@ struct EnvironmentSnapshot {
   bool hasEncodingContext{false};
 };
 
-// 初始化日志系统: 创建共享 sink、注册 24 个 named async_logger、设置 default_logger。
-// 返回创建的日志文件路径 (std::nullopt 如果 logging 未启用)。
+// Initialize the logging system: create shared sinks, register 24 named
+// async_loggers, set the default logger.
+// Returns the created log file path (std::nullopt if logging is disabled).
 [[nodiscard]] auto setup(LogConfig const& config) -> std::optional<std::filesystem::path>;
 
-// 销毁: flush + 关闭所有 logger
+// Teardown: flush + shut down all loggers
 auto shutdown() -> void;
 
-// 返回当前活跃的日志文件路径 (D-13: crash handler 集成)
-// 如果 setup() 未调用或 verbose 未启用，返回 std::nullopt
+// Returns the currently active log file path (D-13: crash handler integration).
+// Returns std::nullopt if setup() was not called or verbose logging is disabled.
 [[nodiscard]] auto currentLogFilePath() -> std::optional<std::filesystem::path>;
 
 // ── Forensic context ────────────────────────────────────────────────────────

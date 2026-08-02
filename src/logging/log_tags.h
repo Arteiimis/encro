@@ -1,17 +1,17 @@
 #pragma once
 
-// ── 模块标签常量 ────────────────────────────────────────────────────────────
-// 层级 dot-notation: component.subcomponent
-// 用法: DEFINE_LOGGER(logtags::VIDEO_ENCODE)
+// ── Module tag constants ────────────────────────────────────────────────────
+// Hierarchical dot-notation: component.subcomponent
+// Usage: DEFINE_LOGGER(logtags::VIDEO_ENCODE)
 //
-// 命名约定:
-//   - 全小写
-//   - 分隔符: 点号 (.)
-//   - 层级最多 3 层
-//   - 禁止 ad-hoc 字符串 —— 所有 DEFINE_LOGGER 必须引用此处的常量
+// Naming conventions:
+//   - all lowercase
+//   - separator: dot (.)
+//   - at most 3 levels
+//   - no ad-hoc strings — every DEFINE_LOGGER must reference a constant here
 //
-// Phase 1 定义的标签 (当前 src/ 下所有有 spdlog 调用的模块)
-// Phase 2-4 新模块的标签由各自 phase 添加 (D-08)
+// Phase 1 tags (all src/ modules with spdlog calls)
+// Phase 2-4 tags are added by their phase (D-08)
 
 namespace logtags {
 
