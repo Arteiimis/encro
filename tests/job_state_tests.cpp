@@ -423,3 +423,109 @@ TEST_CASE("job state resets archive action when member set changes", "[job-state
   CHECK(resumed.front().sourcePaths[0] == memberA);
   CHECK(resumed.front().sourcePaths[1] == memberC);
 }
+
+TEST_CASE(
+  "job state matches pack-enabled run against encode-only saved state",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const outputPath = temp.path / "input.hevc.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+  writeFile(outputPath);
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
+
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(config, false);
+  REQUIRE(initRes);
+  store.mergeTasks(std::array{task});
+  store.markRunning(task.id);
+  store.markSucceeded(task.id);
+  store.flush();
+
+  auto packConfig = makeConfig(inputPath, statePath);
+  packConfig.packOutput = true;
+
+  auto resumedStore = jobstate::Store{statePath};
+  auto const resumeRes = resumedStore.initialize(packConfig, false);
+  REQUIRE(resumeRes);
+  CHECK(resumeRes.value());
+
+  auto const resumed = resumedStore.mergeTasks(std::array{task});
+  REQUIRE(resumed.size() == 1);
+  CHECK(resumed.front().status == jobstate::TaskStatus::Succeeded);
+}
+
+TEST_CASE(
+  "job state rejects encode-only run against pack-enabled saved state",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const outputPath = temp.path / "input.hevc.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+  writeFile(outputPath);
+
+  auto packConfig = makeConfig(inputPath, statePath);
+  packConfig.packOutput = true;
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
+
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(packConfig, false);
+  REQUIRE(initRes);
+  store.mergeTasks(std::array{task});
+  store.markRunning(task.id);
+  store.markSucceeded(task.id);
+  store.flush();
+
+  auto const config = makeConfig(inputPath, statePath);
+
+  auto resumedStore = jobstate::Store{statePath};
+  auto const resumeRes = resumedStore.initialize(config, false);
+  REQUIRE(resumeRes);
+  CHECK_FALSE(resumeRes.value());
+
+  auto const resumed = resumedStore.mergeTasks(std::array{task});
+  REQUIRE(resumed.size() == 1);
+  CHECK(resumed.front().status == jobstate::TaskStatus::Pending);
+}
+
+TEST_CASE(
+  "job state rejects pack-enabled run when another config field differs",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const outputPath = temp.path / "input.hevc.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+  writeFile(outputPath);
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
+
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(config, false);
+  REQUIRE(initRes);
+  store.mergeTasks(std::array{task});
+  store.markRunning(task.id);
+  store.markSucceeded(task.id);
+  store.flush();
+
+  auto changedConfig = makeConfig(inputPath, statePath);
+  changedConfig.packOutput = true;
+  changedConfig.outputFormat = "webp";
+
+  auto resumedStore = jobstate::Store{statePath};
+  auto const resumeRes = resumedStore.initialize(changedConfig, false);
+  REQUIRE(resumeRes);
+  CHECK_FALSE(resumeRes.value());
+
+  auto const resumed = resumedStore.mergeTasks(std::array{task});
+  REQUIRE(resumed.size() == 1);
+  CHECK(resumed.front().status == jobstate::TaskStatus::Pending);
+}
