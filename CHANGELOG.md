@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.0-alpha.1] - 2026-08-03
+
+### Added
+
+- Segmented video encoding with frame-level resume: an interrupted encode restarts from the last completed segment rather than from the beginning.
+- Progress bars estimate the remaining time with a moving average, and long labels scroll instead of being truncated.
+- `-hh` shows every option while `-h` shows the common ones.
+- A job-state file that no longer matches the current run is reported before it is discarded.
+
+### Changed
+
+- **Breaking:** `-v` / `--verbose` now echoes progress detail to the terminal and repeats for full debug output; `-e` / `--verbose-echo` and `--flat` were removed.
+- NVENC quality defaults to cq 28 and bitrate caps are chosen per resolution.
+- The log file is always written, and the terminal becomes an echo of it rather than the only copy.
+
 ## [1.7.0] - 2026-05-23
 
 ### Added
@@ -136,7 +151,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v1.7.0...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.1...HEAD
+[2.0.0-alpha.1]: https://github.com/Arteiimis/encro/compare/v1.7.0...v2.0.0-alpha.1
 [1.7.0]: https://github.com/Arteiimis/encro/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/Arteiimis/encro/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/Arteiimis/encro/compare/v1.4.0...v1.5.0
