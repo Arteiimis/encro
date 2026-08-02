@@ -12,7 +12,6 @@ struct CmdParseResult {
   bool help = false;
   bool version = false;
   bool verbose = false;
-  bool verboseEcho = false;
   bool fullProgress = false;
   bool jsonEnabled = false;
   std::string color = "auto";
@@ -24,7 +23,6 @@ struct CmdParseResult {
   std::optional<std::string> output;
   std::optional<std::string> stateFile;
   std::string outputFormat = "mp4";
-  bool flat = false;
   bool keep = false;
   std::string forceConflictHandling = "y";
   bool folderSummary = false;

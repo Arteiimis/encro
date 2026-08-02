@@ -49,7 +49,6 @@ struct AppConfig {
   std::optional<int> crf;
   std::optional<std::string> nvencPreset;
   bool verbose = false;
-  bool verboseEcho = false;
   bool fullProgress = false;
   bool jsonEnabled = false;
   std::optional<std::size_t> maxParallelJobs;
