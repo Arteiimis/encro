@@ -106,16 +106,31 @@ auto prepareEncodeExecution(appctx::EncodingState& state)
 }
 
 auto buildEncodeConfig(
-  appctx::AppContext const& ctx,
+  appctx::AppContext& ctx,
   appctx::EncodingState const& state,
   EncodeExecutionPlan const& plan
 ) -> EncodeConfig {
+  auto nvencPreset = ctx.config.nvencPreset;
+  auto maxrateKbps = std::optional<int>{};
+  if (
+    auto const dims = getVidDimensions(ctx.toolchain, ctx.runtime, state.inputPath);
+    dims.has_value()
+  ) {
+    if (!nvencPreset.has_value()) {
+      nvencPreset = pickNvencPresetForDimensions(dims->first, dims->second);
+    }
+    maxrateKbps = pickMaxrateKbpsForDimensions(dims->first, dims->second);
+  }
+
   return EncodeConfig{
     .ffmpegPath = ctx.toolchain.ffmpegPath,
     .inputPath = state.inputPath,
     .outputPath = plan.outputPath,
     .outputFilePath = plan.outputFilePath,
     .outputFormat = ctx.config.outputFormat,
+    .crf = ctx.config.crf,
+    .nvencPreset = nvencPreset,
+    .maxrateKbps = maxrateKbps,
     .progressFilePath = plan.progressFilePath
   };
 }
@@ -308,7 +323,7 @@ auto segmentProgressFilePath(fs::path const& segmentDir, std::uint64_t index)
 }
 
 auto encodeOneSegment(
-  appctx::AppContext const& ctx,
+  appctx::AppContext& ctx,
   appctx::EncodingState& state,
   function_ref statusUpdater,
   fs::path const& segmentDir,
@@ -323,10 +338,25 @@ auto encodeOneSegment(
     fs::remove(segProgressFile, ec);
   }
 
+  auto nvencPreset = ctx.config.nvencPreset;
+  auto maxrateKbps = std::optional<int>{};
+  if (
+    auto const dims = getVidDimensions(ctx.toolchain, ctx.runtime, state.inputPath);
+    dims.has_value()
+  ) {
+    if (!nvencPreset.has_value()) {
+      nvencPreset = pickNvencPresetForDimensions(dims->first, dims->second);
+    }
+    maxrateKbps = pickMaxrateKbpsForDimensions(dims->first, dims->second);
+  }
+
   auto const cfg = EncodeConfig{
     .ffmpegPath = ctx.toolchain.ffmpegPath,
     .inputPath = state.inputPath,
     .outputFormat = ctx.config.outputFormat,
+    .crf = ctx.config.crf,
+    .nvencPreset = nvencPreset,
+    .maxrateKbps = maxrateKbps,
     .progressFilePath = segProgressFile,
     .segmentIndex = index,
     .segmentStartUs = startUs,

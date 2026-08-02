@@ -31,7 +31,13 @@ TEST_CASE("EncodeConfig validates required fields", "[encode-config]") {
 
   auto const cmd = cfg.buildCMD();
   CHECK(cmd.find(inputPath.string()) != std::string::npos);
-  CHECK(cmd.find("-c:v hevc_nvenc -crf 22") != std::string::npos);
+  CHECK(
+    cmd.find(
+      "-c:v hevc_nvenc -preset p5 -rc vbr -cq 22 -b:v 0 -tag:v hvc1 -pix_fmt yuv420p"
+    )
+    != std::string::npos
+  );
+  CHECK(cmd.find("-crf") == std::string::npos);
   CHECK(cmd.find(cfg.progressFilePath->string()) != std::string::npos);
   auto const expectedOutput =
     (inputPath.parent_path() / std::format("{}.hevc.mp4", inputPath.stem().string()))
@@ -288,12 +294,127 @@ TEST_CASE("EncodeConfig builds segmented mp4 command", "[encode-config]") {
   CHECK(cmd.find("-t 10.000000") != std::string::npos);
   CHECK(cmd.find("-force_key_frames 0") != std::string::npos);
   CHECK(cmd.find("-an") != std::string::npos);
-  CHECK(cmd.find("-c:v hevc_nvenc -crf 22") != std::string::npos);
+  CHECK(
+    cmd.find(
+      "-c:v hevc_nvenc -preset p5 -rc vbr -cq 22 -b:v 0 -tag:v hvc1 -pix_fmt yuv420p"
+    )
+    != std::string::npos
+  );
   CHECK(cmd.find("-f mpegts") != std::string::npos);
   CHECK(cmd.find(segOutput.string()) != std::string::npos);
   CHECK(
     cmd.find(std::format("{}.hevc.mp4", inputPath.stem().string())) == std::string::npos
   );
+}
+
+TEST_CASE("EncodeConfig keeps -crf for non-NVENC codec", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.outputFormat = "mp4";
+  cfg.videoCodec = "libx265";
+  cfg.crf = 22;
+
+  auto const validation = cfg.validate();
+  REQUIRE(validation);
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-c:v libx265 -crf 22") != std::string::npos);
+  CHECK(cmd.find("-rc vbr") == std::string::npos);
+  CHECK(cmd.find("-tag:v hvc1") == std::string::npos);
+}
+
+TEST_CASE("EncodeConfig picks preset by pixel count", "[encode-config]") {
+  CHECK(pickNvencPresetForDimensions(2560, 1440) == "p7");
+  CHECK(pickNvencPresetForDimensions(1440, 2560) == "p7");
+  CHECK(pickNvencPresetForDimensions(1920, 1080) == "p6");
+  CHECK(pickNvencPresetForDimensions(1080, 1920) == "p6");
+  CHECK(pickNvencPresetForDimensions(1280, 720) == "p5");
+  CHECK(pickNvencPresetForDimensions(0, 0) == "p5");
+}
+
+TEST_CASE("EncodeConfig uses custom nvenc preset", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.outputFormat = "mp4";
+  cfg.videoCodec = "hevc_nvenc";
+  cfg.nvencPreset = "p7";
+
+  auto const validation = cfg.validate();
+  REQUIRE(validation);
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-preset p7 -rc vbr") != std::string::npos);
+  CHECK(cmd.find("-tag:v hvc1") != std::string::npos);
+}
+
+TEST_CASE("EncodeConfig defaults to cq 26 for NVENC", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.outputFormat = "mp4";
+  cfg.videoCodec = "hevc_nvenc";
+
+  auto const validation = cfg.validate();
+  REQUIRE(validation);
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-cq 26") != std::string::npos);
+}
+
+TEST_CASE("EncodeConfig adds maxrate and bufsize when set", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.outputFormat = "mp4";
+  cfg.videoCodec = "hevc_nvenc";
+  cfg.maxrateKbps = 15000;
+
+  auto const validation = cfg.validate();
+  REQUIRE(validation);
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-maxrate 15000k -bufsize 30000k") != std::string::npos);
+}
+
+TEST_CASE("EncodeConfig picks maxrate by pixel count", "[encode-config]") {
+  CHECK(pickMaxrateKbpsForDimensions(2560, 1440) == 15000);
+  CHECK(pickMaxrateKbpsForDimensions(1440, 2560) == 15000);
+  CHECK(pickMaxrateKbpsForDimensions(1920, 1080) == 10000);
+  CHECK(pickMaxrateKbpsForDimensions(1080, 1920) == 10000);
+  CHECK(pickMaxrateKbpsForDimensions(1280, 720) == 6000);
+  CHECK(pickMaxrateKbpsForDimensions(0, 0) == 6000);
+}
+
+TEST_CASE("EncodeConfig NVENC h264 has no hvc1 tag", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.outputFormat = "mp4";
+  cfg.videoCodec = "h264_nvenc";
+  cfg.crf = 22;
+
+  auto const validation = cfg.validate();
+  REQUIRE(validation);
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(
+    cmd.find("-c:v h264_nvenc -preset p5 -rc vbr -cq 22 -b:v 0") != std::string::npos
+  );
+  CHECK(cmd.find("-tag:v hvc1") == std::string::npos);
+  CHECK(cmd.find("-pix_fmt yuv420p") != std::string::npos);
+  CHECK(cmd.find("-crf") == std::string::npos);
 }
 
 TEST_CASE("EncodeConfig builds audio extraction command", "[encode-config]") {

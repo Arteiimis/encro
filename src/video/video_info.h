@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <span>
+#include <utility>
 #include <vector>
 
 auto getVidInfo(
@@ -25,6 +26,12 @@ auto getVidTotalDurationUs(
   appctx::RuntimeContext& runtime,
   std::filesystem::path const& videoPath
 ) -> eh::Result<std::uint64_t>;
+
+auto getVidDimensions(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  std::filesystem::path const& videoPath
+) -> eh::Result<std::pair<int, int>>;
 
 auto getVidHasAudio(
   appctx::ToolchainPaths const& toolchain,

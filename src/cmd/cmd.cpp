@@ -597,6 +597,20 @@ constexpr auto ProcessingFlags = std::array{
     .defaultValue = "",
     .expectedMax = 1
   },
+  CmdFlagDef{
+    .name = "--crf",
+    .kind = CmdFlagKind::Int,
+    .description = "video encode quality (0-51, default=26, lower=better)",
+    .defaultValue = "",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "--preset",
+    .kind = CmdFlagKind::String,
+    .description = "NVENC preset (p1-p7, default: auto by resolution)",
+    .defaultValue = "",
+    .expectedMax = 1
+  },
 };
 
 // ── File operation flags (3) ──
@@ -803,6 +817,12 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   };
   applyMap["-q,--image-quality"] = [](CmdParseResult& r, CLI::Option const* o) {
     if (o->count() > 0) { r.imageQuality = o->as<int>(); }
+  };
+  applyMap["--crf"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() > 0) { r.crf = o->as<int>(); }
+  };
+  applyMap["--preset"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() > 0) { r.nvencPreset = o->as<std::string>(); }
   };
 
   // FileOp

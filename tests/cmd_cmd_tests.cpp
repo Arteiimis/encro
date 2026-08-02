@@ -297,6 +297,32 @@ TEST_CASE("commandLineInit does not set image-quality by default", "[cmd]") {
   CHECK(result.imageQuality.has_value() == false);
 }
 
+TEST_CASE("commandLineInit parses --crf as integer", "[cmd]") {
+  auto const result = parseArgs({"encro", "--crf", "26"});
+
+  REQUIRE(result.crf.has_value());
+  CHECK(result.crf.value() == 26);
+}
+
+TEST_CASE("commandLineInit does not set crf by default", "[cmd]") {
+  auto const result = parseArgs({"encro"});
+
+  CHECK(result.crf.has_value() == false);
+}
+
+TEST_CASE("commandLineInit parses --preset option", "[cmd]") {
+  auto const result = parseArgs({"encro", "--preset", "p7"});
+
+  REQUIRE(result.nvencPreset.has_value());
+  CHECK(result.nvencPreset.value() == "p7");
+}
+
+TEST_CASE("commandLineInit does not set preset by default", "[cmd]") {
+  auto const result = parseArgs({"encro"});
+
+  CHECK(result.nvencPreset.has_value() == false);
+}
+
 TEST_CASE("commandLineInit default jobs is not set", "[cmd]") {
   auto const result = parseArgs({"encro"});
   // jobs has a default_str of "10" but no default_value — so it should NOT be in result
