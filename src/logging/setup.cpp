@@ -138,13 +138,9 @@ namespace logging {
 static auto gCurrentLogFilePath = std::optional<fs::path>{};
 
 auto setup(LogConfig const& config) -> std::optional<fs::path> {
-  // 1. If neither --verbose nor --log-json is enabled, disable all logging
-  if (!config.verboseEnabled && !config.jsonEnabled) {
-    spdlog::set_level(spdlog::level::off);
-    return std::nullopt;
-  }
+  gCurrentLogFilePath = std::nullopt;
 
-  // 2. Resolve log directory (D-21: hardened fallback chain)
+  // 1. Resolve log directory (D-21: hardened fallback chain)
   auto logDir =
     config.customLogDir.has_value() ? config.customLogDir.value() : resolveCommonLogDir();
   auto ec = std::error_code{};
@@ -174,7 +170,7 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     }
   }
 
-  // 3. Create file sink (D-01~D-03, D-17~D-18)
+  // 3. Create file sink (D-01~D-03, D-17~D-18) — always enabled
   auto sinks = std::vector<spdlog::sink_ptr>{};
   auto logFilePath = std::optional<fs::path>{};
 
@@ -208,14 +204,12 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
 
     logFilePath = filePath;
 
-    // D-17~D-18: human-readable rotating file sink (only when verbose)
-    if (config.verboseEnabled) {
-      auto hrSink = std::make_shared<
-        spdlog::sinks::rotating_file_sink_mt
-      >(filePath.string(), 10 * 1024 * 1024, 3);
-      hrSink->set_pattern(kLogPattern);
-      sinks.emplace_back(std::move(hrSink));
-    }
+    // D-17~D-18: human-readable rotating file sink
+    auto hrSink = std::make_shared<
+      spdlog::sinks::rotating_file_sink_mt
+    >(filePath.string(), 10 * 1024 * 1024, 3);
+    hrSink->set_pattern(kLogPattern);
+    sinks.emplace_back(std::move(hrSink));
 
     // D-03/D-04: Companion NDJSON sink with JsonFormatter when --log-json is active
     if (config.jsonEnabled) {
@@ -233,7 +227,7 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
   }
 
   // 4. Optional console sink
-  if (config.verboseEchoEnabled) {
+  if (config.echoEnabled) {
     if (config.colorsEnabled) {
       auto consoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
       consoleSink->set_pattern(kLogPattern);
@@ -278,7 +272,7 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
   spdlog::set_default_logger(std::move(defaultLogger));
   spdlog::set_level(spdlog::level::debug);
 
-  spdlog::debug("Verbose logging enabled.");
+  if (fileSinkEnabled) { spdlog::debug("File logging enabled."); }
 
   return logFilePath;
 }

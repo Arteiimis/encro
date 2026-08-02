@@ -7,8 +7,7 @@
 namespace logging {
 
 struct LogConfig {
-  bool verboseEnabled{false};
-  bool verboseEchoEnabled{false};
+  bool echoEnabled{false};
   bool jsonEnabled{false};
   bool colorsEnabled{true};
   std::optional<std::filesystem::path> customLogDir;
@@ -30,14 +29,14 @@ struct EnvironmentSnapshot {
 
 // Initialize the logging system: create shared sinks, register 24 named
 // async_loggers, set the default logger.
-// Returns the created log file path (std::nullopt if logging is disabled).
+// Returns the created log file path (std::nullopt if no log file could be created).
 [[nodiscard]] auto setup(LogConfig const& config) -> std::optional<std::filesystem::path>;
 
 // Teardown: flush + shut down all loggers
 auto shutdown() -> void;
 
 // Returns the currently active log file path (D-13: crash handler integration).
-// Returns std::nullopt if setup() was not called or verbose logging is disabled.
+// Returns std::nullopt if setup() was not called or no file sink is active.
 [[nodiscard]] auto currentLogFilePath() -> std::optional<std::filesystem::path>;
 
 // ── Forensic context ────────────────────────────────────────────────────────

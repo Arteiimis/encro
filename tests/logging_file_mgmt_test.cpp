@@ -94,8 +94,6 @@ TEST_CASE("setup creates timestamped log file", "[logging][file_mgmt]") {
   auto const testDir = makeTestDir("test1_timestamped_naming");
 
   auto const config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = testDir,
   };
@@ -155,8 +153,6 @@ TEST_CASE("setup returns valid timestamped log file path", "[logging][file_mgmt]
   auto const testDir = makeTestDir("test2_valid_path");
 
   auto const config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = testDir,
   };
@@ -208,8 +204,6 @@ TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
   REQUIRE(preCount == 15);
 
   auto const config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = testDir,
   };
@@ -288,8 +282,6 @@ TEST_CASE("cleanup matches rotation files", "[logging][file_mgmt]") {
   REQUIRE(preCount == 15);
 
   auto const config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = testDir,
   };
@@ -326,8 +318,6 @@ TEST_CASE("cleanup does not delete current log file", "[logging][file_mgmt]") {
   }
 
   auto const config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = testDir,
   };
@@ -372,8 +362,6 @@ TEST_CASE("setup falls back when primary log dir is unwritable", "[logging][file
   auto const blockedLogDir = blockingFilePath / "encro" / "logs";
 
   auto const config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = blockedLogDir,
   };
@@ -397,24 +385,6 @@ TEST_CASE("setup falls back when primary log dir is unwritable", "[logging][file
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Test 7 — setup returns nullopt when verboseEnabled is false
-// ══════════════════════════════════════════════════════════════════════════════
-
-TEST_CASE("setup returns nullopt when verbose is disabled", "[logging][file_mgmt]") {
-  auto const config = logging::LogConfig{
-    .verboseEnabled = false,
-    .verboseEchoEnabled = false,
-    .colorsEnabled = false,
-  };
-
-  auto const result = logging::setup(config);
-  CHECK_FALSE(result.has_value());
-  CHECK_FALSE(logging::currentLogFilePath().has_value());
-
-  logging::shutdown();
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
 // Test 8 — rotating file sink is configured and functional (D-17, D-18)
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -422,8 +392,6 @@ TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgm
   auto const testDir = makeTestDir("test8_rotating_sink");
 
   auto const config = logging::LogConfig{
-    .verboseEnabled = true,
-    .verboseEchoEnabled = false,
     .colorsEnabled = false,
     .customLogDir = testDir,
   };
@@ -462,5 +430,59 @@ TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgm
   CHECK(content.find(testMsg) != std::string::npos);
 
   // Cleanup
+  removeDir(testDir);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Test 9 — default run (no flags) still creates the log file
+// ══════════════════════════════════════════════════════════════════════════════
+
+TEST_CASE("setup with default config still creates a log file", "[logging][file_mgmt]") {
+  auto const testDir = makeTestDir("test9_default_run");
+
+  auto const config = logging::LogConfig{
+    .colorsEnabled = false,
+    .customLogDir = testDir,
+  };
+
+  auto const result = logging::setup(config);
+  REQUIRE(result.has_value());
+
+  auto const logFilePath = result.value();
+  CAPTURE(logFilePath.string());
+
+  CHECK(isTimestampedName(logFilePath));
+  CHECK(fs::exists(logFilePath));
+
+  logging::shutdown();
+  removeDir(testDir);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Test 10 — --log-json produces both .log and .ndjson companions
+// ══════════════════════════════════════════════════════════════════════════════
+
+TEST_CASE("json-only setup writes both .log and .ndjson files", "[logging][file_mgmt]") {
+  auto const testDir = makeTestDir("test10_json_companion");
+
+  auto const config = logging::LogConfig{
+    .jsonEnabled = true,
+    .colorsEnabled = false,
+    .customLogDir = testDir,
+  };
+
+  auto const result = logging::setup(config);
+  REQUIRE(result.has_value());
+
+  auto const logFilePath = result.value();
+  CAPTURE(logFilePath.string());
+
+  auto ndjsonPath = logFilePath;
+  ndjsonPath.replace_extension(".ndjson");
+
+  CHECK(fs::exists(logFilePath));
+  CHECK(fs::exists(ndjsonPath));
+
+  logging::shutdown();
   removeDir(testDir);
 }

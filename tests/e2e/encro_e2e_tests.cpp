@@ -227,6 +227,7 @@ TEST_CASE("encro help command exits successfully", "[e2e][cli]") {
     != std::string::npos
   );
   CHECK(result.stdoutText.find("General options") != std::string::npos);
+  CHECK(result.stdoutText.find("Log file:") == std::string::npos);
 }
 
 TEST_CASE("encro invalid CLI args print short help hint", "[e2e][cli]") {
@@ -235,7 +236,8 @@ TEST_CASE("encro invalid CLI args print short help hint", "[e2e][cli]") {
   CHECK(result.exitCode == 1);
   CHECK(result.stdoutText.find("Invalid arguments") != std::string::npos);
   CHECK(
-    result.stdoutText.find("Run encro -h/--help to view usage.") != std::string::npos
+    result.stdoutText.find("Run encro -h for help (or -hh for all options).")
+    != std::string::npos
   );
   CHECK(result.stdoutText.find("General options") == std::string::npos);
 }
@@ -246,7 +248,8 @@ TEST_CASE("encro missing input prints short help hint", "[e2e][cli]") {
   CHECK(result.exitCode == 1);
   CHECK(result.stdoutText.find("Input path is required") != std::string::npos);
   CHECK(
-    result.stdoutText.find("Run encro -h/--help to view usage.") != std::string::npos
+    result.stdoutText.find("Run encro -h for help (or -hh for all options).")
+    != std::string::npos
   );
   CHECK(result.stdoutText.find("General options") == std::string::npos);
 }

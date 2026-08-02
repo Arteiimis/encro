@@ -5,8 +5,6 @@
 #include "logging/logging.h"
 #include "logging/setup.h"
 
-#include <spdlog/spdlog.h>
-
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -16,28 +14,16 @@ using enum terminal::MessageKind;
 namespace {
 
 auto setupLogging(CmdParseResult const& cmd) -> std::optional<fs::path> {
-  if (!cmd.verbose && !cmd.jsonEnabled) {
-    spdlog::set_level(spdlog::level::off);
-    if (cmd.verboseEcho) {
-      terminal::println(
-        Warning,
-        "Warning: --verbose-echo requires --verbose; option ignored."
-      );
-    }
-    return std::nullopt;
-  }
-
   auto const logConfig = logging::LogConfig{
-    .verboseEnabled = cmd.verbose,
-    .verboseEchoEnabled = cmd.verboseEcho,
+    .echoEnabled = cmd.verbose,
     .jsonEnabled = cmd.jsonEnabled,
     .colorsEnabled = terminal::colorsEnabled(),
   };
 
   auto const logFilePath = logging::setup(logConfig);
 
-  if (logFilePath.has_value() && !cmd.verboseEcho) {
-    terminal::println(Hint, "Verbose log file: {}", terminal::path(logFilePath.value()));
+  if (logFilePath.has_value()) {
+    terminal::println(Hint, "Log file: {}", terminal::path(logFilePath.value()));
   }
 
   return logFilePath;
@@ -59,19 +45,9 @@ auto initStartup(int argc, char* argv[], std::string const& introLine) -> Startu
     cmd.error = terminalError;
   }
 
-  auto verboseLogFilePath = setupLogging(cmd);
-  return StartupContext{std::move(cmd), std::move(verboseLogFilePath)};
-}
+  if (!cmd.help && !cmd.version) { setupLogging(cmd); }
 
-void printVerboseLogDirHint(
-  std::optional<std::filesystem::path> const& verboseLogFilePath
-) {
-  if (!verboseLogFilePath.has_value()) { return; }
-  terminal::println(
-    Hint,
-    "Verbose log directory: {}",
-    terminal::path(verboseLogFilePath->parent_path())
-  );
+  return StartupContext{std::move(cmd)};
 }
 
 void logConfigSummary(appctx::AppConfig const& config) {
