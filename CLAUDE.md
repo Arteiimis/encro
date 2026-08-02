@@ -116,6 +116,10 @@ Constraints:
 - Every new feature must have at least one corresponding test case.
 - Commits should typically include both test files and implementation files in the same commit.
 
+## Development Workflow (Post-Change Review)
+
+For relatively large changes (large code volume spanning multiple functional areas), after completing the modifications and self-verification, proactively launch sub-agents to review the change — one sub-agent per functional area, no more than 5 sub-agents total. Each sub-agent reviews its area independently (correctness, spec conformance, edge cases) and reports findings with severity and file:line references. Review findings should be triaged and fixed, then the full verification suite re-run.
+
 ## Key Dependencies
 
 - **CLI11** — CLI argument parsing (migrated from Boost.ProgramOptions in v1.6)
@@ -137,5 +141,6 @@ Constraints:
 
 - **Commit message language:** ALL git commit messages, tag messages, and PR descriptions MUST be written in English. No Chinese characters in any git metadata.
 - **Commit format:** Use conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`). Keep subject lines under 72 characters.
+- **Batch commits for large working trees:** When the working tree has many uncommitted files, commit in batches grouped by feature/functional area (e.g., one commit per module or concern) so each change is traceable to its purpose.
 - **Pre-commit hook:** clang-format on staged C/C++ files (`.githooks/pre-commit`). Setup: `git config core.hooksPath .githooks`.
 - **clang-format config** at `D:/clangformat/.clang-format` (external path, not in repo). Both pre-commit hook and `xmake format` reference it.
