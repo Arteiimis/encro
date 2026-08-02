@@ -5,45 +5,36 @@
 - **Build system:** xmake (not CMake). Toolchain: `clang-cl` + `lld-link` on Windows. C++26.
 - **Build:** `xmake build encro`
 - **Tests (unit/integration):** `xmake build tests && xmake run tests`
-- **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests`
-  - E2E tests depend on `encro` + `encro_e2e_tool` (fake ffmpeg/ffprobe) binaries. Build `encro` first.
+- **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)
 - **Single test:** `xmake run tests "[tag-name]"` (Catch2 tag filter)
-- **Coverage:** `xmake f -m coverage && xmake build tests && LLVM_PROFILE_FILE=build/coverage/tests-%p.profraw xmake run tests`
-  - Or use the plugin: `xmake coverage` (see below)
-- **Format:** `xmake format` (apply), `xmake format -k check` (CI/check-only)
-- **ASan:** `releasedbg` mode enables Address Sanitizer (`xmake f -m releasedbg`)
-- **Dependency source paths:** read `build/compile_commands.json` (xmake's compile database) to find absolute include paths of installed packages (e.g., `F:\xmake\.xmake\packages\i\indicators\2.3\<hash>\include`). Dependency headers live there, NOT in the repo — never search `~/.xmake` or the user profile for them.
-
-### xmake Custom Plugins
-
-- `xmake format` — clang-format on all `src/` and `tests/` C/C++ files (config at `D:/clangformat/.clang-format`, NOT in repo)
-- `xmake coverage` — configure→build→run→merge .profraw→report. Requires `llvm-profdata` + `llvm-cov` on PATH. Resets config to release mode after.
+- **Format:** `xmake format` (apply) / `xmake format -k check` (CI). Config at `D:/clangformat/.clang-format`, NOT in repo.
+- **Coverage:** `xmake coverage` plugin (configure→build→run→merge→report; needs `llvm-profdata` + `llvm-cov` on PATH; resets to release mode after)
+- **ASan:** `xmake f -m releasedbg`
+- **Dependency headers:** read `build/compile_commands.json` for absolute include paths (e.g., `F:\xmake\.xmake\packages\i\indicators\2.3\<hash>\include`). They live there, NOT in the repo — never search `~/.xmake`.
 
 ### Build Modes
 
-| Mode         | Flags                                         |
-| ------------ | --------------------------------------------- |
-| `debug`      | ASan disabled; all log levels kept            |
-| `release`    | LTO enabled; TRACE/DEBUG logs stripped        |
-| `releasedbg` | Optimized + debug info + ASan                 |
-| `coverage`   | `-fprofile-instr-generate -fcoverage-mapping` |
+| Mode         | Flags                                                  |
+| ------------ | ------------------------------------------------------ |
+| `debug`      | ASan off; all log levels kept                          |
+| `release`    | LTO; TRACE/DEBUG stripped (`SPDLOG_ACTIVE_LEVEL`)      |
+| `releasedbg` | Optimized + debug info + ASan                          |
+| `coverage`   | `-fprofile-instr-generate -fcoverage-mapping`          |
 
-`SPDLOG_ACTIVE_LEVEL`: debug/coverage keep TRACE, release/releasedbg strip TRACE+DEBUG at compile time.
+## Code Conventions (clang-format enforces layout)
 
-## Code Conventions (strict — clang-format enforces layout)
-
-- **East const:** `std::string const&`, `fs::path const&`
-- **Trailing return:** `auto fn(params) -> ReturnType` on ALL functions, including `main`
-- **Files:** `snake_case` (e.g., `video_info.h`, `job_state_tests.cpp`)
-- **Types:** `PascalCase` (e.g., `ConfigSnapshot`, `PackService`)
-- **Functions/methods:** `camelCase` (e.g., `mergeTasks()`, `markRunning()`)
-- **Members:** `camelCase` + trailing `_` (e.g., `stateFilePath_`, `mtx_`)
-- **Constants:** `k` + `PascalCase` (e.g., `kEncodeVideoKind`, `kFlushIntervalMs`)
-- **Namespaces:** lowercase, no separators (e.g., `jobstate`, `appentry`, `videobatch`), no indent inside
-- **Header guards:** `#pragma once` ONLY — never `#ifndef` guards
-- **Include order:** own header first, then project headers grouped by module, then third-party, then stdlib. Paths relative to `src/` with forward slashes.
-- **Comments:** Minimal. No Doxygen/JSDoc. Code is self-documenting.
-- **Template params:** `Ty` (single), `Tys` (parameter pack)
+| Item           | Rule                                                                 |
+| -------------- | -------------------------------------------------------------------- |
+| East const     | `std::string const&`                                                 |
+| Trailing return| `auto fn(...) -> ReturnType` on all functions, incl. `main`          |
+| Naming         | Files `snake_case` · Types `PascalCase` · Functions `camelCase`      |
+| Members        | `camelCase` + trailing `_` (e.g., `stateFilePath_`)                  |
+| Constants      | `k` + `PascalCase` (e.g., `kEncodeVideoKind`)                        |
+| Namespaces     | lowercase, no separators, no indent inside                           |
+| Header guards  | `#pragma once` only                                                  |
+| Include order  | own header → project headers by module → third-party → stdlib; relative to `src/` |
+| Comments       | Minimal, no Doxygen; code is self-documenting                        |
+| Template params| `Ty` (single), `Tys` (pack)                                          |
 
 ## Architecture
 
@@ -52,95 +43,47 @@ main → prelude::initStartup → appentry::run → pipeline::run
          ├─ runVideo() → video_process → video_batch_execution → video_encode_runner
          ├─ runPicture() → picture_process → picture_compress
          └─ runPackOnly() → pack::execute()
-
-src/
-  app/      CLI entry, startup init, pipeline orchestration
-  cmd/      CLI11 command-line parsing, config builder
-  core/     AppContext, JobState, TaskExecutor, Progress, media_scanner, error_handle, collision_naming, display_text, parallel, path_roots
-  infra/    Crash handler, terminal, console_width, env, stacktrace, stop_signal, toolchain discovery
-  logging/  spdlog setup (async, rotating file), JSON formatter, log tags
-  pack/     ZIP creation (PackRequest → PackPlan → Packer → libzippp)
-  picture/  Image compression + packaging (ffmpeg WebP)
-  video/    Video encode orchestration, progress parsing, output planning
-  utils/    Subprocess execution (exec2), FFmpeg discovery, UUID generation
 ```
 
-- **`appctx::AppContext`** is the single mutable context struct — passed by mutable reference through the entire call chain.
-- **`eh::Result<T>`** = `std::expected<T, std::string>`. All operational failures return this. Exceptions only for catastrophic errors (caught in `main.cpp`).
-- **`jobstate::Store`** persists task records as JSON for resume after interruption.
+- `src/app` CLI entry, startup, pipeline orchestration · `src/cmd` CLI11 parsing, config builder
+- `src/core` AppContext, JobState, TaskExecutor, Progress, media_scanner, error_handle, collision_naming, display_text, parallel, path_roots
+- `src/infra` crash handler, terminal, console_width, env, stacktrace, stop_signal, toolchain discovery
+- `src/logging` spdlog setup (async, rotating), JSON formatter, log tags
+- `src/pack` ZIP (PackRequest → PackPlan → Packer → libzippp) · `src/picture` ffmpeg WebP
+- `src/video` encode orchestration, progress parsing, output planning · `src/utils` exec2, FFmpeg discovery, UUID
+
+- **`appctx::AppContext`** — single mutable context, passed by mutable reference through the whole chain.
+- **`eh::Result<T>`** = `std::expected<T, std::string>`; all operational failures return it. Exceptions only for catastrophic errors (caught in `main.cpp`).
+- **`jobstate::Store`** — persists task records as JSON for resume after interruption.
 
 ## Error Handling
 
 ```cpp
-// Create an error:
 return eh::makeError("Failed to open state file: {}", path.string());
-
-// Check results:
-if (!result) { return eh::makeError("context: {}", result.error()); }
-REQUIRE(result);  // in tests
+if (!result) { return eh::makeError("context: {}", result.error()); }  // REQUIRE(result) in tests
 ```
 
 ## Testing
 
-- **Framework:** Catch2 v3 (`catch2/catch_all.hpp`). Custom runner in `tests/test_main.cpp`.
-- **Fixtures:** `TempDir` (RAII temp dir in `test_utils.h`), `ScopedStopSignalReset`, `ScopedEnvVar`.
-- **Helpers:** `writeFile()`, `touchFile()`, `listRegularFiles()`, `listZipRegularEntryNames()` in `test_utils.h`.
-- **E2E fake toolchain:** `fake_media_tool.cpp` impersonates ffmpeg/ffprobe. Controlled via env vars (`ENCRO_FAKE_FFMPEG_EXIT_CODE`, etc.).
-- **Real-ffmpeg tests** tagged `[real-ffmpeg]` or `[smoke]` — auto-skip via `SKIP()` if ffmpeg not on PATH.
-- **Compile-only tests:** `pack_api_standalone_compile_test.cpp`, `packer_standalone_compile_test.cpp` — `static_assert` to verify API boundaries. Compilation IS the test.
-- **Tag conventions:** `[job-state]`, `[cmd]`, `[pack-service]`, `[packer]`, `[video-info]`, `[e2e]`, etc.
+- Catch2 v3 (`catch2/catch_all.hpp`), custom runner `tests/test_main.cpp`.
+- Fixtures/helpers in `tests/test_utils.h`: `TempDir`, `ScopedStopSignalReset`, `ScopedEnvVar`, `writeFile()`, `touchFile()`, `listRegularFiles()`, `listZipRegularEntryNames()`.
+- E2E: `fake_media_tool.cpp` impersonates ffmpeg/ffprobe, controlled via env vars (`ENCRO_FAKE_FFMPEG_EXIT_CODE`, ...).
+- `[real-ffmpeg]`/`[smoke]` tests auto-skip via `SKIP()` when ffmpeg not on PATH.
+- Compile-only tests (`pack_api_standalone_compile_test.cpp`, `packer_standalone_compile_test.cpp`): `static_assert` verifies API boundaries.
+- Tags: `[job-state]`, `[cmd]`, `[pack-service]`, `[packer]`, `[video-info]`, `[e2e]`, ...
 
-## Development Workflow (OpenSpec)
+## Development Workflows
 
-Feature development follows the OpenSpec change workflow (proposal → specs → tasks → implementation), driven by skills in `.opencode/skills/openspec-*`:
-
-1. **Propose** — `openspec-propose` generates `openspec/changes/<date>-<slug>/` (proposal.md, design.md, specs/, tasks.md)
-2. **Apply** — `openspec-apply-change` implements tasks; **Update** — `openspec-update-change` revises artifacts
-3. **Sync** — `openspec-sync-specs` merges delta specs into `openspec/specs/` (no archive)
-4. **Archive** — `openspec-archive-change` moves the change to `openspec/changes/archive/`
-
-Each new feature must have at least one test case (see TDD below).
-
-## Development Workflow (TDD)
-
-All new feature development must follow TDD (Test-Driven Development):
-
-1. **Write the test first, ensure it fails (RED)** — Before writing any implementation code, write one or more test cases and verify they fail (either compilation failure or runtime failure).
-2. **Write minimal code to pass the test (GREEN)** — Write only the minimum implementation needed to make the tests pass. Do not add any logic not covered by tests.
-3. **Refactor (REFACTOR)** — After all tests pass, refactor under the protection of tests: eliminate duplication, improve design.
-4. **Verify** — Ensure all tests still pass after refactoring.
-
-Constraints:
-
-- Never write implementation code first and then add tests afterwards.
-- Every new feature must have at least one corresponding test case.
-- Commits should typically include both test files and implementation files in the same commit.
-
-## Development Workflow (Post-Change Review)
-
-For relatively large changes (large code volume spanning multiple functional areas), after completing the modifications and self-verification, proactively launch sub-agents to review the change — one sub-agent per functional area, no more than 5 sub-agents total. Each sub-agent reviews its area independently (correctness, spec conformance, edge cases) and reports findings with severity and file:line references. Review findings should be triaged and fixed, then the full verification suite re-run.
+- **OpenSpec:** features follow proposal → specs → tasks → implementation via `.opencode/skills/openspec-*` (propose → apply/update → sync → archive; artifacts in `openspec/changes/`). Every feature needs ≥1 test.
+- **TDD:** 1) write failing test first (RED) 2) minimal code to pass (GREEN) 3) refactor under test protection 4) verify all pass. Never write implementation before tests; test + implementation go in the same commit.
+- **Post-Change Review:** for large multi-area changes, after self-verification launch ≤5 sub-agents (one per functional area) to review correctness/spec conformance/edge cases, reporting severity + file:line findings; triage and fix, then re-run full verification.
 
 ## Key Dependencies
 
-- **CLI11** — CLI argument parsing (migrated from Boost.ProgramOptions in v1.6)
-- **Boost** — json, parser, lambda2, lexical_cast, process, stacktrace, uuid
-- **spdlog** — logging (async thread pool, verbose logs to `%LOCALAPPDATA%/encro/logs/`, rotating files, keep 10)
-- **fmt** — string formatting
-- **libzippp** — ZIP archive I/O
-- **immer** — persistent/immutable data structures for thread-safe shared state
-- **indicators** — terminal progress bars
-- **thread-pool** — parallel task execution
+- **CLI11** CLI parsing · **Boost** json/parser/lambda2/lexical_cast/process/stacktrace/uuid · **spdlog** async logging to `%LOCALAPPDATA%/encro/logs/` (rotating, keep 10) · **fmt** formatting · **libzippp** ZIP I/O · **immer** immutable structures · **indicators** progress bars · **thread-pool** parallel execution
 
-## Platform
+## Platform & Git
 
-- **Primary:** Windows with clang-cl. Defines: `NOMINMAX`, `WIN32_LEAN_AND_MEAN`, `_MSVC_STL_HARDENING=1`.
-- **Cross-platform support exists** via POSIX code paths in `src/utils/utils.cpp`.
-- **External tool dependency:** ffmpeg + ffprobe (user-installed, not bundled). Discovered via PATH or `--ffmpeg-path`.
-
-## Git
-
-- **Commit message language:** ALL git commit messages, tag messages, and PR descriptions MUST be written in English. No Chinese characters in any git metadata.
-- **Commit format:** Use conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`). Keep subject lines under 72 characters.
-- **Batch commits for large working trees:** When the working tree has many uncommitted files, commit in batches grouped by feature/functional area (e.g., one commit per module or concern) so each change is traceable to its purpose.
-- **Pre-commit hook:** clang-format on staged C/C++ files (`.githooks/pre-commit`). Setup: `git config core.hooksPath .githooks`.
-- **clang-format config** at `D:/clangformat/.clang-format` (external path, not in repo). Both pre-commit hook and `xmake format` reference it.
+- **Platform:** primary Windows clang-cl (`NOMINMAX`, `WIN32_LEAN_AND_MEAN`, `_MSVC_STL_HARDENING=1`); POSIX paths in `src/utils/utils.cpp`. External ffmpeg/ffprobe discovered via PATH or `--ffmpeg-path`.
+- **Commits:** English only (no CJK in git metadata); conventional commits (`feat:`/`fix:`/`docs:`/`test:`/`refactor:`/`chore:`), subject <72 chars; batch large working trees by functional area.
+- **Pre-commit hook:** clang-format on staged C/C++ files (`.githooks/pre-commit`; setup `git config core.hooksPath .githooks`).
