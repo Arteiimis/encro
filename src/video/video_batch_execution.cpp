@@ -69,13 +69,8 @@ auto finalizeEncodeResult(
   );
 }
 
-auto truncateForProgressLabel(std::string const& text, std::size_t maxLen = 48)
-  -> std::string {
-  return displaytext::truncateWithEllipsis(text, maxLen);
-}
-
 auto makeSlotLabel(fs::path const& vidPath) -> std::string {
-  return truncateForProgressLabel(displaytext::pathToUtf8String(vidPath.filename()));
+  return displaytext::pathToUtf8String(vidPath.filename());
 }
 
 auto reportEncodingStatus(

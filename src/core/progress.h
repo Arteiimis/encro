@@ -73,6 +73,19 @@ private:
 
 auto makeBar(std::string_view promptText, Tone tone = Tone::Default) -> BarPtr;
 
+auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string;
+
+auto fitPostfixWithEta(
+  std::optional<std::string> const& etaText,
+  std::string_view postfix,
+  std::size_t budget
+) -> std::string;
+
+auto scrollWindow(std::string_view text, std::size_t budget, std::size_t startCol)
+  -> std::string;
+
+auto bounceOffset(std::uint64_t elapsedMs, std::size_t travel) -> std::size_t;
+
 auto addBar(
   Manager& manager,
   BarCollection& bars,
