@@ -217,9 +217,8 @@ void EtaEstimator::sample(std::chrono::steady_clock::time_point now, float progr
       ratePerSec_ *= kStallDecayPerSample;
     }
     lastSampleAt_ = now;
+    lastProgress_ = progress;
   }
-
-  lastProgress_ = progress;
 }
 
 auto EtaEstimator::etaSeconds(float progress) const -> std::optional<float> {
