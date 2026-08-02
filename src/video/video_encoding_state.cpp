@@ -89,6 +89,11 @@ void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& execu
     for (auto const& activeState: activeStates) {
       if (!activeState) { continue; }
 
+      {
+        auto lock = std::scoped_lock{activeState->mtx};
+        if (activeState->finished) { continue; }
+      }
+
       auto const progress = getEncodingProgress(executionCtx.app, *activeState);
       if (!progress.has_value()) {
         auto barIndex = std::optional<std::size_t>{};
