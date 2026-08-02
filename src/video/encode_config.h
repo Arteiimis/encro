@@ -17,7 +17,7 @@ struct EncodeConfig {
   std::optional<fs::path> outputFilePath;
   std::optional<std::string> outputFormat = "mp4";
   std::optional<std::string> videoCodec = "hevc_nvenc";
-  std::optional<int> crf = 26;
+  std::optional<int> crf = 28;
   std::optional<std::string> nvencPreset = "p5";
   std::optional<int> maxrateKbps;
   std::optional<int> webpQuality = 80;
