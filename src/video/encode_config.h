@@ -15,12 +15,12 @@ struct EncodeConfig {
   std::optional<fs::path> inputPath;
   std::optional<fs::path> outputPath;
   std::optional<fs::path> outputFilePath;
-  std::optional<std::string> outputFormat = "mp4";
-  std::optional<std::string> videoCodec = "hevc_nvenc";
-  std::optional<int> crf = 28;
-  std::optional<std::string> nvencPreset = "p5";
+  std::optional<std::string> outputFormat;
+  std::optional<std::string> videoCodec;
+  std::optional<int> crf;
+  std::optional<std::string> nvencPreset;
   std::optional<int> maxrateKbps;
-  std::optional<int> webpQuality = 80;
+  std::optional<int> webpQuality;
   std::optional<fs::path> progressFilePath;
   std::optional<std::uint64_t> segmentIndex;
   std::optional<std::uint64_t> segmentStartUs;
@@ -119,7 +119,7 @@ struct EncodeConfig {
         " -c:v {} -preset {} -rc vbr -cq {} -b:v 0",
         codec,
         nvencPreset.value_or("p5"),
-        crf.value_or(26)
+        crf.value_or(28)
       );
       if (maxrateKbps.has_value()) {
         cmd += std::format(
