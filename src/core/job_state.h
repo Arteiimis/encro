@@ -77,7 +77,13 @@ public:
 
   auto stateFilePath() const -> fs::path const&;
 
-  auto initialize(appctx::AppConfig const& config, bool restart) -> eh::Result<bool>;
+  // Sets *discardedMismatched when an existing state did not match the config and
+  // was silently replaced by a fresh snapshot (no explicit --resume).
+  auto initialize(
+    appctx::AppConfig const& config,
+    bool restart,
+    bool* discardedMismatched = nullptr
+  ) -> eh::Result<bool>;
 
   auto mergeTasks(std::span<TaskRecord const> plannedTasks) -> std::vector<TaskRecord>;
 
