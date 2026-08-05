@@ -23,6 +23,13 @@ auto makeConfig(fs::path const& inputPath, fs::path const& statePath)
 
 }  // namespace
 
+TEST_CASE("compress phase marker task has stable id and kind", "[job-state]") {
+  auto const task = jobstate::makeCompressPhaseTask();
+  CHECK(task.id == jobstate::kCompressPhaseTaskId);
+  CHECK(task.kind == jobstate::kCompressPhaseKind);
+  CHECK(task.status == jobstate::TaskStatus::Pending);
+}
+
 TEST_CASE("job state keeps succeeded encode action when output exists", "[job-state]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";

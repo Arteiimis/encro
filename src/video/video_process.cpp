@@ -28,6 +28,7 @@ using boost::lambda2::second;
 using enum terminal::MessageKind;
 using pathroots::commonAncestorPath;
 using pathroots::normalizeInputRootDir;
+using stopsignal::canceledExitCodeForPromptAbort;
 using videoworkflow::lookupPlannedOutputFile;
 using videoworkflow::maybeJobState;
 using videoworkflow::withJobState;
@@ -276,10 +277,6 @@ auto maybePackWorkflowOutputs(
   }
 
   return maybePackOutputs(ctx, packInputPath.value(), plannedOutputFiles, vidsRunRes);
-}
-
-auto canceledExitCodeForPromptAbort() -> int {
-  return stopsignal::isStopRequested() ? stopsignal::kCanceledExitCode : 0;
 }
 
 auto runScannedEncodingWorkflow(

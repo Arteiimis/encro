@@ -157,6 +157,36 @@ exit /b 0
 auto writeFakeFfmpegFailingScript(fs::path const& scriptPath) -> void {
   testutils::writeTextFile(scriptPath, "@echo off\nexit /b 1\n");
 }
+
+auto writeFakeFfmpegFirstCallOkScript(
+  fs::path const& scriptPath,
+  fs::path const& counterPath
+) -> void {
+  auto const script = std::format(
+    R"(@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+set "outputPath="
+set "counterPath={}"
+:parse
+if "%~1"=="" goto done
+set "outputPath=%~1"
+shift
+goto parse
+:done
+if "%outputPath%"=="" exit /b 2
+set /a count=0
+if exist "%counterPath%" set /p count=<"%counterPath%"
+set /a count+=1
+>"%counterPath%" echo(!count!
+if !count! GEQ 2 exit /b 1
+for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
+>%outputPath% echo fake-compressed-jpeg
+exit /b 0
+)",
+    counterPath.string()
+  );
+  testutils::writeTextFile(scriptPath, script);
+}
 #endif
 
 }  // namespace
@@ -630,6 +660,39 @@ TEST_CASE(
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
   REQUIRE(!runRes);
   CHECK(runRes.error() == "All picture compressions failed.");
+}
+
+TEST_CASE(
+  "runPicturePackWorkflow compress skips failed pictures at pack time",
+  "[picture-process][compress]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const counterPath = temp.path / "compress-count.txt";
+  auto const scriptPath = temp.path / "fake_ffmpeg_first_ok.cmd";
+  fs::create_directories(inputDir);
+  createSparseSizedFile(inputDir, "good.png", 32);
+  createSparseSizedFile(inputDir, "bad.png", 32);
+  writeFakeFfmpegFirstCallOkScript(scriptPath, counterPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.verbose = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.maxParallelJobs = 1;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+
+  auto const entryNames =
+    testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~1#1p].zip");
+  REQUIRE(entryNames.size() == 1);
+  CHECK(entryNames[0].ends_with(".jpg"));
 }
 
 TEST_CASE(

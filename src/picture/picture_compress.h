@@ -30,7 +30,6 @@ struct CompressResult {
   fs::path compressedPath;
   std::string entryName;
   std::string originalEntryName;
-  bool usedCompressed = true;
 };
 
 auto compressImage(

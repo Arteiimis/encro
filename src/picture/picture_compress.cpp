@@ -33,32 +33,18 @@ struct BatchState {
   progress::ProgressContext& progressCtx;
 };
 
-auto shouldUseCompressedOutput(fs::path const& inputPath, fs::path const& outputPath)
-  -> bool {
-  auto ec = std::error_code{};
-  auto const inputSize = fs::file_size(inputPath, ec);
-  if (ec) {
-    LOG_WARN(
-      "Unable to read source image size, keeping compressed output: input={} error={}",
-      inputPath.string(),
-      ec.message()
-    );
-    return true;
-  }
-
-  ec.clear();
-  auto const outputSize = fs::file_size(outputPath, ec);
-  if (ec) {
-    LOG_WARN(
-      "Unable to read compressed image size, keeping compressed output: output={} "
-      "error={}",
-      outputPath.string(),
-      ec.message()
-    );
-    return true;
-  }
-
-  return outputSize <= inputSize;
+auto recordCompressSuccess(
+  CompressTask const& task,
+  std::vector<CompressResult>& results,
+  std::mutex& resultsMutex
+) -> void {
+  auto lock = std::scoped_lock{resultsMutex};
+  results.push_back({
+    .originalPath = task.inputPath,
+    .compressedPath = task.outputPath,
+    .entryName = task.entryName,
+    .originalEntryName = task.originalEntryName,
+  });
 }
 
 auto compressImageTask(
@@ -73,31 +59,9 @@ auto compressImageTask(
   }
 
   auto const success = compressImage(state.ctx, task.inputPath, task.outputPath, quality);
+  if (success) { recordCompressSuccess(task, state.results, state.resultsMutex); }
 
   auto const done = state.completed.fetch_add(1, std::memory_order_release) + 1;
-
-  if (success) {
-    auto const usedCompressed =
-      shouldUseCompressedOutput(task.inputPath, task.outputPath);
-    if (!usedCompressed) {
-      auto ec = std::error_code{};
-      fs::remove(task.outputPath, ec);
-      LOG_INFO(
-        "Skipping oversized JPEG output and keeping original file: input={} output={}",
-        task.inputPath.string(),
-        task.outputPath.string()
-      );
-    }
-
-    auto lock = std::scoped_lock{state.resultsMutex};
-    state.results.push_back({
-      .originalPath = task.inputPath,
-      .compressedPath = task.outputPath,
-      .entryName = task.entryName,
-      .originalEntryName = task.originalEntryName,
-      .usedCompressed = usedCompressed,
-    });
-  }
 
   auto const percent = static_cast<float>(done) / static_cast<float>(total) * 100.0f;
   state.progressCtx.setProgress(barIndex, percent);
@@ -128,10 +92,12 @@ auto compressImage(
   fs::path const& outputPath,
   int quality
 ) -> bool {
+  auto const partialPath = fs::path{std::format("{}.partial", outputPath.string())};
+
   auto const cfg = ImageCompressConfig{
     .ffmpegPath = ctx.toolchain.ffmpegPath,
     .inputPath = inputPath,
-    .outputPath = outputPath,
+    .outputPath = partialPath,
     .quality = quality,
   };
 
@@ -148,11 +114,24 @@ auto compressImage(
     return false;
   }
 
-  if (!fs::exists(outputPath)) {
+  if (!fs::exists(partialPath)) {
     LOG_WARN(
       "Image compression produced no output: input={} expected={}",
       inputPath.string(),
-      outputPath.string()
+      partialPath.string()
+    );
+    return false;
+  }
+
+  auto ec = std::error_code{};
+  fs::remove(outputPath, ec);
+  fs::rename(partialPath, outputPath, ec);
+  if (ec) {
+    LOG_WARN(
+      "Image compression output rename failed: input={} output={} error={}",
+      inputPath.string(),
+      outputPath.string(),
+      ec.message()
     );
     return false;
   }
@@ -220,26 +199,7 @@ void retryFailedTasks(
     auto const& task = failedTasks[i];
     auto const success = compressImage(ctx, task.inputPath, task.outputPath, quality);
     if (success) {
-      auto const usedCompressed =
-        shouldUseCompressedOutput(task.inputPath, task.outputPath);
-      if (!usedCompressed) {
-        auto ec = std::error_code{};
-        fs::remove(task.outputPath, ec);
-        LOG_INFO(
-          "Skipping oversized JPEG output and keeping original file: input={} output={}",
-          task.inputPath.string(),
-          task.outputPath.string()
-        );
-      }
-
-      auto lock = std::scoped_lock{resultsMutex};
-      results.push_back({
-        .originalPath = task.inputPath,
-        .compressedPath = task.outputPath,
-        .entryName = task.entryName,
-        .originalEntryName = task.originalEntryName,
-        .usedCompressed = usedCompressed,
-      });
+      recordCompressSuccess(task, results, resultsMutex);
       ++recovered;
     }
 
