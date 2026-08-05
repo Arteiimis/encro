@@ -271,6 +271,7 @@ auto applyEntryNameOverrides(
   if (request.entryInputs.empty() && request.entryNameForFile) {
     for (auto& group: groups) {
       for (auto& entry: group) {
+        if (entry.isSummary) { continue; }
         entry.zipEntryName = request.entryNameForFile(entry.sourcePath);
       }
     }

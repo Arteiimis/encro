@@ -34,6 +34,7 @@ auto toNamingStrategy(appctx::AppConfig const& config) -> pack::NamingStrategy {
 
 auto shouldEnableJobState(appctx::AppConfig const& config) -> bool {
   if (config.processType == "video" && !config.packOnly) { return true; }
+  if (config.processType == "picture" && config.compressImages) { return true; }
 
   return config.resumeState || config.restartState || config.stateFilePath.has_value();
 }
@@ -48,6 +49,7 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
     ctx.runtime.jobState
       ->initialize(ctx.config, ctx.config.restartState, &discardedMismatched);
   if (!initRes) { return eh::makeError("{}", initRes.error()); }
+  ctx.runtime.jobStateMatched = initRes.value();
 
   if (discardedMismatched) {
     auto const message = std::format(

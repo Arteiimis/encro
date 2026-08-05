@@ -19,6 +19,9 @@ namespace fs = std::filesystem;
 
 inline constexpr auto kEncodeVideoKind = std::string_view{"encode_video"};
 inline constexpr auto kBuildArchiveKind = std::string_view{"build_archive"};
+inline constexpr auto kCompressPhaseKind = std::string_view{"compress_phase"};
+
+inline constexpr auto kCompressPhaseTaskId = std::string_view{"compress-phase"};
 
 enum class TaskStatus {
   Pending,
@@ -156,6 +159,8 @@ auto makeArchiveTask(
   std::span<fs::path const> members,
   std::string label
 ) -> TaskRecord;
+
+auto makeCompressPhaseTask() -> TaskRecord;
 
 auto primarySourcePath(TaskRecord const& task) -> std::optional<fs::path>;
 
