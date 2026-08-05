@@ -142,7 +142,9 @@ auto probePrimaryCodecName(fs::path const& mediaPath) -> std::string {
 
   auto const& stream = streams.front().as_object();
   REQUIRE(stream.if_contains("codec_name") != nullptr);
-  return std::string{stream.at("codec_name").as_string().c_str()};
+  auto codecName = std::string{stream.at("codec_name").as_string().c_str()};
+  if (codecName == "webp_anim") { codecName = "webp"; }
+  return codecName;
 }
 
 auto probeFormatComment(fs::path const& mediaPath) -> std::string {
