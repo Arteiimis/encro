@@ -76,7 +76,7 @@ if (!result) { return eh::makeError("context: {}", result.error()); }  // REQUIR
 
 - **OpenSpec:** features follow proposal → specs → tasks → implementation via `.opencode/skills/openspec-*` (propose → apply/update → sync → archive; artifacts in `openspec/changes/`). Every feature needs ≥1 test.
 - **TDD:** 1) write failing test first (RED) 2) minimal code to pass (GREEN) 3) refactor under test protection 4) verify all pass. Never write implementation before tests; test + implementation go in the same commit.
-- **Post-Change Review:** for large multi-area changes, after self-verification launch ≤5 sub-agents (one per functional area) to review correctness/spec conformance/edge cases, reporting severity + file:line findings; triage and fix, then re-run full verification.
+- **Post-Change Review:** after self-verification, unless the change is trivial (typos, docs-only, one-liner or mechanical refactor), run the `code-review` skill (parallel Standards + Spec axis sub-agents; spec from `openspec/changes/`); for large multi-area changes additionally launch ≤1 sub-agent per touched functional area to review edge cases only (empty inputs, unusual codecs, exit codes, concurrency, stop-signal paths); report severity + file:line findings; triage and fix, then re-run full verification.
 
 ## Key Dependencies
 
