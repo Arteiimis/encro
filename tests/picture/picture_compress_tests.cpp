@@ -48,6 +48,23 @@ exit /b 1
   testutils::writeTextFile(scriptPath, script);
 }
 
+auto writeFakeFfmpegPartialThenFailScript(fs::path const& scriptPath) -> void {
+  auto const script = std::string{R"(@echo off
+set "outputPath="
+:parse
+if "%~1"=="" goto done
+set "outputPath=%~1"
+shift
+goto parse
+:done
+if "%outputPath%"=="" exit /b 2
+for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
+> "%outputPath%" echo partial-jpeg
+exit /b 1
+)"};
+  testutils::writeTextFile(scriptPath, script);
+}
+
 void configureCompressContext(
   appctx::AppContext& ctx,
   fs::path const& ffmpegScriptPath,
@@ -163,6 +180,44 @@ TEST_CASE("compressImage returns false on ffmpeg failure", "[picture-compress]")
 
   auto const result = compressImage(ctx, inputPath, outputPath, 5);
   CHECK(result == false);
+}
+
+TEST_CASE(
+  "compressImage leaves only a partial file when producer fails after writing",
+  "[picture-compress]"
+) {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const outputPath = temp.path / "photo.jpg";
+  auto const scriptPath = temp.path / "fake_ffmpeg_partial.cmd";
+  writeFakeFfmpegPartialThenFailScript(scriptPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto const result = compressImage(ctx, inputPath, outputPath, 5);
+  CHECK(result == false);
+  CHECK_FALSE(fs::exists(outputPath));
+  CHECK(fs::exists(std::format("{}.partial", outputPath.string())));
+}
+
+TEST_CASE(
+  "compressImage renames partial to final output on success",
+  "[picture-compress]"
+) {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const outputPath = temp.path / "photo.jpg";
+  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
+  writeFakeFfmpegScript(scriptPath);
+
+  auto ctx = appctx::AppContext{};
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto const result = compressImage(ctx, inputPath, outputPath, 5);
+  CHECK(result == true);
+  CHECK(fs::exists(outputPath));
+  CHECK_FALSE(fs::exists(std::format("{}.partial", outputPath.string())));
 }
 
 TEST_CASE("compressImageBatch returns empty for empty input", "[picture-compress]") {

@@ -119,6 +119,7 @@ struct RuntimeContext {
   } videoInfoCache;
 
   std::shared_ptr<::jobstate::Store> jobState;
+  bool jobStateMatched = false;
 };
 
 struct AppContext {

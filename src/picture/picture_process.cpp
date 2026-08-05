@@ -3,6 +3,7 @@
 #include "picture/picture_compress.h"
 
 #include "core/collision_naming.h"
+#include "core/job_state.h"
 #include "core/media_scanner.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
@@ -29,10 +30,15 @@ using enum terminal::MessageKind;
 namespace {
 
 using PictureEntryPlan = std::unordered_map<fs::path, std::string>;
+using stopsignal::canceledExitCodeForPromptAbort;
 
 constexpr auto kMaxPicturesPerPack = std::size_t{2000};
 constexpr auto kPictureArchiveBaseName = std::string_view{"pics"};
 constexpr auto kDefaultPictureCompressQuality = 2;
+
+auto buildCompressCacheDir(fs::path const& outputDir, int quality) -> fs::path {
+  return outputDir / std::format(".compress_tmp_q{}", quality);
+}
 
 auto buildFlatPictureEntryName(std::string_view entryName) -> std::string {
   return std::format("1000__{}", entryName);
@@ -68,11 +74,6 @@ auto toJpgEntryName(std::string const& entryName) -> std::string {
   auto const stemEnd = entryName.rfind('.');
   if (stemEnd != std::string::npos) { return entryName.substr(0, stemEnd) + ".jpg"; }
   return entryName + ".jpg";
-}
-
-auto buildCompressTaskKey(fs::path const& inputPath, std::string_view entryName)
-  -> std::string {
-  return std::format("{}\n{}", naming::stablePathString(inputPath), entryName);
 }
 
 auto planPictureZipEntryNames(
@@ -163,6 +164,13 @@ auto addCompressTask(
 ) -> void {
   auto const jpgEntryName = toJpgEntryName(entryName);
   auto const outputPath = tempDir / jpgEntryName;
+
+  auto outEc = std::error_code{};
+  auto const outputTime = fs::last_write_time(outputPath, outEc);
+  auto srcEc = std::error_code{};
+  auto const sourceTime = fs::last_write_time(picPath, srcEc);
+  if (!outEc && !srcEc && outputTime >= sourceTime) { return; }
+
   fs::create_directories(outputPath.parent_path(), ec);
 
   compressTasks.push_back(
@@ -182,21 +190,7 @@ auto confirmPicturePack(appctx::AppConfig const& config) -> bool {
   );
 }
 
-auto canceledExitCodeForPromptAbort() -> int {
-  return stopsignal::isStopRequested() ? stopsignal::kCanceledExitCode : 0;
-}
-
 // --- Extracted helper functions ---
-
-auto buildCompressedResultLookup(std::vector<CompressResult> const& compressResults)
-  -> std::unordered_map<std::string, CompressResult> {
-  auto lookup = std::unordered_map<std::string, CompressResult>{};
-  lookup.reserve(compressResults.size());
-  for (auto const& result: compressResults) {
-    lookup.emplace(buildCompressTaskKey(result.originalPath, result.entryName), result);
-  }
-  return lookup;
-}
 
 auto buildPicturePackRequest(
   std::vector<pack::PackEntryInput>&& packInputs,
@@ -378,10 +372,26 @@ auto executeCompressPackWorkflow(
     return canceledExitCodeForPromptAbort();
   }
 
-  auto const tempDir = outputDir / ".compress_tmp";
+  auto const tempDir = buildCompressCacheDir(outputDir, quality);
   auto ec = std::error_code{};
-  fs::remove_all(tempDir, ec);
-  fs::create_directories(tempDir);
+  fs::create_directories(outputDir, ec);
+
+  auto const keepCache = ctx.runtime.jobStateMatched && fs::exists(tempDir, ec) && !ec;
+  if (fs::is_directory(outputDir, ec) && !ec) {
+    for (auto const& de: fs::directory_iterator(outputDir)) {
+      auto deEc = std::error_code{};
+      if (!de.is_directory(deEc) || deEc) { continue; }
+      if (
+        de.path().filename().string().starts_with(".compress_tmp") && de.path() != tempDir
+      ) {
+        fs::remove_all(de.path(), deEc);
+      }
+    }
+  }
+  if (!keepCache) {
+    fs::remove_all(tempDir, ec);
+    fs::create_directories(tempDir);
+  }
 
   auto summaryPics = std::vector<fs::path>{};
   if (ctx.config.pictureFolderSummary) {
@@ -407,54 +417,73 @@ auto executeCompressPackWorkflow(
     addCompressTask(tempDir, ec, compressTasks, picPath, entryName);
   }
 
-  terminal::println(
-    Info,
-    "Compressing {} picture(s) to JPEG (quality={})...",
-    terminal::count(compressTasks.size()),
-    terminal::count(quality)
-  );
-
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
-  auto const compressResults = [&]() {
-    logging::ScopedTimer timer("picture.compress");
-    auto const compressLabel =
-      std::format("{} picture(s) q={}", compressTasks.size(), quality);
-    logging::ScopedErrorContext scopedCtx("picture.compress", compressLabel);
-    return compressImageBatch(ctx, compressTasks, quality, maxParallel);
-  }();
+  if (!compressTasks.empty()) {
+    terminal::println(
+      Info,
+      "Compressing {} picture(s) to JPEG (quality={})...",
+      terminal::count(compressTasks.size()),
+      terminal::count(quality)
+    );
 
-  if (stopsignal::isStopRequested()) {
-    fs::remove_all(tempDir, ec);
-    terminal::println(Warning, "Compression task canceled by user.");
-    return stopsignal::kCanceledExitCode;
-  }
-
-  if (compressResults.empty()) {
-    fs::remove_all(tempDir, ec);
-    return eh::makeError("All picture compressions failed.");
-  }
-
-  terminal::println(
-    Info,
-    "{} picture(s) prepared for packing, preparing pack plan...",
-    terminal::count(compressResults.size())
-  );
-
-  auto const compressedByTaskKey = buildCompressedResultLookup(compressResults);
-
-  auto const resolveSource =
-    [&compressedByTaskKey](fs::path const& picPath, std::string const& entryName)
-    -> std::optional<std::pair<fs::path, std::string>> {
-    auto const taskKey = buildCompressTaskKey(picPath, toJpgEntryName(entryName));
-    auto const it = compressedByTaskKey.find(taskKey);
-    if (it == compressedByTaskKey.end()) { return std::nullopt; }
-
-    auto const& result = it->second;
-    if (result.usedCompressed) {
-      return std::pair{result.compressedPath, result.entryName};
+    if (auto* store = ctx.runtime.jobState.get(); store != nullptr) {
+      auto const phaseTask = std::vector{jobstate::makeCompressPhaseTask()};
+      store->mergeTasks(phaseTask);
+      store->markRunning(jobstate::kCompressPhaseTaskId);
     }
 
-    return std::pair{picPath, result.originalEntryName};
+    auto const compressResults = [&]() {
+      logging::ScopedTimer timer("picture.compress");
+      auto const compressLabel =
+        std::format("{} picture(s) q={}", compressTasks.size(), quality);
+      logging::ScopedErrorContext scopedCtx("picture.compress", compressLabel);
+      return compressImageBatch(ctx, compressTasks, quality, maxParallel);
+    }();
+
+    if (stopsignal::isStopRequested()) {
+      if (auto* store = ctx.runtime.jobState.get(); store != nullptr) {
+        store->markInterrupted(jobstate::kCompressPhaseTaskId, "canceled by user");
+      }
+      terminal::println(Warning, "Compression task canceled by user.");
+      return stopsignal::kCanceledExitCode;
+    }
+
+    if (compressResults.empty()) {
+      if (auto* store = ctx.runtime.jobState.get(); store != nullptr) {
+        store
+          ->markFailed(jobstate::kCompressPhaseTaskId, "all picture compressions failed");
+      }
+      fs::remove_all(tempDir, ec);
+      return eh::makeError("All picture compressions failed.");
+    }
+
+    if (auto* store = ctx.runtime.jobState.get(); store != nullptr) {
+      store->markSucceeded(jobstate::kCompressPhaseTaskId);
+    }
+
+    terminal::println(
+      Info,
+      "{} picture(s) prepared for packing, preparing pack plan...",
+      terminal::count(compressResults.size())
+    );
+  }
+
+  auto const resolveSource =
+    [tempDir](fs::path const& picPath, std::string const& entryName)
+    -> std::optional<std::pair<fs::path, std::string>> {
+    auto const jpgEntryName = toJpgEntryName(entryName);
+    auto const outputPath = tempDir / jpgEntryName;
+
+    auto outEc = std::error_code{};
+    auto const outputSize = fs::file_size(outputPath, outEc);
+    if (outEc) { return std::nullopt; }
+
+    auto srcEc = std::error_code{};
+    auto const sourceSize = fs::file_size(picPath, srcEc);
+    if (srcEc) { return std::nullopt; }
+
+    if (outputSize <= sourceSize) { return std::pair{outputPath, jpgEntryName}; }
+    return std::pair{picPath, entryName};
   };
 
   auto packInputs = buildPackEntryInputs(
@@ -485,7 +514,7 @@ auto executeCompressPackWorkflow(
     logging::ScopedErrorContext scopedCtx("picture.pack", packLabel);
     return pack::execute(request);
   }();
-  fs::remove_all(tempDir, ec);
+  if (!stopsignal::isStopRequested()) { fs::remove_all(tempDir, ec); }
 
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
   if (packRes->exitCode != 0) { return packRes->exitCode; }
@@ -524,93 +553,4 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
     return executeCompressPackWorkflow(ctx, dirPath, outputDir);
   }
   return executeDirectPackWorkflow(ctx, dirPath, outputDir);
-}
-
-auto packAllPicsToZip(
-  appctx::AppConfig const& config,
-  fs::path const& dirPath,
-  fs::path const& zipFileDir
-) -> eh::Result<void> {
-  auto const scannedPics = readAllPics(config, dirPath);
-  if (scannedPics.empty()) {
-    return eh::makeError("No pictures found in directory: {}", dirPath.string());
-  }
-
-  if (!confirmPicturePack(config)) {
-    terminal::println(Warning, "Packing task canceled by user.");
-    return eh::makeError("Packing task canceled by user.");
-  }
-
-  auto const plannedEntryNames = planPictureZipEntryNames(config, dirPath, scannedPics);
-
-  auto summaryPics = std::vector<fs::path>{};
-  if (config.pictureFolderSummary) {
-    summaryPics = collectFolderSummaryPictures(dirPath, scannedPics);
-  }
-
-  auto packInputs = std::vector<pack::PackEntryInput>{};
-  packInputs.reserve(scannedPics.size() + summaryPics.size());
-
-  for (auto const& summaryPic: summaryPics) {
-    packInputs.push_back({
-      .entry =
-        pack::PackFileEntry{
-          .sourcePath = summaryPic,
-          .zipEntryName = buildSummaryPictureEntryName(dirPath, summaryPic),
-          .isSummary = true,
-        },
-      .sourceDir = summaryPic.parent_path(),
-      .sourceKey = naming::stablePathString(summaryPic.parent_path()),
-      .fileKey = naming::stablePathString(summaryPic),
-      .isSummary = true,
-    });
-  }
-
-  for (auto const& picPath: scannedPics) {
-    auto const plannedNameIt = plannedEntryNames.find(picPath);
-    auto const entryName = plannedNameIt != plannedEntryNames.end()
-      ? plannedNameIt->second
-      : picPath.filename().generic_string();
-    packInputs.push_back({
-      .entry =
-        pack::PackFileEntry{
-          .sourcePath = picPath,
-          .zipEntryName = entryName,
-        },
-      .sourceDir = picPath.parent_path(),
-      .sourceKey = naming::stablePathString(picPath.parent_path()),
-      .fileKey = naming::stablePathString(picPath),
-    });
-  }
-
-  auto request = pack::PackRequest{
-    .entryInputs = std::move(packInputs),
-    .mode = pack::PackMode::Media,
-    .outputDir = zipFileDir,
-    .compact = !config.fullProgress,
-    .removeOnFailure = true,
-    .naming =
-      pack::NamingConfig{
-        .namingStrategy = pack::NamingStrategy::Flat,
-        .baseName = std::string{kPictureArchiveBaseName},
-      },
-    .groupingStrategy = pack::GroupingStrategy::PerSourceDirKeepTogether,
-    .maxParallelJobs = config.maxParallelJobs,
-  };
-  auto const packRes = pack::execute(request);
-
-  if (!packRes) {
-    auto const errMsg = std::format(
-      "Failed to pack pictures in {}: {}",
-      zipFileDir.string(),
-      packRes.error()
-    );
-    LOG_ERROR("{}", errMsg);
-    return eh::makeError("{}", errMsg);
-  }
-  if (packRes->exitCode != 0) {
-    return eh::makeError("Packing failed with exit code: {}", packRes->exitCode);
-  }
-
-  return {};
 }

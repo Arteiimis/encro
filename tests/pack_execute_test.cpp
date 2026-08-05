@@ -486,3 +486,47 @@ TEST_CASE(
   REQUIRE(entryNames.size() >= 2);
   CHECK(entryNames[0].find("cover") != std::string::npos);
 }
+
+TEST_CASE(
+  "entryNameForFile does not overwrite summary entry names",
+  "[pack-execute][summary-config]"
+) {
+  TempDir temp;
+  auto const outputDir = temp.path / "output";
+  fs::create_directories(outputDir);
+
+  auto const regularFile = temp.path / "regular.txt";
+  createBinaryFile(regularFile, 100);
+
+  auto const summaryFile = temp.path / "cover.jpg";
+  createBinaryFile(summaryFile, 200);
+
+  pack::PackRequest request{
+    .entries = {regularFile},
+    .mode = pack::PackMode::Media,
+    .outputDir = outputDir,
+    .summary =
+      pack::SummaryConfig{
+        .entries =
+          {
+            pack::PackFileEntry{
+              .sourcePath = summaryFile,
+              .zipEntryName = "00_cover.jpg",
+              .isSummary = true,
+            },
+          },
+        .prefix = "00_",
+        .enabled = true,
+      },
+    .entryNameForFile = [](fs::path const&) { return std::string{"overridden.txt"}; },
+  };
+
+  auto const result = pack::execute(request);
+  REQUIRE(result);
+  CHECK(result->zippedFiles.size() == 1);
+
+  auto const entryNames = testutils::listZipRegularEntryNames(result->zippedFiles[0]);
+  REQUIRE(entryNames.size() == 2);
+  CHECK(entryNames[0] == "00_cover.jpg");
+  CHECK(entryNames[1] == "overridden.txt");
+}

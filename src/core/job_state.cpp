@@ -647,6 +647,17 @@ auto makeArchiveTask(
   };
 }
 
+auto makeCompressPhaseTask() -> TaskRecord {
+  return TaskRecord{
+    .id = std::string{kCompressPhaseTaskId},
+    .kind = std::string{kCompressPhaseKind},
+    .label = "compress pictures",
+    .attemptCount = 0,
+    .fingerprint = detail::buildFingerprint(kCompressPhaseKind, {}, {}),
+    .updatedAtMs = detail::nowMs(),
+  };
+}
+
 auto primarySourcePath(TaskRecord const& task) -> std::optional<fs::path> {
   if (task.sourcePaths.empty()) { return std::nullopt; }
   return task.sourcePaths.front();
