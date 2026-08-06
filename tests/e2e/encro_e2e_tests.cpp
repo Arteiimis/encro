@@ -250,6 +250,9 @@ TEST_CASE("encro missing input prints short help hint", "[e2e][cli]") {
   CHECK(result.exitCode == 1);
   CHECK(result.stdoutText.find("Input path is required") != std::string::npos);
   CHECK(
+    result.stdoutText.find("Pass a directory or file list directly") != std::string::npos
+  );
+  CHECK(
     result.stdoutText.find("Run encro -h for help (or -hh for all options).")
     != std::string::npos
   );
@@ -410,6 +413,86 @@ TEST_CASE(
   CHECK(std::ranges::all_of(zipEntries, [](std::string const& entry) {
     return entry.ends_with(".webp");
   }));
+}
+
+TEST_CASE(
+  "encro positional directory input encodes like -i",
+  "[e2e][cli][video][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  fs::create_directories(inputDir);
+  e2e::writeTextFile(inputDir / "sample.avi", "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const outputDir = temp.path / "out";
+
+  auto const result = e2e::runEncro({
+    "-y",
+    inputDir.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "-o",
+    outputDir.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+
+  REQUIRE(result.exitCode == 0);
+  REQUIRE(fs::exists(outputDir));
+  auto count = std::size_t{0};
+  for (auto const& entry: fs::directory_iterator{outputDir}) {
+    if (entry.is_regular_file() && entry.path().extension() == ".webp") { ++count; }
+  }
+  CHECK(count == 1);
+}
+
+TEST_CASE(
+  "encro positional file list encodes like -I",
+  "[e2e][cli][video][fake-toolchain][multi-input]"
+) {
+  TempDir temp;
+  auto const inputA = temp.path / "inputs" / "alpha.avi";
+  auto const inputB = temp.path / "inputs" / "beta.avi";
+  e2e::writeTextFile(inputA, "fake-video");
+  e2e::writeTextFile(inputB, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const outputDir = temp.path / "out";
+
+  auto const result = e2e::runEncro({
+    "-y",
+    inputA.string(),
+    inputB.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "-o",
+    outputDir.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+
+  REQUIRE(result.exitCode == 0);
+  REQUIRE(fs::exists(outputDir));
+  auto count = std::size_t{0};
+  for (auto const& entry: fs::directory_iterator{outputDir}) {
+    if (entry.is_regular_file() && entry.path().extension() == ".webp") { ++count; }
+  }
+  CHECK(count == 2);
+}
+
+TEST_CASE("encro rejects positional input mixed with -i", "[e2e][cli]") {
+  auto const result = e2e::runEncro({"-y", "a.mp4", "-i", "b.mp4"});
+
+  CHECK(result.exitCode == 1);
+  CHECK(
+    result.stdoutText.find("positional input paths or -i/--input/-I/--inputs")
+    != std::string::npos
+  );
 }
 
 TEST_CASE("encro fails when custom ffmpeg directory has no tools", "[e2e][toolchain]") {
