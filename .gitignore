@@ -7,3 +7,5 @@ build/
 
 # vscode settings
 .vscode/
+# Playwright MCP artifacts
+.playwright-mcp/
