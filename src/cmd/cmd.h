@@ -20,6 +20,7 @@ struct CmdParseResult {
   // ── Input/Output options ───────────────────────────────────────
   std::optional<std::string> input;
   std::optional<std::vector<std::string>> inputs;
+  std::optional<std::vector<std::string>> positionalInputs;
   std::optional<std::string> output;
   std::optional<std::string> stateFile;
   std::string outputFormat = "mp4";

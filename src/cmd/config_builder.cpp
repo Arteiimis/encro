@@ -346,27 +346,44 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
 
   auto const hasSingleInput = result.input.has_value();
   auto const hasMultiInputs = result.inputs.has_value();
+  auto const hasPositionalInputs = result.positionalInputs.has_value();
 
-  if (hasSingleInput && hasMultiInputs) {
+  if (hasPositionalInputs && (hasSingleInput || hasMultiInputs)) {
+    return eh::makeError(
+      "Use either positional input paths or -i/--input/-I/--inputs, not both."
+    );
+  }
+
+  auto const positionalCount =
+    hasPositionalInputs ? result.positionalInputs.value().size() : std::size_t{0};
+  auto const effectiveSingleInput = hasSingleInput || positionalCount == 1;
+  auto const effectiveMultiInputs = hasMultiInputs || positionalCount > 1;
+
+  if (effectiveSingleInput && effectiveMultiInputs) {
     return eh::makeError("Use either -i/--input or -I/--inputs, not both.");
   }
 
-  if (!hasSingleInput && !hasMultiInputs) {
-    return eh::makeError("Input path is required.");
+  if (!effectiveSingleInput && !effectiveMultiInputs) {
+    return eh::makeError(
+      "Input path is required. Pass a directory or file list directly, or use "
+      "-i/--input."
+    );
   }
 
-  if (hasMultiInputs) {
+  if (effectiveMultiInputs) {
     if (config.processType != "video") {
-      return eh::makeError("-I/--inputs is only supported with --type video.");
+      return eh::makeError("Multiple input paths are only supported with --type video.");
     }
 
     if (config.packOnly) {
       return eh::makeError(
-        "-I/--inputs cannot be used with --pack-only; use -i for single-input packing."
+        "Multiple input paths cannot be used with --pack-only; pass a single "
+        "directory instead."
       );
     }
 
-    auto const inputs = result.inputs.value();
+    auto const& inputs =
+      hasMultiInputs ? result.inputs.value() : result.positionalInputs.value();
     if (inputs.empty()) { return eh::makeError("Input path is required."); }
 
     config.inputPaths.reserve(inputs.size());
@@ -381,7 +398,9 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
       config.inputPaths.emplace_back(path);
     }
   } else {
-    config.inputPath = fs::absolute(fs::path{result.input.value()}).lexically_normal();
+    auto const& input =
+      hasSingleInput ? result.input.value() : result.positionalInputs.value().front();
+    config.inputPath = fs::absolute(fs::path{input}).lexically_normal();
     if (auto const exists = requireExists(config.inputPath, "input"); !exists) {
       return eh::makeError("{}", exists.error());
     }

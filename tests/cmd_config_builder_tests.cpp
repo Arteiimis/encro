@@ -25,12 +25,14 @@ auto makeResult(
   std::string color = "auto",
   std::optional<std::size_t> maxJobs = std::nullopt,
   std::vector<std::string> flags = {},
-  std::optional<int> imageQuality = std::nullopt
+  std::optional<int> imageQuality = std::nullopt,
+  std::optional<std::vector<std::string>> positionalInputs = std::nullopt
 ) -> CmdParseResult {
   auto result = CmdParseResult{};
   result.input = std::move(input);
   result.inputs = std::move(inputs);
   result.output = std::move(output);
+  result.positionalInputs = std::move(positionalInputs);
   result.stateFile = std::move(stateFile);
   result.processType = std::move(processType);
   result.outputFormat = std::move(outputFormat);
@@ -370,6 +372,253 @@ TEST_CASE("buildConfig requires input path", "[cmd][config]") {
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("Input path is required") != std::string::npos);
+}
+
+TEST_CASE("buildConfig maps a single positional file to inputPath", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const result = makeResult(
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {},
+    std::nullopt,
+    std::vector<std::string>{inputPath.string()}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE(configRes);
+  auto const config = configRes.value();
+  CHECK(config.inputPath == inputPath);
+  CHECK(config.inputPath.is_absolute());
+  CHECK(config.inputPaths.empty());
+}
+
+TEST_CASE(
+  "buildConfig maps a single positional directory to inputPath",
+  "[cmd][config]"
+) {
+  TempDir temp;
+
+  auto const result = makeResult(
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"pack-only"},
+    std::nullopt,
+    std::vector<std::string>{temp.path.string()}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE(configRes);
+  CHECK(configRes->inputPath == temp.path);
+  CHECK(configRes->inputPath.is_absolute());
+}
+
+TEST_CASE(
+  "buildConfig maps a single positional input for picture type",
+  "[cmd][config]"
+) {
+  TempDir temp;
+
+  auto const result = makeResult(
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {},
+    std::nullopt,
+    std::vector<std::string>{temp.path.string()}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE(configRes);
+  CHECK(configRes->inputPath == temp.path);
+}
+
+TEST_CASE("buildConfig maps multiple positionals to inputPaths", "[cmd][config]") {
+  TempDir temp;
+  auto const inputA = temp.path / "a.mp4";
+  auto const inputB = temp.path / "b.mp4";
+  writeFile(inputA);
+  writeFile(inputB);
+
+  auto const result = makeResult(
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {},
+    std::nullopt,
+    std::vector<std::string>{inputA.string(), inputB.string()}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE(configRes);
+  auto const config = configRes.value();
+  CHECK(config.inputPaths.size() == 2);
+  CHECK(config.inputPaths[0] == inputA);
+  CHECK(config.inputPaths[1] == inputB);
+  CHECK(config.inputPaths[0].is_absolute());
+  CHECK(config.inputPaths[1].is_absolute());
+}
+
+TEST_CASE("buildConfig rejects multiple positionals for picture type", "[cmd][config]") {
+  TempDir temp;
+  auto const inputA = temp.path / "a.mp4";
+  auto const inputB = temp.path / "b.mp4";
+  writeFile(inputA);
+  writeFile(inputB);
+
+  auto const result = makeResult(
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {},
+    std::nullopt,
+    std::vector<std::string>{inputA.string(), inputB.string()}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(configRes.error().find("only supported with --type video") != std::string::npos);
+}
+
+TEST_CASE("buildConfig rejects multiple positionals with pack-only", "[cmd][config]") {
+  TempDir temp;
+  auto const inputA = temp.path / "a.mp4";
+  auto const inputB = temp.path / "b.mp4";
+  writeFile(inputA);
+  writeFile(inputB);
+
+  auto const result = makeResult(
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"pack-only"},
+    std::nullopt,
+    std::vector<std::string>{inputA.string(), inputB.string()}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(configRes.error().find("cannot be used with --pack-only") != std::string::npos);
+}
+
+TEST_CASE(
+  "buildConfig rejects multiple positionals containing a directory",
+  "[cmd][config]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const result = makeResult(
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {},
+    std::nullopt,
+    std::vector<std::string>{temp.path.string(), inputPath.string()}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(configRes.error().find("not a file") != std::string::npos);
+}
+
+TEST_CASE("buildConfig rejects positionals combined with -i", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {},
+    std::nullopt,
+    std::vector<std::string>{inputPath.string()}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(configRes.error().find("positional") != std::string::npos);
+  CHECK(configRes.error().find("--input") != std::string::npos);
+}
+
+TEST_CASE("buildConfig rejects positionals combined with -I", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeFile(inputPath);
+
+  auto const result = makeResult(
+    std::nullopt,
+    std::vector<std::string>{inputPath.string()},
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {},
+    std::nullopt,
+    std::vector<std::string>{inputPath.string()}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(configRes.error().find("positional") != std::string::npos);
+  CHECK(configRes.error().find("--inputs") != std::string::npos);
 }
 
 TEST_CASE("buildConfig rejects missing input path", "[cmd][config]") {
