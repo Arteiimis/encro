@@ -72,6 +72,10 @@ if (!result) { return eh::makeError("context: {}", result.error()); }  // REQUIR
 - Compile-only tests (`pack_api_standalone_compile_test.cpp`, `packer_standalone_compile_test.cpp`): `static_assert` verifies API boundaries.
 - Tags: `[job-state]`, `[cmd]`, `[pack-service]`, `[packer]`, `[video-info]`, `[e2e]`, ...
 
+## Communication
+
+- 与用户对话使用中文（代码注释、git 提交、OpenSpec 文档仍为英文）。
+
 ## Development Workflows
 
 - **OpenSpec:** features follow proposal → specs → tasks → implementation via `.opencode/skills/openspec-*` (propose → apply/update → sync → archive; artifacts in `openspec/changes/`). Every feature needs ≥1 test. **All OpenSpec/spec documents (proposal, specs, design, tasks) must be written in English.**
