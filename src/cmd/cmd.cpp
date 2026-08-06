@@ -62,6 +62,8 @@ auto resolveHelpTextLayout() -> HelpTextLayout {
 // ── formatter_fn helpers (no color — plain text, Phase 20 adds color) ──
 
 auto formatOptionName(CLI::Option const* opt) -> std::string {
+  if (opt->get_positional()) { return opt->get_name(true); }
+
   auto names = std::string{};
   auto const& lnames = opt->get_lnames();
   auto const& snames = opt->get_snames();
@@ -308,9 +310,9 @@ auto makeHelpFormatter(
       CLI::AppFormatMode /*mode*/
     ) -> std::string {
       constexpr auto usageLines = std::array{
-        "encro -i <input> | -I <file>... [-o <output>] [-f mp4|webp] [-r] [-j <n>] [-p] [--resume|--restart]"sv,
-        "encro -t picture -i <input> [-c [-q <n>]] [-s] [-p]"sv,
-        "encro -z -i <input> [-o <output>]"sv,
+        "encro [<input>... | -i <input> | -I <file>...] [-o <output>] [-f mp4|webp] [-r] [-j <n>] [-p] [--resume|--restart]"sv,
+        "encro -t picture <input> [-c [-q <n>]] [-s] [-p]"sv,
+        "encro -z <input> [-o <output>]"sv,
         "encro -h | -hh | --version"sv,
       };
       auto const fullTier = helpOpt->count() >= 2;
@@ -323,7 +325,7 @@ auto makeHelpFormatter(
           != advancedLongNames.end();
       };
       auto const hasNames = [](CLI::Option const* opt) {
-        return !opt->get_lnames().empty() || !opt->get_snames().empty();
+        return opt->nonpositional() || opt->get_positional();
       };
       auto const visibleOptions = [&](CLI::App const* group) {
         auto opts = std::vector<CLI::Option const*>{};
@@ -753,6 +755,14 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   // Register IOFrags on io group
   for (auto const& def: IOFrags) { registerFlag(def, io); }
 
+  // Positional input paths — alternative to -i/-I; conflicts validated in buildConfig
+  constexpr auto kPositionalKey = std::string_view{"<positional>"};
+  constexpr auto kMaxPositionalInputs = 1000000;
+  auto* positionalOpt =
+    io->add_option("input-paths", "input file or directory paths (alternative to -i/-I)")
+      ->expected(0, kMaxPositionalInputs);
+  optRegistry[kPositionalKey] = positionalOpt;
+
   // Register ProcessingFlags on processing group
   for (auto const& def: ProcessingFlags) { registerFlag(def, processing); }
 
@@ -829,6 +839,9 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   };
   applyMap["-I,--inputs"] = [](CmdParseResult& r, CLI::Option const* o) {
     if (o->count() > 0) { r.inputs = o->as<std::vector<std::string>>(); }
+  };
+  applyMap["<positional>"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() > 0) { r.positionalInputs = o->as<std::vector<std::string>>(); }
   };
   applyMap["-o,--output"] = [](CmdParseResult& r, CLI::Option const* o) {
     if (o->count() > 0) { r.output = o->as<std::string>(); }

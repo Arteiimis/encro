@@ -198,6 +198,51 @@ TEST_CASE("commandLineInit parses multi-input values", "[cmd]") {
   CHECK(inputs[2] == "c.mov");
 }
 
+TEST_CASE("commandLineInit parses a single positional input", "[cmd]") {
+  auto const result = parseArgs({"encro", "videos"});
+
+  REQUIRE(result.positionalInputs.has_value());
+  auto const& inputs = result.positionalInputs.value();
+  REQUIRE(inputs.size() == 1);
+  CHECK(inputs[0] == "videos");
+  CHECK_FALSE(result.error.has_value());
+}
+
+TEST_CASE("commandLineInit parses multiple positional inputs", "[cmd]") {
+  auto const result = parseArgs({"encro", "a.mp4", "b.mkv", "c.mov"});
+
+  REQUIRE(result.positionalInputs.has_value());
+  auto const& inputs = result.positionalInputs.value();
+  REQUIRE(inputs.size() == 3);
+  CHECK(inputs[0] == "a.mp4");
+  CHECK(inputs[1] == "b.mkv");
+  CHECK(inputs[2] == "c.mov");
+  CHECK_FALSE(result.error.has_value());
+}
+
+TEST_CASE("commandLineInit parses positional inputs mixed with flags", "[cmd]") {
+  auto const result = parseArgs({"encro", "a.mp4", "-o", "out", "b.mkv"});
+
+  REQUIRE(result.positionalInputs.has_value());
+  auto const& inputs = result.positionalInputs.value();
+  REQUIRE(inputs.size() == 2);
+  CHECK(inputs[0] == "a.mp4");
+  CHECK(inputs[1] == "b.mkv");
+  REQUIRE(result.output.has_value());
+  CHECK(result.output.value() == "out");
+  CHECK_FALSE(result.error.has_value());
+}
+
+TEST_CASE("commandLineInit parses positional input after -- separator", "[cmd]") {
+  auto const result = parseArgs({"encro", "--", "-weird.mp4"});
+
+  REQUIRE(result.positionalInputs.has_value());
+  auto const& inputs = result.positionalInputs.value();
+  REQUIRE(inputs.size() == 1);
+  CHECK(inputs[0] == "-weird.mp4");
+  CHECK_FALSE(result.error.has_value());
+}
+
 TEST_CASE("commandLineInit parses jobs option", "[cmd]") {
   auto const result = parseArgs({"encro", "--jobs", "4"});
 
@@ -474,6 +519,7 @@ TEST_CASE("help text includes usage synopsis before option groups", "[cmd]") {
   REQUIRE(usagePos != std::string::npos);
   REQUIRE(generalOptionsPos != std::string::npos);
 
-  CHECK(help.find("encro -i <input> | -I <file>...") != std::string::npos);
+  CHECK(help.find("encro [<input>... | -i <input> | -I <file>...]") != std::string::npos);
+  CHECK(help.find("input-paths") != std::string::npos);
   CHECK(usagePos < generalOptionsPos);
 }
