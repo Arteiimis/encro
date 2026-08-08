@@ -14,12 +14,27 @@
 #if defined(_WIN32)
   #include <windows.h>
 #else
+  #include <csignal>
   #include <cstdlib>
 #endif
 
 namespace bp = boost::process::v1;
 
 namespace {
+
+#if defined(_WIN32)
+// boost::process v1 extension point (same pattern boost's own
+// show_window.hpp uses): make the child a process-group leader so
+// GenerateConsoleCtrlEvent can target it without signalling the test
+// runner. Verified against boost 1.90 v1 detail; a compile failure on
+// boost upgrade is the intended loud signal.
+struct NewProcessGroup: bp::detail::handler_base {
+  template<class Executor>
+  void on_setup(Executor& exec) const {
+    exec.creation_flags |= ::boost::winapi::CREATE_NEW_PROCESS_GROUP_;
+  }
+};
+#endif
 
 auto platformBinaryName(std::string_view stem) -> std::string {
 #if defined(_WIN32)
@@ -94,12 +109,13 @@ auto runChild(
     };
   };
 
+  // Null stdin: prompts must not block on the test runner's own terminal.
   if (workingDir.has_value()) {
     auto child = bp::child(
       executableText,
       bp::args(args),
       bp::start_dir = workingDir->string(),
-      bp::std_out > childOut,
+      bp::std_in<bp::null, bp::std_out> childOut,
       bp::std_err > childErr
     );
     return captureStreams(child);
@@ -108,7 +124,7 @@ auto runChild(
   auto child = bp::child(
     executableText,
     bp::args(args),
-    bp::std_out > childOut,
+    bp::std_in<bp::null, bp::std_out> childOut,
     bp::std_err > childErr
   );
   return captureStreams(child);
@@ -154,6 +170,133 @@ auto runEncro(
   std::map<std::string, std::string> const& environment
 ) -> ProcessResult {
   return runProcess(encroBinaryPath(), args, workingDir, environment);
+}
+
+namespace {
+
+// Creates the child as a process-group leader on Windows (POSIX needs no
+// group: kill targets a single pid).
+auto makeChild(
+  fs::path const& executable,
+  std::vector<std::string> const& args,
+  std::optional<fs::path> const& workingDir,
+  bp::ipstream& stdoutStream,
+  bp::ipstream& stderrStream
+) -> bp::child {
+  auto const executableText = executable.string();
+#if defined(_WIN32)
+  if (workingDir.has_value()) {
+    return bp::child(
+      executableText,
+      bp::args(args),
+      bp::start_dir = workingDir->string(),
+      bp::std_in<bp::null, bp::std_out> stdoutStream,
+      bp::std_err > stderrStream,
+      NewProcessGroup{}
+    );
+  }
+  return bp::child(
+    executableText,
+    bp::args(args),
+    bp::std_in<bp::null, bp::std_out> stdoutStream,
+    bp::std_err > stderrStream,
+    NewProcessGroup{}
+  );
+#else
+  if (workingDir.has_value()) {
+    return bp::child(
+      executableText,
+      bp::args(args),
+      bp::start_dir = workingDir->string(),
+      bp::std_in<bp::null, bp::std_out> stdoutStream,
+      bp::std_err > stderrStream
+    );
+  }
+  return bp::child(
+    executableText,
+    bp::args(args),
+    bp::std_in<bp::null, bp::std_out> stdoutStream,
+    bp::std_err > stderrStream
+  );
+#endif
+}
+
+}  // namespace
+
+RunningProcess::RunningProcess(
+  fs::path const& executable,
+  std::vector<std::string> const& args,
+  std::optional<fs::path> const& workingDir
+)
+  : child_(makeChild(executable, args, workingDir, stdoutStream_, stderrStream_)) {
+  stdoutReader_ =
+    std::jthread([this] { stdoutText_ = readProcessStream(stdoutStream_); });
+  stderrReader_ =
+    std::jthread([this] { stderrText_ = readProcessStream(stderrStream_); });
+}
+
+RunningProcess::~RunningProcess() {
+  if (child_.valid() && child_.running()) { child_.terminate(); }
+  if (stdoutReader_.joinable()) { stdoutReader_.join(); }
+  if (stderrReader_.joinable()) { stderrReader_.join(); }
+}
+
+auto RunningProcess::wait(std::chrono::milliseconds timeout)
+  -> std::optional<ProcessResult> {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (child_.running() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+  }
+  if (child_.running()) { return std::nullopt; }
+
+  child_.wait();
+  stdoutReader_.join();
+  stderrReader_.join();
+
+  return ProcessResult{
+    child_.exit_code(),
+    std::move(stdoutText_),
+    std::move(stderrText_)
+  };
+}
+
+auto RunningProcess::sendCtrlC() -> bool {
+#if defined(_WIN32)
+  // CTRL_BREAK_EVENT, not CTRL_C_EVENT: under ConPTY/mintty the C event is
+  // silently dropped for CREATE_NEW_PROCESS_GROUP children, while BREAK is
+  // always delivered. encro's console handler treats both identically.
+  return ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, static_cast<DWORD>(child_.id()))
+    != FALSE;
+#else
+  return ::kill(child_.id(), SIGINT) == 0;
+#endif
+}
+
+auto RunningProcess::terminate() -> void {
+  child_.terminate();
+}
+
+auto RunningProcess::id() -> std::size_t {
+  return static_cast<std::size_t>(child_.id());
+}
+
+auto runEncroAsync(
+  std::vector<std::string> const& args,
+  std::optional<fs::path> const& workingDir,
+  std::map<std::string, std::string> const& environment
+) -> RunningProcess {
+  auto guard = ScopedEnvironmentOverrides{environment};
+  return RunningProcess{encroBinaryPath(), args, workingDir};
+}
+
+auto consoleCtrlEventsAvailable() -> bool {
+#if defined(_WIN32)
+  // GetConsoleWindow() is NULL under ConPTY even though a console exists;
+  // GetConsoleCP() is nonzero exactly when the process has a console.
+  return ::GetConsoleCP() != 0;
+#else
+  return true;
+#endif
 }
 
 auto installFakeToolchain(fs::path const& root) -> FakeToolchain {
