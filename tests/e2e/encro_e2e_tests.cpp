@@ -362,6 +362,46 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "encro webp CLI works with a fake toolchain installed under a spaced path",
+  "[e2e][video][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  e2e::writeTextFile(inputPath, "fake-video");
+
+  // Quoting round-trip parity: paths with spaces must survive the
+  // command-line parse/re-join chain on every platform.
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake tools with spaces");
+  REQUIRE(fs::exists(toolchain.ffmpegPath));
+  REQUIRE(fs::exists(toolchain.ffprobePath));
+
+  auto const result = e2e::runEncro({
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+
+  auto const outputDir = temp.path / "encoded_webp";
+  REQUIRE(result.exitCode == 0);
+  REQUIRE(fs::exists(outputDir));
+
+  auto outputFiles = std::vector<fs::path>{};
+  for (auto const& entry: fs::directory_iterator{outputDir}) {
+    if (entry.is_regular_file()) { outputFiles.push_back(entry.path()); }
+  }
+
+  REQUIRE(outputFiles.size() == 1);
+  CHECK(outputFiles.front().extension() == ".webp");
+  CHECK(fs::file_size(outputFiles.front()) > 0);
+}
+
+TEST_CASE(
   "encro real ffmpeg smoke converts generated mp4 with metadata comment to webp",
   "[e2e][smoke][real-ffmpeg][video]"
 ) {
