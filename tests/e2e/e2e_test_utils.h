@@ -1,10 +1,14 @@
 #pragma once
 
+#include <boost/process/v1.hpp>
+
+#include <chrono>
 #include <filesystem>
 #include <map>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -15,6 +19,44 @@ struct ProcessResult {
   int exitCode = -1;
   std::string stdoutText;
   std::string stderrText;
+};
+
+class RunningProcess {
+public:
+  RunningProcess() = default;
+  explicit RunningProcess(
+    fs::path const& executable,
+    std::vector<std::string> const& args,
+    std::optional<fs::path> const& workingDir = std::nullopt
+  );
+
+  ~RunningProcess();
+
+  RunningProcess(RunningProcess&&) noexcept = default;
+  RunningProcess& operator=(RunningProcess&&) noexcept = default;
+  RunningProcess(RunningProcess const&) = delete;
+  RunningProcess& operator=(RunningProcess const&) = delete;
+
+  // Waits up to timeout; nullopt means the process is still running.
+  auto wait(std::chrono::milliseconds timeout) -> std::optional<ProcessResult>;
+
+  // Delivers Ctrl+C to the process group (Windows: console event; POSIX: SIGINT).
+  auto sendCtrlC() -> bool;
+
+  auto terminate() -> void;
+
+  auto id() -> std::size_t;
+
+private:
+  // Order matters: streams must outlive the child, the child must be
+  // terminated before the readers join (they block on pipe EOF).
+  boost::process::v1::ipstream stdoutStream_;
+  boost::process::v1::ipstream stderrStream_;
+  boost::process::v1::child child_;
+  std::jthread stdoutReader_;
+  std::jthread stderrReader_;
+  std::string stdoutText_;
+  std::string stderrText_;
 };
 
 struct FakeToolchain {
@@ -41,6 +83,19 @@ auto runEncro(
   std::optional<fs::path> const& workingDir = std::nullopt,
   std::map<std::string, std::string> const& environment = {}
 ) -> ProcessResult;
+
+// Same as runEncro but returns a live handle for interruption tests.
+// The child is created in its own process group so console events can be
+// delivered to it without signalling the test runner.
+auto runEncroAsync(
+  std::vector<std::string> const& args,
+  std::optional<fs::path> const& workingDir = std::nullopt,
+  std::map<std::string, std::string> const& environment = {}
+) -> RunningProcess;
+
+// False when the platform cannot deliver console events to a child
+// (Windows without a console); interruption tests SKIP in that case.
+auto consoleCtrlEventsAvailable() -> bool;
 
 auto installFakeToolchain(fs::path const& root) -> FakeToolchain;
 
