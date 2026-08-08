@@ -7,8 +7,9 @@
 - **Tests (unit/integration):** `xmake build tests && xmake run tests`
 - **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)
 - **Single test:** `xmake run tests "[tag-name]"` (Catch2 tag filter)
-- **Format:** `xmake format` (apply) / `xmake format -k` (CI). Config at `D:/clangformat/.clang-format`, NOT in repo.
-- **Coverage:** `xmake coverage` plugin (configure→build→run→merge→report; needs `llvm-profdata` + `llvm-cov` on PATH; resets to release mode after)
+- **Format:** `xmake format` (apply) / `xmake format -k` (CI); `--style <file|builtin>` overrides the config at `D:/clangformat/.clang-format`, NOT in repo.
+- **Coverage:** `xmake coverage` runs unit tests under coverage (`--e2e` also covers e2e/encro/fake-tool; `--keep` skips the release restore; `--summary` for totals). Rebuilds in coverage mode with instrumentation self-check, then restores release. Needs `llvm-profdata` + `llvm-cov` on PATH.
+- **Size:** `xmake size` prints section sizes (llvm-size); `-d` adds per-object breakdown via PDB (auto-rebuilds the target with debug info if the PDB is missing, then restores). Default `-m release`, `-t <target>`.
 - **ASan:** `xmake f -m releasedbg`
 - **Dependency headers:** read `build/compile_commands.json` for absolute include paths (e.g., `F:\xmake\.xmake\packages\i\indicators\2.3\<hash>\include`). They live there, NOT in the repo — never search `~/.xmake`.
 
