@@ -1,6 +1,8 @@
 #pragma once
 
-#include <boost/process/v1.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/readable_pipe.hpp>
+#include <boost/process/v2/process.hpp>
 
 #include <chrono>
 #include <filesystem>
@@ -23,7 +25,6 @@ struct ProcessResult {
 
 class RunningProcess {
 public:
-  RunningProcess() = default;
   explicit RunningProcess(
     fs::path const& executable,
     std::vector<std::string> const& args,
@@ -32,8 +33,8 @@ public:
 
   ~RunningProcess();
 
-  RunningProcess(RunningProcess&&) noexcept = default;
-  RunningProcess& operator=(RunningProcess&&) noexcept = default;
+  // Non-copyable and non-movable: asio::io_context is immovable.
+  // runEncroAsync relies on guaranteed copy elision for its return value.
   RunningProcess(RunningProcess const&) = delete;
   RunningProcess& operator=(RunningProcess const&) = delete;
 
@@ -48,11 +49,13 @@ public:
   auto id() -> std::size_t;
 
 private:
-  // Order matters: streams must outlive the child, the child must be
-  // terminated before the readers join (they block on pipe EOF).
-  boost::process::v1::ipstream stdoutStream_;
-  boost::process::v1::ipstream stderrStream_;
-  boost::process::v1::child child_;
+  // Order matters: the context must outlive the pipes; streams must outlive
+  // the child; the child must be terminated before the readers join (they
+  // block on pipe EOF).
+  boost::asio::io_context ctx_;
+  boost::asio::readable_pipe stdoutStream_{ctx_};
+  boost::asio::readable_pipe stderrStream_{ctx_};
+  boost::process::v2::process child_;
   std::jthread stdoutReader_;
   std::jthread stderrReader_;
   std::string stdoutText_;

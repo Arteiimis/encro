@@ -1,20 +1,25 @@
 #include "infra/crash_runtime.h"
 #include "test_utils.h"
 
+#include <boost/asio/buffer.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/readable_pipe.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
-#include <boost/process/v1.hpp>
+#include <boost/process/v2/process.hpp>
+#include <boost/process/v2/stdio.hpp>
 #include <catch2/catch_all.hpp>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
 
 namespace fs = std::filesystem;
-namespace bp = boost::process::v1;
+namespace bp = boost::process::v2;
 
 namespace {
 
@@ -37,8 +42,16 @@ private:
   std::shared_ptr<spdlog::logger> previous_;
 };
 
-auto readProcessStream(bp::ipstream& stream) -> std::string {
-  return std::string{std::istreambuf_iterator<char>{stream}, {}};
+auto readProcessStream(boost::asio::readable_pipe& stream) -> std::string {
+  auto result = std::string{};
+  auto buffer = std::array<char, 4096>{};
+  for (;;) {
+    boost::system::error_code ec;
+    auto const count = stream.read_some(boost::asio::buffer(buffer), ec);
+    result.append(buffer.data(), count);
+    if (ec || count == 0) { break; }
+  }
+  return result;
 }
 
 }  // namespace
@@ -89,14 +102,15 @@ TEST_CASE("reportUnknownException writes stacktrace section", "[crash]") {
 TEST_CASE("crash runtime handles real process crash", "[crash][integration]") {
   auto const self = boost::dll::program_location();
 
-  auto childOut = bp::ipstream{};
-  auto childErr = bp::ipstream{};
-  auto child = bp::child(
+  auto ctx = boost::asio::io_context{};
+  auto childOut = boost::asio::readable_pipe{ctx};
+  auto childErr = boost::asio::readable_pipe{ctx};
+  auto child = bp::process{
+    ctx,
     self,
-    "--encro-crash-child",
-    bp::std_out > childOut,
-    bp::std_err > childErr
-  );
+    {"--encro-crash-child"},
+    bp::process_stdio{.out = childOut, .err = childErr}
+  };
   child.wait();
 
   auto const output = readProcessStream(childOut) + readProcessStream(childErr);
