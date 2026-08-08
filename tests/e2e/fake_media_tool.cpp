@@ -151,6 +151,20 @@ auto runFakeFfprobe(int argc, char* argv[]) -> int {
   auto const exitCode = readEnvInt("ENCRO_FAKE_FFPROBE_EXIT_CODE", 0);
   if (exitCode != 0) { return exitCode; }
 
+  // Opt-in input validation: a real ffprobe fails on a missing input; the
+  // default off keeps the existing env-var contract unchanged.
+  if (readEnvInt("ENCRO_FAKE_FFPROBE_CHECK_INPUT", 0) != 0) {
+    auto probed = std::optional<fs::path>{};
+    for (auto index = 1; index < argc; ++index) {
+      auto const arg = std::string_view{argv[index]};
+      if (!arg.empty() && arg.front() != '-') { probed = fs::path{argv[index]}; }
+    }
+    if (!probed.has_value() || !fs::exists(probed.value())) {
+      std::cerr << "probe input not found\n";
+      return 2;
+    }
+  }
+
   if (auto const jsonFile = readEnv("ENCRO_FAKE_FFPROBE_JSON_FILE"); jsonFile) {
     auto const content = readTextFile(jsonFile.value());
     if (!content.has_value()) {
