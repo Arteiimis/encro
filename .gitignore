@@ -9,3 +9,6 @@ build/
 .vscode/
 # Playwright MCP artifacts
 .playwright-mcp/
+
+# Xmake flag probe artifacts
+clang_*_has_flags.gcno
