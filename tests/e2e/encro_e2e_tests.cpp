@@ -119,6 +119,36 @@ auto createRealSmokeVideo(
   return outputPath;
 }
 
+auto createRealSmokeVideoWithAudio(
+  fs::path const& outputPath,
+  double durationSeconds = 2.0
+) -> fs::path {
+  auto args = std::vector<std::string>{
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    std::format("testsrc2=duration={}:size=160x120:rate=5", durationSeconds),
+    "-f",
+    "lavfi",
+    "-i",
+    std::format("sine=frequency=440:duration={}", durationSeconds),
+    "-c:v",
+    "mpeg4",
+    "-c:a",
+    "aac",
+    "-shortest",
+    "-pix_fmt",
+    "yuv420p",
+  };
+  args.push_back(outputPath.string());
+
+  auto const result = e2e::runProcess(systemToolPath("ffmpeg"), args);
+  REQUIRE(result.exitCode == 0);
+  REQUIRE(fs::exists(outputPath));
+  return outputPath;
+}
+
 auto probeJson(fs::path const& mediaPath, std::vector<std::string> const& args)
   -> json::object {
   auto allArgs = std::vector<std::string>{"-v", "quiet", "-print_format", "json"};
@@ -145,6 +175,21 @@ auto probePrimaryCodecName(fs::path const& mediaPath) -> std::string {
   auto codecName = std::string{stream.at("codec_name").as_string().c_str()};
   if (codecName == "webp_anim") { codecName = "webp"; }
   return codecName;
+}
+
+auto probeStreamTypes(fs::path const& mediaPath) -> std::vector<std::string> {
+  auto const probed = probeJson(mediaPath, {"-show_entries", "stream=codec_type"});
+  REQUIRE(probed.if_contains("streams") != nullptr);
+
+  auto types = std::vector<std::string>{};
+  for (auto const& stream: probed.at("streams").as_array()) {
+    REQUIRE(stream.is_object());
+    auto const& type = stream.as_object();
+    if (type.if_contains("codec_type") != nullptr) {
+      types.emplace_back(type.at("codec_type").as_string().c_str());
+    }
+  }
+  return types;
 }
 
 auto probeFormatComment(fs::path const& mediaPath) -> std::string {
@@ -344,6 +389,383 @@ TEST_CASE(
   CHECK(outputPath.extension() == ".webp");
   CHECK(fs::file_size(outputPath) > 0);
   CHECK(probePrimaryCodecName(outputPath) == "webp");
+}
+
+TEST_CASE(
+  "encro real ffmpeg smoke converts mp4 with audio to h264 mp4 keeping audio",
+  "[e2e][smoke][real-ffmpeg][mp4]"
+) {
+  requireRealToolchainOrSkip();
+
+  TempDir temp;
+  auto const inputPath = temp.path / "withaudio.mp4";
+  createRealSmokeVideoWithAudio(inputPath);
+
+  auto const result = e2e::runEncro({
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+  });
+
+  REQUIRE(result.exitCode == 0);
+  auto const outputPath = findOutputMp4(temp.path);
+  REQUIRE(outputPath.has_value());
+  CHECK(outputPath->extension() == ".mp4");
+  CHECK(fs::file_size(outputPath.value()) > 0);
+  CHECK(probePrimaryCodecName(outputPath.value()) == "hevc");
+  auto const streamTypes = probeStreamTypes(outputPath.value());
+  CHECK(std::ranges::find(streamTypes, "audio") != streamTypes.end());
+}
+
+TEST_CASE(
+  "encro real ffmpeg smoke resumes mp4 by reusing segments when output is missing",
+  "[e2e][smoke][real-ffmpeg][mp4][resume][segment]"
+) {
+  requireRealToolchainOrSkip();
+
+  TempDir temp;
+  auto const inputPath = temp.path / "long.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  // 12 s > 10 s segment threshold → two segments.
+  createRealSmokeVideoWithAudio(inputPath, 12.0);
+
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+  };
+
+  auto const firstRun = e2e::runEncro(baseArgs);
+  REQUIRE(firstRun.exitCode == 0);
+  auto const firstOutput = findOutputMp4(temp.path);
+  REQUIRE(firstOutput.has_value());
+  CHECK(probePrimaryCodecName(firstOutput.value()) == "hevc");
+
+  // Segment dirs are removed after success; resume re-creates the final
+  // output from scratch when it is missing (segment reuse itself is covered
+  // deterministically by the fake-toolchain resume tests).
+  fs::remove(firstOutput.value());
+  auto const secondRun = e2e::runEncro(baseArgs);
+  REQUIRE(secondRun.exitCode == 0);
+
+  auto const secondOutput = findOutputMp4(temp.path);
+  REQUIRE(secondOutput.has_value());
+  CHECK(fs::file_size(secondOutput.value()) > 0);
+  CHECK(probePrimaryCodecName(secondOutput.value()) == "hevc");
+}
+
+TEST_CASE(
+  "encro picture mode compresses and packs a flat pack",
+  "[e2e][picture][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const outputDir = temp.path / "out";
+  fs::create_directories(inputDir);
+  e2e::writeTextFile(inputDir / "a.jpg", "img1");
+  e2e::writeTextFile(inputDir / "b.jpg", "img2");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro({
+    "-y",
+    "-t",
+    "pic",
+    "-c",
+    "-i",
+    inputDir.string(),
+    "-o",
+    outputDir.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+
+  REQUIRE(result.exitCode == 0);
+  auto const zipFiles = listFilesWithExtension(outputDir / "packed", ".zip");
+  REQUIRE(zipFiles.size() == 1);
+  auto const entries = e2e::listZipEntries(zipFiles.front());
+  REQUIRE(entries.size() == 2);
+  CHECK(entries[0].ends_with(".jpg"));
+  CHECK(entries[1].ends_with(".jpg"));
+}
+
+TEST_CASE(
+  "encro picture compress partial failure packs successes; total failure fails",
+  "[e2e][picture][failure][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const outputDir = temp.path / "out";
+  auto const statePath = temp.path / "encro.job-state.json";
+  fs::create_directories(inputDir);
+  e2e::writeTextFile(inputDir / "a.jpg", "img1");
+  e2e::writeTextFile(inputDir / "b.jpg", "img2");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-t",
+    "pic",
+    "-c",
+    "-i",
+    inputDir.string(),
+    "-o",
+    outputDir.string(),
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  // Partial failure: only b's compression fails; the pack still ships a.
+  auto const partial =
+    e2e::runEncro(baseArgs, std::nullopt, {{"ENCRO_FAKE_FFMPEG_FAIL_MATCH", "__b__"}});
+  REQUIRE(partial.exitCode == 0);
+  auto const partialZips = listFilesWithExtension(outputDir / "packed", ".zip");
+  REQUIRE(partialZips.size() == 1);
+  auto const partialEntries = e2e::listZipEntries(partialZips.front());
+  REQUIRE(partialEntries.size() == 1);
+  CHECK(partialEntries.front().find("__a__") != std::string::npos);
+
+  // Total failure: every compression fails; pipeline errors and state records it.
+  auto const totalStatePath = temp.path / "total.job-state.json";
+  auto totalArgs = baseArgs;
+  for (auto& arg: totalArgs) {
+    if (arg == statePath.string()) { arg = totalStatePath.string(); }
+  }
+  auto const total = e2e::runEncro(
+    totalArgs,
+    std::nullopt,
+    {{"ENCRO_FAKE_FFMPEG_FAIL_MATCH", ".compress_tmp"}}
+  );
+  REQUIRE(total.exitCode == 1);
+  CHECK(total.stdoutText.find("All picture compressions failed") != std::string::npos);
+  auto const state = loadJsonObject(totalStatePath);
+  auto const& tasks = state.at("tasks").as_array();
+  REQUIRE(tasks.size() == 1);
+  CHECK(tasks.front().as_object().at("status").as_string() == "failed");
+}
+
+TEST_CASE(
+  "encro picture mode folder summary adds summary entry to flat pack",
+  "[e2e][picture][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const outputDir = temp.path / "out";
+  fs::create_directories(inputDir / "sub");
+  e2e::writeTextFile(inputDir / "a.jpg", "img1");
+  e2e::writeTextFile(inputDir / "sub" / "c.jpg", "img3");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro({
+    "-y",
+    "-t",
+    "pic",
+    "-s",
+    "-r",
+    "-i",
+    inputDir.string(),
+    "-o",
+    outputDir.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+
+  REQUIRE(result.exitCode == 0);
+  auto const zipFiles = listFilesWithExtension(outputDir / "packed", ".zip");
+  REQUIRE(zipFiles.size() == 1);
+  auto const entries = e2e::listZipEntries(zipFiles.front());
+  auto const summaryIt = std::ranges::find_if(entries, [](std::string const& name) {
+    return name.find("__summary__") != std::string::npos;
+  });
+  REQUIRE(summaryIt != entries.end());
+  CHECK(summaryIt->ends_with(".jpg"));
+  // Summary entries sort before regular entries.
+  CHECK(entries.front() == *summaryIt);
+}
+
+TEST_CASE(
+  "encro parallel jobs overlap slow encodes",
+  "[e2e][video][parallel][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "inputs";
+  auto const outputDir = temp.path / "out";
+  fs::create_directories(inputDir);
+  e2e::writeTextFile(inputDir / "alpha.avi", "fake-video");
+  e2e::writeTextFile(inputDir / "beta.avi", "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const env = std::map<std::string, std::string>{{{
+    "ENCRO_FAKE_FFMPEG_DELAY_MS",
+    "3000",
+  }}};
+  auto const args = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputDir.string(),
+    "-f",
+    "webp",
+    "-j",
+    "2",
+    "-o",
+    outputDir.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto const started = std::chrono::steady_clock::now();
+  auto const result = e2e::runEncro(args, std::nullopt, env);
+  auto const elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::steady_clock::now() - started
+  )
+                           .count();
+
+  REQUIRE(result.exitCode == 0);
+  auto const outputFiles = listFilesWithExtension(outputDir, ".webp");
+  REQUIRE(outputFiles.size() == 2);
+  CHECK(fs::file_size(outputFiles[0]) > 0);
+  CHECK(fs::file_size(outputFiles[1]) > 0);
+  // Two 3 s encodes in parallel finish well under the 6 s serial time.
+  CHECK(elapsedMs < 5500);
+}
+
+TEST_CASE(
+  "encro partial failure keeps successes and records per-task state",
+  "[e2e][video][failure][multi-input][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputA = temp.path / "inputs" / "alpha.avi";
+  auto const inputB = temp.path / "inputs" / "beta.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  e2e::writeTextFile(inputA, "fake-video");
+  e2e::writeTextFile(inputB, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro(
+    {
+      "-y",
+      "-I",
+      inputA.string(),
+      inputB.string(),
+      "-f",
+      "webp",
+      "-j",
+      "1",
+      "-o",
+      (temp.path / "out").string(),
+      "--state-file",
+      statePath.string(),
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    },
+    std::nullopt,
+    {{"ENCRO_FAKE_FFMPEG_FAIL_MATCH", "__beta__"}}
+  );
+
+  REQUIRE(result.exitCode == 1);
+  CHECK(result.stdoutText.find("Failed to encode: 1") != std::string::npos);
+
+  auto const outputFiles = listFilesWithExtension(temp.path / "out", ".webp");
+  REQUIRE(outputFiles.size() == 1);
+  CHECK(containsStemMarker(outputFiles.front().filename().string(), "alpha"));
+
+  auto const state = loadJsonObject(statePath);
+  auto const& tasks = state.at("tasks").as_array();
+  REQUIRE(tasks.size() == 2);
+  auto const statuses = std::array<std::string, 2>{
+    tasks[0].as_object().at("status").as_string().c_str(),
+    tasks[1].as_object().at("status").as_string().c_str(),
+  };
+  CHECK(std::ranges::find(statuses, "succeeded") != statuses.end());
+  CHECK(std::ranges::find(statuses, "failed") != statuses.end());
+}
+
+TEST_CASE(
+  "encro prompts before overwriting output and cancels on EOF",
+  "[e2e][cli][prompt][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  e2e::writeTextFile(inputPath, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const baseArgs = std::vector<std::string>{
+    "-i",
+    inputPath.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto fullArgs = baseArgs;
+  fullArgs.insert(fullArgs.begin(), "-y");
+  auto const firstRun = e2e::runEncro(fullArgs);
+  REQUIRE(firstRun.exitCode == 0);
+  auto const outputDir = temp.path / "encoded_webp";
+  auto const outputPath = findSingleOutputFile(outputDir);
+  auto const firstWriteTime = fs::last_write_time(outputPath);
+
+  // Without -y, --restart re-encodes: the confirm prompt hits EOF (null
+  // stdin) and the run cancels without touching the existing output.
+  auto restartArgs = baseArgs;
+  restartArgs.insert(restartArgs.begin(), "--restart");
+  auto const prompted = e2e::runEncro(restartArgs);
+  CHECK(
+    prompted.stdoutText.find("do you want to encode the video to webp format")
+    != std::string::npos
+  );
+  CHECK(prompted.stdoutText.find("canceled by user") != std::string::npos);
+  REQUIRE(fs::exists(outputPath));
+  CHECK(fs::last_write_time(outputPath) == firstWriteTime);
+}
+
+TEST_CASE(
+  "encro -y skips the overwrite prompt and re-encodes",
+  "[e2e][cli][prompt][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  e2e::writeTextFile(inputPath, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto const firstRun = e2e::runEncro(baseArgs);
+  REQUIRE(firstRun.exitCode == 0);
+  auto const outputDir = temp.path / "encoded_webp";
+  REQUIRE(fs::exists(findSingleOutputFile(outputDir)));
+
+  fs::remove(findSingleOutputFile(outputDir));
+  auto restartArgs = baseArgs;
+  restartArgs.push_back("--restart");
+  auto const secondRun = e2e::runEncro(restartArgs);
+  REQUIRE(secondRun.exitCode == 0);
+  CHECK(
+    secondRun.stdoutText.find("do you want to encode the video to webp format")
+    == std::string::npos
+  );
+  auto const recreated = findSingleOutputFile(outputDir);
+  CHECK(fs::file_size(recreated) > 0);
 }
 
 TEST_CASE(
@@ -890,6 +1312,264 @@ TEST_CASE(
 
   auto const outputPath = findOutputMp4(temp.path);
   REQUIRE(outputPath.has_value());
+}
+
+// ── Interruption tests ────────────────────────────────────────────────
+
+namespace {
+
+auto waitUntil(std::chrono::milliseconds timeout, auto&& predicate) -> bool {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (predicate()) { return true; }
+    std::this_thread::sleep_for(std::chrono::milliseconds{25});
+  }
+  return predicate();
+}
+
+auto encodeInFlight(fs::path const& logPath) -> bool {
+  if (!fs::exists(logPath)) { return false; }
+  return countActualFfmpegEncodes(logPath) >= 1;
+}
+
+auto requireConsoleCtrlOrSkip() -> void {
+  if (e2e::consoleCtrlEventsAvailable()) { return; }
+  SKIP("Console Ctrl+C delivery unavailable (no console).");
+}
+
+}  // namespace
+
+TEST_CASE(
+  "encro exits 130 and saves resumable state on Ctrl+C mid-encode",
+  "[e2e][interrupt][resume][segment]"
+) {
+  requireConsoleCtrlOrSkip();
+
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const probeJson = temp.path / "probe.json";
+  e2e::writeTextFile(inputPath, "fake-video");
+  e2e::writeTextFile(
+    probeJson,
+    R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
+  );
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const slowEnv = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+    {"ENCRO_FAKE_FFMPEG_DELAY_MS", "15000"},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, slowEnv);
+  REQUIRE(waitUntil(std::chrono::seconds{10}, [&] { return encodeInFlight(logPath); }));
+
+  CHECK(proc.sendCtrlC());
+  auto const interrupted = proc.wait(std::chrono::seconds{10});
+  REQUIRE(interrupted.has_value());
+  CHECK(interrupted->exitCode == stopsignal::kCanceledExitCode);
+  REQUIRE(fs::exists(statePath));
+
+  auto const resume = e2e::runEncro(baseArgs, std::nullopt, {});
+  REQUIRE(resume.exitCode == 0);
+  auto const outputPath = findOutputMp4(temp.path);
+  REQUIRE(outputPath.has_value());
+  CHECK(fs::file_size(outputPath.value()) > 0);
+}
+
+TEST_CASE(
+  "encro state survives hard kill and resume completes",
+  "[e2e][interrupt][resume]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logPath = temp.path / "fake-tool.log";
+  e2e::writeTextFile(inputPath, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const slowEnv = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFMPEG_DELAY_MS", "15000"},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, slowEnv);
+  REQUIRE(waitUntil(std::chrono::seconds{10}, [&] { return encodeInFlight(logPath); }));
+
+  proc.terminate();
+  auto const killed = proc.wait(std::chrono::seconds{5});
+  REQUIRE(killed.has_value());
+  REQUIRE(fs::exists(statePath));
+
+  auto const resume = e2e::runEncro(baseArgs, std::nullopt, {});
+  REQUIRE(resume.exitCode == 0);
+  REQUIRE(fs::exists(temp.path / "encoded_webp"));
+  auto const outputFiles = listFilesWithExtension(temp.path / "encoded_webp", ".webp");
+  REQUIRE(outputFiles.size() == 1);
+  CHECK(fs::file_size(outputFiles.front()) > 0);
+}
+
+TEST_CASE(
+  "encro Ctrl+C during task 1 leaves task 2 unstarted and resume finishes both",
+  "[e2e][interrupt][resume][multi-input]"
+) {
+  requireConsoleCtrlOrSkip();
+
+  TempDir temp;
+  auto const inputA = temp.path / "inputs" / "alpha.avi";
+  auto const inputB = temp.path / "inputs" / "beta.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logPath = temp.path / "fake-tool.log";
+  e2e::writeTextFile(inputA, "fake-video");
+  e2e::writeTextFile(inputB, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const slowEnv = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFMPEG_DELAY_MS", "15000"},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-I",
+    inputA.string(),
+    inputB.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "-o",
+    (temp.path / "out").string(),
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, slowEnv);
+  REQUIRE(waitUntil(std::chrono::seconds{10}, [&] { return encodeInFlight(logPath); }));
+
+  CHECK(proc.sendCtrlC());
+  auto const interrupted = proc.wait(std::chrono::seconds{10});
+  REQUIRE(interrupted.has_value());
+  CHECK(interrupted->exitCode == stopsignal::kCanceledExitCode);
+  REQUIRE(fs::exists(statePath));
+
+  auto const state = loadJsonObject(statePath);
+  auto const& tasks = state.at("tasks").as_array();
+  REQUIRE(tasks.size() == 2);
+  CHECK(tasks[0].as_object().at("status").as_string() == "failed");
+  auto const& secondTask = tasks[1].as_object();
+  // Cancel marks unstarted tasks interrupted (never attempted).
+  CHECK(secondTask.at("status").as_string() == "interrupted");
+  CHECK(secondTask.at("attemptCount").as_int64() == 0);
+
+  auto const resume = e2e::runEncro(baseArgs, std::nullopt, {});
+  REQUIRE(resume.exitCode == 0);
+  auto const outputDir = temp.path / "out";
+  REQUIRE(fs::exists(outputDir));
+  auto count = std::size_t{0};
+  for (auto const& entry: fs::directory_iterator{outputDir}) {
+    if (entry.is_regular_file() && entry.path().extension() == ".webp") { ++count; }
+  }
+  CHECK(count == 2);
+}
+
+TEST_CASE("console Ctrl+C availability probe is callable", "[e2e][interrupt]") {
+  CHECK_NOTHROW(e2e::consoleCtrlEventsAvailable());
+}
+
+TEST_CASE(
+  "fake ffprobe check-input opt-in fails on missing input",
+  "[e2e][toolchain][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const existing = temp.path / "existing.avi";
+  e2e::writeTextFile(existing, "fake-video");
+  auto const missing = temp.path / "missing.avi";
+
+  auto const checkEnv =
+    std::map<std::string, std::string>{{{"ENCRO_FAKE_FFPROBE_CHECK_INPUT", "1"}}};
+  auto const probeArgs = std::vector<std::string>{"-v", "quiet", "-print_format", "json"};
+
+  auto existingArgs = probeArgs;
+  existingArgs.push_back(existing.string());
+  auto const okProbe =
+    e2e::runProcess(toolchain.ffprobePath, existingArgs, std::nullopt, checkEnv);
+  CHECK(okProbe.exitCode == 0);
+
+  auto missingArgs = probeArgs;
+  missingArgs.push_back(missing.string());
+  auto const badProbe =
+    e2e::runProcess(toolchain.ffprobePath, missingArgs, std::nullopt, checkEnv);
+  CHECK(badProbe.exitCode == 2);
+  CHECK(badProbe.stderrText.find("probe input not found") != std::string::npos);
+}
+
+TEST_CASE(
+  "encro fails when ffprobe cannot probe the input",
+  "[e2e][video][failure][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  e2e::writeTextFile(inputPath, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro(
+    {
+      "-y",
+      "-i",
+      inputPath.string(),
+      "-j",
+      "1",
+      "--state-file",
+      statePath.string(),
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    },
+    std::nullopt,
+    {
+      {"ENCRO_FAKE_FFPROBE_CHECK_INPUT", "1"},
+      {"ENCRO_FAKE_FFPROBE_EXIT_CODE", "1"},
+      {"ENCRO_FAKE_FFPROBE_STDERR", "probe failed"},
+    }
+  );
+
+  REQUIRE(result.exitCode == 1);
+  CHECK(result.stdoutText.find("Failed to encode: 1") != std::string::npos);
+  REQUIRE(fs::exists(statePath));
+  auto const state = loadJsonObject(statePath);
+  auto const& tasks = state.at("tasks").as_array();
+  REQUIRE(tasks.size() == 1);
+  CHECK(tasks.front().as_object().at("status").as_string() == "failed");
+  CHECK(listRegularFiles(temp.path / "encoded_mp4").empty());
 }
 
 TEST_CASE(
