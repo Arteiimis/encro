@@ -2,39 +2,30 @@
 
 #include "infra/env.h"
 
+#include <boost/asio/buffer.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
-#include <boost/process/v1.hpp>
+#include <boost/process/v2/environment.hpp>
+#include <boost/process/v2/process.hpp>
+#include <boost/process/v2/start_dir.hpp>
+#include <boost/process/v2/stdio.hpp>
 #include <libzippp/libzippp.h>
 
 #include <algorithm>
+#include <array>
 #include <fstream>
-#include <iterator>
 #include <thread>
 
 #if defined(_WIN32)
+  #include <boost/process/v2/windows/creation_flags.hpp>
   #include <windows.h>
 #else
   #include <csignal>
   #include <cstdlib>
 #endif
 
-namespace bp = boost::process::v1;
+namespace bp = boost::process::v2;
 
 namespace {
-
-#if defined(_WIN32)
-// boost::process v1 extension point (same pattern boost's own
-// show_window.hpp uses): make the child a process-group leader so
-// GenerateConsoleCtrlEvent can target it without signalling the test
-// runner. Verified against boost 1.90 v1 detail; a compile failure on
-// boost upgrade is the intended loud signal.
-struct NewProcessGroup: bp::detail::handler_base {
-  template<class Executor>
-  void on_setup(Executor& exec) const {
-    exec.creation_flags |= ::boost::winapi::CREATE_NEW_PROCESS_GROUP_;
-  }
-};
-#endif
 
 auto platformBinaryName(std::string_view stem) -> std::string {
 #if defined(_WIN32)
@@ -49,8 +40,16 @@ auto executableDir() -> fs::path {
   return fs::path{programPath.string()}.parent_path();
 }
 
-auto readProcessStream(bp::ipstream& stream) -> std::string {
-  return std::string{std::istreambuf_iterator<char>{stream}, {}};
+auto readProcessStream(boost::asio::readable_pipe& stream) -> std::string {
+  auto result = std::string{};
+  auto buffer = std::array<char, 4096>{};
+  for (;;) {
+    boost::system::error_code ec;
+    auto const count = stream.read_some(boost::asio::buffer(buffer), ec);
+    result.append(buffer.data(), count);
+    if (ec || count == 0) { break; }
+  }
+  return result;
 }
 
 auto setEnvVar(std::string const& key, std::optional<std::string> const& value) -> void {
@@ -92,8 +91,9 @@ auto runChild(
   std::vector<std::string> const& args,
   std::optional<fs::path> const& workingDir
 ) -> e2e::ProcessResult {
-  auto childOut = bp::ipstream{};
-  auto childErr = bp::ipstream{};
+  auto ctx = boost::asio::io_context{};
+  auto childOut = boost::asio::readable_pipe{ctx};
+  auto childErr = boost::asio::readable_pipe{ctx};
   auto const executableText = executable.string();
   auto stdoutText = std::string{};
   auto stderrText = std::string{};
@@ -111,22 +111,22 @@ auto runChild(
 
   // Null stdin: prompts must not block on the test runner's own terminal.
   if (workingDir.has_value()) {
-    auto child = bp::child(
+    auto child = bp::process{
+      ctx,
       executableText,
-      bp::args(args),
-      bp::start_dir = workingDir->string(),
-      bp::std_in<bp::null, bp::std_out> childOut,
-      bp::std_err > childErr
-    );
+      args,
+      bp::process_stdio{.in = nullptr, .out = childOut, .err = childErr},
+      bp::process_start_dir{workingDir->string()}
+    };
     return captureStreams(child);
   }
 
-  auto child = bp::child(
+  auto child = bp::process{
+    ctx,
     executableText,
-    bp::args(args),
-    bp::std_in<bp::null, bp::std_out> childOut,
-    bp::std_err > childErr
-  );
+    args,
+    bp::process_stdio{.in = nullptr, .out = childOut, .err = childErr}
+  };
   return captureStreams(child);
 }
 
@@ -149,7 +149,7 @@ auto fakeMediaToolBinaryPath() -> fs::path {
 }
 
 auto resolveToolOnPath(std::string_view executable) -> std::optional<fs::path> {
-  auto const resolved = bp::search_path(std::string{executable});
+  auto const resolved = bp::environment::find_executable(std::string{executable});
   if (resolved.empty()) { return std::nullopt; }
   return fs::path{resolved.string()};
 }
@@ -177,47 +177,48 @@ namespace {
 // Creates the child as a process-group leader on Windows (POSIX needs no
 // group: kill targets a single pid).
 auto makeChild(
+  boost::asio::io_context& ctx,
   fs::path const& executable,
   std::vector<std::string> const& args,
   std::optional<fs::path> const& workingDir,
-  bp::ipstream& stdoutStream,
-  bp::ipstream& stderrStream
-) -> bp::child {
+  boost::asio::readable_pipe& stdoutStream,
+  boost::asio::readable_pipe& stderrStream
+) -> bp::process {
   auto const executableText = executable.string();
 #if defined(_WIN32)
   if (workingDir.has_value()) {
-    return bp::child(
+    return bp::process{
+      ctx,
       executableText,
-      bp::args(args),
-      bp::start_dir = workingDir->string(),
-      bp::std_in<bp::null, bp::std_out> stdoutStream,
-      bp::std_err > stderrStream,
-      NewProcessGroup{}
-    );
+      args,
+      bp::process_stdio{.in = nullptr, .out = stdoutStream, .err = stderrStream},
+      bp::process_start_dir{workingDir->string()},
+      bp::windows::create_new_process_group
+    };
   }
-  return bp::child(
+  return bp::process{
+    ctx,
     executableText,
-    bp::args(args),
-    bp::std_in<bp::null, bp::std_out> stdoutStream,
-    bp::std_err > stderrStream,
-    NewProcessGroup{}
-  );
+    args,
+    bp::process_stdio{.in = nullptr, .out = stdoutStream, .err = stderrStream},
+    bp::windows::create_new_process_group
+  };
 #else
   if (workingDir.has_value()) {
-    return bp::child(
+    return bp::process{
+      ctx,
       executableText,
-      bp::args(args),
-      bp::start_dir = workingDir->string(),
-      bp::std_in<bp::null, bp::std_out> stdoutStream,
-      bp::std_err > stderrStream
-    );
+      args,
+      bp::process_stdio{.in = nullptr, .out = stdoutStream, .err = stderrStream},
+      bp::process_start_dir{workingDir->string()}
+    };
   }
-  return bp::child(
+  return bp::process{
+    ctx,
     executableText,
-    bp::args(args),
-    bp::std_in<bp::null, bp::std_out> stdoutStream,
-    bp::std_err > stderrStream
-  );
+    args,
+    bp::process_stdio{.in = nullptr, .out = stdoutStream, .err = stderrStream}
+  };
 #endif
 }
 
@@ -228,7 +229,7 @@ RunningProcess::RunningProcess(
   std::vector<std::string> const& args,
   std::optional<fs::path> const& workingDir
 )
-  : child_(makeChild(executable, args, workingDir, stdoutStream_, stderrStream_)) {
+  : child_(makeChild(ctx_, executable, args, workingDir, stdoutStream_, stderrStream_)) {
   stdoutReader_ =
     std::jthread([this] { stdoutText_ = readProcessStream(stdoutStream_); });
   stderrReader_ =
@@ -236,7 +237,10 @@ RunningProcess::RunningProcess(
 }
 
 RunningProcess::~RunningProcess() {
-  if (child_.valid() && child_.running()) { child_.terminate(); }
+  // Terminate before joining the readers: they block until pipe EOF, and the
+  // child keeps its write ends open while running.
+  boost::system::error_code ec;
+  if (child_.running(ec) && !ec) { child_.terminate(ec); }
   if (stdoutReader_.joinable()) { stdoutReader_.join(); }
   if (stderrReader_.joinable()) { stderrReader_.join(); }
 }
