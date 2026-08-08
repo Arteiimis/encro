@@ -9,6 +9,7 @@
 #include <iostream>
 #include <sstream>
 #include <thread>
+#include <vector>
 
 #include "test_utils.h"
 
@@ -190,4 +191,102 @@ TEST_CASE(
 
   CHECK(result.exitCode == stopsignal::kCanceledExitCode);
   CHECK(elapsed < 2s);
+}
+
+TEST_CASE("exec2 reports the child's exit code and pid", "[utils]") {
+#if defined(_WIN32)
+  auto const cmd = std::string{"cmd /c \"exit /b 7\""};
+#else
+  auto const cmd = std::string{"sh -c 'exit 7'"};
+#endif
+
+  auto const result = exec2(cmd);
+
+  CHECK(result.exitCode == 7);
+  CHECK(result.pid.has_value());
+  CHECK(result.pid.value() > 0);
+}
+
+TEST_CASE("exec2 throws when the executable cannot be launched", "[utils]") {
+  CHECK_THROWS(exec2("definitely-not-a-real-command-xyz123"));
+}
+
+TEST_CASE(
+  "exec2 merges stderr into stdout by default and discards it when disabled",
+  "[utils]"
+) {
+#if defined(_WIN32)
+  auto const cmd = std::string{"cmd /c \"echo out-line & echo err-line 1>&2\""};
+#else
+  auto const cmd = std::string{"sh -c 'echo out-line; echo err-line 1>&2'"};
+#endif
+
+  auto const merged = exec2(cmd);
+  CHECK(merged.exitCode == 0);
+  CHECK(merged.output.find("out-line") != std::string::npos);
+  CHECK(merged.output.find("err-line") != std::string::npos);
+
+  auto const separate = exec2(cmd, false);
+  CHECK(separate.exitCode == 0);
+  CHECK(separate.output.find("out-line") != std::string::npos);
+  CHECK(separate.output.find("err-line") == std::string::npos);
+}
+
+TEST_CASE("exec2 captures output larger than one pipe buffer", "[utils]") {
+#if defined(_WIN32)
+  auto const cmd = std::string{"cmd /c \"for /l %i in (1,1,20000) do @echo line-%i\""};
+#else
+  auto const cmd = std::string{"sh -c 'seq 1 20000'"};
+#endif
+
+  auto const result = exec2(cmd);
+
+  CHECK(result.exitCode == 0);
+  CHECK(result.output.size() > 100000);
+}
+
+TEST_CASE("exec2 delivers one callback per line with CRLF stripped", "[utils]") {
+#if defined(_WIN32)
+  auto const cmd = std::string{"cmd /c \"echo alpha&echo beta\""};
+#else
+  auto const cmd = std::string{"sh -c 'printf \"alpha\\r\\nbeta\\r\\n\"'"};
+#endif
+
+  auto lines = std::vector<std::string>{};
+  auto const result =
+    exec2(cmd, [&](std::string_view line) { lines.emplace_back(line); });
+
+  CHECK(result.exitCode == 0);
+  REQUIRE(lines.size() == 2);
+  CHECK(lines[0] == "alpha");
+  CHECK(lines[1] == "beta");
+}
+
+TEST_CASE("exec2 keeps partial trailing output without a newline", "[utils]") {
+#if defined(_WIN32)
+  auto const cmd =
+    std::string{"powershell -NoProfile -Command \"Write-Host -NoNewline abc\""};
+#else
+  auto const cmd = std::string{"sh -c 'printf abc'"};
+#endif
+
+  auto const result = exec2(cmd);
+
+  CHECK(result.exitCode == 0);
+  CHECK(result.output == "abc");
+}
+
+TEST_CASE("exec2 cancels promptly when a stop is already requested", "[utils]") {
+  testutils::ScopedStopSignalReset stopGuard;
+  stopsignal::requestStop();
+
+#if defined(_WIN32)
+  auto const cmd = std::string{"ping -n 10 127.0.0.1"};
+#else
+  auto const cmd = std::string{"sleep 10"};
+#endif
+
+  auto const result = exec2(cmd);
+
+  CHECK(result.exitCode == stopsignal::kCanceledExitCode);
 }
