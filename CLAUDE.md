@@ -7,7 +7,7 @@
 - **Tests (unit/integration):** `xmake build tests && xmake run tests`
 - **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)
 - **Single test:** `xmake run tests "[tag-name]"` (Catch2 tag filter)
-- **Format:** `xmake format` (apply) / `xmake format -k check` (CI). Config at `D:/clangformat/.clang-format`, NOT in repo.
+- **Format:** `xmake format` (apply) / `xmake format -k` (CI). Config at `D:/clangformat/.clang-format`, NOT in repo.
 - **Coverage:** `xmake coverage` plugin (configure→build→run→merge→report; needs `llvm-profdata` + `llvm-cov` on PATH; resets to release mode after)
 - **ASan:** `xmake f -m releasedbg`
 - **Dependency headers:** read `build/compile_commands.json` for absolute include paths (e.g., `F:\xmake\.xmake\packages\i\indicators\2.3\<hash>\include`). They live there, NOT in the repo — never search `~/.xmake`.
