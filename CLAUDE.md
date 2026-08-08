@@ -3,14 +3,14 @@
 ## Build & Run
 
 - **Build system:** xmake (not CMake). Toolchain: `clang-cl` + `lld-link` on Windows. C++26.
-- **Build:** `xmake build encro`
+- **Build:** `xmake build encro` · **Run:** `xmake run encro <args>` (e.g. `xmake run encro -h`; do NOT use `--` — it is passed through to the program and breaks CLI11 parsing)
 - **Tests (unit/integration):** `xmake build tests && xmake run tests`
 - **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)
 - **Single test:** `xmake run tests "[tag-name]"` (Catch2 tag filter)
-- **Format:** `xmake format` (apply) / `xmake format -k` (CI); `--style <file|builtin>` overrides the config at `D:/clangformat/.clang-format`, NOT in repo.
+- **Format:** `xmake format` (apply) / `xmake format -k` (CI); `--style <style>` overrides the default `file:D:/clangformat/.clang-format` (NOT in repo) — value is passed to clang-format `-style=`, e.g. `--style file:<path>` or `--style llvm`.
 - **Coverage:** `xmake coverage` runs unit tests under coverage (`--e2e` also covers e2e/encro/fake-tool; `--keep` skips the release restore; `--summary` for totals). Rebuilds in coverage mode with instrumentation self-check, then restores release. Needs `llvm-profdata` + `llvm-cov` on PATH.
 - **Size:** `xmake size` prints section sizes (llvm-size); `-d` adds per-object breakdown via PDB (auto-rebuilds the target with debug info if the PDB is missing, then restores). Default `-m release`, `-t <target>`.
-- **ASan:** `xmake f -m releasedbg`
+- **ASan:** `xmake f -m releasedbg && xmake build encro` (config then build; `xmake f` alone only reconfigures)
 - **Dependency headers:** read `build/compile_commands.json` for absolute include paths (e.g., `F:\xmake\.xmake\packages\i\indicators\2.3\<hash>\include`). They live there, NOT in the repo — never search `~/.xmake`.
 
 ### Build Modes
@@ -89,6 +89,6 @@ if (!result) { return eh::makeError("context: {}", result.error()); }  // REQUIR
 
 ## Platform & Git
 
-- **Platform:** primary Windows clang-cl (`NOMINMAX`, `WIN32_LEAN_AND_MEAN`, `_MSVC_STL_HARDENING=1`); POSIX paths in `src/utils/utils.cpp`. External ffmpeg/ffprobe discovered via PATH or `--ffmpeg-path`.
+- **Platform:** primary Windows clang-cl (`NOMINMAX`, `WIN32_LEAN_AND_MEAN`, `_MSVC_STL_HARDENING=1`); POSIX paths via `generic_string()` in `src/core/collision_naming.h`, `src/pack`, `src/picture`. External ffmpeg/ffprobe discovered via PATH or `--ffmpeg-path`.
 - **Commits:** English only (no CJK in git metadata); conventional commits (`feat:`/`fix:`/`docs:`/`test:`/`refactor:`/`chore:`), subject <72 chars; batch large working trees by functional area.
 - **Pre-commit hook:** clang-format on staged C/C++ files (`.githooks/pre-commit`; setup `git config core.hooksPath .githooks`).
