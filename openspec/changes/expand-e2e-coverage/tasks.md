@@ -47,4 +47,4 @@
 
 - [x] 9.1 `xmake format -k check` clean; `xmake build tests && xmake run tests` green; `xmake build e2e_tests && xmake run e2e_tests` green (console-dependent tests SKIP gracefully if no console)
 - [x] 9.2 `xmake run e2e_tests "[real-ffmpeg]"` with ffmpeg on PATH: all smokes pass including new mp4 ones
-- [ ] 9.3 Post-change review per CLAUDE.md (code-review skill); commit as conventional commits batched by functional area (test infra → tests → fake tool)
+- [x] 9.3 Post-change review per CLAUDE.md (code-review skill); commit as conventional commits batched by functional area (test infra → tests → fake tool)
