@@ -16,7 +16,7 @@ end
 
 if is_mode("coverage") then
   set_policy("build.optimization.lto", false)
-  add_cxxflags("-fprofile-instr-generate", "-fcoverage-mapping")
+  add_cxxflags("-fprofile-instr-generate", "-fcoverage-mapping", {force = true})
   add_ldflags("-fprofile-instr-generate", "-fcoverage-mapping", {force = true})
 end
 
@@ -53,7 +53,7 @@ add_requires("fmt")
 add_requires("indicators")
 add_requires("immer")
 add_requires("libzippp")
-add_requireconfs("libzippp.libzip", {configs = {toolchains = "clang"}})
+-- add_requireconfs("libzippp.libzip", {configs = {toolchains = "clang"}})
 add_requires("catch2")
 
 target("encro")
