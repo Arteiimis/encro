@@ -2,24 +2,28 @@
 
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
-
-#include <boost/lexical_cast.hpp>
-#include <boost/process/v1.hpp>
-#include <boost/uuid.hpp>
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
-#include <chrono>
-#include <iostream>
-#include <thread>
+#include <boost/asio/buffer.hpp>
+#include <boost/asio/connect_pipe.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/readable_pipe.hpp>
+#include <boost/asio/writable_pipe.hpp>
+#include <boost/lexical_cast.hpp>
+#include <boost/process/v2/process.hpp>
+#include <boost/process/v2/shell.hpp>
+#include <boost/process/v2/stdio.hpp>
+#include <boost/utility/string_view.hpp>
+#include <boost/uuid.hpp>
 
-#if defined(_WIN32)
-  #include <windows.h>
-#else
-  #include <atomic>
-  #include <future>
-  #include <memory>
-#endif
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <future>
+#include <iostream>
+#include <memory>
+#include <thread>
 
 DEFINE_LOGGER(logtags::UTILS_SUBPROCESS);
 
@@ -32,170 +36,66 @@ auto exec2Impl(
   std::function<void(std::string_view)> const* onLine,
   bool mergeStdErr
 ) -> ExecResult {
-  namespace bp = boost::process::v1;
+  namespace bp = boost::process::v2;
+  namespace asio = boost::asio;
   using namespace std::chrono_literals;
 
   constexpr auto kTerminateWaitTimeout = 500ms;
-#if !defined(_WIN32)
   constexpr auto kReaderWaitTimeout = 250ms;
-#endif
+  constexpr auto kPollInterval = 20ms;
 
   LOG_DEBUG("Executing command: {}", cmd);
 
-#if defined(_WIN32)
-  auto onLineCopy = onLine != nullptr ? *onLine : std::function<void(std::string_view)>{};
-  auto outputPipe = bp::pipe{};
-  auto process = mergeStdErr
-    ? bp::child(cmd.data(), bp::std_out > outputPipe, bp::std_err > outputPipe)
-    : bp::child(cmd.data(), bp::std_out > outputPipe, bp::std_err > bp::null);
+  auto ctx = asio::io_context{};
+  auto command = bp::shell{boost::string_view{cmd.data(), cmd.size()}};
+
+  // One pipe for the child's output; stdout and stderr share its write end so
+  // merged output keeps its natural interleaving.
+  auto pipeReader = asio::readable_pipe{ctx};
+  auto pipeWriter = asio::writable_pipe{ctx};
+  asio::connect_pipe(pipeReader, pipeWriter);
+  auto const writeEnd = pipeWriter.native_handle();
+
+  auto stdio = mergeStdErr ? bp::process_stdio{.out = writeEnd, .err = writeEnd}
+                           : bp::process_stdio{.out = writeEnd, .err = nullptr};
+
+  auto process = bp::process{ctx, command.exe(), command.args(), std::move(stdio)};
   auto const capturedPid = static_cast<int>(process.id());
 
-  auto closePipeSink = [&] {
-    auto const sink = outputPipe.native_sink();
-    if (sink == INVALID_HANDLE_VALUE || sink == nullptr) { return; }
-    ::CloseHandle(sink);
-    outputPipe.assign_sink(INVALID_HANDLE_VALUE);
-  };
+  // The parent must not keep a write end open, or the reader never sees EOF.
+  boost::system::error_code pipeCloseEc;
+  pipeWriter.close(pipeCloseEc);
 
-  auto closePipeSource = [&] {
-    auto const source = outputPipe.native_source();
-    if (source == INVALID_HANDLE_VALUE || source == nullptr) { return; }
-    ::CloseHandle(source);
-    outputPipe.assign_source(INVALID_HANDLE_VALUE);
-  };
-
-  auto result = std::string{};
-  auto pendingLine = std::string{};
-
-  auto appendChunk = [&](std::string_view chunk, bool allowCallbacks) {
-    result.append(chunk);
-    pendingLine.append(chunk);
-
-    auto newlinePos = pendingLine.find('\n');
-    while (newlinePos != std::string::npos) {
-      auto line = pendingLine.substr(0, newlinePos);
-      if (!line.empty() && line.back() == '\r') { line.pop_back(); }
-      if (allowCallbacks && onLineCopy) { onLineCopy(line); }
-      pendingLine.erase(0, newlinePos + 1);
-      newlinePos = pendingLine.find('\n');
-    }
-  };
-
-  auto drainAvailableOutput = [&](bool allowCallbacks) {
-    auto buffer = std::array<char, 4096>{};
-    auto totalRead = std::size_t{0};
-
-    while (true) {
-      auto const source = outputPipe.native_source();
-      if (source == INVALID_HANDLE_VALUE || source == nullptr) { return totalRead; }
-
-      auto available = DWORD{0};
-      if (!::PeekNamedPipe(source, nullptr, 0, nullptr, &available, nullptr)) {
-        auto const error = ::GetLastError();
-        if (
-          error == ERROR_BROKEN_PIPE
-          || error == ERROR_NO_DATA
-          || error == ERROR_INVALID_HANDLE
-        ) {
-          return totalRead;
-        }
-        LOG_WARN(
-          "PeekNamedPipe failed for {} with error {}",
-          cmd,
-          static_cast<unsigned long>(error)
-        );
-        return totalRead;
-      }
-
-      if (available == 0) { return totalRead; }
-
-      auto const toRead = std::min<std::size_t>(buffer.size(), available);
-      auto const readCount = outputPipe.read(buffer.data(), static_cast<int>(toRead));
-      if (readCount <= 0) { return totalRead; }
-
-      totalRead += static_cast<std::size_t>(readCount);
-      appendChunk(
-        std::string_view{buffer.data(), static_cast<std::size_t>(readCount)},
-        allowCallbacks
-      );
-    }
-  };
-
-  auto waitForExitUntil = [&](std::chrono::steady_clock::time_point deadline) {
-    while (process.running() && std::chrono::steady_clock::now() < deadline) {
-      std::this_thread::sleep_for(20ms);
-    }
-    return !process.running();
-  };
-
-  closePipeSink();
-
-  while (process.running()) {
-    drainAvailableOutput(true);
-
-    if (!stopsignal::isStopRequested()) {
-      std::this_thread::sleep_for(20ms);
-      continue;
-    }
-
-    try {
-      if (process.running()) {
-        LOG_INFO("Terminating child process due to stop request: {}", cmd);
-        process.terminate();
-      }
-    } catch (std::exception const& ex) {
-      LOG_WARN(
-        "Failed to terminate child process on stop request: {} ({})",
-        cmd,
-        ex.what()
-      );
-    }
-
-    closePipeSource();
-
-    if (!waitForExitUntil(std::chrono::steady_clock::now() + kTerminateWaitTimeout)) {
-      LOG_WARN(
-        "Child process did not exit within {} ms after terminate, detaching handle: {}",
-        kTerminateWaitTimeout.count(),
-        cmd
-      );
-      process.detach();
-    }
-
-    return {stopsignal::kCanceledExitCode, result, capturedPid};
-  }
-
-  process.wait();
-  while (drainAvailableOutput(true) > 0) { }
-  closePipeSource();
-
-  return {process.exit_code(), result, capturedPid};
-#else
-
-  auto pipeStream = std::make_shared<bp::ipstream>();
+  auto onLineCopy = onLine != nullptr ? *onLine : std::function<void(std::string_view)>{};
   auto callbackEnabled = std::make_shared<std::atomic<bool>>(true);
-  auto onLineCopy = onLine != nullptr ? *onLine : std::function<void(std::string_view)>{};
-  auto process = mergeStdErr
-    ? bp::child(cmd.data(), bp::std_out > *pipeStream, bp::std_err > *pipeStream)
-    : bp::child(cmd.data(), bp::std_out > *pipeStream, bp::std_err > bp::null);
-  auto const capturedPid = static_cast<int>(process.id());
-  auto terminatedByStop = std::atomic<bool>{false};
   auto outputPromise = std::promise<std::string>{};
   auto outputFuture = outputPromise.get_future();
 
-  auto pipeReader = std::thread([pipeStream,
-                                 callbackEnabled,
-                                 onLineCopy = std::move(onLineCopy),
-                                 outputPromise = std::move(outputPromise)]() mutable {
-    auto line = std::string{};
+  auto pipeReaderThread = std::thread([&, onLineCopy = std::move(onLineCopy)]() mutable {
     auto result = std::string{};
+    auto pendingLine = std::string{};
+    auto buffer = std::array<char, 4096>{};
 
     try {
-      while (std::getline(*pipeStream, line)) {
-        if (callbackEnabled->load(std::memory_order_acquire) && onLineCopy) {
-          onLineCopy(line);
+      for (;;) {
+        boost::system::error_code ec;
+        auto const count = pipeReader.read_some(asio::buffer(buffer), ec);
+        if (ec || count == 0) { break; }
+
+        auto const chunk = std::string_view{buffer.data(), count};
+        result.append(chunk);
+        pendingLine.append(chunk);
+
+        auto newlinePos = pendingLine.find('\n');
+        while (newlinePos != std::string::npos) {
+          auto line = pendingLine.substr(0, newlinePos);
+          if (!line.empty() && line.back() == '\r') { line.pop_back(); }
+          if (callbackEnabled->load(std::memory_order_acquire) && onLineCopy) {
+            onLineCopy(line);
+          }
+          pendingLine.erase(0, newlinePos + 1);
+          newlinePos = pendingLine.find('\n');
         }
-        std::format_to(std::back_inserter(result), "{}\n", line);
       }
 
       outputPromise.set_value(std::move(result));
@@ -206,32 +106,27 @@ auto exec2Impl(
     }
   });
 
-  auto closePipe = [&] {
-    if (!pipeStream->is_open()) { return; }
-
-    try {
-      pipeStream->close();
-    } catch (std::exception const& ex) {
-      LOG_DEBUG("Failed to close command output pipe for {}: {}", cmd, ex.what());
-    }
+  auto closePipeReader = [&] {
+    boost::system::error_code ec;
+    pipeReader.close(ec);
   };
 
   auto joinReader = [&] {
-    auto result = outputFuture.get();
-    if (pipeReader.joinable()) { pipeReader.join(); }
+    auto const result = outputFuture.get();
+    if (pipeReaderThread.joinable()) { pipeReaderThread.join(); }
     return result;
   };
 
   auto waitForExitUntil = [&](std::chrono::steady_clock::time_point deadline) {
     while (process.running() && std::chrono::steady_clock::now() < deadline) {
-      std::this_thread::sleep_for(20ms);
+      std::this_thread::sleep_for(kPollInterval);
     }
     return !process.running();
   };
 
   while (process.running()) {
     if (!stopsignal::isStopRequested()) {
-      std::this_thread::sleep_for(20ms);
+      std::this_thread::sleep_for(kPollInterval);
       continue;
     }
 
@@ -239,7 +134,6 @@ auto exec2Impl(
       if (process.running()) {
         LOG_INFO("Terminating child process due to stop request: {}", cmd);
         process.terminate();
-        terminatedByStop.store(true, std::memory_order_release);
       }
     } catch (std::exception const& ex) {
       LOG_WARN(
@@ -247,10 +141,13 @@ auto exec2Impl(
         cmd,
         ex.what()
       );
+      // terminate can race the child's natural exit (same 20 ms poll); fall
+      // through to the normal exit path instead of a spurious cancellation.
+      if (!process.running()) { break; }
     }
 
     callbackEnabled->store(false, std::memory_order_release);
-    closePipe();
+    closePipeReader();
 
     if (!waitForExitUntil(std::chrono::steady_clock::now() + kTerminateWaitTimeout)) {
       LOG_WARN(
@@ -271,15 +168,14 @@ auto exec2Impl(
       kReaderWaitTimeout.count(),
       cmd
     );
-    if (pipeReader.joinable()) { pipeReader.detach(); }
+    if (pipeReaderThread.joinable()) { pipeReaderThread.detach(); }
     return {stopsignal::kCanceledExitCode, {}, capturedPid};
   }
 
   process.wait();
-  closePipe();
+  closePipeReader();
 
   return {process.exit_code(), joinReader(), capturedPid};
-#endif
 }
 
 }  // namespace
