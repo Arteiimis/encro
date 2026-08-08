@@ -4,7 +4,7 @@ task("format")
     usage = "xmake format [options]",
     description = "Format C/C++ sources with clang-format",
     options = {
-      {"", "check", "k", nil, "Check formatting without modifying files"}
+      {"k", "check", "k", nil, "Check formatting without modifying files"}
     }
   })
 
