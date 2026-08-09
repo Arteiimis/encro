@@ -1,5 +1,7 @@
+#include "core/collision_naming.h"
 #include "core/job_state.h"
 #include "logging/log_tags.h"
+#include "logging/setup.h"
 #include "test_utils.h"
 
 #include <spdlog/logger.h>
@@ -688,4 +690,61 @@ TEST_CASE("job state mark operations report persistence failures", "[job-state]"
   );
   CHECK(content.find("Failed to persist job state after flush") != std::string::npos);
   spdlog::drop(logtags::CORE_JOB);
+}
+
+// ── RED 2.3 — fresh state adopts the logging run id as jobId ────────────────
+
+TEST_CASE("fresh job state adopts logging run id as jobId", "[job-state][run_id]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+  auto const config = makeConfig(inputPath, statePath);
+
+  logging::setRunId("expected-run-id-123");
+
+  auto store = jobstate::Store{statePath};
+  REQUIRE(store.initialize(config, false));
+  CHECK(store.currentJobId() == "expected-run-id-123");
+}
+
+// ── RED 2.5 — resume adopts the persisted jobId as the run id ───────────────
+
+TEST_CASE("resume adopts persisted jobId as logging run id", "[job-state][run_id]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+  auto const config = makeConfig(inputPath, statePath);
+
+  logging::setRunId("first-run-id");
+  auto firstStore = jobstate::Store{statePath};
+  REQUIRE(firstStore.initialize(config, false));
+  auto const persistedJobId = firstStore.currentJobId();
+  REQUIRE_FALSE(persistedJobId.empty());
+
+  // Second invocation: different bootstrap id, same state file
+  logging::setRunId("second-run-id");
+  auto resumedStore = jobstate::Store{statePath};
+  REQUIRE(resumedStore.initialize(config, false));
+
+  CHECK(logging::runId() == persistedJobId);
+}
+
+// ── 3.6 — task ids use the same normalized form as job-state records ────────
+
+TEST_CASE("encode and archive task ids use normalized path form", "[job-state]") {
+  auto const input = fs::path{R"(C:\vids\a.mkv)"};
+  auto const output = fs::path{R"(C:\vids\a.hevc.mp4)"};
+  auto const zip = fs::path{R"(C:\out\b.zip)"};
+
+  auto const encodeTask = jobstate::makeEncodeTask(input, output);
+  CHECK(
+    encodeTask.id == std::format("encode:{}", collisionnaming::stablePathString(input))
+  );
+
+  auto const archiveTask = jobstate::makeArchiveTask(zip, std::array{input}, "label");
+  CHECK(
+    archiveTask.id == std::format("archive:{}", collisionnaming::stablePathString(zip))
+  );
 }

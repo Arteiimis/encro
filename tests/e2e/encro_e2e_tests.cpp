@@ -4,7 +4,6 @@
 #include <boost/json.hpp>
 #include <catch2/catch_all.hpp>
 
-
 #include <algorithm>
 #include <fstream>
 #include <format>
@@ -1672,4 +1671,172 @@ TEST_CASE(
 
   auto const outputPath = findOutputMp4(temp.path);
   REQUIRE(outputPath.has_value());
+}
+
+// ── RED 5.6/5.7 — end-of-run summary record ─────────────────────────────────
+
+namespace {
+
+auto latestNdjsonLines(fs::path const& logRoot) -> std::vector<std::string> {
+  auto const logDir = logRoot / "encro" / "logs";
+  auto ndjsonFiles = std::vector<fs::path>{};
+  auto ec = std::error_code{};
+  for (auto const& entry: fs::directory_iterator{logDir, ec}) {
+    if (ec) { break; }
+    if (entry.is_regular_file() && entry.path().extension() == ".ndjson") {
+      ndjsonFiles.push_back(entry.path());
+    }
+  }
+  REQUIRE_FALSE(ndjsonFiles.empty());
+  std::sort(ndjsonFiles.begin(), ndjsonFiles.end());
+
+  auto const content = readTextFile(ndjsonFiles.back());
+  auto stream = std::istringstream{content};
+  auto lines = std::vector<std::string>{};
+  auto line = std::string{};
+  while (std::getline(stream, line)) {
+    if (!line.empty()) { lines.push_back(line); }
+  }
+  return lines;
+}
+
+}  // namespace
+
+TEST_CASE(
+  "successful run ends with a summary record in the ndjson log",
+  "[e2e][logging][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  e2e::writeTextFile(inputPath, "fake-video");
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const logRoot = temp.path / "logroot";
+
+  auto const result = e2e::runEncro(
+    {
+      "-y",
+      "-i",
+      inputPath.string(),
+      "-f",
+      "webp",
+      "-j",
+      "1",
+      "--log-json",
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    },
+    std::nullopt,
+    {{"LOCALAPPDATA", logRoot.string()}}
+  );
+  REQUIRE(result.exitCode == 0);
+
+  auto const lines = latestNdjsonLines(logRoot);
+  REQUIRE_FALSE(lines.empty());
+  auto const last = boost::json::parse(lines.back());
+  REQUIRE(last.is_object());
+  auto const& lastObj = last.as_object();
+  CHECK(lastObj.contains("summary"));
+  CHECK(lastObj.at("summary").as_object().at("status").as_string() == "success");
+  CHECK(lastObj.contains("run_id"));
+  CHECK_FALSE(lastObj.at("run_id").as_string().empty());
+}
+
+TEST_CASE(
+  "failed run ends with summary status failed",
+  "[e2e][logging][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const outputDir = temp.path / "out";
+  fs::create_directories(inputDir);
+  e2e::writeTextFile(inputDir / "a.jpg", "img1");
+  e2e::writeTextFile(inputDir / "b.jpg", "img2");
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const logRoot = temp.path / "logroot";
+
+  auto const result = e2e::runEncro(
+    {
+      "-y",
+      "-t",
+      "pic",
+      "-c",
+      "-i",
+      inputDir.string(),
+      "-o",
+      outputDir.string(),
+      "--log-json",
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    },
+    std::nullopt,
+    {
+      {"ENCRO_FAKE_FFMPEG_FAIL_MATCH", ".compress_tmp"},
+      {"LOCALAPPDATA", logRoot.string()},
+    }
+  );
+  REQUIRE(result.exitCode == 1);
+
+  auto const lines = latestNdjsonLines(logRoot);
+  REQUIRE_FALSE(lines.empty());
+  auto const last = boost::json::parse(lines.back());
+  REQUIRE(last.is_object());
+  auto const& lastObj = last.as_object();
+  CHECK(lastObj.contains("summary"));
+  CHECK(lastObj.at("summary").as_object().at("status").as_string() == "failed");
+}
+
+TEST_CASE(
+  "interrupted run ends with summary status interrupted",
+  "[e2e][logging][interrupt][fake-toolchain]"
+) {
+  requireConsoleCtrlOrSkip();
+
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const toolLog = temp.path / "fake-tool.log";
+  auto const probeJson = temp.path / "probe.json";
+  e2e::writeTextFile(inputPath, "fake-video");
+  e2e::writeTextFile(
+    probeJson,
+    R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
+  );
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const logRoot = temp.path / "logroot";
+
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", toolLog.string()},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+    {"ENCRO_FAKE_FFMPEG_DELAY_MS", "15000"},
+    {"LOCALAPPDATA", logRoot.string()},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--log-json",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, env);
+  REQUIRE(waitUntil(std::chrono::seconds{10}, [&] { return encodeInFlight(toolLog); }));
+
+  CHECK(proc.sendCtrlC());
+  auto const interrupted = proc.wait(std::chrono::seconds{10});
+  REQUIRE(interrupted.has_value());
+  CHECK(interrupted->exitCode == stopsignal::kCanceledExitCode);
+
+  auto const lines = latestNdjsonLines(logRoot);
+  REQUIRE_FALSE(lines.empty());
+  auto const last = boost::json::parse(lines.back());
+  REQUIRE(last.is_object());
+  CHECK(last.as_object().contains("summary"));
+  CHECK(
+    last.as_object().at("summary").as_object().at("status").as_string() == "interrupted"
+  );
 }

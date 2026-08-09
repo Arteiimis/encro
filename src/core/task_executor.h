@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,9 @@ struct TaskContext {
 struct TaskSpec {
   std::string id;
   std::string label;
+  // Set for business tasks (video encode, pack, picture compress); probe/
+  // prewarm helper tasks leave it empty so records carry no task correlation.
+  std::optional<std::string> input;
   std::function<eh::Result<void>(TaskContext&)> run;
 };
 

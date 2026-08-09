@@ -1,5 +1,7 @@
 #pragma once
 
+#include "logging/setup.h"
+
 #include <spdlog/formatter.h>
 #include <spdlog/spdlog.h>
 
@@ -25,6 +27,8 @@ private:
   static auto formatTimestamp(spdlog::log_clock::time_point tp) -> std::string;
   static auto extractErrorContext(std::string_view payload) -> std::vector<std::string>;
   static auto extractElapsedMs(std::string_view payload) -> std::optional<int64_t>;
+  static auto extractAttributes(std::string_view payload)
+    -> std::pair<std::optional<std::size_t>, std::optional<boost::json::object>>;
 };
 
 // ── Implementation ──────────────────────────────────────────────────────────
@@ -56,8 +60,17 @@ JsonFormatter::format(spdlog::details::log_msg const& msg, spdlog::memory_buf_t&
   // Payload processing: extract optional fields, strip context suffix
   auto const payload = std::string_view{msg.payload.data(), msg.payload.size()};
 
+  // Attrs suffix is appended last by the LOG_* macros; parse it before context
+  // so context extraction stops at the attrs marker.
+  auto const [attrsText, attrs] = extractAttributes(payload);
+
   auto message = std::string{payload};
   auto ctxFrames = extractErrorContext(payload);
+
+  if (attrsText.has_value()) {
+    // Strip attrs suffix from the message
+    message = std::string{payload.substr(0, attrsText.value())};
+  }
 
   if (!ctxFrames.empty()) {
     // Strip context suffix: everything before " [context:"
@@ -72,6 +85,50 @@ JsonFormatter::format(spdlog::details::log_msg const& msg, spdlog::memory_buf_t&
   }
 
   obj["message"] = std::move(message);
+
+  // Correlation fields from the attribute chain (never override fixed fields)
+  if (attrs.has_value()) {
+    for (auto const& [key, value]: attrs.value()) {
+      if (!obj.contains(key)) { obj[key] = value; }
+    }
+  }
+
+  // run_id: stable per run, injected for every record
+  obj["run_id"] = runId();
+
+  // End-of-run summary: turn the RUN SUMMARY: key=value body into a summary
+  // object (log path + level_counts attached here, not in the body string)
+  if (payload.starts_with("RUN SUMMARY: ")) {
+    auto summary = json::object{};
+    auto summaryEc = boost::system::error_code{};
+    auto rest = payload.substr(std::string_view{"RUN SUMMARY: "}.size());
+    while (!rest.empty()) {
+      auto const space = rest.find(' ');
+      auto const token = (space == std::string_view::npos) ? rest : rest.substr(0, space);
+      auto const eq = token.find('=');
+      if (eq != std::string_view::npos) {
+        auto const key = token.substr(0, eq);
+        auto const value = token.substr(eq + 1);
+        // log/level_counts are regenerated authoritatively below
+        if (key == "log" || key == "level_counts") { /* skip */
+        } else if (key == "tasks_total" || key == "tasks_failed" || key == "elapsed_ms") {
+          auto const parsed = json::parse(value, summaryEc);
+          summary[key] = parsed;
+        } else {
+          summary[key] = json::string{value};
+        }
+      }
+      if (space == std::string_view::npos) { break; }
+      rest.remove_prefix(space + 1);
+    }
+    if (auto const logPath = currentLogFilePath(); logPath.has_value()) {
+      summary["log"] = json::string{logPath->string()};
+    }
+    auto levelCountsObj = json::object{};
+    for (auto const& [level, count]: levelCounts()) { levelCountsObj[level] = count; }
+    summary["level_counts"] = std::move(levelCountsObj);
+    obj["summary"] = std::move(summary);
+  }
 
   // Optional: elapsed_ms from ScopedTimer completion pattern
   if (auto const elapsed = extractElapsedMs(payload)) { obj["elapsed_ms"] = *elapsed; }
@@ -90,7 +147,15 @@ inline auto JsonFormatter::clone() const -> std::unique_ptr<spdlog::formatter> {
 
 inline auto JsonFormatter::formatTimestamp(spdlog::log_clock::time_point tp)
   -> std::string {
-  return std::format("{:%Y-%m-%dT%H:%M:%SZ}", tp);
+  // RFC 3339 UTC with millisecond precision: YYYY-MM-DDTHH:MM:SS.sssZ
+  // (matches the human pattern's %e precision)
+  auto const millis =
+    std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch());
+  // Second precision so %S does not re-emit the fraction
+  auto const wholeSeconds =
+    std::chrono::sys_seconds{std::chrono::seconds{millis.count() / 1000}};
+  auto const ms = millis.count() % 1000;
+  return std::format("{:%Y-%m-%dT%H:%M:%S}.{:03d}Z", wholeSeconds, ms);
 }
 
 inline auto JsonFormatter::extractErrorContext(std::string_view payload)
@@ -99,9 +164,15 @@ inline auto JsonFormatter::extractErrorContext(std::string_view payload)
   auto const markerPos = payload.rfind(" [context:");
   if (markerPos == std::string_view::npos) { return {}; }
 
-  // Content between " [context: " and trailing "]"
+  // Content between " [context: " and the attrs marker (or trailing "]")
   auto const contentStart = markerPos + 11;  // strlen(" [context: ") == 11
-  auto const contentEnd = payload.size();
+  auto contentEnd = payload.size();
+  if (
+    auto const attrsPos = payload.rfind(" [attrs: ");
+    attrsPos != std::string_view::npos && attrsPos > markerPos
+  ) {
+    contentEnd = attrsPos;
+  }
   if (contentStart >= contentEnd) { return {}; }
 
   // Trim trailing "]"
@@ -142,6 +213,26 @@ inline auto JsonFormatter::extractElapsedMs(std::string_view payload)
   }
 
   return value;
+}
+
+inline auto JsonFormatter::extractAttributes(std::string_view payload)
+  -> std::pair<std::optional<std::size_t>, std::optional<boost::json::object>> {
+  namespace json = boost::json;
+
+  // Attrs suffix is appended last: " [attrs: {json-object}]"
+  auto const markerPos = payload.rfind(" [attrs: ");
+  if (markerPos == std::string_view::npos) { return {std::nullopt, std::nullopt}; }
+
+  // The suffix structure guarantees the final character is "]" (the object's
+  // own closing brace belongs to the JSON). Strip it and parse the object.
+  auto attrsText = payload.substr(markerPos + 9);  // strlen(" [attrs: ") == 9
+  if (!attrsText.ends_with("]")) { return {std::nullopt, std::nullopt}; }
+  attrsText.remove_suffix(1);
+
+  auto ec = boost::system::error_code{};
+  auto parsed = json::parse(attrsText, ec);
+  if (parsed.is_object()) { return {markerPos, parsed.as_object()}; }
+  return {std::nullopt, std::nullopt};
 }
 
 }  // namespace logging

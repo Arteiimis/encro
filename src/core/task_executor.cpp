@@ -68,6 +68,18 @@ auto runTasks(TaskPlan const& plan) -> TaskRunResult {
       auto taskCtx = TaskContext{.slot = slot, .progress = progressCtx};
       auto const& task = plan.tasks[taskIndex];
 
+      // Business tasks stamp task_id/input on every record emitted while
+      // they run; probe tasks (no input) stay uncorrelated.
+      auto attrs = std::optional<logging::ScopedLogAttributes>{};
+      if (task.input.has_value()) {
+        attrs.emplace(
+          std::initializer_list<std::pair<std::string_view, std::string_view>>{
+            {std::string_view{"task_id"}, task.id},
+            {std::string_view{"input"}, task.input.value()},
+          }
+        );
+      }
+
       if (!task.run) {
         results[taskIndex] =
           makeTaskError(std::format("Task runner is not set: {}", task.id));

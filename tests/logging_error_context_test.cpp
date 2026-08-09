@@ -1,6 +1,8 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
+#include <boost/json.hpp>
+
 #include <spdlog/logger.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
@@ -42,8 +44,14 @@ auto registerCapturingLoggerForContext(char const* name)
 // ── Helper: RAII guard that clears the TLS context stack before and after test ──
 
 struct ScopedContextReset {
-  ScopedContextReset() { logging::detail::resetContextStack(); }
-  ~ScopedContextReset() { logging::detail::resetContextStack(); }
+  ScopedContextReset() {
+    logging::detail::resetContextStack();
+    logging::detail::resetAttributeStack();
+  }
+  ~ScopedContextReset() {
+    logging::detail::resetContextStack();
+    logging::detail::resetAttributeStack();
+  }
   ScopedContextReset(ScopedContextReset const&) = delete;
   auto operator=(ScopedContextReset const&) -> ScopedContextReset& = delete;
 };
@@ -434,4 +442,133 @@ TEST_CASE("LOG_INFO does not append context chain", "[logging][error_context]") 
   CAPTURE(output);
   CHECK(output.find("info message") != std::string::npos);
   CHECK(output.find("[context:") == std::string::npos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 17 — ScopedLogAttributes serializes as [attrs: {...}] suffix (RED 1.1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+  "ScopedLogAttributes serializes as attrs suffix",
+  "[logging][error_context][scoped_log_attributes]"
+) {
+  ScopedContextReset reset;
+
+  logging::ScopedLogAttributes
+    attrs({{"task_id", "encode:a.mkv"}, {"input", R"(C:\vids\a.mkv)"}});
+  auto const chain = logging::detail::formatAttributeChain();
+
+  CAPTURE(chain);
+  CHECK(chain.starts_with(" [attrs: {"));
+  CHECK(chain.ends_with("}]"));
+  CHECK(chain.find(R"("task_id":"encode:a.mkv")") != std::string::npos);
+  CHECK(chain.find(R"("input":"C:\\vids\\a.mkv")") != std::string::npos);
+
+  // The serialized object must be valid JSON after stripping the wrapper
+  namespace json = boost::json;
+  auto const objectText =
+    chain.substr(9, chain.size() - 10);  // strip " [attrs: " and the trailing "]"
+  auto const parsed = json::parse(objectText);
+  CHECK(parsed.is_object());
+  CHECK(parsed.as_object().at("task_id").as_string() == "encode:a.mkv");
+  CHECK(parsed.as_object().at("input").as_string() == R"(C:\vids\a.mkv)");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 18 — Attrs frames pop on destruction
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+  "ScopedLogAttributes pops on destruction",
+  "[logging][error_context][scoped_log_attributes]"
+) {
+  ScopedContextReset reset;
+
+  std::string inside;
+  {
+    logging::ScopedLogAttributes attrs({{"task_id", "t1"}});
+    inside = logging::detail::formatAttributeChain();
+  }
+  auto const outside = logging::detail::formatAttributeChain();
+
+  CAPTURE(inside);
+  CAPTURE(outside);
+  CHECK_FALSE(inside.empty());
+  CHECK(outside.empty());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 19 — Innermost attribute shadows outer keys
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+  "Innermost attribute shadows outer keys",
+  "[logging][error_context][scoped_log_attributes]"
+) {
+  ScopedContextReset reset;
+
+  logging::ScopedLogAttributes outer({{"task_id", "outer"}, {"input", "outer-file"}});
+  {
+    logging::ScopedLogAttributes inner({{"task_id", "inner"}});
+    auto const chain = logging::detail::formatAttributeChain();
+    CAPTURE(chain);
+    CHECK(chain.find(R"("task_id":"inner")") != std::string::npos);
+    CHECK(chain.find(R"("task_id":"outer")") == std::string::npos);
+    CHECK(chain.find(R"("input":"outer-file")") != std::string::npos);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 20 — Attribute stack caps at 16 frames with FIFO eviction
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+  "Attribute stack caps at 16 frames with FIFO eviction",
+  "[logging][error_context][scoped_log_attributes]"
+) {
+  ScopedContextReset reset;
+
+  auto guards = std::vector<std::unique_ptr<logging::ScopedLogAttributes>>{};
+  guards.reserve(20);
+  for (auto i = 0; i < 20; ++i) {
+    guards.push_back(
+      std::make_unique<logging::ScopedLogAttributes>(
+        std::initializer_list<std::pair<std::string_view, std::string_view>>{
+          {std::to_string(i), std::to_string(i)},
+        }
+      )
+    );
+  }
+
+  auto const chain = logging::detail::formatAttributeChain();
+  CAPTURE(chain);
+  CHECK(chain.find(R"("0":"0")") == std::string::npos);    // oldest evicted
+  CHECK(chain.find(R"("19":"19")") != std::string::npos);  // newest retained
+
+  // Reset helper leaves a clean stack (no leak across test cases)
+  logging::detail::resetAttributeStack();
+  CHECK(logging::detail::formatAttributeChain().empty());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 21 — Attribute values with quotes and control chars are JSON-escaped
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+  "Attribute values with quotes are JSON-escaped",
+  "[logging][error_context][scoped_log_attributes]"
+) {
+  ScopedContextReset reset;
+
+  logging::ScopedLogAttributes attrs({{"input", R"(C:\dir with "quotes"\a"b.mkv)"}});
+  auto const chain = logging::detail::formatAttributeChain();
+  CAPTURE(chain);
+  CHECK(chain.find(R"(\")") != std::string::npos);
+  CHECK(chain.find("quotes") != std::string::npos);
+  CHECK(chain.find("a\"b") == std::string::npos);  // raw quote must not appear
+
+  namespace json = boost::json;
+  auto const objectText = chain.substr(9, chain.size() - 10);
+  auto const parsed = json::parse(objectText);
+  CHECK(parsed.as_object().at("input").as_string() == R"(C:\dir with "quotes"\a"b.mkv)");
 }

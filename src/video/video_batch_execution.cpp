@@ -4,6 +4,7 @@
 #include "video/video_workflow_utils.h"
 
 #include "core/display_text.h"
+#include "core/collision_naming.h"
 #include "core/job_state.h"
 #include "core/task_executor.h"
 #include "infra/stop_signal.h"
@@ -269,6 +270,14 @@ auto runEncodingWithoutProgress(
     }
 
     LOG_DEBUG("Start encoding (no-progress): {}", vidPath.string());
+    auto const taskId =
+      state.actionId
+        .value_or(std::format("encode:{}", collisionnaming::stablePathString(vidPath)));
+    // Same correlation as the executor path: task_id + input on every record
+    auto attrs = logging::ScopedLogAttributes(
+      {{std::string_view{"task_id"}, taskId},
+       {std::string_view{"input"}, vidPath.string()}}
+    );
     markRunningNoProgress(ctx, state.actionId);
 
     auto const success = encodeVideo(ctx, state, {});
@@ -382,8 +391,9 @@ auto videobatch::runEncodingTasks(
   tasks.reserve(vids.size());
   for (auto taskIndex = std::size_t{0}; taskIndex < vids.size(); ++taskIndex) {
     tasks.push_back({
-      .id = std::format("encode:{}", vids[taskIndex].string()),
+      .id = std::format("encode:{}", collisionnaming::stablePathString(vids[taskIndex])),
       .label = vids[taskIndex].filename().string(),
+      .input = vids[taskIndex].string(),
       .run = [&, taskIndex, vidPath = vids[taskIndex]](taskexec::TaskContext& taskCtx) {
         try {
           return runEncodingTask(executionCtx, taskIndex, vidPath, taskCtx.slot);

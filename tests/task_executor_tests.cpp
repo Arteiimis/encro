@@ -14,6 +14,7 @@
 #include <chrono>
 #include <format>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -21,6 +22,8 @@
 #include <vector>
 
 using namespace std::chrono_literals;
+
+DEFINE_LOGGER(logtags::TEST_INFRA);
 
 namespace {
 
@@ -198,4 +201,119 @@ TEST_CASE(
   // Cleanup: remove the test logger so later logging::setup() calls (in other
   // test cases) can re-register the full named-logger set without conflicts.
   spdlog::drop(logtags::CORE_TASK);
+}
+
+// ── RED 3.2 — tasks with an input stamp task_id/input on records ────────────
+
+TEST_CASE(
+  "runTasks logs task_id/input attributes for tasks with an input",
+  "[task-executor][run_id]"
+) {
+  auto [logger, oss] = registerCapturingLogger(logtags::TEST_INFRA);
+  logging::detail::resetAttributeStack();
+
+  auto const plan = taskexec::TaskPlan{
+    .tasks =
+      {
+        taskexec::TaskSpec{
+          .id = "encode:vid.mkv",
+          .label = "vid.mkv",
+          .input = "C:/vids/vid.mkv",
+          .run = [](taskexec::TaskContext&) -> eh::Result<void> {
+            LOG_INFO("inside task");
+            return {};
+          },
+        },
+      },
+    .maxConcurrency = 1,
+  };
+  auto const result = taskexec::runTasks(plan);
+  REQUIRE(result.results.size() == 1);
+  REQUIRE(result.results[0]);
+
+  logger->flush();
+  auto const output = oss->str();
+  CAPTURE(output);
+  CHECK(output.find("[attrs: {") != std::string::npos);
+  CHECK(output.find(R"("task_id":"encode:vid.mkv")") != std::string::npos);
+  CHECK(output.find(R"("input":"C:/vids/vid.mkv")") != std::string::npos);
+}
+
+TEST_CASE(
+  "runTasks does not stamp attributes for tasks without an input",
+  "[task-executor][run_id]"
+) {
+  auto [logger, oss] = registerCapturingLogger(logtags::TEST_INFRA);
+  logging::detail::resetAttributeStack();
+
+  auto const plan = taskexec::TaskPlan{
+    .tasks =
+      {
+        taskexec::TaskSpec{
+          .id = "probe:vid.mkv",
+          .label = "probe",
+          .run = [](taskexec::TaskContext&) -> eh::Result<void> {
+            LOG_INFO("inside probe task");
+            return {};
+          },
+        },
+      },
+    .maxConcurrency = 1,
+  };
+  auto const result = taskexec::runTasks(plan);
+  REQUIRE(result.results.size() == 1);
+  REQUIRE(result.results[0]);
+
+  logger->flush();
+  auto const output = oss->str();
+  CAPTURE(output);
+  CHECK(output.find("inside probe task") != std::string::npos);
+  CHECK(output.find("[attrs:") == std::string::npos);
+}
+
+TEST_CASE(
+  "task attributes do not leak between tasks in one run",
+  "[task-executor][run_id]"
+) {
+  auto [logger, oss] = registerCapturingLogger(logtags::TEST_INFRA);
+  logging::detail::resetAttributeStack();
+
+  // Task 1 carries an input; task 2 (probe-style) runs after it on the same
+  // worker thread. Task 2's records must not carry task 1's attributes.
+  auto const plan = taskexec::TaskPlan{
+    .tasks =
+      {
+        taskexec::TaskSpec{
+          .id = "encode:first.mkv",
+          .label = "first.mkv",
+          .input = "C:/vids/first.mkv",
+          .run = [](taskexec::TaskContext&) -> eh::Result<void> {
+            LOG_INFO("first task body");
+            return {};
+          },
+        },
+        taskexec::TaskSpec{
+          .id = "probe:second",
+          .label = "second",
+          .run = [](taskexec::TaskContext&) -> eh::Result<void> {
+            LOG_INFO("second task body");
+            return {};
+          },
+        },
+      },
+    .maxConcurrency = 1,
+  };
+  auto const result = taskexec::runTasks(plan);
+  REQUIRE(result.results.size() == 2);
+
+  logger->flush();
+  auto const output = oss->str();
+  CAPTURE(output);
+  CHECK(output.find("first task body") != std::string::npos);
+  CHECK(output.find("second task body") != std::string::npos);
+  // The second task's line must not carry the first task's attributes
+  auto const secondPos = output.find("second task body");
+  auto const lineEnd = output.find('\n', secondPos);
+  auto const secondLine = output.substr(secondPos, lineEnd - secondPos);
+  CHECK(secondLine.find("[attrs:") == std::string::npos);
 }

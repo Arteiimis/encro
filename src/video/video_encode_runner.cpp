@@ -518,8 +518,9 @@ auto runSegmentedEncoding(
   EncodeExecutionPlan const& plan,
   function_ref statusUpdater
 ) -> bool {
-  auto const taskId =
-    state.actionId.value_or(std::format("encode:{}", state.inputPath.string()));
+  auto const taskId = state.actionId.value_or(
+    std::format("encode:{}", collisionnaming::stablePathString(state.inputPath))
+  );
   auto const segmentDir = videoseg::segmentDirForTask(taskId);
 
   auto resumeSegment = std::uint64_t{0};

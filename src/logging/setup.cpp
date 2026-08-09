@@ -4,6 +4,7 @@
 #include "infra/terminal.h"
 #include "logging/json_formatter.h"
 #include "logging/log_tags.h"
+#include "utils/utils.h"
 
 #include <spdlog/async.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -13,9 +14,11 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <system_error>
@@ -35,9 +38,10 @@ static auto gPoolInitMutex = std::mutex{};
 auto readWindowsEnvPath(char const* name) -> std::optional<fs::path> {
   auto value = std::unique_ptr<char>{};
   auto size = std::size_t{0};
-  if (_dupenv_s(std::out_ptr(value), &size, name) != 0 || value == nullptr || size == 0) {
-    return std::nullopt;
-  }
+  // Note: the out_ptr write-back happens when the temporary is destroyed, so
+  // `value` must not be inspected inside the same full-expression.
+  auto const rc = _dupenv_s(std::out_ptr(value), &size, name);
+  if (rc != 0 || value == nullptr || size == 0) { return std::nullopt; }
 
   auto result = fs::path{value.get()};
   if (result.empty()) { return std::nullopt; }
@@ -71,6 +75,39 @@ auto resolveCommonLogDir() -> fs::path {
 // ── Single log pattern (D-03 compatible — source location in message body, not %s:%#) ──
 
 constexpr auto kLogPattern = "[%Y-%m-%dT%H:%M:%S.%e%z] [%^%l%$] [%n] %v";
+
+// ── Pass-through counting sink (D6: level_counts for the summary) ──────────
+// Sits at the head of the sink chain, increments an atomic per level, forwards
+// the record unchanged. One instance shared by all loggers (they all receive
+// the same sink vector), so counts are global for the run.
+
+class LevelCountingSink final: public spdlog::sinks::sink {
+public:
+  explicit LevelCountingSink(spdlog::sink_ptr next): next_(std::move(next)) { }
+
+  auto log(spdlog::details::log_msg const& msg) -> void override {
+    ++counts_[static_cast<std::size_t>(msg.level)];
+    next_->log(msg);
+  }
+
+  auto flush() -> void override { next_->flush(); }
+
+  auto set_pattern(std::string const& pattern) -> void override {
+    next_->set_pattern(pattern);
+  }
+
+  auto set_formatter(std::unique_ptr<spdlog::formatter> sinkFormatter) -> void override {
+    next_->set_formatter(std::move(sinkFormatter));
+  }
+
+  auto count(std::size_t level) const -> std::uint64_t {
+    return counts_[level].load(std::memory_order_relaxed);
+  }
+
+private:
+  spdlog::sink_ptr next_;
+  std::array<std::atomic<std::uint64_t>, spdlog::level::n_levels> counts_{};
+};
 
 // ── All module tag list ─────────────────────────────────────────────────────
 
@@ -136,9 +173,90 @@ namespace logging {
 
 static auto gCurrentLogFilePath = std::optional<fs::path>{};
 
+// ── Run id (D3: bootstrap + job-state adoption) ────────────────────────────
+
+static auto gRunIdMutex = std::mutex{};
+static auto gRunId = std::string{};
+
+// ── Counting sink + summary (D6) ───────────────────────────────────────────
+
+static auto gCountingSink = std::shared_ptr<LevelCountingSink>{};
+// Snapshot taken at shutdown so levelCounts() stays queryable after the
+// sink chain (and its file handles) is released.
+static auto gLevelCountSnapshot = std::map<std::string, std::uint64_t>{};
+
+namespace {
+
+auto levelName(std::size_t level) -> std::string {
+  auto const sv =
+    spdlog::level::to_string_view(static_cast<spdlog::level::level_enum>(level));
+  return std::string{sv.data(), sv.size()};
+}
+
+auto readLiveCounts() -> std::map<std::string, std::uint64_t> {
+  auto counts = std::map<std::string, std::uint64_t>{};
+  if (gCountingSink == nullptr) { return counts; }
+  for (auto level = std::size_t{0}; level < spdlog::level::n_levels; ++level) {
+    auto const count = gCountingSink->count(level);
+    if (count > 0) { counts[levelName(level)] = count; }
+  }
+  return counts;
+}
+
+}  // namespace
+
+auto levelCounts() -> std::map<std::string, std::uint64_t> {
+  if (gCountingSink != nullptr) { return readLiveCounts(); }
+  return gLevelCountSnapshot;
+}
+
+auto logRunSummary(SummaryData const& data) -> void {
+  // key=value body, values guaranteed space-free (log path and level_counts
+  // are appended last; the formatter regenerates them authoritatively)
+  auto body = std::string{"RUN SUMMARY: status="};
+  body += data.status;
+  if (data.jobId.has_value()) { body += " jobId=" + data.jobId.value(); }
+  if (data.tasksTotal.has_value()) {
+    body += " tasks_total=" + std::to_string(data.tasksTotal.value());
+  }
+  if (data.tasksFailed.has_value()) {
+    body += " tasks_failed=" + std::to_string(data.tasksFailed.value());
+  }
+  if (data.elapsedMs.has_value()) {
+    body += " elapsed_ms=" + std::to_string(data.elapsedMs.value());
+  }
+  // Level counts (JSON, space-free) and log path complete the human-readable
+  // line so it carries the same information as the NDJSON summary object.
+  body += " level_counts={";
+  auto first = true;
+  for (auto const& [level, count]: levelCounts()) {
+    if (!first) { body += ','; }
+    first = false;
+    body += level + ":" + std::to_string(count);
+  }
+  body += "} log=";
+  body += currentLogFilePath().value_or(fs::path{}).string();
+
+  auto* logger = spdlog::default_logger_raw();
+  if (logger != nullptr) { logger->info(body); }
+}
+
+auto runId() -> std::string {
+  auto lock = std::scoped_lock{gRunIdMutex};
+  if (gRunId.empty()) { gRunId = getUUID(); }
+  return gRunId;
+}
+
+auto setRunId(std::string id) -> void {
+  auto lock = std::scoped_lock{gRunIdMutex};
+  gRunId = std::move(id);
+}
+
 auto setup(LogConfig const& config) -> std::optional<fs::path> {
   gCurrentLogFilePath = std::nullopt;
 
+  // Bootstrap run id for this run; job state adopts it later (or overrides on resume)
+  setRunId(getUUID());
   // 1. Resolve log directory (D-21: hardened fallback chain)
   auto logDir =
     config.customLogDir.has_value() ? config.customLogDir.value() : resolveCommonLogDir();
@@ -244,6 +362,14 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     if (!gPoolInitialized.exchange(true)) { spdlog::init_thread_pool(8192, 1); }
   }
 
+  // 5b. Counting sink at the head of the chain (shared by all loggers)
+  if (!sinks.empty()) {
+    gCountingSink = std::make_shared<LevelCountingSink>(sinks.front());
+    sinks.insert(sinks.begin(), gCountingSink);
+  } else {
+    gCountingSink = nullptr;
+  }
+
   // 6. Create one named async_logger per module tag, sharing the same sinks
   for (auto const* tag: allModuleTags()) {
     auto logger = std::make_shared<spdlog::async_logger>(
@@ -285,6 +411,12 @@ auto shutdown() -> void {
   spdlog::shutdown();
   gPoolInitialized = false;
   gCurrentLogFilePath = std::nullopt;
+  // Snapshot counts, then release the chain so wrapped file sinks flush and
+  // close their handles (kept alive only by the global shared_ptr).
+  gLevelCountSnapshot = readLiveCounts();
+  gCountingSink.reset();
+  // Reset so tests get a fresh lazy id after teardown
+  setRunId("");
 }
 
 auto currentLogFilePath() -> std::optional<fs::path> {

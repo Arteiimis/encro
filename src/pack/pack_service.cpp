@@ -3,6 +3,7 @@
 
 #include "core/job_state.h"
 #include "core/task_executor.h"
+#include "core/collision_naming.h"
 
 #include "infra/terminal.h"
 
@@ -235,8 +236,9 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
     auto const label = internal::resolveProgressLabelForIndex(plan, index);
 
     tasks.push_back({
-      .id = std::format("pack:{}", index),
+      .id = std::format("archive:{}", collisionnaming::stablePathString(zipPath)),
       .label = label,
+      .input = zipPath.string(),
       .run = [&, index, zipPath, label](taskexec::TaskContext& taskCtx) {
         recorder.notifyGroupStart(index);
         return runGroup(index, zipPath, label, taskCtx, recorder);
