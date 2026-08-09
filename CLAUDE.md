@@ -91,4 +91,7 @@ if (!result) { return eh::makeError("context: {}", result.error()); }  // REQUIR
 
 - **Platform:** primary Windows clang-cl (`NOMINMAX`, `WIN32_LEAN_AND_MEAN`, `_MSVC_STL_HARDENING=1`); POSIX paths via `generic_string()` in `src/core/collision_naming.h`, `src/pack`, `src/picture`. External ffmpeg/ffprobe discovered via PATH or `--ffmpeg-path`.
 - **Commits:** English only (no CJK in git metadata); conventional commits (`feat:`/`fix:`/`docs:`/`test:`/`refactor:`/`chore:`), subject <72 chars; batch large working trees by functional area.
+  - **OpenSpec planning artifacts** (proposal/specs/design) are committed *before* implementation, as their own `docs:` commit — they describe what will be built, not the build itself.
+  - **Implementation + its tests + the change's `tasks.md` checkboxes go in ONE commit** (atomic: `git revert` removes the feature and its completion state together; no "code gone but tasks still checked" intermediate state).
+  - A code change and its documentation belong in the same commit when they tell one story; split only when the docs are a prerequisite (planning) or an independent deliverable (user guide).
 - **Pre-commit hook:** clang-format on staged C/C++ files (`.githooks/pre-commit`; setup `git config core.hooksPath .githooks`).
