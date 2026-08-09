@@ -18,13 +18,13 @@ The audit behind this change (see proposal.md — Why) identified that diagnosab
 
 ## Decisions
 
-### D1: Job-state persistence failures propagate via `eh::Result`
+### D1: Job-state persistence failures propagate via `eh::Result` (mutators log internally)
 
-`detail::flushSnapshot` and `Store::flushLocked` change from `void` to `eh::Result<void>`; every `mark*` / `initialize` / `setStage` method returns `eh::Result<void>`. Call sites check and `LOG_ERROR` on failure; `initialize` propagates so a failed initial flush fails the run at the top-level error path.
+`detail::flushSnapshot` and `Store::flushLocked` change from `void` to `eh::Result<void>`; `initialize` propagates so a failed initial flush fails the run at the top-level error path. The best-effort mutators (`mark*` / `setStage` / `requestCancel` / `flush`) stay `void`; a private `persistLocked(operation, force)` helper runs every save and `LOG_ERROR`s the failure with the operation name, so a failed save is always visible and call sites need no per-call handling.
 
-- *Why*: The operation is already an atomic-temp-file+rename sequence (job_state.cpp:509-536) with error codes available — returning them costs nothing and makes every save path checkable. Compile-time enforcement catches all 13 call sites.
-- *Alternatives considered*: (a) Store keeps a `lastPersistError()` getter — adds state and a second read path, and callers still must remember to check; (b) swallow-and-continue (status quo) — the bug. Rejected.
-- *Hot-path note*: `markProgress` may run on the 20ms monitor loop; the error check is `if (!res)` only, so a failed save logs exactly once per failure, no perf impact.
+- *Why*: Every mutator call site (27 across video/picture/pack) has no recovery action — the encode/pack outcome is already decided, and a propagation channel would be discarded anyway (all callers sit in `void(Store&)` lambdas or tail positions). Returning `eh::Result<void>` everywhere produced only `[[nodiscard]]` warnings and `(void)` noise; the truthful contract is *best-effort, failures logged*. `initialize` keeps its result because it has a real consumer (pipeline → top-level error path).
+- *Alternatives considered*: (a) every call site checks and logs — duplicate log records (the store already logged) and noise at 27 sites; (b) swallow-and-continue (status quo) — the bug. Rejected. (c) `eh::Result<void>` on all mutators — signature-only propagation, warnings, no consumer. Rejected after implementation review.
+- *Hot-path note*: `markProgress` may run on the 20ms monitor loop; failures are throttled by the existing `lastFlushAtMs` gate and log once per save attempt.
 
 ### D2: Pack run failure = any task result failure
 

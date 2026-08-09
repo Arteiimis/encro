@@ -94,50 +94,52 @@ public:
 
   auto findTask(std::string_view id) const -> std::optional<TaskRecord>;
 
-  auto setStage(std::string_view stage) -> eh::Result<void>;
+  // Best-effort persistence: a failure is logged at error level inside the
+  // store (see persistLocked); these operations have no recovery path, so
+  // they return void. Only initialize() propagates failures to the caller.
+  void setStage(std::string_view stage);
 
-  auto requestCancel() -> eh::Result<void>;
+  void requestCancel();
 
   auto isCancelRequested() const -> bool;
 
-  auto markRunning(std::string_view id) -> eh::Result<void>;
+  void markRunning(std::string_view id);
 
-  auto markProgress(
+  void markProgress(
     std::string_view id,
     std::optional<float> progress = std::nullopt,
     std::optional<std::uint64_t> frameCount = std::nullopt,
     std::optional<std::string_view> status = std::nullopt
-  ) -> eh::Result<void>;
+  );
 
-  auto markSegmentProgress(
+  void markSegmentProgress(
     std::string_view id,
     std::uint64_t segmentIndex,
     std::uint64_t resumeTimeUs
-  ) -> eh::Result<void>;
+  );
 
-  auto markSucceeded(
+  void markSucceeded(
     std::string_view id,
     std::optional<std::string_view> status = std::nullopt
-  ) -> eh::Result<void>;
+  );
 
-  auto markFailed(std::string_view id, std::string_view error) -> eh::Result<void>;
+  void markFailed(std::string_view id, std::string_view error);
 
-  auto markInterrupted(std::string_view id, std::string_view reason = {})
-    -> eh::Result<void>;
+  void markInterrupted(std::string_view id, std::string_view reason = {});
 
-  auto markIncompleteInterrupted(
+  void markIncompleteInterrupted(
     std::span<std::string const> ids,
     std::string_view reason = "canceled by user"
-  ) -> eh::Result<void>;
+  );
 
-  auto flush() -> eh::Result<void>;
+  void flush();
 
 private:
   auto indexFor(std::string_view id) const -> std::optional<std::size_t>;
 
   void rebuildIndexLocked();
 
-  auto persistLocked(std::string_view operation, bool force) -> eh::Result<void>;
+  void persistLocked(std::string_view operation, bool force);
 
   auto flushLocked(bool force) -> eh::Result<void>;
 
