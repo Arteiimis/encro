@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -14,6 +15,8 @@
 #include <format>
 #include <fstream>
 #include <string>
+#include <string_view>
+#include <thread>
 
 #if defined(_WIN32)
 #else
@@ -31,35 +34,78 @@ void writeToStderr(std::string const& message) {
 
 // D-14/D-15: Direct file append bypassing spdlog entirely.
 // Format manually to match spdlog kLogPattern: [timestamp] [critical] [infra.crash] message
+// Timestamp carries millisecond + timezone-offset precision so crash lines sort
+// correctly next to regular lines from the same second (D-15).
 // This is the first tier in the 3-tier fallback chain (D-16).
 // All filesystem operations wrapped in try/catch — crash handler must never
 // terminate from I/O failures (D-14, Pitfall #10).
+// Bounded retry covers the µs-scale rotating-sink close→reopen window where a
+// momentary open failure would otherwise fall through to tier 2.
 auto tryWriteDirectToLogFile(std::string const& message) -> bool {
-  try {
-    auto const logPath = logging::currentLogFilePath();
-    if (!logPath.has_value()) { return false; }
+  constexpr auto kMaxAttempts = 3;
+  constexpr auto kRetryDelay = std::chrono::milliseconds{10};
 
-    auto ofs = std::ofstream(logPath.value(), std::ios::app);
-    if (!ofs) { return false; }
+  for (auto attempt = 0; attempt < kMaxAttempts; ++attempt) {
+    try {
+      auto const logPath = logging::currentLogFilePath();
+      if (!logPath.has_value()) { return false; }
 
-    // Format timestamp to match spdlog kLogPattern (D-15)
-    auto const now = std::chrono::system_clock::now();
-    auto const t = std::chrono::system_clock::to_time_t(now);
-    auto tm = std::tm{};
+      auto ofs = std::ofstream(logPath.value(), std::ios::app);
+      if (!ofs) {
+        if (attempt + 1 < kMaxAttempts) {
+          std::this_thread::sleep_for(kRetryDelay);
+          continue;
+        }
+        return false;
+      }
+
+      // Format timestamp to match spdlog kLogPattern (D-15)
+      auto const now = std::chrono::system_clock::now();
+      auto const t = std::chrono::system_clock::to_time_t(now);
+      auto const ms = static_cast<int>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())
+          .count()
+        % 1000
+      );
+      auto tm = std::tm{};
 #if defined(_WIN32) || defined(_WIN64)
-    localtime_s(&tm, &t);
+      localtime_s(&tm, &t);
 #else
-    localtime_r(&t, &tm);
+      localtime_r(&t, &tm);
 #endif
-    auto tsBuf = std::array<char, 64>{};
-    std::strftime(tsBuf.data(), tsBuf.size(), "%Y-%m-%dT%H:%M:%S", &tm);
+      auto tsBuf = std::array<char, 64>{};
+      std::strftime(tsBuf.data(), tsBuf.size(), "%Y-%m-%dT%H:%M:%S", &tm);
+      auto offBuf = std::array<char, 16>{};
+      std::strftime(offBuf.data(), offBuf.size(), "%z", &tm);
+      // spdlog's %z renders ISO 8601 +HH:MM (with colon); MSVC strftime
+      // emits +HHMM — normalize so crash lines sort with regular lines.
+      auto const offRaw = std::string_view{offBuf.data()};
+      auto tzOffset = std::string{};
+      if (offRaw.size() == 5 && (offRaw[0] == '+' || offRaw[0] == '-')) {
+        tzOffset = std::format("{}:{}", offRaw.substr(0, 3), offRaw.substr(3, 2));
+      } else {
+        tzOffset = std::string{offRaw};
+      }
 
-    auto const formatted =
-      std::format("[{}] [critical] [infra.crash] {}\n", tsBuf.data(), message);
+      auto const formatted = std::format(
+        "[{}.{:03d}{}] [critical] [infra.crash] {}\n",
+        tsBuf.data(),
+        ms,
+        tzOffset,
+        message
+      );
 
-    ofs.write(formatted.data(), static_cast<std::streamsize>(formatted.size()));
-    return true;
-  } catch (...) { return false; }
+      ofs.write(formatted.data(), static_cast<std::streamsize>(formatted.size()));
+      return true;
+    } catch (...) {
+      if (attempt + 1 < kMaxAttempts) {
+        std::this_thread::sleep_for(kRetryDelay);
+        continue;
+      }
+      return false;
+    }
+  }
+  return false;
 }
 
 auto tryWriteToLogger(std::string const& message) -> bool {
@@ -76,7 +122,9 @@ auto tryWriteToLogger(std::string const& message) -> bool {
 void writeCrashMessage(std::string const& message) {
   // D-16: 3-tier fallback chain
   //   1) Direct file append — bypasses spdlog, survives async queue drain (D-14)
-  //   2) tryWriteToLogger — existing spdlog path via default_logger_raw()
+  //   2) tryWriteToLogger — NOTE: posts asynchronously and returns; under
+  //      std::_Exit/ExitProcess the async queue is never drained, so this tier
+  //      is best-effort only. The direct tier above is the durability guarantee.
   //   3) writeToStderr — ultimate fallback, always available
   if (tryWriteDirectToLogFile(message)) { return; }
   if (tryWriteToLogger(message)) { return; }
@@ -158,6 +206,12 @@ void reportCaughtException(std::string_view context, std::exception const& excep
 
 void reportUnknownException(std::string_view context) {
   writeCrashReport(std::format("{}: unknown exception", context));
+}
+
+// Public single-line direct append (tier-1 logic) for paths that bypass all
+// spdlog machinery, e.g. the force-exit watchdog before ExitProcess.
+auto writeDirectLogLine(std::string_view message) -> bool {
+  return tryWriteDirectToLogFile(std::string{message});
 }
 
 }  // namespace crash

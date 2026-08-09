@@ -94,49 +94,52 @@ public:
 
   auto findTask(std::string_view id) const -> std::optional<TaskRecord>;
 
-  void setStage(std::string_view stage);
+  auto setStage(std::string_view stage) -> eh::Result<void>;
 
-  void requestCancel();
+  auto requestCancel() -> eh::Result<void>;
 
   auto isCancelRequested() const -> bool;
 
-  void markRunning(std::string_view id);
+  auto markRunning(std::string_view id) -> eh::Result<void>;
 
-  void markProgress(
+  auto markProgress(
     std::string_view id,
     std::optional<float> progress = std::nullopt,
     std::optional<std::uint64_t> frameCount = std::nullopt,
     std::optional<std::string_view> status = std::nullopt
-  );
+  ) -> eh::Result<void>;
 
-  void markSegmentProgress(
+  auto markSegmentProgress(
     std::string_view id,
     std::uint64_t segmentIndex,
     std::uint64_t resumeTimeUs
-  );
+  ) -> eh::Result<void>;
 
-  void markSucceeded(
+  auto markSucceeded(
     std::string_view id,
     std::optional<std::string_view> status = std::nullopt
-  );
+  ) -> eh::Result<void>;
 
-  void markFailed(std::string_view id, std::string_view error);
+  auto markFailed(std::string_view id, std::string_view error) -> eh::Result<void>;
 
-  void markInterrupted(std::string_view id, std::string_view reason = {});
+  auto markInterrupted(std::string_view id, std::string_view reason = {})
+    -> eh::Result<void>;
 
-  void markIncompleteInterrupted(
+  auto markIncompleteInterrupted(
     std::span<std::string const> ids,
     std::string_view reason = "canceled by user"
-  );
+  ) -> eh::Result<void>;
 
-  void flush();
+  auto flush() -> eh::Result<void>;
 
 private:
   auto indexFor(std::string_view id) const -> std::optional<std::size_t>;
 
   void rebuildIndexLocked();
 
-  void flushLocked(bool force);
+  auto persistLocked(std::string_view operation, bool force) -> eh::Result<void>;
+
+  auto flushLocked(bool force) -> eh::Result<void>;
 
   fs::path stateFilePath_;
   Snapshot snapshot_;

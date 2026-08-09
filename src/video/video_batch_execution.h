@@ -178,6 +178,11 @@ struct EncodingExecutionContext {
       });
   }
 
+  auto activeState(std::size_t slot) const -> appctx::EncodingStatePtr {
+    auto const shared = loadShared();
+    return shared->active[slot];
+  }
+
   auto activeStates() -> appctx::EncodingStateList {
     auto activeStates = appctx::EncodingStateList{};
     auto const shared = loadShared();

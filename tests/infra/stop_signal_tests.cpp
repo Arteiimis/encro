@@ -1,0 +1,121 @@
+#include "infra/stop_signal.h"
+#include "logging/log_tags.h"
+#include "logging/logging.h"
+#include "logging/setup.h"
+#include "test_utils.h"
+
+#include <spdlog/logger.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
+
+#include <catch2/catch_all.hpp>
+
+#include <atomic>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <thread>
+
+namespace fs = std::filesystem;
+
+namespace {
+
+auto gExitCalled = std::atomic<bool>{false};
+
+// ── Helper: register a test logger with an ostream sink for output capture ──
+// (mirrors tests/logging_infra_test.cpp)
+
+auto registerCapturingLogger(char const* name)
+  -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
+  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
+  auto oss = std::make_unique<std::ostringstream>();
+  auto* ossPtr = oss.get();
+  sstreams.push_back(std::move(oss));
+
+  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
+  auto logger = std::make_shared<spdlog::logger>(name, sink);
+  logger->set_pattern("%v");
+  logger->set_level(spdlog::level::trace);
+  logger->flush_on(spdlog::level::trace);
+
+  auto existing = spdlog::get(name);
+  if (existing != nullptr) { spdlog::drop(name); }
+
+  spdlog::register_logger(logger);
+  return {logger, ossPtr};
+}
+
+auto readFileContent(fs::path const& filePath) -> std::string {
+  auto ifs = std::ifstream{filePath};
+  REQUIRE(ifs.is_open());
+  return std::string{std::istreambuf_iterator<char>{ifs}, {}};
+}
+
+}  // namespace
+
+TEST_CASE("requestStop produces an info log record", "[stop-signal][logging]") {
+  auto resetGuard = testutils::ScopedStopSignalReset{};
+  auto [logger, oss] = registerCapturingLogger(logtags::INFRA_SIGNAL);
+
+  stopsignal::requestStop();
+  logger->flush();
+
+  auto const output = oss->str();
+  CAPTURE(output);
+  CHECK(output.find("Stop requested") != std::string::npos);
+  CHECK(output.find("cancellation in progress") != std::string::npos);
+
+  // Cleanup: remove the test logger so later logging::setup() calls (in other
+  // test cases) can re-register the full named-logger set without conflicts.
+  spdlog::drop(logtags::INFRA_SIGNAL);
+}
+
+TEST_CASE(
+  "force-exit watchdog writes a direct log line before terminating",
+  "[stop-signal][logging]"
+) {
+#if defined(_WIN32)
+  auto resetGuard = testutils::ScopedStopSignalReset{};
+  TempDir temp;
+
+  auto config = logging::LogConfig{
+    .colorsEnabled = false,
+    .customLogDir = temp.path,
+  };
+  // Clear any test-registered logger with the same tag before setup()
+  // re-registers the full set of named loggers.
+  spdlog::drop(logtags::INFRA_SIGNAL);
+  auto const setupResult = logging::setup(config);
+  REQUIRE(setupResult.has_value());
+  auto const logPath = setupResult.value();
+
+  // Start the watchdog (idempotent), then make it observable: short grace
+  // period + a no-op exit action instead of ExitProcess.
+  stopsignal::installHandler();
+  stopsignal::setForceExitGracePeriodForTest(std::chrono::milliseconds{50});
+  gExitCalled.store(false);
+  stopsignal::setForceExitHandlerForTest([](unsigned int) { gExitCalled.store(true); });
+
+  stopsignal::requestStop();
+
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (!gExitCalled.load() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  CHECK(gExitCalled.load());
+
+  logging::shutdown();
+
+  // Restore defaults so later tests are unaffected.
+  stopsignal::setForceExitGracePeriodForTest(std::chrono::seconds{3});
+  stopsignal::setForceExitHandlerForTest(nullptr);
+
+  auto const content = readFileContent(logPath);
+  CHECK(content.find("force exit") != std::string::npos);
+#else
+  SKIP("force-exit watchdog is Windows-only");
+#endif
+}

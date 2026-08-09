@@ -40,6 +40,9 @@ struct WebpEncodeContext {
   fs::path outputFilePath;
   fs::path progressFilePath;
   std::function<void(std::string const&)> statusUpdater;
+  // Keeps the forensic snapshot's subprocessCmdline in sync with the quality
+  // tier actually being attempted.
+  std::function<void(std::string const&)> cmdlineUpdater;
 };
 
 struct WebpEncodeStep {
@@ -171,6 +174,8 @@ auto runWebpEncodingStep(
     .webpQuality = quality,
     .progressFilePath = encodeCtx.progressFilePath
   };
+
+  if (encodeCtx.cmdlineUpdater) { encodeCtx.cmdlineUpdater(cfg.buildCMD()); }
 
   if (auto const res = cfg.validate(); !res) {
     LOG_ERROR("{}", res.error());
@@ -595,8 +600,18 @@ auto runSegmentedEncoding(
       return false;
     }
 
-    auto const actualUs =
-      parseSegmentEndUs(segmentProgressFilePath(segmentDir, index)).value_or(durationUs);
+    auto const parsedEndUs =
+      parseSegmentEndUs(segmentProgressFilePath(segmentDir, index));
+    if (!parsedEndUs.has_value()) {
+      LOG_WARN(
+        "Failed to parse segment end time; falling back to nominal duration {}us "
+        "(segment {} of {})",
+        durationUs,
+        index + 1,
+        segmentCount
+      );
+    }
+    auto const actualUs = parsedEndUs.value_or(durationUs);
     resumeTimeUs += actualUs;
     setBaseFrameOffset(resumeTimeUs);
     if (store) { store->markSegmentProgress(taskId, index + 1, resumeTimeUs); }
@@ -659,7 +674,11 @@ bool encodeVideo(
         .inputVidPath = state.inputPath,
         .outputFilePath = executionPlan.outputFilePath,
         .progressFilePath = executionPlan.progressFilePath,
-        .statusUpdater = statusUpdater
+        .statusUpdater = statusUpdater,
+        .cmdlineUpdater = [&state](std::string const& cmd) {
+          auto lock = std::scoped_lock{state.mtx};
+          state.subprocessCmdline = cmd;
+        },
       }
     );
   }
