@@ -6,7 +6,6 @@
 #include "logging/logging.h"
 
 #include <boost/asio/buffer.hpp>
-#include <boost/asio/connect_pipe.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/readable_pipe.hpp>
 #include <boost/asio/writable_pipe.hpp>
@@ -14,7 +13,6 @@
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/shell.hpp>
 #include <boost/process/v2/stdio.hpp>
-#include <boost/utility/string_view.hpp>
 #include <boost/uuid.hpp>
 
 #include <array>

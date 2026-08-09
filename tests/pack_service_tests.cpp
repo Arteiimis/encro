@@ -4,7 +4,6 @@
 #include "pack/pack_plan_internal.h"
 #include "test_utils.h"
 
-#include <catch2/catch_all.hpp>
 #include <libzippp/libzippp.h>
 
 #include <filesystem>

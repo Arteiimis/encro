@@ -2,9 +2,7 @@
 #include "test_utils.h"
 #include "video/video_info.h"
 
-#include <boost/json.hpp>
 
-#include <catch2/catch_all.hpp>
 
 #include <cstdint>
 #include <fstream>

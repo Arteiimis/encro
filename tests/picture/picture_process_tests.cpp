@@ -3,7 +3,6 @@
 #include "pack/pack.h"
 #include "test_utils.h"
 
-#include <catch2/catch_all.hpp>
 
 #include <chrono>
 #include <cstdint>

@@ -17,7 +17,6 @@
 
 #if defined(_WIN32)
   #include <boost/process/v2/windows/creation_flags.hpp>
-  #include <windows.h>
 #else
   #include <csignal>
   #include <cstdlib>

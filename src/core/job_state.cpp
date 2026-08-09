@@ -6,7 +6,6 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
-#include <boost/json.hpp>
 
 #include <algorithm>
 #include <chrono>
