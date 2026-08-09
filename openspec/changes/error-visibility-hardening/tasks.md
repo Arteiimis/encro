@@ -28,10 +28,10 @@ Design has no open questions. Tasks are ordered by dependency: crash infrastruct
 
 ## 5. Job-state persistence failure reporting (D1)
 
-- [x] 5.1 Write failing tests: `flushSnapshot`/`flushLocked` return an error when the state path is unwritable (invalid/read-only path); a failed `mark*` returns a failed result; `initialize` fails (not silently succeeds) when the initial flush fails (extend `tests/job_state_tests.cpp`)
+- [x] 5.1 Write failing tests: `flushSnapshot`/`flushLocked` return an error when the state path is unwritable (invalid/read-only path); a failed save is logged with the operation name; `initialize` fails (not silently succeeds) when the initial flush fails (extend `tests/job_state_tests.cpp`)
 - [x] 5.2 Change `detail::flushSnapshot` in `src/core/job_state.cpp` from `void` to `eh::Result<void>` (propagate open/write/rename `ec` with descriptive messages)
-- [x] 5.3 Change `Store::flushLocked` and all `mark*`/`setStage`/`initialize` methods in `src/core/job_state_store.cpp` to return `eh::Result<void>` and propagate
-- [x] 5.4 Update all call sites (video_encoding_state, video_batch_execution, video_process, picture_process, pipeline, pack_service): `initialize` failures propagate to the top-level error path; mid-run `mark*` failures log `LOG_ERROR` (tag `core.job`) and continue
+- [x] 5.3 Change `Store::flushLocked` to `eh::Result<void>`; keep `mark*`/`setStage`/`requestCancel`/`flush` as `void` and route every save through a private `persistLocked` helper that `LOG_ERROR`s failures (tag `core.job`); `initialize` returns `eh::Result` and propagates
+- [x] 5.4 Update all call sites (video_encoding_state, video_batch_execution, video_process, picture_process, pipeline, pack_service): `initialize` failures propagate to the top-level error path; mutator call sites need no changes (failures are logged inside the store)
 
 ## 6. Scanner error reporting (D3)
 

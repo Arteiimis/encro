@@ -138,19 +138,19 @@ auto Store::findTask(std::string_view id) const -> std::optional<TaskRecord> {
   return snapshot_.tasks[index.value()];
 }
 
-auto Store::setStage(std::string_view stage) -> eh::Result<void> {
+void Store::setStage(std::string_view stage) {
   auto lock = std::scoped_lock{mtx_};
   snapshot_.stage = std::string{stage};
   snapshot_.updatedAtMs = detail::nowMs();
-  return persistLocked("setStage", true);
+  persistLocked("setStage", true);
 }
 
-auto Store::requestCancel() -> eh::Result<void> {
+void Store::requestCancel() {
   auto lock = std::scoped_lock{mtx_};
   snapshot_.cancelRequested = true;
   snapshot_.stage = "canceling";
   snapshot_.updatedAtMs = detail::nowMs();
-  return persistLocked("requestCancel", true);
+  persistLocked("requestCancel", true);
 }
 
 auto Store::isCancelRequested() const -> bool {
@@ -158,10 +158,10 @@ auto Store::isCancelRequested() const -> bool {
   return snapshot_.cancelRequested;
 }
 
-auto Store::markRunning(std::string_view id) -> eh::Result<void> {
+void Store::markRunning(std::string_view id) {
   auto lock = std::scoped_lock{mtx_};
   auto const index = indexFor(id);
-  if (!index.has_value()) { return {}; }
+  if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
   task.status = TaskStatus::Running;
@@ -170,18 +170,18 @@ auto Store::markRunning(std::string_view id) -> eh::Result<void> {
   task.updatedAtMs = task.startedAtMs;
   task.finishedAtMs.reset();
   task.lastError.reset();
-  return persistLocked("markRunning", true);
+  persistLocked("markRunning", true);
 }
 
-auto Store::markProgress(
+void Store::markProgress(
   std::string_view id,
   std::optional<float> progress,
   std::optional<std::uint64_t> frameCount,
   std::optional<std::string_view> status
-) -> eh::Result<void> {
+) {
   auto lock = std::scoped_lock{mtx_};
   auto const index = indexFor(id);
-  if (!index.has_value()) { return {}; }
+  if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
   if (progress.has_value()) { task.lastProgress = progress.value(); }
@@ -189,31 +189,30 @@ auto Store::markProgress(
   if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
   task.updatedAtMs = detail::nowMs();
   snapshot_.updatedAtMs = task.updatedAtMs.value();
-  return persistLocked("markProgress", false);
+  persistLocked("markProgress", false);
 }
 
-auto Store::markSegmentProgress(
+void Store::markSegmentProgress(
   std::string_view id,
   std::uint64_t segmentIndex,
   std::uint64_t resumeTimeUs
-) -> eh::Result<void> {
+) {
   auto lock = std::scoped_lock{mtx_};
   auto const index = indexFor(id);
-  if (!index.has_value()) { return {}; }
+  if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
   task.segmentIndex = segmentIndex;
   task.resumeTimeUs = resumeTimeUs;
   task.updatedAtMs = detail::nowMs();
   snapshot_.updatedAtMs = task.updatedAtMs.value();
-  return persistLocked("markSegmentProgress", true);
+  persistLocked("markSegmentProgress", true);
 }
 
-auto Store::markSucceeded(std::string_view id, std::optional<std::string_view> status)
-  -> eh::Result<void> {
+void Store::markSucceeded(std::string_view id, std::optional<std::string_view> status) {
   auto lock = std::scoped_lock{mtx_};
   auto const index = indexFor(id);
-  if (!index.has_value()) { return {}; }
+  if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
   task.status = TaskStatus::Succeeded;
@@ -223,13 +222,13 @@ auto Store::markSucceeded(std::string_view id, std::optional<std::string_view> s
   task.finishedAtMs = detail::nowMs();
   task.updatedAtMs = task.finishedAtMs;
   snapshot_.updatedAtMs = task.finishedAtMs.value();
-  return persistLocked("markSucceeded", true);
+  persistLocked("markSucceeded", true);
 }
 
-auto Store::markFailed(std::string_view id, std::string_view error) -> eh::Result<void> {
+void Store::markFailed(std::string_view id, std::string_view error) {
   auto lock = std::scoped_lock{mtx_};
   auto const index = indexFor(id);
-  if (!index.has_value()) { return {}; }
+  if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
   task.status = TaskStatus::Failed;
@@ -237,18 +236,17 @@ auto Store::markFailed(std::string_view id, std::string_view error) -> eh::Resul
   task.finishedAtMs = detail::nowMs();
   task.updatedAtMs = task.finishedAtMs;
   snapshot_.updatedAtMs = task.finishedAtMs.value();
-  return persistLocked("markFailed", true);
+  persistLocked("markFailed", true);
 }
 
-auto Store::markInterrupted(std::string_view id, std::string_view reason)
-  -> eh::Result<void> {
+void Store::markInterrupted(std::string_view id, std::string_view reason) {
   auto lock = std::scoped_lock{mtx_};
   auto const index = indexFor(id);
-  if (!index.has_value()) { return {}; }
+  if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
   if (task.status == TaskStatus::Succeeded || task.status == TaskStatus::Failed) {
-    return {};
+    return;
   }
 
   task.status = TaskStatus::Interrupted;
@@ -256,13 +254,13 @@ auto Store::markInterrupted(std::string_view id, std::string_view reason)
   task.finishedAtMs = detail::nowMs();
   task.updatedAtMs = task.finishedAtMs;
   snapshot_.updatedAtMs = task.finishedAtMs.value();
-  return persistLocked("markInterrupted", true);
+  persistLocked("markInterrupted", true);
 }
 
-auto Store::markIncompleteInterrupted(
+void Store::markIncompleteInterrupted(
   std::span<std::string const> ids,
   std::string_view reason
-) -> eh::Result<void> {
+) {
   auto lock = std::scoped_lock{mtx_};
   auto changed = false;
   auto const now = detail::nowMs();
@@ -280,17 +278,17 @@ auto Store::markIncompleteInterrupted(
     }
   }
 
-  if (!changed) { return {}; }
+  if (!changed) { return; }
 
   snapshot_.updatedAtMs = now;
   snapshot_.stage = "canceled";
   snapshot_.cancelRequested = true;
-  return persistLocked("markIncompleteInterrupted", true);
+  persistLocked("markIncompleteInterrupted", true);
 }
 
-auto Store::flush() -> eh::Result<void> {
+void Store::flush() {
   auto lock = std::scoped_lock{mtx_};
-  return persistLocked("flush", true);
+  persistLocked("flush", true);
 }
 
 auto Store::indexFor(std::string_view id) const -> std::optional<std::size_t> {
@@ -307,13 +305,12 @@ void Store::rebuildIndexLocked() {
   }
 }
 
-auto Store::persistLocked(std::string_view operation, bool force) -> eh::Result<void> {
-  auto result = flushLocked(force);
+void Store::persistLocked(std::string_view operation, bool force) {
+  auto const result = flushLocked(force);
   if (!result) {
     // A failed persistence must never vanish silently.
     LOG_ERROR("Failed to persist job state after {}: {}", operation, result.error());
   }
-  return result;
 }
 
 auto Store::flushLocked(bool force) -> eh::Result<void> {
