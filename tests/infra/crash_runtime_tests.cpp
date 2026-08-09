@@ -5,6 +5,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/readable_pipe.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
+#include <boost/json.hpp>
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/stdio.hpp>
 #include <spdlog/logger.h>
@@ -117,4 +118,43 @@ TEST_CASE("crash runtime handles real process crash", "[crash][integration]") {
   CHECK(child.exit_code() != 0);
   CHECK(output.find("[CRASH]") != std::string::npos);
   CHECK(output.find("stacktrace") != std::string::npos);
+}
+
+// ── RED 7.2 — NDJSON crash line construction ────────────────────────────────
+
+TEST_CASE("formatCrashJsonLine builds a parseable NDJSON record", "[crash][run_id]") {
+  auto const line =
+    crash::formatCrashJsonLine("boom\nstack frame 1\nstack frame 2", "run-9");
+
+  CHECK(line.ends_with('\n'));
+
+  auto ec = boost::system::error_code{};
+  auto const parsed = boost::json::parse(line, ec);
+  REQUIRE_FALSE(ec);
+  REQUIRE(parsed.is_object());
+
+  auto const& obj = parsed.as_object();
+  CHECK(obj.at("level").as_string() == "critical");
+  CHECK(obj.at("module").as_string() == "infra.crash");
+  CHECK(obj.at("run_id").as_string() == "run-9");
+  // Multiline message round-trips through the escaping
+  CHECK(obj.at("message").as_string() == "boom\nstack frame 1\nstack frame 2");
+  // Timestamp matches the NDJSON schema (UTC, ms, Z)
+  auto const ts = obj.at("timestamp").as_string();
+  CHECK(ts.size() == 24);
+  CHECK(ts[19] == '.');
+  CHECK(ts.ends_with("Z"));
+}
+
+TEST_CASE("formatCrashJsonLine escapes quotes and backslashes", "[crash][run_id]") {
+  auto const line =
+    crash::formatCrashJsonLine(R"(say "hi" on C:\path\to\nowhere)", R"(run"id\1)");
+
+  auto ec = boost::system::error_code{};
+  auto const parsed = boost::json::parse(line, ec);
+  REQUIRE_FALSE(ec);
+
+  auto const& obj = parsed.as_object();
+  CHECK(obj.at("message").as_string() == R"(say "hi" on C:\path\to\nowhere)");
+  CHECK(obj.at("run_id").as_string() == R"(run"id\1)");
 }

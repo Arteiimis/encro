@@ -5,6 +5,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace logging {
 
@@ -12,6 +13,11 @@ namespace logging {
 // setup(); job-state adopt it as the fresh jobId (D3).
 [[nodiscard]] auto runId() -> std::string;
 auto setRunId(std::string id) -> void;
+
+// Lock-free snapshot of the current run id, safe to call from crash handlers
+// (never takes a lock). Returns either the previous or the new id, atomically;
+// empty before the first set or after shutdown().
+[[nodiscard]] auto runIdSnapshot() -> std::string_view;
 
 // ── End-of-run summary (D6) ─────────────────────────────────────────────────
 // One summary record per run, emitted through the normal logger; the NDJSON
@@ -30,6 +36,10 @@ auto logRunSummary(SummaryData const& data) -> void;
 
 // Level name -> record count, accumulated by the pass-through counting sink.
 [[nodiscard]] auto levelCounts() -> std::map<std::string, std::uint64_t>;
+
+// Current .ndjson companion path (present only when JSON logging is active),
+// for crash-handler direct writes (D8).
+[[nodiscard]] auto currentNdjsonFilePath() -> std::optional<std::filesystem::path>;
 
 struct LogConfig {
   bool echoEnabled{false};

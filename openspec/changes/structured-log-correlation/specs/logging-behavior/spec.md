@@ -84,3 +84,17 @@ Every run that writes a log file SHALL end with a single summary record: in the 
 #### Scenario: Summary is last
 - **WHEN** a run ends
 - **THEN** no log record follows the summary record in either format
+
+### Requirement: Crash records are correlated and reach both formats
+
+When the process terminates through an unhandled exception, `std::terminate`, a fatal signal, or the force-exit watchdog, the crash report SHALL be appended directly to the `.log` file (bypassing the async queue) in the existing `[timestamp] [critical] [infra.crash]` line format, and the line SHALL carry the current run's `run_id` (appended as `run_id=<id>`). When JSON logging is active, the same crash report SHALL additionally be written to the `.ndjson` file as a single-line NDJSON record with `level` `critical`, `module` `infra.crash`, `message` equal to the full crash text (including the stacktrace, with line breaks escaped), and `run_id` equal to the run id of surrounding records. The direct write SHALL never take a lock (the thread may have crashed while holding one); a lock-free snapshot of the run id serves crash records. Crash records MAY appear before or after the summary record depending on where the process died; they are a distinct channel from the end-of-run summary.
+
+#### Scenario: Crash record in both formats
+- **WHEN** a process crashes mid-run with `--log-json` active
+- **THEN** the crash report appears as a `.log` line carrying `run_id=<id>`
+- **AND** as a parseable single-line NDJSON record in the `.ndjson` file with `level` `critical`, `module` `infra.crash`, and the same `run_id`
+
+#### Scenario: Crash without JSON logging
+- **WHEN** a process crashes mid-run without `--log-json`
+- **THEN** only the `.log` line is written
+- **AND** no `.ndjson` file is created or touched
