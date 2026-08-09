@@ -56,78 +56,94 @@ namespace logging::detail {
 //
 // D-02: LOG_INFO naming, no ENCRO_ prefix
 // D-03: source location injected into the message, format "file.cpp:128"
-// SPDLOG_LOGGER_CALL already handles SPDLOG_ACTIVE_LEVEL stripping
 //
 // Key design:
 //   - fmt::format(__VA_ARGS__) pre-formats at the call site — avoids async TLS issues
 //   - source location is copied fully into the message (no dangling pointer risk)
-//   - no do { ... } while(0) wrapper needed — SPDLOG_LOGGER_CALL is already a complete expression
+//   - the message is fully formatted before calling logger->log(source_loc, level,
+//     string_view_t) — the non-template overload, which avoids instantiating
+//     spdlog's format_string path. That path converts fmt::format_string to
+//     string_view via fmt 12's deprecated operator (spdlog lacks the fmt-path
+//     to_string_view overload; tracked upstream: gabime/spdlog#3631).
+//     Switch back to SPDLOG_LOGGER_CALL once spdlog supports fmt 12.
 //
 // Pattern reference:
 //   %n → named logger name → module tag (e.g. "video.encode")
 //   %v → message body (already contains "[file:line] actual message")
 
-#define LOG_TRACE(...)                    \
-  SPDLOG_LOGGER_CALL(                     \
-    loggerPtr(),                          \
-    spdlog::level::trace,                 \
-    "[{}:{}] {}",                         \
-    logging::detail::shortFile(__FILE__), \
-    __LINE__,                             \
-    fmt::format(__VA_ARGS__)              \
+#define LOG_TRACE(...)                                       \
+  loggerPtr()->log(                                          \
+    spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, \
+    spdlog::level::trace,                                    \
+    fmt::format(                                             \
+      "[{}:{}] {}",                                          \
+      logging::detail::shortFile(__FILE__),                  \
+      __LINE__,                                              \
+      fmt::format(__VA_ARGS__)                               \
+    )                                                        \
   )
 
-#define LOG_DEBUG(...)                    \
-  SPDLOG_LOGGER_CALL(                     \
-    loggerPtr(),                          \
-    spdlog::level::debug,                 \
-    "[{}:{}] {}",                         \
-    logging::detail::shortFile(__FILE__), \
-    __LINE__,                             \
-    fmt::format(__VA_ARGS__)              \
+#define LOG_DEBUG(...)                                       \
+  loggerPtr()->log(                                          \
+    spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, \
+    spdlog::level::debug,                                    \
+    fmt::format(                                             \
+      "[{}:{}] {}",                                          \
+      logging::detail::shortFile(__FILE__),                  \
+      __LINE__,                                              \
+      fmt::format(__VA_ARGS__)                               \
+    )                                                        \
   )
 
-#define LOG_INFO(...)                     \
-  SPDLOG_LOGGER_CALL(                     \
-    loggerPtr(),                          \
-    spdlog::level::info,                  \
-    "[{}:{}] {}",                         \
-    logging::detail::shortFile(__FILE__), \
-    __LINE__,                             \
-    fmt::format(__VA_ARGS__)              \
+#define LOG_INFO(...)                                        \
+  loggerPtr()->log(                                          \
+    spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, \
+    spdlog::level::info,                                     \
+    fmt::format(                                             \
+      "[{}:{}] {}",                                          \
+      logging::detail::shortFile(__FILE__),                  \
+      __LINE__,                                              \
+      fmt::format(__VA_ARGS__)                               \
+    )                                                        \
   )
 
-#define LOG_WARN(...)                     \
-  SPDLOG_LOGGER_CALL(                     \
-    loggerPtr(),                          \
-    spdlog::level::warn,                  \
-    "[{}:{}] {}",                         \
-    logging::detail::shortFile(__FILE__), \
-    __LINE__,                             \
-    fmt::format(__VA_ARGS__)              \
+#define LOG_WARN(...)                                        \
+  loggerPtr()->log(                                          \
+    spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, \
+    spdlog::level::warn,                                     \
+    fmt::format(                                             \
+      "[{}:{}] {}",                                          \
+      logging::detail::shortFile(__FILE__),                  \
+      __LINE__,                                              \
+      fmt::format(__VA_ARGS__)                               \
+    )                                                        \
   )
 
 #define LOG_ERROR(...)                                                    \
   do {                                                                    \
     auto const __encro_ctx_chain = logging::detail::formatContextChain(); \
-    SPDLOG_LOGGER_CALL(                                                   \
-      loggerPtr(),                                                        \
+    loggerPtr()->log(                                                     \
+      spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},            \
       spdlog::level::err,                                                 \
-      "[{}:{}] {}{}",                                                     \
-      logging::detail::shortFile(__FILE__),                               \
-      __LINE__,                                                           \
-      fmt::format(__VA_ARGS__),                                           \
-      __encro_ctx_chain                                                   \
+      fmt::format(                                                        \
+        "[{}:{}] {}{}",                                                   \
+        logging::detail::shortFile(__FILE__),                             \
+        __LINE__,                                                         \
+        fmt::format(__VA_ARGS__),                                         \
+        __encro_ctx_chain                                                 \
+      )                                                                   \
     );                                                                    \
     auto const __encro_snapshot = logging::captureEnvironmentSnapshot();  \
     if (!__encro_snapshot.empty()) {                                      \
-      SPDLOG_LOGGER_CALL(                                                 \
-        loggerPtr(),                                                      \
+      loggerPtr()->log(                                                   \
+        spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},          \
         spdlog::level::info,                                              \
-        "[{}:{}] {}",                                                     \
-        logging::detail::shortFile(__FILE__),                             \
-        __LINE__,                                                         \
-        __encro_snapshot                                                  \
+        fmt::format(                                                      \
+          "[{}:{}] {}",                                                   \
+          logging::detail::shortFile(__FILE__),                           \
+          __LINE__,                                                       \
+          __encro_snapshot                                                \
+        )                                                                 \
       );                                                                  \
     }                                                                     \
   } while (0)
@@ -135,24 +151,28 @@ namespace logging::detail {
 #define LOG_CRITICAL(...)                                                 \
   do {                                                                    \
     auto const __encro_ctx_chain = logging::detail::formatContextChain(); \
-    SPDLOG_LOGGER_CALL(                                                   \
-      loggerPtr(),                                                        \
+    loggerPtr()->log(                                                     \
+      spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},            \
       spdlog::level::critical,                                            \
-      "[{}:{}] {}{}",                                                     \
-      logging::detail::shortFile(__FILE__),                               \
-      __LINE__,                                                           \
-      fmt::format(__VA_ARGS__),                                           \
-      __encro_ctx_chain                                                   \
+      fmt::format(                                                        \
+        "[{}:{}] {}{}",                                                   \
+        logging::detail::shortFile(__FILE__),                             \
+        __LINE__,                                                         \
+        fmt::format(__VA_ARGS__),                                         \
+        __encro_ctx_chain                                                 \
+      )                                                                   \
     );                                                                    \
     auto const __encro_snapshot = logging::captureEnvironmentSnapshot();  \
     if (!__encro_snapshot.empty()) {                                      \
-      SPDLOG_LOGGER_CALL(                                                 \
-        loggerPtr(),                                                      \
+      loggerPtr()->log(                                                   \
+        spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},          \
         spdlog::level::info,                                              \
-        "[{}:{}] {}",                                                     \
-        logging::detail::shortFile(__FILE__),                             \
-        __LINE__,                                                         \
-        __encro_snapshot                                                  \
+        fmt::format(                                                      \
+          "[{}:{}] {}",                                                   \
+          logging::detail::shortFile(__FILE__),                           \
+          __LINE__,                                                       \
+          __encro_snapshot                                                \
+        )                                                                 \
       );                                                                  \
     }                                                                     \
   } while (0)
