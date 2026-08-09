@@ -1,10 +1,35 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 
 namespace logging {
+
+// Bootstrap run id: lazily generated UUID before setup(), regenerated in
+// setup(); job-state adopt it as the fresh jobId (D3).
+[[nodiscard]] auto runId() -> std::string;
+auto setRunId(std::string id) -> void;
+
+// ── End-of-run summary (D6) ─────────────────────────────────────────────────
+// One summary record per run, emitted through the normal logger; the NDJSON
+// formatter turns it into a `summary` object (log path and level_counts are
+// attached there), the human sink shows the RUN SUMMARY: line as-is.
+
+struct SummaryData {
+  std::string status;  // success | failed | interrupted
+  std::optional<std::string> jobId;
+  std::optional<std::size_t> tasksTotal;
+  std::optional<std::size_t> tasksFailed;
+  std::optional<std::int64_t> elapsedMs;
+};
+
+auto logRunSummary(SummaryData const& data) -> void;
+
+// Level name -> record count, accumulated by the pass-through counting sink.
+[[nodiscard]] auto levelCounts() -> std::map<std::string, std::uint64_t>;
 
 struct LogConfig {
   bool echoEnabled{false};

@@ -84,9 +84,10 @@ auto maybeRemoveUnstartedCanceledJobState(
   if (!ctx.runtime.jobState) { return; }
   if (!jobStateNeverStarted(*ctx.runtime.jobState)) { return; }
 
+  // Remove the file but keep the store alive: the end-of-run summary reads
+  // jobId/task counts from it after pipeline::run returns.
   auto ec = std::error_code{};
   fs::remove(ctx.runtime.jobState->stateFilePath(), ec);
-  ctx.runtime.jobState.reset();
 }
 
 auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {

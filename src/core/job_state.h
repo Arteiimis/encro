@@ -80,6 +80,9 @@ public:
 
   auto stateFilePath() const -> fs::path const&;
 
+  // Current job id (equals the logging run id for the active run).
+  [[nodiscard]] auto currentJobId() const -> std::string;
+
   // Sets *discardedMismatched when an existing state did not match the config and
   // was silently replaced by a fresh snapshot (no explicit --resume).
   auto initialize(

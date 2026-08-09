@@ -45,7 +45,9 @@ auto initStartup(int argc, char* argv[], std::string const& introLine) -> Startu
     cmd.error = terminalError;
   }
 
-  if (!cmd.help && !cmd.version) { setupLogging(cmd); }
+  // Log even on failed runs whose cmd.error was set after parse (e.g. invalid
+  // --color with -h), so the failure lands in the log file, not stderr only.
+  if ((!cmd.help && !cmd.version) || cmd.error.has_value()) { setupLogging(cmd); }
 
   return StartupContext{std::move(cmd)};
 }

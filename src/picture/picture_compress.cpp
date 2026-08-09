@@ -267,6 +267,7 @@ auto compressImageBatch(
     taskSpecs.push_back({
       .id = std::format("compress:{}", task.outputPath.string()),
       .label = task.inputPath.filename().string(),
+      .input = task.inputPath.string(),
       .run = [&state, &task, quality, total, barIndex](taskexec::TaskContext& _) {
         return compressImageTask(task, state, quality, total, barIndex);
       },
