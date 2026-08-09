@@ -68,6 +68,15 @@ Verified non-coupling: `mergeTasks` matches resumed tasks by `TaskRecord.id`, an
 
 The field table and level→syslog mapping are spec content (they are observable output behavior), not prose — see `specs/logging-behavior/spec.md`.
 
+### D8: Crash records double-write with a lock-free run-id snapshot
+
+- The crash handler's Tier-1 direct append writes BOTH formats: the existing `.log` line (gains a `run_id=<id>` suffix) and, when JSON logging is active, one NDJSON record built by a new pure function `crash::formatCrashJsonLine(message, runId)` — escapes via the existing lock-free `escapeJsonString`, UTC `.sssZ` timestamp aligned with `JsonFormatter` (records in `.ndjson` must match the schema, not the `.log` pattern).
+- `runId()` is mutex-guarded; the crash handler must never take a lock — the crashing thread may hold `gRunIdMutex` at the moment of death, and a deadlock there would lose the crash record entirely (same principle as D-14's I/O rule). `logging::runIdSnapshot()` provides a lock-free view: double-buffered `char[40]` (UUID is 36 chars) with an atomic active-tag, rewritten by `setRunId` and the lazy-generation path. A torn read during a concurrent rewrite returns the previous id at worst.
+- The `.ndjson` path comes from a new `gCurrentNdjsonFilePath` set in `setup()` next to `gCurrentLogFilePath` — no `replace_extension` guessing at crash time.
+- Direct-append concurrency with the async rotating sink is accepted (same trade-off as the existing `.log` direct write); a torn NDJSON line affects only the crash record itself. The NDJSON companion is best-effort and MAY be absent under crash conditions (e.g. the rotating sink holds the file during its rotation window); the `.log` line is the durability target and the only guaranteed record.
+- The `run_id=<id>` suffix lands on the last physical line of the (multi-line) crash message, per the spec's "appended" wording; consumers grep `run_id=` rather than the `[critical]` header.
+- Test surface: `crash::formatCrashJsonLine` (pure) and the existing public `crash::writeDirectLogLine` (integration, via `logging::setup`); the handlers themselves `_Exit` and are not unit-testable.
+
 ## Risks / Trade-offs
 
 - [Attribute suffix increases message size] → Only for records emitted inside scopes; frames are 2–3 short strings; negligible vs. 10MB rotating files.
