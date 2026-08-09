@@ -47,3 +47,12 @@
 - [x] 6.1 Full unit test suite green (`xmake build tests && xmake run tests`)
 - [x] 6.2 E2E suite green with fake tool (`xmake build e2e_tests && xmake run e2e_tests`); manual sanity run with `--log-json` on a small batch: records carry run_id/task_id/input, ms timestamps, summary last
 - [x] 6.3 `xmake format` applied; `openspec validate` passes for the change
+
+## 7. Crash records carry run id and reach NDJSON
+
+- [x] 7.1 RED: unit test — `logging::runIdSnapshot()` mirrors `setRunId` and is empty after `shutdown()` (extend `tests/logging_run_id_test.cpp`)
+- [x] 7.2 RED: unit test — `crash::formatCrashJsonLine()` produces a parseable single-line NDJSON record (`level` `critical`, `module` `infra.crash`, multiline `message` round-tripped via escaping, `run_id`, `.sssZ` timestamp)
+- [x] 7.3 RED: integration test (extend `tests/logging_crash_integration_test.cpp`) — `crash::writeDirectLogLine()` with JSON logging active writes both the `.log` line (with `run_id=`) and a matching NDJSON record; without JSON logging only the `.log` line and no `.ndjson` file
+- [x] 7.4 Implement lock-free run-id snapshot in `setup.h`/`setup.cpp` (double-buffered `char[40]` + atomic active tag; rewritten by `setRunId` and lazy generation)
+- [x] 7.5 Implement crash double-write in `crash_runtime.cpp` (`.log` line gains `run_id=`; `formatCrashJsonLine` + `currentNdjsonFilePath()`; `writeDirectLogLine` routes through the same path)
+- [x] 7.6 Verification: build, full unit suite, e2e suite, `xmake format`, `openspec validate`

@@ -29,3 +29,19 @@ TEST_CASE("shutdown() resets the run id for tests", "[logging][run_id]") {
   CHECK_FALSE(fresh.empty());
   CHECK(fresh != "pre-shutdown-id");
 }
+
+// ── RED 7.1 — lock-free snapshot for the crash handler ─────────────────────
+
+TEST_CASE("runIdSnapshot() mirrors the current run id", "[logging][run_id]") {
+  logging::setRunId("snapshot-id-1");
+  CHECK(logging::runIdSnapshot() == "snapshot-id-1");
+
+  logging::setRunId("snapshot-id-2");
+  CHECK(logging::runIdSnapshot() == "snapshot-id-2");
+}
+
+TEST_CASE("runIdSnapshot() is empty after shutdown()", "[logging][run_id]") {
+  logging::setRunId("snapshot-before-shutdown");
+  logging::shutdown();
+  CHECK(logging::runIdSnapshot().empty());
+}

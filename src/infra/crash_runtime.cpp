@@ -1,6 +1,7 @@
 #include "infra/crash_runtime.h"
 
 #include "infra/stacktrace.h"
+#include "logging/logging.h"
 #include "logging/setup.h"
 
 #include <spdlog/spdlog.h>
@@ -49,6 +50,8 @@ auto tryWriteDirectToLogFile(std::string const& message) -> bool {
     try {
       auto const logPath = logging::currentLogFilePath();
       if (!logPath.has_value()) { return false; }
+      // Lock-free snapshot: the crashing thread may hold the run-id mutex
+      auto const runId = logging::runIdSnapshot();
 
       auto ofs = std::ofstream(logPath.value(), std::ios::app);
       if (!ofs) {
@@ -88,14 +91,27 @@ auto tryWriteDirectToLogFile(std::string const& message) -> bool {
       }
 
       auto const formatted = std::format(
-        "[{}.{:03d}{}] [critical] [infra.crash] {}\n",
+        "[{}.{:03d}{}] [critical] [infra.crash] {}{}\n",
         tsBuf.data(),
         ms,
         tzOffset,
-        message
+        message,
+        runId.empty() ? "" : std::format(" run_id={}", runId)
       );
 
       ofs.write(formatted.data(), static_cast<std::streamsize>(formatted.size()));
+
+      // D8: companion NDJSON record when JSON logging is active.
+      // Best-effort, no retry, MAY be absent (e.g. rotation-window open
+      // failure) — the .log line above is the durability target.
+      auto const ndjsonPath = logging::currentNdjsonFilePath();
+      if (ndjsonPath.has_value()) {
+        auto ndjsonOfs = std::ofstream(ndjsonPath.value(), std::ios::app);
+        if (ndjsonOfs) {
+          auto const jsonLine = crash::formatCrashJsonLine(message, runId);
+          ndjsonOfs.write(jsonLine.data(), static_cast<std::streamsize>(jsonLine.size()));
+        }
+      }
       return true;
     } catch (...) {
       if (attempt + 1 < kMaxAttempts) {
@@ -212,6 +228,35 @@ void reportUnknownException(std::string_view context) {
 // spdlog machinery, e.g. the force-exit watchdog before ExitProcess.
 auto writeDirectLogLine(std::string_view message) -> bool {
   return tryWriteDirectToLogFile(std::string{message});
+}
+
+auto formatCrashJsonLine(std::string_view message, std::string_view runId)
+  -> std::string {
+  // UTC .sssZ timestamp aligned with JsonFormatter (records in .ndjson must
+  // match the documented schema, not the .log pattern).
+  auto const now = std::chrono::system_clock::now();
+  auto const t = std::chrono::system_clock::to_time_t(now);
+  auto const ms = static_cast<int>(
+    std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count()
+    % 1000
+  );
+  auto tm = std::tm{};
+#if defined(_WIN32) || defined(_WIN64)
+  gmtime_s(&tm, &t);
+#else
+  gmtime_r(&t, &tm);
+#endif
+  auto tsBuf = std::array<char, 64>{};
+  std::strftime(tsBuf.data(), tsBuf.size(), "%Y-%m-%dT%H:%M:%S", &tm);
+  return std::format(
+    "{{\"timestamp\":\"{}.{:03d}Z\",\"level\":\"critical\","
+    "\"module\":\"infra.crash\",\"source\":\"\","
+    "\"message\":{},\"run_id\":{}}}\n",
+    tsBuf.data(),
+    ms,
+    logging::detail::escapeJsonString(message),  // includes the surrounding quotes
+    logging::detail::escapeJsonString(runId)
+  );
 }
 
 }  // namespace crash

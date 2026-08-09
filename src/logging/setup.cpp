@@ -172,11 +172,30 @@ namespace logging {
 // ── Current log file path (D-13: crash handler integration) ────────────────
 
 static auto gCurrentLogFilePath = std::optional<fs::path>{};
+static auto gCurrentNdjsonFilePath = std::optional<fs::path>{};
 
 // ── Run id (D3: bootstrap + job-state adoption) ────────────────────────────
 
 static auto gRunIdMutex = std::mutex{};
 static auto gRunId = std::string{};
+
+// Lock-free run-id snapshot for crash handlers (D8): an atomic pointer to an
+// immutable copy. A reader sees either the previous or the new id, never a
+// hybrid; the copies are intentionally never freed (~3 per process lifetime,
+// ~40 bytes each) so the pointer stays valid forever. The crash handler must
+// never take a lock — the crashing thread may hold gRunIdMutex at death.
+static auto gRunIdSnapshot = std::atomic<char const*>{nullptr};
+
+auto updateRunIdSnapshot(std::string_view id) -> void {
+  auto* copy = new std::string{id};
+  gRunIdSnapshot.store(copy->c_str(), std::memory_order_release);
+}
+
+auto runIdSnapshot() -> std::string_view {
+  auto const* text = gRunIdSnapshot.load(std::memory_order_acquire);
+  if (text == nullptr) { return {}; }
+  return std::string_view{text};
+}
 
 // ── Counting sink + summary (D6) ───────────────────────────────────────────
 
@@ -243,17 +262,22 @@ auto logRunSummary(SummaryData const& data) -> void {
 
 auto runId() -> std::string {
   auto lock = std::scoped_lock{gRunIdMutex};
-  if (gRunId.empty()) { gRunId = getUUID(); }
+  if (gRunId.empty()) {
+    gRunId = getUUID();
+    updateRunIdSnapshot(gRunId);
+  }
   return gRunId;
 }
 
 auto setRunId(std::string id) -> void {
   auto lock = std::scoped_lock{gRunIdMutex};
   gRunId = std::move(id);
+  updateRunIdSnapshot(gRunId);
 }
 
 auto setup(LogConfig const& config) -> std::optional<fs::path> {
   gCurrentLogFilePath = std::nullopt;
+  gCurrentNdjsonFilePath = std::nullopt;
 
   // Bootstrap run id for this run; job state adopts it later (or overrides on resume)
   setRunId(getUUID());
@@ -337,6 +361,8 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
       >(ndjsonPath.string(), 10 * 1024 * 1024, 3);
       jsonSink->set_formatter(std::make_unique<logging::JsonFormatter>());
       sinks.emplace_back(std::move(jsonSink));
+      // D8: remember the companion path for crash-handler direct writes
+      gCurrentNdjsonFilePath = ndjsonPath;
     }
 
     // D-13: store current log file path for crash handler direct writes
@@ -411,6 +437,7 @@ auto shutdown() -> void {
   spdlog::shutdown();
   gPoolInitialized = false;
   gCurrentLogFilePath = std::nullopt;
+  gCurrentNdjsonFilePath = std::nullopt;
   // Snapshot counts, then release the chain so wrapped file sinks flush and
   // close their handles (kept alive only by the global shared_ptr).
   gLevelCountSnapshot = readLiveCounts();
@@ -421,6 +448,10 @@ auto shutdown() -> void {
 
 auto currentLogFilePath() -> std::optional<fs::path> {
   return gCurrentLogFilePath;
+}
+
+auto currentNdjsonFilePath() -> std::optional<fs::path> {
+  return gCurrentNdjsonFilePath;
 }
 
 // ── Forensic context state ──────────────────────────────────────────────────
