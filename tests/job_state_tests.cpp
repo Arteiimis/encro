@@ -609,3 +609,55 @@ TEST_CASE(
   CHECK(resumeRes.error().find("does not match") != std::string::npos);
   CHECK_FALSE(discardedMismatched);
 }
+
+TEST_CASE(
+  "job state initialize fails when the state file cannot be written",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const outputPath = temp.path / "input.hevc.mp4";
+  writeFile(inputPath);
+
+  // Make the parent path a regular file so the state temp file cannot be created.
+  auto const blockerFile = temp.path / "blocker";
+  writeFile(blockerFile);
+  auto const statePath = blockerFile / "encro.job-state.json";
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(config, false);
+
+  // Initial persistence failure must surface, not silently succeed.
+  REQUIRE_FALSE(initRes);
+}
+
+TEST_CASE("job state mark operations report persistence failures", "[job-state]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const outputPath = temp.path / "input.hevc.mp4";
+  writeFile(inputPath);
+  auto const statePath = temp.path / "encro.job-state.json";
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
+
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(config, false);
+  REQUIRE(initRes);
+  store.mergeTasks(std::array{task});
+
+  // Replace the state file with a non-empty directory: the temp file still
+  // writes, but the final rename cannot succeed (remove of the non-empty
+  // directory fails, so both fallback attempts fail).
+  fs::remove(statePath);
+  fs::create_directory(statePath);
+  writeFile(statePath / "keep.txt");
+
+  auto const markRes = store.markRunning(task.id);
+  REQUIRE_FALSE(markRes);
+  CHECK(markRes.error().find("state") != std::string::npos);
+
+  auto const flushRes = store.flush();
+  REQUIRE_FALSE(flushRes);
+}

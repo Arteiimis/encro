@@ -16,12 +16,12 @@ void clearExecutionState(TaskRecord& task);
 
 void normalizeExistingTask(TaskRecord& task);
 
-void flushSnapshot(
+auto flushSnapshot(
   fs::path const& stateFilePath,
   Snapshot& snapshot,
   std::int64_t& lastFlushAtMs,
   bool force
-);
+) -> eh::Result<void>;
 
 auto buildFallbackStateFilePath(appctx::AppConfig const& config) -> fs::path;
 

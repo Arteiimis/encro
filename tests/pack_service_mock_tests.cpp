@@ -3,10 +3,11 @@
 #include "pack/pack_plan_internal.h"
 #include "test_utils.h"
 
-
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -163,6 +164,37 @@ TEST_CASE("packGroups handles non-existent source files gracefully", "[pack-serv
 
   REQUIRE(result);
   CHECK(result.value().size() == 1);
+}
+
+TEST_CASE("packGroups reports failure when a group task throws", "[pack-service]") {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+  auto const f1 = createFile(srcDir, "a.txt");
+
+  pack::PackService service;
+
+  pack::PackPlan plan{
+    .groups =
+      {
+        {pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"}},
+      },
+    .outputDir = outDir,
+    .zipNameForIndex = [](std::size_t) { return std::string{"p.zip"}; },
+    .progressCallbacks = {
+      .onGroupStart = [](std::size_t) {
+        throw std::runtime_error{"boom from onGroupStart"};
+      },
+    },
+  };
+
+  auto result = service.packGroups(plan);
+
+  // The run must be reported as failed with the exception message, never as a
+  // silent success (error-visibility: pack task failures are never success).
+  REQUIRE_FALSE(result);
+  CHECK(result.error().find("boom from onGroupStart") != std::string::npos);
 }
 
 TEST_CASE("packGroups creates zip at correct output path", "[pack-service]") {

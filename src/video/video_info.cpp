@@ -500,10 +500,12 @@ auto readAllVids(
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
   fs::path const& dirPath
-) -> std::vector<fs::path> {
+) -> eh::Result<std::vector<fs::path>> {
   if (!fs::is_directory(dirPath) && !fs::is_regular_file(dirPath)) {
-    LOG_WARN("Provided path is not a file or directory: {}", dirPath.string());
-    return {};
+    return eh::makeError(
+      "Provided path is not a file or directory: {}",
+      dirPath.string()
+    );
   }
 
   auto vids = std::vector<fs::path>{};
@@ -513,10 +515,11 @@ auto readAllVids(
       vids.emplace_back(collected.value());
     }
   } else {
-    auto const candidates =
-      media::scanByExtensions(dirPath, kVideoTypes, config.recursive);
+    auto const scanRes = media::scanByExtensions(dirPath, kVideoTypes, config.recursive);
+    if (!scanRes) { return eh::makeError("{}", scanRes.error()); }
+    for (auto const& warning: scanRes->warnings) { LOG_WARN("{}", warning); }
 
-    for (auto const& candidate: candidates) {
+    for (auto const& candidate: scanRes->matches) {
       if (keepScannedVideoCandidate(config, candidate)) { vids.emplace_back(candidate); }
     }
   }

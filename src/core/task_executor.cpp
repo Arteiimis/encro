@@ -77,11 +77,14 @@ auto runTasks(TaskPlan const& plan) -> TaskRunResult {
       try {
         results[taskIndex] = task.run(taskCtx);
       } catch (std::exception const& ex) {
-        results[taskIndex] =
-          makeTaskError(std::format("Task {} threw exception: {}", task.id, ex.what()));
+        auto const message =
+          std::format("Task {} threw exception: {}", task.id, ex.what());
+        LOG_ERROR("{}", message);
+        results[taskIndex] = makeTaskError(message);
       } catch (...) {
-        results[taskIndex] =
-          makeTaskError(std::format("Task {} threw unknown exception", task.id));
+        auto const message = std::format("Task {} threw unknown exception", task.id);
+        LOG_ERROR("{}", message);
+        results[taskIndex] = makeTaskError(message);
       }
     }
   });
