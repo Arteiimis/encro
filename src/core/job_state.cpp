@@ -6,7 +6,6 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
-
 #include <algorithm>
 #include <chrono>
 #include <fstream>
@@ -506,31 +505,50 @@ auto commonParent(std::span<fs::path const> paths) -> std::optional<fs::path> {
   return root;
 }
 
-void flushSnapshot(
+auto flushSnapshot(
   fs::path const& stateFilePath,
   Snapshot& snapshot,
   std::int64_t& lastFlushAtMs,
   bool force
-) {
+) -> eh::Result<void> {
   auto const now = nowMs();
-  if (!force && now - lastFlushAtMs < kFlushIntervalMs) { return; }
+  if (!force && now - lastFlushAtMs < kFlushIntervalMs) { return {}; }
 
   snapshot.updatedAtMs = now;
 
   auto const tempPath = makeTempStatePath(stateFilePath);
   auto output = std::ofstream{tempPath, std::ios::trunc};
+  if (!output) {
+    return eh::makeError(
+      "Failed to open state temp file for writing: {}",
+      tempPath.string()
+    );
+  }
   output << json::serialize(toJson(snapshot));
   output.flush();
+  if (!output) {
+    return eh::makeError("Failed to write state snapshot to: {}", tempPath.string());
+  }
   output.close();
 
   auto ec = std::error_code{};
   fs::rename(tempPath, stateFilePath, ec);
   if (ec) {
     fs::remove(stateFilePath, ec);
+    ec.clear();
     fs::rename(tempPath, stateFilePath, ec);
+  }
+  if (ec) {
+    return eh::makeError(
+      "Failed to move state file into place: {} -> {}: {}",
+      tempPath.string(),
+      stateFilePath.string(),
+      ec.message()
+    );
   }
 
   lastFlushAtMs = now;
+  return {};
 }
 
 }  // namespace detail

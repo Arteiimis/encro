@@ -271,6 +271,11 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
   spdlog::set_default_logger(std::move(defaultLogger));
   spdlog::set_level(spdlog::level::debug);
 
+  // Periodic flush bounds the loss window on hard termination (kill/power loss)
+  // to at most the interval's worth of buffered non-error lines
+  // (recent log lines survive abnormal termination).
+  spdlog::flush_every(std::chrono::seconds{1});
+
   if (fileSinkEnabled) { spdlog::debug("File logging enabled."); }
 
   return logFilePath;

@@ -1,8 +1,13 @@
+#include "infra/crash_runtime.h"
 #include "logging/setup.h"
 #include "test_utils.h"
 
-
+#include <algorithm>
 #include <array>
+
+#if defined(_WIN32)
+  #include <io.h>
+#endif
 #include <chrono>
 #include <ctime>
 #include <filesystem>
@@ -209,4 +214,109 @@ TEST_CASE(
   CHECK(tsBracketPos != std::string::npos);
   auto const closeBracketPos = content.find("] ", tsBracketPos);
   CHECK(closeBracketPos != std::string::npos);
+}
+
+TEST_CASE(
+  "writeDirectLogLine formats timestamp with millisecond and tz offset",
+  "[logging][crash_integration]"
+) {
+  TempDir temp;
+
+  auto config = logging::LogConfig{
+    .colorsEnabled = false,
+    .customLogDir = temp.path,
+  };
+
+  auto const setupResult = logging::setup(config);
+  REQUIRE(setupResult.has_value());
+  auto const logPath = setupResult.value();
+
+  auto const testBody = std::string{"direct write format verification"};
+  CHECK(crash::writeDirectLogLine(testBody));
+
+  logging::shutdown();
+
+  auto const content = readFileContent(logPath);
+  auto const bodyPos = content.find("] [critical] [infra.crash] " + testBody);
+  REQUIRE(bodyPos != std::string::npos);
+
+  // Timestamp segment must match spdlog kLogPattern precision:
+  // [YYYY-MM-DDTHH:MM:SS.mmm+HH:MM] — 29 chars (spdlog's %z uses a colon).
+  auto const openPos = content.rfind('[', bodyPos);
+  REQUIRE(openPos != std::string::npos);
+  auto const ts = content.substr(openPos + 1, bodyPos - openPos - 1);
+  CAPTURE(ts);
+  CHECK(ts.size() == 29);
+  CHECK(ts[4] == '-');
+  CHECK(ts[7] == '-');
+  CHECK(ts[10] == 'T');
+  CHECK(ts[13] == ':');
+  CHECK(ts[16] == ':');
+  CHECK(ts[19] == '.');
+  CHECK((ts[23] == '+' || ts[23] == '-'));
+  CHECK(std::all_of(ts.begin() + 20, ts.begin() + 23, [](char c) {
+    return c >= '0' && c <= '9';
+  }));
+  CHECK(ts[26] == ':');
+  CHECK(std::all_of(ts.begin() + 24, ts.begin() + 26, [](char c) {
+    return c >= '0' && c <= '9';
+  }));
+  CHECK(std::all_of(ts.begin() + 27, ts.end(), [](char c) {
+    return c >= '0' && c <= '9';
+  }));
+
+  // The direct-write timestamp must be structurally identical to a regular
+  // spdlog line's timestamp (same length) so same-second lines sort together.
+  auto const spdlogTsOpen = content.find('[');
+  REQUIRE(spdlogTsOpen != std::string::npos);
+  auto const spdlogTsClose = content.find("] [", spdlogTsOpen);
+  REQUIRE(spdlogTsClose != std::string::npos);
+  CHECK(spdlogTsClose - spdlogTsOpen - 1 == ts.size());
+}
+
+TEST_CASE(
+  "writeDirectLogLine returns false when file is unwritable and succeeds after restore",
+  "[logging][crash_integration]"
+) {
+  TempDir temp;
+
+  auto config = logging::LogConfig{
+    .colorsEnabled = false,
+    .customLogDir = temp.path,
+  };
+
+  auto const setupResult = logging::setup(config);
+  REQUIRE(setupResult.has_value());
+  auto const logPath = setupResult.value();
+
+  // Make the file temporarily impossible to open for append: must fail without
+  // throwing. On Windows, set the read-only attribute via the CRT (the MSVC
+  // fs::permissions implementation is a no-op); on POSIX, remove the write
+  // permission.
+#if defined(_WIN32)
+  REQUIRE(_wchmod(logPath.c_str(), _S_IREAD) == 0);
+#else
+  fs::permissions(logPath, fs::perms::owner_write, fs::perm_options::remove);
+#endif
+  CHECK_FALSE(crash::writeDirectLogLine("must not land"));
+
+#if defined(_WIN32)
+  REQUIRE(_wchmod(logPath.c_str(), _S_IWRITE) == 0);
+#else
+  fs::permissions(logPath, fs::perms::owner_write, fs::perm_options::add);
+#endif
+  CHECK(crash::writeDirectLogLine("lands after restore"));
+
+  logging::shutdown();
+
+  auto const content = readFileContent(logPath);
+  CHECK(content.find("lands after restore") != std::string::npos);
+  CHECK(content.find("must not land") == std::string::npos);
+}
+
+TEST_CASE(
+  "writeDirectLogLine returns false without an active log file",
+  "[logging][crash_integration]"
+) {
+  CHECK_FALSE(crash::writeDirectLogLine("no log file"));
 }

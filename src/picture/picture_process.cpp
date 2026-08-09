@@ -286,14 +286,16 @@ auto executeDirectPackWorkflow(
     logging::ScopedErrorContext scopedCtx("picture.scan", scanPathStr);
     return readAllPics(ctx.config, dirPath);
   }();
-  if (scannedPics.empty()) {
+  if (!scannedPics) { return eh::makeError("{}", scannedPics.error()); }
+  if (scannedPics->empty()) {
     return eh::makeError("No pictures found in directory: {}", dirPath.string());
   }
+  auto const& pics = scannedPics.value();
 
   terminal::println(
     Info,
     "Picture scan completed, {} picture(s) found, grouping into package batch(es).",
-    terminal::count(scannedPics.size())
+    terminal::count(pics.size())
   );
 
   if (!confirmPicturePack(ctx.config)) {
@@ -301,12 +303,11 @@ auto executeDirectPackWorkflow(
     return canceledExitCodeForPromptAbort();
   }
 
-  auto const plannedEntryNames =
-    planPictureZipEntryNames(ctx.config, dirPath, scannedPics);
+  auto const plannedEntryNames = planPictureZipEntryNames(ctx.config, dirPath, pics);
 
   auto summaryPics = std::vector<fs::path>{};
   if (ctx.config.pictureFolderSummary) {
-    summaryPics = collectFolderSummaryPictures(dirPath, scannedPics);
+    summaryPics = collectFolderSummaryPictures(dirPath, pics);
   }
 
   auto const resolveSource = [](fs::path const& picPath, std::string const& entryName)
@@ -317,7 +318,7 @@ auto executeDirectPackWorkflow(
 
   auto packInputs = buildPackEntryInputs(
     summaryPics,
-    scannedPics,
+    pics,
     plannedEntryNames,
     dirPath,
     resolveSource,
@@ -328,7 +329,7 @@ auto executeDirectPackWorkflow(
 
   auto const packRes = [&]() {
     logging::ScopedTimer timer("picture.pack");
-    auto const packLabel = std::format("{} picture(s)", scannedPics.size());
+    auto const packLabel = std::format("{} picture(s)", pics.size());
     logging::ScopedErrorContext scopedCtx("picture.pack", packLabel);
     return pack::execute(request);
   }();
@@ -354,16 +355,18 @@ auto executeCompressPackWorkflow(
     logging::ScopedErrorContext scopedCtx("picture.scan", scanPathStr);
     return readAllPics(ctx.config, dirPath);
   }();
-  if (scannedPics.empty()) {
+  if (!scannedPics) { return eh::makeError("{}", scannedPics.error()); }
+  if (scannedPics->empty()) {
     return eh::makeError("No pictures found in directory: {}", dirPath.string());
   }
+  auto const& pics = scannedPics.value();
 
   auto const quality = ctx.config.imageQuality.value_or(kDefaultPictureCompressQuality);
   terminal::println(
     Info,
     "Picture scan completed, {} picture(s) found, will be compressed to JPEG "
     "(quality={}).",
-    terminal::count(scannedPics.size()),
+    terminal::count(pics.size()),
     terminal::count(quality)
   );
 
@@ -395,21 +398,20 @@ auto executeCompressPackWorkflow(
 
   auto summaryPics = std::vector<fs::path>{};
   if (ctx.config.pictureFolderSummary) {
-    summaryPics = collectFolderSummaryPictures(dirPath, scannedPics);
+    summaryPics = collectFolderSummaryPictures(dirPath, pics);
   }
 
-  auto const plannedEntryNames =
-    planPictureZipEntryNames(ctx.config, dirPath, scannedPics);
+  auto const plannedEntryNames = planPictureZipEntryNames(ctx.config, dirPath, pics);
 
   auto compressTasks = std::vector<CompressTask>{};
-  compressTasks.reserve(scannedPics.size() + summaryPics.size());
+  compressTasks.reserve(pics.size() + summaryPics.size());
 
   for (auto const& summaryPic: summaryPics) {
     auto const entryName = buildSummaryPictureEntryName(dirPath, summaryPic);
     addCompressTask(tempDir, ec, compressTasks, summaryPic, entryName);
   }
 
-  for (auto const& picPath: scannedPics) {
+  for (auto const& picPath: pics) {
     auto const plannedIt = plannedEntryNames.find(picPath);
     auto const entryName = plannedIt != plannedEntryNames.end()
       ? plannedIt->second
@@ -488,7 +490,7 @@ auto executeCompressPackWorkflow(
 
   auto packInputs = buildPackEntryInputs(
     summaryPics,
-    scannedPics,
+    pics,
     plannedEntryNames,
     dirPath,
     resolveSource,
@@ -530,7 +532,7 @@ auto executeCompressPackWorkflow(
 }  // namespace
 
 auto readAllPics(appctx::AppConfig const& config, fs::path const& dirPath)
-  -> std::vector<fs::path> {
+  -> eh::Result<std::vector<fs::path>> {
   constexpr auto pictureTypes = std::array{
     // Common picture file extensions
     ".jpg"sv,
@@ -542,7 +544,10 @@ auto readAllPics(appctx::AppConfig const& config, fs::path const& dirPath)
     ".heic"sv
   };
 
-  return media::scanByExtensions(dirPath, pictureTypes, config.recursive);
+  auto const scanRes = media::scanByExtensions(dirPath, pictureTypes, config.recursive);
+  if (!scanRes) { return eh::makeError("Failed to scan pictures: {}", scanRes.error()); }
+  for (auto const& warning: scanRes->warnings) { LOG_WARN("{}", warning); }
+  return scanRes->matches;
 }
 
 auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)

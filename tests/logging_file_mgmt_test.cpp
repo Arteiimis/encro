@@ -1,3 +1,4 @@
+#include "logging/log_tags.h"
 #include "logging/setup.h"
 
 #include <catch2/catch_all.hpp>
@@ -15,6 +16,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -482,6 +484,48 @@ TEST_CASE("json-only setup writes both .log and .ndjson files", "[logging][file_
 
   CHECK(fs::exists(logFilePath));
   CHECK(fs::exists(ndjsonPath));
+
+  logging::shutdown();
+  removeDir(testDir);
+}
+
+TEST_CASE(
+  "periodic flush lands non-error lines before shutdown",
+  "[logging][file_mgmt]"
+) {
+  auto const testDir = makeTestDir("test9_periodic_flush");
+  auto const config = logging::LogConfig{
+    .colorsEnabled = false,
+    .customLogDir = testDir,
+  };
+  auto const result = logging::setup(config);
+  REQUIRE(result.has_value());
+  auto const logFilePath = result.value();
+
+  auto const logger = spdlog::get(logtags::APP_PRELUDE);
+  REQUIRE(logger != nullptr);
+  auto const testMsg = "periodic_flush_probe_12345";
+  logger->info(testMsg);
+
+  // Immediately after the write (no shutdown), the line must NOT be on disk
+  // yet — only the periodic flusher can land it.
+  {
+    auto ifs = std::ifstream{logFilePath};
+    auto const content = std::string{std::istreambuf_iterator<char>{ifs}, {}};
+    CHECK(content.find(testMsg) == std::string::npos);
+  }
+
+  // Within the flush interval the line must appear on disk without shutdown(),
+  // so a hard kill at any later point cannot lose it (bounded tail).
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{3};
+  auto found = false;
+  while (std::chrono::steady_clock::now() < deadline && !found) {
+    auto ifs = std::ifstream{logFilePath};
+    auto const content = std::string{std::istreambuf_iterator<char>{ifs}, {}};
+    if (content.find(testMsg) != std::string::npos) { found = true; }
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+  }
+  CHECK(found);
 
   logging::shutdown();
   removeDir(testDir);

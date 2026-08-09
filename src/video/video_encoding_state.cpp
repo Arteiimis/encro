@@ -34,7 +34,22 @@ auto getStateLabel(appctx::EncodingState const& state) -> std::string {
 
 auto tryReadProgressData(fs::path const& progressFilePath)
   -> std::optional<ProgressData> {
-  return parseProgressFile(progressFilePath);
+  auto const data = parseProgressFile(progressFilePath);
+  if (!data.has_value()) {
+    // A non-empty progress file that cannot be parsed means ffmpeg's output
+    // format changed — warn instead of degrading silently. Empty/missing
+    // files are the normal pre-first-write state and stay quiet.
+    auto ec = std::error_code{};
+    auto const size = fs::file_size(progressFilePath, ec);
+    if (!ec && size > 0) {
+      LOG_WARN(
+        "Failed to parse ffmpeg progress file ({} bytes): {}",
+        size,
+        progressFilePath.string()
+      );
+    }
+  }
+  return data;
 }
 
 auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)

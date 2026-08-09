@@ -164,7 +164,7 @@ void printNoEncodableVideosMessage(
 }
 
 auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
-  -> std::vector<fs::path> {
+  -> eh::Result<std::vector<fs::path>> {
   logging::ScopedTimer timer("video.scan");
   auto const scanPathStr = inputPath.string();
   logging::ScopedErrorContext scopedCtx("video.scan", scanPathStr);
@@ -175,13 +175,14 @@ auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
   );
   LOG_INFO("Scanning input path: {}", inputPath.string());
   auto vids = readAllVids(ctx.config, ctx.toolchain, ctx.runtime, inputPath);
+  if (!vids) { return eh::makeError("Failed to scan input videos: {}", vids.error()); }
   terminal::println(
     Info,
     "Video scan completed, found {} candidate file(s).",
-    terminal::count(vids.size())
+    terminal::count(vids->size())
   );
-  LOG_INFO("Scan completed: {} candidate video(s)", vids.size());
-  return vids;
+  LOG_INFO("Scan completed: {} candidate video(s)", vids->size());
+  return vids.value();
 }
 
 auto scanInputVideosFromFiles(
@@ -493,7 +494,13 @@ int handleSingleFileEncoding(appctx::AppContext& ctx, fs::path const& videoPath)
 
 int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
   LOG_INFO("Handle path encoding: {}", inputPath.string());
-  auto const vids = scanInputVideos(ctx, inputPath);
+  auto const scanRes = scanInputVideos(ctx, inputPath);
+  if (!scanRes) {
+    LOG_ERROR("{}", scanRes.error());
+    terminal::println(Error, "Error: {}", scanRes.error());
+    return 1;
+  }
+  auto const& vids = scanRes.value();
 
   if (vids.empty()) {
     printNoEncodableVideosMessage(ctx.config, ctx.toolchain, inputPath);

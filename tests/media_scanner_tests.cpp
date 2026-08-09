@@ -1,9 +1,10 @@
 #include "core/media_scanner.h"
 #include "test_utils.h"
 
-
 #include <array>
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 using namespace std::literals;
@@ -14,7 +15,9 @@ TEST_CASE("scanByExtensions matches single file", "[media-scanner]") {
   auto const filePath = temp.path / "sample.mp4";
   touchFile(filePath);
 
-  auto const results = media::scanByExtensions(filePath, std::array{".mp4"sv}, false);
+  auto const scanRes = media::scanByExtensions(filePath, std::array{".mp4"sv}, false);
+  REQUIRE(scanRes);
+  auto const& results = scanRes->matches;
 
   REQUIRE(results.size() == 1);
   CHECK(results.front() == filePath);
@@ -25,9 +28,9 @@ TEST_CASE("scanByExtensions ignores non-matching file", "[media-scanner]") {
   auto const filePath = temp.path / "sample.mov";
   touchFile(filePath);
 
-  auto const results = media::scanByExtensions(filePath, std::array{".mp4"sv}, false);
-
-  CHECK(results.empty());
+  auto const scanRes = media::scanByExtensions(filePath, std::array{".mp4"sv}, false);
+  REQUIRE(scanRes);
+  CHECK(scanRes->matches.empty());
 }
 
 TEST_CASE("scanByExtensions respects non-recursive", "[media-scanner]") {
@@ -39,7 +42,9 @@ TEST_CASE("scanByExtensions respects non-recursive", "[media-scanner]") {
   touchFile(topFile);
   touchFile(nestedFile);
 
-  auto const results = media::scanByExtensions(temp.path, std::array{".mp4"sv}, false);
+  auto const scanRes = media::scanByExtensions(temp.path, std::array{".mp4"sv}, false);
+  REQUIRE(scanRes);
+  auto const& results = scanRes->matches;
 
   REQUIRE(results.size() == 1);
   CHECK(results.front() == topFile);
@@ -54,9 +59,35 @@ TEST_CASE("scanByExtensions includes recursive matches", "[media-scanner]") {
   touchFile(topFile);
   touchFile(nestedFile);
 
-  auto const results = media::scanByExtensions(temp.path, std::array{".mp4"sv}, true);
+  auto const scanRes = media::scanByExtensions(temp.path, std::array{".mp4"sv}, true);
+  REQUIRE(scanRes);
+  auto const& results = scanRes->matches;
 
   REQUIRE(results.size() == 2);
   CHECK(std::ranges::find(results, topFile) != results.end());
   CHECK(std::ranges::find(results, nestedFile) != results.end());
+}
+
+TEST_CASE("scanByExtensions reports an unreadable root as an error", "[media-scanner]") {
+  TempDir temp;
+  auto const missing = temp.path / "does_not_exist";
+
+  auto const scanRes = media::scanByExtensions(missing, std::array{".mp4"sv}, true);
+
+  // An unreadable root must never look like an empty scan.
+  REQUIRE_FALSE(scanRes);
+  CHECK(scanRes.error().find("not a readable directory") != std::string::npos);
+  CHECK(scanRes.error().find(missing.string()) != std::string::npos);
+}
+
+TEST_CASE(
+  "scanByExtensions returns empty success for a readable-but-empty directory",
+  "[media-scanner]"
+) {
+  TempDir temp;
+
+  auto const scanRes = media::scanByExtensions(temp.path, std::array{".mp4"sv}, true);
+
+  REQUIRE(scanRes);
+  CHECK(scanRes->matches.empty());
 }

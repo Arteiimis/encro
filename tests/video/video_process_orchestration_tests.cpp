@@ -2,9 +2,10 @@
 #include "core/app_context.h"
 #include "core/job_state.h"
 #include "infra/stop_signal.h"
+#include "logging/setup.h"
 #include "test_utils.h"
+#include "video/video_encode_runner.h"
 #include "video/video_process.h"
-
 
 #include <array>
 #include <filesystem>
@@ -54,6 +55,11 @@ for %%A in (%*) do (
     set "outputPath=!previousArg!"
   )
   set "previousArg=!currentArg!"
+)
+
+if not defined outputPath (
+  for %%A in (%*) do set "lastArg=%%~A"
+  set "outputPath=!lastArg!"
 )
 
 if defined progressPath (
@@ -334,3 +340,114 @@ TEST_CASE(
 }
 
 }  // namespace
+
+TEST_CASE(
+  "webp retry tier failure updates the state's subprocess cmdline",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const strayProgressPath = fs::current_path() / "-progress";
+  if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
+  auto const inputPath = temp.path / "sample.mp4";
+  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
+  writeTextFile(inputPath, "fake-video");
+
+  // Script: first call succeeds with a >20MB output (forces a retry tier),
+  // every later call fails.
+  auto const script = std::format(
+    R"(
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+set "outputPath="
+set "previousArg="
+
+for %%A in (%*) do (
+  set "currentArg=%%~A"
+  if /I "!currentArg!"=="-progress" ( set "outputPath=!previousArg!" )
+  set "previousArg=!currentArg!"
+)
+
+set /p cnt=<"%~dp0calls.txt" 2>nul
+if not defined cnt set cnt=0
+set /a cnt+=1
+> "%~dp0calls.txt" echo !cnt!
+
+if !cnt!==1 (
+  for %%I in ("!outputPath!") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
+  fsutil file createnew "!outputPath!" 22020096 >nul
+  exit /b 0
+)
+exit /b 1
+)"
+  );
+  writeTextFile(scriptPath, script);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.outputFormat = "webp";
+  ctx.config.yesToAll = true;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+
+  auto state = appctx::EncodingState{};
+  state.inputPath = inputPath;
+  state.plannedOutputFile = temp.path / "out" / "sample.webp";
+  state.outputPath = temp.path / "out";
+
+  // q=80 succeeds but overshoots the 20MB target; the retry tier (q=75) fails.
+  auto const success = encodeVideo(ctx, state, {});
+  CHECK_FALSE(success);
+
+  // The state's snapshot command must reflect the failing retry tier, not the
+  // stale initial q=80 command (error-visibility).
+  auto lock = std::scoped_lock{state.mtx};
+  CAPTURE(state.subprocessCmdline.value_or("<none>"));
+  CHECK(state.subprocessCmdline.has_value());
+  CHECK(state.subprocessCmdline->find("-q:v 75") != std::string::npos);
+}
+
+TEST_CASE(
+  "segment end parse fallback is logged as a warning",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const strayProgressPath = fs::current_path() / "-progress";
+  if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
+  auto const inputPath = temp.path / "sample.mp4";
+  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
+  auto const ffprobeScriptPath = temp.path / "fake_ffprobe.cmd";
+  auto const logDir = temp.path / "logs";
+  writeTextFile(inputPath, "fake-video");
+  // Standard fake script writes frame=/progress= lines but no out_time_us=,
+  // so parseSegmentEndUs fails and must fall back with a warning.
+  writeFakeFfmpegScript(scriptPath);
+  writeFakeFfprobeScript(ffprobeScriptPath);
+
+  auto config = logging::LogConfig{
+    .colorsEnabled = false,
+    .customLogDir = logDir,
+  };
+  auto const setupRes = logging::setup(config);
+  REQUIRE(setupRes.has_value());
+  auto const logPath = setupRes.value();
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.outputFormat = "mp4";
+  ctx.config.yesToAll = true;
+  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffprobePath = makeCmdScriptCommand(ffprobeScriptPath);
+
+  auto state = appctx::EncodingState{};
+  state.inputPath = inputPath;
+  state.plannedOutputFile = temp.path / "out" / "sample.mp4";
+  state.outputPath = temp.path / "out";
+
+  auto const success = encodeVideo(ctx, state, {});
+  CHECK(success);
+
+  logging::shutdown();
+
+  auto const content = readTextFile(logPath);
+  CAPTURE(content);
+  CHECK(content.find("falling back to nominal duration") != std::string::npos);
+}

@@ -2,8 +2,6 @@
 #include "test_utils.h"
 #include "video/video_info.h"
 
-
-
 #include <cstdint>
 #include <fstream>
 
@@ -58,7 +56,8 @@ TEST_CASE("readAllVids skips files at or above 32MB for webp", "[video-info]") {
 
   auto const vids = readAllVids(config, toolchain, runtime, largeVideo);
 
-  REQUIRE(vids.empty());
+  REQUIRE(vids);
+  CHECK(vids->empty());
 }
 
 TEST_CASE("readAllVids allows files just below 32MB for webp", "[video-info]") {
@@ -74,8 +73,9 @@ TEST_CASE("readAllVids allows files just below 32MB for webp", "[video-info]") {
 
   auto const vids = readAllVids(config, toolchain, runtime, boundaryVideo);
 
-  REQUIRE(vids.size() == 1);
-  CHECK(vids.front() == boundaryVideo);
+  REQUIRE(vids);
+  REQUIRE(vids->size() == 1);
+  CHECK(vids->front() == boundaryVideo);
 }
 
 TEST_CASE("readAllVids for webp prewarms video info cache", "[video-info]") {
@@ -97,8 +97,9 @@ TEST_CASE("readAllVids for webp prewarms video info cache", "[video-info]") {
 
   auto const vids = readAllVids(config, toolchain, runtime, temp.path);
 
-  REQUIRE(vids.size() == 1);
-  CHECK(vids.front() == boundaryVideo);
+  REQUIRE(vids);
+  REQUIRE(vids->size() == 1);
+  CHECK(vids->front() == boundaryVideo);
   CHECK(runtime.videoInfoCache.size() == 1);
   CHECK(runtime.videoInfoCache.find(boundaryVideo).has_value());
 }
@@ -152,8 +153,9 @@ TEST_CASE("readAllVids keeps only <32MB videos for webp in directory", "[video-i
 
   auto const vids = readAllVids(config, toolchain, runtime, temp.path);
 
-  REQUIRE(vids.size() == 1);
-  CHECK(vids.front() == smallVideo);
+  REQUIRE(vids);
+  REQUIRE(vids->size() == 1);
+  CHECK(vids->front() == smallVideo);
 }
 
 TEST_CASE("getVidTotalFrames reads cached info from immer snapshot", "[video-info]") {

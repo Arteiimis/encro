@@ -113,6 +113,22 @@ auto createEncodingState(
   return vidState;
 }
 
+// Records the message of an exception that escaped runEncodingTask (which
+// would otherwise leave no specific failure reason and a stale active slot)
+// onto the slot's encoding state, then clears the slot.
+auto recordTaskException(
+  EncodingExecutionContext& executionCtx,
+  std::size_t slot,
+  std::string_view message
+) -> void {
+  auto const state = executionCtx.activeState(slot);
+  if (state) {
+    auto lock = std::scoped_lock{state->mtx};
+    state->lastError = std::string{message};
+  }
+  executionCtx.clearActive(slot);
+}
+
 auto runEncodingTask(
   EncodingExecutionContext& executionCtx,
   std::size_t taskIndex,
@@ -369,7 +385,15 @@ auto videobatch::runEncodingTasks(
       .id = std::format("encode:{}", vids[taskIndex].string()),
       .label = vids[taskIndex].filename().string(),
       .run = [&, taskIndex, vidPath = vids[taskIndex]](taskexec::TaskContext& taskCtx) {
-        return runEncodingTask(executionCtx, taskIndex, vidPath, taskCtx.slot);
+        try {
+          return runEncodingTask(executionCtx, taskIndex, vidPath, taskCtx.slot);
+        } catch (std::exception const& ex) {
+          recordTaskException(executionCtx, taskCtx.slot, ex.what());
+          throw;
+        } catch (...) {
+          recordTaskException(executionCtx, taskCtx.slot, "unknown exception");
+          throw;
+        }
       },
     });
   }

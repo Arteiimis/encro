@@ -49,7 +49,7 @@ auto readAllVids(
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
   std::filesystem::path const& dirPath
-) -> std::vector<std::filesystem::path>;
+) -> eh::Result<std::vector<std::filesystem::path>>;
 
 auto readAllVidsFromFiles(
   appctx::AppConfig const& config,

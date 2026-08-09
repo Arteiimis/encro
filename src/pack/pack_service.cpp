@@ -258,6 +258,11 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
   for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
     if (runRes.attempted[index] == 0) { continue; }
     if (!packResults[index]) { return eh::makeError("{}", packResults[index].error()); }
+    // A task that threw was caught by the executor with its packResults entry
+    // left default-constructed (success) — never report such a run as success.
+    if (!runRes.results[index]) {
+      return eh::makeError("{}", runRes.results[index].error());
+    }
   }
 
   return zippedFiles;
