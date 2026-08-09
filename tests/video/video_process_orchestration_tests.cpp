@@ -5,7 +5,6 @@
 #include "test_utils.h"
 #include "video/video_process.h"
 
-#include <catch2/catch_all.hpp>
 
 #include <array>
 #include <filesystem>

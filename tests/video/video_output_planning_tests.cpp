@@ -1,7 +1,6 @@
 #include "test_utils.h"
 #include "video/video_output_planning.h"
 
-#include <catch2/catch_all.hpp>
 
 #include <cstdint>
 #include <filesystem>

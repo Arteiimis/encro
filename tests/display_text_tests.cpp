@@ -2,6 +2,7 @@
 
 #include <catch2/catch_all.hpp>
 
+
 namespace {
 
 auto asString(std::u8string_view text) -> std::string {

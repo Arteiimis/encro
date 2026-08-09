@@ -1,7 +1,6 @@
 #include "video/segment_dir.h"
 #include "test_utils.h"
 
-#include <catch2/catch_all.hpp>
 
 #include <filesystem>
 #include <string_view>

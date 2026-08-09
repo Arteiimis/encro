@@ -1,7 +1,6 @@
 #include "infra/stop_signal.h"
 #include "utils/utils.h"
 
-#include <catch2/catch_all.hpp>
 
 #include <array>
 #include <chrono>
@@ -14,7 +13,6 @@
 #include "test_utils.h"
 
 #if defined(_WIN32)
-  #include <io.h>
 #else
   #include <unistd.h>
 #endif
