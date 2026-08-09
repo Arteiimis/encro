@@ -22,9 +22,21 @@ struct FfmpegInvocation {
 };
 
 auto readEnv(std::string const& key) -> std::optional<std::string> {
+#if defined(_WIN32)
+  // getenv is deprecated by the MSVC CRT; use the safe variant.
+  char* value = nullptr;
+  std::size_t size = 0;
+  if (_dupenv_s(&value, &size, key.c_str()) != 0 || value == nullptr) {
+    return std::nullopt;
+  }
+  auto result = std::string{value};
+  std::free(value);
+  return result;
+#else
   auto const* value = std::getenv(key.c_str());
   if (value == nullptr) { return std::nullopt; }
   return std::string{value};
+#endif
 }
 
 auto readEnvInt(std::string const& key, int defaultValue) -> int {
