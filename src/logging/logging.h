@@ -8,7 +8,10 @@
 #include <fmt/format.h>
 
 #include <chrono>
+#include <cstddef>
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 // ── Short file name extraction ──────────────────────────────────────────────
@@ -76,10 +79,11 @@ namespace logging::detail {
     spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, \
     spdlog::level::trace,                                    \
     fmt::format(                                             \
-      "[{}:{}] {}",                                          \
+      "[{}:{}] {}{}",                                        \
       logging::detail::shortFile(__FILE__),                  \
       __LINE__,                                              \
-      fmt::format(__VA_ARGS__)                               \
+      fmt::format(__VA_ARGS__),                              \
+      logging::detail::formatAttributeChain()                \
     )                                                        \
   )
 
@@ -88,10 +92,11 @@ namespace logging::detail {
     spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, \
     spdlog::level::debug,                                    \
     fmt::format(                                             \
-      "[{}:{}] {}",                                          \
+      "[{}:{}] {}{}",                                        \
       logging::detail::shortFile(__FILE__),                  \
       __LINE__,                                              \
-      fmt::format(__VA_ARGS__)                               \
+      fmt::format(__VA_ARGS__),                              \
+      logging::detail::formatAttributeChain()                \
     )                                                        \
   )
 
@@ -100,10 +105,11 @@ namespace logging::detail {
     spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, \
     spdlog::level::info,                                     \
     fmt::format(                                             \
-      "[{}:{}] {}",                                          \
+      "[{}:{}] {}{}",                                        \
       logging::detail::shortFile(__FILE__),                  \
       __LINE__,                                              \
-      fmt::format(__VA_ARGS__)                               \
+      fmt::format(__VA_ARGS__),                              \
+      logging::detail::formatAttributeChain()                \
     )                                                        \
   )
 
@@ -112,69 +118,76 @@ namespace logging::detail {
     spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, \
     spdlog::level::warn,                                     \
     fmt::format(                                             \
-      "[{}:{}] {}",                                          \
+      "[{}:{}] {}{}",                                        \
       logging::detail::shortFile(__FILE__),                  \
       __LINE__,                                              \
-      fmt::format(__VA_ARGS__)                               \
+      fmt::format(__VA_ARGS__),                              \
+      logging::detail::formatAttributeChain()                \
     )                                                        \
   )
 
-#define LOG_ERROR(...)                                                    \
-  do {                                                                    \
-    auto const __encro_ctx_chain = logging::detail::formatContextChain(); \
-    loggerPtr()->log(                                                     \
-      spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},            \
-      spdlog::level::err,                                                 \
-      fmt::format(                                                        \
-        "[{}:{}] {}{}",                                                   \
-        logging::detail::shortFile(__FILE__),                             \
-        __LINE__,                                                         \
-        fmt::format(__VA_ARGS__),                                         \
-        __encro_ctx_chain                                                 \
-      )                                                                   \
-    );                                                                    \
-    auto const __encro_snapshot = logging::captureEnvironmentSnapshot();  \
-    if (!__encro_snapshot.empty()) {                                      \
-      loggerPtr()->log(                                                   \
-        spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},          \
-        spdlog::level::info,                                              \
-        fmt::format(                                                      \
-          "[{}:{}] {}",                                                   \
-          logging::detail::shortFile(__FILE__),                           \
-          __LINE__,                                                       \
-          __encro_snapshot                                                \
-        )                                                                 \
-      );                                                                  \
-    }                                                                     \
+#define LOG_ERROR(...)                                                       \
+  do {                                                                       \
+    auto const __encro_ctx_chain = logging::detail::formatContextChain();    \
+    auto const __encro_attr_chain = logging::detail::formatAttributeChain(); \
+    loggerPtr()->log(                                                        \
+      spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},               \
+      spdlog::level::err,                                                    \
+      fmt::format(                                                           \
+        "[{}:{}] {}{}{}",                                                    \
+        logging::detail::shortFile(__FILE__),                                \
+        __LINE__,                                                            \
+        fmt::format(__VA_ARGS__),                                            \
+        __encro_ctx_chain,                                                   \
+        __encro_attr_chain                                                   \
+      )                                                                      \
+    );                                                                       \
+    auto const __encro_snapshot = logging::captureEnvironmentSnapshot();     \
+    if (!__encro_snapshot.empty()) {                                         \
+      loggerPtr()->log(                                                      \
+        spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},             \
+        spdlog::level::info,                                                 \
+        fmt::format(                                                         \
+          "[{}:{}] {}{}",                                                    \
+          logging::detail::shortFile(__FILE__),                              \
+          __LINE__,                                                          \
+          __encro_snapshot,                                                  \
+          logging::detail::formatAttributeChain()                            \
+        )                                                                    \
+      );                                                                     \
+    }                                                                        \
   } while (0)
 
-#define LOG_CRITICAL(...)                                                 \
-  do {                                                                    \
-    auto const __encro_ctx_chain = logging::detail::formatContextChain(); \
-    loggerPtr()->log(                                                     \
-      spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},            \
-      spdlog::level::critical,                                            \
-      fmt::format(                                                        \
-        "[{}:{}] {}{}",                                                   \
-        logging::detail::shortFile(__FILE__),                             \
-        __LINE__,                                                         \
-        fmt::format(__VA_ARGS__),                                         \
-        __encro_ctx_chain                                                 \
-      )                                                                   \
-    );                                                                    \
-    auto const __encro_snapshot = logging::captureEnvironmentSnapshot();  \
-    if (!__encro_snapshot.empty()) {                                      \
-      loggerPtr()->log(                                                   \
-        spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},          \
-        spdlog::level::info,                                              \
-        fmt::format(                                                      \
-          "[{}:{}] {}",                                                   \
-          logging::detail::shortFile(__FILE__),                           \
-          __LINE__,                                                       \
-          __encro_snapshot                                                \
-        )                                                                 \
-      );                                                                  \
-    }                                                                     \
+#define LOG_CRITICAL(...)                                                    \
+  do {                                                                       \
+    auto const __encro_ctx_chain = logging::detail::formatContextChain();    \
+    auto const __encro_attr_chain = logging::detail::formatAttributeChain(); \
+    loggerPtr()->log(                                                        \
+      spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},               \
+      spdlog::level::critical,                                               \
+      fmt::format(                                                           \
+        "[{}:{}] {}{}{}",                                                    \
+        logging::detail::shortFile(__FILE__),                                \
+        __LINE__,                                                            \
+        fmt::format(__VA_ARGS__),                                            \
+        __encro_ctx_chain,                                                   \
+        __encro_attr_chain                                                   \
+      )                                                                      \
+    );                                                                       \
+    auto const __encro_snapshot = logging::captureEnvironmentSnapshot();     \
+    if (!__encro_snapshot.empty()) {                                         \
+      loggerPtr()->log(                                                      \
+        spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION},             \
+        spdlog::level::info,                                                 \
+        fmt::format(                                                         \
+          "[{}:{}] {}{}",                                                    \
+          logging::detail::shortFile(__FILE__),                              \
+          __LINE__,                                                          \
+          __encro_snapshot,                                                  \
+          logging::detail::formatAttributeChain()                            \
+        )                                                                    \
+      );                                                                     \
+    }                                                                        \
   } while (0)
 
 // ── Forward declarations for logging types used by macros ───────────────────
@@ -182,6 +195,12 @@ namespace logging::detail {
 namespace logging {
 
 [[nodiscard]] auto captureEnvironmentSnapshot() -> std::string;
+
+namespace detail {
+
+inline auto formatAttributeChain() -> std::string;
+
+}  // namespace detail
 
 }  // namespace logging
 
@@ -345,6 +364,126 @@ public:
 
   auto operator=(ScopedErrorContext&& other) noexcept -> ScopedErrorContext& {
     if (this != &other) {
+      movedFrom_ = false;
+      other.movedFrom_ = true;
+    }
+    return *this;
+  }
+};
+
+// ── ScopedLogAttributes ──
+//
+// Parallel to ScopedErrorContext: RAII frames on a thread-local stack,
+// serialized at the call site as " [attrs: {json}]" appended after the
+// context chain (survives async logging — the formatter re-parses the tail).
+// Values are JSON-escaped here; the innermost frame wins for duplicate keys.
+// Same 16-frame cap / FIFO eviction as the context stack.
+
+namespace detail {
+
+struct AttributeFrame {
+  std::string_view key;
+  std::string_view value;
+};
+
+inline auto attributeStack() -> std::vector<AttributeFrame>& {
+  thread_local auto stack = std::vector<AttributeFrame>{};
+  return stack;
+}
+
+inline auto pushAttributeFrame(std::string_view key, std::string_view value) -> void {
+  auto& stack = attributeStack();
+  // ponytail: FIFO eviction + pop-by-count can over-pop an outer scope's
+  // frames when >16 nested scopes exist (same trade-off as the context
+  // stack); real nesting is 2-3 frames, so the cap is unreachable.
+  if (stack.size() >= 16) { stack.erase(stack.begin()); }
+  stack.push_back({key, value});
+}
+
+inline auto popAttributeFrame() -> void {
+  auto& stack = attributeStack();
+  if (!stack.empty()) { stack.pop_back(); }
+}
+
+inline auto resetAttributeStack() -> void {
+  attributeStack().clear();
+}
+
+inline auto escapeJsonString(std::string_view text) -> std::string {
+  std::string out;
+  out.reserve(text.size() + 2);
+  out += '"';
+  for (auto const ch: text) {
+    switch (ch) {
+      case '"' : out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\n': out += "\\n"; break;
+      case '\r': out += "\\r"; break;
+      case '\t': out += "\\t"; break;
+      default:
+        if (static_cast<unsigned char>(ch) < 0x20) {
+          out += std::format("\\u{:04x}", static_cast<unsigned>(ch));
+        } else {
+          out += ch;
+        }
+    }
+  }
+  out += '"';
+  return out;
+}
+
+inline auto formatAttributeChain() -> std::string {
+  auto const& stack = attributeStack();
+  if (stack.empty()) { return ""; }
+
+  std::string json = " [attrs: {";
+  auto seen = std::vector<std::string_view>{};
+  auto first = true;
+  // Innermost (top of stack) first; outer frames with a seen key are skipped
+  for (auto i = stack.size(); i-- > 0;) {
+    auto const& frame = stack[i];
+    if (std::ranges::find(seen, frame.key) != seen.end()) { continue; }
+    seen.push_back(frame.key);
+    if (!first) { json += ','; }
+    first = false;
+    json += escapeJsonString(frame.key);
+    json += ':';
+    json += escapeJsonString(frame.value);
+  }
+  json += "}]";
+  return json;
+}
+
+}  // namespace detail
+
+class ScopedLogAttributes {
+  std::size_t frameCount_{0};
+  bool movedFrom_{false};
+
+public:
+  ScopedLogAttributes(
+    std::initializer_list<std::pair<std::string_view, std::string_view>> attributes
+  ) {
+    for (auto const& [key, value]: attributes) { detail::pushAttributeFrame(key, value); }
+    frameCount_ = attributes.size();
+  }
+
+  ~ScopedLogAttributes() noexcept {
+    if (movedFrom_) { return; }
+    for (auto i = std::size_t{0}; i < frameCount_; ++i) { detail::popAttributeFrame(); }
+  }
+
+  ScopedLogAttributes(ScopedLogAttributes const&) = delete;
+  auto operator=(ScopedLogAttributes const&) -> ScopedLogAttributes& = delete;
+
+  ScopedLogAttributes(ScopedLogAttributes&& other) noexcept: movedFrom_(false) {
+    frameCount_ = other.frameCount_;
+    other.movedFrom_ = true;
+  }
+
+  auto operator=(ScopedLogAttributes&& other) noexcept -> ScopedLogAttributes& {
+    if (this != &other) {
+      frameCount_ = other.frameCount_;
       movedFrom_ = false;
       other.movedFrom_ = true;
     }

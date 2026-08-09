@@ -436,3 +436,110 @@ TEST_CASE("Multiple optional fields coexist", "[logging][json]") {
   auto const& msg = obj.at("message").as_string();
   CHECK(msg.find("[context:") == std::string::npos);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RED 1.4 — attrs suffix parsed into top-level correlation fields
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("attrs suffix becomes top-level task_id/input fields", "[logging][json]") {
+  auto [logger, oss] = registerCapturingLoggerForJson(logtags::TEST_INFRA);
+
+  // Mimics LOG_INFO output with attribute chain appended
+  logger
+    ->info(R"(processing [attrs: {"task_id":"encode:a.mkv","input":"C:\\vids\\a.mkv"}])");
+  logger->flush();
+
+  auto const line = oss->str();
+  CAPTURE(line);
+
+  auto const val = boost::json::parse(line);
+  REQUIRE(val.is_object());
+  auto const& obj = val.as_object();
+
+  CHECK(obj.contains("task_id"));
+  CHECK(obj.at("task_id").as_string() == "encode:a.mkv");
+  CHECK(obj.contains("input"));
+  CHECK(obj.at("input").as_string() == R"(C:\vids\a.mkv)");
+
+  // Attrs suffix stripped from message
+  auto const& msg = obj.at("message").as_string();
+  CHECK(msg.find("[attrs:") == std::string::npos);
+  CHECK(msg == "processing");
+}
+
+TEST_CASE("no attrs fields when suffix absent", "[logging][json]") {
+  auto [logger, oss] = registerCapturingLoggerForJson(logtags::TEST_INFRA);
+
+  logger->info("plain message");
+  logger->flush();
+
+  auto const line = oss->str();
+  CAPTURE(line);
+
+  auto const val = boost::json::parse(line);
+  REQUIRE(val.is_object());
+  auto const& obj = val.as_object();
+
+  CHECK(!obj.contains("task_id"));
+  CHECK(!obj.contains("input"));
+}
+
+TEST_CASE("context and attrs suffixes coexist", "[logging][json]") {
+  auto [logger, oss] = registerCapturingLoggerForJson(logtags::TEST_INFRA);
+
+  // Mimics LOG_ERROR output: message + context chain + attrs chain (attrs last)
+  logger->error(
+    R"(encode failed [context: input.mkv > encode] [attrs: {"task_id":"encode:a.mkv","input":"C:\\vids\\a.mkv"}])"
+  );
+  logger->flush();
+
+  auto const line = oss->str();
+  CAPTURE(line);
+
+  auto const val = boost::json::parse(line);
+  REQUIRE(val.is_object());
+  auto const& obj = val.as_object();
+
+  // error_context intact and NOT swallowing the attrs marker
+  CHECK(obj.contains("error_context"));
+  auto const& ctx = obj.at("error_context").as_array();
+  REQUIRE(ctx.size() == 2);
+  CHECK(ctx[0].as_string() == "input.mkv");
+  CHECK(ctx[1].as_string() == "encode");
+
+  // Correlation fields present
+  CHECK(obj.contains("task_id"));
+  CHECK(obj.at("task_id").as_string() == "encode:a.mkv");
+
+  // Message stripped of both suffixes
+  auto const& msg = obj.at("message").as_string();
+  CHECK(msg == "encode failed");
+  CHECK(msg.find("[context:") == std::string::npos);
+  CHECK(msg.find("[attrs:") == std::string::npos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RED 4.1 — timestamps carry millisecond precision
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("timestamp has millisecond precision", "[logging][json]") {
+  auto [logger, oss] = registerCapturingLoggerForJson(logtags::TEST_INFRA);
+
+  logger->info("ms check");
+  logger->flush();
+
+  auto const line = oss->str();
+  CAPTURE(line);
+
+  auto const val = boost::json::parse(line);
+  REQUIRE(val.is_object());
+  auto const& obj = val.as_object();
+
+  auto const ts = obj.at("timestamp").as_string();
+  // YYYY-MM-DDTHH:MM:SS.sssZ — 24 chars
+  CHECK(ts.size() == 24);
+  CHECK(ts.ends_with("Z"));
+  CHECK(ts[19] == '.');
+  CHECK(ts[23] == 'Z');
+  for (auto i = std::size_t{20}; i < 23; ++i) { CHECK((ts[i] >= '0' && ts[i] <= '9')); }
+}

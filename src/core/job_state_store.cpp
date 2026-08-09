@@ -2,7 +2,7 @@
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
-#include "utils/utils.h"
+#include "logging/setup.h"
 
 #include <utility>
 
@@ -14,6 +14,11 @@ Store::Store(fs::path stateFilePath): stateFilePath_(std::move(stateFilePath)) {
 
 auto Store::stateFilePath() const -> fs::path const& {
   return stateFilePath_;
+}
+
+auto Store::currentJobId() const -> std::string {
+  auto lock = std::scoped_lock{mtx_};
+  return snapshot_.jobId;
 }
 
 auto Store::initialize(
@@ -54,6 +59,11 @@ auto Store::initialize(
       snapshot_.updatedAtMs = detail::nowMs();
       for (auto& task: snapshot_.tasks) { detail::normalizeExistingTask(task); }
       rebuildIndexLocked();
+      // D3: align logging run id with the restored job so log records
+      // emitted after resume cross-reference the state file. A corrupted file
+      // missing the jobId gets a fresh id rather than an empty one.
+      if (snapshot_.jobId.empty()) { snapshot_.jobId = logging::runId(); }
+      logging::setRunId(snapshot_.jobId);
       if (!flushLocked(true)) {
         return eh::makeError(
           "Failed to persist loaded job state: {}",
@@ -66,7 +76,7 @@ auto Store::initialize(
 
   snapshot_ = Snapshot{
     .version = detail::kStateVersion,
-    .jobId = getUUID(),
+    .jobId = logging::runId(),
     .stage = "planning",
     .cancelRequested = false,
     .updatedAtMs = detail::nowMs(),

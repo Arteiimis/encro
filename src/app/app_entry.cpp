@@ -2,6 +2,7 @@
 
 #include "cmd/config_builder.h"
 #include "core/app_context.h"
+#include "core/job_state.h"
 #include "app/pipeline.h"
 #include "app/prelude.h"
 #include "infra/terminal.h"
@@ -13,6 +14,7 @@
 #include "logging/setup.h"
 
 #include <array>
+#include <chrono>
 #include <format>
 #include <iostream>
 #include <optional>
@@ -24,6 +26,37 @@ using enum terminal::MessageKind;
 DEFINE_LOGGER(logtags::APP_ENTRY);
 
 namespace {
+
+// Run start time for the end-of-run summary's elapsed_ms.
+static auto gRunStartedAt = std::chrono::steady_clock::time_point{};
+
+// ── End-of-run summary (D6) ────────────────────────────────────────────────
+// jobId/task counts come from the job-state store when it is active; the
+// log path and level_counts are attached by the formatter itself.
+
+auto buildSummary(appctx::AppContext const* ctx, std::string status)
+  -> logging::SummaryData {
+  auto data = logging::SummaryData{
+    .status = std::move(status),
+    .elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - gRunStartedAt
+    )
+                   .count(),
+  };
+  if (ctx != nullptr) {
+    if (auto const* store = ctx->runtime.jobState.get(); store != nullptr) {
+      data.jobId = store->currentJobId();
+      auto const tasks = store->tasks();
+      data.tasksTotal = tasks.size();
+      data.tasksFailed = static_cast<std::size_t>(
+        std::ranges::count_if(tasks, [](jobstate::TaskRecord const& task) {
+          return task.status == jobstate::TaskStatus::Failed;
+        })
+      );
+    }
+  }
+  return data;
+}
 
 auto parseDecimal(std::string_view text) -> int {
   auto value = 0;
@@ -80,7 +113,8 @@ auto printHelpHint() -> void {
 auto failWithHint(
   prelude::StartupContext const& startup,
   std::string const& message,
-  bool showHelpHint = false
+  bool showHelpHint = false,
+  appctx::AppContext* ctx = nullptr
 ) -> int {
   if (startup.cmd.verbose) {
     LOG_ERROR("{}", message);
@@ -88,6 +122,8 @@ auto failWithHint(
     terminal::println(Error, "Error: {}", message);
     LOG_ERROR("{}", message);
   }
+  // End-of-run summary before the drain below, so it lands in the log.
+  logging::logRunSummary(buildSummary(ctx, "failed"));
   // Drain the async queue so the error reaches the console echo and the log file
   // before the process exits.
   logging::shutdown();
@@ -138,7 +174,12 @@ auto ensureToolchainReady(appctx::AppContext& ctx, prelude::StartupContext const
 
   auto const toolRes = toolchain::resolve(ctx.config, ctx.toolchain);
   if (!toolRes) {
-    failWithHint(startup, std::format("Tool check failed: {}", toolRes.error()));
+    failWithHint(
+      startup,
+      std::format("Tool check failed: {}", toolRes.error()),
+      false,
+      &ctx
+    );
     return false;
   }
 
@@ -149,9 +190,23 @@ auto runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& star
   -> int {
   auto runRes = pipeline::run(ctx);
   if (!runRes) {
-    return failWithHint(startup, std::format("Pipeline failed: {}", runRes.error()));
+    return failWithHint(
+      startup,
+      std::format("Pipeline failed: {}", runRes.error()),
+      false,
+      &ctx
+    );
   }
 
+  // Success, Ctrl-C, or any other non-zero pipeline exit all reach here; today
+  // these paths return without draining, so the summary must be followed by an
+  // explicit shutdown.
+  auto const status = [exitCode = runRes.value()] {
+    if (exitCode == stopsignal::kCanceledExitCode) { return "interrupted"; }
+    return exitCode == 0 ? "success" : "failed";
+  }();
+  logging::logRunSummary(buildSummary(&ctx, status));
+  logging::shutdown();
   return runRes.value();
 }
 
@@ -169,6 +224,8 @@ auto helpIntroLine() -> std::string {
 auto run(int argc, char* argv[]) -> int {
   stopsignal::installHandler();
   stopsignal::reset();
+
+  gRunStartedAt = std::chrono::steady_clock::now();
 
   auto const introLine = helpIntroLine();
   auto const startup = prelude::initStartup(argc, argv, introLine);
