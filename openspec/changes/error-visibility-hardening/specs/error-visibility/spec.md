@@ -8,12 +8,17 @@ Guarantees that every operational failure, cancellation, and crash leaves a trut
 
 ### Requirement: State persistence failures are reported
 
-When the job-state store cannot persist its snapshot (disk full, read-only directory, locked state file, failed rename), the failure SHALL be surfaced to the caller and SHALL produce an error-level log record. The program SHALL NOT continue as if the state had been saved.
+When the job-state store cannot persist its snapshot (disk full, read-only directory, locked state file, failed rename), the failure SHALL produce an error-level log record naming the operation and the failure reason. `initialize` additionally SHALL fail with an error that reaches the caller. The program SHALL NOT continue as if the state had been saved.
+
+> Note: the `mark*` / `setStage` / `requestCancel` / `flush` mutators are best-effort
+> state transitions with no recovery path, so they return `void` and report
+> exclusively through the log (the store owns the persistence error);
+> `initialize` is the single call that propagates.
 
 #### Scenario: State file write fails
 - **WHEN** the state file cannot be opened or written during a `mark*` or `flush` operation
 - **THEN** an error-level log record is written describing the operation and the failure reason
-- **AND** the failure is propagated to the caller of the save operation
+- **AND** the record identifies which save operation failed
 
 #### Scenario: State file rename fails
 - **WHEN** the atomic rename of the temporary state snapshot fails after both fallback attempts

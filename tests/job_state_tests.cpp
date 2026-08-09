@@ -1,10 +1,44 @@
 #include "core/job_state.h"
+#include "logging/log_tags.h"
 #include "test_utils.h"
+
+#include <spdlog/logger.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
 #include <catch2/catch_all.hpp>
 
 #include <array>
 #include <filesystem>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <utility>
+#include <vector>
+
+// ponytail: duplicate of the helper in tests/logging_infra_test.cpp; hoist to
+// test_utils.h when a fifth copy appears.
+namespace {
+
+auto registerCapturingLogger(char const* name)
+  -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
+  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
+  auto oss = std::make_unique<std::ostringstream>();
+  auto* ossPtr = oss.get();
+  sstreams.push_back(std::move(oss));
+
+  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
+  auto logger = std::make_shared<spdlog::logger>(name, sink);
+  logger->set_pattern("%v");
+  logger->set_level(spdlog::level::trace);
+  logger->flush_on(spdlog::level::trace);
+
+  spdlog::drop(name);
+  spdlog::register_logger(logger);
+  return {logger, ossPtr};
+}
+
+}  // namespace
 
 namespace fs = std::filesystem;
 using testutils::writeFile;
@@ -168,7 +202,6 @@ TEST_CASE("job state resets encode action when planned target changes", "[job-st
   store.markRunning(oldTask.id);
   store.markSucceeded(oldTask.id);
   store.flush();
-
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -197,7 +230,6 @@ TEST_CASE("job state round-trips segment fields through JSON", "[job-state]") {
   store.mergeTasks(std::array{task});
   store.markInterrupted(task.id);
   store.flush();
-
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -225,7 +257,6 @@ TEST_CASE("job state keeps absent segment fields as nullopt", "[job-state]") {
   store.mergeTasks(std::array{task});
   store.markInterrupted(task.id);
   store.flush();
-
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -251,7 +282,6 @@ TEST_CASE("job state markSegmentProgress persists segment fields", "[job-state]"
   store.mergeTasks(std::array{task});
   store.markSegmentProgress(task.id, 4, 40'000'000);
   store.flush();
-
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -285,7 +315,6 @@ TEST_CASE(
   store.mergeTasks(std::array{task});
   store.markInterrupted(task.id);
   store.flush();
-
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -317,7 +346,6 @@ TEST_CASE(
   store.mergeTasks(std::array{task});
   store.markInterrupted(task.id);
   store.flush();
-
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -379,7 +407,6 @@ TEST_CASE("job state clears segment fields when planned target changes", "[job-s
   store.markRunning(oldTask.id);
   store.markSucceeded(oldTask.id);
   store.flush();
-
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -419,7 +446,6 @@ TEST_CASE("job state resets archive action when member set changes", "[job-state
   store.markRunning(oldTask.id);
   store.markSucceeded(oldTask.id);
   store.flush();
-
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -551,7 +577,6 @@ TEST_CASE(
   auto const initRes = store.initialize(config, false);
   REQUIRE(initRes);
   store.flush();
-
   auto changedConfig = makeConfig(inputPath, statePath);
   changedConfig.outputFormat = "webp";
 
@@ -596,7 +621,6 @@ TEST_CASE(
   auto const initRes = store.initialize(config, false);
   REQUIRE(initRes);
   store.flush();
-
   auto changedConfig = makeConfig(inputPath, statePath);
   changedConfig.outputFormat = "webp";
   changedConfig.resumeState = true;
@@ -654,10 +678,14 @@ TEST_CASE("job state mark operations report persistence failures", "[job-state]"
   fs::create_directory(statePath);
   writeFile(statePath / "keep.txt");
 
-  auto const markRes = store.markRunning(task.id);
-  REQUIRE_FALSE(markRes);
-  CHECK(markRes.error().find("state") != std::string::npos);
-
-  auto const flushRes = store.flush();
-  REQUIRE_FALSE(flushRes);
+  // Best-effort mutators report persistence failures through the log.
+  auto const [logger, log] = registerCapturingLogger(logtags::CORE_JOB);
+  store.markRunning(task.id);
+  store.flush();
+  auto const content = log->str();
+  CHECK(
+    content.find("Failed to persist job state after markRunning") != std::string::npos
+  );
+  CHECK(content.find("Failed to persist job state after flush") != std::string::npos);
+  spdlog::drop(logtags::CORE_JOB);
 }
