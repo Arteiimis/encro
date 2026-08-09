@@ -1,7 +1,6 @@
 #include "pack/packer.h"
 
 #include "core/collision_naming.h"
-#include "core/job_state.h"
 #include "core/progress.h"
 #include "infra/terminal.h"
 #include "pack/pack_internal.h"
