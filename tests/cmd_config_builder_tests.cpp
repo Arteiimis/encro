@@ -2,7 +2,6 @@
 #include "cmd/config_builder.h"
 #include "test_utils.h"
 
-#include <catch2/catch_all.hpp>
 
 #include <filesystem>
 #include <string>

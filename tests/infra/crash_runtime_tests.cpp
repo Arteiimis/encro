@@ -7,7 +7,6 @@
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/stdio.hpp>
-#include <catch2/catch_all.hpp>
 #include <spdlog/logger.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>

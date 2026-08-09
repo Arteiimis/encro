@@ -17,7 +17,6 @@
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
 
-#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <format>

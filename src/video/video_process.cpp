@@ -15,9 +15,9 @@
 #include <immer/vector.hpp>
 #include "logging/log_tags.h"
 #include "logging/logging.h"
-#include <boost/lambda2.hpp>
 
 #include <algorithm>
+#include <boost/lambda2.hpp>
 #include <cstdint>
 
 DEFINE_LOGGER(logtags::VIDEO_PROCESS);

@@ -9,7 +9,6 @@
 #include <format>
 
 #if defined(_WIN32) || defined(_WIN64)
-  #include <io.h>
   #include <windows.h>
 #else
   #include <unistd.h>

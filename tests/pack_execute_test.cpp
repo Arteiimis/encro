@@ -14,14 +14,12 @@
 
 #include "pack/pack.h"
 #include "pack/pack_types.h"
-#include "pack/pack_plan_internal.h"
 #include "core/job_state.h"
 #include "core/app_context.h"
 #include "infra/stop_signal.h"
 #include "test_utils.h"
 
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <algorithm>
 #include <filesystem>
