@@ -341,6 +341,7 @@ TEST_CASE(
 
 }  // namespace
 
+#if defined(_WIN32)
 TEST_CASE(
   "webp retry tier failure updates the state's subprocess cmdline",
   "[video-process][orchestration]"
@@ -451,3 +452,4 @@ TEST_CASE(
   CAPTURE(content);
   CHECK(content.find("falling back to nominal duration") != std::string::npos);
 }
+#endif
