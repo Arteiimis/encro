@@ -19,6 +19,11 @@ sudo ln -sf /usr/bin/ld.lld-19 /usr/local/bin/ld.lld
 sudo ln -sf /usr/bin/llvm-profdata-19 /usr/local/bin/llvm-profdata
 sudo ln -sf /usr/bin/llvm-cov-19 /usr/local/bin/llvm-cov
 
+# clang-19 from apt.llvm.org registers no /usr/bin/clang on a fresh system
+# (GitHub runner images pre-register it); do it explicitly for both CI and WSL
+sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 110
+sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 110
+
 # clang pairs with libstdc++-13 by default (missing std::print / views::enumerate);
 # switch gcc/g++ to 14 so clang and xmake probe libstdc++-14
 sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
