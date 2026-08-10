@@ -311,10 +311,10 @@ auto fromJsonTask(json::object const& object) -> TaskRecord {
   auto fingerprint = optionalStringFrom(object, "fingerprint");
 
   return TaskRecord{
-    .id = optionalStringFrom(object, "id").value_or({}),
+    .id = optionalStringFrom(object, "id").value_or(std::string{}),
     .kind = std::move(kind),
     .status = parseTaskStatus(optionalStringFrom(object, "status").value_or("pending")),
-    .label = optionalStringFrom(object, "label").value_or({}),
+    .label = optionalStringFrom(object, "label").value_or(std::string{}),
     .attemptCount = optionalNumberFrom<std::size_t>(object, "attemptCount").value_or(0),
     .fingerprint = fingerprint.value_or(buildFingerprint(
       inferLegacyKind(object, sourcePaths, targetPaths),
@@ -354,7 +354,7 @@ auto toJson(Snapshot const& snapshot) -> json::object {
 auto fromJsonSnapshot(json::object const& object) -> Snapshot {
   auto snapshot = Snapshot{};
   snapshot.version = optionalNumberFrom<int>(object, "version").value_or(kStateVersion);
-  snapshot.jobId = optionalStringFrom(object, "jobId").value_or({});
+  snapshot.jobId = optionalStringFrom(object, "jobId").value_or(std::string{});
   snapshot.stage = optionalStringFrom(object, "stage").value_or("planning");
   snapshot.cancelRequested =
     object.if_contains("cancelRequested") && object.at("cancelRequested").as_bool();
