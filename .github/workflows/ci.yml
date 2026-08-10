@@ -76,9 +76,8 @@ jobs:
       - name: Run unit tests
         if: matrix.mode != 'coverage'
         run: |
-          ls -la build/linux/x86_64/${{ matrix.mode }}/tests
-          ./build/linux/x86_64/${{ matrix.mode }}/tests
-          echo "exit=$?"
+          sudo apt-get install -y gdb > /dev/null 2>&1
+          gdb -batch -ex run -ex "bt 15" --args ./build/linux/x86_64/${{ matrix.mode }}/tests "[pack][naming][integration]" 2>&1 | tail -30
 
       - name: Run e2e tests
         if: matrix.mode != 'coverage'
