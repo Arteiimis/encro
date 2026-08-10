@@ -61,6 +61,10 @@ add_requires("libzippp")
 -- add_requireconfs("libzippp.libzip", {configs = {toolchains = "clang"}})
 add_requires("catch2")
 
+-- 包不继承 target 的 LTO：clang + GNU ld 下 catch2/boost 的 LTO 链接失败
+-- （Windows lld-link 无此问题；包 LTO 对最终二进制无收益，target 自身 LTO 保留）
+add_requireconfs("*", {configs = {lto = false}})
+
 target("encro")
   set_kind("binary")
 
