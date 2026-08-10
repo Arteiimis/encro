@@ -3,8 +3,13 @@ add_rules("mode.debug", "mode.release", "mode.releasedbg", "mode.coverage")
 set_version("0.1.5")
 
 set_languages("c++26")
-set_toolchains("clang-cl")
-set_toolset("ld", "lld-link")
+
+if is_plat("windows") then
+  set_toolchains("clang-cl")
+  set_toolset("ld", "lld-link")
+else
+  set_toolchains("clang")
+end
 
 add_cxxflags("-ftrivial-auto-var-init=pattern")
 

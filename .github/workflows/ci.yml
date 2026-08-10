@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [debug, release, coverage]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: xmake-io/setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Install toolchain and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 g++-14 llvm ffmpeg
+          # clang-18 默认配对 libstdc++-13（缺 std::print / std::views::enumerate）；
+          # 用 update-alternatives 让 clang 与 xmake 探测到 gcc-14 的 libstdc++-14
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100 \
+            --slave /usr/bin/clang++ clang++ /usr/bin/clang++-18
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
+            --slave /usr/bin/g++ g++ /usr/bin/g++-14
+
+      - name: Cache xmake packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.xmake
+          key: xmake-${{ matrix.mode }}-${{ hashFiles('xmake.lua') }}
+
+      - name: Configure
+        run: xmake f -m ${{ matrix.mode }}
+
+      - name: Build
+        if: matrix.mode != 'coverage'
+        run: xmake build encro encro_e2e_tool tests e2e_tests
+
+      - name: Run unit tests
+        if: matrix.mode != 'coverage'
+        run: xmake run tests
+
+      - name: Run e2e tests
+        if: matrix.mode != 'coverage'
+        run: xmake run e2e_tests
+
+      - name: Run coverage (configures and builds itself)
+        if: matrix.mode == 'coverage'
+        run: xmake coverage --summary
