@@ -117,7 +117,11 @@ TEST_CASE("setup creates timestamped log file", "[logging][file_mgmt]") {
   auto const now = std::chrono::system_clock::now();
   auto const nowTimeT = std::chrono::system_clock::to_time_t(now);
   auto tm = std::tm{};
+#if defined(_WIN32)
   localtime_s(&tm, &nowTimeT);
+#else
+  localtime_r(&nowTimeT, &tm);
+#endif
   auto tsBuf = std::ostringstream{};
   tsBuf << std::put_time(&tm, "encro_%Y%m%d_%H%M%S.log");
   auto const collisionName = tsBuf.str();
