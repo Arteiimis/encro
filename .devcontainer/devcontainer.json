@@ -1,0 +1,10 @@
+{
+  "name": "encro-linux-dev",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "postCreateCommand": "bash scripts/setup-linux-env.sh && curl -fsSL https://xmake.io/shget.text | bash && echo 'export PATH=$HOME/.xmake:$PATH' >> ~/.bashrc",
+  "customizations": {
+    "vscode": {
+      "extensions": ["xmake.vscode-lua"]
+    }
+  }
+}
