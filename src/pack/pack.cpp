@@ -35,7 +35,7 @@ namespace {
 
 // ponytail: ASan workaround — extract optional to raw pointer before use
 // to prevent compiler speculative read across inline boundaries.
-__declspec(noinline) auto optNamingPtr(PackRequest const& r) -> NamingConfig const* {
+[[gnu::noinline]] auto optNamingPtr(PackRequest const& r) -> NamingConfig const* {
   return r.naming.has_value() ? &r.naming.value() : nullptr;
 }
 
