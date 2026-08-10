@@ -47,18 +47,6 @@ auto exec2Impl(
   auto ctx = asio::io_context{};
   auto command = bp::shell{boost::string_view{cmd.data(), cmd.size()}};
 
-  // boost::process v2's posix find_executable cannot resolve absolute paths
-  // (boost::filesystem appends instead of replacing), leaving an empty exe and
-  // execve("") ENOENT; the parsed argv[0] token is the correct program name.
-  // Windows must NOT do this: CreateProcess with an explicit relative
-  // application name skips PATH search, while an empty one resolves it from
-  // the command line.
-  auto const* exeToken = command.argv()[0];
-  auto exePath = bp::environment::find_executable(exeToken);
-#if !defined(_WIN32)
-  if (exePath.empty()) { exePath = exeToken; }
-#endif
-
   // One pipe for the child's output; stdout and stderr share its write end so
   // merged output keeps its natural interleaving.
   auto pipeReader = asio::readable_pipe{ctx};
@@ -69,7 +57,19 @@ auto exec2Impl(
   auto stdio = mergeStdErr ? bp::process_stdio{.out = writeEnd, .err = writeEnd}
                            : bp::process_stdio{.out = writeEnd, .err = nullptr};
 
+#if defined(_WIN32)
+  // Windows CreateProcess resolves the exe from the command line when the
+  // application name is empty, so keep the stock shell exe() resolution.
+  auto process = bp::process{ctx, command.exe(), command.args(), std::move(stdio)};
+#else
+  // boost::process v2's posix find_executable cannot resolve absolute paths
+  // (boost::filesystem appends instead of replacing), leaving an empty exe and
+  // execve("") ENOENT; the parsed argv[0] token is the correct program name.
+  auto const* exeToken = command.argv()[0];
+  auto exePath = bp::environment::find_executable(exeToken);
+  if (exePath.empty()) { exePath = exeToken; }
   auto process = bp::process{ctx, exePath, command.args(), std::move(stdio)};
+#endif
   auto const capturedPid = static_cast<int>(process.id());
 
   // The parent must not keep a write end open, or the reader never sees EOF.
