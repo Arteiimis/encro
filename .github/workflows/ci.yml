@@ -29,12 +29,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 g++-14 llvm ffmpeg
-          # clang-18 默认配对 libstdc++-13（缺 std::print / std::views::enumerate）；
-          # 用 update-alternatives 让 clang 与 xmake 探测到 gcc-14 的 libstdc++-14
-          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100 \
-            --slave /usr/bin/clang++ clang++ /usr/bin/clang++-18
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
-            --slave /usr/bin/g++ g++ /usr/bin/g++-14
+          # clang-18 由 apt 的 alternatives 注册（/usr/bin/clang -> clang-18）；
+          # 它默认配对 libstdc++-13（缺 std::print / views::enumerate），
+          # 把 gcc/g++ 切到 14，让 clang 与 xmake 探测到 libstdc++-14
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+          sudo update-alternatives --set gcc /usr/bin/gcc-14
+          sudo update-alternatives --set g++ /usr/bin/g++-14
 
       - name: Configure
         run: xmake f -m ${{ matrix.mode }}
