@@ -87,7 +87,7 @@ struct EncodeConfig {
   }
 
   std::string buildCMD() const {
-    auto cmd = std::string{ffmpegPath.value().string()};
+    auto cmd = std::format("\"{}\"", ffmpegPath.value().string());
     cmd += " -hide_banner -nostats -loglevel error -y";
 
     if (!inputPath.has_value()) {
@@ -169,7 +169,7 @@ inline auto buildAudioExtractionCmd(
   fs::path const& audioPath,
   bool aacFallback
 ) -> std::string {
-  auto cmd = std::string{ffmpegPath.string()};
+  auto cmd = std::format("\"{}\"", ffmpegPath.string());
   cmd += " -hide_banner -nostats -loglevel error -y";
   cmd += std::format(" -i \"{}\"", inputPath.string());
   cmd += aacFallback ? " -vn -c:a aac -b:a 192k" : " -vn -c:a copy";
@@ -183,7 +183,7 @@ inline auto buildSegmentAssemblyCmd(
   std::optional<fs::path> const& audioPath,
   fs::path const& outputPath
 ) -> std::string {
-  auto cmd = std::string{ffmpegPath.string()};
+  auto cmd = std::format("\"{}\"", ffmpegPath.string());
   cmd += " -hide_banner -nostats -loglevel error -y";
   cmd += std::format(" -f concat -safe 0 -i \"{}\"", listPath.string());
   if (audioPath.has_value()) { cmd += std::format(" -i \"{}\"", audioPath->string()); }

@@ -78,7 +78,7 @@ auto compressImageTask(
 }  // namespace
 
 auto ImageCompressConfig::buildCMD() const -> std::string {
-  auto cmd = std::string{ffmpegPath.value().string()};
+  auto cmd = std::format("\"{}\"", ffmpegPath.value().string());
   cmd += " -hide_banner -nostats -loglevel error -y";
   cmd += std::format(" -i \"{}\"", inputPath.string());
   cmd += std::format(" -q:v {}", quality);

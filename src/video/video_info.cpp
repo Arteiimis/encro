@@ -279,7 +279,7 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
   namespace json = boost::json;
 
   auto const cmd = std::format(
-    "{} -v quiet -print_format json -show_format -show_streams \"{}\"",
+    "\"{}\" -v quiet -print_format json -show_format -show_streams \"{}\"",
     toolchain.ffprobePath.value_or("ffprobe").string(),
     videoPath.string()
   );

@@ -235,10 +235,16 @@ auto countLogLines(fs::path const& logPath, std::string_view needle) -> std::siz
   return count;
 }
 
-auto findOutputMp4(fs::path const& searchRoot) -> std::optional<fs::path> {
+auto findOutputMp4(
+  fs::path const& searchRoot,
+  fs::path const& excluded = {}
+) -> std::optional<fs::path> {
   if (!fs::exists(searchRoot)) { return std::nullopt; }
   for (auto const& entry: fs::recursive_directory_iterator{searchRoot}) {
-    if (entry.is_regular_file() && entry.path().extension() == ".mp4") {
+    if (
+      entry.is_regular_file() && entry.path().extension() == ".mp4"
+      && entry.path() != excluded
+    ) {
       return entry.path();
     }
   }
@@ -390,6 +396,7 @@ TEST_CASE(
   });
 
   auto const outputDir = temp.path / "encoded_webp";
+  CAPTURE(result.stdoutText, result.stderrText);
   REQUIRE(result.exitCode == 0);
   REQUIRE(fs::exists(outputDir));
 
@@ -452,7 +459,7 @@ TEST_CASE(
   });
 
   REQUIRE(result.exitCode == 0);
-  auto const outputPath = findOutputMp4(temp.path);
+  auto const outputPath = findOutputMp4(temp.path, inputPath);
   REQUIRE(outputPath.has_value());
   CHECK(outputPath->extension() == ".mp4");
   CHECK(fs::file_size(outputPath.value()) > 0);
@@ -1728,7 +1735,13 @@ TEST_CASE(
       toolchain.root.string(),
     },
     std::nullopt,
-    {{"LOCALAPPDATA", logRoot.string()}}
+    {
+#if defined(_WIN32)
+      {"LOCALAPPDATA", logRoot.string()}
+#else
+      {"XDG_STATE_HOME", logRoot.string()}
+#endif
+    }
   );
   REQUIRE(result.exitCode == 0);
 
@@ -1773,7 +1786,12 @@ TEST_CASE(
     std::nullopt,
     {
       {"ENCRO_FAKE_FFMPEG_FAIL_MATCH", ".compress_tmp"},
-      {"LOCALAPPDATA", logRoot.string()},
+#if defined(_WIN32)
+      {"LOCALAPPDATA", logRoot.string()}
+#else
+      {"XDG_STATE_HOME", logRoot.string()}
+#endif
+      ,
     }
   );
   REQUIRE(result.exitCode == 1);
@@ -1810,7 +1828,12 @@ TEST_CASE(
     {"ENCRO_FAKE_TOOL_LOG_FILE", toolLog.string()},
     {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
     {"ENCRO_FAKE_FFMPEG_DELAY_MS", "15000"},
-    {"LOCALAPPDATA", logRoot.string()},
+#if defined(_WIN32)
+    {"LOCALAPPDATA", logRoot.string()}
+#else
+    {"XDG_STATE_HOME", logRoot.string()}
+#endif
+    ,
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
