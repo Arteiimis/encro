@@ -50,9 +50,14 @@ auto exec2Impl(
   // boost::process v2's posix find_executable cannot resolve absolute paths
   // (boost::filesystem appends instead of replacing), leaving an empty exe and
   // execve("") ENOENT; the parsed argv[0] token is the correct program name.
+  // Windows must NOT do this: CreateProcess with an explicit relative
+  // application name skips PATH search, while an empty one resolves it from
+  // the command line.
   auto const* exeToken = command.argv()[0];
   auto exePath = bp::environment::find_executable(exeToken);
+#if !defined(_WIN32)
   if (exePath.empty()) { exePath = exeToken; }
+#endif
 
   // One pipe for the child's output; stdout and stderr share its write end so
   // merged output keeps its natural interleaving.
