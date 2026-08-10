@@ -15,8 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # TEMP: debug only while POSIX compile errors are fixed; restore full matrix after green
-        mode: [debug]
+        mode: [debug, release, coverage]
     steps:
       - uses: actions/checkout@v4
 
