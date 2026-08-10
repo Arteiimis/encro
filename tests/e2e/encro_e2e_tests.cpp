@@ -450,7 +450,8 @@ TEST_CASE(
   auto const inputPath = temp.path / "withaudio.mp4";
   createRealSmokeVideoWithAudio(inputPath);
 
-  // NVENC needs a GPU that CI runners lack; libx265 encodes HEVC on any host.
+  // NVENC needs a GPU CI runners lack; libx264 encodes h264 on any host
+  // (libx265 hits EPERM filtering on GitHub runners).
   auto const result = e2e::runEncro({
     "-y",
     "-i",
@@ -458,7 +459,7 @@ TEST_CASE(
     "-j",
     "1",
     "--video-codec",
-    "libx265",
+    "libx264",
   });
 
   CAPTURE(result.stdoutText, result.stderrText);
@@ -467,7 +468,7 @@ TEST_CASE(
   REQUIRE(outputPath.has_value());
   CHECK(outputPath->extension() == ".mp4");
   CHECK(fs::file_size(outputPath.value()) > 0);
-  CHECK(probePrimaryCodecName(outputPath.value()) == "hevc");
+  CHECK(probePrimaryCodecName(outputPath.value()) == "h264");
   auto const streamTypes = probeStreamTypes(outputPath.value());
   CHECK(std::ranges::find(streamTypes, "audio") != streamTypes.end());
 }
@@ -491,7 +492,7 @@ TEST_CASE(
     "-j",
     "1",
     "--video-codec",
-    "libx265",
+    "libx264",
     "--state-file",
     statePath.string(),
   };
@@ -501,7 +502,7 @@ TEST_CASE(
   REQUIRE(firstRun.exitCode == 0);
   auto const firstOutput = findOutputMp4(temp.path);
   REQUIRE(firstOutput.has_value());
-  CHECK(probePrimaryCodecName(firstOutput.value()) == "hevc");
+  CHECK(probePrimaryCodecName(firstOutput.value()) == "h264");
 
   // Segment dirs are removed after success; resume re-creates the final
   // output from scratch when it is missing (segment reuse itself is covered
@@ -513,7 +514,7 @@ TEST_CASE(
   auto const secondOutput = findOutputMp4(temp.path);
   REQUIRE(secondOutput.has_value());
   CHECK(fs::file_size(secondOutput.value()) > 0);
-  CHECK(probePrimaryCodecName(secondOutput.value()) == "hevc");
+  CHECK(probePrimaryCodecName(secondOutput.value()) == "h264");
 }
 
 TEST_CASE(
