@@ -19,9 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: xmake-io/setup-xmake@v1
+      - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
+          package-cache: true
+          package-cache-key: ${{ matrix.mode }}
 
       - name: Install toolchain and dependencies
         run: |
@@ -33,12 +35,6 @@ jobs:
             --slave /usr/bin/clang++ clang++ /usr/bin/clang++-18
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
             --slave /usr/bin/g++ g++ /usr/bin/g++-14
-
-      - name: Cache xmake packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.xmake
-          key: xmake-${{ matrix.mode }}-${{ hashFiles('xmake.lua') }}
 
       - name: Configure
         run: xmake f -m ${{ matrix.mode }}
