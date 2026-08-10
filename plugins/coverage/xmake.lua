@@ -79,13 +79,16 @@ task("coverage")
         run("xmake", {"build", "tests"})
         assert_instrumented()
 
-        run("xmake", {"run", "tests"}, {
+        -- 直接运行二进制：xmake 3.1.0 的 run 在 Linux 上 execv 失败
+        local tests_bin = path.join(mode_dir, "tests" .. ext)
+        run(tests_bin, {}, {
           envs = {LLVM_PROFILE_FILE = path.join(coverage_dir, "tests-%p.profraw")}
         })
 
         if option.get("e2e") then
           run("xmake", {"build", "e2e_tests", "encro", "encro_e2e_tool"})
-          run("xmake", {"run", "e2e_tests"}, {
+          local e2e_bin = path.join(mode_dir, "e2e_tests" .. ext)
+          run(e2e_bin, {}, {
             envs = {LLVM_PROFILE_FILE = path.join(coverage_dir, "e2e-%p.profraw")}
           })
         end
