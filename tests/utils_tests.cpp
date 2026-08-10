@@ -61,7 +61,7 @@ auto captureStdout(Fn&& action) -> std::string {
   REQUIRE(_dup2(originalFd, stdoutFd) == 0);
   _close(originalFd);
 #else
-  REQUIRE(dup2(originalFd, stdoutFd) == 0);
+  REQUIRE(dup2(originalFd, stdoutFd) == stdoutFd);
   close(originalFd);
 #endif
   std::fclose(tempFile);
