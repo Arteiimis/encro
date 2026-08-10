@@ -41,13 +41,16 @@ jobs:
         run: xmake f -m ${{ matrix.mode }} -y
 
       - name: Diagnostics
+        if: matrix.mode == 'debug'
         run: |
-          clang --version | head -1
+          clang++ --version | head -1
           printf '#include <expected>\nint main(){ std::expected<int,int> e=1; return *e-1; }\n' > /tmp/exp.cpp
-          clang++ -std=c++23 -E -x c++ -v - 2>&1 | sed -n '/search starts here/,/End of search list/p'
-          echo '#include <version>' | clang++ -std=c++23 -E -x c++ - 2>/dev/null | grep -oE "_GLIBCXX_RELEASE [0-9]+|_LIBCPP_VERSION [0-9]+" | head -2
-          g++-14 -std=c++23 -fsyntax-only /tmp/exp.cpp && echo "g++-14 expected OK" || echo "g++-14 expected FAIL"
-          clang++ -std=c++26 -fsyntax-only /tmp/exp.cpp && echo "c++26 expected OK" || echo "c++26 expected FAIL"
+          clang++ -std=c++23 -dM -E -x c++ /dev/null | grep -E "__cplusplus|__cpp_concepts|__cpp_lib_expected|_GLIBCXX_RELEASE"
+          echo ---c++26---
+          clang++ -std=c++26 -dM -E -x c++ /dev/null | grep -E "__cplusplus|__cpp_concepts|__cpp_lib_expected|_GLIBCXX_RELEASE"
+          echo ---gcc-probe---
+          clang++ -std=c++23 -fsyntax-only -v /tmp/exp.cpp 2>&1 | grep -iE "gcc installation|selected gcc"
+          echo ---syntax---
           clang++ -std=c++23 -fsyntax-only /tmp/exp.cpp && echo "c++23 expected OK" || echo "c++23 expected FAIL"
 
       - name: Build
