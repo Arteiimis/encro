@@ -78,8 +78,10 @@ jobs:
       - name: Run unit tests
         if: matrix.mode != 'coverage'
         run: |
-          sudo apt-get install -y gdb > /dev/null 2>&1
-          gdb -batch -ex run -ex "bt 20" --args ./build/linux/x86_64/${{ matrix.mode }}/tests 2>&1 | tail -40
+          set -o pipefail
+          # 直接运行：gdb 拦截信号会改变测试行为，管道会吞退出码（Catch2 失败码 42）
+          ./build/linux/x86_64/${{ matrix.mode }}/tests 2>&1 | tail -60
+          exit ${PIPESTATUS[0]}
 
       # TODO: e2e hangs on Linux (encro child double-free, child.wait() waits forever);
       # re-enable after the unit suite is green and the double-free is fixed
