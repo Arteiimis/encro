@@ -28,9 +28,19 @@ jobs:
       - name: Install toolchain and dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-18 g++-14 llvm ffmpeg
-          # clang-18 由 apt 的 alternatives 注册（/usr/bin/clang -> clang-18）；
-          # 它默认配对 libstdc++-13（缺 std::print / views::enumerate），
+          sudo apt-get install -y wget ca-certificates
+          # clang-18 的 __cpp_concepts=201907L 使 libstdc++ <expected> 空（clang 19 修复，PR #87998）；
+          # ubuntu 24.04 官方源只有 clang-18，需 apt.llvm.org 的 clang-19
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+          echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-toolchain.list
+          sudo apt-get update
+          sudo apt-get install -y clang-19 g++-14 llvm-19 ffmpeg
+          # clang-19 与 llvm-profdata/llvm-cov 同版本（coverage 插件按无后缀名查找）
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 110
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 110
+          sudo ln -sf /usr/bin/llvm-profdata-19 /usr/local/bin/llvm-profdata
+          sudo ln -sf /usr/bin/llvm-cov-19 /usr/local/bin/llvm-cov
+          # clang 默认配对 libstdc++-13（缺 std::print / views::enumerate），
           # 把 gcc/g++ 切到 14，让 clang 与 xmake 探测到 libstdc++-14
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
