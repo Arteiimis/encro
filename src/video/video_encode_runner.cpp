@@ -363,6 +363,7 @@ auto encodeOneSegment(
     .inputPath = state.inputPath,
     .outputFormat = ctx.config.outputFormat,
     .crf = ctx.config.crf,
+    .videoCodec = ctx.config.videoCodec,
     .nvencPreset = nvencPreset,
     .maxrateKbps = maxrateKbps,
     .progressFilePath = segProgressFile,
