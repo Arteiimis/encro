@@ -66,10 +66,14 @@ auto exec2Impl(
 
   auto onLineCopy = onLine != nullptr ? *onLine : std::function<void(std::string_view)>{};
   auto callbackEnabled = std::make_shared<std::atomic<bool>>(true);
-  auto outputPromise = std::promise<std::string>{};
-  auto outputFuture = outputPromise.get_future();
+  // Heap-held promise/pipe: the reader thread may outlive this function on the
+  // stop-request detach path; stack storage would be use-after-return.
+  auto outputPromise = std::make_shared<std::promise<std::string>>();
+  auto outputFuture = outputPromise->get_future();
+  auto pipeReaderShared = std::make_shared<asio::readable_pipe>(std::move(pipeReader));
 
-  auto pipeReaderThread = std::thread([&, onLineCopy = std::move(onLineCopy)]() mutable {
+  auto pipeReaderThread = std::thread(
+    [&, pipeReaderShared, outputPromise, onLineCopy = std::move(onLineCopy)]() mutable {
     auto result = std::string{};
     auto pendingLine = std::string{};
     auto buffer = std::array<char, 4096>{};
@@ -77,7 +81,7 @@ auto exec2Impl(
     try {
       for (;;) {
         boost::system::error_code ec;
-        auto const count = pipeReader.read_some(asio::buffer(buffer), ec);
+        auto const count = pipeReaderShared->read_some(asio::buffer(buffer), ec);
         if (ec || count == 0) { break; }
 
         auto const chunk = std::string_view{buffer.data(), count};
@@ -96,17 +100,17 @@ auto exec2Impl(
         }
       }
 
-      outputPromise.set_value(std::move(result));
+      outputPromise->set_value(std::move(result));
     } catch (...) {
       try {
-        outputPromise.set_exception(std::current_exception());
+        outputPromise->set_exception(std::current_exception());
       } catch (...) { }
     }
   });
 
   auto closePipeReader = [&] {
     boost::system::error_code ec;
-    pipeReader.close(ec);
+    pipeReaderShared->close(ec);
   };
 
   auto joinReader = [&] {

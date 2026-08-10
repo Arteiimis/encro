@@ -40,7 +40,8 @@ auto captureStdout(Fn&& action) -> std::string {
   auto const stdoutFd = fileno(stdout);
   auto const originalFd = dup(stdoutFd);
   REQUIRE(originalFd >= 0);
-  REQUIRE(dup2(fileno(tempFile), stdoutFd) == 0);
+  // POSIX dup2 returns the new fd (== stdoutFd) on success, unlike _dup2's 0
+  REQUIRE(dup2(fileno(tempFile), stdoutFd) == stdoutFd);
 #endif
 
   action();
