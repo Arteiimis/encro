@@ -6,6 +6,17 @@
 
 namespace fs = std::filesystem;
 
+// Windows ffmpegPath may be a compound command (cmd.exe /d /c call "...")
+// that must not be quoted as a single executable; posix needs quotes for
+// paths with spaces and its exe resolution strips them.
+inline auto quoteToolPath(fs::path const& toolPath) -> std::string {
+#if defined(_WIN32)
+  return toolPath.string();
+#else
+  return std::format("\"{}\"", toolPath.string());
+#endif
+}
+
 struct ExecResult {
   int exitCode;
   std::string output;
