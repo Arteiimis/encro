@@ -223,6 +223,17 @@ bool readUserIpt(bool yesToAll, std::string_view prompt) {
   return response == 'y' || response == 'Y';
 }
 
+// posix shell parsing resolves a quoted exe path to an empty program name
+// (execve("") -> ENOENT); windows needs quotes for spaces in paths.
+auto probeTool(fs::path const& toolPath) -> bool {
+#if defined(_WIN32)
+  auto const cmd = std::format("\"{}\" -version", toolPath.string());
+#else
+  auto const cmd = std::format("{} -version", toolPath.string());
+#endif
+  return exec2(cmd).exitCode == 0;
+}
+
 auto findFFprobe(std::optional<fs::path> const& installDir) -> std::optional<fs::path> {
   auto const systemFFprobeAvailable = exec2("ffprobe -version").exitCode == 0;
 
@@ -236,8 +247,7 @@ auto findFFprobe(std::optional<fs::path> const& installDir) -> std::optional<fs:
 
   for (auto const& entry: pathIter) {
     if (entry.is_regular_file() && entry.path().filename() == "ffprobe") {
-      auto cmd = std::format("\"{}\" -version", entry.path().string());
-      if (exec2(cmd).exitCode == 0) { return entry.path(); }
+      if (probeTool(entry.path())) { return entry.path(); }
     }
   }
 
@@ -257,8 +267,7 @@ auto findFFmpeg(std::optional<fs::path> const& installDir) -> std::optional<fs::
 
   for (auto const& entry: pathIter) {
     if (entry.is_regular_file() && entry.path().filename() == "ffmpeg") {
-      auto cmd = std::format("\"{}\" -version", entry.path().string());
-      if (exec2(cmd).exitCode == 0) { return entry.path(); }
+      if (probeTool(entry.path())) { return entry.path(); }
     }
   }
 

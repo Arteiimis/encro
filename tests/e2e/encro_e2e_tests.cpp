@@ -314,6 +314,7 @@ TEST_CASE("encro pack-only CLI packs a directory", "[e2e][pack-only]") {
   auto const result = e2e::runEncro({"-y", "-z", "-i", inputDir.string()});
 
   auto const zipPath = inputDir / "packed" / "input_part1[1~2#2p].zip";
+  CAPTURE(result.stderrText, result.stdoutText);
   REQUIRE(result.exitCode == 0);
   REQUIRE(fs::exists(zipPath));
   auto const entries = e2e::listZipEntries(zipPath);
@@ -347,6 +348,7 @@ TEST_CASE(
   });
 
   auto const outputDir = temp.path / "encoded_webp";
+  CAPTURE(result.stdoutText, result.stderrText);
   REQUIRE(result.exitCode == 0);
   REQUIRE(fs::exists(outputDir));
 
