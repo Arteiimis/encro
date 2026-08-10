@@ -86,7 +86,8 @@ jobs:
 
       - name: Run coverage (configures and builds itself)
         if: matrix.mode == 'coverage'
-        run: xmake coverage --summary
+        # --keep: 跳过插件末尾的 release restore（xmake 3 的 execv bug；CI 用完即弃）
+        run: xmake coverage --summary --keep
 
       - name: Save xmake packages cache
         # 显式保存（job 失败也保存，否则每次 miss 全量重编 boost）；命中时跳过避免重复 key
