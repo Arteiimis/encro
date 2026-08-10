@@ -101,6 +101,10 @@ auto runChild(
     auto stdoutReader = std::jthread([&] { stdoutText = readProcessStream(childOut); });
     auto stderrReader = std::jthread([&] { stderrText = readProcessStream(childErr); });
     child.wait();
+    // Join before moving: the readers own the strings until pipe EOF, which
+    // may arrive after the child exits (slow scheduling loses output otherwise).
+    stdoutReader.join();
+    stderrReader.join();
     return e2e::ProcessResult{
       child.exit_code(),
       std::move(stdoutText),
