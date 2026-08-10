@@ -461,6 +461,7 @@ TEST_CASE(
     "libx265",
   });
 
+  CAPTURE(result.stdoutText, result.stderrText);
   REQUIRE(result.exitCode == 0);
   auto const outputPath = findOutputMp4(temp.path, inputPath);
   REQUIRE(outputPath.has_value());
@@ -496,6 +497,7 @@ TEST_CASE(
   };
 
   auto const firstRun = e2e::runEncro(baseArgs);
+  CAPTURE(firstRun.stdoutText, firstRun.stderrText);
   REQUIRE(firstRun.exitCode == 0);
   auto const firstOutput = findOutputMp4(temp.path);
   REQUIRE(firstOutput.has_value());
