@@ -2,17 +2,17 @@
 
 ## 1. xmake.lua 工具链平台分支
 
-- [ ] 1.1 将 `set_toolchains("clang-cl")` / `set_toolset("ld", "lld-link")` 包进 `if is_plat("windows")` 分支，Linux 分支显式使用 clang 工具链
-- [ ] 1.2 Windows 本地重新配置 + 构建 + 跑测试，确认构建行为零变化
-- [ ] 1.3 验证 clang-18 对 `set_languages("c++26")` 的映射；若不支持，Linux 分支降为 `c++23`（设计 R1）
+- [x] 1.1 将 `set_toolchains("clang-cl")` / `set_toolset("ld", "lld-link")` 包进 `if is_plat("windows")` 分支，Linux 分支显式使用 clang 工具链
+- [x] 1.2 Windows 本地重新配置 + 构建 + 跑测试，确认构建行为零变化
+- [x] 1.3 验证 clang-18 对 `set_languages("c++26")` 的映射；若不支持，Linux 分支降为 `c++23`（设计 R1）
 
 ## 2. GitHub Actions workflow
 
-- [ ] 2.1 编写 `.github/workflows/ci.yml`：checkout、setup-xmake、apt 安装 clang-18/g++-14/llvm/ffmpeg
-- [ ] 2.2 配置 `strategy.matrix.mode: [debug, release, coverage]` 三模式矩阵
-- [ ] 2.3 配置 `actions/cache` 缓存 `~/.xmake`，key 为 `xmake-${{ matrix.mode }}-${{ hashFiles('xmake.lua') }}`
-- [ ] 2.4 测试入口按模式分支：debug/release 跑 `xmake run tests` + `xmake run e2e_tests`；coverage 跑 `xmake coverage --summary`
-- [ ] 2.5 配置 `on: [push, workflow_dispatch]` 与 `concurrency`（同分支取消过期 run）
+- [x] 2.1 编写 `.github/workflows/ci.yml`：checkout、setup-xmake、apt 安装 clang-18/g++-14/llvm/ffmpeg（含 update-alternatives 配对 libstdc++-14）
+- [x] 2.2 配置 `strategy.matrix.mode: [debug, release, coverage]` 三模式矩阵
+- [x] 2.3 配置 `actions/cache` 缓存 `~/.xmake`，key 为 `xmake-${{ matrix.mode }}-${{ hashFiles('xmake.lua') }}`
+- [x] 2.4 测试入口按模式分支：debug/release 跑 `xmake run tests` + `xmake run e2e_tests`；coverage 跑 `xmake coverage --summary`
+- [x] 2.5 配置 `on: [push, workflow_dispatch]` 与 `concurrency`（同分支取消过期 run）
 
 ## 3. 首次 CI run 与 POSIX 编译修复
 
