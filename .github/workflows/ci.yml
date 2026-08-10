@@ -23,8 +23,12 @@ jobs:
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
-          package-cache: true
-          package-cache-key: ${{ matrix.mode }}
+
+      - uses: actions/cache@v4
+        with:
+          # 包目录内部按 mode/buildhash 分区，一个 key 覆盖三模式产物
+          path: ~/.xmake/packages
+          key: xmake-packages-${{ hashFiles('xmake.lua') }}
 
       - name: Install toolchain and dependencies
         run: |
