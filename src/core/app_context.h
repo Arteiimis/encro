@@ -48,6 +48,7 @@ struct AppConfig {
   std::optional<int> imageQuality;
   std::optional<int> crf;
   std::optional<std::string> nvencPreset;
+  std::optional<std::string> videoCodec;
   bool verbose = false;
   bool fullProgress = false;
   bool jsonEnabled = false;
