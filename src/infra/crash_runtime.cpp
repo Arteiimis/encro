@@ -188,7 +188,7 @@ void signalHandler(int signalNumber) {
 }
 
 void installSignalHandler(int signalNumber) {
-  auto action = sigaction{};
+  struct sigaction action{};
   action.sa_handler = signalHandler;
   sigemptyset(&action.sa_mask);
   action.sa_flags = SA_RESTART;
