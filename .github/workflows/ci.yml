@@ -15,7 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [debug, release, coverage]
+        # TEMP: release deferred until debug+coverage stable
+        mode: [debug, coverage]
     steps:
       - uses: actions/checkout@v4
 

@@ -450,12 +450,15 @@ TEST_CASE(
   auto const inputPath = temp.path / "withaudio.mp4";
   createRealSmokeVideoWithAudio(inputPath);
 
+  // NVENC needs a GPU that CI runners lack; libx265 encodes HEVC on any host.
   auto const result = e2e::runEncro({
     "-y",
     "-i",
     inputPath.string(),
     "-j",
     "1",
+    "--video-codec",
+    "libx265",
   });
 
   REQUIRE(result.exitCode == 0);
@@ -486,6 +489,8 @@ TEST_CASE(
     inputPath.string(),
     "-j",
     "1",
+    "--video-codec",
+    "libx265",
     "--state-file",
     statePath.string(),
   };

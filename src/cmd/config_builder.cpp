@@ -323,6 +323,8 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
     config.nvencPreset.reset();  // "auto" = pick by resolution
   }
 
+  config.videoCodec = result.videoCodec;
+
   config.yesToAll = result.yesToAll;
   config.recursive = result.recursive;
   config.packOutput = result.pack;

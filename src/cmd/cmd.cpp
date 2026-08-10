@@ -645,6 +645,15 @@ constexpr auto ProcessingFlags = std::array{
     .advanced = true,
     .defaultDisplay = "auto"
   },
+  CmdFlagDef{
+    .name = "--video-codec",
+    .kind = CmdFlagKind::String,
+    .description = "video encoder (default hevc_nvenc; libx265/libx264 on cpu)",
+    .defaultValue = "",
+    .expectedMax = 1,
+    .advanced = true,
+    .defaultDisplay = "hevc_nvenc"
+  },
 };
 
 // ── File operation flags (3) ──
@@ -907,6 +916,14 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
       return;
     }
     r.nvencPreset = o->as<std::string>();
+  };
+  applyMap["--video-codec"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() == 0) { return; }
+    if (o->results().empty()) {
+      r.error = "Option --video-codec requires a value.";
+      return;
+    }
+    r.videoCodec = o->as<std::string>();
   };
 
   // FileOp
