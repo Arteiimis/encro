@@ -15,8 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # TEMP: debug only while fixing UT failures; restore full matrix after green
-        mode: [debug]
+        mode: [debug, release, coverage]
     steps:
       - uses: actions/checkout@v4
 
@@ -62,8 +61,10 @@ jobs:
           ./build/linux/x86_64/${{ matrix.mode }}/tests 2>&1 | tail -60
           exit ${PIPESTATUS[0]}
 
-      # TODO: e2e hangs on Linux (encro child double-free, child.wait() waits forever);
-      # re-enable after the unit suite is green and the double-free is fixed
+      - name: Run e2e tests
+        if: matrix.mode != 'coverage'
+        timeout-minutes: 20
+        run: xmake run e2e_tests
 
       - name: Run coverage (configures and builds itself)
         if: matrix.mode == 'coverage'
