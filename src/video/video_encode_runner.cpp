@@ -134,6 +134,7 @@ auto buildEncodeConfig(
     .outputFilePath = plan.outputFilePath,
     .outputFormat = ctx.config.outputFormat,
     .crf = ctx.config.crf,
+    .videoCodec = ctx.config.videoCodec,
     .nvencPreset = nvencPreset,
     .maxrateKbps = maxrateKbps,
     .progressFilePath = plan.progressFilePath

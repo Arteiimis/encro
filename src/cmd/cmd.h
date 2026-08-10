@@ -39,6 +39,7 @@ struct CmdParseResult {
   std::optional<int> imageQuality;
   std::optional<int> crf;
   std::optional<std::string> nvencPreset;
+  std::optional<std::string> videoCodec;
 
   // ── File operation options ─────────────────────────────────────
   bool pack = false;
