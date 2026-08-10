@@ -40,9 +40,16 @@ jobs:
       - name: Configure
         run: xmake f -m ${{ matrix.mode }} -y
 
+      - name: Diagnostics
+        run: |
+          clang --version | head -1
+          printf '#include <expected>\nint main(){ std::expected<int,int> e=1; return *e-1; }\n' > /tmp/exp.cpp
+          clang++ -std=c++26 -fsyntax-only /tmp/exp.cpp && echo "c++26 expected OK" || echo "c++26 expected FAIL"
+          clang++ -std=c++23 -fsyntax-only /tmp/exp.cpp && echo "c++23 expected OK" || echo "c++23 expected FAIL"
+
       - name: Build
         if: matrix.mode != 'coverage'
-        run: xmake build encro encro_e2e_tool tests e2e_tests
+        run: xmake build -v encro encro_e2e_tool tests e2e_tests
 
       - name: Run unit tests
         if: matrix.mode != 'coverage'
