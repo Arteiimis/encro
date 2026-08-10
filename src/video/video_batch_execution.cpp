@@ -274,9 +274,10 @@ auto runEncodingWithoutProgress(
       state.actionId
         .value_or(std::format("encode:{}", collisionnaming::stablePathString(vidPath)));
     // Same correlation as the executor path: task_id + input on every record
+    auto const vidPathText = vidPath.string();
     auto attrs = logging::ScopedLogAttributes(
       {{std::string_view{"task_id"}, taskId},
-       {std::string_view{"input"}, vidPath.string()}}
+       {std::string_view{"input"}, vidPathText}}
     );
     markRunningNoProgress(ctx, state.actionId);
 

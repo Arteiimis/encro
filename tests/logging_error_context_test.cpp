@@ -530,11 +530,16 @@ TEST_CASE(
 
   auto guards = std::vector<std::unique_ptr<logging::ScopedLogAttributes>>{};
   guards.reserve(20);
+  // string_views must outlive the guards; keep backing strings stable
+  auto keys = std::vector<std::string>{};
+  keys.reserve(20);
   for (auto i = 0; i < 20; ++i) {
+    keys.push_back(std::to_string(i));
+    auto const& key = keys[i];
     guards.push_back(
       std::make_unique<logging::ScopedLogAttributes>(
         std::initializer_list<std::pair<std::string_view, std::string_view>>{
-          {std::to_string(i), std::to_string(i)},
+          {key, key},
         }
       )
     );
