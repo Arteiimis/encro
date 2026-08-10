@@ -31,11 +31,11 @@ jobs:
           path: ~/.xmake/packages
           key: xmake-packages-${{ hashFiles('xmake.lua') }}
 
-      - name: Diag ffmpeg encoders
-        run: ffmpeg -hide_banner -encoders | grep -E "265|264" || true
       - name: Install toolchain and dependencies
         run: bash scripts/setup-linux-env.sh
 
+      - name: Diag ffmpeg encoders
+        run: ffmpeg -hide_banner -encoders | grep -E "265|264" || true
       - name: Configure
         run: xmake f -m ${{ matrix.mode }} -y
 
