@@ -117,7 +117,11 @@ TEST_CASE("ImageCompressConfig::buildCMD uses custom ffmpeg path", "[picture-com
 
   auto const cmd = cfg.buildCMD();
 
+#if defined(_WIN32)
+  CHECK(cmd.starts_with("/custom/ffmpeg "));
+#else
   CHECK(cmd.starts_with("\"/custom/ffmpeg\" "));
+#endif
   CHECK(cmd.find(" -q:v 10") != std::string::npos);
 }
 
