@@ -9,6 +9,9 @@ if is_plat("windows") then
   set_toolset("ld", "lld-link")
 else
   set_toolchains("clang")
+  -- clang + GNU ld 的 thin-LTO 链接不可靠（catch2/boost 符号被裁剪）；
+  -- 统一 lld（与 Windows 的 lld-link 对齐，xmake 3 对包默认注入 lto）
+  add_ldflags("-fuse-ld=lld", {force = true})
 end
 
 add_cxxflags("-ftrivial-auto-var-init=pattern")
@@ -63,7 +66,7 @@ add_requires("catch2")
 
 -- 包不继承 target 的 LTO：clang + GNU ld 下 catch2/boost 的 LTO 链接失败
 -- （Windows lld-link 无此问题；包 LTO 对最终二进制无收益，target 自身 LTO 保留）
-add_requireconfs("*", {configs = {lto = false}})
+add_requires("catch2", {configs = {lto = false}})
 
 target("encro")
   set_kind("binary")
