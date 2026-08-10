@@ -24,13 +24,12 @@ jobs:
         with:
           xmake-version: latest
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: xmake-cache
         with:
-          # 包目录内部按 mode/buildhash 分区，一个 key 覆盖三模式产物；
-          # save-always: 构建失败时也要保存（否则每次 miss 全量重编）
+          # 包目录内部按 mode/buildhash 分区，一个 key 覆盖三模式产物
           path: ~/.xmake/packages
           key: xmake-packages-${{ hashFiles('xmake.lua') }}
-          save-always: true
 
       - name: Install toolchain and dependencies
         run: |
@@ -85,3 +84,11 @@ jobs:
       - name: Run coverage (configures and builds itself)
         if: matrix.mode == 'coverage'
         run: xmake coverage --summary
+
+      - name: Save xmake packages cache
+        # 显式保存（job 失败也保存，否则每次 miss 全量重编 boost）；命中时跳过避免重复 key
+        if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.xmake/packages
+          key: xmake-packages-${{ hashFiles('xmake.lua') }}
