@@ -75,7 +75,10 @@ jobs:
 
       - name: Run unit tests
         if: matrix.mode != 'coverage'
-        run: xmake run tests
+        run: |
+          ls -la build/linux/x86_64/${{ matrix.mode }}/tests
+          ./build/linux/x86_64/${{ matrix.mode }}/tests
+          echo "exit=$?"
 
       - name: Run e2e tests
         if: matrix.mode != 'coverage'
