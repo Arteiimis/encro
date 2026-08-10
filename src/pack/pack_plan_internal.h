@@ -1,5 +1,7 @@
 #pragma once
 
+#define PACK_PLAN_INTERNAL_INCLUDED
+
 #include "pack/pack.h"
 
 #include <cstddef>
