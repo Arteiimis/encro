@@ -2,6 +2,7 @@
 
 #include "core/error_handle.h"
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <format>
