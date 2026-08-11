@@ -1,5 +1,5 @@
+add_rules("mode.debug", "mode.release", "mode.releasedbg")
 add_rules("plugin.compile_commands.autoupdate", { outputdir = "./build" })
-add_rules("mode.debug", "mode.release", "mode.releasedbg", "mode.coverage")
 set_version("0.1.5")
 
 set_languages("c++26")
@@ -23,7 +23,12 @@ if is_mode("release") then
 end
 
 if is_mode("coverage") then
+  -- 不用内置 mode.coverage 规则：它的 --coverage（gcov 插桩）会在 fork 后
+  -- 逐文件 dump .gcda，拖慢/卡住 exec2 的子进程；这里只用 LLVM 插桩。
   set_policy("build.optimization.lto", false)
+  set_policy("build.ccache", false)
+  set_symbols("debug")
+  set_optimize("none")
   add_cxxflags("-fprofile-instr-generate", "-fcoverage-mapping", {force = true})
   add_ldflags("-fprofile-instr-generate", "-fcoverage-mapping", {force = true})
 end
