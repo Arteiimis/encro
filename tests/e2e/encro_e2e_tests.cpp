@@ -500,7 +500,7 @@ TEST_CASE(
   auto const firstRun = e2e::runEncro(baseArgs);
   CAPTURE(firstRun.stdoutText, firstRun.stderrText);
   REQUIRE(firstRun.exitCode == 0);
-  auto const firstOutput = findOutputMp4(temp.path);
+  auto const firstOutput = findOutputMp4(temp.path, inputPath);
   REQUIRE(firstOutput.has_value());
   CHECK(probePrimaryCodecName(firstOutput.value()) == "h264");
 
@@ -511,7 +511,7 @@ TEST_CASE(
   auto const secondRun = e2e::runEncro(baseArgs);
   REQUIRE(secondRun.exitCode == 0);
 
-  auto const secondOutput = findOutputMp4(temp.path);
+  auto const secondOutput = findOutputMp4(temp.path, inputPath);
   REQUIRE(secondOutput.has_value());
   CHECK(fs::file_size(secondOutput.value()) > 0);
   CHECK(probePrimaryCodecName(secondOutput.value()) == "h264");
