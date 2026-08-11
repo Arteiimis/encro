@@ -187,9 +187,13 @@ auto exec2Impl(
   }
 
   process.wait();
+  // Join the reader before closing: the child has exited, so its write end is
+  // gone and the pipe hits EOF on its own; closing first races the reader
+  // thread and can drop output the kernel still holds in the pipe buffer.
+  auto const output = joinReader();
   closePipeReader();
 
-  return {process.exit_code(), joinReader(), capturedPid};
+  return {process.exit_code(), output, capturedPid};
 }
 
 }  // namespace
