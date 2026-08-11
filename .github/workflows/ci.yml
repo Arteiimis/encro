@@ -34,8 +34,6 @@ jobs:
       - name: Install toolchain and dependencies
         run: bash scripts/setup-linux-env.sh
 
-      - name: Diag ffmpeg encoders
-        run: ffmpeg -hide_banner -encoders | grep -E "265|264" || true
       - name: Configure
         run: xmake f -m ${{ matrix.mode }} -y
 
