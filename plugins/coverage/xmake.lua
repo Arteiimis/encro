@@ -26,10 +26,10 @@ task("coverage")
         end
       }
       if not ret then
-        error(string.format("failed to run %s", cmd))
+        os.raise(string.format("failed to run %s", cmd))
       end
       if ret ~= 0 then
-        error(string.format(
+        os.raise(string.format(
           "command failed (%s): %s %s",
           tostring(ret),
           cmd,
@@ -41,7 +41,7 @@ task("coverage")
     local function find_tool(name)
       local tool = import("lib.detect.find_tool")(name)
       if not tool then
-        error(string.format("%s not found on PATH; install LLVM or add it to PATH", name))
+        os.raise(string.format("%s not found on PATH; install LLVM or add it to PATH", name))
       end
       return tool.program
     end
@@ -52,7 +52,7 @@ task("coverage")
     local function assert_instrumented()
       local cc_file = path.join(projectdir, "build", "compile_commands.json")
       if not os.exists(cc_file) then
-        error("build/compile_commands.json missing; keep plugin.compile_commands.autoupdate enabled")
+        os.raise("build/compile_commands.json missing; keep plugin.compile_commands.autoupdate enabled")
       end
       local json = import("core.base.json")
       local entries = json.decode(io.readfile(cc_file))
@@ -62,7 +62,7 @@ task("coverage")
           return
         end
       end
-      error(
+      os.raise(
         "coverage instrumentation missing from compile_commands.json; "
           .. "add {force = true} to the coverage cxxflags/ldflags in xmake.lua"
       )
@@ -95,7 +95,7 @@ task("coverage")
 
         local prof_files = os.files(path.join(coverage_dir, "*.profraw"))
         if #prof_files == 0 then
-          error("no .profraw files generated; instrumentation did not run")
+          os.raise("no .profraw files generated; instrumentation did not run")
         end
 
         local merged = path.join(coverage_dir, "all.profdata")
