@@ -16,14 +16,14 @@
 
 ## 3. 首次 CI run 与 POSIX 编译修复
 
-- [ ] 3.1 提交 xmake.lua 分支 + workflow 并 push，触发首个 CI run，收集 POSIX 编译错误清单
-- [ ] 3.2 解决 clang-18 与 libstdc++-14 的配对（`--gcc-install-dir` 或 `update-alternatives`，设计 R5），确认 `std::print`/`views::enumerate` 可用
-- [ ] 3.3 迭代修复 `src/` 的 POSIX 编译错误直到 debug 模式全绿
-- [ ] 3.4 release 模式全绿（含 LTO 链路）
-- [ ] 3.5 coverage 模式全绿（llvm-profdata/llvm-cov 可用、插桩自检通过、报告生成）
-- [ ] 3.6 `xmake run e2e_tests` 在 Linux 全绿（stop-signal 测试时序适配如需要，设计 R3）
-- [ ] 3.7 确认 `[real-ffmpeg]`/`[smoke]` 测试在 Linux 上真正运行而非 SKIP（设计 R4）
+- [x] 3.1 提交 xmake.lua 分支 + workflow 并 push，触发首个 CI run，收集 POSIX 编译错误清单
+- [x] 3.2 解决 clang-18 与 libstdc++-14 的配对（`--gcc-install-dir` 或 `update-alternatives`，设计 R5），确认 `std::print`/`views::enumerate` 可用
+- [x] 3.3 迭代修复 `src/` 的 POSIX 编译错误直到 debug 模式全绿
+- [x] 3.4 release 模式全绿（含 LTO 链路）
+- [x] 3.5 coverage 模式全绿（llvm-profdata/llvm-cov 可用、插桩自检通过、报告生成）
+- [x] 3.6 `xmake run e2e_tests` 在 Linux 全绿（stop-signal 测试时序适配如需要，设计 R3）
+- [x] 3.7 确认 `[real-ffmpeg]`/`[smoke]` 测试在 Linux 上真正运行而非 SKIP（设计 R4）
 
 ## 4. 收尾
 
-- [ ] 4.1 三模式矩阵最终全绿确认，无未提交改动
+- [x] 4.1 三模式矩阵最终全绿确认，无未提交改动
