@@ -13,6 +13,20 @@
 #include <thread>
 #include <vector>
 
+// Asserts that a child process invocation succeeded, dumping its captured
+// stdout/stderr into the failure output. Macro form keeps the assertion's
+// file:line at the call site (a helper function would report this header).
+#define REQUIRE_SUCCESS(result)      \
+  do {                               \
+    INFO(                            \
+      "child stdout:\n"              \
+      << (result).stdoutText         \
+      << "\nchild stderr:\n"         \
+      << (result).stderrText         \
+    );                               \
+    REQUIRE((result).exitCode == 0); \
+  } while (false)
+
 namespace fs = std::filesystem;
 
 namespace e2e {
