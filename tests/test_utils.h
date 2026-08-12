@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -37,6 +38,15 @@ struct TempDir {
   }
 
   ~TempDir() {
+    // REQUIRE failures unwind through an exception, so a destructor running
+    // mid-unwind means the test is failing: keep the evidence and point at it.
+    // fprintf/fflush (not std::cerr): the C++ stream state is process-global
+    // and other tests may leave it redirected/buffered, losing the hint.
+    if (std::uncaught_exceptions() > 0) {
+      std::fprintf(stderr, "kept temp dir on failure: %s\n", path.string().c_str());
+      std::fflush(stderr);
+      return;
+    }
     std::error_code ec;
     fs::remove_all(path, ec);
   }
@@ -183,5 +193,56 @@ inline auto readTextFile(fs::path const& filePath) -> std::string {
   REQUIRE(ifs.is_open());
   return {std::istreambuf_iterator<char>{ifs}, std::istreambuf_iterator<char>{}};
 }
+
+// Redirects stderr to a file until destroyed (used to assert the failure
+// path hint printed by TempDir; mirror of StdoutCapture).
+struct StderrCapture {
+  fs::path file_;
+  int oldFd_ = -1;
+
+  explicit StderrCapture(fs::path const& capturePath): file_(capturePath) {
+    std::fflush(stderr);
+#if defined(_WIN32)
+    oldFd_ = _dup(_fileno(stderr));
+    auto* cap = static_cast<std::FILE*>(nullptr);
+    fopen_s(&cap, file_.string().c_str(), "w");
+#else
+    oldFd_ = dup(fileno(stderr));
+    auto* cap = std::fopen(file_.string().c_str(), "w");
+#endif
+    REQUIRE(oldFd_ >= 0);
+    if (cap == nullptr) {
+#if defined(_WIN32)
+      _close(oldFd_);
+#else
+      close(oldFd_);
+#endif
+      oldFd_ = -1;
+    }
+    REQUIRE(cap != nullptr);
+#if defined(_WIN32)
+    _dup2(_fileno(cap), _fileno(stderr));
+#else
+    dup2(fileno(cap), fileno(stderr));
+#endif
+    std::fclose(cap);
+  }
+
+  StderrCapture(StderrCapture const&) = delete;
+  auto operator=(StderrCapture const&) -> StderrCapture& = delete;
+
+  ~StderrCapture() {
+    std::fflush(stderr);
+    if (oldFd_ >= 0) {
+#if defined(_WIN32)
+      _dup2(oldFd_, _fileno(stderr));
+      _close(oldFd_);
+#else
+      dup2(oldFd_, fileno(stderr));
+      close(oldFd_);
+#endif
+    }
+  }
+};
 
 }  // namespace testutils

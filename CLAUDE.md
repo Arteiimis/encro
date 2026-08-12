@@ -5,6 +5,7 @@
 - **Build system:** xmake (not CMake). Toolchain: `clang-cl` + `lld-link` on Windows. C++26.
 - **Build:** `xmake build encro` · **Run:** `xmake run encro <args>` (e.g. `xmake run encro -h`; do NOT use `--` — it is passed through to the program and breaks CLI11 parsing)
 - **Tests (unit/integration):** `xmake build tests && xmake run tests`
+- **Tests with failure summary:** `xmake test-report` — builds + runs unit tests with console reporter, writes `build/last-test-report.xml` (JUnit), and on failure prints a per-test failure summary (name + file:line + message) so failing tests are locatable from the first read of the output; `--tag="[tag]"` limits to a tag filter (note: `=` form required). Non-TTY stdout also suppresses progress-bar frames, so captured output stays clean.
 - **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)
 - **Single test:** `xmake run tests "[tag-name]"` (Catch2 tag filter)
 - **Format:** `xmake format` (apply) / `xmake format -k` (CI); `--style <style>` overrides the default `file:D:/clangformat/.clang-format` (NOT in repo) — value is passed to clang-format `-style=`, e.g. `--style file:<path>` or `--style llvm`.
@@ -67,7 +68,7 @@ if (!result) { return eh::makeError("context: {}", result.error()); }  // REQUIR
 ## Testing
 
 - Catch2 v3 (`catch2/catch_all.hpp`), custom runner `tests/test_main.cpp`.
-- Fixtures/helpers in `tests/test_utils.h`: `TempDir`, `ScopedStopSignalReset`, `ScopedEnvVar`, `writeFile()`, `touchFile()`, `listRegularFiles()`, `listZipRegularEntryNames()`.
+- Fixtures/helpers in `tests/test_utils.h`: `TempDir`, `ScopedStopSignalReset`, `ScopedEnvVar`, `writeFile()`, `touchFile()`, `listRegularFiles()`, `listZipRegularEntryNames()`. `TempDir` keeps its directory (and prints the path to stderr) when a test fails, so state files / fake-tool logs survive for inspection; e2e subprocess failures dump child stdout/stderr via the `REQUIRE_SUCCESS` macro.
 - E2E: `fake_media_tool.cpp` impersonates ffmpeg/ffprobe, controlled via env vars (`ENCRO_FAKE_FFMPEG_EXIT_CODE`, ...).
 - `[real-ffmpeg]`/`[smoke]` tests auto-skip via `SKIP()` when ffmpeg not on PATH.
 - Compile-only tests (`pack_api_standalone_compile_test.cpp`, `packer_standalone_compile_test.cpp`): `static_assert` verifies API boundaries.

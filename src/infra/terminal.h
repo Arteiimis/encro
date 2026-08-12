@@ -41,6 +41,8 @@ enum class MessageKind {
 
 auto parseColorMode(std::string_view text) -> std::optional<ColorMode>;
 
+auto streamIsTerminal(Stream stream) -> bool;
+
 void configure(ColorMode mode);
 
 void reset();
