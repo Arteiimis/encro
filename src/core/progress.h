@@ -64,6 +64,7 @@ public:
 
 private:
   void applyBarText(std::size_t barIndex, float progress);
+  void render();
 
   std::mutex mtx_;
   Manager manager_;

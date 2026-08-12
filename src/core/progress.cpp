@@ -38,6 +38,19 @@ namespace {
 constexpr auto kMinConsoleColumns = std::size_t{60};
 constexpr auto kMinBarWidth = std::size_t{18};
 constexpr auto kMaxBarWidth = std::size_t{52};
+
+// Bars are terminal-only UI: when stdout is not a TTY (pipes, test runs,
+// CI) they render into this null sink instead of std::cout.
+class NullStreamBuffer final: public std::streambuf {
+public:
+  auto overflow(int character) -> int override { return character; }
+};
+
+auto barOutputStream() -> std::ostream& {
+  static auto buffer = NullStreamBuffer{};
+  static auto stream = std::ostream{&buffer};
+  return terminal::streamIsTerminal(terminal::Stream::Stdout) ? std::cout : stream;
+}
 constexpr auto kMinPostfixBudget = std::size_t{16};
 constexpr auto kReservedLayoutWidth = std::size_t{24};
 constexpr auto kScrollColsPerSec = std::size_t{8};
@@ -271,7 +284,7 @@ void ProgressContext::setPostfixText(std::size_t barIndex, std::string_view prom
   auto lock = std::scoped_lock{mtx_};
   postfixes_[barIndex] = std::string{promptText};
   applyBarText(barIndex, etas_[barIndex].lastProgress());
-  manager_.print_progress();
+  render();
 }
 
 void ProgressContext::setProgress(std::size_t barIndex, float progress) {
@@ -279,7 +292,7 @@ void ProgressContext::setProgress(std::size_t barIndex, float progress) {
   etas_[barIndex].sample(std::chrono::steady_clock::now(), progress);
   bars_[barIndex]->set_progress(static_cast<std::size_t>(progress));
   applyBarText(barIndex, progress);
-  manager_.print_progress();
+  render();
 }
 
 void ProgressContext::resetEta(std::size_t barIndex) {
@@ -293,6 +306,14 @@ void ProgressContext::setTone(std::size_t barIndex, Tone tone) {
 
   tones_[barIndex] = tone;
   applyTone(*bars_[barIndex], tone);
+  render();
+}
+
+void ProgressContext::render() {
+  // Non-TTY stdout: skip the render pass entirely. This gate is load-bearing
+  // even with the null sink above — DynamicProgress::print_progress writes
+  // newlines/cursor escapes directly to std::cout, bypassing per-bar streams.
+  if (!terminal::streamIsTerminal(terminal::Stream::Stdout)) { return; }
   manager_.print_progress();
 }
 
@@ -321,7 +342,8 @@ auto makeBar(std::string_view promptText, Tone tone) -> BarPtr {
     option::PostfixText{fitPostfixText(promptText, layout.postfixBudget)},
     option::ForegroundColor{resolveColor(tone, terminal::colorsEnabled())},
     option::ShowRemainingTime{false},
-    option::MaxProgress{100}
+    option::MaxProgress{100},
+    option::Stream{barOutputStream()}
   );
 }
 

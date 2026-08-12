@@ -38,5 +38,9 @@ constexpr auto kCrashChildArg = std::string_view{"--encro-crash-child"};
 
 auto main(int argc, char* argv[]) -> int {
   if (argc > 1 && std::string_view{argv[1]} == kCrashChildArg) { runCrashChild(); }
+  // Unexpected crashes in any test produce a crash record (stack + reason) on
+  // stderr instead of a bare exit code; idempotent, so the crash-child mode
+  // (which installs its own) is unaffected.
+  crash::installHandlers();
   return Catch::Session{}.run(argc, argv);
 }

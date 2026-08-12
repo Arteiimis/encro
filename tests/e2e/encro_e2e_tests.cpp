@@ -114,7 +114,7 @@ auto createRealSmokeVideo(
   args.push_back(outputPath.string());
 
   auto const result = e2e::runProcess(systemToolPath("ffmpeg"), args);
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   REQUIRE(fs::exists(outputPath));
   return outputPath;
 }
@@ -144,7 +144,7 @@ auto createRealSmokeVideoWithAudio(
   args.push_back(outputPath.string());
 
   auto const result = e2e::runProcess(systemToolPath("ffmpeg"), args);
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   REQUIRE(fs::exists(outputPath));
   return outputPath;
 }
@@ -156,7 +156,7 @@ auto probeJson(fs::path const& mediaPath, std::vector<std::string> const& args)
   allArgs.push_back(mediaPath.string());
 
   auto const result = e2e::runProcess(systemToolPath("ffprobe"), allArgs);
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   auto const value = json::parse(result.stdoutText);
   REQUIRE(value.is_object());
   return value.as_object();
@@ -432,7 +432,7 @@ TEST_CASE(
     "1",
   });
 
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   auto const outputPath = findSingleOutputFile(temp.path / "encoded_webp");
   CHECK(outputPath.extension() == ".webp");
   CHECK(fs::file_size(outputPath) > 0);
@@ -541,7 +541,7 @@ TEST_CASE(
     toolchain.root.string(),
   });
 
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   auto const zipFiles = listFilesWithExtension(outputDir / "packed", ".zip");
   REQUIRE(zipFiles.size() == 1);
   auto const entries = e2e::listZipEntries(zipFiles.front());
@@ -633,7 +633,7 @@ TEST_CASE(
     toolchain.root.string(),
   });
 
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   auto const zipFiles = listFilesWithExtension(outputDir / "packed", ".zip");
   REQUIRE(zipFiles.size() == 1);
   auto const entries = e2e::listZipEntries(zipFiles.front());
@@ -683,7 +683,7 @@ TEST_CASE(
   )
                            .count();
 
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   auto const outputFiles = listFilesWithExtension(outputDir, ".webp");
   REQUIRE(outputFiles.size() == 2);
   CHECK(fs::file_size(outputFiles[0]) > 0);
@@ -852,7 +852,7 @@ TEST_CASE(
     outputDir.string(),
   });
 
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   auto const outputFiles = listFilesWithExtension(outputDir, ".webp");
   REQUIRE(outputFiles.size() == 2);
   CHECK(allFilesUseCodec(outputFiles, "webp"));
@@ -882,7 +882,7 @@ TEST_CASE(
     "-p",
   });
 
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   auto const zipFiles = listFilesWithExtension(inputDir / "packed", ".zip");
   REQUIRE(zipFiles.size() == 1);
 
@@ -918,7 +918,7 @@ TEST_CASE(
     toolchain.root.string(),
   });
 
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   REQUIRE(fs::exists(outputDir));
   auto count = std::size_t{0};
   for (auto const& entry: fs::directory_iterator{outputDir}) {
@@ -954,7 +954,7 @@ TEST_CASE(
     toolchain.root.string(),
   });
 
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
   REQUIRE(fs::exists(outputDir));
   auto count = std::size_t{0};
   for (auto const& entry: fs::directory_iterator{outputDir}) {
@@ -1750,7 +1750,7 @@ TEST_CASE(
 #endif
     }
   );
-  REQUIRE(result.exitCode == 0);
+  REQUIRE_SUCCESS(result);
 
   auto const lines = latestNdjsonLines(logRoot);
   REQUIRE_FALSE(lines.empty());

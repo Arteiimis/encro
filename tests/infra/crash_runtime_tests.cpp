@@ -158,3 +158,32 @@ TEST_CASE("formatCrashJsonLine escapes quotes and backslashes", "[crash][run_id]
   CHECK(obj.at("message").as_string() == R"(say "hi" on C:\path\to\nowhere)");
   CHECK(obj.at("run_id").as_string() == R"(run"id\1)");
 }
+
+TEST_CASE("installHandlers is callable in-process and idempotent", "[crash]") {
+  crash::installHandlers();
+  crash::installHandlers();
+  CHECK(true);
+}
+
+TEST_CASE(
+  "crash report falls back to stderr when logging is not initialized",
+  "[crash]"
+) {
+  // Ensure the async tier has no default logger to write to, forcing the
+  // stderr tier (the tier the test process relies on: logging setup never
+  // runs inside the test binary).
+  auto guard = ScopedDefaultLogger(nullptr);
+  TempDir temp;
+  auto const errFile = temp.path / "err.txt";
+
+  {
+    auto capture = testutils::StderrCapture{errFile};
+    auto const ex = std::runtime_error{"boom"};
+    crash::reportCaughtException("unit-test", ex);
+  }
+
+  auto const content = testutils::readTextFile(errFile);
+  CHECK(content.find("[CRASH]") != std::string::npos);
+  CHECK(content.find("unit-test: boom") != std::string::npos);
+  CHECK(content.find("stacktrace") != std::string::npos);
+}

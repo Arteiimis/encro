@@ -48,16 +48,6 @@ auto noColorRequested() -> bool {
   return processenv::readNonEmptyEnvVar("NO_COLOR").has_value();
 }
 
-auto streamIsTerminal(Stream stream) -> bool {
-#if defined(_WIN32) || defined(_WIN64)
-  auto const fd = _fileno(streamFile(stream));
-  return fd >= 0 && _isatty(fd) != 0;
-#else
-  auto const fd = fileno(streamFile(stream));
-  return fd >= 0 && ::isatty(fd) != 0;
-#endif
-}
-
 #if defined(_WIN32) || defined(_WIN64)
 auto enableVirtualTerminal(Stream stream) -> bool {
   auto const handle =
@@ -125,6 +115,16 @@ auto parseColorMode(std::string_view text) -> std::optional<ColorMode> {
   if (normalized == "always") { return ColorMode::Always; }
   if (normalized == "never") { return ColorMode::Never; }
   return std::nullopt;
+}
+
+auto streamIsTerminal(Stream stream) -> bool {
+#if defined(_WIN32) || defined(_WIN64)
+  auto const fd = _fileno(streamFile(stream));
+  return fd >= 0 && _isatty(fd) != 0;
+#else
+  auto const fd = fileno(streamFile(stream));
+  return fd >= 0 && ::isatty(fd) != 0;
+#endif
 }
 
 void configure(ColorMode mode) {
