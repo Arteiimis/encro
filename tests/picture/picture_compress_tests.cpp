@@ -1,7 +1,6 @@
 #include "picture/picture_compress.h"
 #include "test_utils.h"
 
-
 #include <filesystem>
 #include <format>
 #include <fstream>

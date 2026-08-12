@@ -1,7 +1,6 @@
 #include "video/encode_config.h"
 #include "test_utils.h"
 
-
 #include <filesystem>
 #include <format>
 #include <fstream>
