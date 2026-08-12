@@ -64,7 +64,10 @@ auto resolveCommonLogDir() -> fs::path {
     return appData.value() / "encro" / "logs";
   }
 #else
-  if (auto const* xdgState = std::getenv("XDG_STATE_HOME"); xdgState != nullptr && *xdgState != '\0') {
+  if (
+    auto const* xdgState = std::getenv("XDG_STATE_HOME");
+    xdgState != nullptr && *xdgState != '\0'
+  ) {
     return fs::path{xdgState} / "encro" / "logs";
   }
   if (auto const* home = std::getenv("HOME"); home != nullptr && *home != '\0') {

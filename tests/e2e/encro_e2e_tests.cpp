@@ -235,14 +235,13 @@ auto countLogLines(fs::path const& logPath, std::string_view needle) -> std::siz
   return count;
 }
 
-auto findOutputMp4(
-  fs::path const& searchRoot,
-  fs::path const& excluded = {}
-) -> std::optional<fs::path> {
+auto findOutputMp4(fs::path const& searchRoot, fs::path const& excluded = {})
+  -> std::optional<fs::path> {
   if (!fs::exists(searchRoot)) { return std::nullopt; }
   for (auto const& entry: fs::recursive_directory_iterator{searchRoot}) {
     if (
-      entry.is_regular_file() && entry.path().extension() == ".mp4"
+      entry.is_regular_file()
+      && entry.path().extension() == ".mp4"
       && entry.path() != excluded
     ) {
       return entry.path();

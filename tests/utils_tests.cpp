@@ -1,7 +1,6 @@
 #include "infra/stop_signal.h"
 #include "utils/utils.h"
 
-
 #include <array>
 #include <chrono>
 #include <cstdio>

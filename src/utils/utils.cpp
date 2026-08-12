@@ -84,41 +84,42 @@ auto exec2Impl(
   auto outputFuture = outputPromise->get_future();
   auto pipeReaderShared = std::make_shared<asio::readable_pipe>(std::move(pipeReader));
 
-  auto pipeReaderThread = std::thread(
+  auto pipeReaderThread = std::thread(  //
     [&, pipeReaderShared, outputPromise, onLineCopy = std::move(onLineCopy)]() mutable {
-    auto result = std::string{};
-    auto pendingLine = std::string{};
-    auto buffer = std::array<char, 4096>{};
+      auto result = std::string{};
+      auto pendingLine = std::string{};
+      auto buffer = std::array<char, 4096>{};
 
-    try {
-      for (;;) {
-        boost::system::error_code ec;
-        auto const count = pipeReaderShared->read_some(asio::buffer(buffer), ec);
-        if (ec || count == 0) { break; }
-
-        auto const chunk = std::string_view{buffer.data(), count};
-        result.append(chunk);
-        pendingLine.append(chunk);
-
-        auto newlinePos = pendingLine.find('\n');
-        while (newlinePos != std::string::npos) {
-          auto line = pendingLine.substr(0, newlinePos);
-          if (!line.empty() && line.back() == '\r') { line.pop_back(); }
-          if (callbackEnabled->load(std::memory_order_acquire) && onLineCopy) {
-            onLineCopy(line);
-          }
-          pendingLine.erase(0, newlinePos + 1);
-          newlinePos = pendingLine.find('\n');
-        }
-      }
-
-      outputPromise->set_value(std::move(result));
-    } catch (...) {
       try {
-        outputPromise->set_exception(std::current_exception());
-      } catch (...) { }
+        for (;;) {
+          boost::system::error_code ec;
+          auto const count = pipeReaderShared->read_some(asio::buffer(buffer), ec);
+          if (ec || count == 0) { break; }
+
+          auto const chunk = std::string_view{buffer.data(), count};
+          result.append(chunk);
+          pendingLine.append(chunk);
+
+          auto newlinePos = pendingLine.find('\n');
+          while (newlinePos != std::string::npos) {
+            auto line = pendingLine.substr(0, newlinePos);
+            if (!line.empty() && line.back() == '\r') { line.pop_back(); }
+            if (callbackEnabled->load(std::memory_order_acquire) && onLineCopy) {
+              onLineCopy(line);
+            }
+            pendingLine.erase(0, newlinePos + 1);
+            newlinePos = pendingLine.find('\n');
+          }
+        }
+
+        outputPromise->set_value(std::move(result));
+      } catch (...) {
+        try {
+          outputPromise->set_exception(std::current_exception());
+        } catch (...) { }
+      }
     }
-  });
+  );
 
   auto closePipeReader = [&] {
     boost::system::error_code ec;

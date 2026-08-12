@@ -2,7 +2,6 @@
 #include "cmd/config_builder.h"
 #include "test_utils.h"
 
-
 #include <filesystem>
 #include <string>
 #include <vector>
