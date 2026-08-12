@@ -28,8 +28,8 @@
 
 ## 5. Report + failure-summary task (D1)
 
-- [x] 5.1 Add `plugins/test_report/xmake.lua` task (modeled on `plugins/coverage`): resolve `tests(.exe)` under `build/<platform>/<arch>/<mode>/`, rebuild the `tests` target, run `-r console -r junit -o build/last-test-report.xml`, propagate the exit code
-- [x] 5.2 On non-zero exit, parse the XML with lua patterns and print `FAILED: <name> at <file>:<line> — <message>` lines plus the report path
+- [x] 5.1 Add `plugins/test_report/xmake.lua` task (modeled on `plugins/coverage`): resolve `tests(.exe)` under `build/<platform>/<arch>/<mode>/`, rebuild the `tests` target, run `-r console -r "junit::out=build/last-test-report.xml"` with child stdout redirected to `build/last-test-console.log` (keeps progress-bar frames out of the terminal in every context), propagate the exit code
+- [x] 5.2 On non-zero exit, parse the XML with lua patterns and print `FAILED: <name>` blocks plus report/console paths; on success print the `All tests passed (N assertions in M test cases)` summary parsed from the console log
 - [x] 5.3 Verify passing path: `xmake test-report` exits 0, report exists with no failure entries, console output ends with the Catch2 summary
 - [x] 5.4 Verify failing path with a temporary failing test: summary names the failed test with file:line, exit code non-zero; remove the temporary test
 - [x] 5.5 Update `CLAUDE.md` build/run section to document the new task
