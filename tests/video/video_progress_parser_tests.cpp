@@ -1,7 +1,6 @@
 #include "test_utils.h"
 #include "video/video_progress_parser.h"
 
-
 #include <filesystem>
 #include <fstream>
 #include <string_view>

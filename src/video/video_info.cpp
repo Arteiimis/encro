@@ -279,7 +279,8 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
   namespace json = boost::json;
 
   auto const cmd = quoteToolPath(toolchain.ffprobePath.value_or("ffprobe"))
-    + " -v quiet -print_format json -show_format -show_streams \"" + videoPath.string()
+    + " -v quiet -print_format json -show_format -show_streams \""
+    + videoPath.string()
     + "\"";
 
   auto const [exitCode, output, pid] = exec2(cmd, false);

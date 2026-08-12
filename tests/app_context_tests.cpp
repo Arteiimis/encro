@@ -2,8 +2,6 @@
 
 #include <catch2/catch_all.hpp>
 
-
-
 namespace fs = std::filesystem;
 
 TEST_CASE("video info cache store reads values from immer snapshot", "[app-context]") {

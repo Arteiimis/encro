@@ -3,7 +3,6 @@
 #include "infra/stop_signal.h"
 #include "test_utils.h"
 
-
 #include <filesystem>
 #include <format>
 #include <fstream>

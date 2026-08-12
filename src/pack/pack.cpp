@@ -17,7 +17,6 @@
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
 
-
 #include <algorithm>
 #include <format>
 #include <functional>
