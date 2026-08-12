@@ -65,7 +65,7 @@ jobs:
         if: matrix.mode != 'coverage'
         run: |
           set -o pipefail
-          # JUnit 报告：失败时输出失败测试名（console 输出被进度条吞掉）
+          # JUnit 报告：失败时输出失败测试名（非 TTY 下进度条帧已被抑制，日志干净）
           ./build/linux/x86_64/${{ matrix.mode }}/tests -r junit -o /tmp/ut.xml > /tmp/ut.log 2>&1
           ec=$?
           tail -20 /tmp/ut.log
@@ -74,6 +74,17 @@ jobs:
             grep -oE 'message="[^"]*"' /tmp/ut.xml | head -10
           fi
           exit $ec
+
+      - name: Upload test reports
+        # 失败时把完整 JUnit 报告 + console 日志留为 artifact，本地可直接下载分析
+        if: failure() && matrix.mode != 'coverage'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.mode }}
+          path: |
+            /tmp/ut.xml
+            /tmp/ut.log
+          if-no-files-found: warn
 
       - name: Run e2e tests
         if: matrix.mode != 'coverage'
