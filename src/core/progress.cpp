@@ -360,6 +360,9 @@ auto addBar(
 }
 
 void setCursorVisible(bool visible) {
+  // Cursor control is terminal UI: never emit escape sequences when stdout
+  // is not a TTY (pipes, test runs, CI) -- they pollute captured output.
+  if (!terminal::streamIsTerminal(terminal::Stream::Stdout)) { return; }
 #if defined(_WIN32) || defined(_WIN64)
   HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
   CONSOLE_CURSOR_INFO cursorInfo;
