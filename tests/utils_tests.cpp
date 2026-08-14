@@ -274,6 +274,43 @@ TEST_CASE("exec2 keeps partial trailing output without a newline", "[utils]") {
   CHECK(result.output == "abc");
 }
 
+TEST_CASE(
+  "exec2 returns partial output captured before stop termination",
+  "[utils]"
+) {
+  using namespace std::chrono_literals;
+
+  stopsignal::reset();
+
+#if defined(_WIN32)
+  auto const cmd = std::string{
+    "cmd /c \"for /l %i in (1,1,100) do @(echo tick-%i & ping -n 1 127.0.0.1 "
+    ">nul)\""
+  };
+#else
+  auto const cmd = std::string{
+    "sh -c 'i=1; while [ $i -le 100 ]; do echo tick-$i; i=$((i+1)); sleep 0.1; done'"
+  };
+#endif
+
+  auto requester = std::jthread([](std::stop_token token) {
+    using namespace std::chrono_literals;
+    std::this_thread::sleep_for(400ms);
+    if (!token.stop_requested()) { stopsignal::requestStop(); }
+  });
+
+  auto const startedAt = std::chrono::steady_clock::now();
+  auto const result = exec2(cmd, true);
+  auto const elapsed = std::chrono::steady_clock::now() - startedAt;
+
+  stopsignal::reset();
+
+  CHECK(result.exitCode == stopsignal::kCanceledExitCode);
+  CHECK_FALSE(result.output.empty());
+  CHECK(result.output.find("tick-") != std::string::npos);
+  CHECK(elapsed < 5s);
+}
+
 TEST_CASE("exec2 cancels promptly when a stop is already requested", "[utils]") {
   testutils::ScopedStopSignalReset stopGuard;
   stopsignal::requestStop();
