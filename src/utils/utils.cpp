@@ -5,9 +5,18 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
+#include <boost/asio/awaitable.hpp>
 #include <boost/asio/buffer.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/readable_pipe.hpp>
+#include <boost/asio/redirect_error.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/this_coro.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/use_future.hpp>
 #include <boost/asio/writable_pipe.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/process/v2/process.hpp>
@@ -21,7 +30,7 @@
 #include <future>
 #include <iostream>
 #include <memory>
-#include <thread>
+#include <variant>
 
 DEFINE_LOGGER(logtags::UTILS_SUBPROCESS);
 
@@ -29,28 +38,124 @@ using enum terminal::MessageKind;
 
 namespace {
 
-auto exec2Impl(
-  std::string_view cmd,
-  std::function<void(std::string_view)> const* onLine,
+namespace asio = boost::asio;
+
+// ── exec2 core: sync-over-async coroutine ──
+// The public exec2 overloads block the calling thread; internally the whole
+// run is a single asio coroutine driven by a function-local io_context
+// (co_spawn + run() on the caller). Frames never outlive the call, so
+// captures are safe. Note for crash forensics: coroutine frames appear as
+// bare coroutine_handle::resume entries in stack traces.
+
+enum class RaceOutcome { ReadEof = 0, Exit = 1, Stop = 2 };
+
+struct ProcessReadState {
+  std::string output;
+  std::atomic<bool> callbacksEnabled{true};
+};
+
+auto readAllInto(
+  std::shared_ptr<asio::readable_pipe> pipe,
+  std::shared_ptr<ProcessReadState> state,
+  std::function<void(std::string_view)> const& onLine
+) -> asio::awaitable<void> {
+  auto pendingLine = std::string{};
+  auto buffer = std::array<char, 4096>{};
+
+  for (;;) {
+    auto ec = boost::system::error_code{};
+    auto const count = co_await pipe->async_read_some(
+      asio::buffer(buffer),
+      asio::redirect_error(asio::use_awaitable, ec)
+    );
+    if (ec || count == 0) { break; }
+
+    auto const chunk = std::string_view{buffer.data(), count};
+    state->output.append(chunk);
+    pendingLine.append(chunk);
+
+    auto newlinePos = pendingLine.find('\n');
+    while (newlinePos != std::string::npos) {
+      auto line = pendingLine.substr(0, newlinePos);
+      if (!line.empty() && line.back() == '\r') { line.pop_back(); }
+      if (state->callbacksEnabled.load(std::memory_order_acquire) && onLine) {
+        onLine(line);
+      }
+      pendingLine.erase(0, newlinePos + 1);
+      newlinePos = pendingLine.find('\n');
+    }
+  }
+}
+
+auto waitExit(boost::process::v2::process& process) -> asio::awaitable<RaceOutcome> {
+  // Timer poll instead of process.async_wait: on Windows the async wait's
+  // cancellation is not reliable, and a cancelled-but-unfinished wait would
+  // pin ctx.run() forever. 20 ms granularity matches the legacy poll loop.
+  auto const executor = co_await asio::this_coro::executor;
+  auto timer = asio::steady_timer{executor};
+  while (process.running()) {
+    timer.expires_after(std::chrono::milliseconds{20});
+    auto ec = boost::system::error_code{};
+    co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
+  }
+  co_return RaceOutcome::Exit;
+}
+
+auto stopWait() -> asio::awaitable<RaceOutcome> {
+  // Timer poll on the flag: asio's windows::object_handle wait is not
+  // cancellable, so awaiting the stop event here could pin ctx.run() forever
+  // when this operand loses the race. 20 ms stop latency, as in the legacy
+  // implementation; monitor/spinner keep the instant event wake.
+  auto const executor = co_await asio::this_coro::executor;
+  auto timer = asio::steady_timer{executor};
+  while (!stopsignal::isStopRequested()) {
+    timer.expires_after(std::chrono::milliseconds{20});
+    auto ec = boost::system::error_code{};
+    co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
+  }
+  co_return RaceOutcome::Stop;
+}
+
+// Polls the child until exit or the grace deadline. Timer-based co_await
+// leaves no pending async operation behind at co_return, so the caller's
+// frame can be destroyed safely.
+auto waitExitWithin(
+  boost::process::v2::process& process,
+  std::chrono::milliseconds grace
+) -> asio::awaitable<bool> {
+  auto const executor = co_await asio::this_coro::executor;
+  auto timer = asio::steady_timer{executor};
+  auto const deadline = std::chrono::steady_clock::now() + grace;
+  for (;;) {
+    if (!process.running()) { co_return true; }
+    if (std::chrono::steady_clock::now() >= deadline) { co_return false; }
+    timer.expires_after(std::chrono::milliseconds{20});
+    auto ec = boost::system::error_code{};
+    co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
+  }
+}
+
+auto runProcess(
+  std::string cmd,
+  std::function<void(std::string_view)> onLine,
   bool mergeStdErr
-) -> ExecResult {
+) -> asio::awaitable<ExecResult> {
   namespace bp = boost::process::v2;
-  namespace asio = boost::asio;
+  using namespace boost::asio::experimental::awaitable_operators;
   using namespace std::chrono_literals;
 
   constexpr auto kTerminateWaitTimeout = 500ms;
-  constexpr auto kReaderWaitTimeout = 250ms;
-  constexpr auto kPollInterval = 20ms;
 
   LOG_DEBUG("Executing command: {}", cmd);
 
-  auto ctx = asio::io_context{};
+  auto const executor = co_await asio::this_coro::executor;
+
   auto command = bp::shell{boost::string_view{cmd.data(), cmd.size()}};
 
   // One pipe for the child's output; stdout and stderr share its write end so
   // merged output keeps its natural interleaving.
-  auto pipeReader = asio::readable_pipe{ctx};
-  auto pipeWriter = asio::writable_pipe{ctx};
+  auto pipeReader = asio::readable_pipe{executor};
+  auto pipeWriter = asio::writable_pipe{executor};
   asio::connect_pipe(pipeReader, pipeWriter);
   auto const writeEnd = pipeWriter.native_handle();
 
@@ -60,7 +165,9 @@ auto exec2Impl(
 #if defined(_WIN32)
   // Windows CreateProcess resolves the exe from the command line when the
   // application name is empty, so keep the stock shell exe() resolution.
-  auto process = bp::process{ctx, command.exe(), command.args(), std::move(stdio)};
+  auto process = std::make_shared<bp::process>(
+    executor, command.exe(), command.args(), std::move(stdio)
+  );
 #else
   // boost::process v2's posix find_executable cannot resolve absolute paths
   // (boost::filesystem appends instead of replacing), leaving an empty exe and
@@ -68,133 +175,113 @@ auto exec2Impl(
   auto const* exeToken = command.argv()[0];
   auto exePath = bp::environment::find_executable(exeToken);
   if (exePath.empty()) { exePath = exeToken; }
-  auto process = bp::process{ctx, exePath, command.args(), std::move(stdio)};
+  auto process = std::make_shared<bp::process>(
+    executor, exePath, command.args(), std::move(stdio)
+  );
 #endif
-  auto const capturedPid = static_cast<int>(process.id());
+  auto const capturedPid = static_cast<int>(process->id());
 
   // The parent must not keep a write end open, or the reader never sees EOF.
-  boost::system::error_code pipeCloseEc;
+  auto pipeCloseEc = boost::system::error_code{};
   pipeWriter.close(pipeCloseEc);
 
-  auto onLineCopy = onLine != nullptr ? *onLine : std::function<void(std::string_view)>{};
-  auto callbackEnabled = std::make_shared<std::atomic<bool>>(true);
-  // Heap-held promise/pipe: the reader thread may outlive this function on the
-  // stop-request detach path; stack storage would be use-after-return.
-  auto outputPromise = std::make_shared<std::promise<std::string>>();
-  auto outputFuture = outputPromise->get_future();
-  auto pipeReaderShared = std::make_shared<asio::readable_pipe>(std::move(pipeReader));
+  auto pipeShared = std::make_shared<asio::readable_pipe>(std::move(pipeReader));
+  auto state = std::make_shared<ProcessReadState>();
 
-  auto pipeReaderThread = std::thread(  //
-    [&, pipeReaderShared, outputPromise, onLineCopy = std::move(onLineCopy)]() mutable {
-      auto result = std::string{};
-      auto pendingLine = std::string{};
-      auto buffer = std::array<char, 4096>{};
+  auto readAll = [pipeShared, state, onLine]() -> asio::awaitable<RaceOutcome> {
+    co_await readAllInto(pipeShared, state, onLine);
+    co_return RaceOutcome::ReadEof;
+  };
+  auto waitExitOp = [process]() -> asio::awaitable<RaceOutcome> {
+    co_return co_await waitExit(*process);
+  };
+  auto stopOp = []() -> asio::awaitable<RaceOutcome> {
+    co_return co_await stopWait();
+  };
 
-      try {
-        for (;;) {
-          boost::system::error_code ec;
-          auto const count = pipeReaderShared->read_some(asio::buffer(buffer), ec);
-          if (ec || count == 0) { break; }
+  // The losing awaitables are cancelled when one wins; every pending op here
+  // (pipe read, timers) supports cancellation, so no handler outlives this
+  // frame and ctx.run() is guaranteed to drain.
+  auto outcome = co_await (readAll() || waitExitOp() || stopOp());
 
-          auto const chunk = std::string_view{buffer.data(), count};
-          result.append(chunk);
-          pendingLine.append(chunk);
-
-          auto newlinePos = pendingLine.find('\n');
-          while (newlinePos != std::string::npos) {
-            auto line = pendingLine.substr(0, newlinePos);
-            if (!line.empty() && line.back() == '\r') { line.pop_back(); }
-            if (callbackEnabled->load(std::memory_order_acquire) && onLineCopy) {
-              onLineCopy(line);
-            }
-            pendingLine.erase(0, newlinePos + 1);
-            newlinePos = pendingLine.find('\n');
-          }
-        }
-
-        outputPromise->set_value(std::move(result));
-      } catch (...) {
+  switch (outcome.index()) {
+    case 0: {
+      // EOF first: no more output will arrive. Wait for the child, honoring
+      // a stop request that may arrive meanwhile.
+      auto second = co_await (waitExitOp() || stopOp());
+      if (second.index() == 1) {
+        state->callbacksEnabled.store(false, std::memory_order_release);
         try {
-          outputPromise->set_exception(std::current_exception());
-        } catch (...) { }
+          if (process->running()) { process->terminate(); }
+        } catch (std::exception const& ex) {
+          LOG_WARN(
+            "Failed to terminate child process on stop request: {} ({})",
+            cmd,
+            ex.what()
+          );
+        }
+        if (!co_await waitExitWithin(*process, kTerminateWaitTimeout)) {
+          process->detach();
+        }
+        co_return ExecResult{stopsignal::kCanceledExitCode, state->output, capturedPid};
       }
+      co_return ExecResult{process->exit_code(), state->output, capturedPid};
     }
-  );
-
-  auto closePipeReader = [&] {
-    boost::system::error_code ec;
-    pipeReaderShared->close(ec);
-  };
-
-  auto joinReader = [&] {
-    auto const result = outputFuture.get();
-    if (pipeReaderThread.joinable()) { pipeReaderThread.join(); }
-    return result;
-  };
-
-  auto waitForExitUntil = [&](std::chrono::steady_clock::time_point deadline) {
-    while (process.running() && std::chrono::steady_clock::now() < deadline) {
-      std::this_thread::sleep_for(kPollInterval);
+    case 1: {
+      // Exit first: drain the remaining buffered output to EOF. A grandchild
+      // holding the write end blocks here, as in the legacy implementation.
+      // Yield one event-loop turn so the cancelled read's abort completion
+      // clears the pipe before a new read is issued (one outstanding read
+      // per pipe).
+      co_await asio::post(executor, asio::use_awaitable);
+      co_await readAllInto(pipeShared, state, onLine);
+      co_return ExecResult{process->exit_code(), state->output, capturedPid};
     }
-    return !process.running();
-  };
-
-  while (process.running()) {
-    if (!stopsignal::isStopRequested()) {
-      std::this_thread::sleep_for(kPollInterval);
-      continue;
-    }
-
-    try {
-      if (process.running()) {
-        LOG_INFO("Terminating child process due to stop request: {}", cmd);
-        process.terminate();
+    default: {
+      // Stop first: suppress further callbacks, terminate, and return the
+      // partial output accumulated so far.
+      state->callbacksEnabled.store(false, std::memory_order_release);
+      try {
+        if (process->running()) {
+          LOG_INFO("Terminating child process due to stop request: {}", cmd);
+          process->terminate();
+        }
+      } catch (std::exception const& ex) {
+        LOG_WARN(
+          "Failed to terminate child process on stop request: {} ({})",
+          cmd,
+          ex.what()
+        );
       }
-    } catch (std::exception const& ex) {
-      LOG_WARN(
-        "Failed to terminate child process on stop request: {} ({})",
-        cmd,
-        ex.what()
-      );
-      // terminate can race the child's natural exit (same 20 ms poll); fall
-      // through to the normal exit path instead of a spurious cancellation.
-      if (!process.running()) { break; }
+      if (!co_await waitExitWithin(*process, kTerminateWaitTimeout)) {
+        LOG_WARN(
+          "Child process did not exit within {} ms after terminate, detaching "
+          "handle: {}",
+          kTerminateWaitTimeout.count(),
+          cmd
+        );
+        process->detach();
+      }
+      co_return ExecResult{stopsignal::kCanceledExitCode, state->output, capturedPid};
     }
-
-    callbackEnabled->store(false, std::memory_order_release);
-    closePipeReader();
-
-    if (!waitForExitUntil(std::chrono::steady_clock::now() + kTerminateWaitTimeout)) {
-      LOG_WARN(
-        "Child process did not exit within {} ms after terminate, detaching handle: {}",
-        kTerminateWaitTimeout.count(),
-        cmd
-      );
-      process.detach();
-    }
-
-    if (outputFuture.wait_for(kReaderWaitTimeout) == std::future_status::ready) {
-      return {stopsignal::kCanceledExitCode, joinReader(), capturedPid};
-    }
-
-    LOG_WARN(
-      "Command output reader did not finish within {} ms after stop request; returning "
-      "partial output: {}",
-      kReaderWaitTimeout.count(),
-      cmd
-    );
-    if (pipeReaderThread.joinable()) { pipeReaderThread.detach(); }
-    return {stopsignal::kCanceledExitCode, {}, capturedPid};
   }
+}
 
-  process.wait();
-  // Join the reader before closing: the child has exited, so its write end is
-  // gone and the pipe hits EOF on its own; closing first races the reader
-  // thread and can drop output the kernel still holds in the pipe buffer.
-  auto const output = joinReader();
-  closePipeReader();
-
-  return {process.exit_code(), output, capturedPid};
+auto exec2Impl(
+  std::string_view cmd,
+  std::function<void(std::string_view)> const* onLine,
+  bool mergeStdErr
+) -> ExecResult {
+  auto ctx = asio::io_context{};
+  auto lineCallback =
+    onLine != nullptr ? *onLine : std::function<void(std::string_view)>{};
+  auto result = asio::co_spawn(
+    ctx,
+    runProcess(std::string{cmd}, std::move(lineCallback), mergeStdErr),
+    asio::use_future
+  );
+  ctx.run();
+  return result.get();
 }
 
 }  // namespace

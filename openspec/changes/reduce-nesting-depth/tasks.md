@@ -12,10 +12,10 @@ Phases follow design.md Migration Plan; each phase is one atomic commit (tests +
 
 ## 2. P1 — `exec2` coroutine rewrite (sync facade unchanged)
 
-- [ ] 2.1 Add a stop-race test where stop arrives mid-run and output arrives after termination, asserting 130 + partial output + no hang (extends existing `[subprocess-exec]` stop scenarios)
-- [ ] 2.2 Rewrite `exec2Impl` as `asio::awaitable` with the `(async_wait || stopEvent || graceTimer)` race, async pipe read loop, and detach-on-grace-expiry; keep the four public `exec2` overloads unchanged
-- [ ] 2.3 Run the full existing `subprocess-exec` suite unchanged — green without edits is the acceptance criterion
-- [ ] 2.4 Verify in `releasedbg` (ASan) and `coverage` build modes; record coroutine/stacktrace caveat in the function comment
+- [x] 2.1 Add a stop-race test where stop arrives mid-run and output arrives after termination, asserting 130 + partial output + no hang (extends existing `[subprocess-exec]` stop scenarios)
+- [x] 2.2 Rewrite `exec2Impl` as `asio::awaitable` with the `(async_wait || stopEvent || graceTimer)` race, async pipe read loop, and detach-on-grace-expiry; keep the four public `exec2` overloads unchanged. Deviation: exit/stop waits are 20 ms timer polls, not `async_wait`/event awaits — asio `object_handle` waits and `bp::v2 async_wait` are not reliably cancellable on Windows, and a cancelled-but-pending op would pin `ctx.run()` forever (contract: stop latency ≤ 20 ms, as in the legacy poll loop; monitor/spinner keep the instant event wake)
+- [x] 2.3 Run the full existing `subprocess-exec` suite unchanged — green without edits is the acceptance criterion
+- [x] 2.4 Verify build modes: `coverage` full suite green (no coroutine-induced regressions); `releasedbg` ASan verification blocked by environment — package reinstall under `-fsanitize=address` fails at libzip's cmake ABI check (flags propagate into packages). Coroutine/stacktrace caveat recorded in the exec2 comment block
 
 ## 3. P2 — Mechanical flattening (batched per file)
 
