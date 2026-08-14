@@ -74,6 +74,43 @@ TEST_CASE("requestStop produces an info log record", "[stop-signal][logging]") {
 }
 
 TEST_CASE(
+  "waitForStop reports signaled after request and cleared after reset",
+  "[stop-signal]"
+) {
+  auto resetGuard = testutils::ScopedStopSignalReset{};
+
+  CHECK_FALSE(stopsignal::isStopRequested());
+  CHECK_FALSE(stopsignal::waitForStop(std::chrono::milliseconds{0}));
+
+  stopsignal::requestStop();
+
+  CHECK(stopsignal::isStopRequested());
+  // Manual-reset semantics: once signaled it stays signaled across waits.
+  CHECK(stopsignal::waitForStop(std::chrono::milliseconds{0}));
+  CHECK(stopsignal::waitForStop(std::chrono::milliseconds{10}));
+
+  stopsignal::reset();
+
+  CHECK_FALSE(stopsignal::isStopRequested());
+  CHECK_FALSE(stopsignal::waitForStop(std::chrono::milliseconds{0}));
+}
+
+TEST_CASE("waitForStop wakes before its timeout when stop is requested", "[stop-signal]") {
+  auto resetGuard = testutils::ScopedStopSignalReset{};
+
+  auto requester = std::jthread{[] {
+    std::this_thread::sleep_for(std::chrono::milliseconds{30});
+    stopsignal::requestStop();
+  }};
+
+  auto const start = std::chrono::steady_clock::now();
+  CHECK(stopsignal::waitForStop(std::chrono::seconds{5}));
+  auto const elapsed = std::chrono::steady_clock::now() - start;
+
+  CHECK(elapsed < std::chrono::seconds{1});
+}
+
+TEST_CASE(
   "force-exit watchdog writes a direct log line before terminating",
   "[stop-signal][logging]"
 ) {
@@ -108,6 +145,11 @@ TEST_CASE(
   CHECK(gExitCalled.load());
 
   logging::shutdown();
+
+  // Clear the stop state before restoring the real force-exit action: the
+  // watchdog re-checks the armed deadline every 50 ms, and once the handler
+  // is ExitProcess again a stale armed deadline would kill the test process.
+  stopsignal::reset();
 
   // Restore defaults so later tests are unaffected.
   stopsignal::setForceExitGracePeriodForTest(std::chrono::seconds{3});

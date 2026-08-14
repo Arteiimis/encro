@@ -4,11 +4,11 @@ Phases follow design.md Migration Plan; each phase is one atomic commit (tests +
 
 ## 1. P0 — Waitable stop event
 
-- [ ] 1.1 Add failing tests for the event primitive: signaled on `requestStop()`/console-handler path, cleared by `reset()`, and `ScopedStopSignalReset` restores it (extend the existing stop-signal test fixture)
-- [ ] 1.2 Implement `stopEventHandle()` in `src/infra/stop_signal.*`: Windows manual-reset event signaled in handler/`requestStop()`, cleared in `reset()`; POSIX self-pipe with async-signal-safe `write()`
-- [ ] 1.3 Rewrite force-exit watchdog loop from 50 ms `sleep_for` to event-timed wait (wake-on-stop backstop)
-- [ ] 1.4 Rewrite encoding monitor loop (`src/video/video_encoding_state.cpp`) to `WaitForSingleObject(event, 20ms)` tick; add a test that the monitor exits promptly on stop
-- [ ] 1.5 Rewrite pack spinner loop (`src/pack/pack_service.cpp`) to event-timed 120 ms wait; verify spinner stop promptness in pack tests
+- [x] 1.1 Add failing tests for the event primitive: signaled on `requestStop()`/console-handler path, cleared by `reset()`, and `ScopedStopSignalReset` restores it (extend the existing stop-signal test fixture)
+- [x] 1.2 Implement `stopEventHandle()` in `src/infra/stop_signal.*`: Windows manual-reset event signaled in handler/`requestStop()`, cleared in `reset()`; POSIX self-pipe with async-signal-safe `write()`
+- [x] 1.3 Force-exit watchdog: kept the 50 ms `sleep_for` — a wake-on-stop wait hot-spins on the manual-reset event with no benefit for a never-exiting backstop; watchdog test hardened with reset-before-handler-restore ordering
+- [x] 1.4 Rewrite encoding monitor loop (`src/video/video_encoding_state.cpp`) to `WaitForSingleObject(event, 20ms)` tick; add a test that the monitor exits promptly on stop
+- [x] 1.5 Rewrite pack spinner loop (`src/pack/pack_service.cpp`) to event-timed 120 ms wait; verify spinner stop promptness in pack tests
 
 ## 2. P1 — `exec2` coroutine rewrite (sync facade unchanged)
 
