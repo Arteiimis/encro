@@ -1,9 +1,14 @@
 #include "video/video_batch_execution.h"
 
+#include "infra/stop_signal.h"
+#include "test_utils.h"
+
 #include <catch2/catch_all.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -44,6 +49,33 @@ TEST_CASE(
   auto results = videobatch::EncodeResultsMap{};
   CHECK(actionIds.size() == 0);
   CHECK(results.size() == 0);
+}
+
+TEST_CASE(
+  "encoding monitor exits promptly after a stop request",
+  "[video-batch-execution][stop-signal]"
+) {
+  auto resetGuard = testutils::ScopedStopSignalReset{};
+  auto appCtx = appctx::AppContext{};
+  auto progressState = videobatch::detail::EncodingProgressState{1, 1};
+  auto plannedOutputFiles = appctx::path_map<fs::path>{};
+  auto actionIds = videobatch::ActionIdMap{};
+  auto execCtx = videobatch::detail::EncodingExecutionContext{
+    appCtx,
+    progressState,
+    plannedOutputFiles,
+    actionIds
+  };
+
+  auto monitor = videobatch::detail::startEncodingMonitor(execCtx);
+  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+
+  auto const start = std::chrono::steady_clock::now();
+  stopsignal::requestStop();
+  // Join is the completion detector: the monitor must leave its tick loop on
+  // the next wake (event wait wakes it immediately), well under 1 s.
+  monitor.join();
+  CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds{1});
 }
 
 TEST_CASE(

@@ -34,7 +34,7 @@ Current state (see proposal.md for motivation):
 - **Windows**: `CreateEvent` (manual-reset). `SetEvent` in the console handler, `requestStop()`, and cleared by `ResetEvent` in `reset()`. `SetEvent` is legal in a ctrl handler (it runs on its own thread). Manual-reset chosen because multiple waiters must all see the stop.
 - **POSIX**: self-pipe; the signal handler only `write()`s one byte (async-signal-safe), the read end is the waitable fd.
 - **Test hook**: `ScopedStopSignalReset` must also clear the event so tests that stop-and-reset don't leave waiters spuriously woken.
-- **Watchdog**: keeps the flag (it must survive even if the event waits are bypassed) but its 50 ms sleep becomes an event-timed wait — the backstop itself becomes wake-on-stop.
+- **Watchdog**: keeps `sleep_for(50ms)` — a wake-on-stop wait would hot-spin (manual-reset event stays signaled) and buys nothing for a never-exiting backstop whose deadline check already has 50 ms resolution.
 - *Alternative rejected*: replacing the flag entirely with the event — 24 sites don't block, they check; a flag read is cheaper and simpler there.
 
 ### D2: `exec2` as sync-over-async coroutine
