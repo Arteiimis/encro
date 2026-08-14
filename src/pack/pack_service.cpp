@@ -5,6 +5,7 @@
 #include "core/task_executor.h"
 #include "core/collision_naming.h"
 
+#include "infra/stop_signal.h"
 #include "infra/terminal.h"
 
 #include "logging/log_tags.h"
@@ -123,7 +124,12 @@ struct CompactProgressState {
           }
           if (onCompactStatusText) { onCompactStatusText(finalizingText); }
         }
-        std::this_thread::sleep_for(120ms);
+        // Wake immediately on a stop request; the manual-reset event stays
+        // signaled, so fall back to the normal cadence to avoid a hot spin
+        // while the spinner's own exit conditions catch up.
+        if (stopsignal::waitForStop(std::chrono::milliseconds{120})) {
+          std::this_thread::sleep_for(std::chrono::milliseconds{120});
+        }
       }
     }};
   }

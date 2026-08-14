@@ -199,7 +199,12 @@ void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& execu
       static_cast<int>(executionCtx.finished())
     );
 
-    std::this_thread::sleep_for(20ms);
+    // Wake immediately on stop; the manual-reset event stays signaled, so
+    // fall back to the normal cadence during the drain phase (tasks still
+    // finalizing) to avoid a hot spin.
+    if (stopsignal::waitForStop(std::chrono::milliseconds{20})) {
+      std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    }
   }
 
   executionCtx.updateOverall();
