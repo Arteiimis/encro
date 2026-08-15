@@ -343,10 +343,35 @@ auto probeCqSequence(
     points.push_back(std::move(point));
     if (onPoint) { onPoint(points.size(), cq); }
   };
-  for (auto const cq: kBaseCqs) {
-    auto const point = measure(cq);
-    if (!point.has_value()) { return std::nullopt; }
-    record(std::move(point.value()));
+
+  // Wave 1: base CQs are independent — measure them in parallel. The result
+  // is identical to serial order (collected in cq order); only the wall time
+  // shrinks. Extension points stay serial: each depends on the previous.
+  {
+    auto baseResults = std::vector<std::optional<ProbePoint>>(kBaseCqs.size());
+    auto tasks = std::vector<taskexec::TaskSpec>{};
+    tasks.reserve(kBaseCqs.size());
+    for (auto index = std::size_t{}; index < kBaseCqs.size(); ++index) {
+      tasks.push_back({
+        .id = std::format("probe-cq:{}", kBaseCqs[index]),
+        .label = std::format("cq {}", kBaseCqs[index]),
+        .input = std::format("{}", kBaseCqs[index]),
+        .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
+          baseResults[index] = measure(kBaseCqs[index]);
+          return {};
+        },
+      });
+    }
+    taskexec::runTasks({
+      .tasks = std::move(tasks),
+      .maxConcurrency = kBaseCqs.size(),
+      .progress = nullptr,
+      .hideCursor = false,
+    });
+    for (auto& baseResult: baseResults) {
+      if (!baseResult.has_value()) { return std::nullopt; }
+      record(std::move(baseResult.value()));
+    }
   }
 
   if (!meetsFloor(points.front(), vmafFloor)) {
