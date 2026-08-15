@@ -39,7 +39,8 @@ The gate is shared by single-file and batch paths, so placing the probe phase th
 - Extension: if floor not met at 24, probe 20 (then 16); if floor met at 32, probe 36 (then 40). Bounded to [16, 40]; typical cost 3-6 probe points × 2 segments.
 - Decision: highest CQ with p5 >= floor, interpolating linearly between adjacent probed points (rounded down to integer CQ). Bitrate estimate likewise interpolated.
 - Unreachable (p5@16 < floor): warn at plan time, encode with CQ 16, add to the "needs attention" list.
-- Probe artifacts (segment .ts, progress files, VMAF JSON logs) SHALL go to a per-run temp dir (`fs::temp_directory_path()/encro_probe_<uuid>/`), deleted after the probe phase. They MUST NOT reuse `videoseg::segmentDirForTask`, whose resume scan would mistake leftover probe segments for completed production segments.
+- Parallelism: the 3 base candidates are independent and are measured in parallel (wave 1); extension points stay serial because each depends on the previous measurement. Identical decision, ~40% less wall time on the base grid.
+- Probe artifacts (segment .ts, progress files, VMAF JSON logs) SHALL go to a per-run temp dir (`fs::temp_directory_path()/encro_probe_<uuid>/`), deleted after the probe phase (with a brief retry loop for transient Windows handle locks from just-exited scoring children). They MUST NOT reuse `videoseg::segmentDirForTask`, whose resume scan would mistake leftover probe segments for completed production segments.
 
 *Alternative considered*: binary search over [16,40] — fewer encodes worst-case, but harder to reason about with p5 noise and less predictable printed output; step-4 grid keeps the plan lines intuitive.
 
@@ -82,7 +83,7 @@ New `infra/open_file.{h,cpp}`: `ShellExecuteW` on the generated path (Windows pr
 
 ## Risks / Trade-offs
 
-- **Probing adds 1-2 min per file before the prompt** → parallelized across the batch, `--crf` bypass, short-video skip; accepted as the price of the guarantee.
+- **Probing adds 1-2 min per file before the prompt** → parallelized across the batch (one task per file, progress bars per worker slot plus an Overall bar matching the encode bars), base grid parallelized within a file, `--crf` bypass, short-video skip; accepted as the price of the guarantee.
 - **Probe bitrate slightly overestimates final size** (TS muxing overhead on 10s segments, ~5%) → accepted; the estimate is advisory, and the plan prints it as an estimate.
 - **libvmaf's default model is trained on 1080p content** → scores at other resolutions are approximate; acceptable for a relative floor, noted in README.
 - **Auto-open is untestable in CI** (ShellExecute side effect) → e2e always passes `--no-open`; the open call itself stays a thin wrapper.

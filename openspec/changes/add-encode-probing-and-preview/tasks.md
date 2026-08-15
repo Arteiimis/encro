@@ -13,6 +13,7 @@
 - [x] 2.4 Wire the probe phase into `runEncodingTasks` before the `readUserIpt` gate (MP4 output only, WebP path unchanged): parallel execution, stop-signal checks between probe points, per-file decision map, plan printing (chosen CQ, p5, estimated size, batch totals), `--dry-run` exit path, `--crf` bypass, short-video skip; unit tests (`[encode-probe]`)
 - [x] 2.5 Plumb per-file CQ decisions into a new `EncodingState` field (copied when execution contexts are created after the gate) so `buildEncodeConfig`/`encodeOneSegment` use the chosen CQ; unit tests (`[encode-probe]`)
 - [x] 2.6 Collect unreachable-floor warnings into the final summary "needs attention" list; unit tests (`[encode-probe]`)
+- [x] 2.7 Show progress bars during the probe phase in the same style as the encode bars (per worker slot + Overall, per sub-step updates, cursor hidden, nothing on non-TTY); unit tests (`[encode-probe]`)
 
 ## 3. Preview Subcommand
 
