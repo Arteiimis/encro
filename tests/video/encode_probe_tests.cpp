@@ -612,6 +612,42 @@ TEST_CASE(
   CHECK(text.find("Est.Size") == std::string::npos);
 }
 
+TEST_CASE("printProbePlan caps the name column on wide terminals", "[encode-probe]") {
+  TempDir temp;
+  auto const kMegabyte = std::uintmax_t{1'048'576};
+  auto const first = temp.path / "alpha.mp4";
+  auto const second = temp.path / "beta.mp4";
+  writeSizedFile(first, kMegabyte);
+  writeSizedFile(second, kMegabyte);
+  auto plans = std::vector<encodeprobe::ProbePlan>{
+    {.inputPath = first,
+     .chosenCq = 26,
+     .metric = videoquality::QualityMetric::Vmaf,
+     .p5 = 95.0,
+     .estimatedBytes = 2 * kMegabyte,
+     .probed = true},
+    {.inputPath = second,
+     .chosenCq = 28,
+     .metric = videoquality::QualityMetric::Vmaf,
+     .p5 = 96.0,
+     .estimatedBytes = kMegabyte / 2,
+     .probed = true},
+  };
+  auto const out = temp.path / "stdout.txt";
+  {
+    ScopedEnvVar columns("COLUMNS", "250");
+    auto capture = testutils::StdoutCapture{out};
+    encodeprobe::printProbePlan(plans, 95);
+  }
+  auto const text = testutils::readTextFile(out);
+  // The name column is capped at the longest file name (min 20), so no row
+  // approaches the 250-column terminal width.
+  auto in = std::istringstream{text};
+  for (std::string line; std::getline(in, line);) {
+    if (line.starts_with("  ")) { CHECK(line.size() <= 64); }
+  }
+}
+
 #endif
 
 TEST_CASE(

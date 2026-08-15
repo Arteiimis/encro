@@ -654,6 +654,17 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     return displaytext::displayWidth(prefix);
   };
   auto const layout = displaytext::layoutColumns(consolewidth::resolveColumns());
+  // The name column never needs to be wider than the longest file name in
+  // this batch; cap it so a very wide terminal does not pad short names
+  // across the screen.
+  auto const nameWidth = [&]() -> std::optional<std::size_t> {
+    if (!layout.has_value()) { return std::nullopt; }
+    auto maxName = std::size_t{0};
+    for (auto const& plan: plans) {
+      maxName = std::max(maxName, displaytext::displayWidth(fileNameOf(plan)));
+    }
+    return std::min(layout.value().nameWidth, std::max(maxName, std::size_t{20}));
+  }();
   auto const planRatio = [](ProbePlan const& plan) -> std::optional<double> {
     if (!plan.estimatedBytes.has_value()) { return std::nullopt; }
     auto ec = std::error_code{};
@@ -665,7 +676,7 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
   auto const formatRow = [&](ProbePlan const& plan, std::string_view prefix) {
     auto const name = displaytext::truncateMiddle(
       fileNameOf(plan),
-      layout.value().nameWidth - prefixWidth(prefix)
+      nameWidth.value() - prefixWidth(prefix)
     );
     auto const ratio = planRatio(plan);
     if (!plan.probed) {
@@ -673,7 +684,7 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
         "{}{:<{}}  {:>3}  {:>6}  {:>9}  {:>6}",
         prefix,
         name,
-        layout.value().nameWidth - prefixWidth(prefix),
+        nameWidth.value() - prefixWidth(prefix),
         plan.chosenCq,
         "\xE2\x80\x94",
         "\xE2\x80\x94",
@@ -684,7 +695,7 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
       "{}{:<{}}  {:>3}  {:>6}  {:>9}  {:>6}",
       prefix,
       name,
-      layout.value().nameWidth - prefixWidth(prefix),
+      nameWidth.value() - prefixWidth(prefix),
       plan.chosenCq,
       formatP5(plan),
       displaytext::formatSizeBytes(plan.estimatedBytes),
@@ -720,7 +731,7 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
       std::format(
         "  {:<{}}  {:>3}  {:>6}  {:>9}  {:>6}",
         "File",
-        layout.value().nameWidth,
+        nameWidth.value(),
         "CQ",
         "p5",
         "Est.Size",
