@@ -26,19 +26,22 @@
 
 *Alternative considered*: per-row `println(Warning, ...)` for warning rows — rejected: badge prefixes misalign the columns.
 
-### 2. One width computation, three bands, two layouts
+### 2. One width computation, two layouts
 
 ```
-numeric width ≈ CQ(3) + p5(6) + size(8) + ratio(7) + 4 gaps ≈ 28 columns
-nameWidth = terminalWidth − 2 (indent) − 28
+numeric width ≈ CQ(3) + p5(6) + size(9) + ratio(6) + 3 gaps of 2 ≈ 32 columns
+nameWidth = terminalWidth − 2 (indent) − 32
 ```
-- `nameWidth ≥ 40` (terminal ≥ 70 cols): table layout; names longer than the column are truncated mid-string with `…` keeping the extension (`35e5a22dece…e21.mp4`).
-- `40 > nameWidth ≥ 20` (terminal 50–69 cols): same table layout with a smaller minimum; the size column drops to fixed MB, p5 to one decimal — the numeric width shrinks instead of the name column.
-- `nameWidth < 20` (terminal < 50 cols, pathological): two-line fallback per spec (name line, indented metrics line). No data loss.
+- `nameWidth ≥ 20` (terminal ≥ 52 cols): table layout; names longer than the column are truncated mid-string with `…` keeping the extension (`35e5a22dece…e21.mp4`).
+- `nameWidth < 20` (terminal < 52 cols, pathological): two-line fallback per spec (name line, indented metrics line). No data loss.
 
-The width computation is a pure function `layoutColumns(terminalWidth) -> optional<TableLayout>`; `TableLayout` carries per-column widths and the chosen unit mode, so unit tests can assert exact strings at fixed widths without a real terminal. Non-TTY output (e2e, unit tests, CI) resolves columns to a fixed default (existing `consolewidth` behavior) and simply uses that width.
+The width computation is a pure function `layoutColumns(terminalWidth) -> optional<TableLayout>`; `TableLayout` carries the name-column width, so unit tests can assert exact strings at fixed widths without a real terminal. Non-TTY output (e2e, unit tests, CI) resolves columns to a fixed default (existing `consolewidth` behavior, 80) and simply uses that width.
 
-*Alternative considered*: a single truncating name column at all widths — rejected: below ~50 columns the name column would show fewer than 20 usable characters, which is less useful than the two-line fallback. A three-band policy was considered overkill; the numeric-width-shrink band (50–69) is the only middle step.
+*Alternatives considered*: a single truncating name column at all widths — rejected: below ~50 columns the name column would show fewer than 20 usable characters, which is less useful than the two-line fallback. A middle "numeric-shrink" band (fixed MB units, tighter gaps) was designed but dropped during implementation: the fixed numeric width is 32 columns regardless of unit choice, so the band saved at most one or two columns — not worth a second layout.
+
+### 2b. p5 column precision
+
+The p5 column shows one decimal at or above the default floor (`95.0`), two decimals below it (`3.72`, `91.56`) so abnormal scores stay visibly precise; SSIM values use three decimals (`0.980`). Sorted rows never compare a VMAF value against an SSIM value directly (rows are grouped by status, not by metric).
 
 ### 3. Sorting and grouping by file name (UTF-8 byte order)
 

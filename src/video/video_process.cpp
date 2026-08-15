@@ -470,7 +470,6 @@ void printEncodingSummary(
 ) {
   terminal::println(Success, "All encoding tasks completed.");
   terminal::println(Heading, "Summary:");
-  terminal::println(Info, "  Total videos found: {}", terminal::count(vids.size()));
 
   auto const successCount = std::ranges::count_if(vidsRunRes, _1->*second);
   auto const failureCount = vidsRunRes.size() - successCount;
@@ -482,8 +481,26 @@ void printEncodingSummary(
     failureCount
   );
 
-  terminal::println(Success, "  Successfully encoded: {}", terminal::count(successCount));
-  terminal::println(Warning, "  Failed to encode: {}", terminal::count(failureCount));
+  // Align the count labels so the colons line up, matching the plan table's
+  // aligned numeric columns.
+  terminal::println(
+    Info,
+    "  {:>22}: {}",
+    "Total videos found",
+    terminal::count(vids.size())
+  );
+  terminal::println(
+    Success,
+    "  {:>22}: {}",
+    "Successfully encoded",
+    terminal::count(successCount)
+  );
+  terminal::println(
+    Warning,
+    "  {:>22}: {}",
+    "Failed to encode",
+    terminal::count(failureCount)
+  );
 
   if (failureCount > 0) {
     terminal::println(Warning, "Videos that failed to encode:");

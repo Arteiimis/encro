@@ -488,6 +488,130 @@ TEST_CASE("runProbePhase skips short videos with the default cq", "[encode-probe
   CHECK_FALSE(plan.p5.has_value());
 }
 
+namespace {
+
+// Writes a file of the given byte size without allocating a huge buffer.
+auto writeSizedFile(fs::path const& path, std::uintmax_t size) -> void {
+  auto out = std::ofstream{path, std::ios::binary};
+  out.seekp(static_cast<std::streamoff>(size) - 1);
+  out.put('\0');
+}
+
+}  // namespace
+
+TEST_CASE(
+  "printProbePlan renders a sorted table with warnings at the bottom",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const kMegabyte = std::uintmax_t{1'048'576};
+  auto const normalA = temp.path / "beta.mp4";
+  auto const normalB = temp.path / "alpha.mp4";
+  auto const bad = temp.path / "gamma.mp4";
+  writeSizedFile(normalA, kMegabyte);
+  writeSizedFile(normalB, kMegabyte);
+  writeSizedFile(bad, kMegabyte);
+
+  auto plans = std::vector<encodeprobe::ProbePlan>{
+    {.inputPath = bad,
+     .chosenCq = 16,
+     .metric = videoquality::QualityMetric::Vmaf,
+     .p5 = 3.72,
+     .estimatedBytes = 2 * kMegabyte,
+     .probed = true,
+     .unreachableFloor = true},
+    {.inputPath = normalB,
+     .chosenCq = 29,
+     .metric = videoquality::QualityMetric::Vmaf,
+     .p5 = 95.0,
+     .estimatedBytes = kMegabyte / 2,
+     .probed = true},
+    {.inputPath = normalA,
+     .chosenCq = 26,
+     .metric = videoquality::QualityMetric::Vmaf,
+     .p5 = 95.04,
+     .estimatedBytes = 2 * kMegabyte,
+     .probed = true},
+  };
+
+  auto const out = temp.path / "stdout.txt";
+  {
+    ScopedEnvVar columns("COLUMNS", "80");
+    auto capture = testutils::StdoutCapture{out};
+    encodeprobe::printProbePlan(plans, 95);
+  }
+  auto const text = testutils::readTextFile(out);
+
+  // Header with aligned columns.
+  CHECK(text.find("  File") != std::string::npos);
+  CHECK(text.find("CQ") != std::string::npos);
+  CHECK(text.find("Est.Size") != std::string::npos);
+  CHECK(text.find("Ratio") != std::string::npos);
+  // Normal rows sorted by name; warning row last with a marker.
+  auto const alphaPos = text.find("alpha.mp4");
+  auto const betaPos = text.find("beta.mp4");
+  auto const gammaPos = text.find("gamma.mp4");
+  REQUIRE(alphaPos != std::string::npos);
+  REQUIRE(betaPos != std::string::npos);
+  REQUIRE(gammaPos != std::string::npos);
+  CHECK(alphaPos < betaPos);
+  CHECK(betaPos < gammaPos);
+  CHECK(text.find("\xE2\x9A\xA0") != std::string::npos);  // warning marker
+  // Unreachable count line.
+  CHECK(text.find("1 file(s) can't reach the floor") != std::string::npos);
+  // One-decimal p5 at/above the floor, two decimals below it.
+  CHECK(text.find(" 26") != std::string::npos);
+  CHECK(text.find("95.0") != std::string::npos);
+  CHECK(text.find("3.72") != std::string::npos);
+  // Signed percentage ratios: growing rows marked, shrinking row plain.
+  CHECK(text.find("+100% \xE2\x86\x91") != std::string::npos);
+  CHECK(
+    text.find(
+      "\xE2\x88\x92"
+      "50%"
+    )
+    != std::string::npos
+  );  // -50%
+  // Total line with signed percentage (4.5 MB est / 3 MB source = +50%).
+  CHECK(text.find("Total: 3 file(s)") != std::string::npos);
+  CHECK(text.find("+50% \xE2\x86\x91") != std::string::npos);
+}
+
+TEST_CASE(
+  "printProbePlan renders the two-line fallback on tiny terminals",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const kMegabyte = std::uintmax_t{1'048'576};
+  auto const input = temp.path / "clip.mp4";
+  writeSizedFile(input, kMegabyte);
+  auto plans = std::vector<encodeprobe::ProbePlan>{
+    {.inputPath = input,
+     .chosenCq = 28,
+     .metric = videoquality::QualityMetric::Vmaf,
+     .p5 = 96.0,
+     .estimatedBytes = kMegabyte / 2,
+     .probed = true},
+  };
+  auto const out = temp.path / "stdout.txt";
+  {
+    ScopedEnvVar columns("COLUMNS", "40");
+    auto capture = testutils::StdoutCapture{out};
+    encodeprobe::printProbePlan(plans, 95);
+  }
+  auto const text = testutils::readTextFile(out);
+  CHECK(text.find("clip.mp4") != std::string::npos);
+  CHECK(
+    text.find(
+      "CQ 28 \xC2\xB7 p5 96.0 \xC2\xB7 0.5 MB \xC2\xB7 \xE2\x88\x92"
+      "50%"
+    )
+    != std::string::npos
+  );
+  // No table header in the two-line form.
+  CHECK(text.find("Est.Size") == std::string::npos);
+}
+
 #endif
 
 TEST_CASE(
