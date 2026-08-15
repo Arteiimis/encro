@@ -1876,19 +1876,67 @@ TEST_CASE(
 // ── Encode probing (probe → plan → prompt) ────────────────────────────────
 
 auto extractPlanCq(std::string const& stdoutText) -> std::optional<int> {
-  auto const marker = std::string_view{"CQ "};
-  auto const pos = stdoutText.find(marker);
-  if (pos == std::string_view::npos) { return std::nullopt; }
-  auto const start = pos + marker.size();
-  auto end = start;
-  while (
-    end < stdoutText.size()
-    && std::isdigit(static_cast<unsigned char>(stdoutText[end])) != 0
-  ) {
-    ++end;
+  // Table rows look like "  <name>  <cq>  <p5>  <size>  <ratio>": an
+  // indented line whose first 2+-space gap is followed by a number.
+  std::istringstream in{stdoutText};
+  for (std::string line; std::getline(in, line);) {
+    auto const gap = line.find("  ", 2);
+    if (gap == std::string::npos) { continue; }
+    auto pos = gap;
+    while (pos < line.size() && line[pos] == ' ') { ++pos; }
+    auto const start = pos;
+    while (
+      pos < line.size() && std::isdigit(static_cast<unsigned char>(line[pos])) != 0
+    ) {
+      ++pos;
+    }
+    if (pos > start && pos < line.size() && line[pos] == ' ') {
+      return std::stoi(std::string{line.substr(start, pos - start)});
+    }
   }
-  if (end == start) { return std::nullopt; }
-  return std::stoi(std::string{stdoutText.substr(start, end - start)});
+  return std::nullopt;
+}
+
+TEST_CASE(
+  "encro prints a multi-file plan table sorted by name with totals",
+  "[e2e][video][probe][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const firstInput = temp.path / "sample.avi";
+  auto const secondInput = temp.path / "another.avi";
+  e2e::writeTextFile(firstInput, "fake-video");
+  e2e::writeTextFile(secondInput, "fake-video");
+  auto const outputDir = temp.path / "out";
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro({
+    "-y",
+    firstInput.string(),
+    secondInput.string(),
+    "-o",
+    outputDir.string(),
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+
+  REQUIRE_SUCCESS(result);
+  // Table header and one row per file, sorted by name.
+  CHECK(result.stdoutText.find("Est.Size") != std::string::npos);
+  CHECK(result.stdoutText.find("Ratio") != std::string::npos);
+  auto const anotherPos = result.stdoutText.find("another.avi");
+  auto const samplePos = result.stdoutText.find("sample.avi");
+  REQUIRE(anotherPos != std::string::npos);
+  REQUIRE(samplePos != std::string::npos);
+  CHECK(anotherPos < samplePos);
+  // The old three-line-per-file layout is gone.
+  CHECK(result.stdoutText.find("est. size:") == std::string::npos);
+  // Totals line still present.
+  CHECK(result.stdoutText.find("Total: 2 file(s)") != std::string::npos);
+  // Both files still encode.
+  auto const outputFiles = listFilesWithExtension(outputDir, ".mp4");
+  CHECK(outputFiles.size() == 2);
 }
 
 TEST_CASE(
@@ -1917,7 +1965,10 @@ TEST_CASE(
 
   REQUIRE_SUCCESS(result);
   CHECK(result.stdoutText.find("Encoding plan") != std::string::npos);
-  CHECK(result.stdoutText.find("CQ 28 (default; not probed)") != std::string::npos);
+  // The fake toolchain cannot produce real VMAF scores, so probing falls
+  // back to the default CQ 28 deterministically (design decision 4); the
+  // row shows the default CQ with no score.
+  CHECK(extractPlanCq(result.stdoutText) == 28);
   // The output dir also carries the job-state file; only the mp4 is output.
   auto const outputFiles = listFilesWithExtension(outputDir, ".mp4");
   REQUIRE(outputFiles.size() == 1);
@@ -2115,8 +2166,8 @@ TEST_CASE(
   );
 
   REQUIRE_SUCCESS(result);
-  // Probe phase ran: the plan line mentions a probed CQ, not the default.
-  CHECK(result.stdoutText.find("default; not probed") == std::string::npos);
+  // Probe phase ran: the window scores carry the fake VMAF value.
+  CHECK(result.stdoutText.find("VMAF 96.0") != std::string::npos);
   auto const outputPath = temp.path / "sample.preview.mp4";
   CHECK(fs::exists(outputPath));
   CHECK(fs::file_size(outputPath) > 0);
