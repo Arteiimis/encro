@@ -28,7 +28,7 @@ using enum terminal::MessageKind;
 using videobatch::detail::EncodingExecutionContext;
 using videobatch::detail::EncodingProgressState;
 using videoworkflow::lookupPlannedOutputFile;
-using videoworkflow::withActionJobState;
+using videoworkflow::maybeJobState;
 using videoworkflow::withJobState;
 
 namespace {
@@ -42,13 +42,9 @@ auto markRunningNoProgress(
   appctx::AppContext& ctx,
   std::optional<std::string> const& actionId
 ) -> void {
-  withActionJobState(
-    ctx,
-    actionId,
-    [](jobstate::Store& store, std::string const& currentActionId) {
-      store.markRunning(currentActionId);
-    }
-  );
+  if (auto* store = maybeJobState(ctx); actionId.has_value()) {
+    store->markRunning(actionId.value());
+  }
 }
 
 auto finalizeEncodeResult(
@@ -57,17 +53,13 @@ auto finalizeEncodeResult(
   bool success,
   std::string const& failureReason
 ) -> void {
-  withActionJobState(
-    ctx,
-    actionId,
-    [&](jobstate::Store& store, std::string const& currentActionId) {
-      if (success) {
-        store.markSucceeded(currentActionId);
-      } else {
-        store.markFailed(currentActionId, failureReason);
-      }
+  if (auto* store = maybeJobState(ctx); actionId.has_value()) {
+    if (success) {
+      store->markSucceeded(actionId.value());
+    } else {
+      store->markFailed(actionId.value(), failureReason);
     }
-  );
+  }
 }
 
 auto makeSlotLabel(fs::path const& vidPath) -> std::string {
@@ -85,13 +77,9 @@ auto reportEncodingStatus(
   auto lock = std::scoped_lock{vidState.mtx};
   vidState.lastStatus = status;
   actionId = vidState.actionId;
-  withActionJobState(
-    executionCtx.app,
-    actionId,
-    [&](jobstate::Store& store, std::string const& currentActionId) {
-      store.markProgress(currentActionId, std::nullopt, std::nullopt, status);
-    }
-  );
+  if (auto* store = maybeJobState(executionCtx.app); actionId.has_value()) {
+    store->markProgress(actionId.value(), std::nullopt, std::nullopt, status);
+  }
 }
 
 auto createEncodingState(
@@ -130,6 +118,51 @@ auto recordTaskException(
   executionCtx.clearActive(slot);
 }
 
+struct EncodingOutcome {
+  std::optional<fs::path> outputFile;
+  std::optional<std::string> actionId;
+  std::optional<std::string> lastStatus;
+  std::string failureReason = "encoding failed";
+  int64_t elapsedMs = 0;
+};
+
+auto collectOutcome(appctx::EncodingState& vidState) -> EncodingOutcome {
+  auto outcome = EncodingOutcome{};
+  auto lock = std::scoped_lock{vidState.mtx};
+  outcome.outputFile = vidState.outputFile;
+  outcome.actionId = vidState.actionId;
+  outcome.lastStatus = vidState.lastStatus;
+  if (vidState.lastError.has_value()) {
+    outcome.failureReason = vidState.lastError.value();
+  } else if (vidState.lastStatus.has_value()) {
+    outcome.failureReason = vidState.lastStatus.value();
+  }
+  if (vidState.startTime.has_value() && vidState.endTime.has_value()) {
+    using namespace std::chrono;
+    auto const elapsed = vidState.endTime.value() - vidState.startTime.value();
+    outcome.elapsedMs = duration_cast<milliseconds>(elapsed).count();
+  }
+  return outcome;
+}
+
+void notifyJobState(
+  appctx::AppContext& ctx,
+  bool result,
+  EncodingOutcome const& outcome
+) {
+  if (auto* store = maybeJobState(ctx); outcome.actionId.has_value()) {
+    if (result) {
+      if (outcome.lastStatus.has_value()) {
+        store->markSucceeded(outcome.actionId.value(), outcome.lastStatus.value());
+      } else {
+        store->markSucceeded(outcome.actionId.value());
+      }
+    } else {
+      store->markFailed(outcome.actionId.value(), outcome.failureReason);
+    }
+  }
+}
+
 auto runEncodingTask(
   EncodingExecutionContext& executionCtx,
   std::size_t taskIndex,
@@ -155,13 +188,9 @@ auto runEncodingTask(
   auto const fileLabel = makeSlotLabel(vidPath);
   {
     auto lock = std::scoped_lock{vidState->mtx};
-    withActionJobState(
-      executionCtx.app,
-      vidState->actionId,
-      [](jobstate::Store& store, std::string const& currentActionId) {
-        store.markRunning(currentActionId);
-      }
-    );
+    if (auto* store = maybeJobState(executionCtx.app); vidState->actionId.has_value()) {
+      store->markRunning(vidState->actionId.value());
+    }
   }
   executionCtx.barEncodingStart(*vidState, fileLabel);
   auto const result =
@@ -171,43 +200,8 @@ auto runEncodingTask(
 
   executionCtx.finalizeState(vidState, result);
 
-  auto outputFile = std::optional<fs::path>{};
-  auto actionId = std::optional<std::string>{};
-  auto lastStatus = std::optional<std::string>{};
-  auto failureReason = std::string{"encoding failed"};
-  auto elapsedMs = int64_t{0};
-  {
-    auto lock = std::scoped_lock{vidState->mtx};
-    outputFile = vidState->outputFile;
-    actionId = vidState->actionId;
-    lastStatus = vidState->lastStatus;
-    if (vidState->lastError.has_value()) {
-      failureReason = vidState->lastError.value();
-    } else if (vidState->lastStatus.has_value()) {
-      failureReason = vidState->lastStatus.value();
-    }
-    if (vidState->startTime.has_value() && vidState->endTime.has_value()) {
-      using namespace std::chrono;
-      auto const elapsed = vidState->endTime.value() - vidState->startTime.value();
-      elapsedMs = duration_cast<milliseconds>(elapsed).count();
-    }
-  }
-
-  withActionJobState(
-    executionCtx.app,
-    actionId,
-    [&](jobstate::Store& store, std::string const& currentActionId) {
-      if (result) {
-        if (lastStatus.has_value()) {
-          store.markSucceeded(currentActionId, lastStatus.value());
-        } else {
-          store.markSucceeded(currentActionId);
-        }
-      } else {
-        store.markFailed(currentActionId, failureReason);
-      }
-    }
-  );
+  auto const outcome = collectOutcome(*vidState);
+  notifyJobState(executionCtx.app, result, outcome);
 
   if (result) {
     LOG_INFO(
@@ -216,8 +210,8 @@ auto runEncodingTask(
       taskIndex + 1,
       executionCtx.pendingTotal(),
       vidPath.string(),
-      outputFile.has_value() ? outputFile->string() : "<unknown>",
-      elapsedMs
+      outcome.outputFile.has_value() ? outcome.outputFile->string() : "<unknown>",
+      outcome.elapsedMs
     );
   } else {
     LOG_WARN(
@@ -226,7 +220,7 @@ auto runEncodingTask(
       taskIndex + 1,
       executionCtx.pendingTotal(),
       vidPath.string(),
-      elapsedMs
+      outcome.elapsedMs
     );
   }
 
@@ -236,7 +230,7 @@ auto runEncodingTask(
   executionCtx.markFinished();
   executionCtx.updateOverall();
 
-  if (!result) { return eh::makeError("{}", failureReason); }
+  if (!result) { return eh::makeError("{}", outcome.failureReason); }
   return {};
 }
 

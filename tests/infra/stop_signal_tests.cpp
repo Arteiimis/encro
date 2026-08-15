@@ -95,7 +95,10 @@ TEST_CASE(
   CHECK_FALSE(stopsignal::waitForStop(std::chrono::milliseconds{0}));
 }
 
-TEST_CASE("waitForStop wakes before its timeout when stop is requested", "[stop-signal]") {
+TEST_CASE(
+  "waitForStop wakes before its timeout when stop is requested",
+  "[stop-signal]"
+) {
   auto resetGuard = testutils::ScopedStopSignalReset{};
 
   auto requester = std::jthread{[] {
