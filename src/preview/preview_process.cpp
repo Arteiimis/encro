@@ -14,6 +14,7 @@
 #include "logging/logging.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -22,6 +23,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -344,12 +346,19 @@ auto runSingleInput(
   struct ProbeRootGuard {
     fs::path root;
     ~ProbeRootGuard() {
-      auto ec = std::error_code{};
-      fs::remove_all(root, ec);
+      // Remove the per-run dir; retry briefly because a just-exited child
+      // (scoring/encode) may still hold a transient handle on Windows.
+      for (auto attempt = 0; attempt < 3; ++attempt) {
+        auto ec = std::error_code{};
+        fs::remove_all(root, ec);
+        if (!ec) { return; }
+        std::this_thread::sleep_for(std::chrono::milliseconds{200});
+      }
     }
   } rootGuard{probeRoot};
 
   auto progressCtx = progress::ProgressContext{};
+  auto cursorGuard = progress::CursorGuard{};
   auto const fileName = options.original.filename().string();
   // One bar spans the whole pipeline: probe 0-40%, windows 40-85%, render 85-100%.
   auto const bar =
@@ -359,10 +368,7 @@ auto runSingleInput(
     ++step;
     progressCtx.setProgress(
       bar,
-      100.0f
-        * static_cast<float>(step)
-        / static_cast<float>(encodeprobe::kMaxProbeSteps)
-        * 40.0f
+      40.0f * static_cast<float>(step) / static_cast<float>(encodeprobe::kMaxProbeSteps)
     );
     progressCtx
       .setPostfixText(bar, std::format("Probing: {} · CQ {} {}", fileName, cq, phase));
@@ -370,10 +376,9 @@ auto runSingleInput(
   auto const onPoint = [&](std::size_t done, int cq) {
     progressCtx.setProgress(
       bar,
-      100.0f
+      40.0f
         * static_cast<float>(done * encodeprobe::kStepsPerProbePoint)
         / static_cast<float>(encodeprobe::kMaxProbeSteps)
-        * 40.0f
     );
     progressCtx
       .setPostfixText(bar, std::format("Probing: {} · CQ {} scored", fileName, cq));
