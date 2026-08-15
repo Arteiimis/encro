@@ -199,10 +199,10 @@ auto runPreview(prelude::StartupContext const& startup) -> int {
 
   if (!ensureToolchainReady(ctx, startup)) { return 1; }
 
-  auto options = preview::PreviewOptions{
-    .original = ctx.config.inputPath,
-    .encoded = fs::path{startup.cmd.previewEncoded.value()},
-  };
+  auto options = preview::PreviewOptions{.original = ctx.config.inputPath};
+  if (startup.cmd.previewEncoded.has_value()) {
+    options.encoded = fs::path{startup.cmd.previewEncoded.value()};
+  }
   if (startup.cmd.previewOutput.has_value()) {
     options.output = fs::path{startup.cmd.previewOutput.value()};
   }

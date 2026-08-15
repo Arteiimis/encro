@@ -253,4 +253,92 @@ TEST_CASE("preview manual mode with --start beyond the duration fails", "[previe
   CHECK(res.error().find("--start") != std::string::npos);
 }
 
+TEST_CASE(
+  "preview single-input mode probes and renders against window segments",
+  "[preview]"
+) {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  testutils::touchFile(original);
+
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillPreviewContext(ctx, temp.path, envs);
+
+  auto const res =
+    preview::run(ctx, preview::PreviewOptions{.original = original, .noOpen = true});
+  REQUIRE(res.has_value());
+  CHECK(res.value() == 0);
+
+  auto const outputPath = temp.path / "sample.preview.mp4";
+  CHECK(fs::exists(outputPath));
+  CHECK(fs::file_size(outputPath) > 0);
+
+  // Probe and window segments live in a temp dir that is cleaned up.
+  auto leftover = false;
+  auto ec = std::error_code{};
+  for (
+    auto const& entry: fs::directory_iterator(
+      fs::temp_directory_path(),
+      fs::directory_options::skip_permission_denied,
+      ec
+    )
+  ) {
+    if (entry.path().filename().string().starts_with("encro_preview_probe_")) {
+      leftover = true;
+    }
+  }
+  CHECK_FALSE(leftover);
+}
+
+TEST_CASE("preview single-input manual mode encodes one window", "[preview]") {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  testutils::touchFile(original);
+
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillPreviewContext(ctx, temp.path, envs);
+
+  auto const res = preview::run(
+    ctx,
+    preview::PreviewOptions{
+      .original = original,
+      .noOpen = true,
+      .startSeconds = 10.0,
+      .durationSeconds = 20.0,
+    }
+  );
+  REQUIRE(res.has_value());
+  auto const outputPath = temp.path / "sample.preview.mp4";
+  CHECK(fs::exists(outputPath));
+}
+
+TEST_CASE("preview single-input falls back to default CQ for short videos", "[preview]") {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  testutils::touchFile(original);
+
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillPreviewContext(ctx, temp.path, envs);
+  // Override duration below the 40s probe budget: probing is skipped and the
+  // preview degrades to the default CQ with an informational note.
+  envs.emplace_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFPROBE_DURATION_SECS", "20.0")
+  );
+
+  std::string out;
+  {
+    auto capture = testutils::StdoutCapture{temp.path / "stdout.txt"};
+    auto const res =
+      preview::run(ctx, preview::PreviewOptions{.original = original, .noOpen = true});
+    REQUIRE(res.has_value());
+  }
+  out = testutils::readTextFile(temp.path / "stdout.txt");
+  CHECK(out.find("Probing skipped") != std::string::npos);
+  auto const outputPath = temp.path / "sample.preview.mp4";
+  CHECK(fs::exists(outputPath));
+}
+
 #endif

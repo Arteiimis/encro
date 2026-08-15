@@ -2089,6 +2089,59 @@ TEST_CASE("encro preview rejects a missing input", "[e2e][preview][fake-toolchai
   CHECK(result.stdoutText.find("does not exist") != std::string::npos);
 }
 
+TEST_CASE(
+  "encro preview single-input mode probes, encodes windows, and renders",
+  "[e2e][preview][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  e2e::writeTextFile(original, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro(
+    {
+      "--ffmpeg-path",
+      toolchain.root.string(),
+      "preview",
+      original.string(),
+      "--no-open",
+    },
+    std::nullopt,
+    {
+      {"ENCRO_FAKE_FFPROBE_DURATION_SECS", "100.0"},
+      {"ENCRO_FAKE_FFMPEG_WRITE_VMAF", "1"},
+      {"ENCRO_FAKE_FFMPEG_VMAF_SCORES", "96.0"},
+    }
+  );
+
+  REQUIRE_SUCCESS(result);
+  // Probe phase ran: the plan line mentions a probed CQ, not the default.
+  CHECK(result.stdoutText.find("default; not probed") == std::string::npos);
+  auto const outputPath = temp.path / "sample.preview.mp4";
+  CHECK(fs::exists(outputPath));
+  CHECK(fs::file_size(outputPath) > 0);
+}
+
+TEST_CASE(
+  "encro preview with no positionals fails clearly",
+  "[e2e][preview][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro({
+    "--ffmpeg-path",
+    toolchain.root.string(),
+    "preview",
+    "--no-open",
+  });
+
+  REQUIRE(result.exitCode == 1);
+  CHECK(
+    result.stdoutText.find("preview requires at least one positional argument")
+    != std::string::npos
+  );
+}
+
 // ── Real-ffmpeg smoke tests ───────────────────────────────────────────────
 
 TEST_CASE(
@@ -2186,6 +2239,47 @@ TEST_CASE(
   REQUIRE(fs::exists(outputPath));
   CHECK(fs::file_size(outputPath) > 0);
   // 5 windows x 10s on a 60s video -> ~50s preview.
+  auto const probed = probeJson(outputPath, {"-show_entries", "format=duration"});
+  auto const duration = probed.at("format").as_object().at("duration").as_string();
+  auto const seconds = std::stod(std::string{duration.c_str()});
+  CHECK(seconds == Catch::Approx(50.0).margin(1.0));
+}
+
+TEST_CASE(
+  "encro real ffmpeg single-input preview probes and renders a playable file",
+  "[e2e][smoke][real-ffmpeg][preview]"
+) {
+  requireRealToolchainOrSkip();
+
+  TempDir temp;
+  auto const original = temp.path / "single60s.mp4";
+  auto makeArgs = std::vector<std::string>{
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "testsrc=duration=60:size=320x240:rate=10",
+    "-an",
+    "-c:v",
+    "mpeg4",
+    "-pix_fmt",
+    "yuv420p",
+  };
+  makeArgs.push_back(original.string());
+  REQUIRE_SUCCESS(e2e::runProcess(systemToolPath("ffmpeg"), makeArgs));
+
+  auto const result = e2e::runEncro({
+    "--video-codec",
+    "libx264",
+    "preview",
+    original.string(),
+    "--no-open",
+  });
+  REQUIRE_SUCCESS(result);
+
+  auto const outputPath = temp.path / "single60s.preview.mp4";
+  REQUIRE(fs::exists(outputPath));
+  CHECK(fs::file_size(outputPath) > 0);
   auto const probed = probeJson(outputPath, {"-show_entries", "format=duration"});
   auto const duration = probed.at("format").as_object().at("duration").as_string();
   auto const seconds = std::stod(std::string{duration.c_str()});

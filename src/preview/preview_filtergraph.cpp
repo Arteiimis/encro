@@ -135,8 +135,15 @@ auto buildPreviewFiltergraph(FiltergraphSpec const& spec) -> std::string {
     graph += joinWithCommas(originalParts);
     graph += std::format("[o{}];", index);
 
-    auto const encodedParts =
-      videoChainParts(spec, window, startUs, endUs, 1, "ENCODED", std::nullopt);
+    auto const encodedParts = videoChainParts(
+      spec,
+      window,
+      spec.encodedWindowsAreSegments ? 0 : startUs,
+      spec.encodedWindowsAreSegments ? window.durationUs : endUs,
+      spec.encodedWindowsAreSegments ? static_cast<int>(1 + index) : 1,
+      "ENCODED",
+      std::nullopt
+    );
     graph += joinWithCommas(encodedParts);
     graph += std::format("[e{}];", index);
 
@@ -171,13 +178,16 @@ auto buildPreviewFiltergraph(FiltergraphSpec const& spec) -> std::string {
 auto buildPreviewCommand(
   fs::path const& ffmpegPath,
   fs::path const& originalPath,
-  fs::path const& encodedPath,
+  std::vector<fs::path> const& encodedPaths,
   FiltergraphSpec const& spec,
   fs::path const& outputPath
 ) -> std::string {
   auto cmd = quoteToolPath(ffmpegPath);
   cmd += " -hide_banner -nostats -loglevel error -y";
-  cmd += std::format(" -i \"{}\" -i \"{}\"", originalPath.string(), encodedPath.string());
+  cmd += std::format(" -i \"{}\"", originalPath.string());
+  for (auto const& encodedPath: encodedPaths) {
+    cmd += std::format(" -i \"{}\"", encodedPath.string());
+  }
   cmd += std::format(" -filter_complex \"{}\"", buildPreviewFiltergraph(spec));
   cmd += " -map \"[vout]\"";
   if (spec.original.hasAudio && !spec.windows.empty()) {

@@ -326,9 +326,12 @@ auto buildPreviewHelpText() -> std::string {
   result +=
     "encro preview: compare an original video with its encoded output side by side\n\n";
   result += "Usage:\n";
-  result += "  encro preview <original> <encoded> [options]\n\n";
+  result += "  encro preview <original> [<encoded>] [options]\n\n";
   result += "Positional:\n";
-  result += "  original, encoded   video files to compare (original vs encoded)\n\n";
+  result += "  original            source video\n";
+  result += "  encoded             optional encoded output to compare against; when\n";
+  result += "                      omitted, the source is probed and compared against\n";
+  result += "                      windows encoded with the chosen CQ\n\n";
   result += "Options:\n";
   result += "  --output <path>     output video path (default: "
             "<original-dir>/<original-stem>.preview.mp4)\n";
@@ -395,7 +398,7 @@ auto makeHelpFormatter(
         "encro [<input>... | -i <input> | -I <file>...] [-o <output>] [-f mp4|webp] [-r] [-j <n>] [-p] [--resume|--restart]"sv,
         "encro -t picture <input> [-c [-q <n>]] [-s] [-p]"sv,
         "encro -z <input> [-o <output>]"sv,
-        "encro preview <original> <encoded> [--start <s>] [--duration <s>] [--output <path>] [--no-open]"sv,
+        "encro preview <original> [<encoded>] [--start <s>] [--duration <s>] [--output <path>] [--no-open]"sv,
         "encro -h | -hh | --version"sv,
       };
       auto const fullTier = helpOpt->count() >= 2;
@@ -1045,11 +1048,14 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
       if (previewHelp->count() > 0) {
         result.help = true;
         result.helpText = buildPreviewHelpText();
-      } else if (previewOriginal->count() == 0 || previewEncoded->count() == 0) {
-        result.error = "preview requires two positional arguments: <original> <encoded>";
+      } else if (previewOriginal->count() == 0) {
+        result.error =
+          "preview requires at least one positional argument: <original> [<encoded>]";
       } else {
         result.previewOriginal = previewOriginal->as<std::string>();
-        result.previewEncoded = previewEncoded->as<std::string>();
+        if (previewEncoded->count() > 0) {
+          result.previewEncoded = previewEncoded->as<std::string>();
+        }
         if (previewOutput->count() > 0) {
           result.previewOutput = previewOutput->as<std::string>();
         }

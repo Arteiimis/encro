@@ -1,8 +1,10 @@
 #include "preview/preview_process.h"
 
 #include "infra/open_file.h"
+#include "infra/stop_signal.h"
 #include "infra/terminal.h"
 #include "utils/utils.h"
+#include "video/encode_probe.h"
 #include "video/video_info.h"
 #include "video/video_quality.h"
 
@@ -272,17 +274,179 @@ auto pickPreviewWindows(
   return windows;
 }
 
-auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<int> {
-  for (auto const& path: {options.original, options.encoded}) {
-    if (!fs::is_regular_file(path)) {
-      return eh::makeError("Preview input does not exist: {}", path.string());
+// Single-input mode: probe the source for the chosen CQ, encode one segment
+// per window with the production settings at that CQ, score each window and
+// render the comparison against the segments.
+auto renderPreview(
+  appctx::AppContext& ctx,
+  PreviewOptions const& options,
+  fs::path const& originalPath,
+  std::vector<fs::path> const& encodedPaths,
+  FiltergraphSpec const& spec,
+  fs::path const& outputPath
+) -> eh::Result<int> {
+  fs::create_directories(outputPath.parent_path());
+
+  auto const cmd = buildPreviewCommand(
+    ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"}),
+    originalPath,
+    encodedPaths,
+    spec,
+    outputPath
+  );
+
+  ExecResult result{};
+  try {
+    result = exec2(cmd);
+  } catch (std::exception const& ex) {
+    return eh::makeError("Preview generation could not be launched: {}", ex.what());
+  }
+  if (result.exitCode != 0 || !fs::exists(outputPath)) {
+    return eh::makeError("Preview generation failed (exit code {}).", result.exitCode);
+  }
+
+  terminal::println(Success, "Preview written to: {}", terminal::path(outputPath));
+  if (!options.noOpen) {
+    if (openfile::openWithDefaultApp(outputPath)) {
+      terminal::println(Info, "Opened in the default player.");
+    } else {
+      terminal::println(Warning, "Could not open the preview in the default player.");
     }
+  }
+  return 0;
+}
+
+auto runSingleInput(
+  appctx::AppContext& ctx,
+  PreviewOptions const& options,
+  VideoProbe const& original,
+  std::vector<Window> windows,
+  fs::path const& outputPath
+) -> eh::Result<int> {
+  auto const probeRoot =
+    fs::temp_directory_path() / std::format("encro_preview_probe_{}", getUUID());
+  {
+    auto ec = std::error_code{};
+    fs::create_directories(probeRoot, ec);
+    if (ec) {
+      return eh::makeError(
+        "Failed to create preview temp directory: {} ({})",
+        probeRoot.string(),
+        ec.message()
+      );
+    }
+  }
+  struct ProbeRootGuard {
+    fs::path root;
+    ~ProbeRootGuard() {
+      auto ec = std::error_code{};
+      fs::remove_all(root, ec);
+    }
+  } rootGuard{probeRoot};
+
+  auto const plan = encodeprobe::probeSingleFile(ctx, options.original, probeRoot);
+  if (!plan.probed) {
+    terminal::println(
+      Warning,
+      "Probing skipped (short video or scoring failure); previewing at default CQ {}.",
+      encodeprobe::kDefaultCq
+    );
+  }
+
+  auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
+  auto const info =
+    ctx.runtime.videoInfoCache.find(options.original).value_or(boost::json::value{});
+  auto const settings = resolveInputEncodeSettings(
+    ctx.toolchain,
+    ctx.runtime,
+    options.original,
+    ctx.config.nvencPreset
+  );
+
+  auto segments = std::vector<fs::path>{};
+  segments.reserve(windows.size());
+  auto worstIndex = std::optional<std::size_t>{};
+  auto worstScore = std::optional<double>{};
+  for (auto index = std::size_t{}; index < windows.size(); ++index) {
+    if (stopsignal::isStopRequested()) {
+      return eh::makeError("Preview canceled by user.");
+    }
+    auto& window = windows[index];
+    auto const segFile = probeRoot / std::format("win{}.ts", index);
+    auto const ok = encodeprobe::runProbeEncode(
+      ctx,
+      options.original,
+      settings,
+      segFile,
+      plan.chosenCq,
+      encodeprobe::ProbeWindow{window.startUs, window.durationUs}
+    );
+    if (!ok) {
+      return eh::makeError(
+        "Preview window encode failed at {}us of {}",
+        window.startUs,
+        options.original.string()
+      );
+    }
+    segments.push_back(segFile);
+
+    auto const scores = videoquality::measureSegmentQuality(
+      ffmpeg,
+      options.original,
+      segFile,
+      window.startUs,
+      window.durationUs,
+      info,
+      true  // segments carry segment-local PTS
+    );
+    if (scores.has_value()) {
+      window.metric = scores->metric;
+      window.score = videoquality::percentile(scores->frameScores, 5.0);
+    } else {
+      LOG_WARN(
+        "Preview scoring failed for window {}us: {}",
+        window.startUs,
+        scores.error()
+      );
+    }
+    if (
+      window.score.has_value()
+      && (!worstScore.has_value() || window.score.value() < worstScore.value())
+    ) {
+      worstScore = window.score;
+      worstIndex = index;
+    }
+  }
+  printWindows(windows, worstIndex);
+
+  auto const spec = FiltergraphSpec{
+    .original = original,
+    .encoded = original,
+    .windows = std::move(windows),
+    .encodedWindowsAreSegments = true,
+  };
+  return renderPreview(ctx, options, options.original, segments, spec, outputPath);
+}
+
+// Runs the comparison render: build the command, execute, report and open.
+auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<int> {
+  if (!fs::is_regular_file(options.original)) {
+    return eh::makeError("Preview input does not exist: {}", options.original.string());
+  }
+  if (options.encoded.has_value() && !fs::is_regular_file(options.encoded.value())) {
+    return eh::makeError(
+      "Preview input does not exist: {}",
+      options.encoded.value().string()
+    );
   }
 
   auto const outputPath = options.output.has_value() ? options.output.value()
                                                      : options.original.parent_path()
       / std::format("{}.preview.mp4", options.original.stem().string());
-  if (outputPath == options.original || outputPath == options.encoded) {
+  if (
+    outputPath == options.original
+    || (options.encoded.has_value() && outputPath == options.encoded.value())
+  ) {
     return eh::makeError(
       "Preview output would overwrite an input file: {}",
       outputPath.string()
@@ -291,13 +455,8 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
 
   auto const originalRes = probeVideo(ctx.toolchain, ctx.runtime, options.original);
   if (!originalRes) { return eh::makeError("{}", originalRes.error()); }
-  auto const encodedRes = probeVideo(ctx.toolchain, ctx.runtime, options.encoded);
-  if (!encodedRes) { return eh::makeError("{}", encodedRes.error()); }
   auto const& original = originalRes.value();
-  auto const& encoded = encodedRes.value();
-
-  auto const shorterDurationUs = std::min(original.durationUs, encoded.durationUs);
-  if (shorterDurationUs == 0) {
+  if (original.durationUs == 0) {
     return eh::makeError(
       "Cannot preview a video with zero duration: {}",
       options.original.string()
@@ -312,9 +471,32 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
     };
   }
 
+  auto const shorterDurationUs = options.encoded.has_value()
+    ? std::min(
+        original.durationUs,
+        probeVideo(ctx.toolchain, ctx.runtime, options.encoded.value())
+          .value_or(VideoProbe{})
+          .durationUs
+      )
+    : original.durationUs;
+
   auto windowsRes = pickPreviewWindows(shorterDurationUs, manualRange);
   if (!windowsRes) { return eh::makeError("{}", windowsRes.error()); }
   auto windows = std::move(windowsRes.value());
+
+  if (!options.encoded.has_value()) {
+    return runSingleInput(ctx, options, original, std::move(windows), outputPath);
+  }
+
+  auto const encodedRes = probeVideo(ctx.toolchain, ctx.runtime, options.encoded.value());
+  if (!encodedRes) { return eh::makeError("{}", encodedRes.error()); }
+  auto const& encoded = encodedRes.value();
+  if (std::min(original.durationUs, encoded.durationUs) == 0) {
+    return eh::makeError(
+      "Cannot preview a video with zero duration: {}",
+      options.original.string()
+    );
+  }
 
   auto worstIndex = std::optional<std::size_t>{};
   if (!manualRange.has_value()) {
@@ -327,7 +509,7 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
       auto const scores = videoquality::measureSegmentQuality(
         ffmpeg,
         options.original,
-        options.encoded,
+        options.encoded.value(),
         window.startUs,
         window.durationUs,
         info
@@ -353,41 +535,19 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
     printWindows(windows, worstIndex);
   }
 
-  // outputPath was validated against the inputs at the top of run().
-  fs::create_directories(outputPath.parent_path());
-
   auto const spec = FiltergraphSpec{
     .original = original,
     .encoded = encoded,
     .windows = std::move(windows),
   };
-  auto const cmd = buildPreviewCommand(
-    ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"}),
+  return renderPreview(
+    ctx,
+    options,
     options.original,
-    options.encoded,
+    {options.encoded.value()},
     spec,
     outputPath
   );
-
-  ExecResult result{};
-  try {
-    result = exec2(cmd);
-  } catch (std::exception const& ex) {
-    return eh::makeError("Preview generation could not be launched: {}", ex.what());
-  }
-  if (result.exitCode != 0 || !fs::exists(outputPath)) {
-    return eh::makeError("Preview generation failed (exit code {}).", result.exitCode);
-  }
-
-  terminal::println(Success, "Preview written to: {}", terminal::path(outputPath));
-  if (!options.noOpen) {
-    if (openfile::openWithDefaultApp(outputPath)) {
-      terminal::println(Info, "Opened in the default player.");
-    } else {
-      terminal::println(Warning, "Could not open the preview in the default player.");
-    }
-  }
-  return 0;
 }
 
 }  // namespace preview
