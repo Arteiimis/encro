@@ -10,6 +10,16 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// Mirrors the platform font choice in preview_filtergraph.cpp; the Windows
+// path keeps the \: escaping that survives drawtext's double tokenization.
+auto fontFile() -> std::string {
+#if defined(_WIN32)
+  return "C\\:/Windows/Fonts/arial.ttf";
+#else
+  return "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+#endif
+}
+
 auto makeProbe(int width, int height, double fps = 30.0, bool hasAudio = false)
   -> preview::VideoProbe {
   auto probe = preview::VideoProbe{};
@@ -46,11 +56,15 @@ TEST_CASE("filtergraph trims fps-normalizes scales and labels both panes", "[pre
       "[0:v]trim=start=0.000000:end=10.000000,setpts=PTS-STARTPTS,"
       "fps=30.000000,scale=1280:720:force_original_aspect_ratio=decrease,"
       "pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p,"
-      "drawtext=text='ORIGINAL':fontfile='C\\:/Windows/Fonts/arial.ttf':"
-      "fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5:boxborderw=4,"
-      "drawtext=text='00\\:00-00\\:10, VMAF "
-      "95.2':fontfile='C\\:/Windows/Fonts/arial.ttf':"
-      "fontsize=18:fontcolor=white:x=10:y=38:box=1:boxcolor=black@0.5:boxborderw=4[o0]"
+      "drawtext=text='ORIGINAL':fontfile='"
+      + fontFile()
+      + "':"
+        "fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5:boxborderw=4,"
+        "drawtext=text='00\\:00-00\\:10, VMAF "
+        "95.2':fontfile='"
+      + fontFile()
+      + "':"
+        "fontsize=18:fontcolor=white:x=10:y=38:box=1:boxcolor=black@0.5:boxborderw=4[o0]"
     )
     != std::string::npos
   );
@@ -61,8 +75,10 @@ TEST_CASE("filtergraph trims fps-normalizes scales and labels both panes", "[pre
       "[1:v]trim=start=50.000000:end=60.000000,setpts=PTS-STARTPTS,"
       "fps=30.000000,scale=1280:720:force_original_aspect_ratio=decrease,"
       "pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p,"
-      "drawtext=text='ENCODED':fontfile='C\\:/Windows/Fonts/arial.ttf':"
-      "fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5:boxborderw=4[e1]"
+      "drawtext=text='ENCODED':fontfile='"
+      + fontFile()
+      + "':"
+        "fontsize=24:fontcolor=white:x=10:y=10:box=1:boxcolor=black@0.5:boxborderw=4[e1]"
     )
     != std::string::npos
   );
