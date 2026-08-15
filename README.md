@@ -73,7 +73,7 @@ Short videos (< 40s) are not probed and use the default CQ.
 ### Comparing original vs encoded (`preview`)
 
 ```sh
-xmake run encro preview <original> <encoded> [--start S --duration D] [--output PATH] [--no-open]
+xmake run encro preview <original> [<encoded>] [--start S --duration D] [--output PATH] [--no-open]
 ```
 
 `preview` samples five 10-second windows (or one `--start`/`--duration`
@@ -83,6 +83,12 @@ defaults to `<original-stem>.preview.mp4` next to the original and opens in
 your default player unless `--no-open` is passed. Videos shorter than 50
 seconds are compared in full. WebP inputs are rejected: preview compares
 videos only.
+
+With one input, `preview` runs the probe phase on the source, encodes the
+windows with the production settings at the chosen CQ, and compares against
+those — so you can see what the probe-selected configuration will look like
+before committing to a full encode. With two inputs, it compares an existing
+original with its encoded output.
 
 ## Building
 

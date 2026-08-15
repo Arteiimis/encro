@@ -553,6 +553,15 @@ TEST_CASE(
   CHECK_FALSE(result.error.has_value());
 }
 
+TEST_CASE("preview accepts a single input (single-input mode)", "[cmd][cli-positional]") {
+  auto const result = parseArgs({"encro", "preview", "a.mp4"});
+  CHECK(result.preview);
+  REQUIRE(result.previewOriginal.has_value());
+  CHECK(result.previewOriginal.value() == "a.mp4");
+  CHECK_FALSE(result.previewEncoded.has_value());
+  CHECK_FALSE(result.error.has_value());
+}
+
 TEST_CASE("preview parses output start duration and no-open", "[cmd][cli-positional]") {
   auto const result = parseArgs({
     "encro",
@@ -583,7 +592,7 @@ TEST_CASE("preview without positionals reports a clear error", "[cmd][cli-positi
   CHECK(result.preview);
   REQUIRE(result.error.has_value());
   CHECK(
-    result.error.value().find("preview requires two positional arguments")
+    result.error.value().find("preview requires at least one positional argument")
     != std::string::npos
   );
 }
@@ -593,7 +602,7 @@ TEST_CASE("preview -h renders preview help text", "[cmd][cli-positional]") {
   CHECK(result.preview);
   CHECK(result.help);
   CHECK_FALSE(result.error.has_value());
-  CHECK(result.helpText.find("encro preview <original> <encoded>") != std::string::npos);
+  CHECK(result.helpText.find("encro preview <original> [<encoded>]") != std::string::npos);
   CHECK(result.helpText.find("--no-open") != std::string::npos);
 }
 

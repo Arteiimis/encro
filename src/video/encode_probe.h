@@ -94,6 +94,19 @@ auto buildProbeSegmentConfig(
   fs::path const& segFile
 ) -> EncodeConfig;
 
+// Encodes one window segment with the production settings at cq (same codec,
+// preset-by-resolution, maxrate; only CQ and output differ). Returns false
+// when the encode fails or the segment is missing. Shared by the probe phase
+// and single-input preview.
+auto runProbeEncode(
+  appctx::AppContext& ctx,
+  fs::path const& inputPath,
+  EncodeInputSettings const& settings,
+  fs::path const& segFile,
+  int cq,
+  ProbeWindow const& window
+) -> bool;
+
 struct ProbePlan {
   fs::path inputPath;
   int chosenCq = kDefaultCq;
@@ -115,6 +128,16 @@ struct ProbePhaseResult {
 // Shows one progress bar per file (plus an overall bar for many files).
 auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   -> eh::Result<ProbePhaseResult>;
+
+// Probes one file (skips and returns the default-CQ plan for short videos or
+// measurement failures); onPoint/onStep feed progress bars.
+auto probeSingleFile(
+  appctx::AppContext& ctx,
+  fs::path const& inputPath,
+  fs::path const& probeDir,
+  ProbePointCallback onPoint = {},
+  ProbeStepCallback onStep = {}
+) -> ProbePlan;
 
 auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void;
 
