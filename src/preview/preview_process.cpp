@@ -307,6 +307,10 @@ auto renderPreview(
     return eh::makeError("Preview generation failed (exit code {}).", result.exitCode);
   }
 
+  return 0;
+}
+
+auto reportAndOpen(PreviewOptions const& options, fs::path const& outputPath) -> void {
   terminal::println(Success, "Preview written to: {}", terminal::path(outputPath));
   if (!options.noOpen) {
     if (openfile::openWithDefaultApp(outputPath)) {
@@ -315,7 +319,6 @@ auto renderPreview(
       terminal::println(Warning, "Could not open the preview in the default player.");
     }
   }
-  return 0;
 }
 
 auto runSingleInput(
@@ -348,43 +351,43 @@ auto runSingleInput(
 
   auto progressCtx = progress::ProgressContext{};
   auto const fileName = options.original.filename().string();
-  auto const probeBar =
-    progressCtx.addBar(std::format("Probing: {}", fileName), progress::Tone::Active);
+  // One bar spans the whole pipeline: probe 0-40%, windows 40-85%, render 85-100%.
+  auto const bar =
+    progressCtx.addBar(std::format("Previewing: {}", fileName), progress::Tone::Active);
   auto step = std::size_t{0};
   auto const onStep = [&](int cq, std::string_view phase) {
     ++step;
     progressCtx.setProgress(
-      probeBar,
-      100.0f * static_cast<float>(step) / static_cast<float>(encodeprobe::kMaxProbeSteps)
+      bar,
+      100.0f
+        * static_cast<float>(step)
+        / static_cast<float>(encodeprobe::kMaxProbeSteps)
+        * 40.0f
     );
-    progressCtx.setPostfixText(
-      probeBar,
-      std::format("Probing: {} · CQ {} {}", fileName, cq, phase)
-    );
+    progressCtx
+      .setPostfixText(bar, std::format("Probing: {} · CQ {} {}", fileName, cq, phase));
   };
   auto const onPoint = [&](std::size_t done, int cq) {
     progressCtx.setProgress(
-      probeBar,
+      bar,
       100.0f
         * static_cast<float>(done * encodeprobe::kStepsPerProbePoint)
         / static_cast<float>(encodeprobe::kMaxProbeSteps)
+        * 40.0f
     );
     progressCtx
-      .setPostfixText(probeBar, std::format("Probing: {} · CQ {} scored", fileName, cq));
+      .setPostfixText(bar, std::format("Probing: {} · CQ {} scored", fileName, cq));
   };
   auto const plan =
     encodeprobe::probeSingleFile(ctx, options.original, probeRoot, onPoint, onStep);
+  auto windowBase = 0.0f;
   if (plan.probed) {
-    progressCtx.setProgress(probeBar, 100.0f);
-    progressCtx.setTone(probeBar, progress::Tone::Success);
-    progressCtx.setPostfixText(
-      probeBar,
-      std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
-    );
+    windowBase = 40.0f;
+    progressCtx
+      .setPostfixText(bar, std::format("Probed: {} (CQ {})", fileName, plan.chosenCq));
   } else {
-    progressCtx.setTone(probeBar, progress::Tone::Idle);
     progressCtx.setPostfixText(
-      probeBar,
+      bar,
       std::format(
         "Probing skipped: {} (default CQ {})",
         fileName,
@@ -418,10 +421,6 @@ auto runSingleInput(
   };
   auto outcomes = std::vector<WindowOutcome>(windows.size());
   auto segments = std::vector<fs::path>(windows.size());
-  auto const windowBar = progressCtx.addBar(
-    std::format("Encoding windows: 0/{}", windows.size()),
-    progress::Tone::Active
-  );
   auto windowsCompleted = std::atomic_size_t{0};
   auto windowEncodeFailed = std::atomic_bool{false};
   {
@@ -473,11 +472,14 @@ auto runSingleInput(
           }
           auto const done = windowsCompleted.fetch_add(1) + 1;
           progressCtx.setProgress(
-            windowBar,
-            100.0f * static_cast<float>(done) / static_cast<float>(windows.size())
+            bar,
+            windowBase
+              + (85.0f - windowBase)
+                * static_cast<float>(done)
+                / static_cast<float>(windows.size())
           );
           progressCtx.setPostfixText(
-            windowBar,
+            bar,
             std::format("Encoding windows: {}/{}", done, windows.size())
           );
           return {};
@@ -494,14 +496,12 @@ auto runSingleInput(
     });
   }
   if (windowEncodeFailed.load()) {
-    progressCtx.setTone(windowBar, progress::Tone::Failure);
-    progressCtx.setPostfixText(windowBar, "Window encode failed");
+    progressCtx.setTone(bar, progress::Tone::Failure);
+    progressCtx.setPostfixText(bar, "Window encode failed");
     return eh::makeError("Preview window encode failed.");
   }
-  progressCtx.setProgress(windowBar, 100.0f);
-  progressCtx.setTone(windowBar, progress::Tone::Success);
   progressCtx.setPostfixText(
-    windowBar,
+    bar,
     std::format("Windows encoded: {}/{}", windows.size(), windows.size())
   );
 
@@ -523,15 +523,30 @@ auto runSingleInput(
       worstIndex = index;
     }
   }
-  printWindows(windows, worstIndex);
 
+  progressCtx.setProgress(bar, 85.0f);
+  progressCtx.setPostfixText(bar, "Rendering comparison video...");
   auto const spec = FiltergraphSpec{
     .original = original,
     .encoded = original,
-    .windows = std::move(windows),
+    .windows = windows,  // copy: the window list is part of the post-render summary
     .encodedWindowsAreSegments = true,
   };
-  return renderPreview(ctx, options, options.original, segments, spec, outputPath);
+  auto const renderResult =
+    renderPreview(ctx, options, options.original, segments, spec, outputPath);
+  if (!renderResult) {
+    progressCtx.setTone(bar, progress::Tone::Failure);
+    progressCtx.setPostfixText(bar, "Preview generation failed");
+    return renderResult;
+  }
+  progressCtx.setProgress(bar, 100.0f);
+  progressCtx.setTone(bar, progress::Tone::Success);
+  progressCtx.setPostfixText(bar, "Preview complete");
+
+  // Summary output only after the render finished.
+  printWindows(windows, worstIndex);
+  reportAndOpen(options, outputPath);
+  return renderResult;
 }
 
 // Runs the comparison render: build the command, execute, report and open.
@@ -644,9 +659,9 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
   auto const spec = FiltergraphSpec{
     .original = original,
     .encoded = encoded,
-    .windows = std::move(windows),
+    .windows = windows,  // copy: the window list is part of the post-render summary
   };
-  return renderPreview(
+  auto const renderResult = renderPreview(
     ctx,
     options,
     options.original,
@@ -654,6 +669,10 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
     spec,
     outputPath
   );
+  if (!renderResult) { return renderResult; }
+  printWindows(windows, worstIndex);
+  reportAndOpen(options, outputPath);
+  return renderResult;
 }
 
 }  // namespace preview
