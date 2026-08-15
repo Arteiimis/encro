@@ -1,0 +1,15 @@
+Checks: >
+  clang-diagnostic-*,
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  portability-*,
+  readability-function-size,
+  readability-function-cognitive-complexity,
+  -bugprone-easily-swappable-parameters,
+  -performance-enum-size,
+  -portability-avoid-pragma-once
+
+CheckOptions:
+  readability-function-size.LineThreshold: '80'
+  readability-function-cognitive-complexity.Threshold: '25'

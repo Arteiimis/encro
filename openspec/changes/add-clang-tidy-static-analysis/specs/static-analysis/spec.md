@@ -6,7 +6,7 @@ Defines the behavior contract for the `xmake tidy` static-analysis command: a re
 
 ### Requirement: tidy scans project code with a curated check set
 
-The `xmake tidy` command SHALL run clang-tidy over every translation unit listed in the project's compile database, using a curated check set that includes semantic-analyzer, bug-pattern, performance, and portability checks plus function-length and cognitive-complexity guardrails. The check set SHALL NOT include checks that contradict project conventions (notably the `#pragma once` header convention).
+The `xmake tidy` command SHALL run clang-tidy over every translation unit listed in the project's compile database, using a curated check set that includes bug-pattern, performance, and portability checks plus function-length and cognitive-complexity guardrails. The check set SHALL NOT include checks that contradict project conventions (notably the `#pragma once` header convention).
 
 #### Scenario: Scan covers the whole project
 
@@ -18,6 +18,20 @@ The `xmake tidy` command SHALL run clang-tidy over every translation unit listed
 
 - **WHEN** a project header uses `#pragma once`
 - **THEN** no "use include guards instead" style warning is reported for it
+
+### Requirement: Semantic analyzer checks are opt-in
+
+The path-sensitive semantic-analyzer checks SHALL NOT run by default because they dominate scan cost. `xmake tidy --analyzer` SHALL enable them in addition to the default curated set.
+
+#### Scenario: Default run skips the analyzer
+
+- **WHEN** the user runs `xmake tidy` without `--analyzer`
+- **THEN** no `clang-analyzer-*` check result appears in the output
+
+#### Scenario: Deep run enables the analyzer
+
+- **WHEN** the user runs `xmake tidy --analyzer`
+- **THEN** the semantic-analyzer checks run in addition to the default curated set
 
 ### Requirement: Warnings are scoped to project code
 
