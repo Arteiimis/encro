@@ -1,5 +1,6 @@
 #include "video/video_batch_execution.h"
 
+#include "video/encode_probe.h"
 #include "video/video_encode_runner.h"
 #include "video/video_workflow_utils.h"
 
@@ -98,6 +99,12 @@ auto createEncodingState(
     lookupPlannedOutputFile(executionCtx.plannedOutputFiles, vidPath);
   if (vidState->plannedOutputFile.has_value()) {
     vidState->outputPath = vidState->plannedOutputFile->parent_path();
+  }
+  if (
+    auto const it = executionCtx.probeCqByInput.find(vidPath);
+    it != executionCtx.probeCqByInput.end()
+  ) {
+    vidState->chosenCq = it->second;
   }
   return vidState;
 }
@@ -238,7 +245,8 @@ auto runEncodingWithoutProgress(
   appctx::AppContext& ctx,
   std::vector<fs::path> const& vids,
   appctx::path_map<fs::path> const& plannedOutputFiles,
-  videobatch::ActionIdMap const& actionIds
+  videobatch::ActionIdMap const& actionIds,
+  appctx::path_map<int> const& probeCqByInput
 ) -> videobatch::EncodeResultsMap {
   auto vidsRunRes = videobatch::EncodeResultsMap{};
 
@@ -261,6 +269,9 @@ auto runEncodingWithoutProgress(
     state.plannedOutputFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
     if (state.plannedOutputFile.has_value()) {
       state.outputPath = state.plannedOutputFile->parent_path();
+    }
+    if (auto const it = probeCqByInput.find(vidPath); it != probeCqByInput.end()) {
+      state.chosenCq = it->second;
     }
 
     LOG_DEBUG("Start encoding (no-progress): {}", vidPath.string());
@@ -305,10 +316,10 @@ auto videobatch::runEncodingTasks(
   ActionIdMap const& actionIds,
   std::size_t overallTotalCount,
   std::size_t initialCompletedCount
-) -> std::optional<EncodeResultsMap> {
+) -> EncodingBatchOutcome {
   constexpr auto kMaxConcurrentJobs = std::size_t{10};
 
-  if (vids.empty()) { return EncodeResultsMap{}; }
+  if (vids.empty()) { return EncodingBatchOutcome{.results = EncodeResultsMap{}}; }
 
   LOG_INFO(
     "Preparing encoding batch: pending={} overall={} completed-before-start={} "
@@ -320,6 +331,48 @@ auto videobatch::runEncodingTasks(
     ctx.config.packOutput
   );
 
+  // Pre-encode quality probing (MP4 only; --crf bypasses it entirely): picks
+  // a per-file CQ meeting the quality floor and prints the plan before the
+  // confirmation prompt. A stop request during probing aborts the run.
+  auto attentionWarnings = std::vector<std::string>{};
+  auto probeCqByInput = appctx::path_map<int>{};
+  auto const shouldProbe =
+    ctx.config.outputFormat == "mp4" && !ctx.config.crf.has_value();
+  if (shouldProbe) {
+    auto const probeRes = encodeprobe::runProbePhase(ctx, vids);
+    if (stopsignal::isStopRequested()) {
+      noteStopRequest(ctx);
+      return EncodingBatchOutcome{.results = std::nullopt};
+    }
+    if (!probeRes) {
+      LOG_ERROR("{}", probeRes.error());
+      terminal::println(Error, "Error: {}", probeRes.error());
+      return EncodingBatchOutcome{.results = std::nullopt};
+    }
+    for (auto const& [vidPath, plan]: probeRes->plans) {
+      probeCqByInput[vidPath] = plan.chosenCq;
+    }
+    attentionWarnings = std::move(probeRes->attentionWarnings);
+
+    auto plans = std::vector<encodeprobe::ProbePlan>{};
+    plans.reserve(probeRes->plans.size());
+    for (auto const& vidPath: vids) {
+      if (auto const it = probeRes->plans.find(vidPath); it != probeRes->plans.end()) {
+        plans.push_back(it->second);
+      }
+    }
+    encodeprobe::printProbePlan(plans, ctx.config.minVmaf);
+
+    if (ctx.config.dryRun) {
+      LOG_INFO("Dry run: probe plan printed; exiting without encoding.");
+      return EncodingBatchOutcome{
+        .results = EncodeResultsMap{},
+        .attentionWarnings = std::move(attentionWarnings),
+        .dryRun = true,
+      };
+    }
+  }
+
   auto const proceed = readUserIpt(
     ctx.config.yesToAll,
     std::format(
@@ -330,12 +383,22 @@ auto videobatch::runEncodingTasks(
   if (!proceed) {
     terminal::println(Warning, "Encoding tasks canceled by user.");
     LOG_INFO("Encoding canceled by user.");
-    return std::nullopt;
+    return EncodingBatchOutcome{.results = std::nullopt};
   }
 
   if (ctx.config.verbose) {
     terminal::println(Warning, "Verbose output enabled: progress bars are disabled.");
-    return runEncodingWithoutProgress(ctx, vids, plannedOutputFiles, actionIds);
+    auto const results = runEncodingWithoutProgress(
+      ctx,
+      vids,
+      plannedOutputFiles,
+      actionIds,
+      probeCqByInput
+    );
+    return EncodingBatchOutcome{
+      .results = results,
+      .attentionWarnings = std::move(attentionWarnings),
+    };
   }
 
   auto const maxConcurrentJobs =
@@ -371,6 +434,7 @@ auto videobatch::runEncodingTasks(
     plannedOutputFiles,
     actionIds,
   };
+  executionCtx.probeCqByInput = std::move(probeCqByInput);
   executionCtx.updateOverall();
 
   logging::setForensicAppContext(&ctx);
@@ -423,5 +487,8 @@ auto videobatch::runEncodingTasks(
     results.size()
   );
 
-  return results;
+  return EncodingBatchOutcome{
+    .results = results,
+    .attentionWarnings = std::move(attentionWarnings),
+  };
 }

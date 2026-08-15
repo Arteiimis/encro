@@ -38,8 +38,19 @@ struct CmdParseResult {
   bool compress = false;
   std::optional<int> imageQuality;
   std::optional<int> crf;
+  int minVmaf = 95;
+  bool dryRun = false;
   std::optional<std::string> nvencPreset;
   std::optional<std::string> videoCodec;
+
+  // ── Preview subcommand ─────────────────────────────────────────
+  bool preview = false;
+  std::optional<std::string> previewOriginal;
+  std::optional<std::string> previewEncoded;
+  std::optional<std::string> previewOutput;
+  std::optional<double> previewStart;
+  std::optional<double> previewDuration;
+  bool previewNoOpen = false;
 
   // ── File operation options ─────────────────────────────────────
   bool pack = false;

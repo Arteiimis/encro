@@ -1872,3 +1872,322 @@ TEST_CASE(
     last.as_object().at("summary").as_object().at("status").as_string() == "interrupted"
   );
 }
+
+// ── Encode probing (probe → plan → prompt) ────────────────────────────────
+
+auto extractPlanCq(std::string const& stdoutText) -> std::optional<int> {
+  auto const marker = std::string_view{"CQ "};
+  auto const pos = stdoutText.find(marker);
+  if (pos == std::string_view::npos) { return std::nullopt; }
+  auto const start = pos + marker.size();
+  auto end = start;
+  while (
+    end < stdoutText.size()
+    && std::isdigit(static_cast<unsigned char>(stdoutText[end])) != 0
+  ) {
+    ++end;
+  }
+  if (end == start) { return std::nullopt; }
+  return std::stoi(std::string{stdoutText.substr(start, end - start)});
+}
+
+TEST_CASE(
+  "encro probes, prints the plan, encodes, and hints at preview with --yes",
+  "[e2e][video][probe][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  e2e::writeTextFile(inputPath, "fake-video");
+  auto const outputDir = temp.path / "out";
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  // The fake toolchain cannot produce real VMAF scores, so probing falls
+  // back to the default CQ 28 deterministically (design decision 4).
+  auto const result = e2e::runEncro({
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-o",
+    outputDir.string(),
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+
+  REQUIRE_SUCCESS(result);
+  CHECK(result.stdoutText.find("Encoding plan") != std::string::npos);
+  CHECK(result.stdoutText.find("CQ 28 (default; not probed)") != std::string::npos);
+  // The output dir also carries the job-state file; only the mp4 is output.
+  auto const outputFiles = listFilesWithExtension(outputDir, ".mp4");
+  REQUIRE(outputFiles.size() == 1);
+  CHECK(fs::file_size(outputFiles.front()) > 0);
+  // Summary hint points at the comparison tool.
+  CHECK(result.stdoutText.find("Compare: encro preview") != std::string::npos);
+}
+
+TEST_CASE(
+  "encro --dry-run prints the plan and creates no output files",
+  "[e2e][video][probe][dry-run][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  e2e::writeTextFile(inputPath, "fake-video");
+  auto const outputDir = temp.path / "out";
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro({
+    "-i",
+    inputPath.string(),
+    "-o",
+    outputDir.string(),
+    "-j",
+    "1",
+    "--dry-run",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+
+  REQUIRE_SUCCESS(result);
+  CHECK(result.stdoutText.find("Encoding plan") != std::string::npos);
+  // No output files and no job state: dry-run leaves nothing behind.
+  CHECK_FALSE(fs::exists(outputDir));
+  // No probe artifacts left behind.
+  for (auto const& entry: fs::directory_iterator{fs::temp_directory_path()}) {
+    CHECK_FALSE(entry.path().filename().string().starts_with("encro_probe_"));
+  }
+}
+
+TEST_CASE(
+  "encro --crf bypasses probing and encodes with the fixed cq",
+  "[e2e][video][probe][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  e2e::writeTextFile(inputPath, "fake-video");
+  auto const outputDir = temp.path / "out";
+  auto const logPath = temp.path / "tool.log";
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro(
+    {
+      "-y",
+      "-i",
+      inputPath.string(),
+      "-o",
+      outputDir.string(),
+      "-j",
+      "1",
+      "--crf",
+      "30",
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    },
+    std::nullopt,
+    {{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()}}
+  );
+
+  REQUIRE_SUCCESS(result);
+  CHECK(result.stdoutText.find("Encoding plan") == std::string::npos);
+  auto const outputFiles = listFilesWithExtension(outputDir, ".mp4");
+  REQUIRE(outputFiles.size() == 1);
+  CHECK(fs::file_size(outputFiles.front()) > 0);
+
+  // One 10s segment encode + one concat assembly; no scoring (-f null) calls.
+  CHECK(countActualFfmpegEncodes(logPath) == 2);
+  auto const log = readTextFile(logPath);
+  CHECK(log.find("-f null") == std::string::npos);
+}
+
+TEST_CASE("encro rejects out-of-range --min-vmaf", "[e2e][cli][probe]") {
+  auto const result = e2e::runEncro({"-i", "a.mp4", "--min-vmaf", "120"});
+  REQUIRE(result.exitCode == 1);
+  CHECK(
+    result.stdoutText.find("--min-vmaf must be between 0 and 100") != std::string::npos
+  );
+}
+
+TEST_CASE("encro rejects --dry-run combined with --crf", "[e2e][cli][probe]") {
+  auto const result = e2e::runEncro({"-i", "a.mp4", "--dry-run", "--crf", "28"});
+  REQUIRE(result.exitCode == 1);
+  CHECK(result.stdoutText.find("--dry-run requires probing") != std::string::npos);
+}
+
+// ── Preview subcommand ────────────────────────────────────────────────────
+
+TEST_CASE(
+  "encro preview generates the comparison video and honors --no-open",
+  "[e2e][preview][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  auto const encoded = temp.path / "sample.hevc.mp4";
+  e2e::writeTextFile(original, "fake-video");
+  e2e::writeTextFile(encoded, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  // Parent options must precede the subcommand token (CLI11).
+  auto const result = e2e::runEncro({
+    "--ffmpeg-path",
+    toolchain.root.string(),
+    "preview",
+    original.string(),
+    encoded.string(),
+    "--no-open",
+  });
+
+  REQUIRE_SUCCESS(result);
+  auto const outputPath = temp.path / "sample.preview.mp4";
+  CHECK(fs::exists(outputPath));
+  CHECK(fs::file_size(outputPath) > 0);
+}
+
+TEST_CASE(
+  "encro preview --output overrides the default location",
+  "[e2e][preview][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  auto const encoded = temp.path / "sample.hevc.mp4";
+  e2e::writeTextFile(original, "fake-video");
+  e2e::writeTextFile(encoded, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const custom = temp.path / "custom.mp4";
+  auto const result = e2e::runEncro({
+    "--ffmpeg-path",
+    toolchain.root.string(),
+    "preview",
+    original.string(),
+    encoded.string(),
+    "--output",
+    custom.string(),
+    "--no-open",
+  });
+
+  REQUIRE_SUCCESS(result);
+  CHECK(fs::exists(custom));
+}
+
+TEST_CASE("encro preview rejects a missing input", "[e2e][preview][fake-toolchain]") {
+  TempDir temp;
+  auto const original = temp.path / "missing.mp4";
+  auto const encoded = temp.path / "sample.hevc.mp4";
+  e2e::writeTextFile(encoded, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro({
+    "--ffmpeg-path",
+    toolchain.root.string(),
+    "preview",
+    original.string(),
+    encoded.string(),
+    "--no-open",
+  });
+
+  REQUIRE(result.exitCode == 1);
+  CHECK(result.stdoutText.find("does not exist") != std::string::npos);
+}
+
+// ── Real-ffmpeg smoke tests ───────────────────────────────────────────────
+
+TEST_CASE(
+  "encro real ffmpeg probing picks a stable CQ and completes an encode",
+  "[e2e][smoke][real-ffmpeg][probe]"
+) {
+  requireRealToolchainOrSkip();
+
+  TempDir temp;
+  // 40s at 160x120/5fps: two probe windows fit, encode is fast.
+  auto const inputPath = temp.path / "probe40s.mp4";
+  auto args = std::vector<std::string>{
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "testsrc=duration=40:size=160x120:rate=5",
+    "-an",
+    "-c:v",
+    "mpeg4",
+    "-pix_fmt",
+    "yuv420p",
+  };
+  args.push_back(inputPath.string());
+  auto const makeResult = e2e::runProcess(systemToolPath("ffmpeg"), args);
+  REQUIRE_SUCCESS(makeResult);
+
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--video-codec",
+    "libx264",
+  };
+
+  auto const outputDir = temp.path / "out";
+  auto firstArgs = baseArgs;
+  firstArgs.insert(firstArgs.end(), {"-o", outputDir.string()});
+  auto const firstRun = e2e::runEncro(firstArgs);
+  REQUIRE_SUCCESS(firstRun);
+  auto const firstCq = extractPlanCq(firstRun.stdoutText);
+  REQUIRE(firstCq.has_value());
+  auto const firstOutputs = listFilesWithExtension(outputDir, ".mp4");
+  REQUIRE(firstOutputs.size() == 1);
+  CHECK(fs::file_size(firstOutputs.front()) > 0);
+
+  // Re-run on a fresh output dir: probing must decide identically.
+  auto const secondOut = temp.path / "out2";
+  auto secondArgs = baseArgs;
+  secondArgs.insert(secondArgs.end(), {"-o", secondOut.string()});
+  auto const secondRun = e2e::runEncro(secondArgs);
+  REQUIRE_SUCCESS(secondRun);
+  CHECK(extractPlanCq(secondRun.stdoutText) == firstCq);
+}
+
+TEST_CASE(
+  "encro real ffmpeg preview produces a playable file of the windowed duration",
+  "[e2e][smoke][real-ffmpeg][preview]"
+) {
+  requireRealToolchainOrSkip();
+
+  TempDir temp;
+  auto const original = temp.path / "preview60s.mp4";
+  auto const encoded = temp.path / "preview60s.hevc.mp4";
+  auto makeArgs = std::vector<std::string>{
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    "testsrc=duration=60:size=320x240:rate=10",
+    "-an",
+    "-c:v",
+    "mpeg4",
+    "-pix_fmt",
+    "yuv420p",
+  };
+  auto makeOriginal = makeArgs;
+  makeOriginal.push_back(original.string());
+  REQUIRE_SUCCESS(e2e::runProcess(systemToolPath("ffmpeg"), makeOriginal));
+  auto makeEncoded = makeArgs;
+  makeEncoded.push_back(encoded.string());
+  REQUIRE_SUCCESS(e2e::runProcess(systemToolPath("ffmpeg"), makeEncoded));
+
+  auto const result = e2e::runEncro({
+    "preview",
+    original.string(),
+    encoded.string(),
+    "--no-open",
+  });
+  REQUIRE_SUCCESS(result);
+
+  auto const outputPath = temp.path / "preview60s.preview.mp4";
+  REQUIRE(fs::exists(outputPath));
+  CHECK(fs::file_size(outputPath) > 0);
+  // 5 windows x 10s on a 60s video -> ~50s preview.
+  auto const probed = probeJson(outputPath, {"-show_entries", "format=duration"});
+  auto const duration = probed.at("format").as_object().at("duration").as_string();
+  auto const seconds = std::stod(std::string{duration.c_str()});
+  CHECK(seconds == Catch::Approx(50.0).margin(1.0));
+}

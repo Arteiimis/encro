@@ -9,6 +9,7 @@
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
 #include "pack/pack.h"
+#include "video/encode_probe.h"
 #include "video/video_info.h"
 #include "utils/utils.h"
 
@@ -58,7 +59,9 @@ auto packEncodedVideos(
 
 void printEncodingSummary(
   std::span<fs::path const> vids,
-  EncodeResultsMap const& vidsRunRes
+  appctx::path_map<fs::path> const& plannedOutputFiles,
+  EncodeResultsMap const& vidsRunRes,
+  std::span<std::string const> attentionWarnings
 );
 
 auto hasEncodingFailures(EncodeResultsMap const& vidsRunRes) -> bool;
@@ -300,11 +303,12 @@ auto runScannedEncodingWorkflow(
   auto const prepared = prepareEncodeActions(ctx, vids, plannedOutputFiles);
   auto const pendingVids = toStdVector(prepared.pendingVids);
   auto vidsRunRes = EncodeResultsMap{};
+  auto attentionWarnings = std::vector<std::string>{};
   {
     logging::ScopedTimer timer("video.encode");
     auto const encodeLabel = std::format("{} video(s)", vids.size());
     logging::ScopedErrorContext scopedCtx("video.encode", encodeLabel);
-    auto const runRes = videobatch::runEncodingTasks(
+    auto const outcome = videobatch::runEncodingTasks(
       ctx,
       pendingVids,
       plannedOutputFiles,
@@ -312,8 +316,13 @@ auto runScannedEncodingWorkflow(
       prepared.totalActions,
       prepared.initialResults.size()
     );
-    if (!runRes.has_value()) { return canceledExitCodeForPromptAbort(); }
-    vidsRunRes = mergeEncodeResults(prepared.initialResults, runRes.value());
+    if (!outcome.results.has_value()) { return canceledExitCodeForPromptAbort(); }
+    if (outcome.dryRun) {
+      LOG_INFO("Dry run completed; no files were encoded.");
+      return 0;
+    }
+    attentionWarnings = std::move(outcome.attentionWarnings);
+    vidsRunRes = mergeEncodeResults(prepared.initialResults, outcome.results.value());
   }
 
   if (
@@ -344,7 +353,7 @@ auto runScannedEncodingWorkflow(
 
   withJobState(ctx, [](jobstate::Store& store) { store.setStage("completed"); });
 
-  printEncodingSummary(vids, vidsRunRes);
+  printEncodingSummary(vids, plannedOutputFiles, vidsRunRes, attentionWarnings);
   if (onCompleted) { onCompleted(); }
 
   return hasEncodingFailures(vidsRunRes) ? 1 : 0;
@@ -455,7 +464,9 @@ auto packEncodedVideos(
 
 void printEncodingSummary(
   std::span<fs::path const> vids,
-  EncodeResultsMap const& vidsRunRes
+  appctx::path_map<fs::path> const& plannedOutputFiles,
+  EncodeResultsMap const& vidsRunRes,
+  std::span<std::string const> attentionWarnings
 ) {
   terminal::println(Success, "All encoding tasks completed.");
   terminal::println(Heading, "Summary:");
@@ -479,6 +490,24 @@ void printEncodingSummary(
     for (auto const& [vidPath, success]: vidsRunRes) {
       if (!success) { terminal::println(Error, "  {}", terminal::path(vidPath)); }
     }
+  }
+
+  if (!attentionWarnings.empty()) {
+    terminal::println(Warning, "Needs attention:");
+    for (auto const& warning: attentionWarnings) {
+      terminal::println(Warning, "  {}", warning);
+    }
+  }
+
+  for (auto const& [vidPath, success]: vidsRunRes) {
+    if (!success) { continue; }
+    auto const outFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
+    if (!outFile.has_value()) { continue; }
+    terminal::println(
+      Hint,
+      "  Compare: {}",
+      encodeprobe::previewHint(vidPath, outFile.value())
+    );
   }
 }
 

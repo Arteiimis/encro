@@ -25,6 +25,7 @@ inline constexpr auto CMD_CONFIG = "cmd.config";
 
 // ── video ──
 inline constexpr auto VIDEO_ENCODE = "video.encode";
+inline constexpr auto VIDEO_QUALITY = "video.quality";
 inline constexpr auto VIDEO_PROBE = "video.probe";
 inline constexpr auto VIDEO_INFO = "video.info";
 inline constexpr auto VIDEO_OUTPUT = "video.output";
@@ -32,6 +33,9 @@ inline constexpr auto VIDEO_BATCH = "video.batch";
 inline constexpr auto VIDEO_PROGRESS = "video.progress";
 inline constexpr auto VIDEO_STATE = "video.state";
 inline constexpr auto VIDEO_PROCESS = "video.process";
+
+// ── preview ──
+inline constexpr auto PREVIEW_PROCESS = "preview.process";
 
 // ── picture ──
 inline constexpr auto PICTURE_PROCESS = "picture.process";
