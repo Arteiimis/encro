@@ -3,6 +3,7 @@
 #include "infra/open_file.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
+#include "core/progress.h"
 #include "core/task_executor.h"
 #include "utils/utils.h"
 #include "video/encode_probe.h"
@@ -345,7 +346,52 @@ auto runSingleInput(
     }
   } rootGuard{probeRoot};
 
-  auto const plan = encodeprobe::probeSingleFile(ctx, options.original, probeRoot);
+  auto progressCtx = progress::ProgressContext{};
+  auto const fileName = options.original.filename().string();
+  auto const probeBar =
+    progressCtx.addBar(std::format("Probing: {}", fileName), progress::Tone::Active);
+  auto step = std::size_t{0};
+  auto const onStep = [&](int cq, std::string_view phase) {
+    ++step;
+    progressCtx.setProgress(
+      probeBar,
+      100.0f * static_cast<float>(step) / static_cast<float>(encodeprobe::kMaxProbeSteps)
+    );
+    progressCtx.setPostfixText(
+      probeBar,
+      std::format("Probing: {} · CQ {} {}", fileName, cq, phase)
+    );
+  };
+  auto const onPoint = [&](std::size_t done, int cq) {
+    progressCtx.setProgress(
+      probeBar,
+      100.0f
+        * static_cast<float>(done * encodeprobe::kStepsPerProbePoint)
+        / static_cast<float>(encodeprobe::kMaxProbeSteps)
+    );
+    progressCtx
+      .setPostfixText(probeBar, std::format("Probing: {} · CQ {} scored", fileName, cq));
+  };
+  auto const plan =
+    encodeprobe::probeSingleFile(ctx, options.original, probeRoot, onPoint, onStep);
+  if (plan.probed) {
+    progressCtx.setProgress(probeBar, 100.0f);
+    progressCtx.setTone(probeBar, progress::Tone::Success);
+    progressCtx.setPostfixText(
+      probeBar,
+      std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
+    );
+  } else {
+    progressCtx.setTone(probeBar, progress::Tone::Idle);
+    progressCtx.setPostfixText(
+      probeBar,
+      std::format(
+        "Probing skipped: {} (default CQ {})",
+        fileName,
+        encodeprobe::kDefaultCq
+      )
+    );
+  }
   if (!plan.probed) {
     terminal::println(
       Warning,
@@ -372,6 +418,12 @@ auto runSingleInput(
   };
   auto outcomes = std::vector<WindowOutcome>(windows.size());
   auto segments = std::vector<fs::path>(windows.size());
+  auto const windowBar = progressCtx.addBar(
+    std::format("Encoding windows: 0/{}", windows.size()),
+    progress::Tone::Active
+  );
+  auto windowsCompleted = std::atomic_size_t{0};
+  auto windowEncodeFailed = std::atomic_bool{false};
   {
     auto tasks = std::vector<taskexec::TaskSpec>{};
     tasks.reserve(windows.size());
@@ -393,6 +445,7 @@ auto runSingleInput(
             encodeprobe::ProbeWindow{window.startUs, window.durationUs}
           );
           if (!ok) {
+            windowEncodeFailed.store(true);
             return eh::makeError(
               "Preview window encode failed at {}us of {}",
               window.startUs,
@@ -418,6 +471,15 @@ auto runSingleInput(
               scores.error()
             );
           }
+          auto const done = windowsCompleted.fetch_add(1) + 1;
+          progressCtx.setProgress(
+            windowBar,
+            100.0f * static_cast<float>(done) / static_cast<float>(windows.size())
+          );
+          progressCtx.setPostfixText(
+            windowBar,
+            std::format("Encoding windows: {}/{}", done, windows.size())
+          );
           return {};
         },
       });
@@ -431,6 +493,17 @@ auto runSingleInput(
       .hideCursor = false,
     });
   }
+  if (windowEncodeFailed.load()) {
+    progressCtx.setTone(windowBar, progress::Tone::Failure);
+    progressCtx.setPostfixText(windowBar, "Window encode failed");
+    return eh::makeError("Preview window encode failed.");
+  }
+  progressCtx.setProgress(windowBar, 100.0f);
+  progressCtx.setTone(windowBar, progress::Tone::Success);
+  progressCtx.setPostfixText(
+    windowBar,
+    std::format("Windows encoded: {}/{}", windows.size(), windows.size())
+  );
 
   if (stopsignal::isStopRequested()) {
     return eh::makeError("Preview canceled by user.");
