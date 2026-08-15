@@ -41,3 +41,15 @@ In single-input mode, the system SHALL run the probe phase on the source (same d
 #### Scenario: Scoring uses the shared quality measurement
 - **WHEN** single-input mode scores a window
 - **THEN** the score is measured with the shared segment quality helper (VMAF, SSIM fallback for HDR or unavailable VMAF) exactly like the two-input mode and the probe phase
+
+### Requirement: Single-input preview shows one progress bar and reports after render
+
+Single-input preview SHALL show a single progress bar spanning the whole pipeline — probe (0-40%), window encode+score (40-85%), render (85-100%) — in the same style as the encode bars, with the terminal cursor hidden while it renders (non-TTY output renders nothing). The summary (window list with the worst window marked and the output path) SHALL be printed only after the render completes.
+
+#### Scenario: One bar spans probe through render
+- **WHEN** the user runs single-input preview on a video that is probed
+- **THEN** one progress bar advances through the probe sub-steps, the window encodes, and the render, then completes at 100%
+
+#### Scenario: Summary appears after the render
+- **WHEN** single-input preview finishes rendering
+- **THEN** the window scores list and the written-to line are printed after the render completes, not before
