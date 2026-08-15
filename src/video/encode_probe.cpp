@@ -112,7 +112,8 @@ auto measurePoint(
     segA,
     windows.first.startUs,
     windows.first.durationUs,
-    vidInfo
+    vidInfo,
+    true  // probe segments carry segment-local PTS
   );
   auto const scoresB = videoquality::measureSegmentQuality(
     ffmpeg,
@@ -120,7 +121,8 @@ auto measurePoint(
     segB,
     windows.second.startUs,
     windows.second.durationUs,
-    vidInfo
+    vidInfo,
+    true  // probe segments carry segment-local PTS
   );
   if (!scoresA.has_value() || !scoresB.has_value()) {
     LOG_WARN(

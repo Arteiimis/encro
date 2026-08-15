@@ -117,20 +117,16 @@ auto runScoringCommand(fs::path const& ffmpegPath, std::string const& cmd)
   return {};
 }
 
-auto buildTrimmedPairChain(std::uint64_t startUs, std::uint64_t durationUs)
-  -> std::string {
-  // [0:v] is the original source: trim at source timestamps. [1:v] is the
-  // probe segment: its PTS restarts near the GOP boundary the -ss seek landed
-  // on (not at the source window), so trim at segment-local timestamps.
-  auto const startSec = seconds(startUs);
-  auto const endSec = seconds(startUs + durationUs);
+// Both inputs are seeked to the window start (-ss before each -i), after
+// which PTS restarts near zero (offset by the GOP boundary the seek landed
+// on), so both sides trim at local timestamps.
+auto buildTrimmedPairChain(std::uint64_t durationUs) -> std::string {
   auto const durSec = seconds(durationUs);
   return std::format(
-    "[0:v]trim=start={:.6f}:end={:.6f},setpts=PTS-STARTPTS[v0];"
+    "[0:v]trim=start=0.000000:end={:.6f},setpts=PTS-STARTPTS[v0];"
     "[1:v]trim=start=0.000000:end={:.6f},setpts=PTS-STARTPTS[v1];"
     "[v1][v0]scale2ref=w=main_w:h=main_h[enc][ref]",
-    startSec,
-    endSec,
+    durSec,
     durSec
   );
 }
@@ -141,16 +137,22 @@ auto runVmaf(
   fs::path const& encodedPath,
   std::uint64_t startUs,
   std::uint64_t durationUs,
-  fs::path const& logPath
+  fs::path const& logPath,
+  bool seekEncodedToWindow
 ) -> eh::Result<std::vector<double>> {
-  auto const chain = buildTrimmedPairChain(startUs, durationUs);
+  auto const chain = buildTrimmedPairChain(durationUs);
+  auto const startSec = seconds(startUs);
+  auto const encodedInput = seekEncodedToWindow
+    ? std::format("-ss {:.6f} -i \"{}\"", startSec, encodedPath.string())
+    : std::format("-i \"{}\"", encodedPath.string());
   auto const cmd = std::format(
-    "{} -hide_banner -nostats -loglevel error -y -i \"{}\" -i \"{}\" "
+    "{} -hide_banner -nostats -loglevel error -y -ss {:.6f} -i \"{}\" {} "
     "-filter_complex \"{};[enc][ref]libvmaf=log_fmt=json:log_path={}[vnul]\" "
     "-map \"[vnul]\" -f null -",
     quoteToolPath(ffmpegPath),
+    startSec,
     originalPath.string(),
-    encodedPath.string(),
+    encodedInput,
     chain,
     quoteFilterPath(logPath)
   );
@@ -167,16 +169,22 @@ auto runSsim(
   fs::path const& encodedPath,
   std::uint64_t startUs,
   std::uint64_t durationUs,
-  fs::path const& statsPath
+  fs::path const& statsPath,
+  bool seekEncodedToWindow
 ) -> eh::Result<std::vector<double>> {
-  auto const chain = buildTrimmedPairChain(startUs, durationUs);
+  auto const chain = buildTrimmedPairChain(durationUs);
+  auto const startSec = seconds(startUs);
+  auto const encodedInput = seekEncodedToWindow
+    ? std::format("-ss {:.6f} -i \"{}\"", startSec, encodedPath.string())
+    : std::format("-i \"{}\"", encodedPath.string());
   auto const cmd = std::format(
-    "{} -hide_banner -nostats -loglevel error -y -i \"{}\" -i \"{}\" "
+    "{} -hide_banner -nostats -loglevel error -y -ss {:.6f} -i \"{}\" {} "
     "-filter_complex \"{};[enc][ref]ssim=stats_file={}[snul]\" "
     "-map \"[snul]\" -f null -",
     quoteToolPath(ffmpegPath),
+    startSec,
     originalPath.string(),
-    encodedPath.string(),
+    encodedInput,
     chain,
     quoteFilterPath(statsPath)
   );
@@ -330,13 +338,17 @@ auto parseSsimStats(fs::path const& statsPath) -> eh::Result<std::vector<double>
   return scores;
 }
 
+// encodedHasLocalPts: probe segments carry segment-local PTS (their -ss seek
+// already happened), so only the original is seeked to the window. Full-file
+// inputs (preview) are seeked on both sides.
 auto measureSegmentQuality(
   fs::path const& ffmpegPath,
   fs::path const& originalPath,
   fs::path const& encodedPath,
   std::uint64_t startUs,
   std::uint64_t durationUs,
-  boost::json::value const& originalVideoInfo
+  boost::json::value const& originalVideoInfo,
+  bool encodedHasLocalPts
 ) -> eh::Result<SegmentScores> {
   if (durationUs == 0) { return eh::makeError("Segment duration must be non-zero."); }
 
@@ -350,8 +362,15 @@ auto measureSegmentQuality(
   };
 
   if (!isHdrVideo(originalVideoInfo)) {
-    auto const vmafRes =
-      runVmaf(ffmpegPath, originalPath, encodedPath, startUs, durationUs, vmafLog);
+    auto const vmafRes = runVmaf(
+      ffmpegPath,
+      originalPath,
+      encodedPath,
+      startUs,
+      durationUs,
+      vmafLog,
+      !encodedHasLocalPts
+    );
     if (vmafRes.has_value()) {
       removeLogs();
       return SegmentScores{QualityMetric::Vmaf, std::move(vmafRes.value())};
@@ -364,8 +383,15 @@ auto measureSegmentQuality(
     );
   }
 
-  auto const ssimRes =
-    runSsim(ffmpegPath, originalPath, encodedPath, startUs, durationUs, ssimStats);
+  auto const ssimRes = runSsim(
+    ffmpegPath,
+    originalPath,
+    encodedPath,
+    startUs,
+    durationUs,
+    ssimStats,
+    !encodedHasLocalPts
+  );
   removeLogs();
   if (!ssimRes) {
     return eh::makeError(

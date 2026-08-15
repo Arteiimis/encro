@@ -51,7 +51,8 @@ auto measureSegmentQuality(
   std::filesystem::path const& encodedPath,
   std::uint64_t startUs,
   std::uint64_t durationUs,
-  boost::json::value const& originalVideoInfo = boost::json::value{}
+  boost::json::value const& originalVideoInfo = boost::json::value{},
+  bool encodedHasLocalPts = false
 ) -> eh::Result<SegmentScores>;
 
 }  // namespace videoquality
