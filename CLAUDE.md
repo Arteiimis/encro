@@ -9,6 +9,7 @@
 - **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)
 - **Single test:** `xmake run tests "[tag-name]"` (Catch2 tag filter)
 - **Format:** `xmake format` (apply) / `xmake format -k` (CI); `--style <style>` overrides the default `file:D:/clangformat/.clang-format` (NOT in repo) — value is passed to clang-format `-style=`, e.g. `--style file:<path>` or `--style llvm`.
+- **Static analysis:** `xmake tidy` — report-only clang-tidy over `src/`+`tests/` (`.clang-tidy` config, function-length/cognitive-complexity guardrails). Fast by default; `--analyzer` adds the slow clang static analyzer; `--sarif` writes `build/tidy-results.sarif`; `-f <substr>` filters TUs by path; `--selftest` runs the driver self-check. Needs `build/compile_commands.json` (build first).
 - **Coverage:** `xmake coverage` runs unit tests under coverage (`--e2e` also covers e2e/encro/fake-tool; `--keep` skips the release restore; `--summary` for totals). Rebuilds in coverage mode with instrumentation self-check, then restores release. Needs `llvm-profdata` + `llvm-cov` on PATH.
 - **Size:** `xmake size` prints section sizes (llvm-size); `-d` adds per-object breakdown via PDB (auto-rebuilds the target with debug info if the PDB is missing, then restores). Default `-m release`, `-t <target>`.
 - **ASan:** `xmake f -m releasedbg && xmake build encro` (config then build; `xmake f` alone only reconfigures)

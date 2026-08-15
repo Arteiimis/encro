@@ -6,7 +6,7 @@ The project already enforces formatting (clang-format, `xmake format -k` + pre-c
 
 ## What Changes
 
-- **New `xmake tidy` command**: runs clang-tidy over every translation unit in `build/compile_commands.json` using a curated check set, printing warnings as text by default or as SARIF with `--sarif`.
+- **New `xmake tidy` command**: runs clang-tidy over every translation unit in `build/compile_commands.json` using a curated check set, printing warnings as text by default or as SARIF with `--sarif`. The slow path-sensitive static analyzer is opt-in via `--analyzer`; the default run is a fast scan (~2.5 min) of the bug-pattern/performance/portability checks plus function-length and cognitive-complexity guardrails.
 - **Repo-root `.clang-tidy` config**: the single source of truth for the check set and thresholds (function length, cognitive complexity).
 - **Project-code-only scoping**: warnings are reported only from `src/` and `tests/`; third-party dependency headers (Boost, fmt, spdlog, …) are excluded.
 - **Report-only semantics**: `xmake tidy` exits 0 whether or not warnings are found. No `-k` gating, no baseline, no CI job this version.

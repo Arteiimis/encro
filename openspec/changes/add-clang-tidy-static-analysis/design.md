@@ -54,7 +54,9 @@ Warnings must be scoped to project code. The naive `^(src|tests)/` silently miss
 
 ### 3. Driver mirrors include-cleaner
 
-`plugins/tidy/scan.py` is a parallel Python driver: read `build/compile_commands.json`, collect `.cpp` translation units, run one `clang-tidy -p build <tu>` per TU across a `ThreadPoolExecutor` (default 16 workers, like include-cleaner), and aggregate results. Default mode prints text; `--sarif` uses `--export-fixes` to emit SARIF. A `--selftest` mode scans a bundled fixture that contains a known violation and a `#pragma once` header, asserting the violation is flagged and the pragma-once check is not — the smallest runnable check that fails if the check set or header-filter breaks.
+`plugins/tidy/scan.py` is a parallel Python driver: read `build/compile_commands.json`, deduplicate `.cpp` translation units (the compile database contains duplicate entries), run one `clang-tidy -p build <tu>` per TU across a `ThreadPoolExecutor`, and aggregate results. Default mode prints text; `--sarif` builds a SARIF 2.1.0 document from the parsed diagnostics and writes `build/tidy-results.sarif` (clang-tidy 22 has no native SARIF output — `--export-fixes` writes YAML only — so the driver parses the text output instead). Warnings are post-filtered to `src/` and `tests/` paths in the driver: `clang-analyzer-*` and `clang-diagnostic-*` diagnostics can bypass `-header-filter` and leak from third-party headers, so the driver enforces the scoping guarantee itself. Crashed TUs (clang-tidy can die with an access violation under memory pressure) are retried once sequentially after the parallel phase. Exit 1 (deterministic clang-tidy errors such as compile failures) is not retried; timeouts are reported and skipped.
+
+SARIF `artifactLocation.uri` values are repo-root-relative (`src/...`); consumers (agents, future GitHub upload) resolve them against the repo root, not the SARIF file's own `build/` location — a deliberate deviation from the SARIF relative-base rule so the same file works for the deferred CI version. The `-f` filter matches the TU *path* (diverging from include-cleaner's content filter), because for a linter "scan this module's files" is the useful semantic.
 
 *Alternative considered*: a single `clang-tidy` invocation over all files — loses per-TU parallelism and the aggregation/summary logic.
 
@@ -70,16 +72,19 @@ The plugin exposes no `-k`/check mode. Exit code is 0 when warnings are found an
 
 *Alternative considered*: enabling `NestingThreshold` alongside cognitive complexity — redundant, so rejected.
 
-### 6. `clang-analyzer-optin.*` stays on for v1
+### 6. The semantic analyzer is opt-in (`--analyzer`)
 
-The `clang-analyzer-*` wildcard enables the opt-in analyzer checks. These can be noisier than the core analyzer, but report-only mode tolerates noise, and the header-filter already excludes the system-header cases where optin checks mostly fire. They can be excluded later if the report proves noisy.
+`clang-analyzer-*` is the cost driver: a path-sensitive pass costing minutes and ~2GB peak per TU. A full parallel run on a 16-core/32GB machine saturated CPU, exhausted memory, and crashed clang-tidy processes. The default `xmake tidy` therefore strips the analyzer with `--checks=-clang-analyzer-*` (verified additive semantics: it removes analyzer checks from the config-derived set without touching the rest), yielding a ~2.5-minute fast scan at low memory. `xmake tidy --analyzer` runs the full `.clang-tidy` set at a capped default parallelism (`-j 4` vs fast-mode `-j 8`). This mirrors how analyzer runs are conventionally treated (scheduled/occasional deep scans, not per-edit linting).
+
+*Alternative considered*: analyzer always on with capped node budgets — still minutes per TU, so the default lint path stays heavy; rejected.
 
 ## Risks / Trade-offs
 
-- **clang-tidy is slower than a normal compile** → parallelized per TU with a configurable `-j` (default 16), matching include-cleaner.
+- **clang-tidy is slower than a normal compile** → parallelized per TU with a configurable `-j`; the analyzer dominates cost and is opt-in (Decision 6), bringing the default full scan to ~2.5 minutes.
+- **Analyzer runs can exhaust memory under high parallelism** (minutes + ~2GB per TU) → `--analyzer` caps the default at `-j 4`, and crashed TUs are retried sequentially.
 - **Version drift (local 22 vs future CI 19)** → moot this version (local only); the wildcard check groups used here are stable across both.
 - **Thresholds may need tuning after the first full run** → they live in one config file and are trivially adjustable; the proposal commits to report-only precisely so tuning does not block anyone.
-- **`clang-analyzer-optin.*` noise** → acceptable in report-only mode; documented as a follow-up exclusion if needed.
+- **`clang-analyzer-*` diagnostics can bypass `-header-filter`** → the driver post-filters warnings to `src/`/`tests/` paths, guaranteeing the spec's scoping requirement regardless of clang-tidy behavior.
 - **Windows path separators** → handled by the dual-separator header-filter and path normalization in the driver.
 
 ## Migration Plan
