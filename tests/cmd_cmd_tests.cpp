@@ -602,7 +602,9 @@ TEST_CASE("preview -h renders preview help text", "[cmd][cli-positional]") {
   CHECK(result.preview);
   CHECK(result.help);
   CHECK_FALSE(result.error.has_value());
-  CHECK(result.helpText.find("encro preview <original> [<encoded>]") != std::string::npos);
+  CHECK(
+    result.helpText.find("encro preview <original> [<encoded>]") != std::string::npos
+  );
   CHECK(result.helpText.find("--no-open") != std::string::npos);
 }
 

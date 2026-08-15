@@ -16,4 +16,4 @@
 ## 4. Docs and Verification
 
 - [x] 4.1 Update README (`encro preview <original> [<encoded>]` with the single-input workflow) and the post-encode summary hint if it mentions the two-input form
-- [ ] 4.2 Run `xmake format -k`, full unit + e2e suites, and the post-change code review
+- [x] 4.2 Run `xmake format -k`, full unit + e2e suites, and the post-change code review
