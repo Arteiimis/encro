@@ -3,6 +3,7 @@
 #include "infra/open_file.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
+#include "core/task_executor.h"
 #include "utils/utils.h"
 #include "video/encode_probe.h"
 #include "video/video_info.h"
@@ -363,52 +364,84 @@ auto runSingleInput(
     ctx.config.nvencPreset
   );
 
-  auto segments = std::vector<fs::path>{};
-  segments.reserve(windows.size());
+  // Windows are independent: encode + score each one in parallel (bounded by
+  // the configured job count), then collect in order for the report.
+  struct WindowOutcome {
+    videoquality::QualityMetric metric = videoquality::QualityMetric::Vmaf;
+    std::optional<double> score;
+  };
+  auto outcomes = std::vector<WindowOutcome>(windows.size());
+  auto segments = std::vector<fs::path>(windows.size());
+  {
+    auto tasks = std::vector<taskexec::TaskSpec>{};
+    tasks.reserve(windows.size());
+    for (auto index = std::size_t{}; index < windows.size(); ++index) {
+      auto const segFile = probeRoot / std::format("win{}.ts", index);
+      segments[index] = segFile;
+      tasks.push_back({
+        .id = std::format("preview-window:{}", index),
+        .label = std::format("window {}", index),
+        .input = options.original.string(),
+        .run = [&, index, segFile](taskexec::TaskContext&) -> eh::Result<void> {
+          auto const& window = windows[index];
+          auto const ok = encodeprobe::runProbeEncode(
+            ctx,
+            options.original,
+            settings,
+            segFile,
+            plan.chosenCq,
+            encodeprobe::ProbeWindow{window.startUs, window.durationUs}
+          );
+          if (!ok) {
+            return eh::makeError(
+              "Preview window encode failed at {}us of {}",
+              window.startUs,
+              options.original.string()
+            );
+          }
+          auto const scores = videoquality::measureSegmentQuality(
+            ffmpeg,
+            options.original,
+            segFile,
+            window.startUs,
+            window.durationUs,
+            info,
+            true  // segments carry segment-local PTS
+          );
+          if (scores.has_value()) {
+            outcomes[index].metric = scores->metric;
+            outcomes[index].score = videoquality::percentile(scores->frameScores, 5.0);
+          } else {
+            LOG_WARN(
+              "Preview scoring failed for window {}us: {}",
+              window.startUs,
+              scores.error()
+            );
+          }
+          return {};
+        },
+      });
+    }
+    taskexec::runTasks({
+      .tasks = std::move(tasks),
+      .maxConcurrency = std::clamp<
+        std::size_t
+      >(ctx.config.maxParallelJobs.value_or(4), 1, windows.size()),
+      .progress = nullptr,
+      .hideCursor = false,
+    });
+  }
+
+  if (stopsignal::isStopRequested()) {
+    return eh::makeError("Preview canceled by user.");
+  }
+
   auto worstIndex = std::optional<std::size_t>{};
   auto worstScore = std::optional<double>{};
   for (auto index = std::size_t{}; index < windows.size(); ++index) {
-    if (stopsignal::isStopRequested()) {
-      return eh::makeError("Preview canceled by user.");
-    }
     auto& window = windows[index];
-    auto const segFile = probeRoot / std::format("win{}.ts", index);
-    auto const ok = encodeprobe::runProbeEncode(
-      ctx,
-      options.original,
-      settings,
-      segFile,
-      plan.chosenCq,
-      encodeprobe::ProbeWindow{window.startUs, window.durationUs}
-    );
-    if (!ok) {
-      return eh::makeError(
-        "Preview window encode failed at {}us of {}",
-        window.startUs,
-        options.original.string()
-      );
-    }
-    segments.push_back(segFile);
-
-    auto const scores = videoquality::measureSegmentQuality(
-      ffmpeg,
-      options.original,
-      segFile,
-      window.startUs,
-      window.durationUs,
-      info,
-      true  // segments carry segment-local PTS
-    );
-    if (scores.has_value()) {
-      window.metric = scores->metric;
-      window.score = videoquality::percentile(scores->frameScores, 5.0);
-    } else {
-      LOG_WARN(
-        "Preview scoring failed for window {}us: {}",
-        window.startUs,
-        scores.error()
-      );
-    }
+    window.metric = outcomes[index].metric;
+    window.score = outcomes[index].score;
     if (
       window.score.has_value()
       && (!worstScore.has_value() || window.score.value() < worstScore.value())
