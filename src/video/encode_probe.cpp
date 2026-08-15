@@ -455,14 +455,15 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   struct ProbeRootGuard {
     fs::path root;
     ~ProbeRootGuard() {
-      // Remove the per-run dir; retry briefly because a just-exited child
+      // Remove the per-run dir; retry because a just-exited child
       // (scoring/encode) may still hold a transient handle on Windows.
-      for (auto attempt = 0; attempt < 3; ++attempt) {
+      for (auto attempt = 0; attempt < 6; ++attempt) {
         auto ec = std::error_code{};
         fs::remove_all(root, ec);
         if (!ec) { return; }
-        std::this_thread::sleep_for(std::chrono::milliseconds{200});
+        std::this_thread::sleep_for(std::chrono::milliseconds{500});
       }
+      LOG_WARN("Probe temp dir cleanup failed: {}", root.string());
     }
   } rootGuard{probeRoot};
 
@@ -673,18 +674,28 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     return static_cast<double>(plan.estimatedBytes.value())
       / static_cast<double>(sourceBytes);
   };
-  auto const formatRow = [&](ProbePlan const& plan, std::string_view prefix) {
+  auto const padToWidth = [](std::string_view text, std::size_t width) -> std::string {
+    auto const used = displaytext::displayWidth(text);
+    if (used >= width) { return std::string{text}; }
+    return std::string{text} + std::string(width - used, ' ');
+  };
+  auto const formatRow = [&](ProbePlan const& plan, std::string_view marker) {
+    // marker is the warning glyph ("\xE2\x9A\xA0 ") or empty; the two-space
+    // indent is fixed, so the name column always starts at the same offset
+    // and the numeric columns align with the header. Padding is applied by
+    // display width (not code points), so wide glyphs and CJK names align.
     auto const name = displaytext::truncateMiddle(
       fileNameOf(plan),
-      nameWidth.value() - prefixWidth(prefix)
+      nameWidth.value() - prefixWidth(marker)
     );
     auto const ratio = planRatio(plan);
+    auto const nameCell = marker.empty()
+      ? padToWidth(name, nameWidth.value())
+      : std::string{marker} + padToWidth(name, nameWidth.value() - prefixWidth(marker));
     if (!plan.probed) {
       return std::format(
-        "{}{:<{}}  {:>3}  {:>6}  {:>9}  {:>6}",
-        prefix,
-        name,
-        nameWidth.value() - prefixWidth(prefix),
+        "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
+        nameCell,
         plan.chosenCq,
         "\xE2\x80\x94",
         "\xE2\x80\x94",
@@ -692,10 +703,8 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
       );
     }
     return std::format(
-      "{}{:<{}}  {:>3}  {:>6}  {:>9}  {:>6}",
-      prefix,
-      name,
-      nameWidth.value() - prefixWidth(prefix),
+      "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
+      nameCell,
       plan.chosenCq,
       formatP5(plan),
       displaytext::formatSizeBytes(plan.estimatedBytes),
@@ -705,13 +714,18 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
 
   if (!layout.has_value()) {
     // Very narrow terminal: name on its own line, metrics indented below.
-    auto const printTwoLine = [&](ProbePlan const& plan, std::string_view prefix) {
+    auto const printTwoLine = [&](ProbePlan const& plan, std::string_view marker) {
       auto const ratio = planRatio(plan);
       if (!plan.probed) {
-        terminal::println(Plain, "{}{} (default; not probed)", prefix, fileNameOf(plan));
+        terminal::println(
+          Plain,
+          "  {}{} (default; not probed)",
+          marker,
+          fileNameOf(plan)
+        );
         return;
       }
-      terminal::println(Plain, "{}{}", prefix, fileNameOf(plan));
+      terminal::println(Plain, "  {}{}", marker, fileNameOf(plan));
       terminal::println(
         Plain,
         "    CQ {} \xC2\xB7 p5 {} \xC2\xB7 {} \xC2\xB7 {}",
@@ -722,25 +736,24 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
                           : "\xE2\x80\x94"
       );
     };
-    for (auto const* plan: normal) { printTwoLine(*plan, "  "); }
-    for (auto const* plan: warnings) { printTwoLine(*plan, "  \xE2\x9A\xA0 "); }
+    for (auto const* plan: normal) { printTwoLine(*plan, ""); }
+    for (auto const* plan: warnings) { printTwoLine(*plan, "\xE2\x9A\xA0 "); }
   } else {
     auto lines = std::vector<std::string>{};
     lines.reserve(plans.size() + 1);
     lines.push_back(
       std::format(
-        "  {:<{}}  {:>3}  {:>6}  {:>9}  {:>6}",
-        "File",
-        nameWidth.value(),
+        "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
+        padToWidth("File", nameWidth.value()),
         "CQ",
         "p5",
         "Est.Size",
         "Ratio"
       )
     );
-    for (auto const* plan: normal) { lines.push_back(formatRow(*plan, "  ")); }
+    for (auto const* plan: normal) { lines.push_back(formatRow(*plan, "")); }
     for (auto const* plan: warnings) {
-      lines.push_back(formatRow(*plan, "  \xE2\x9A\xA0 "));
+      lines.push_back(formatRow(*plan, "\xE2\x9A\xA0 "));
     }
     terminal::write(
       terminal::Stream::Stdout,
