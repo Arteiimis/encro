@@ -74,3 +74,69 @@ TEST_CASE("truncateWithEllipsis keeps ascii text within width budget", "[display
   CHECK(displaytext::displayWidth(truncated) <= 16);
   CHECK(truncated.ends_with("..."));
 }
+
+TEST_CASE(
+  "formatSignedPercent renders signed percentages with growth marker",
+  "[display-text]"
+) {
+  CHECK(
+    displaytext::formatSignedPercent(0.80)
+    == "\xE2\x88\x92"
+       "20%"
+  );                                                                     // −20%
+  CHECK(displaytext::formatSignedPercent(1.24) == "+24% \xE2\x86\x91");  // +24% ↑
+  CHECK(displaytext::formatSignedPercent(1.0) == "+0%");
+  CHECK(
+    displaytext::formatSignedPercent(1.005) == "+0% \xE2\x86\x91"
+  );  // rounds to +0%, still > 1
+  CHECK(displaytext::formatSignedPercent(2.87) == "+187% \xE2\x86\x91");
+  CHECK(
+    displaytext::formatSignedPercent(0.45)
+    == "\xE2\x88\x92"
+       "55%"
+  );
+}
+
+TEST_CASE("formatSizeBytes auto-scales MB and GB", "[display-text]") {
+  CHECK(displaytext::formatSizeBytes(std::uintmax_t{0}) == "0.0 MB");
+  CHECK(displaytext::formatSizeBytes(std::uintmax_t{1'469'824}) == "1.4 MB");
+  CHECK(displaytext::formatSizeBytes(std::uintmax_t{1'500'000'000}) == "1.40 GB");
+  CHECK(displaytext::formatSizeBytes(std::optional<std::uintmax_t>{}) == "\xE2\x80\x94");
+}
+
+TEST_CASE("truncateMiddle keeps the extension and stays within width", "[display-text]") {
+  auto const name = std::string{"35e5a22dece198d78d9815c6056ef21e.mp4"};
+  CHECK(displaytext::displayWidth(name) == 36);
+
+  auto const truncated = displaytext::truncateMiddle(name, 30);
+
+  CHECK(displaytext::displayWidth(truncated) <= 30);
+  CHECK(truncated.ends_with(".mp4"));
+  CHECK(truncated.find("\xE2\x80\xA6") != std::string::npos);
+}
+
+TEST_CASE(
+  "truncateMiddle passes through short names and handles no extension",
+  "[display-text]"
+) {
+  CHECK(displaytext::truncateMiddle("a.mp4", 30) == "a.mp4");
+  CHECK(displaytext::truncateMiddle("noext", 5) == "noext");
+  CHECK(displaytext::displayWidth(displaytext::truncateMiddle("abcdef", 3)) <= 3);
+}
+
+TEST_CASE(
+  "layoutColumns reserves the numeric columns and rejects tiny widths",
+  "[display-text]"
+) {
+  auto const wide = displaytext::layoutColumns(120);
+  REQUIRE(wide.has_value());
+  CHECK(wide.value().nameWidth == 120 - 32);
+
+  auto const standard = displaytext::layoutColumns(80);
+  REQUIRE(standard.has_value());
+  CHECK(standard.value().nameWidth == 80 - 32);
+
+  CHECK_FALSE(displaytext::layoutColumns(40).has_value());
+  CHECK_FALSE(displaytext::layoutColumns(51).has_value());
+  CHECK(displaytext::layoutColumns(52).has_value());
+}

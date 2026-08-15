@@ -8,6 +8,7 @@
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
 #include "infra/toolchain.h"
+#include "preview/preview_process.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -15,6 +16,7 @@
 
 #include <array>
 #include <chrono>
+#include <filesystem>
 #include <format>
 #include <iostream>
 #include <optional>
@@ -186,6 +188,48 @@ auto ensureToolchainReady(appctx::AppContext& ctx, prelude::StartupContext const
   return true;
 }
 
+// Preview runs before buildAppConfig (which hard-fails without an input
+// path) and skips job-state setup entirely.
+auto runPreview(prelude::StartupContext const& startup) -> int {
+  auto ctx = appctx::AppContext{};
+  ctx.config.inputPath = fs::path{startup.cmd.previewOriginal.value()};
+  if (startup.cmd.ffmpegPath.has_value()) {
+    ctx.config.ffmpegInstallDir = fs::path{startup.cmd.ffmpegPath.value()};
+  }
+
+  if (!ensureToolchainReady(ctx, startup)) { return 1; }
+
+  auto options = preview::PreviewOptions{.original = ctx.config.inputPath};
+  if (startup.cmd.previewEncoded.has_value()) {
+    options.encoded = fs::path{startup.cmd.previewEncoded.value()};
+  }
+  if (startup.cmd.previewOutput.has_value()) {
+    options.output = fs::path{startup.cmd.previewOutput.value()};
+  }
+  if (startup.cmd.previewStart.has_value()) {
+    options.startSeconds = startup.cmd.previewStart.value();
+  }
+  if (startup.cmd.previewDuration.has_value()) {
+    options.durationSeconds = startup.cmd.previewDuration.value();
+  }
+  options.noOpen = startup.cmd.previewNoOpen;
+
+  auto const runRes = preview::run(ctx, options);
+  if (!runRes) {
+    return failWithHint(
+      startup,
+      std::format("Preview failed: {}", runRes.error()),
+      false,
+      &ctx
+    );
+  }
+
+  auto const status = runRes.value() == 0 ? "success" : "failed";
+  logging::logRunSummary(buildSummary(&ctx, status));
+  logging::shutdown();
+  return runRes.value();
+}
+
 auto runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& startup)
   -> int {
   auto runRes = pipeline::run(ctx);
@@ -233,6 +277,8 @@ auto run(int argc, char* argv[]) -> int {
   if (auto const earlyExit = handleParseAndHelp(startup); earlyExit.has_value()) {
     return earlyExit.value();
   }
+
+  if (startup.cmd.preview) { return runPreview(startup); }
 
   auto config = buildAppConfig(startup);
   if (!config.has_value()) { return 1; }

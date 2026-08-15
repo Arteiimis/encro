@@ -523,3 +523,105 @@ TEST_CASE("help text includes usage synopsis before option groups", "[cmd]") {
   CHECK(help.find("input-paths") != std::string::npos);
   CHECK(usagePos < generalOptionsPos);
 }
+
+TEST_CASE("commandLineInit parses --min-vmaf with default 95", "[cmd]") {
+  auto const defaults = parseArgs({"encro"});
+  CHECK(defaults.minVmaf == 95);
+
+  auto const custom = parseArgs({"encro", "--min-vmaf", "90"});
+  CHECK(custom.minVmaf == 90);
+  CHECK_FALSE(custom.error.has_value());
+}
+
+TEST_CASE("commandLineInit parses --dry-run", "[cmd]") {
+  auto const result = parseArgs({"encro", "-i", "a.mp4", "--dry-run"});
+  CHECK(result.dryRun);
+  CHECK_FALSE(result.error.has_value());
+}
+
+TEST_CASE(
+  "preview subcommand wins over positional input interpretation",
+  "[cmd][cli-positional]"
+) {
+  auto const result = parseArgs({"encro", "preview", "a.mp4", "b.mp4"});
+  CHECK(result.preview);
+  CHECK_FALSE(result.positionalInputs.has_value());
+  REQUIRE(result.previewOriginal.has_value());
+  CHECK(result.previewOriginal.value() == "a.mp4");
+  REQUIRE(result.previewEncoded.has_value());
+  CHECK(result.previewEncoded.value() == "b.mp4");
+  CHECK_FALSE(result.error.has_value());
+}
+
+TEST_CASE("preview accepts a single input (single-input mode)", "[cmd][cli-positional]") {
+  auto const result = parseArgs({"encro", "preview", "a.mp4"});
+  CHECK(result.preview);
+  REQUIRE(result.previewOriginal.has_value());
+  CHECK(result.previewOriginal.value() == "a.mp4");
+  CHECK_FALSE(result.previewEncoded.has_value());
+  CHECK_FALSE(result.error.has_value());
+}
+
+TEST_CASE("preview parses output start duration and no-open", "[cmd][cli-positional]") {
+  auto const result = parseArgs({
+    "encro",
+    "preview",
+    "a.mp4",
+    "b.mp4",
+    "--output",
+    "out.mp4",
+    "--start",
+    "2510",
+    "--duration",
+    "20",
+    "--no-open",
+  });
+  REQUIRE(result.preview);
+  REQUIRE(result.previewOutput.has_value());
+  CHECK(result.previewOutput.value() == "out.mp4");
+  REQUIRE(result.previewStart.has_value());
+  CHECK(result.previewStart.value() == Catch::Approx(2510.0));
+  REQUIRE(result.previewDuration.has_value());
+  CHECK(result.previewDuration.value() == Catch::Approx(20.0));
+  CHECK(result.previewNoOpen);
+  CHECK_FALSE(result.error.has_value());
+}
+
+TEST_CASE("preview without positionals reports a clear error", "[cmd][cli-positional]") {
+  auto const result = parseArgs({"encro", "preview"});
+  CHECK(result.preview);
+  REQUIRE(result.error.has_value());
+  CHECK(
+    result.error.value().find("preview requires at least one positional argument")
+    != std::string::npos
+  );
+}
+
+TEST_CASE("preview -h renders preview help text", "[cmd][cli-positional]") {
+  auto const result = parseArgs({"encro", "preview", "-h"});
+  CHECK(result.preview);
+  CHECK(result.help);
+  CHECK_FALSE(result.error.has_value());
+  CHECK(
+    result.helpText.find("encro preview <original> [<encoded>]") != std::string::npos
+  );
+  CHECK(result.helpText.find("--no-open") != std::string::npos);
+}
+
+TEST_CASE(
+  "bare invocation falls through to the encode workflow",
+  "[cmd][cli-positional]"
+) {
+  auto const result = parseArgs({"encro", "videos"});
+  CHECK_FALSE(result.preview);
+  REQUIRE(result.positionalInputs.has_value());
+  CHECK(result.positionalInputs.value() == std::vector<std::string>{"videos"});
+  CHECK_FALSE(result.error.has_value());
+}
+
+TEST_CASE("bare invocation with flags still falls through", "[cmd][cli-positional]") {
+  auto const result = parseArgs({"encro", "-i", "videos", "-y"});
+  CHECK_FALSE(result.preview);
+  REQUIRE(result.input.has_value());
+  CHECK_FALSE(result.error.has_value());
+}

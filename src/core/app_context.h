@@ -47,6 +47,8 @@ struct AppConfig {
   bool compressImages = false;
   std::optional<int> imageQuality;
   std::optional<int> crf;
+  int minVmaf = 95;
+  bool dryRun = false;
   std::optional<std::string> nvencPreset;
   std::optional<std::string> videoCodec;
   bool verbose = false;
@@ -83,6 +85,7 @@ struct EncodingState {
   std::optional<uint64_t> lastFrameCount;
   std::optional<std::string> lastStatus;
   std::optional<std::string> lastError;
+  std::optional<int> chosenCq;  // probe decision; overrides config.crf
   std::optional<int64_t> totalFrames;
   std::uint64_t baseFrameOffset = 0;
   std::optional<int> subprocessPid;

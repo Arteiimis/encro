@@ -115,17 +115,12 @@ auto buildEncodeConfig(
   appctx::EncodingState const& state,
   EncodeExecutionPlan const& plan
 ) -> EncodeConfig {
-  auto nvencPreset = ctx.config.nvencPreset;
-  auto maxrateKbps = std::optional<int>{};
-  if (
-    auto const dims = getVidDimensions(ctx.toolchain, ctx.runtime, state.inputPath);
-    dims.has_value()
-  ) {
-    if (!nvencPreset.has_value()) {
-      nvencPreset = pickNvencPresetForDimensions(dims->first, dims->second);
-    }
-    maxrateKbps = pickMaxrateKbpsForDimensions(dims->first, dims->second);
-  }
+  auto const settings = resolveInputEncodeSettings(
+    ctx.toolchain,
+    ctx.runtime,
+    state.inputPath,
+    ctx.config.nvencPreset
+  );
 
   return EncodeConfig{
     .ffmpegPath = ctx.toolchain.ffmpegPath,
@@ -133,10 +128,10 @@ auto buildEncodeConfig(
     .outputPath = plan.outputPath,
     .outputFilePath = plan.outputFilePath,
     .outputFormat = ctx.config.outputFormat,
-    .crf = ctx.config.crf,
+    .crf = state.chosenCq.has_value() ? state.chosenCq : ctx.config.crf,
     .videoCodec = ctx.config.videoCodec,
-    .nvencPreset = nvencPreset,
-    .maxrateKbps = maxrateKbps,
+    .nvencPreset = settings.nvencPreset,
+    .maxrateKbps = settings.maxrateKbps,
     .progressFilePath = plan.progressFilePath
   };
 }
@@ -346,32 +341,26 @@ auto encodeOneSegment(
     fs::remove(segProgressFile, ec);
   }
 
-  auto nvencPreset = ctx.config.nvencPreset;
-  auto maxrateKbps = std::optional<int>{};
-  if (
-    auto const dims = getVidDimensions(ctx.toolchain, ctx.runtime, state.inputPath);
-    dims.has_value()
-  ) {
-    if (!nvencPreset.has_value()) {
-      nvencPreset = pickNvencPresetForDimensions(dims->first, dims->second);
-    }
-    maxrateKbps = pickMaxrateKbpsForDimensions(dims->first, dims->second);
-  }
+  auto const settings = resolveInputEncodeSettings(
+    ctx.toolchain,
+    ctx.runtime,
+    state.inputPath,
+    ctx.config.nvencPreset
+  );
 
-  auto const cfg = EncodeConfig{
-    .ffmpegPath = ctx.toolchain.ffmpegPath,
-    .inputPath = state.inputPath,
-    .outputFormat = ctx.config.outputFormat,
-    .crf = ctx.config.crf,
-    .videoCodec = ctx.config.videoCodec,
-    .nvencPreset = nvencPreset,
-    .maxrateKbps = maxrateKbps,
-    .progressFilePath = segProgressFile,
-    .segmentIndex = index,
-    .segmentStartUs = startUs,
-    .segmentDurationUs = durationUs,
-    .tempOutputPath = segFile
-  };
+  auto const cfg = buildSegmentEncodeConfig(
+    ctx.toolchain,
+    state.inputPath,
+    ctx.config.outputFormat,
+    state.chosenCq.has_value() ? state.chosenCq : ctx.config.crf,
+    ctx.config.videoCodec,
+    settings,
+    index,
+    startUs,
+    durationUs,
+    segFile,
+    segProgressFile
+  );
 
   if (auto const validationResult = cfg.validate(); !validationResult) {
     LOG_ERROR(

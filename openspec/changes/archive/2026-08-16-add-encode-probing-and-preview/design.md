@@ -39,7 +39,8 @@ The gate is shared by single-file and batch paths, so placing the probe phase th
 - Extension: if floor not met at 24, probe 20 (then 16); if floor met at 32, probe 36 (then 40). Bounded to [16, 40]; typical cost 3-6 probe points × 2 segments.
 - Decision: highest CQ with p5 >= floor, interpolating linearly between adjacent probed points (rounded down to integer CQ). Bitrate estimate likewise interpolated.
 - Unreachable (p5@16 < floor): warn at plan time, encode with CQ 16, add to the "needs attention" list.
-- Probe artifacts (segment .ts, progress files, VMAF JSON logs) SHALL go to a per-run temp dir (`fs::temp_directory_path()/encro_probe_<uuid>/`), deleted after the probe phase. They MUST NOT reuse `videoseg::segmentDirForTask`, whose resume scan would mistake leftover probe segments for completed production segments.
+- Parallelism: the 3 base candidates are independent and are measured in parallel (wave 1); extension points stay serial because each depends on the previous measurement. Identical decision, ~40% less wall time on the base grid.
+- Probe artifacts (segment .ts, progress files, VMAF JSON logs) SHALL go to a per-run temp dir (`fs::temp_directory_path()/encro_probe_<uuid>/`), deleted after the probe phase (with a brief retry loop for transient Windows handle locks from just-exited scoring children). They MUST NOT reuse `videoseg::segmentDirForTask`, whose resume scan would mistake leftover probe segments for completed production segments.
 
 *Alternative considered*: binary search over [16,40] — fewer encodes worst-case, but harder to reason about with p5 noise and less predictable printed output; step-4 grid keeps the plan lines intuitive.
 
@@ -50,6 +51,8 @@ Probe segments are encoded through the same `EncodeConfig` construction path as 
 ### 4. Shared quality helper: `src/video/video_quality.{h,cpp}`
 
 `measureSegmentQuality(ffmpeg, original, encoded, start, duration)` decodes the aligned segment pair and runs `libvmaf`, returning per-frame scores; callers aggregate p5/mean. Fallback chain: VMAF unavailable or HDR (`getVidInfo` bit-depth/transfer detection) → `ssim` filter; score unparsable or both fail → caller falls back to default CQ 28 (encode side) or omits scores (preview side). SSIM floor mapping (p5): 97→0.985, 95→0.980, 90→0.970.
+
+Scoring commands seek to the window with `-ss` **input** seeks instead of trimming at filter level: a filter `trim=start:S` forces ffmpeg to decode the whole video up to the window, which costs ~17s per 25% window and ~50s per 75% window on a 2h source (the probe phase took ~4min). With `-ss S -i` the demuxer jumps to the window, PTS restarts near zero (offset by the GOP boundary the seek lands on), and both sides trim at local timestamps (`trim=start=0:end=duration`). The encoded input is seeked too when it is a full file (preview windows); probe segments already carry segment-local PTS from their own `-ss` encode and are NOT seeked again (`encodedHasLocalPts`). Measured cost: ~3.5s per window, probe phase ~35s on a 2h video.
 
 *Alternative considered*: full-video SSIM pass (single metric, no segmentation) — one extra full decode per file, rejected for cost; segment-based measurement is shared by both features anyway.
 
@@ -62,7 +65,7 @@ CLI11 subcommand `preview` is added to the existing app; after parse, `got_subco
 ### 6. Preview pipeline: score, then one filtergraph pass
 
 Phase A (selection): sample 5 windows of 10s uniformly (or `--start/--duration` single window), run `measureSegmentQuality` per window, print the list marking the worst.
-Phase B (generation): a single ffmpeg command builds the comparison video from one filtergraph: per window `trim=start:end,setpts=PTS-STARTPTS` on both inputs, `fps`-normalize to the original's average frame rate, `scale` both to the smaller dimensions (even-rounded), `drawtext` labels (`ORIGINAL`/`ENCODED` via `C\:/Windows/Fonts/arial.ttf`; per-segment label = time range + score), `hstack` each pair, `concat` all windows in time order, then x264 `-crf 14 -preset veryfast` with `-pix_fmt yuv420p` (HDR/10-bit compatibility). Audio follows the same windows: per-window `atrim`/`asetpts` + `concat`, copied when the codec is mp4-compatible, re-encoded to AAC otherwise (same fallback pattern as `buildAudioExtractionCmd`'s aacFallback); no audio stream → silent.
+Phase B (generation): a single ffmpeg command builds the comparison video from one filtergraph: per window `trim=start:end,setpts=PTS-STARTPTS` on both inputs, `fps`-normalize to the original's average frame rate, `scale` both to the smaller dimensions (even-rounded), `drawtext` labels (`ORIGINAL`/`ENCODED` via `C\:/Windows/Fonts/arial.ttf`; per-segment label = time range + score), `hstack` each pair, `concat` all windows in time order, then x264 `-crf 14 -preset veryfast` with `-pix_fmt yuv420p` (HDR/10-bit compatibility). Audio follows the same windows: per-window `atrim`/`asetpts` + `concat`, always re-encoded to AAC 192k — the trim filters force decode, so a stream copy is impossible regardless of codec; no audio stream → silent.
 
 The filtergraph builder is a pure function (`preview_filtergraph.{h,cpp}`) taking probed dims/fps/windows → string, so label escaping and concat structure are unit-testable without ffmpeg. VMAF-scored labels come from Phase A; manual mode omits scores.
 
@@ -80,7 +83,7 @@ New `infra/open_file.{h,cpp}`: `ShellExecuteW` on the generated path (Windows pr
 
 ## Risks / Trade-offs
 
-- **Probing adds 1-2 min per file before the prompt** → parallelized across the batch, `--crf` bypass, short-video skip; accepted as the price of the guarantee.
+- **Probing adds 1-2 min per file before the prompt** → parallelized across the batch (one task per file, progress bars per worker slot plus an Overall bar matching the encode bars), base grid parallelized within a file, `--crf` bypass, short-video skip; accepted as the price of the guarantee.
 - **Probe bitrate slightly overestimates final size** (TS muxing overhead on 10s segments, ~5%) → accepted; the estimate is advisory, and the plan prints it as an estimate.
 - **libvmaf's default model is trained on 1080p content** → scores at other resolutions are approximate; acceptable for a relative floor, noted in README.
 - **Auto-open is untestable in CI** (ShellExecute side effect) → e2e always passes `--no-open`; the open call itself stays a thin wrapper.

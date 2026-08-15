@@ -86,7 +86,7 @@ auto appendInvocationLog(std::string_view toolName, int argc, char* argv[]) -> v
 }
 
 auto writeSizedFile(fs::path const& path, std::uintmax_t sizeInBytes) -> void {
-  fs::create_directories(path.parent_path());
+  if (!path.parent_path().empty()) { fs::create_directories(path.parent_path()); }
   auto out = std::ofstream{path, std::ios::binary};
   if (!out.is_open()) { return; }
 
@@ -120,6 +120,7 @@ auto parseFfmpegInvocation(int argc, char* argv[]) -> FfmpegInvocation {
 
     if (
       arg == "-i"
+      || arg == "-f"
       || arg == "-vf"
       || arg == "-c:v"
       || arg == "-q:v"
@@ -136,9 +137,9 @@ auto parseFfmpegInvocation(int argc, char* argv[]) -> FfmpegInvocation {
 
     if (arg == "-hide_banner" || arg == "-nostats" || arg == "-y") { continue; }
 
-    if (!arg.empty() && arg.front() != '-') {
-      invocation.outputFile = fs::path{argv[index]};
-    }
+    // A lone "-" is the null-muxer output sentinel, not a flag.
+    if (arg.size() > 1 && arg.front() == '-') { continue; }
+    if (!arg.empty()) { invocation.outputFile = fs::path{argv[index]}; }
   }
 
   invocation.seekSeconds = parseDoubleArg(argc, argv, "-ss");
@@ -188,9 +189,75 @@ auto runFakeFfprobe(int argc, char* argv[]) -> int {
     return 0;
   }
 
-  std::cout
-    << R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]})";
+  auto duration = readEnv("ENCRO_FAKE_FFPROBE_DURATION_SECS").value_or("2.0");
+  auto codecName = readEnv("ENCRO_FAKE_FFPROBE_CODEC_NAME").value_or("h264");
+  auto output = std::string{
+    R"({"format":{"duration":"@@DURATION@@","size":"1000000"},"streams":[{"codec_type":"video","codec_name":"@@CODEC@@","width":1920,"height":1080,"avg_frame_rate":"30/1","nb_frames":"600","bit_rate":"4000000"}]})"
+  };
+  auto const pos = output.find("@@DURATION@@");
+  if (pos != std::string::npos) { output.replace(pos, 12, duration); }
+  auto const codecPos = output.find("@@CODEC@@");
+  if (codecPos != std::string::npos) { output.replace(codecPos, 9, codecName); }
+  std::cout << output << std::endl;
   return 0;
+}
+
+// Emulate libvmaf for scoring invocations: write the JSON log at the path in
+// the -filter_complex log_path= option. Off by default (probing then falls
+// back to the default CQ); unit tests enable it via
+// ENCRO_FAKE_FFMPEG_WRITE_VMAF=1 with scores from ENCRO_FAKE_FFMPEG_VMAF_SCORES
+// (comma-separated, one frame each; a single value yields two identical frames).
+auto writeFakeVmafLog(int argc, char* argv[]) -> void {
+  auto const scores = readEnv("ENCRO_FAKE_FFMPEG_VMAF_SCORES").value_or("96.0");
+  auto values = std::vector<std::string>{};
+  {
+    auto start = std::size_t{0};
+    while (start <= scores.size()) {
+      auto const comma = scores.find(',', start);
+      values.push_back(scores.substr(
+        start,
+        comma == std::string::npos ? std::string::npos : comma - start
+      ));
+      if (comma == std::string::npos) { break; }
+      start = comma + 1;
+    }
+  }
+  if (values.size() == 1) { values.push_back(values.front()); }
+
+  for (auto index = 1; index < argc; ++index) {
+    auto const arg = std::string_view{argv[index]};
+    auto const marker = std::string_view{"log_path="};
+    auto const markerPos = arg.find(marker);
+    if (markerPos == std::string_view::npos) { continue; }
+    auto rest = arg.substr(markerPos + marker.size());
+    if (rest.empty() || rest.front() != '\'') { continue; }
+    rest.remove_prefix(1);
+    auto const end = rest.find('\'');
+    if (end == std::string_view::npos) { continue; }
+    // The path is escaped for the filtergraph ('\:' for the drive colon).
+    auto path = std::string{};
+    auto const part = rest.substr(0, end);
+    for (std::size_t i = 0; i < part.size(); ++i) {
+      if (part[i] == '\\' && i + 1 < part.size() && part[i + 1] == ':') {
+        path += ':';
+        ++i;
+      } else {
+        path += part[i];
+      }
+    }
+    auto out = std::ofstream{fs::path{path}};
+    if (!out.is_open()) {
+      std::cerr << "cannot open vmaf log: " << path << '\n';
+      return;
+    }
+    out << "{\"frames\":[";
+    for (std::size_t i = 0; i < values.size(); ++i) {
+      if (i > 0) { out << ','; }
+      out << "{\"frameNum\":" << i << ",\"metrics\":{\"vmaf\":" << values[i] << "}}";
+    }
+    out << "]}\n";
+    return;
+  }
 }
 
 auto runFakeFfmpeg(int argc, char* argv[]) -> int {
@@ -237,6 +304,16 @@ auto runFakeFfmpeg(int argc, char* argv[]) -> int {
   if (!invocation.outputFile.has_value()) {
     std::cerr << "missing output file\n";
     return 2;
+  }
+
+  // Scoring invocations (-f null -) write no output file. Optionally emulate
+  // libvmaf by writing the JSON log (see writeFakeVmafLog); off by default so
+  // probing deterministically falls back to the default CQ.
+  if (invocation.outputFile->string() == "-") {
+    if (readEnvInt("ENCRO_FAKE_FFMPEG_WRITE_VMAF", 0) != 0) {
+      writeFakeVmafLog(argc, argv);
+    }
+    return 0;
   }
 
   writeSizedFile(
