@@ -4,6 +4,7 @@
 #include "core/display_text.h"
 #include "core/progress.h"
 #include "core/task_executor.h"
+#include "infra/console_width.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
 #include "utils/utils.h"
@@ -18,7 +19,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <optional>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -136,11 +140,6 @@ auto audioBitrateBps(boost::json::value const& vidInfo) -> double {
     }
   }
   return 0.0;
-}
-
-auto formatSizeMB(std::optional<std::uintmax_t> bytes) -> std::string {
-  if (!bytes.has_value()) { return "-"; }
-  return std::format("{:.1f} MB", static_cast<double>(bytes.value()) / 1'048'576.0);
 }
 
 auto metricLabel(videoquality::QualityMetric metric) -> std::string_view {
@@ -607,9 +606,17 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     metricLabel(plans.empty() ? videoquality::QualityMetric::Vmaf : plans.front().metric),
     minVmafFloor
   );
+
   auto totalEst = std::uintmax_t{0};
   auto totalSource = std::uintmax_t{0};
   auto estCount = std::size_t{0};
+  auto const fileNameOf = [](ProbePlan const& plan) {
+    return displaytext::pathToUtf8String(plan.inputPath.filename());
+  };
+
+  auto normal = std::vector<ProbePlan const*>{};
+  auto warnings = std::vector<ProbePlan const*>{};
+  normal.reserve(plans.size());
   for (auto const& plan: plans) {
     auto ec = std::error_code{};
     totalSource += fs::file_size(plan.inputPath, ec);
@@ -617,42 +624,118 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
       totalEst += plan.estimatedBytes.value();
       ++estCount;
     }
+    (plan.unreachableFloor ? warnings : normal).push_back(&plan);
+  }
+  auto sortByName = [&](std::vector<ProbePlan const*>& group) {
+    std::ranges::sort(group, [&](ProbePlan const* a, ProbePlan const* b) {
+      return fileNameOf(*a) < fileNameOf(*b);
+    });
+  };
+  sortByName(normal);
+  sortByName(warnings);
 
-    if (plan.unreachableFloor) {
-      terminal::println(
-        Warning,
-        "  {}: CQ {} (p5 {} {:.2f}; floor unreachable)",
-        displaytext::pathToUtf8String(plan.inputPath.filename()),
+  if (!warnings.empty()) {
+    terminal::println(
+      Warning,
+      "\xE2\x9A\xA0 {} file(s) can't reach the floor; encoded at the lowest CQ {}.",
+      warnings.size(),
+      warnings.front()->chosenCq
+    );
+  }
+
+  auto const formatP5 = [](ProbePlan const& plan) -> std::string {
+    auto const p5 = plan.p5.value_or(0.0);
+    if (plan.metric == videoquality::QualityMetric::Ssim) {
+      return std::format("{:.3f}", p5);
+    }
+    return p5 < 95.0 ? std::format("{:.2f}", p5) : std::format("{:.1f}", p5);
+  };
+  auto const prefixWidth = [](std::string_view prefix) -> std::size_t {
+    return displaytext::displayWidth(prefix);
+  };
+  auto const layout = displaytext::layoutColumns(consolewidth::resolveColumns());
+  auto const planRatio = [](ProbePlan const& plan) -> std::optional<double> {
+    if (!plan.estimatedBytes.has_value()) { return std::nullopt; }
+    auto ec = std::error_code{};
+    auto const sourceBytes = fs::file_size(plan.inputPath, ec);
+    if (sourceBytes == 0) { return std::nullopt; }
+    return static_cast<double>(plan.estimatedBytes.value())
+      / static_cast<double>(sourceBytes);
+  };
+  auto const formatRow = [&](ProbePlan const& plan, std::string_view prefix) {
+    auto const name = displaytext::truncateMiddle(
+      fileNameOf(plan),
+      layout.value().nameWidth - prefixWidth(prefix)
+    );
+    auto const ratio = planRatio(plan);
+    if (!plan.probed) {
+      return std::format(
+        "{}{:<{}}  {:>3}  {:>6}  {:>9}  {:>6}",
+        prefix,
+        name,
+        layout.value().nameWidth - prefixWidth(prefix),
         plan.chosenCq,
-        metricLabel(plan.metric),
-        plan.p5.value_or(0.0)
-      );
-    } else if (!plan.probed) {
-      terminal::println(
-        Info,
-        "  {}: CQ {} (default; not probed)",
-        displaytext::pathToUtf8String(plan.inputPath.filename()),
-        plan.chosenCq
-      );
-    } else {
-      terminal::println(
-        Info,
-        "  {}: CQ {} (p5 {} {:.2f})",
-        displaytext::pathToUtf8String(plan.inputPath.filename()),
-        plan.chosenCq,
-        metricLabel(plan.metric),
-        plan.p5.value_or(0.0)
+        "\xE2\x80\x94",
+        "\xE2\x80\x94",
+        "\xE2\x80\x94"
       );
     }
-    terminal::println(Info, "    est. size: {}", formatSizeMB(plan.estimatedBytes));
-    if (plan.estimatedBytes.has_value()) {
-      auto const sourceBytes = fs::file_size(plan.inputPath, ec);
-      auto const ratio = sourceBytes > 0
-        ? static_cast<double>(plan.estimatedBytes.value())
-          / static_cast<double>(sourceBytes)
-        : 0.0;
-      terminal::println(Info, "    ratio: {:.2f}", ratio);
+    return std::format(
+      "{}{:<{}}  {:>3}  {:>6}  {:>9}  {:>6}",
+      prefix,
+      name,
+      layout.value().nameWidth - prefixWidth(prefix),
+      plan.chosenCq,
+      formatP5(plan),
+      displaytext::formatSizeBytes(plan.estimatedBytes),
+      ratio.has_value() ? displaytext::formatSignedPercent(ratio.value()) : "\xE2\x80\x94"
+    );
+  };
+
+  if (!layout.has_value()) {
+    // Very narrow terminal: name on its own line, metrics indented below.
+    auto const printTwoLine = [&](ProbePlan const& plan, std::string_view prefix) {
+      auto const ratio = planRatio(plan);
+      if (!plan.probed) {
+        terminal::println(Plain, "{}{} (default; not probed)", prefix, fileNameOf(plan));
+        return;
+      }
+      terminal::println(Plain, "{}{}", prefix, fileNameOf(plan));
+      terminal::println(
+        Plain,
+        "    CQ {} \xC2\xB7 p5 {} \xC2\xB7 {} \xC2\xB7 {}",
+        plan.chosenCq,
+        formatP5(plan),
+        displaytext::formatSizeBytes(plan.estimatedBytes),
+        ratio.has_value() ? displaytext::formatSignedPercent(ratio.value())
+                          : "\xE2\x80\x94"
+      );
+    };
+    for (auto const* plan: normal) { printTwoLine(*plan, "  "); }
+    for (auto const* plan: warnings) { printTwoLine(*plan, "  \xE2\x9A\xA0 "); }
+  } else {
+    auto lines = std::vector<std::string>{};
+    lines.reserve(plans.size() + 1);
+    lines.push_back(
+      std::format(
+        "  {:<{}}  {:>3}  {:>6}  {:>9}  {:>6}",
+        "File",
+        layout.value().nameWidth,
+        "CQ",
+        "p5",
+        "Est.Size",
+        "Ratio"
+      )
+    );
+    for (auto const* plan: normal) { lines.push_back(formatRow(*plan, "  ")); }
+    for (auto const* plan: warnings) {
+      lines.push_back(formatRow(*plan, "  \xE2\x9A\xA0 "));
     }
+    terminal::write(
+      terminal::Stream::Stdout,
+      std::ranges::to<std::string>(lines | std::views::join_with('\n')),
+      true
+    );
   }
 
   auto const ratio = totalSource > 0
@@ -660,11 +743,11 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     : 0.0;
   terminal::println(
     Info,
-    "  Total: {} file(s), est. {}, source {} (ratio {:.2f})",
+    "  Total: {} file(s), est. {}, source {} ({})",
     plans.size(),
-    formatSizeMB(estCount > 0 ? std::optional{totalEst} : std::nullopt),
-    formatSizeMB(totalSource),
-    ratio
+    displaytext::formatSizeBytes(estCount > 0 ? std::optional{totalEst} : std::nullopt),
+    displaytext::formatSizeBytes(totalSource),
+    displaytext::formatSignedPercent(ratio)
   );
 }
 
