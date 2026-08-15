@@ -24,6 +24,12 @@ namespace videobatch {
 using ActionIdMap = immer::map<fs::path, std::string>;
 using EncodeResultsMap = immer::map<fs::path, bool>;
 
+struct EncodingBatchOutcome {
+  std::optional<EncodeResultsMap> results;     // nullopt = canceled at the prompt
+  std::vector<std::string> attentionWarnings;  // unreachable-floor files
+  bool dryRun = false;  // probe plan printed; exit without encoding
+};
+
 auto runEncodingTasks(
   appctx::AppContext& ctx,
   std::vector<fs::path> const& vids,
@@ -31,7 +37,7 @@ auto runEncodingTasks(
   ActionIdMap const& actionIds,
   std::size_t overallTotalCount,
   std::size_t initialCompletedCount
-) -> std::optional<EncodeResultsMap>;
+) -> EncodingBatchOutcome;
 
 namespace detail {
 
@@ -136,6 +142,10 @@ struct EncodingExecutionContext {
   EncodingProgressState& progressState;
   appctx::path_map<fs::path> const& plannedOutputFiles;
   videobatch::ActionIdMap const& actionIds;
+  // Per-file probe decisions (input path -> chosen CQ), copied when execution
+  // contexts are created after the confirmation gate; empty when probing was
+  // skipped (--crf, webp, or short videos).
+  appctx::path_map<int> probeCqByInput;
 
   auto& counters() { return progressState.counters; }
   auto const& counters() const { return progressState.counters; }

@@ -1,10 +1,13 @@
 #pragma once
 
+#include "core/app_context.h"
 #include "core/error_handle.h"
 #include "utils/utils.h"
+#include "video/video_info.h"
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <optional>
@@ -28,6 +31,8 @@ struct EncodeConfig {
   std::optional<std::uint64_t> segmentStartUs;
   std::optional<std::uint64_t> segmentDurationUs;
   std::optional<fs::path> tempOutputPath;
+
+  auto operator==(EncodeConfig const&) const -> bool = default;
 
   eh::Result<void> validate() const {
     if (!inputPath.has_value()) { return eh::makeError("Input path is required."); }
@@ -162,6 +167,67 @@ inline auto pickMaxrateKbpsForDimensions(int width, int height) -> int {
   if (pixels >= 3'686'400) { return 15000; }  // 2K (2560x1440)
   if (pixels >= 2'073'600) { return 10000; }  // 1080p (1920x1080)
   return 6000;
+}
+
+struct EncodeInputSettings {
+  std::optional<std::string> nvencPreset;
+  std::optional<int> maxrateKbps;
+};
+
+// Resolves the preset/maxrate a production encode of inputPath would use:
+// the configured preset when set, otherwise picked by resolution; the
+// maxrate cap is always picked by resolution when dimensions are known.
+// Probing mirrors this exact resolution so decisions reflect the real encode.
+inline auto resolveInputEncodeSettings(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  fs::path const& inputPath,
+  std::optional<std::string> const& configuredPreset
+) -> EncodeInputSettings {
+  auto settings = EncodeInputSettings{};
+  if (
+    auto const dims = getVidDimensions(toolchain, runtime, inputPath); dims.has_value()
+  ) {
+    settings.nvencPreset = configuredPreset.has_value()
+      ? configuredPreset
+      : std::optional<std::string>{
+          pickNvencPresetForDimensions(dims->first, dims->second)
+        };
+    settings.maxrateKbps = pickMaxrateKbpsForDimensions(dims->first, dims->second);
+  }
+  return settings;
+}
+
+// Single construction path for segmented encodes: used by the real encode
+// (encodeOneSegment) and by quality probing, so probe encodes differ from
+// production only in CQ and output path (invariant asserted by tests).
+inline auto buildSegmentEncodeConfig(
+  appctx::ToolchainPaths const& toolchain,
+  fs::path const& inputPath,
+  std::string const& outputFormat,
+  std::optional<int> crf,
+  std::optional<std::string> const& videoCodec,
+  EncodeInputSettings const& settings,
+  std::uint64_t segmentIndex,
+  std::uint64_t startUs,
+  std::uint64_t durationUs,
+  fs::path const& tempOutputPath,
+  std::optional<fs::path> progressFilePath = std::nullopt
+) -> EncodeConfig {
+  return EncodeConfig{
+    .ffmpegPath = toolchain.ffmpegPath,
+    .inputPath = inputPath,
+    .outputFormat = outputFormat,
+    .videoCodec = videoCodec,
+    .crf = crf,
+    .nvencPreset = settings.nvencPreset,
+    .maxrateKbps = settings.maxrateKbps,
+    .progressFilePath = progressFilePath,
+    .segmentIndex = segmentIndex,
+    .segmentStartUs = startUs,
+    .segmentDurationUs = durationUs,
+    .tempOutputPath = tempOutputPath
+  };
 }
 
 inline auto buildAudioExtractionCmd(

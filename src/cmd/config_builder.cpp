@@ -318,6 +318,16 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
     config.crf = crf;
   }
 
+  if (result.minVmaf < 0 || result.minVmaf > 100) {
+    return eh::makeError("--min-vmaf must be between 0 and 100.");
+  }
+  config.minVmaf = result.minVmaf;
+
+  config.dryRun = result.dryRun;
+  if (config.dryRun && config.crf.has_value()) {
+    return eh::makeError("--dry-run requires probing; it cannot be combined with --crf.");
+  }
+
   config.nvencPreset = result.nvencPreset;
   if (config.nvencPreset.has_value() && config.nvencPreset.value() == "auto") {
     config.nvencPreset.reset();  // "auto" = pick by resolution
