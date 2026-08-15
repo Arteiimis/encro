@@ -58,7 +58,7 @@ elseif is_mode("coverage") then
   add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE")
 end
 
-add_requires("boost[all]")
+add_requires("boost[process,stacktrace,asio,context,date_time,json]")
 add_requires("cli11")
 add_requires("thread-pool")
 add_requires("spdlog[fmt_external]")
