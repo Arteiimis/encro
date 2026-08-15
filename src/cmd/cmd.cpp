@@ -295,6 +295,70 @@ auto formatHelpSection(
   return result;
 }
 
+auto hasOptionNames(CLI::Option const* opt) -> bool {
+  return opt->nonpositional() || opt->get_positional();
+}
+
+auto isAdvancedOption(
+  CLI::Option const* opt,
+  std::span<std::string_view const> advancedLongNames
+) -> bool {
+  auto const& lnames = opt->get_lnames();
+  return !lnames.empty()
+    && std::ranges::find(advancedLongNames, lnames.front()) != advancedLongNames.end();
+}
+
+auto visibleOptionsOf(
+  CLI::App const* group,
+  CLI::App const* general,
+  CLI::App const* appPtr
+) -> std::vector<CLI::Option const*> {
+  auto opts = std::vector<CLI::Option const*>{};
+  if (group == general) {
+    for (auto const* opt: appPtr->get_options()) { opts.push_back(opt); }
+  }
+  for (auto const* opt: group->get_options()) { opts.push_back(opt); }
+  return opts;
+}
+
+auto formatTypeStr(CLI::Option const* opt) -> std::string {
+  if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
+    auto const typeName = opt->get_type_name();
+    if (typeName != "TEXT"sv && typeName != "text"sv) { return " " + typeName; }
+  }
+  return {};
+}
+
+auto formatDefaultStr(CLI::Option const* opt) -> std::string {
+  auto const defaultStr = opt->get_default_str();
+  return defaultStr.empty() ? std::string{} : " (=" + defaultStr + ")";
+}
+
+// Max column width across visible options (name + type + default).
+auto computeMaxColumnLen(
+  CLI::App const* general,
+  std::span<CLI::App const* const> groups,
+  CLI::App const* appPtr,
+  std::span<std::string_view const> advancedLongNames,
+  bool fullTier
+) -> unsigned {
+  auto maxLen = 0u;
+  for (auto const* group: groups) {
+    for (auto const* opt: visibleOptionsOf(group, general, appPtr)) {
+      if (!hasOptionNames(opt)) continue;
+      if (!fullTier && isAdvancedOption(opt, advancedLongNames)) continue;
+      auto const nameStr = formatOptionName(opt);
+      maxLen = std::max(
+        maxLen,
+        static_cast<unsigned>(
+          nameStr.size() + formatTypeStr(opt).size() + formatDefaultStr(opt).size()
+        )
+      );
+    }
+  }
+  return maxLen;
+}
+
 auto makeHelpFormatter(
   CLI::App const* general,
   CLI::App const* io,
@@ -318,24 +382,6 @@ auto makeHelpFormatter(
       auto const fullTier = helpOpt->count() >= 2;
       constexpr auto hintLine = "Run 'encro -hh' to view all options."sv;
 
-      auto const isAdvanced = [&](CLI::Option const* opt) {
-        auto const& lnames = opt->get_lnames();
-        return !lnames.empty()
-          && std::ranges::find(advancedLongNames, lnames.front())
-          != advancedLongNames.end();
-      };
-      auto const hasNames = [](CLI::Option const* opt) {
-        return opt->nonpositional() || opt->get_positional();
-      };
-      auto const visibleOptions = [&](CLI::App const* group) {
-        auto opts = std::vector<CLI::Option const*>{};
-        if (group == general) {
-          for (auto const* opt: app_ptr->get_options()) { opts.push_back(opt); }
-        }
-        for (auto const* opt: group->get_options()) { opts.push_back(opt); }
-        return opts;
-      };
-
       auto result = std::string{};
       auto const layout = resolveHelpTextLayout();
       auto const desc = app_ptr->get_description();
@@ -350,34 +396,13 @@ auto makeHelpFormatter(
       result += formatHelpSection("Usage", std::span{usageLines}, layout.lineLength);
       result += "\n";
       auto const groupIter = std::array{general, io, processing, fileop};
-
-      // Max column width across visible options (name + type + default).
-      auto const maxColumnLen = [&] {
-        auto maxLen = 0u;
-        for (auto const* group: groupIter) {
-          for (auto const* opt: visibleOptions(group)) {
-            if (!hasNames(opt)) continue;
-            if (!fullTier && isAdvanced(opt)) continue;
-            auto const nameStr = formatOptionName(opt);
-            auto typeStr = std::string{};
-            if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
-              auto const typeName = opt->get_type_name();
-              if (typeName != "TEXT"sv && typeName != "text"sv) {
-                typeStr = " " + typeName;
-              }
-            }
-            auto defaultStr = std::string{};
-            if (!opt->get_default_str().empty()) {
-              defaultStr = " (=" + opt->get_default_str() + ")";
-            }
-            maxLen = std::max(
-              maxLen,
-              static_cast<unsigned>(nameStr.size() + typeStr.size() + defaultStr.size())
-            );
-          }
-        }
-        return maxLen;
-      }();
+      auto const maxColumnLen = computeMaxColumnLen(
+        general,
+        std::span{groupIter},
+        app_ptr,
+        advancedLongNames,
+        fullTier
+      );
 
       auto const maxColWidthFromLayout =
         layout.lineLength > layout.minDescriptionLength + 2
@@ -391,9 +416,9 @@ auto makeHelpFormatter(
 
       for (auto const* group: groupIter) {
         result += formatGroupHeader(group->get_description());
-        for (auto const* opt: visibleOptions(group)) {
-          if (!hasNames(opt)) continue;
-          if (!fullTier && isAdvanced(opt)) continue;
+        for (auto const* opt: visibleOptionsOf(group, general, app_ptr)) {
+          if (!hasOptionNames(opt)) continue;
+          if (!fullTier && isAdvancedOption(opt, advancedLongNames)) continue;
           result += formatOptionHelp(
             opt,
             colWidth,
