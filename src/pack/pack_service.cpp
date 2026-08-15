@@ -107,29 +107,39 @@ struct CompactProgressState {
     if (onCompactStatusText) { onCompactStatusText(initialStatus); }
   }
 
-  void startSpinner(std::function<void(std::string_view)> const& onCompactStatusText) {
+  void renderFinalizingFrame(
+    std::size_t& frameIndex,
+    std::function<void(std::string_view)> const& onCompactStatusText
+  ) {
+    constexpr auto frames = std::array{'|', '/', '-', '\\'};
+    auto lock = std::scoped_lock{mutex};
+    auto const finalizingText = std::format("Finalizing {}", frames[frameIndex]);
+    frameIndex = (frameIndex + 1) % frames.size();
+    if (barIndex.has_value()) { ctx.setPostfixText(barIndex.value(), finalizingText); }
+    if (onCompactStatusText) { onCompactStatusText(finalizingText); }
+  }
+
+  // Wake immediately on a stop request; the manual-reset event stays signaled,
+  // so fall back to the normal cadence to avoid a hot spin while the spinner's
+  // own exit conditions catch up.
+  void waitTick() {
     using namespace std::chrono_literals;
+    if (stopsignal::waitForStop(std::chrono::milliseconds{120})) {
+      std::this_thread::sleep_for(std::chrono::milliseconds{120});
+    }
+  }
+
+  void startSpinner(std::function<void(std::string_view)> const& onCompactStatusText) {
     spinnerThread = std::jthread{[this, &onCompactStatusText](std::stop_token stopToken) {
-      auto const frames = std::array{'|', '/', '-', '\\'};
       auto frameIndex = std::size_t{0};
       while (
         !stopToken.stop_requested() && !spinnerStop.load(std::memory_order_acquire)
       ) {
-        if (finalizingCount.load(std::memory_order_acquire) > 0) {
-          auto lock = std::scoped_lock{mutex};
-          auto const finalizingText = std::format("Finalizing {}", frames[frameIndex]);
-          frameIndex = (frameIndex + 1) % frames.size();
-          if (barIndex.has_value()) {
-            ctx.setPostfixText(barIndex.value(), finalizingText);
-          }
-          if (onCompactStatusText) { onCompactStatusText(finalizingText); }
+        if (finalizingCount.load(std::memory_order_acquire) == 0) {
+          waitTick();
+          continue;
         }
-        // Wake immediately on a stop request; the manual-reset event stays
-        // signaled, so fall back to the normal cadence to avoid a hot spin
-        // while the spinner's own exit conditions catch up.
-        if (stopsignal::waitForStop(std::chrono::milliseconds{120})) {
-          std::this_thread::sleep_for(std::chrono::milliseconds{120});
-        }
+        renderFinalizingFrame(frameIndex, onCompactStatusText);
       }
     }};
   }
