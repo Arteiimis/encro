@@ -1,0 +1,27 @@
+#include "infra/open_file.h"
+
+#if defined(_WIN32)
+  #include <windows.h>
+  #include <shellapi.h>
+
+  #include <cstdint>
+#endif
+
+namespace fs = std::filesystem;
+
+namespace openfile {
+
+auto openWithDefaultApp(fs::path const& path) -> bool {
+#if defined(_WIN32)
+  auto const wide = path.wstring();
+  auto const result = reinterpret_cast<std::intptr_t>(
+    ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL)
+  );
+  return result > 32;
+#else
+  // No portable shell-open helper on POSIX; callers warn instead of failing.
+  return false;
+#endif
+}
+
+}  // namespace openfile

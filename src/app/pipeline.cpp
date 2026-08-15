@@ -33,6 +33,7 @@ auto toNamingStrategy(appctx::AppConfig const& config) -> pack::NamingStrategy {
 }
 
 auto shouldEnableJobState(appctx::AppConfig const& config) -> bool {
+  if (config.dryRun) { return false; }  // dry-run leaves no state behind
   if (config.processType == "video" && !config.packOnly) { return true; }
   if (config.processType == "picture" && config.compressImages) { return true; }
 
@@ -149,6 +150,22 @@ auto runPicture(appctx::AppContext& ctx) -> eh::Result<int> {
 }  // namespace
 
 auto run(appctx::AppContext& ctx) -> eh::Result<int> {
+  // --dry-run only has a plan for mp4 probing; any other pipeline would
+  // actually produce output, so exit before any work happens.
+  if (ctx.config.dryRun) {
+    auto const plansMp4 = !ctx.config.packOnly
+      && ctx.config.processType == "video"
+      && ctx.config.outputFormat == "mp4"
+      && !ctx.config.crf.has_value();
+    if (!plansMp4) {
+      terminal::println(
+        Warning,
+        "Dry run: no encoding plan for this pipeline; exiting without encoding."
+      );
+      return 0;
+    }
+  }
+
   if (shouldEnableJobState(ctx.config)) {
     auto const stateRes = ensureJobState(ctx);
     if (!stateRes) { return eh::makeError("{}", stateRes.error()); }
