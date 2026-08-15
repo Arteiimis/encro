@@ -321,6 +321,24 @@ auto visibleOptionsOf(
   return opts;
 }
 
+auto buildPreviewHelpText() -> std::string {
+  auto result = std::string{};
+  result +=
+    "encro preview: compare an original video with its encoded output side by side\n\n";
+  result += "Usage:\n";
+  result += "  encro preview <original> <encoded> [options]\n\n";
+  result += "Positional:\n";
+  result += "  original, encoded   video files to compare (original vs encoded)\n\n";
+  result += "Options:\n";
+  result += "  --output <path>     output video path (default: "
+            "<original-dir>/<original-stem>.preview.mp4)\n";
+  result += "  --start <seconds>   manual window start (skips sampling and scoring)\n";
+  result += "  --duration <seconds> manual window duration (clamped at the video end)\n";
+  result += "  --no-open           do not open the result in the default player\n";
+  result += "  -h, --help          show this help\n";
+  return result;
+}
+
 auto formatTypeStr(CLI::Option const* opt) -> std::string {
   if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
     auto const typeName = opt->get_type_name();
@@ -377,6 +395,7 @@ auto makeHelpFormatter(
         "encro [<input>... | -i <input> | -I <file>...] [-o <output>] [-f mp4|webp] [-r] [-j <n>] [-p] [--resume|--restart]"sv,
         "encro -t picture <input> [-c [-q <n>]] [-s] [-p]"sv,
         "encro -z <input> [-o <output>]"sv,
+        "encro preview <original> <encoded> [--start <s>] [--duration <s>] [--output <path>] [--no-open]"sv,
         "encro -h | -hh | --version"sv,
       };
       auto const fullTier = helpOpt->count() >= 2;
@@ -665,6 +684,20 @@ constexpr auto ProcessingFlags = std::array{
     .defaultDisplay = "28"
   },
   CmdFlagDef{
+    .name = "--min-vmaf",
+    .kind = CmdFlagKind::Int,
+    .description = "minimum p5-VMAF quality floor for probing (0-100)",
+    .defaultValue = "95",
+    .expectedMax = 1
+  },
+  CmdFlagDef{
+    .name = "--dry-run",
+    .kind = CmdFlagKind::Bool,
+    .description = "probe and print the encoding plan, then exit without encoding",
+    .defaultValue = "",
+    .expectedMax = 0
+  },
+  CmdFlagDef{
     .name = "--preset",
     .kind = CmdFlagKind::String,
     .description = "NVENC preset (p1-p7; auto picks by resolution)",
@@ -799,6 +832,28 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
     io->add_option("input-paths", "input file or directory paths (alternative to -i/-I)")
       ->expected(0, kMaxPositionalInputs);
   optRegistry[kPositionalKey] = positionalOpt;
+
+  // ── Preview subcommand ──
+  // Subcommand names take precedence over positional input interpretation;
+  // bare invocations fall through to the encode workflow unchanged.
+  auto* previewSub = app.add_subcommand(
+    "preview",
+    "compare an original video with its encoded output side by side"
+  );
+  previewSub->set_help_flag("");
+  auto* previewOriginal = previewSub->add_option("original", "original video path");
+  auto* previewEncoded = previewSub->add_option("encoded", "encoded video path");
+  auto* previewOutput = previewSub->add_option(
+    "--output",
+    "output video path (default: <original-dir>/<original-stem>.preview.mp4)"
+  );
+  auto* previewStart =
+    previewSub->add_option("--start", "manual window start in seconds");
+  auto* previewDuration =
+    previewSub->add_option("--duration", "manual window duration in seconds");
+  auto* previewNoOpen =
+    previewSub->add_flag("--no-open", "do not open the result in the default player");
+  auto* previewHelp = previewSub->add_flag("-h,--help", "show preview help");
 
   // Register ProcessingFlags on processing group
   for (auto const& def: ProcessingFlags) { registerFlag(def, processing); }
@@ -937,6 +992,17 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
     }
     r.crf = o->as<int>();
   };
+  applyMap["--min-vmaf"] = [](CmdParseResult& r, CLI::Option const* o) {
+    if (o->count() == 0) { return; }
+    if (o->results().empty()) {
+      r.error = "Option --min-vmaf requires a value.";
+      return;
+    }
+    r.minVmaf = o->as<int>();
+  };
+  applyMap["--dry-run"] = [](CmdParseResult& r, CLI::Option const* o) {
+    r.dryRun = o->count() > 0;
+  };
   applyMap["--preset"] = [](CmdParseResult& r, CLI::Option const* o) {
     if (o->count() == 0) { return; }
     if (o->results().empty()) {
@@ -974,6 +1040,28 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
       if (it != optRegistry.end()) { setter(result, it->second); }
     }
     result.helpText = app.help();
+    if (app.got_subcommand(previewSub)) {
+      result.preview = true;
+      if (previewHelp->count() > 0) {
+        result.help = true;
+        result.helpText = buildPreviewHelpText();
+      } else if (previewOriginal->count() == 0 || previewEncoded->count() == 0) {
+        result.error = "preview requires two positional arguments: <original> <encoded>";
+      } else {
+        result.previewOriginal = previewOriginal->as<std::string>();
+        result.previewEncoded = previewEncoded->as<std::string>();
+        if (previewOutput->count() > 0) {
+          result.previewOutput = previewOutput->as<std::string>();
+        }
+        if (previewStart->count() > 0) {
+          result.previewStart = previewStart->as<double>();
+        }
+        if (previewDuration->count() > 0) {
+          result.previewDuration = previewDuration->as<double>();
+        }
+        result.previewNoOpen = previewNoOpen->count() > 0;
+      }
+    }
   } catch (CLI::ParseError const& ex) {
     result.error = ex.what();
     result.helpText = app.help();

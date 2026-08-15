@@ -47,7 +47,9 @@ xmake run encro -t video -i ./videos -o ./out --resume
 | `-p, --pack` / `-z, --pack-only` | pack encoded outputs / pack without encoding |
 | `-j, --jobs N` | max parallel jobs (default 10) |
 | `--resume` / `--restart` | continue a previous job / discard state and start fresh |
-| `--crf N` | video encode quality 0–51 (default 28) |
+| `--crf N` | video encode quality 0–51 (default 28; bypasses probing) |
+| `--min-vmaf N` | p5-VMAF quality floor for probing, 0–100 (default 95) |
+| `--dry-run` | probe and print the encoding plan, then exit without encoding |
 | `--video-codec` | encoder: `hevc_nvenc` (default), `libx265`, `libx264` |
 | `--preset p1..p7` | NVENC preset (auto by resolution) |
 | `-s, --folder-summary` | folder summary images in flat packs |
@@ -56,6 +58,31 @@ xmake run encro -t video -i ./videos -o ./out --resume
 | `--keep` | preserve relative subdirectories in output (default: flatten) |
 
 Run `encro -hh` for the full option list, `encro -h` for the brief view.
+
+### Quality probing (MP4 encodes)
+
+Before the confirmation prompt, encro probes each MP4 encode: it encodes two
+10-second windows per candidate CQ, measures p5-percentile VMAF against the
+source, and picks the highest CQ that meets the floor (default 95, adjust
+with `--min-vmaf`; SSIM is used when VMAF is unavailable, e.g. HDR). The
+resulting per-file plan — CQ, p5 score, estimated size and compression
+ratio — is printed before you confirm. Pass `--crf` to skip probing and use
+a fixed quality, or `--dry-run` to print the plan and exit without encoding.
+Short videos (< 40s) are not probed and use the default CQ.
+
+### Comparing original vs encoded (`preview`)
+
+```sh
+xmake run encro preview <original> <encoded> [--start S --duration D] [--output PATH] [--no-open]
+```
+
+`preview` samples five 10-second windows (or one `--start`/`--duration`
+window), scores each with VMAF/SSIM, marks the worst, and renders a
+comparison video with ORIGINAL/ENCODED panes and per-window labels. Output
+defaults to `<original-stem>.preview.mp4` next to the original and opens in
+your default player unless `--no-open` is passed. Videos shorter than 50
+seconds are compared in full. WebP inputs are rejected: preview compares
+videos only.
 
 ## Building
 
