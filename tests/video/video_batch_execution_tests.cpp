@@ -44,7 +44,7 @@ TEST_CASE(
 ) {
   // GREEN phase: monitorEncodingProgress function extracted and wired.
   // startEncodingMonitor is now a 3-line function with 1-line lambda delegation.
-  // Inner withActionJobState lambdas inside monitorEncodingProgress are unchanged.
+  // Job-state updates in the monitor use the maybeJobState pointer style.
   auto actionIds = videobatch::ActionIdMap{};
   auto results = videobatch::EncodeResultsMap{};
   CHECK(actionIds.size() == 0);

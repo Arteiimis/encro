@@ -274,19 +274,15 @@ TEST_CASE("exec2 keeps partial trailing output without a newline", "[utils]") {
   CHECK(result.output == "abc");
 }
 
-TEST_CASE(
-  "exec2 returns partial output captured before stop termination",
-  "[utils]"
-) {
+TEST_CASE("exec2 returns partial output captured before stop termination", "[utils]") {
   using namespace std::chrono_literals;
 
   stopsignal::reset();
 
 #if defined(_WIN32)
-  auto const cmd = std::string{
-    "cmd /c \"for /l %i in (1,1,100) do @(echo tick-%i & ping -n 1 127.0.0.1 "
-    ">nul)\""
-  };
+  auto const cmd =
+    std::string{"cmd /c \"for /l %i in (1,1,100) do @(echo tick-%i & ping -n 1 127.0.0.1 "
+                ">nul)\""};
 #else
   auto const cmd = std::string{
     "sh -c 'i=1; while [ $i -le 100 ]; do echo tick-$i; i=$((i+1)); sleep 0.1; done'"

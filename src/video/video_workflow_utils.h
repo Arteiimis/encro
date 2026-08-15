@@ -37,15 +37,4 @@ inline auto withJobState(appctx::AppContext& ctx, Fn&& fn) -> bool {
   return false;
 }
 
-template<class Fn>
-inline auto withActionJobState(
-  appctx::AppContext& ctx,
-  std::optional<std::string> const& actionId,
-  Fn&& fn
-) -> bool {
-  if (!actionId.has_value()) { return false; }
-
-  return withJobState(ctx, [&](jobstate::Store& store) { fn(store, actionId.value()); });
-}
-
 }  // namespace videoworkflow

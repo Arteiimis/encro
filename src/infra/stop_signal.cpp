@@ -246,18 +246,16 @@ auto waitForStop(std::chrono::milliseconds timeout) -> bool {
 #if defined(_WIN32)
   auto const handle = stopEventHandle();
   if (handle == nullptr) { return isStopRequested(); }
-  auto const timeoutMs = static_cast<DWORD>(
-    std::clamp<std::int64_t>(timeout.count(), 0, 0x7FFFFFFF)
-  );
+  auto const timeoutMs =
+    static_cast<DWORD>(std::clamp<std::int64_t>(timeout.count(), 0, 0x7FFFFFFF));
   auto const waitResult = ::WaitForSingleObject(handle, timeoutMs);
   return waitResult == WAIT_OBJECT_0 || isStopRequested();
 #else
   auto const fd = stopEventHandle();
   if (fd == -1) { return isStopRequested(); }
   auto pollFd = ::pollfd{.fd = fd, .events = POLLIN, .revents = 0};
-  auto const timeoutMs = static_cast<int>(
-    std::clamp<std::int64_t>(timeout.count(), 0, 0x7FFFFFFF)
-  );
+  auto const timeoutMs =
+    static_cast<int>(std::clamp<std::int64_t>(timeout.count(), 0, 0x7FFFFFFF));
   if (::poll(&pollFd, 1, timeoutMs) > 0) {
     // Drain so a stale byte cannot cause a hot wake-up loop.
     auto byte = char{};

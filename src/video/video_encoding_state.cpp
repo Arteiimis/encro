@@ -18,7 +18,7 @@
 DEFINE_LOGGER(logtags::VIDEO_STATE);
 
 namespace fs = std::filesystem;
-using videoworkflow::withActionJobState;
+using videoworkflow::maybeJobState;
 using videoworkflow::withJobState;
 
 namespace {
@@ -87,6 +87,79 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
   );
 }
 
+auto stateFinished(appctx::EncodingState& state) -> bool {
+  auto lock = std::scoped_lock{state.mtx};
+  return state.finished;
+}
+
+void renderStalled(
+  videobatch::detail::EncodingExecutionContext& executionCtx,
+  appctx::EncodingState& activeState
+) {
+  auto barIndex = std::optional<std::size_t>{};
+  auto lastError = std::optional<std::string>{};
+  auto lastStatus = std::optional<std::string>{};
+  auto actionId = std::optional<std::string>{};
+  {
+    auto lock = std::scoped_lock{activeState.mtx};
+    barIndex = activeState.barIndex;
+    lastError = activeState.lastError;
+    lastStatus = activeState.lastStatus;
+    actionId = activeState.actionId;
+  }
+
+  if (barIndex.has_value()) {
+    auto const fileLabel = getStateLabel(activeState);
+    if (lastError.has_value()) {
+      executionCtx.progress().setTone(barIndex.value(), progress::Tone::Failure);
+      executionCtx.progress().setPostfixText(
+        barIndex.value(),
+        std::format("Encoding: {} | {}", fileLabel, lastError.value())
+      );
+    } else if (lastStatus.has_value()) {
+      executionCtx.progress().setTone(barIndex.value(), progress::Tone::Active);
+      executionCtx.progress().setPostfixText(
+        barIndex.value(),
+        std::format("Encoding: {} | {}", fileLabel, lastStatus.value())
+      );
+    }
+  }
+
+  if (lastStatus.has_value()) {
+    if (auto* store = maybeJobState(executionCtx.app); actionId.has_value()) {
+      store
+        ->markProgress(actionId.value(), std::nullopt, std::nullopt, lastStatus.value());
+    }
+  }
+}
+
+void renderProgress(
+  videobatch::detail::EncodingExecutionContext& executionCtx,
+  appctx::EncodingState& activeState,
+  float progressValue
+) {
+  auto barIndex = std::optional<std::size_t>{};
+  auto actionId = std::optional<std::string>{};
+  auto lastFrameCount = std::optional<std::uint64_t>{};
+  {
+    auto lock = std::scoped_lock{activeState.mtx};
+    activeState.lastProgress = progressValue;
+    activeState.lastProgressAtomic.store(progressValue, std::memory_order_release);
+    barIndex = activeState.barIndex;
+    actionId = activeState.actionId;
+    lastFrameCount = activeState.lastFrameCount;
+  }
+
+  if (barIndex.has_value()) {
+    executionCtx.progress().setTone(barIndex.value(), progress::Tone::Active);
+    executionCtx.progress().setProgress(barIndex.value(), progressValue);
+  }
+
+  if (auto* store = maybeJobState(executionCtx.app); actionId.has_value()) {
+    store->markProgress(actionId.value(), progressValue, lastFrameCount, std::nullopt);
+  }
+}
+
 void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& executionCtx) {
   using namespace std::chrono_literals;
 
@@ -102,92 +175,15 @@ void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& execu
     }
 
     for (auto const& activeState: activeStates) {
-      if (!activeState) { continue; }
-
-      {
-        auto lock = std::scoped_lock{activeState->mtx};
-        if (activeState->finished) { continue; }
-      }
+      if (!activeState || stateFinished(*activeState)) { continue; }
 
       auto const progress = getEncodingProgress(executionCtx.app, *activeState);
       if (!progress.has_value()) {
-        auto barIndex = std::optional<std::size_t>{};
-        auto lastError = std::optional<std::string>{};
-        auto lastStatus = std::optional<std::string>{};
-        auto actionId = std::optional<std::string>{};
-        {
-          auto lock = std::scoped_lock{activeState->mtx};
-          barIndex = activeState->barIndex;
-          lastError = activeState->lastError;
-          lastStatus = activeState->lastStatus;
-          actionId = activeState->actionId;
-        }
-
-        if (barIndex.has_value()) {
-          auto const fileLabel = getStateLabel(*activeState);
-          if (lastError.has_value()) {
-            executionCtx.progress().setTone(barIndex.value(), progress::Tone::Failure);
-            executionCtx.progress().setPostfixText(
-              barIndex.value(),
-              std::format("Encoding: {} | {}", fileLabel, lastError.value())
-            );
-          } else if (lastStatus.has_value()) {
-            executionCtx.progress().setTone(barIndex.value(), progress::Tone::Active);
-            executionCtx.progress().setPostfixText(
-              barIndex.value(),
-              std::format("Encoding: {} | {}", fileLabel, lastStatus.value())
-            );
-          }
-        }
-
-        if (lastStatus.has_value()) {
-          withActionJobState(
-            executionCtx.app,
-            actionId,
-            [&](jobstate::Store& currentStore, std::string const& currentActionId) {
-              currentStore.markProgress(
-                currentActionId,
-                std::nullopt,
-                std::nullopt,
-                lastStatus.value()
-              );
-            }
-          );
-        }
-
+        renderStalled(executionCtx, *activeState);
         continue;
       }
 
-      auto barIndex = std::optional<std::size_t>{};
-      auto actionId = std::optional<std::string>{};
-      auto lastFrameCount = std::optional<std::uint64_t>{};
-      {
-        auto lock = std::scoped_lock{activeState->mtx};
-        activeState->lastProgress = progress.value();
-        activeState->lastProgressAtomic
-          .store(progress.value(), std::memory_order_release);
-        barIndex = activeState->barIndex;
-        actionId = activeState->actionId;
-        lastFrameCount = activeState->lastFrameCount;
-      }
-
-      if (barIndex.has_value()) {
-        executionCtx.progress().setTone(barIndex.value(), progress::Tone::Active);
-        executionCtx.progress().setProgress(barIndex.value(), progress.value());
-      }
-
-      withActionJobState(
-        executionCtx.app,
-        actionId,
-        [&](jobstate::Store& currentStore, std::string const& currentActionId) {
-          currentStore.markProgress(
-            currentActionId,
-            progress.value(),
-            lastFrameCount,
-            std::nullopt
-          );
-        }
-      );
+      renderProgress(executionCtx, *activeState, progress.value());
     }
 
     executionCtx.updateOverall();

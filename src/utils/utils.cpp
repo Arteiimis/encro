@@ -47,7 +47,11 @@ namespace asio = boost::asio;
 // captures are safe. Note for crash forensics: coroutine frames appear as
 // bare coroutine_handle::resume entries in stack traces.
 
-enum class RaceOutcome { ReadEof = 0, Exit = 1, Stop = 2 };
+enum class RaceOutcome {
+  ReadEof = 0,
+  Exit = 1,
+  Stop = 2
+};
 
 struct ProcessReadState {
   std::string output;
@@ -119,10 +123,8 @@ auto stopWait() -> asio::awaitable<RaceOutcome> {
 // Polls the child until exit or the grace deadline. Timer-based co_await
 // leaves no pending async operation behind at co_return, so the caller's
 // frame can be destroyed safely.
-auto waitExitWithin(
-  boost::process::v2::process& process,
-  std::chrono::milliseconds grace
-) -> asio::awaitable<bool> {
+auto waitExitWithin(boost::process::v2::process& process, std::chrono::milliseconds grace)
+  -> asio::awaitable<bool> {
   auto const executor = co_await asio::this_coro::executor;
   auto timer = asio::steady_timer{executor};
   auto const deadline = std::chrono::steady_clock::now() + grace;
@@ -165,9 +167,9 @@ auto runProcess(
 #if defined(_WIN32)
   // Windows CreateProcess resolves the exe from the command line when the
   // application name is empty, so keep the stock shell exe() resolution.
-  auto process = std::make_shared<bp::process>(
-    executor, command.exe(), command.args(), std::move(stdio)
-  );
+  auto process = std::make_shared<
+    bp::process
+  >(executor, command.exe(), command.args(), std::move(stdio));
 #else
   // boost::process v2's posix find_executable cannot resolve absolute paths
   // (boost::filesystem appends instead of replacing), leaving an empty exe and
@@ -175,9 +177,8 @@ auto runProcess(
   auto const* exeToken = command.argv()[0];
   auto exePath = bp::environment::find_executable(exeToken);
   if (exePath.empty()) { exePath = exeToken; }
-  auto process = std::make_shared<bp::process>(
-    executor, exePath, command.args(), std::move(stdio)
-  );
+  auto process =
+    std::make_shared<bp::process>(executor, exePath, command.args(), std::move(stdio));
 #endif
   auto const capturedPid = static_cast<int>(process->id());
 
@@ -195,9 +196,7 @@ auto runProcess(
   auto waitExitOp = [process]() -> asio::awaitable<RaceOutcome> {
     co_return co_await waitExit(*process);
   };
-  auto stopOp = []() -> asio::awaitable<RaceOutcome> {
-    co_return co_await stopWait();
-  };
+  auto stopOp = []() -> asio::awaitable<RaceOutcome> { co_return co_await stopWait(); };
 
   // The losing awaitables are cancelled when one wins; every pending op here
   // (pipe read, timers) supports cancellation, so no handler outlives this

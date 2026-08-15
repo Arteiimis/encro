@@ -351,37 +351,40 @@ auto makeHelpFormatter(
       result += "\n";
       auto const groupIter = std::array{general, io, processing, fileop};
 
-      // Determine max column width across visible options (name + type + default)
-      auto maxColLen = 0u;
-      for (auto const* group: groupIter) {
-        for (auto const* opt: visibleOptions(group)) {
-          if (!hasNames(opt)) continue;
-          if (!fullTier && isAdvanced(opt)) continue;
-          auto const nameStr = formatOptionName(opt);
-          auto typeStr = std::string{};
-          if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
-            auto const typeName = opt->get_type_name();
-            if (typeName != "TEXT"sv && typeName != "text"sv) {
-              typeStr = " " + typeName;
+      // Max column width across visible options (name + type + default).
+      auto const maxColumnLen = [&] {
+        auto maxLen = 0u;
+        for (auto const* group: groupIter) {
+          for (auto const* opt: visibleOptions(group)) {
+            if (!hasNames(opt)) continue;
+            if (!fullTier && isAdvanced(opt)) continue;
+            auto const nameStr = formatOptionName(opt);
+            auto typeStr = std::string{};
+            if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
+              auto const typeName = opt->get_type_name();
+              if (typeName != "TEXT"sv && typeName != "text"sv) {
+                typeStr = " " + typeName;
+              }
             }
+            auto defaultStr = std::string{};
+            if (!opt->get_default_str().empty()) {
+              defaultStr = " (=" + opt->get_default_str() + ")";
+            }
+            maxLen = std::max(
+              maxLen,
+              static_cast<unsigned>(nameStr.size() + typeStr.size() + defaultStr.size())
+            );
           }
-          auto defaultStr = std::string{};
-          if (!opt->get_default_str().empty()) {
-            defaultStr = " (=" + opt->get_default_str() + ")";
-          }
-          maxColLen = std::max(
-            maxColLen,
-            static_cast<unsigned>(nameStr.size() + typeStr.size() + defaultStr.size())
-          );
         }
-      }
+        return maxLen;
+      }();
 
       auto const maxColWidthFromLayout =
         layout.lineLength > layout.minDescriptionLength + 2
         ? layout.lineLength - layout.minDescriptionLength - 2
         : 1u;
       auto const colWidth = std::clamp(
-        maxColLen,
+        maxColumnLen,
         std::min(34u, maxColWidthFromLayout),
         std::min(48u, maxColWidthFromLayout)
       );
