@@ -63,6 +63,13 @@ using ProbeMeasure = std::function<std::optional<ProbePoint>(int cq)>;
 constexpr auto kMaxProbePoints = std::size_t{5};
 using ProbePointCallback = std::function<void(std::size_t completed, int cq)>;
 
+// Sub-step callback fired at the start of each encode/score step inside a
+// point: (cq, phase) where phase is like "encode 1/2" or "score 2/2".
+// kMaxProbeSteps bounds the progress fraction.
+constexpr auto kStepsPerProbePoint = std::size_t{4};
+constexpr auto kMaxProbeSteps = kMaxProbePoints * kStepsPerProbePoint;
+using ProbeStepCallback = std::function<void(int cq, std::string_view phase)>;
+
 // Measures base {24,28,32}, then extends by kCqStep bounded to [kMinCq,kMaxCq]
 // until the floor is bracketed: probes 20/16 while the floor is unmet, 36/40
 // while it is met. Nullopt when any measurement fails (caller falls back to
