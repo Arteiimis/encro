@@ -4,9 +4,9 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
-#include <atomic>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 
 #if defined(_WIN32)
@@ -38,12 +38,10 @@ auto gStopPipeOnce = std::once_flag{};
 auto gStopLogged = std::atomic<bool>{false};
 #endif
 
-void signalStopEvent() {
-#if defined(_WIN32)
-  if (auto const handle = gStopEvent.load(std::memory_order_acquire); handle != nullptr) {
-    ::SetEvent(handle);
-  }
-#else
+void ensureStopPipe() {
+#if !defined(_WIN32)
+  // Not async-signal-safe (pipe/fcntl/call_once): called from installHandler
+  // and the waiter paths only, never from the signal handler itself.
   std::call_once(gStopPipeOnce, [] {
     auto fds = std::array<int, 2>{-1, -1};
     if (::pipe(fds.data()) != 0) { return; }
@@ -52,8 +50,18 @@ void signalStopEvent() {
     gStopPipeReadFd.store(fds[0], std::memory_order_release);
     gStopPipeWriteFd.store(fds[1], std::memory_order_release);
   });
-  // The handler can only write (async-signal-safe); a full pipe already
-  // means the event is signaled, so EAGAIN is fine.
+#endif
+}
+
+void signalStopEvent() {
+#if defined(_WIN32)
+  if (auto const handle = gStopEvent.load(std::memory_order_acquire); handle != nullptr) {
+    ::SetEvent(handle);
+  }
+#else
+  // Signal handlers must stay async-signal-safe: only write() here; the pipe
+  // is created by installHandler(). A full pipe already means the event is
+  // signaled, so EAGAIN is fine.
   if (auto const fd = gStopPipeWriteFd.load(std::memory_order_acquire); fd != -1) {
     auto const byte = char{1};
     (void)::write(fd, &byte, 1);
@@ -146,8 +154,9 @@ BOOL WINAPI handleConsoleCtrl(DWORD ctrlType) {
 }
 #else
 void handleSignal(int) {
-  // Signal handlers must stay async-signal-safe: only set the flag here;
-  // the log record is emitted once from isStopRequested() on the polling side.
+  // Signal handlers must stay async-signal-safe: only set the flag and write
+  // one byte; the log record is emitted once from isStopRequested() on the
+  // polling side, and the pipe is created by installHandler().
   gStopRequested.store(true, std::memory_order_release);
   signalStopEvent();
 }
@@ -165,6 +174,7 @@ void installHandler() {
   ensureForceExitWatchdogStarted();
   SetConsoleCtrlHandler(handleConsoleCtrl, TRUE);
 #else
+  ensureStopPipe();
   std::signal(SIGINT, handleSignal);
   std::signal(SIGTERM, handleSignal);
 #endif
@@ -229,14 +239,7 @@ auto stopEventHandle() -> StopEventHandle {
   }
   return handle;
 #else
-  std::call_once(gStopPipeOnce, [] {
-    auto fds = std::array<int, 2>{-1, -1};
-    if (::pipe(fds.data()) != 0) { return; }
-    ::fcntl(fds[0], F_SETFL, O_NONBLOCK);
-    ::fcntl(fds[1], F_SETFL, O_NONBLOCK);
-    gStopPipeReadFd.store(fds[0], std::memory_order_release);
-    gStopPipeWriteFd.store(fds[1], std::memory_order_release);
-  });
+  ensureStopPipe();
   return gStopPipeReadFd.load(std::memory_order_acquire);
 #endif
 }

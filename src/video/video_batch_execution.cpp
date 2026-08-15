@@ -119,28 +119,28 @@ auto recordTaskException(
 }
 
 struct EncodingOutcome {
-  std::optional<fs::path> outputFile;
-  std::optional<std::string> actionId;
-  std::optional<std::string> lastStatus;
-  std::string failureReason = "encoding failed";
-  int64_t elapsedMs = 0;
+  std::optional<fs::path> outputFile_;
+  std::optional<std::string> actionId_;
+  std::optional<std::string> lastStatus_;
+  std::string failureReason_ = "encoding failed";
+  int64_t elapsedMs_ = 0;
 };
 
 auto collectOutcome(appctx::EncodingState& vidState) -> EncodingOutcome {
   auto outcome = EncodingOutcome{};
   auto lock = std::scoped_lock{vidState.mtx};
-  outcome.outputFile = vidState.outputFile;
-  outcome.actionId = vidState.actionId;
-  outcome.lastStatus = vidState.lastStatus;
+  outcome.outputFile_ = vidState.outputFile;
+  outcome.actionId_ = vidState.actionId;
+  outcome.lastStatus_ = vidState.lastStatus;
   if (vidState.lastError.has_value()) {
-    outcome.failureReason = vidState.lastError.value();
+    outcome.failureReason_ = vidState.lastError.value();
   } else if (vidState.lastStatus.has_value()) {
-    outcome.failureReason = vidState.lastStatus.value();
+    outcome.failureReason_ = vidState.lastStatus.value();
   }
   if (vidState.startTime.has_value() && vidState.endTime.has_value()) {
     using namespace std::chrono;
     auto const elapsed = vidState.endTime.value() - vidState.startTime.value();
-    outcome.elapsedMs = duration_cast<milliseconds>(elapsed).count();
+    outcome.elapsedMs_ = duration_cast<milliseconds>(elapsed).count();
   }
   return outcome;
 }
@@ -150,15 +150,15 @@ void notifyJobState(
   bool result,
   EncodingOutcome const& outcome
 ) {
-  if (auto* store = maybeJobState(ctx); outcome.actionId.has_value()) {
+  if (auto* store = maybeJobState(ctx); outcome.actionId_.has_value()) {
     if (result) {
-      if (outcome.lastStatus.has_value()) {
-        store->markSucceeded(outcome.actionId.value(), outcome.lastStatus.value());
+      if (outcome.lastStatus_.has_value()) {
+        store->markSucceeded(outcome.actionId_.value(), outcome.lastStatus_.value());
       } else {
-        store->markSucceeded(outcome.actionId.value());
+        store->markSucceeded(outcome.actionId_.value());
       }
     } else {
-      store->markFailed(outcome.actionId.value(), outcome.failureReason);
+      store->markFailed(outcome.actionId_.value(), outcome.failureReason_);
     }
   }
 }
@@ -210,8 +210,8 @@ auto runEncodingTask(
       taskIndex + 1,
       executionCtx.pendingTotal(),
       vidPath.string(),
-      outcome.outputFile.has_value() ? outcome.outputFile->string() : "<unknown>",
-      outcome.elapsedMs
+      outcome.outputFile_.has_value() ? outcome.outputFile_->string() : "<unknown>",
+      outcome.elapsedMs_
     );
   } else {
     LOG_WARN(
@@ -220,7 +220,7 @@ auto runEncodingTask(
       taskIndex + 1,
       executionCtx.pendingTotal(),
       vidPath.string(),
-      outcome.elapsedMs
+      outcome.elapsedMs_
     );
   }
 
@@ -230,7 +230,7 @@ auto runEncodingTask(
   executionCtx.markFinished();
   executionCtx.updateOverall();
 
-  if (!result) { return eh::makeError("{}", outcome.failureReason); }
+  if (!result) { return eh::makeError("{}", outcome.failureReason_); }
   return {};
 }
 
