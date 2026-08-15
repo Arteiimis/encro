@@ -2,6 +2,7 @@
 
 #include "core/collision_naming.h"
 #include "core/display_text.h"
+#include "core/progress.h"
 #include "core/task_executor.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
@@ -175,7 +176,8 @@ auto audioBitrateBps(boost::json::value const& vidInfo) -> double {
 auto probeSingleFile(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
-  fs::path const& probeDir
+  fs::path const& probeDir,
+  ProbePointCallback onPoint
 ) -> ProbePlan {
   auto plan = ProbePlan{};
   plan.inputPath = inputPath;
@@ -205,7 +207,8 @@ auto probeSingleFile(
     [&](int cq) -> std::optional<ProbePoint> {
       return measurePoint(ctx, inputPath, settings, probeDir, cq, windows.value(), info);
     },
-    ctx.config.minVmaf
+    ctx.config.minVmaf,
+    onPoint
   );
   if (!points.has_value()) {
     LOG_WARN(
@@ -314,23 +317,31 @@ auto decideCq(std::span<ProbePoint const> points, int vmafFloor) -> ProbeDecisio
   };
 }
 
-auto probeCqSequence(ProbeMeasure const& measure, int vmafFloor)
-  -> std::optional<std::vector<ProbePoint>> {
+auto probeCqSequence(
+  ProbeMeasure const& measure,
+  int vmafFloor,
+  ProbePointCallback onPoint
+) -> std::optional<std::vector<ProbePoint>> {
   auto points = std::vector<ProbePoint>{};
+  auto record = [&](ProbePoint point) {
+    auto const cq = point.cq;
+    points.push_back(std::move(point));
+    if (onPoint) { onPoint(points.size(), cq); }
+  };
   for (auto const cq: kBaseCqs) {
     auto const point = measure(cq);
     if (!point.has_value()) { return std::nullopt; }
-    points.push_back(std::move(point.value()));
+    record(std::move(point.value()));
   }
 
   if (!meetsFloor(points.front(), vmafFloor)) {
     // Floor unmet at 24: step down until it is met or the floor is proven
     // unreachable (p5@16 still below).
     if (auto const point = measure(kMinCq + kCqStep); point.has_value()) {
-      points.push_back(std::move(point.value()));
+      record(std::move(point.value()));
       if (!meetsFloor(points.back(), vmafFloor)) {
         if (auto const low = measure(kMinCq); low.has_value()) {
-          points.push_back(std::move(low.value()));
+          record(std::move(low.value()));
         } else {
           return std::nullopt;
         }
@@ -341,10 +352,10 @@ auto probeCqSequence(ProbeMeasure const& measure, int vmafFloor)
   } else if (meetsFloor(points.back(), vmafFloor)) {
     // Floor still met at 32: step up until it is missed or 40 is reached.
     if (auto const point = measure(kMaxCq - kCqStep); point.has_value()) {
-      points.push_back(std::move(point.value()));
+      record(std::move(point.value()));
       if (meetsFloor(points.back(), vmafFloor)) {
         if (auto const high = measure(kMaxCq); high.has_value()) {
-          points.push_back(std::move(high.value()));
+          record(std::move(high.value()));
         } else {
           return std::nullopt;
         }
@@ -409,15 +420,65 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   } rootGuard{probeRoot};
 
   auto plans = std::vector<ProbePlan>(vids.size());
+  auto const workerCount =
+    std::max<std::size_t>(1, ctx.config.maxParallelJobs.value_or(4));
+  auto progressCtx = progress::ProgressContext{};
+  auto const overallBar = vids.size() > workerCount
+    ? std::optional<std::size_t>{progressCtx.addBar(
+        std::format("Probing: 0/{} files", vids.size()),
+        progress::Tone::Overall
+      )}
+    : std::nullopt;
+  auto completed = std::atomic_size_t{0};
+
   auto tasks = std::vector<taskexec::TaskSpec>{};
   tasks.reserve(vids.size());
   for (auto index = std::size_t{0}; index < vids.size(); ++index) {
+    auto const fileName = vids[index].filename().string();
+    auto const barIndex =
+      progressCtx.addBar(std::format("Probing: {}", fileName), progress::Tone::Active);
     tasks.push_back({
       .id = std::format("probe:{}", collisionnaming::stablePathString(vids[index])),
-      .label = vids[index].filename().string(),
+      .label = fileName,
       .input = vids[index].string(),
-      .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
-        plans[index] = probeSingleFile(ctx, vids[index], probeRoot);
+      .run = [&, index, barIndex, fileName](taskexec::TaskContext&) -> eh::Result<void> {
+        auto const onPoint = [&, barIndex](std::size_t done, int cq) {
+          progressCtx.setProgress(
+            barIndex,
+            100.0f * static_cast<float>(done) / static_cast<float>(kMaxProbePoints)
+          );
+          progressCtx.setPostfixText(
+            barIndex,
+            std::format("Probing: {} (CQ {} {}/{})", fileName, cq, done, kMaxProbePoints)
+          );
+        };
+        plans[index] = probeSingleFile(ctx, vids[index], probeRoot, onPoint);
+        auto const& plan = plans[index];
+        if (plan.probed) {
+          progressCtx.setProgress(barIndex, 100.0f);
+          progressCtx.setTone(barIndex, progress::Tone::Success);
+          progressCtx.setPostfixText(
+            barIndex,
+            std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
+          );
+        } else {
+          progressCtx.setTone(barIndex, progress::Tone::Idle);
+          progressCtx.setPostfixText(
+            barIndex,
+            std::format("Skipped: {} (default CQ {})", fileName, kDefaultCq)
+          );
+        }
+        auto const done = completed.fetch_add(1) + 1;
+        if (overallBar.has_value()) {
+          progressCtx.setProgress(
+            overallBar.value(),
+            100.0f * static_cast<float>(done) / static_cast<float>(vids.size())
+          );
+          progressCtx.setPostfixText(
+            overallBar.value(),
+            std::format("Probing: {}/{} files", done, vids.size())
+          );
+        }
         return {};
       },
     });
@@ -425,7 +486,7 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
 
   auto const runState = taskexec::runTasks({
     .tasks = std::move(tasks),
-    .maxConcurrency = std::max<std::size_t>(1, ctx.config.maxParallelJobs.value_or(4)),
+    .maxConcurrency = workerCount,
     .progress = nullptr,
     .hideCursor = false,
   });

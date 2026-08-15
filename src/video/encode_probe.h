@@ -57,12 +57,21 @@ auto decideCq(std::span<ProbePoint const> points, int vmafFloor) -> ProbeDecisio
 
 using ProbeMeasure = std::function<std::optional<ProbePoint>(int cq)>;
 
+// Progress callback: (completed point count, cq just measured). Optional;
+// unit tests and pure callers omit it. kMaxProbePoints = 5 (3 base + 2
+// extension) bounds the progress fraction.
+constexpr auto kMaxProbePoints = std::size_t{5};
+using ProbePointCallback = std::function<void(std::size_t completed, int cq)>;
+
 // Measures base {24,28,32}, then extends by kCqStep bounded to [kMinCq,kMaxCq]
 // until the floor is bracketed: probes 20/16 while the floor is unmet, 36/40
 // while it is met. Nullopt when any measurement fails (caller falls back to
 // the default CQ).
-auto probeCqSequence(ProbeMeasure const& measure, int vmafFloor)
-  -> std::optional<std::vector<ProbePoint>>;
+auto probeCqSequence(
+  ProbeMeasure const& measure,
+  int vmafFloor,
+  ProbePointCallback onPoint = {}
+) -> std::optional<std::vector<ProbePoint>>;
 
 // Probe config: the production segment config (shared construction path) with
 // only CQ and the output path differing — the invariant tests assert this.
@@ -96,6 +105,7 @@ struct ProbePhaseResult {
 // Probes every video in parallel (MP4 only, called with --crf absent), probe
 // artifacts in a per-run temp dir cleaned up after use. Per-file measurement
 // failures degrade to the default CQ; a stop request aborts the whole phase.
+// Shows one progress bar per file (plus an overall bar for many files).
 auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   -> eh::Result<ProbePhaseResult>;
 
