@@ -22,7 +22,7 @@ The system SHALL probe each pending video at multiple candidate CQ values using 
 
 #### Scenario: Floor is reachable
 - **WHEN** probing measures CQ 28 at p5-VMAF 95.8 and CQ 32 at p5-VMAF 94.6 with a floor of 95
-- **THEN** the CQ where the floor is crossed (interpolated to ~29) is selected and the encode uses that CQ
+- **THEN** the CQ where the floor is crossed (linearly interpolated and rounded down, i.e. 30 for these numbers) is selected and the encode uses that CQ
 
 #### Scenario: Custom floor
 - **WHEN** the user passes `--min-vmaf 90`
