@@ -30,6 +30,7 @@
 #include <future>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <variant>
 
 DEFINE_LOGGER(logtags::UTILS_SUBPROCESS);
@@ -47,15 +48,15 @@ namespace asio = boost::asio;
 // captures are safe. Note for crash forensics: coroutine frames appear as
 // bare coroutine_handle::resume entries in stack traces.
 
-enum class RaceOutcome {
-  ReadEof = 0,
-  Exit = 1,
-  Stop = 2
-};
+struct ReadEof { };
+struct ProcessExit { };
+struct StopRequested { };
+
+constexpr auto kTerminateWaitTimeout = std::chrono::milliseconds{500};
 
 struct ProcessReadState {
-  std::string output;
-  std::atomic<bool> callbacksEnabled{true};
+  std::string output_;
+  std::atomic<bool> callbacksEnabled_{true};
 };
 
 auto readAllInto(
@@ -75,14 +76,14 @@ auto readAllInto(
     if (ec || count == 0) { break; }
 
     auto const chunk = std::string_view{buffer.data(), count};
-    state->output.append(chunk);
+    state->output_.append(chunk);
     pendingLine.append(chunk);
 
     auto newlinePos = pendingLine.find('\n');
     while (newlinePos != std::string::npos) {
       auto line = pendingLine.substr(0, newlinePos);
       if (!line.empty() && line.back() == '\r') { line.pop_back(); }
-      if (state->callbacksEnabled.load(std::memory_order_acquire) && onLine) {
+      if (state->callbacksEnabled_.load(std::memory_order_acquire) && onLine) {
         onLine(line);
       }
       pendingLine.erase(0, newlinePos + 1);
@@ -91,7 +92,7 @@ auto readAllInto(
   }
 }
 
-auto waitExit(boost::process::v2::process& process) -> asio::awaitable<RaceOutcome> {
+auto waitExit(boost::process::v2::process& process) -> asio::awaitable<ProcessExit> {
   // Timer poll instead of process.async_wait: on Windows the async wait's
   // cancellation is not reliable, and a cancelled-but-unfinished wait would
   // pin ctx.run() forever. 20 ms granularity matches the legacy poll loop.
@@ -102,10 +103,10 @@ auto waitExit(boost::process::v2::process& process) -> asio::awaitable<RaceOutco
     auto ec = boost::system::error_code{};
     co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
   }
-  co_return RaceOutcome::Exit;
+  co_return ProcessExit{};
 }
 
-auto stopWait() -> asio::awaitable<RaceOutcome> {
+auto stopWait() -> asio::awaitable<StopRequested> {
   // Timer poll on the flag: asio's windows::object_handle wait is not
   // cancellable, so awaiting the stop event here could pin ctx.run() forever
   // when this operand loses the race. 20 ms stop latency, as in the legacy
@@ -117,7 +118,7 @@ auto stopWait() -> asio::awaitable<RaceOutcome> {
     auto ec = boost::system::error_code{};
     co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
   }
-  co_return RaceOutcome::Stop;
+  co_return StopRequested{};
 }
 
 // Polls the child until exit or the grace deadline. Timer-based co_await
@@ -137,6 +138,41 @@ auto waitExitWithin(boost::process::v2::process& process, std::chrono::milliseco
   }
 }
 
+// Terminates the child on a stop request. Returns the child's real exit code
+// when it had already exited naturally (terminate raced the exit — the
+// legacy stop-after-exit contract); returns nullopt once terminated, or
+// detached after the grace period expired.
+auto terminateOnStop(
+  std::shared_ptr<boost::process::v2::process> process,
+  std::string const& cmd
+) -> asio::awaitable<std::optional<int>> {
+  auto terminated = false;
+  try {
+    if (process->running()) {
+      LOG_INFO("Terminating child process due to stop request: {}", cmd);
+      process->terminate();
+      terminated = true;
+    }
+  } catch (std::exception const& ex) {
+    LOG_WARN(
+      "Failed to terminate child process on stop request: {} ({})",
+      cmd,
+      ex.what()
+    );
+  }
+  if (!terminated && !process->running()) { co_return process->exit_code(); }
+  if (!co_await waitExitWithin(*process, kTerminateWaitTimeout)) {
+    LOG_WARN(
+      "Child process did not exit within {} ms after terminate, detaching "
+      "handle: {}",
+      kTerminateWaitTimeout.count(),
+      cmd
+    );
+    process->detach();
+  }
+  co_return std::nullopt;
+}
+
 auto runProcess(
   std::string cmd,
   std::function<void(std::string_view)> onLine,
@@ -144,9 +180,6 @@ auto runProcess(
 ) -> asio::awaitable<ExecResult> {
   namespace bp = boost::process::v2;
   using namespace boost::asio::experimental::awaitable_operators;
-  using namespace std::chrono_literals;
-
-  constexpr auto kTerminateWaitTimeout = 500ms;
 
   LOG_DEBUG("Executing command: {}", cmd);
 
@@ -189,81 +222,57 @@ auto runProcess(
   auto pipeShared = std::make_shared<asio::readable_pipe>(std::move(pipeReader));
   auto state = std::make_shared<ProcessReadState>();
 
-  auto readAll = [pipeShared, state, onLine]() -> asio::awaitable<RaceOutcome> {
+  auto readAll = [pipeShared, state, onLine]() -> asio::awaitable<ReadEof> {
     co_await readAllInto(pipeShared, state, onLine);
-    co_return RaceOutcome::ReadEof;
+    co_return ReadEof{};
   };
-  auto waitExitOp = [process]() -> asio::awaitable<RaceOutcome> {
+  auto waitExitOp = [process]() -> asio::awaitable<ProcessExit> {
     co_return co_await waitExit(*process);
   };
-  auto stopOp = []() -> asio::awaitable<RaceOutcome> { co_return co_await stopWait(); };
+  auto stopOp = []() -> asio::awaitable<StopRequested> { co_return co_await stopWait(); };
 
   // The losing awaitables are cancelled when one wins; every pending op here
   // (pipe read, timers) supports cancellation, so no handler outlives this
   // frame and ctx.run() is guaranteed to drain.
   auto outcome = co_await (readAll() || waitExitOp() || stopOp());
 
-  switch (outcome.index()) {
-    case 0: {
-      // EOF first: no more output will arrive. Wait for the child, honoring
-      // a stop request that may arrive meanwhile.
-      auto second = co_await (waitExitOp() || stopOp());
-      if (second.index() == 1) {
-        state->callbacksEnabled.store(false, std::memory_order_release);
-        try {
-          if (process->running()) { process->terminate(); }
-        } catch (std::exception const& ex) {
-          LOG_WARN(
-            "Failed to terminate child process on stop request: {} ({})",
-            cmd,
-            ex.what()
-          );
-        }
-        if (!co_await waitExitWithin(*process, kTerminateWaitTimeout)) {
-          process->detach();
-        }
-        co_return ExecResult{stopsignal::kCanceledExitCode, state->output, capturedPid};
+  if (std::holds_alternative<ReadEof>(outcome)) {
+    // EOF first: no more output will arrive. Wait for the child, honoring
+    // a stop request that may arrive meanwhile.
+    auto second = co_await (waitExitOp() || stopOp());
+    if (std::holds_alternative<StopRequested>(second)) {
+      state->callbacksEnabled_.store(false, std::memory_order_release);
+      if (
+        auto const exitCode = co_await terminateOnStop(process, cmd); exitCode.has_value()
+      ) {
+        co_return ExecResult{exitCode.value(), state->output_, capturedPid};
       }
-      co_return ExecResult{process->exit_code(), state->output, capturedPid};
+      co_return ExecResult{stopsignal::kCanceledExitCode, state->output_, capturedPid};
     }
-    case 1: {
-      // Exit first: drain the remaining buffered output to EOF. A grandchild
-      // holding the write end blocks here, as in the legacy implementation.
-      // Yield one event-loop turn so the cancelled read's abort completion
-      // clears the pipe before a new read is issued (one outstanding read
-      // per pipe).
-      co_await asio::post(executor, asio::use_awaitable);
-      co_await readAllInto(pipeShared, state, onLine);
-      co_return ExecResult{process->exit_code(), state->output, capturedPid};
-    }
-    default: {
-      // Stop first: suppress further callbacks, terminate, and return the
-      // partial output accumulated so far.
-      state->callbacksEnabled.store(false, std::memory_order_release);
-      try {
-        if (process->running()) {
-          LOG_INFO("Terminating child process due to stop request: {}", cmd);
-          process->terminate();
-        }
-      } catch (std::exception const& ex) {
-        LOG_WARN(
-          "Failed to terminate child process on stop request: {} ({})",
-          cmd,
-          ex.what()
-        );
-      }
-      if (!co_await waitExitWithin(*process, kTerminateWaitTimeout)) {
-        LOG_WARN(
-          "Child process did not exit within {} ms after terminate, detaching "
-          "handle: {}",
-          kTerminateWaitTimeout.count(),
-          cmd
-        );
-        process->detach();
-      }
-      co_return ExecResult{stopsignal::kCanceledExitCode, state->output, capturedPid};
-    }
+    co_return ExecResult{process->exit_code(), state->output_, capturedPid};
   }
+
+  if (std::holds_alternative<ProcessExit>(outcome)) {
+    // Exit first: drain the remaining buffered output to EOF. A grandchild
+    // holding the write end blocks here, as in the legacy implementation.
+    // Yield one event-loop turn so the cancelled read's abort completion
+    // clears the pipe before a new read is issued (one outstanding read
+    // per pipe).
+    co_await asio::post(executor, asio::use_awaitable);
+    co_await readAllInto(pipeShared, state, onLine);
+    co_return ExecResult{process->exit_code(), state->output_, capturedPid};
+  }
+
+  // Stop first: suppress further callbacks, terminate, and return the
+  // partial output accumulated so far. terminateOnStop reports the real exit
+  // code when the child had already exited in the same poll window.
+  state->callbacksEnabled_.store(false, std::memory_order_release);
+  if (
+    auto const exitCode = co_await terminateOnStop(process, cmd); exitCode.has_value()
+  ) {
+    co_return ExecResult{exitCode.value(), state->output_, capturedPid};
+  }
+  co_return ExecResult{stopsignal::kCanceledExitCode, state->output_, capturedPid};
 }
 
 auto exec2Impl(
