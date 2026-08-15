@@ -339,8 +339,6 @@ TEST_CASE("previewHint formats the comparison command", "[encode-probe]") {
   );
 }
 
-#if defined(_WIN32)
-
 namespace {
 
 class ScopedEnvVar {
@@ -352,18 +350,26 @@ public:
       originalValue_ = original;
       hadOriginal_ = true;
     }
+#if defined(_WIN32)
     _putenv_s(name_.c_str(), value.c_str());
+#else
+    setenv(name_.c_str(), value.c_str(), 1);
+#endif
   }
 
   ScopedEnvVar(ScopedEnvVar const&) = delete;
   auto operator=(ScopedEnvVar const&) -> ScopedEnvVar& = delete;
 
   ~ScopedEnvVar() {
+#if defined(_WIN32)
+    _putenv_s(name_.c_str(), originalValue_.c_str());
+#else
     if (hadOriginal_) {
-      _putenv_s(name_.c_str(), originalValue_.c_str());
+      setenv(name_.c_str(), originalValue_.c_str(), 1);
     } else {
-      _putenv_s(name_.c_str(), "");
+      unsetenv(name_.c_str());
     }
+#endif
   }
 
 private:
@@ -373,12 +379,17 @@ private:
 };
 
 auto copyFakeTool(fs::path const& dir, std::string const& name) -> fs::path {
-  auto const dst = dir / (name + ".exe");
+#if defined(_WIN32)
+  auto const suffix = std::string{".exe"};
+#else
+  auto const suffix = std::string{};
+#endif
+  auto const dst = dir / (name + suffix);
   fs::copy_file(fs::path{FAKE_TOOL_EXE_PATH}, dst, fs::copy_options::overwrite_existing);
   return dst;
 }
 
-// Fake ffmpeg/ffprobe = the e2e fake_media_tool.exe (built once, FAKE_TOOL_EXE_PATH),
+// Fake ffmpeg/ffprobe = the e2e fake_media_tool (built once, FAKE_TOOL_EXE_PATH),
 // copied per role so argv[0] selects ffprobe vs ffmpeg. The ffmpeg side writes a
 // fake libvmaf JSON log for scoring invocations when ENCRO_FAKE_FFMPEG_WRITE_VMAF=1,
 // with scores from ENCRO_FAKE_FFMPEG_VMAF_SCORES; duration via ENCRO_FAKE_FFPROBE_DURATION_SECS.
@@ -676,8 +687,6 @@ TEST_CASE("printProbePlan caps the name column on wide terminals", "[encode-prob
   }
 }
 
-#endif
-
 TEST_CASE(
   "runEncodingTasks probes, prints the plan, and encodes with the chosen CQ",
   "[encode-probe][video-batch-execution]"
@@ -693,7 +702,7 @@ TEST_CASE(
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;  // no progress bars in tests
 
-  auto const logPath = fs::path{"C:/Users/LEGION/AppData/Local/Temp/zz_fix_log.txt"};
+  auto const logPath = temp.path / "fake_tool.log";
   ScopedEnvVar logEnv{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
 
   auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};

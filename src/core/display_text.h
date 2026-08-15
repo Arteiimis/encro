@@ -3,6 +3,7 @@
 #include <indicators/display_width.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
