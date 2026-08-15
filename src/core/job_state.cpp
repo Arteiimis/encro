@@ -268,6 +268,11 @@ auto fromJsonConfig(json::object const& object) -> ConfigSnapshot {
   };
 }
 
+template<class Ty>
+auto jsonOrNull(std::optional<Ty> const& value) -> json::value {
+  return value.has_value() ? json::value(*value) : json::value(nullptr);
+}
+
 auto toJson(TaskRecord const& task) -> json::object {
   auto object = json::object{};
   object["id"] = task.id;
@@ -278,25 +283,15 @@ auto toJson(TaskRecord const& task) -> json::object {
   object["fingerprint"] = task.fingerprint;
   object["sourcePaths"] = pathsToJson(task.sourcePaths);
   object["targetPaths"] = pathsToJson(task.targetPaths);
-  object["lastProgress"] = task.lastProgress.has_value() ? json::value(*task.lastProgress)
-                                                         : json::value(nullptr);
-  object["lastFrameCount"] = task.lastFrameCount.has_value()
-    ? json::value(*task.lastFrameCount)
-    : json::value(nullptr);
-  object["lastStatus"] =
-    task.lastStatus.has_value() ? json::value(*task.lastStatus) : json::value(nullptr);
-  object["lastError"] =
-    task.lastError.has_value() ? json::value(*task.lastError) : json::value(nullptr);
-  object["startedAtMs"] =
-    task.startedAtMs.has_value() ? json::value(*task.startedAtMs) : json::value(nullptr);
-  object["updatedAtMs"] =
-    task.updatedAtMs.has_value() ? json::value(*task.updatedAtMs) : json::value(nullptr);
-  object["finishedAtMs"] = task.finishedAtMs.has_value() ? json::value(*task.finishedAtMs)
-                                                         : json::value(nullptr);
-  object["segmentIndex"] = task.segmentIndex.has_value() ? json::value(*task.segmentIndex)
-                                                         : json::value(nullptr);
-  object["resumeTimeUs"] = task.resumeTimeUs.has_value() ? json::value(*task.resumeTimeUs)
-                                                         : json::value(nullptr);
+  object["lastProgress"] = jsonOrNull(task.lastProgress);
+  object["lastFrameCount"] = jsonOrNull(task.lastFrameCount);
+  object["lastStatus"] = jsonOrNull(task.lastStatus);
+  object["lastError"] = jsonOrNull(task.lastError);
+  object["startedAtMs"] = jsonOrNull(task.startedAtMs);
+  object["updatedAtMs"] = jsonOrNull(task.updatedAtMs);
+  object["finishedAtMs"] = jsonOrNull(task.finishedAtMs);
+  object["segmentIndex"] = jsonOrNull(task.segmentIndex);
+  object["resumeTimeUs"] = jsonOrNull(task.resumeTimeUs);
   return object;
 }
 

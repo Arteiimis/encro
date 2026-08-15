@@ -19,12 +19,12 @@ Phases follow design.md Migration Plan; each phase is one atomic commit (tests +
 
 ## 3. P2 — Mechanical flattening (batched per file)
 
-- [ ] 3.1 `job_state.cpp`: add `jsonOrNull` helper; replace the 11 ternary alignment pairs in `toJson` (behavior-identical output verified by existing job-state round-trip tests)
-- [ ] 3.2 `video_workflow_utils.h` + call sites: convert 15 `withActionJobState` chains to `maybeJobState()` pointer style; delete the template if no callers remain
-- [ ] 3.3 `video_batch_execution.cpp`: extract `runEncodingTask` outcome collection and finalization into helpers; flatten lock-copy blocks with `EncodingState` snapshot accessors
-- [ ] 3.4 `video_encoding_state.cpp`: extract `renderStalled`/tick helpers; apply guard clauses (target: monitor tick body ≤ 4 levels)
-- [ ] 3.5 `cmd.cpp`: extract help column-width computation from the for-for-if-if ladder
-- [ ] 3.6 Sweep remaining lock-copy sites (47 total) for snapshot/accessor extraction where it reduces depth
+- [x] 3.1 `job_state.cpp`: add `jsonOrNull` helper; replace the 11 ternary alignment pairs in `toJson` (behavior-identical output verified by existing job-state round-trip tests)
+- [x] 3.2 `video_workflow_utils.h` + call sites: convert 15 `withActionJobState` chains to `maybeJobState()` pointer style; delete the template if no callers remain
+- [x] 3.3 `video_batch_execution.cpp`: extract `runEncodingTask` outcome collection and finalization into helpers; flatten lock-copy blocks with `EncodingState` snapshot accessors
+- [x] 3.4 `video_encoding_state.cpp`: extract `renderStalled`/`renderProgress`/`stateFinished`; apply guard clauses (monitor tick body now ≤ 3 levels)
+- [x] 3.5 `cmd.cpp`: extract help column-width computation from the for-for-if-if ladder
+- [x] 3.6 Sweep remaining lock-copy sites (47 total) for snapshot/accessor extraction where it reduces depth — the deep multi-field blocks were extracted in 3.3/3.4; remaining `scoped_lock` sites are accessor-style single locks at depth ≤ 2, left as-is
 
 ## 4. Verification gates
 
