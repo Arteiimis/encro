@@ -277,7 +277,7 @@ TEST_CASE("exec2 keeps partial trailing output without a newline", "[utils]") {
 TEST_CASE("exec2 returns partial output captured before stop termination", "[utils]") {
   using namespace std::chrono_literals;
 
-  stopsignal::reset();
+  auto resetGuard = testutils::ScopedStopSignalReset{};
 
 #if defined(_WIN32)
   auto const cmd =
@@ -298,8 +298,6 @@ TEST_CASE("exec2 returns partial output captured before stop termination", "[uti
   auto const startedAt = std::chrono::steady_clock::now();
   auto const result = exec2(cmd, true);
   auto const elapsed = std::chrono::steady_clock::now() - startedAt;
-
-  stopsignal::reset();
 
   CHECK(result.exitCode == stopsignal::kCanceledExitCode);
   CHECK_FALSE(result.output.empty());

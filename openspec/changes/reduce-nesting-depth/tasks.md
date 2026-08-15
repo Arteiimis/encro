@@ -28,8 +28,8 @@ Phases follow design.md Migration Plan; each phase is one atomic commit (tests +
 
 ## 4. Verification gates
 
-- [ ] 4.1 `xmake build tests && xmake run tests` — full unit suite green in all build modes
-- [ ] 4.2 `xmake test-report` — clean summary
-- [ ] 4.3 e2e suite green (`xmake build e2e_tests && xmake run e2e_tests`, fake tool env)
-- [ ] 4.4 `xmake coverage` sanity (no coroutine-induced coverage regressions beyond documented state-machine noise)
-- [ ] 4.5 Run the `code-review` skill (Standards + Spec axes) and resolve findings
+- [x] 4.1 `xmake build tests && xmake run tests` — full unit suite green in all build modes
+- [x] 4.2 `xmake test-report` — clean summary
+- [x] 4.3 e2e suite green (`xmake build e2e_tests && xmake run e2e_tests`, fake tool env)
+- [x] 4.4 `xmake coverage` sanity (no coroutine-induced coverage regressions beyond documented state-machine noise)
+- [x] 4.5 Run the `code-review` skill (Standards + Spec axes) and resolve findings — fixed: POSIX self-pipe now created in `installHandler()` (handler stays async-signal-safe), stop-after-exit 20 ms window (terminateOnStop re-checks `running()`, reports real exit code), member trailing underscores, include order, `terminateOnStop` dedup, `holds_alternative` replaces `outcome.index()` coupling, new test uses `ScopedStopSignalReset`; accepted as recorded: per-phase commits per design Migration Plan, maybeJobState pointer-style repetition (deliberate replacement of the template), design.md reconciled with implemented D1/D2/D3

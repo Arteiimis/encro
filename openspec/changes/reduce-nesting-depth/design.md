@@ -29,43 +29,44 @@ Current state (see proposal.md for motivation):
 
 ### D1: Waitable event alongside the flag
 
-`stopsignal` gains `stopEventHandle()` returning a native waitable object, kept in sync with the existing flag — the flag stays the source of truth for cheap checks.
+`stopsignal` gains `stopEventHandle()` (raw native handle) and `waitForStop(timeout)` (portable wait-with-timeout returning whether a stop is pending), kept in sync with the existing flag — the flag stays the source of truth for cheap checks.
 
-- **Windows**: `CreateEvent` (manual-reset). `SetEvent` in the console handler, `requestStop()`, and cleared by `ResetEvent` in `reset()`. `SetEvent` is legal in a ctrl handler (it runs on its own thread). Manual-reset chosen because multiple waiters must all see the stop.
-- **POSIX**: self-pipe; the signal handler only `write()`s one byte (async-signal-safe), the read end is the waitable fd.
+- **Windows**: `CreateEvent` (manual-reset, created lazily). `SetEvent` in the console handler, `requestStop()`, and cleared by `ResetEvent` in `reset()`. `SetEvent` is legal in a ctrl handler (it runs on its own thread). Manual-reset chosen because multiple waiters must all see the stop.
+- **POSIX**: self-pipe created in `installHandler()` (never in the handler itself — `pipe`/`fcntl`/`call_once` are not async-signal-safe); the signal handler only `write()`s one byte, the read end is the waitable fd.
 - **Test hook**: `ScopedStopSignalReset` must also clear the event so tests that stop-and-reset don't leave waiters spuriously woken.
 - **Watchdog**: keeps `sleep_for(50ms)` — a wake-on-stop wait would hot-spin (manual-reset event stays signaled) and buys nothing for a never-exiting backstop whose deadline check already has 50 ms resolution.
 - *Alternative rejected*: replacing the flag entirely with the event — 24 sites don't block, they check; a flag read is cheaper and simpler there.
 
 ### D2: `exec2` as sync-over-async coroutine
 
-A single `asio::awaitable<ExecResult>` running on a function-local `io_context` driven by the calling thread (`co_spawn(use_future)` + `run()`). Frame captures (`cmd`, `onLine`) are safe because the frame never outlives the call.
+A single `asio::awaitable<ExecResult>` running on a function-local `io_context` driven by the calling thread (`co_spawn(use_future)` + `run()`). Frame captures (`cmd`, `onLine`, shared state) are held by value/shared_ptr and never outlive the call.
 
 Shape (the readability payoff):
 
 ```cpp
-auto [which, ec] = co_await (
-  process.async_wait(asio::use_awaitable)
-  || stopEvent.async_wait(asio::use_awaitable)
-  || asio::steady_timer(ex, kTerminateGrace).async_wait(asio::use_awaitable)
-);
+auto outcome = co_await (readAll() || waitExit() || stopWait());
+// holds_alternative<ReadEof> / <ProcessExit> / <StopRequested> branches,
+// each a straight-line continuation
 ```
 
-- **Read loop**: `async_read_some` on the `readable_pipe` in the same coroutine; line splitting, CR stripping, and "no trailing newline" behavior identical to today (guarded by existing `subprocess-exec` tests).
-- **Stop won the race**: `terminate()`, then `co_await (async_wait || grace timer)`; if grace expires → `detach()` (child may outlive us; handle released) and return `{130, partial, pid}`. No promise, no `callbackEnabled`, no thread join/detach dance.
-- **`process.wait()` on natural exit**, full output returned — same ordering guarantees as today (read to EOF before returning).
+- **Read loop**: `async_read_some` on the `readable_pipe` in the same coroutine; line splitting, CR stripping, and "no trailing newline" behavior identical to today (guarded by existing `subprocess-exec` tests). Callbacks are now invoked on the calling thread (legacy delivered them from the reader thread); callers already synchronize via `EncodingState.mtx`.
+- **Exit/stop waits are 20 ms timer polls**, not `process.async_wait`/event awaits: asio `windows::object_handle` waits and `bp::v2 async_wait` are not reliably cancellable on Windows, and a cancelled-but-pending op would pin `ctx.run()` forever. Stop latency stays ≤ 20 ms (legacy parity); monitor/spinner keep the instant event wake. All pending ops (pipe reads, timers) support cancellation, so losers of the `||` race always complete.
+- **Stop won the race**: `terminateOnStop` terminates, polls up to the grace period, and detaches on expiry; if the child had already exited in the same poll window it reports the real exit code (stop-after-exit contract), otherwise the result is `{130, partial, pid}`. No promise, no `callbackEnabled` dance, no thread join/detach bookkeeping.
+- **`process.wait()` semantics**: natural exit followed by draining the pipe to EOF — same ordering guarantees as today (read to EOF before returning).
 - **Merge behavior**: stdout/stderr share one pipe write end exactly as today; `mergeStdErr=false` passes `err=nullptr`.
 - **Facade**: `exec2(cmd[, onLine][, merge])` unchanged signatures.
-- *Alternatives rejected*: full-async chain (contaminates the whole call stack with coroutine lifetime rules for no readability gain — the chain is already direct style); callback-only asio (the stop-race composition in callbacks is uglier than the code it replaces); keeping the reader thread (that thread + promise is precisely the nesting source being removed).
-- **Known caveat**: boost.process v2 `async_wait` may internally use a wait thread on Windows; irrelevant here — the goal is code shape, not thread count.
+- *Alternatives rejected*: full-async chain (contaminates the whole call stack with coroutine lifetime rules for no readability gain — the chain is already direct style); callback-only asio (the stop-race composition in callbacks is uglier than the code it replaces); keeping the reader thread (that thread + promise is precisely the nesting source being removed); event-based awaits in the race (not cancellable on Windows — see above).
+- **Known caveat**: crash-stacktrace forensics shows coroutine frames as bare `coroutine_handle::resume` entries.
 
 ### D3: Monitor / spinner / watchdog loops on event waits
 
+Monitor and spinner keep their existing loop structure; the sleep becomes an event-timed wait with a drain fallback:
+
 ```cpp
-while (WaitForSingleObject(stopEvent, kTickMs) == WAIT_TIMEOUT) { tick(); }
+if (stopsignal::waitForStop(kTickMs)) { std::this_thread::sleep_for(kTickMs); }
 ```
 
-Instant wake on stop; identical tick cadence. `tick()` bodies flattened with guard clauses (`if (!state) continue;`, `if (progress) continue;`) and extracted helpers (`renderStalled`, `snapshotState`, …). The loops keep their `std::jthread` RAII — no lifecycle change.
+Identical tick cadence; wake-on-stop makes the loop's next exit check immediate. The fallback sleep prevents a hot spin while the drain phase (in-flight tasks finalizing) is still running, since the manual-reset event stays signaled. The loops keep their `std::jthread` RAII — no lifecycle change.
 
 ### D4: Mechanical flattening patterns
 
