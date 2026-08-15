@@ -43,48 +43,6 @@ auto floorForMetric(videoquality::QualityMetric metric, int vmafFloor) -> double
     : videoquality::ssimFloorForVmafFloor(vmafFloor);
 }
 
-auto runProbeEncode(
-  appctx::AppContext& ctx,
-  fs::path const& inputPath,
-  EncodeInputSettings const& settings,
-  fs::path const& segFile,
-  int cq,
-  ProbeWindow const& window
-) -> bool {
-  auto const cfg = buildProbeSegmentConfig(
-    ctx.toolchain,
-    inputPath,
-    ctx.config.outputFormat,
-    ctx.config.videoCodec,
-    settings,
-    cq,
-    window.startUs,
-    window.durationUs,
-    segFile
-  );
-
-  auto ec = std::error_code{};
-  fs::remove(segFile, ec);
-
-  ExecResult result{};
-  try {
-    result = exec2(cfg.buildCMD());
-  } catch (std::exception const& ex) {
-    LOG_WARN("Probe encode could not be launched (cq={}): {}", cq, ex.what());
-    return false;
-  }
-  if (result.exitCode != 0 || !fs::exists(segFile)) {
-    LOG_WARN(
-      "Probe encode failed: input={} cq={} exitCode={}",
-      inputPath.string(),
-      cq,
-      result.exitCode
-    );
-    return false;
-  }
-  return true;
-}
-
 auto measurePoint(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
@@ -178,6 +136,17 @@ auto audioBitrateBps(boost::json::value const& vidInfo) -> double {
   return 0.0;
 }
 
+auto formatSizeMB(std::optional<std::uintmax_t> bytes) -> std::string {
+  if (!bytes.has_value()) { return "-"; }
+  return std::format("{:.1f} MB", static_cast<double>(bytes.value()) / 1'048'576.0);
+}
+
+auto metricLabel(videoquality::QualityMetric metric) -> std::string_view {
+  return metric == videoquality::QualityMetric::Vmaf ? "VMAF" : "SSIM";
+}
+
+}  // namespace
+
 auto probeSingleFile(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
@@ -249,16 +218,47 @@ auto probeSingleFile(
   return plan;
 }
 
-auto formatSizeMB(std::optional<std::uintmax_t> bytes) -> std::string {
-  if (!bytes.has_value()) { return "-"; }
-  return std::format("{:.1f} MB", static_cast<double>(bytes.value()) / 1'048'576.0);
-}
+auto runProbeEncode(
+  appctx::AppContext& ctx,
+  fs::path const& inputPath,
+  EncodeInputSettings const& settings,
+  fs::path const& segFile,
+  int cq,
+  ProbeWindow const& window
+) -> bool {
+  auto const cfg = buildProbeSegmentConfig(
+    ctx.toolchain,
+    inputPath,
+    ctx.config.outputFormat,
+    ctx.config.videoCodec,
+    settings,
+    cq,
+    window.startUs,
+    window.durationUs,
+    segFile
+  );
 
-auto metricLabel(videoquality::QualityMetric metric) -> std::string_view {
-  return metric == videoquality::QualityMetric::Vmaf ? "VMAF" : "SSIM";
-}
+  auto ec = std::error_code{};
+  fs::remove(segFile, ec);
 
-}  // namespace
+  ExecResult result{};
+  try {
+    result = exec2(cfg.buildCMD());
+  } catch (std::exception const& ex) {
+    LOG_WARN("Probe encode could not be launched (cq={}): {}", cq, ex.what());
+    return false;
+  }
+  if (result.exitCode != 0 || !fs::exists(segFile)) {
+    LOG_WARN(
+      "Probe encode failed: input={} cq={} exitCode={}",
+      inputPath.string(),
+      cq,
+      result.exitCode
+    );
+    return false;
+  }
+  return true;
+}
 
 auto pickProbeWindows(std::uint64_t totalDurationUs)
   -> std::optional<std::pair<ProbeWindow, ProbeWindow>> {

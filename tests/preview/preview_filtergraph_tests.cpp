@@ -149,7 +149,7 @@ TEST_CASE("preview command encodes with x264 crf 14 and aac audio", "[preview]")
   spec.windows = {makeWindow(0, 90.0)};
 
   auto const cmd =
-    preview::buildPreviewCommand("ffmpeg", "a.mp4", "b.mp4", spec, "out.mp4");
+    preview::buildPreviewCommand("ffmpeg", "a.mp4", {"b.mp4"}, spec, "out.mp4");
 
   CHECK(cmd.find("-i \"a.mp4\" -i \"b.mp4\"") != std::string::npos);
   CHECK(cmd.find("-filter_complex \"") != std::string::npos);
@@ -169,9 +169,48 @@ TEST_CASE("preview command is silent without audio", "[preview]") {
   spec.windows = {makeWindow(0)};
 
   auto const cmd =
-    preview::buildPreviewCommand("ffmpeg", "a.mp4", "b.mp4", spec, "out.mp4");
+    preview::buildPreviewCommand("ffmpeg", "a.mp4", {"b.mp4"}, spec, "out.mp4");
   CHECK(cmd.find(" -an ") != std::string::npos);
   CHECK(cmd.find("-c:a") == std::string::npos);
+}
+
+TEST_CASE("segment mode trims each encoded segment at local timestamps", "[preview]") {
+  auto spec = preview::FiltergraphSpec{};
+  spec.original = makeProbe(1280, 720);
+  spec.encoded = makeProbe(1280, 720);
+  spec.windows = {makeWindow(0), makeWindow(50'000'000)};
+  spec.encodedWindowsAreSegments = true;
+
+  auto const graph = preview::buildPreviewFiltergraph(spec);
+
+  // Window 0 uses input [1:v] trimmed at segment-local [0,10].
+  CHECK(graph.find("[1:v]trim=start=0.000000:end=10.000000") != std::string::npos);
+  // Window 1 uses input [2:v], still trimmed at [0,10] - no source timestamps.
+  CHECK(graph.find("[2:v]trim=start=0.000000:end=10.000000") != std::string::npos);
+  // No encoded-side trim at source timestamps in segment mode.
+  CHECK(graph.find("[2:v]trim=start=50.000000") == std::string::npos);
+  // Original side keeps source timestamps on [0:v].
+  CHECK(graph.find("[0:v]trim=start=50.000000:end=60.000000") != std::string::npos);
+  CHECK(graph.find("[o0][e0]hstack[h0];") != std::string::npos);
+  CHECK(graph.find("[o1][e1]hstack[h1];") != std::string::npos);
+}
+
+TEST_CASE("segment mode command lists every segment input", "[preview]") {
+  auto spec = preview::FiltergraphSpec{};
+  spec.original = makeProbe(1280, 720);
+  spec.encoded = makeProbe(1280, 720);
+  spec.windows = {makeWindow(0), makeWindow(50'000'000)};
+  spec.encodedWindowsAreSegments = true;
+
+  auto const cmd = preview::buildPreviewCommand(
+    "ffmpeg",
+    "a.mp4",
+    {"seg0.ts", "seg1.ts"},
+    spec,
+    "out.mp4"
+  );
+  CHECK(cmd.find("-i \"a.mp4\" -i \"seg0.ts\" -i \"seg1.ts\"") != std::string::npos);
+  CHECK(cmd.find("-map \"[vout]\"") != std::string::npos);
 }
 
 TEST_CASE("formatTimeRange renders mm:ss and h:mm:ss", "[preview]") {

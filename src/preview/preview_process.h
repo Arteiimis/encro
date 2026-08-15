@@ -17,7 +17,7 @@ namespace preview {
 
 struct PreviewOptions {
   fs::path original;
-  fs::path encoded;
+  std::optional<fs::path> encoded;  // absent: single-input mode (probe + encode windows)
   std::optional<fs::path> output;
   std::optional<double> startSeconds;
   std::optional<double> durationSeconds;
@@ -32,8 +32,10 @@ auto pickPreviewWindows(
   std::optional<std::pair<double, double>> manualRange = std::nullopt
 ) -> eh::Result<std::vector<Window>>;
 
-// Validates both inputs, scores the windows (unless manual mode), generates
-// the side-by-side comparison video and opens it unless --no-open.
+// Validates the input(s), scores the windows (unless manual mode), generates
+// the side-by-side comparison video and opens it unless --no-open. With
+// options.encoded absent, probes the source and compares against windows
+// encoded with the chosen CQ.
 auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<int>;
 
 }  // namespace preview

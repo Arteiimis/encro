@@ -31,6 +31,10 @@ struct FiltergraphSpec {
   VideoProbe original;
   VideoProbe encoded;
   std::vector<Window> windows;
+  // Single-input mode: the encoded side is one segment file per window with
+  // segment-local PTS (trim [0, duration] on [1+i:v]); two-input mode trims
+  // the single encoded file at source timestamps ([1:v]).
+  bool encodedWindowsAreSegments = false;
 };
 
 // "MM:SS-MM:SS" (or "H:MM:SS-H:MM:SS" for >= 1h inputs) segment label text.
@@ -62,7 +66,7 @@ auto buildPreviewFiltergraph(FiltergraphSpec const& spec) -> std::string;
 auto buildPreviewCommand(
   std::filesystem::path const& ffmpegPath,
   std::filesystem::path const& originalPath,
-  std::filesystem::path const& encodedPath,
+  std::vector<std::filesystem::path> const& encodedPaths,
   FiltergraphSpec const& spec,
   std::filesystem::path const& outputPath
 ) -> std::string;
