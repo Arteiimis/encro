@@ -54,6 +54,7 @@ auto makeResult(
     else if (flag == "full-progress") result.fullProgress = true;
     else if (flag == "overwrite") result.overwrite = true;
     else if (flag == "help") result.help = true;
+    else if (flag == "dry-run") result.dryRun = true;
   }
 
   return result;
@@ -1096,4 +1097,56 @@ TEST_CASE(
   REQUIRE(configRes);
   CHECK(configRes->compressImages == true);
   CHECK_FALSE(configRes->imageQuality.has_value());
+}
+
+TEST_CASE("buildConfig reads min-vmaf default and dry-run flag", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "in.mp4";
+  writeFile(inputPath);
+
+  auto const defaults = cmd::buildConfig(makeResult(inputPath.string()));
+  REQUIRE(defaults);
+  CHECK(defaults->minVmaf == 95);
+  CHECK_FALSE(defaults->dryRun);
+
+  auto const custom = cmd::buildConfig(makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"dry-run"}
+  ));
+  REQUIRE(custom);
+  CHECK(custom->dryRun);
+  CHECK(custom->minVmaf == 95);
+}
+
+TEST_CASE("buildConfig rejects out-of-range min-vmaf", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "in.mp4";
+  writeFile(inputPath);
+
+  auto result = makeResult(inputPath.string());
+  result.minVmaf = 120;
+  auto const res = cmd::buildConfig(result);
+  REQUIRE_FALSE(res);
+  CHECK(res.error().find("--min-vmaf must be between 0 and 100") != std::string::npos);
+}
+
+TEST_CASE("buildConfig rejects dry-run combined with crf", "[cmd][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "in.mp4";
+  writeFile(inputPath);
+
+  auto result = makeResult(inputPath.string());
+  result.crf = 28;
+  result.dryRun = true;
+  auto const res = cmd::buildConfig(result);
+  REQUIRE_FALSE(res);
+  CHECK(res.error().find("--dry-run requires probing") != std::string::npos);
 }

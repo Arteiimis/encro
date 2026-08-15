@@ -1,8 +1,10 @@
+# video-encode-probing Specification
+
 ## Purpose
 
 Pre-encode quality probing that finds, per video, the highest CQ meeting a p5-percentile VMAF quality floor, presents the resulting encoding plan before the user confirms, and supports a dry-run mode.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Probing runs by default before the confirmation prompt
 
@@ -22,7 +24,7 @@ The system SHALL probe each pending video at multiple candidate CQ values using 
 
 #### Scenario: Floor is reachable
 - **WHEN** probing measures CQ 28 at p5-VMAF 95.8 and CQ 32 at p5-VMAF 94.6 with a floor of 95
-- **THEN** the CQ where the floor is crossed (interpolated to ~29) is selected and the encode uses that CQ
+- **THEN** the CQ where the floor is crossed (linearly interpolated and rounded down, i.e. 30 for these numbers) is selected and the encode uses that CQ
 
 #### Scenario: Custom floor
 - **WHEN** the user passes `--min-vmaf 90`
@@ -119,3 +121,15 @@ When VMAF cannot be computed for a video (e.g. HDR input), probing SHALL fall ba
 #### Scenario: HDR video
 - **WHEN** the input is HDR or the VMAF computation is unavailable
 - **THEN** probing uses SSIM to select the CQ instead of VMAF
+
+### Requirement: Probing shows progress feedback
+
+The probe phase SHALL show progress bars in the same style as the encode bars: one bar per worker slot (reused across files, showing the current file, CQ, and sub-step), plus an Overall bar when the batch exceeds the worker count. The terminal cursor SHALL be hidden while the bars render and restored afterwards; non-TTY output (pipes, tests, CI) SHALL render no bars.
+
+#### Scenario: Batch probe shows per-slot bars
+- **WHEN** the user runs a batch encode with more files than workers
+- **THEN** the probe phase shows an Overall bar plus one bar per worker slot, and the bars update as each file's probe points complete
+
+#### Scenario: No bars on non-TTY output
+- **WHEN** output is captured by a pipe or a test harness
+- **THEN** no progress bar sequences are emitted

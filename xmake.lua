@@ -109,8 +109,19 @@ target("tests")
   add_files("tests/app/*.cpp")
   add_files("tests/infra/*.cpp")
   add_files("tests/picture/*.cpp")
+  add_files("tests/preview/*.cpp")
   add_files("tests/video/*.cpp")
   add_files("src/**.cpp|main.cpp")
+
+  -- Unit tests spawn the fake media tool exe directly (no cmd.exe layer).
+  add_deps("encro_e2e_tool")
+  after_load(function(target)
+    local dep = target:dep("encro_e2e_tool")
+    if dep then
+      local exe = path.absolute(dep:targetfile())
+      target:add("defines", "FAKE_TOOL_EXE_PATH=\"" .. exe:gsub("\\", "\\\\") .. "\"")
+    end
+  end)
 target_end()
 
 target("e2e_tests")
