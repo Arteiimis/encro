@@ -1,3 +1,4 @@
+#include "core/display_text.h"
 #include "video/encode_probe.h"
 #include "video/encode_config.h"
 #include "video/video_batch_execution.h"
@@ -572,6 +573,33 @@ TEST_CASE(
     )
     != std::string::npos
   );  // -50%
+  // Numeric columns start at the same offset in the header and every row,
+  // including the warning row.
+  auto const headerLine = [&] {
+    auto in = std::istringstream{text};
+    for (std::string line; std::getline(in, line);) {
+      if (line.starts_with("  File")) { return line; }
+    }
+    return std::string{};
+  }();
+  auto const cqCol = headerLine.find("CQ");
+  REQUIRE(cqCol != std::string::npos);
+  for (auto const name: {"alpha.mp4", "gamma.mp4"}) {
+    auto in = std::istringstream{text};
+    std::string line;
+    while (std::getline(in, line) && line.find(name) == std::string::npos) { }
+    REQUIRE(line.find(name) != std::string::npos);
+    auto const gap = line.find("  ", 2);
+    REQUIRE(gap != std::string::npos);
+    auto pos = gap;
+    while (pos < line.size() && line[pos] == ' ') { ++pos; }
+    // Compare by display width: warning rows carry a multi-byte glyph, so
+    // byte offsets differ but the rendered columns must line up.
+    CHECK(
+      displaytext::displayWidth(line.substr(0, pos))
+      == displaytext::displayWidth(headerLine.substr(0, cqCol))
+    );
+  }
   // Total line with signed percentage (4.5 MB est / 3 MB source = +50%).
   CHECK(text.find("Total: 3 file(s)") != std::string::npos);
   CHECK(text.find("+50% \xE2\x86\x91") != std::string::npos);
