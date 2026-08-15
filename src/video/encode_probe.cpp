@@ -13,11 +13,13 @@
 #include "logging/logging.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <format>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -454,8 +456,14 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   struct ProbeRootGuard {
     fs::path root;
     ~ProbeRootGuard() {
-      auto ec = std::error_code{};
-      fs::remove_all(root, ec);
+      // Remove the per-run dir; retry briefly because a just-exited child
+      // (scoring/encode) may still hold a transient handle on Windows.
+      for (auto attempt = 0; attempt < 3; ++attempt) {
+        auto ec = std::error_code{};
+        fs::remove_all(root, ec);
+        if (!ec) { return; }
+        std::this_thread::sleep_for(std::chrono::milliseconds{200});
+      }
     }
   } rootGuard{probeRoot};
 
@@ -469,42 +477,72 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
         progress::Tone::Overall
       )}
     : std::nullopt;
+  // Slot bars mirror the encode bars: one per worker, reused across tasks.
+  auto slotBars = std::vector<std::size_t>(workerCount);
+  for (auto slot = std::size_t{}; slot < workerCount; ++slot) {
+    slotBars[slot] =
+      progressCtx
+        .addBar(std::format("Probing: [idle-{}]", slot + 1), progress::Tone::Idle);
+  }
+  auto slotProgress = std::vector<std::atomic<float>>(workerCount);
   auto completed = std::atomic_size_t{0};
+  auto const updateOverall = [&] {
+    if (!overallBar.has_value()) { return; }
+    auto activeSum = 0.0f;
+    for (auto const& slotProg: slotProgress) { activeSum += slotProg.load() / 100.0f; }
+    auto const done = completed.load();
+    progressCtx.setProgress(
+      overallBar.value(),
+      std::min(
+        100.0f,
+        (static_cast<float>(done) + activeSum) / static_cast<float>(vids.size()) * 100.0f
+      )
+    );
+    progressCtx.setPostfixText(
+      overallBar.value(),
+      std::format("Probing: {}/{} files", done, vids.size())
+    );
+  };
 
   auto tasks = std::vector<taskexec::TaskSpec>{};
   tasks.reserve(vids.size());
   for (auto index = std::size_t{0}; index < vids.size(); ++index) {
     auto const fileName = vids[index].filename().string();
-    auto const barIndex =
-      progressCtx.addBar(std::format("Probing: {}", fileName), progress::Tone::Active);
     tasks.push_back({
       .id = std::format("probe:{}", collisionnaming::stablePathString(vids[index])),
       .label = fileName,
       .input = vids[index].string(),
-      .run = [&, index, barIndex, fileName](taskexec::TaskContext&) -> eh::Result<void> {
+      .run = [&, index, fileName](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
+        auto const slot = taskCtx.slot;
+        auto const barIndex = slotBars[slot];
+        progressCtx.setTone(barIndex, progress::Tone::Active);
+        progressCtx.resetEta(barIndex);
+        progressCtx.setProgress(barIndex, 0.0f);
+        progressCtx.setPostfixText(barIndex, std::format("Probing: {}", fileName));
         auto step = std::size_t{0};
-        auto const onStep = [&, barIndex](int cq, std::string_view phase) {
+        auto const onStep = [&, barIndex, slot](int cq, std::string_view phase) {
           ++step;
-          progressCtx.setProgress(
-            barIndex,
-            100.0f * static_cast<float>(step) / static_cast<float>(kMaxProbeSteps)
-          );
+          auto const p =
+            100.0f * static_cast<float>(step) / static_cast<float>(kMaxProbeSteps);
+          slotProgress[slot].store(p);
+          progressCtx.setProgress(barIndex, p);
           progressCtx.setPostfixText(
             barIndex,
             std::format("Probing: {} · CQ {} {}", fileName, cq, phase)
           );
+          updateOverall();
         };
-        auto const onPoint = [&, barIndex](std::size_t done, int cq) {
-          progressCtx.setProgress(
-            barIndex,
-            100.0f
-              * static_cast<float>(done * kStepsPerProbePoint)
-              / static_cast<float>(kMaxProbeSteps)
-          );
+        auto const onPoint = [&, barIndex, slot](std::size_t done, int cq) {
+          auto const p = 100.0f
+            * static_cast<float>(done * kStepsPerProbePoint)
+            / static_cast<float>(kMaxProbeSteps);
+          slotProgress[slot].store(p);
+          progressCtx.setProgress(barIndex, p);
           progressCtx.setPostfixText(
             barIndex,
             std::format("Probing: {} · CQ {} scored", fileName, cq)
           );
+          updateOverall();
         };
         plans[index] = probeSingleFile(ctx, vids[index], probeRoot, onPoint, onStep);
         auto const& plan = plans[index];
@@ -522,17 +560,9 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
             std::format("Skipped: {} (default CQ {})", fileName, kDefaultCq)
           );
         }
-        auto const done = completed.fetch_add(1) + 1;
-        if (overallBar.has_value()) {
-          progressCtx.setProgress(
-            overallBar.value(),
-            100.0f * static_cast<float>(done) / static_cast<float>(vids.size())
-          );
-          progressCtx.setPostfixText(
-            overallBar.value(),
-            std::format("Probing: {}/{} files", done, vids.size())
-          );
-        }
+        slotProgress[slot].store(0.0f);
+        completed.fetch_add(1);
+        updateOverall();
         return {};
       },
     });
@@ -541,8 +571,8 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   auto const runState = taskexec::runTasks({
     .tasks = std::move(tasks),
     .maxConcurrency = workerCount,
-    .progress = nullptr,
-    .hideCursor = false,
+    .progress = &progressCtx,
+    .hideCursor = true,
   });
 
   if (stopsignal::isStopRequested()) {
