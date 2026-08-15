@@ -92,21 +92,25 @@ auto measurePoint(
   fs::path const& probeDir,
   int cq,
   std::pair<ProbeWindow, ProbeWindow> const& windows,
-  boost::json::value const& vidInfo
+  boost::json::value const& vidInfo,
+  ProbeStepCallback onStep = {}
 ) -> std::optional<ProbePoint> {
   // Segments are per-video: parallel probes of different inputs share
   // probeDir, so the file name carries a per-input key.
   auto const vidKey = fs::hash_value(inputPath);
   auto const segA = probeDir / std::format("cq{}_{}_{}.ts", vidKey, cq, 0);
   auto const segB = probeDir / std::format("cq{}_{}_{}.ts", vidKey, cq, 1);
+  if (onStep) { onStep(cq, "encode 1/2"); }
   if (!runProbeEncode(ctx, inputPath, settings, segA, cq, windows.first)) {
     return std::nullopt;
   }
+  if (onStep) { onStep(cq, "encode 2/2"); }
   if (!runProbeEncode(ctx, inputPath, settings, segB, cq, windows.second)) {
     return std::nullopt;
   }
 
   auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
+  if (onStep) { onStep(cq, "score 1/2"); }
   auto const scoresA = videoquality::measureSegmentQuality(
     ffmpeg,
     inputPath,
@@ -116,6 +120,7 @@ auto measurePoint(
     vidInfo,
     true  // probe segments carry segment-local PTS
   );
+  if (onStep) { onStep(cq, "score 2/2"); }
   auto const scoresB = videoquality::measureSegmentQuality(
     ffmpeg,
     inputPath,
@@ -177,7 +182,8 @@ auto probeSingleFile(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
   fs::path const& probeDir,
-  ProbePointCallback onPoint
+  ProbePointCallback onPoint,
+  ProbeStepCallback onStep
 ) -> ProbePlan {
   auto plan = ProbePlan{};
   plan.inputPath = inputPath;
@@ -205,7 +211,16 @@ auto probeSingleFile(
 
   auto const points = probeCqSequence(
     [&](int cq) -> std::optional<ProbePoint> {
-      return measurePoint(ctx, inputPath, settings, probeDir, cq, windows.value(), info);
+      return measurePoint(
+        ctx,
+        inputPath,
+        settings,
+        probeDir,
+        cq,
+        windows.value(),
+        info,
+        onStep
+      );
     },
     ctx.config.minVmaf,
     onPoint
@@ -442,17 +457,31 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
       .label = fileName,
       .input = vids[index].string(),
       .run = [&, index, barIndex, fileName](taskexec::TaskContext&) -> eh::Result<void> {
-        auto const onPoint = [&, barIndex](std::size_t done, int cq) {
+        auto step = std::size_t{0};
+        auto const onStep = [&, barIndex](int cq, std::string_view phase) {
+          ++step;
           progressCtx.setProgress(
             barIndex,
-            100.0f * static_cast<float>(done) / static_cast<float>(kMaxProbePoints)
+            100.0f * static_cast<float>(step) / static_cast<float>(kMaxProbeSteps)
           );
           progressCtx.setPostfixText(
             barIndex,
-            std::format("Probing: {} (CQ {} {}/{})", fileName, cq, done, kMaxProbePoints)
+            std::format("Probing: {} · CQ {} {}", fileName, cq, phase)
           );
         };
-        plans[index] = probeSingleFile(ctx, vids[index], probeRoot, onPoint);
+        auto const onPoint = [&, barIndex](std::size_t done, int cq) {
+          progressCtx.setProgress(
+            barIndex,
+            100.0f
+              * static_cast<float>(done * kStepsPerProbePoint)
+              / static_cast<float>(kMaxProbeSteps)
+          );
+          progressCtx.setPostfixText(
+            barIndex,
+            std::format("Probing: {} · CQ {} scored", fileName, cq)
+          );
+        };
+        plans[index] = probeSingleFile(ctx, vids[index], probeRoot, onPoint, onStep);
         auto const& plan = plans[index];
         if (plan.probed) {
           progressCtx.setProgress(barIndex, 100.0f);
