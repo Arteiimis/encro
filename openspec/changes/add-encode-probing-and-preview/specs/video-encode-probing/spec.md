@@ -119,3 +119,15 @@ When VMAF cannot be computed for a video (e.g. HDR input), probing SHALL fall ba
 #### Scenario: HDR video
 - **WHEN** the input is HDR or the VMAF computation is unavailable
 - **THEN** probing uses SSIM to select the CQ instead of VMAF
+
+### Requirement: Probing shows progress feedback
+
+The probe phase SHALL show progress bars in the same style as the encode bars: one bar per worker slot (reused across files, showing the current file, CQ, and sub-step), plus an Overall bar when the batch exceeds the worker count. The terminal cursor SHALL be hidden while the bars render and restored afterwards; non-TTY output (pipes, tests, CI) SHALL render no bars.
+
+#### Scenario: Batch probe shows per-slot bars
+- **WHEN** the user runs a batch encode with more files than workers
+- **THEN** the probe phase shows an Overall bar plus one bar per worker slot, and the bars update as each file's probe points complete
+
+#### Scenario: No bars on non-TTY output
+- **WHEN** output is captured by a pipe or a test harness
+- **THEN** no progress bar sequences are emitted
