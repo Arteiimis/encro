@@ -39,8 +39,8 @@ jobs:
           key: xmake-packages-${{ hashFiles('xmake.lua') }}
           # xmake.lua 小改动时退回上一个缓存，避免 boost 全量重建（LTO 版在
           # 4 核 runner 上曾跑到 40min 超时）；命中旧缓存后 xmake 只重编增量。
-          restore-keys:
-            - xmake-packages-
+          restore-keys: |
+            xmake-packages-
 
       - name: Install toolchain and dependencies
         run: bash scripts/setup-linux-env.sh
