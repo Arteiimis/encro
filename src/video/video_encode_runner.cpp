@@ -128,8 +128,8 @@ auto buildEncodeConfig(
     .outputPath = plan.outputPath,
     .outputFilePath = plan.outputFilePath,
     .outputFormat = ctx.config.outputFormat,
-    .crf = state.chosenCq.has_value() ? state.chosenCq : ctx.config.crf,
     .videoCodec = ctx.config.videoCodec,
+    .crf = state.chosenCq.has_value() ? state.chosenCq : ctx.config.crf,
     .nvencPreset = settings.nvencPreset,
     .maxrateKbps = settings.maxrateKbps,
     .progressFilePath = plan.progressFilePath
