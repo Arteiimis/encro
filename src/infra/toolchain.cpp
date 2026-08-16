@@ -5,6 +5,7 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::INFRA_TOOLCHAIN);
 
 namespace toolchain {

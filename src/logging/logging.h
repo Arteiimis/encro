@@ -47,12 +47,15 @@ namespace logging::detail {
 // Uses a raw pointer instead of shared_ptr — logger lifetime is owned by the
 // spdlog registry.
 
-#define DEFINE_LOGGER(tag)                                                     \
-  static auto loggerPtr() noexcept -> spdlog::logger* {                        \
-    if (auto* p = spdlog::get(tag).get()) return p;                            \
-    if (auto* p = spdlog::default_logger_raw()) return p;                      \
-    static auto fallback = std::make_shared<spdlog::logger>("__encro_null__"); \
-    return fallback.get();                                                     \
+#define DEFINE_LOGGER(tag)                                  \
+  inline static auto encroLoggerFallback =                  \
+    std::make_shared<spdlog::logger>("__encro_null__");     \
+  static auto loggerPtr() noexcept -> spdlog::logger* {     \
+    try {                                                   \
+      if (auto* p = spdlog::get(tag).get()) return p;       \
+      if (auto* p = spdlog::default_logger_raw()) return p; \
+    } catch (...) { }                                       \
+    return encroLoggerFallback.get();                       \
   }
 
 // ── Log macros (D-01: custom wrapper layer over SPDLOG_LOGGER_CALL) ────────
@@ -249,7 +252,10 @@ public:
         std::chrono::steady_clock::now() - start_
       )
         .count();
-    LOG_INFO("{} completed in {}ms", stageName_, elapsed);
+    try {
+      LOG_INFO("{} completed in {}ms", stageName_, elapsed);
+    } catch (...) {  // NOLINT(bugprone-empty-catch): noexcept dtor must never terminate
+    }
   }
 
   ScopedTimer(ScopedTimer const&) = delete;

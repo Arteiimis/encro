@@ -288,12 +288,11 @@ auto resolveZipNameStrategy(
   std::vector<std::size_t> subPartCountsByPart
 ) -> std::function<std::string(std::size_t)> {
   if (naming && naming->zipNameStrategy) {
-    auto strategy = naming->zipNameStrategy;
-    auto ordRanges = ordinalRanges;
-    auto nameParts = groupNameParts;
-    auto subPartCounts = subPartCountsByPart;
-    auto bName = baseName;
-    return [strategy, ordRanges, nameParts, subPartCounts, bName](std::size_t index) {
+    return [strategy = naming->zipNameStrategy,
+            ordRanges = ordinalRanges,
+            nameParts = groupNameParts,
+            subPartCounts = subPartCountsByPart,
+            bName = baseName](std::size_t index) {
       auto const [partIndex, subPartIndex] = nameParts.at(index);
       auto const totalSubParts = subPartCounts.at(partIndex - 1);
       return strategy(partIndex, subPartIndex, totalSubParts, bName, ordRanges.at(index));
@@ -366,7 +365,7 @@ auto runResumable(PackPlan const& plan, jobstate::Store& store)
   }
 
   // Merge with existing job state
-  auto const mergedTasks = store.mergeTasks(archiveTasks);
+  auto mergedTasks = store.mergeTasks(archiveTasks);
 
   // Filter: which indexes need execution?
   auto pendingIndexes = std::vector<std::size_t>{};

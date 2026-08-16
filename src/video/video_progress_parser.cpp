@@ -11,6 +11,7 @@
 
 namespace fs = std::filesystem;
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_PROGRESS);
 
 namespace {

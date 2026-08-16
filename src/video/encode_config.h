@@ -63,8 +63,8 @@ struct EncodeConfig {
       throw std::runtime_error("Input path is required to build output path.");
     }
 
-    auto const format = outputFormat.value_or("mp4");
-    auto const codec = videoCodec.value_or("hevc_nvenc");
+    auto format = outputFormat.value_or("mp4");
+    auto codec = videoCodec.value_or("hevc_nvenc");
 
     auto const codecTag = [&codec] {
       auto const splitPos = codec.find('_');
@@ -93,7 +93,7 @@ struct EncodeConfig {
   }
 
   std::string buildCMD() const {
-    auto cmd = quoteToolPath(ffmpegPath.value());
+    auto cmd = quoteToolPath(ffmpegPath.value_or(fs::path{"ffmpeg"}));
     cmd += " -hide_banner -nostats -loglevel error -y";
 
     if (!inputPath.has_value()) {
@@ -106,8 +106,10 @@ struct EncodeConfig {
     };
 
     if (isSegmented) {
+      // NOLINTNEXTLINE(bugprone-unchecked-optional-access): set together with segmentIndex by buildSegmentEncodeConfig
       auto const startSec = seconds(segmentStartUs.value());
       cmd += std::format(" -ss {} -i \"{}\"", startSec, inputPath->string());
+      // NOLINTNEXTLINE(bugprone-unchecked-optional-access): set together with segmentIndex by buildSegmentEncodeConfig
       cmd += std::format(" -t {}", seconds(segmentDurationUs.value()));
       cmd += " -force_key_frames 0";
       cmd += " -an";
@@ -115,8 +117,8 @@ struct EncodeConfig {
       cmd += std::format(" -i \"{}\"", inputPath->string());
     }
 
-    auto const format = outputFormat.value_or("mp4");
-    auto const codec = videoCodec.value_or("hevc_nvenc");
+    auto format = outputFormat.value_or("mp4");
+    auto codec = videoCodec.value_or("hevc_nvenc");
     if (format == "webp") {
       auto const quality = webpQuality.value_or(80);
       cmd += " -vf \"scale=-2:960:force_original_aspect_ratio=decrease\""
@@ -222,7 +224,7 @@ inline auto buildSegmentEncodeConfig(
     .crf = crf,
     .nvencPreset = settings.nvencPreset,
     .maxrateKbps = settings.maxrateKbps,
-    .progressFilePath = progressFilePath,
+    .progressFilePath = std::move(progressFilePath),
     .segmentIndex = segmentIndex,
     .segmentStartUs = startUs,
     .segmentDurationUs = durationUs,

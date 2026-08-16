@@ -81,10 +81,10 @@ JsonFormatter::format(spdlog::details::log_msg const& msg, spdlog::memory_buf_t&
     // Build error_context JSON array
     auto arr = json::array{};
     for (auto const& frame: ctxFrames) { arr.push_back(json::string{frame}); }
-    obj["error_context"] = std::move(arr);
+    obj["error_context"] = arr;
   }
 
-  obj["message"] = std::move(message);
+  obj["message"] = message;
 
   // Correlation fields from the attribute chain (never override fixed fields)
   if (attrs.has_value()) {

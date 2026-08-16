@@ -65,19 +65,19 @@ auto enableVirtualTerminal(Stream stream) -> bool {
 auto defaultBadgeLabel(MessageKind kind) -> std::string_view {
   switch (kind) {
     case MessageKind::Plain:
-    case MessageKind::Heading      : return {};
+    case MessageKind::Heading:
+    case MessageKind::Usage:
+    case MessageKind::OptionGroup:
+    case MessageKind::OptionName:
+    case MessageKind::OptionDefault:
+    case MessageKind::OptionDesc:
+    case MessageKind::Version      : return {};
     case MessageKind::Error        : return "error";
     case MessageKind::Warning      : return "warn";
     case MessageKind::Success      : return "done";
     case MessageKind::Info         : return "info";
     case MessageKind::Hint         : return "hint";
     case MessageKind::Prompt       : return "?";
-    case MessageKind::Usage        : return {};
-    case MessageKind::OptionGroup  : return {};
-    case MessageKind::OptionName   : return {};
-    case MessageKind::OptionDefault: return {};
-    case MessageKind::OptionDesc   : return {};
-    case MessageKind::Version      : return {};
   }
 
   return {};
@@ -188,7 +188,7 @@ auto styleFor(MessageKind kind) -> fmt::text_style {
     case MessageKind::OptionGroup  : return emphasis::bold;
     case MessageKind::OptionName   : return fg(tc::cyan);
     case MessageKind::OptionDefault: return fg(tc::cyan) | emphasis::faint;
-    case MessageKind::OptionDesc   : return {};
+    case MessageKind::OptionDesc   :
     case MessageKind::Version      : return {};
   }
 

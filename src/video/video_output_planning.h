@@ -17,7 +17,7 @@ struct EncodedVideoPackFile {
 auto planVideoOutputFiles(
   appctx::AppConfig const& config,
   std::span<fs::path const> inputPaths,
-  std::optional<fs::path> sourceRootDir = std::nullopt
+  std::optional<fs::path> const& sourceRootDir = std::nullopt
 ) -> eh::Result<appctx::path_map<fs::path>>;
 
 auto resolveVideoOutputPath(appctx::AppConfig const& config, fs::path const& inputPath)

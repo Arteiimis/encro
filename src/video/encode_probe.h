@@ -117,7 +117,8 @@ struct ProbePlan {
   bool unreachableFloor = false;
 };
 
-struct ProbePhaseResult {
+struct
+  ProbePhaseResult {  // NOLINT(bugprone-exception-escape): aggregate construction; bad_alloc only
   appctx::path_map<ProbePlan> plans;
   std::vector<std::string> attentionWarnings;
 };
@@ -135,8 +136,8 @@ auto probeSingleFile(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
   fs::path const& probeDir,
-  ProbePointCallback onPoint = {},
-  ProbeStepCallback onStep = {}
+  ProbePointCallback const& onPoint = {},
+  ProbeStepCallback const& onStep = {}
 ) -> ProbePlan;
 
 auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void;

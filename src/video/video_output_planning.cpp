@@ -14,6 +14,7 @@
 namespace fs = std::filesystem;
 namespace naming = collisionnaming;
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_OUTPUT);
 
 namespace {
@@ -43,12 +44,12 @@ auto resolveOutputRootDir(
   appctx::AppConfig const& config,
   std::optional<fs::path> const& sourceRootDir
 ) -> std::optional<fs::path> {
-  if (config.outputPath.has_value()) { return config.outputPath.value(); }
+  if (config.outputPath.has_value()) { return *config.outputPath; }
   if (config.outputFormat != "webp" || !sourceRootDir.has_value()) {
     return std::nullopt;
   }
 
-  return sourceRootDir.value() / "encoded_webp";
+  return *sourceRootDir / "encoded_webp";
 }
 
 auto resolvePlannedOutputDir(
@@ -103,7 +104,7 @@ auto ensureUniqueOutputPaths(appctx::path_map<fs::path>& plannedOutputFiles) -> 
 auto planVideoOutputFiles(
   appctx::AppConfig const& config,
   std::span<fs::path const> inputPaths,
-  std::optional<fs::path> sourceRootDir
+  std::optional<fs::path> const& sourceRootDir
 ) -> eh::Result<appctx::path_map<fs::path>> {
   auto plannedOutputFiles = appctx::path_map<fs::path>{};
   plannedOutputFiles.reserve(inputPaths.size());

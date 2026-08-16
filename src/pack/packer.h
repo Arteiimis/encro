@@ -27,7 +27,7 @@ public:
     std::filesystem::path const& zipFilePath,
     progress::ProgressContext& progressCtx,
     std::string_view progressText,
-    pack::detail::ZipEntryNameResolver entryNameForFile = {}
+    pack::detail::ZipEntryNameResolver const& entryNameForFile = {}
   ) -> eh::Result<void>;
 
   auto packFilesToZip(
@@ -40,19 +40,19 @@ public:
   auto packFilesToZip(
     std::vector<PackFileEntry> const& entries,
     std::filesystem::path const& zipFilePath,
-    pack::detail::PackEntryProgressCallback onEntryPacked = {},
+    pack::detail::PackEntryProgressCallback const& onEntryPacked = {},
     std::atomic<std::size_t>* finalizingCount = nullptr
   ) -> eh::Result<void>;
 
   auto groupFilesBySize(
     std::vector<std::filesystem::path> const& filePaths,
-    std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
+    std::uintmax_t maxGroupSize = std::uintmax_t{490} * 1024 * 1024,
     std::optional<std::size_t> maxFilesPerGroup = std::nullopt
   ) -> std::vector<std::vector<std::filesystem::path>>;
 
   auto groupPackFiles(
     std::vector<pack::detail::PackGroupInput> const& filePaths,
-    std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
+    std::uintmax_t maxGroupSize = std::uintmax_t{490} * 1024 * 1024,
     std::optional<std::size_t> maxFilesPerGroup = std::nullopt,
     std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed = std::nullopt
   ) -> std::vector<std::vector<std::filesystem::path>>;
@@ -66,7 +66,7 @@ public:
 
   auto groupPackEntries(
     std::vector<pack::detail::PackEntryInput> const& entries,
-    std::uintmax_t maxGroupSize = 490 * 1024 * 1024,
+    std::uintmax_t maxGroupSize = std::uintmax_t{490} * 1024 * 1024,
     std::optional<std::size_t> maxFilesPerGroup = std::nullopt,
     std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed = std::nullopt
   ) -> std::vector<std::vector<PackFileEntry>>;
@@ -157,7 +157,7 @@ private:
     std::size_t progressBarIndex,
     std::string_view progressText,
     std::atomic<bool>& finalizing,
-    std::stop_token stopToken
+    std::stop_token const& stopToken
   );
 };
 

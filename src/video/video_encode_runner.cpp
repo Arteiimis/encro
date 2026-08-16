@@ -22,6 +22,7 @@
 #include <optional>
 #include <string>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_ENCODE);
 
 namespace fs = std::filesystem;
@@ -210,7 +211,7 @@ auto encodeWebpWithTargetSize(
 
   auto const abortForStopRequest = [&] {
     clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
-    LOG_INFO(
+    LOG_INFO(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
       "WebP adaptive encoding canceled: input={} output={}",
       encodeCtx.inputVidPath.string(),
       outputFile.string()
@@ -383,7 +384,7 @@ auto encodeOneSegment(
   });
   if (pid.has_value()) {
     auto lock = std::scoped_lock{state.mtx};
-    state.subprocessPid = pid.value();
+    state.subprocessPid = pid;
   }
   if (exitCode != 0) {
     LOG_WARN(
@@ -404,10 +405,10 @@ auto ensureAudioFile(
   fs::path const& segmentDir,
   function_ref statusUpdater
 ) -> eh::Result<std::optional<fs::path>> {
-  auto const fallbackAudio = segmentDir / "audio.m4a";
+  auto fallbackAudio = segmentDir / "audio.m4a";
   if (fs::exists(fallbackAudio)) { return fallbackAudio; }
 
-  auto const copyAudio =
+  auto copyAudio =
     segmentDir / std::format("audio{}", state.inputPath.extension().string());
   if (fs::exists(copyAudio)) { return copyAudio; }
 
@@ -427,7 +428,12 @@ auto ensureAudioFile(
     auto const [exitCode, _, pid] = exec2(cmd, [&](std::string_view line) {
       reportEncodingDiagnostic(statusUpdater, line);
     });
-    if (pid.has_value()) { LOG_DEBUG("Audio extraction pid: {}", pid.value()); }
+    if (pid.has_value()) {
+      LOG_DEBUG(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in exec2 callback lambda
+        "Audio extraction pid: {}",
+        pid.value()
+      );
+    }
     return exitCode == 0 && fs::exists(audioPath);
   };
 
@@ -481,7 +487,7 @@ auto assembleSegments(
   });
   if (pid.has_value()) {
     auto lock = std::scoped_lock{state.mtx};
-    state.subprocessPid = pid.value();
+    state.subprocessPid = pid;
   }
   if (exitCode != 0) {
     LOG_WARN(
@@ -549,7 +555,7 @@ auto runSegmentedEncoding(
 
   auto const audioRes = ensureAudioFile(ctx, state, segmentDir, statusUpdater);
   if (!audioRes) { return failEncoding(state, audioRes.error()); }
-  auto const audioPath = audioRes.value();
+  auto const& audioPath = audioRes.value();
 
   auto totalFrames = std::int64_t{0};
   if (

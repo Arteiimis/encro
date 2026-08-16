@@ -25,6 +25,7 @@
 
 using enum terminal::MessageKind;
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::APP_ENTRY);
 
 namespace {
@@ -208,7 +209,9 @@ auto runPreview(prelude::StartupContext const& startup) -> int {
       &ctx
     );
   }
-  ctx.config = configRes.value();
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access): guarded by the !configRes check above; expected's operator bool is not recognized
+  ctx.config = *configRes;
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access): guarded by the has_value() check above
   ctx.config.inputPath = fs::path{startup.cmd.previewOriginal.value()};
 
   if (startup.cmd.ffmpegPath.has_value()) {
@@ -225,10 +228,10 @@ auto runPreview(prelude::StartupContext const& startup) -> int {
     options.output = fs::path{startup.cmd.previewOutput.value()};
   }
   if (startup.cmd.previewStart.has_value()) {
-    options.startSeconds = startup.cmd.previewStart.value();
+    options.startSeconds = startup.cmd.previewStart;
   }
   if (startup.cmd.previewDuration.has_value()) {
-    options.durationSeconds = startup.cmd.previewDuration.value();
+    options.durationSeconds = startup.cmd.previewDuration;
   }
   options.noOpen = startup.cmd.previewNoOpen;
 

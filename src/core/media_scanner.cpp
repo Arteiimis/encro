@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <format>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::CORE_SCAN);
 
 namespace media {
