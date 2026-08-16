@@ -25,18 +25,22 @@ jobs:
       matrix:
         mode: [debug, release, coverage]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
 
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v5
         id: xmake-cache
         with:
           # 包目录内部按 mode/buildhash 分区，一个 key 覆盖三模式产物
           path: ~/.xmake/packages
           key: xmake-packages-${{ hashFiles('xmake.lua') }}
+          # xmake.lua 小改动时退回上一个缓存，避免 boost 全量重建（LTO 版在
+          # 4 核 runner 上曾跑到 40min 超时）；命中旧缓存后 xmake 只重编增量。
+          restore-keys:
+            - xmake-packages-
 
       - name: Install toolchain and dependencies
         run: bash scripts/setup-linux-env.sh
@@ -87,7 +91,7 @@ jobs:
         # artifact，本地可直接下载分析。必须放在所有测试步骤之后：failure() 在此处
         # 指“上一步失败”，提前放置会在 e2e 失败时错过上传。
         if: failure() && matrix.mode != 'coverage'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-reports-${{ matrix.mode }}
           path: |
@@ -128,7 +132,7 @@ jobs:
       - name: Save xmake packages cache
         # 显式保存（job 失败也保存，否则每次 miss 全量重编 boost）；命中时跳过避免重复 key
         if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ~/.xmake/packages
           key: xmake-packages-${{ hashFiles('xmake.lua') }}
