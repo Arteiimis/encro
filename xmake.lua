@@ -7,6 +7,7 @@ set_languages("c++26")
 if is_plat("windows") then
   set_toolchains("clang-cl")
   set_toolset("ld", "lld-link")
+  set_toolset("ar", "llvm-ar")
 else
   set_toolchains("clang")
   -- clang + GNU ld 的 thin-LTO 链接不可靠（catch2/boost 符号被裁剪）；
@@ -18,14 +19,9 @@ add_cxxflags("-ftrivial-auto-var-init=pattern")
 
 add_plugindirs("./plugins/")
 
-if is_mode("release") then
-  set_policy("build.optimization.lto", true)
-end
-
 if is_mode("coverage") then
   -- 不用内置 mode.coverage 规则：它的 --coverage（gcov 插桩）会在 fork 后
   -- 逐文件 dump .gcda，拖慢/卡住 exec2 的子进程；这里只用 LLVM 插桩。
-  set_policy("build.optimization.lto", false)
   set_policy("build.ccache", false)
   set_symbols("debug")
   set_optimize("none")
@@ -58,7 +54,7 @@ elseif is_mode("coverage") then
   add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE")
 end
 
-add_requires("boost[process,stacktrace,asio,context,date_time,json]", {configs = {lto = false}})
+add_requires("boost[process,stacktrace,asio,context,date_time,json]")
 add_requires("cli11")
 add_requires("thread-pool")
 add_requires("spdlog[fmt_external]")
@@ -69,12 +65,12 @@ add_requires("libzippp")
 -- add_requireconfs("libzippp.libzip", {configs = {toolchains = "clang"}})
 add_requires("catch2")
 
--- 包不继承 target 的 LTO：clang + GNU ld 下 catch2/boost 的 LTO 链接失败
--- （Windows lld-link 无此问题；包 LTO 对最终二进制无收益，target 自身 LTO 保留）
-add_requires("catch2", {configs = {lto = false}})
-
 target("encro")
   set_kind("binary")
+
+  if is_mode("release") then
+    set_policy("build.optimization.lto", true)
+  end
 
   add_packages("boost", "thread-pool", "indicators", "libzippp", "immer", "fmt", "spdlog", "cli11")
   if is_plat("windows") then
