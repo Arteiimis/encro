@@ -42,6 +42,8 @@ jobs:
         run: bash scripts/setup-linux-env.sh
 
       - name: Configure
+        # 包构建（boost）在 4 核 runner 上开 LTO 会跑到 6h 超时；timeout 兜底快速失败
+        timeout-minutes: 40
         run: xmake f -m ${{ matrix.mode }} -y
 
       - name: Diagnostics
