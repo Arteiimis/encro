@@ -175,6 +175,27 @@ auto runEncro(
   return runProcess(encroBinaryPath(), args, workingDir, environment);
 }
 
+// The failure path prints "Log file: <path>"; dump that file's tail into the
+// assertion output so CI runs carry ffmpeg's stderr without a separate
+// artifact round-trip. Empty when the child produced no log line.
+auto encroLogTail(std::string const& stdoutText) -> std::string {
+  auto const marker = std::string_view{"Log file: "};
+  auto const pos = stdoutText.find(marker);
+  if (pos == std::string::npos) { return {}; }
+  auto const eol = stdoutText.find('\n', pos);
+  auto const path = stdoutText.substr(pos + marker.size(), eol - pos - marker.size());
+  auto in = std::ifstream{fs::path{path}};
+  if (!in) { return "\n(encro log not readable: " + path + ")\n"; }
+  auto content = std::string{};
+  auto line = std::string{};
+  while (std::getline(in, line)) {
+    content += line;
+    content += '\n';
+  }
+  if (content.size() > 8192) { content.erase(0, content.size() - 8192); }
+  return "\nencro log (" + path + "):\n" + content;
+}
+
 namespace {
 
 // Creates the child as a process-group leader on Windows (POSIX needs no
