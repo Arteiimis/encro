@@ -12,7 +12,7 @@ sudo apt-get install -y wget ca-certificates
 wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
 echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-toolchain.list
 sudo apt-get update
-sudo apt-get install -y clang-19 g++-14 llvm-19 lld-19 ffmpeg
+sudo apt-get install -y clang-19 g++-14 llvm-19 lld-19 ffmpeg fonts-dejavu-core
 
 # Same-version llvm tools for the coverage plugin (looks up unversioned names)
 sudo ln -sf /usr/bin/ld.lld-19 /usr/local/bin/ld.lld
