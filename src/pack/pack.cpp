@@ -346,9 +346,8 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
 // --- runResumable ---
 // D-11: Internalized archive_plan logic. Takes a JobState store, merges tasks,
 // filters for needsExecution, sets progress callbacks, and runs packing.
-auto runResumable(PackPlan const& plan, jobstate::Store& store)
-  -> eh::Result<PackRunResult> {
-  // Build archive task records for all groups
+// Archive task records for every group: one task per output zip.
+auto buildArchiveTaskRecords(PackPlan const& plan) -> std::vector<jobstate::TaskRecord> {
   auto allIndexes = std::vector<std::size_t>(plan.groups.size());
   std::iota(allIndexes.begin(), allIndexes.end(), std::size_t{0});
 
@@ -363,15 +362,53 @@ auto runResumable(PackPlan const& plan, jobstate::Store& store)
     archiveTasks
       .push_back(jobstate::makeArchiveTask(plan.outputDir / zipName, members, label));
   }
+  return archiveTasks;
+}
 
-  // Merge with existing job state
-  auto mergedTasks = store.mergeTasks(archiveTasks);
+// Shared state for progress callbacks
+struct ResumableState {
+  jobstate::Store* store;
+  std::vector<jobstate::TaskRecord> mergedTasks;
+  std::vector<std::size_t> pendingIndexes;
+};
 
-  // Filter: which indexes need execution?
-  auto pendingIndexes = std::vector<std::size_t>{};
-  pendingIndexes.reserve(mergedTasks.size());
+auto makeResumableProgressCallbacks(
+  jobstate::Store& store,
+  std::vector<jobstate::TaskRecord> const& mergedTasks,
+  std::vector<std::size_t> const& pendingIndexes
+) -> pack::PackProgressCallbacks {
+  auto resumableState = std::make_shared<ResumableState>(ResumableState{
+    .store = &store,
+    .mergedTasks = mergedTasks,
+    .pendingIndexes = pendingIndexes
+  });
+  auto callbacks = pack::PackProgressCallbacks{};
+  callbacks.onGroupStart = [resumableState](std::size_t subsetIndex) {
+    auto const& id =
+      resumableState->mergedTasks[resumableState->pendingIndexes.at(subsetIndex)].id;
+    resumableState->store->markRunning(id);
+  };
+  callbacks.onGroupSuccess = [resumableState](std::size_t subsetIndex, fs::path const&) {
+    auto const& id =
+      resumableState->mergedTasks[resumableState->pendingIndexes.at(subsetIndex)].id;
+    resumableState->store->markSucceeded(id);
+  };
+  callbacks.onGroupFailure =
+    [resumableState](std::size_t subsetIndex, std::string const& error) {
+      auto const& id =
+        resumableState->mergedTasks[resumableState->pendingIndexes.at(subsetIndex)].id;
+      resumableState->store->markFailed(id, error);
+    };
+  return callbacks;
+}
+
+auto runResumable(PackPlan const& plan, jobstate::Store& store)
+  -> eh::Result<PackRunResult> {
+  // Build archive task records for all groups, merge with existing job state
+  // and filter down to the indexes that still need execution.
+  auto const mergedTasks = store.mergeTasks(buildArchiveTaskRecords(plan));
   auto pendingActionIds = std::vector<std::string>{};
-  pendingActionIds.reserve(mergedTasks.size());
+  auto pendingIndexes = std::vector<std::size_t>{};
   for (auto i = std::size_t{0}; i < mergedTasks.size(); ++i) {
     if (!jobstate::needsExecution(mergedTasks[i])) { continue; }
     pendingIndexes.push_back(i);
@@ -388,36 +425,8 @@ auto runResumable(PackPlan const& plan, jobstate::Store& store)
 
   // Build filtered PackPlan (replicating selectPackPlanIndexes logic)
   auto pendingPlan = pack::internal::selectPackPlanIndexes(plan, pendingIndexes);
-
-  // Shared state for progress callbacks
-  struct ResumableState {
-    jobstate::Store* store;
-    std::vector<jobstate::TaskRecord> mergedTasks;
-    std::vector<std::size_t> pendingIndexes;
-  };
-  auto resumableState = std::make_shared<ResumableState>(ResumableState{
-    .store = &store,
-    .mergedTasks = std::move(mergedTasks),
-    .pendingIndexes = std::move(pendingIndexes)
-  });
-
-  pendingPlan.progressCallbacks.onGroupStart = [resumableState](std::size_t subsetIndex) {
-    auto const& id =
-      resumableState->mergedTasks[resumableState->pendingIndexes.at(subsetIndex)].id;
-    resumableState->store->markRunning(id);
-  };
-  pendingPlan.progressCallbacks.onGroupSuccess =
-    [resumableState](std::size_t subsetIndex, fs::path const&) {
-      auto const& id =
-        resumableState->mergedTasks[resumableState->pendingIndexes.at(subsetIndex)].id;
-      resumableState->store->markSucceeded(id);
-    };
-  pendingPlan.progressCallbacks.onGroupFailure =
-    [resumableState](std::size_t subsetIndex, std::string const& error) {
-      auto const& id =
-        resumableState->mergedTasks[resumableState->pendingIndexes.at(subsetIndex)].id;
-      resumableState->store->markFailed(id, error);
-    };
+  pendingPlan.progressCallbacks =
+    makeResumableProgressCallbacks(store, mergedTasks, pendingIndexes);
 
   // Execute the filtered plan
   PackService svc2;

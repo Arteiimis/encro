@@ -582,6 +582,7 @@ auto pack::Packer::groupPackFiles(
   ));
 }
 
+// NOLINTNEXTLINE(readability-function-size): two-level grouping algorithm core
 auto pack::Packer::groupPackEntriesWithSubparts(
   std::vector<PackEntryInput> const& entries,
   std::uintmax_t maxGroupSize,

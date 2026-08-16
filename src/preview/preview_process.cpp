@@ -356,46 +356,207 @@ auto reportAndOpen(PreviewOptions const& options, fs::path const& outputPath) ->
   }
 }
 
-auto runSingleInput(
+// Windows are independent: encode + score each one in parallel (bounded by
+// the configured job count), then collect in order for the report.
+struct WindowOutcome {
+  videoquality::QualityMetric metric = videoquality::QualityMetric::Vmaf;
+  std::optional<double> score;
+};
+
+struct WindowBatchResult {
+  std::vector<WindowOutcome> outcomes;
+  std::vector<fs::path> segments;
+};
+
+auto encodeAndScoreAllWindows(
+  appctx::AppContext& ctx,
+  PreviewOptions const& options,
+  std::vector<Window> const& windows,
+  encodeprobe::ProbePlan const& plan,
+  fs::path const& ffmpeg,
+  boost::json::value const& info,
+  EncodeInputSettings const& settings,
+  fs::path const& probeRoot,
+  progress::ProgressContext& progressCtx,
+  std::size_t bar,
+  float windowBase,
+  std::atomic_bool& windowEncodeFailed
+) -> WindowBatchResult {
+  auto result = WindowBatchResult{};
+  result.outcomes.resize(windows.size());
+  result.segments.resize(windows.size());
+  auto windowsCompleted = std::atomic_size_t{0};
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(windows.size());
+  for (auto index = std::size_t{}; index < windows.size(); ++index) {
+    auto const segFile = probeRoot / std::format("win{}.ts", index);
+    result.segments[index] = segFile;
+    tasks.push_back({
+      .id = std::format("preview-window:{}", index),
+      .label = std::format("window {}", index),
+      .input = options.original.string(),
+.run = [&, index, segFile](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
+taskexec::TaskContext&) -> eh::Result<void> {
+auto const& window = windows[index];
+auto const windowCq = ctx.config.crf.value_or(plan.chosenCq);
+auto const ok = encodeprobe::runProbeEncode(
+ctx,
+options.original,
+settings,
+segFile,
+windowCq,
+encodeprobe::ProbeWindow{window.startUs, window.durationUs}
+);
+if (!ok) {
+windowEncodeFailed.store(true);
+return eh::makeError(
+"Preview window encode failed at {}us of {}",
+window.startUs,
+options.original.string()
+);
+}
+auto const scores = videoquality::measureSegmentQuality(
+ffmpeg,
+options.original,
+segFile,
+window.startUs,
+window.durationUs,
+info,
+true  // segments carry segment-local PTS
+);
+if (scores.has_value()) {
+result.outcomes[index].metric = scores->metric;
+result.outcomes[index].score = videoquality::percentile(scores->frameScores, 5.0);
+} else {
+LOG_WARN(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
+"Preview scoring failed for window {}us: {}",
+window.startUs,
+scores.error()
+);
+}
+auto const done = windowsCompleted.fetch_add(1) + 1;
+progressCtx.setProgress(
+bar,
+windowBase
++ (85.0f - windowBase)
+* static_cast<float>(done)
+/ static_cast<float>(windows.size())
+);
+progressCtx.setPostfixText(
+bar,
+std::format("Encoding windows: {}/{}", done, windows.size())
+);
+return {};
+}
+    });
+  }
+  taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency =
+      std::clamp<std::size_t>(ctx.config.maxParallelJobs.value_or(4), 1, windows.size()),
+    .progress = nullptr,
+    .hideCursor = false,
+  });
+  return result;
+}
+
+// Copies the scored metrics back into the windows and returns the worst index.
+auto findWorstWindow(
+  std::vector<Window>& windows,
+  std::vector<WindowOutcome> const& outcomes
+) -> std::optional<std::size_t> {
+  auto worstIndex = std::optional<std::size_t>{};
+  auto worstScore = std::optional<double>{};
+  for (auto index = std::size_t{}; index < windows.size(); ++index) {
+    auto& window = windows[index];
+    window.metric = outcomes[index].metric;
+    window.score = outcomes[index].score;
+    if (
+      window.score.has_value()
+      && (!worstScore.has_value() || window.score.value() < worstScore.value())
+    ) {
+      worstScore = window.score;
+      worstIndex = index;
+    }
+  }
+  return worstIndex;
+}
+
+// Removes the per-run probe dir; retries briefly because a just-exited child
+// (scoring/encode) may still hold a transient handle on Windows.
+struct PreviewProbeRootGuard {
+  fs::path root;
+  ~PreviewProbeRootGuard() {  // NOLINT(bugprone-exception-escape): error_code overloads never throw
+    for (auto attempt = 0; attempt < 3; ++attempt) {
+      auto ec = std::error_code{};
+      fs::remove_all(root, ec);
+      if (!ec) { return; }
+      std::this_thread::sleep_for(std::chrono::milliseconds{200});
+    }
+  }
+};
+
+auto createPreviewProbeRoot() -> eh::Result<fs::path> {
+  auto probeRoot =
+    fs::temp_directory_path() / std::format("encro_preview_probe_{}", getUUID());
+  auto ec = std::error_code{};
+  fs::create_directories(probeRoot, ec);
+  if (ec) {
+    return eh::makeError(
+      "Failed to create preview temp directory: {} ({})",
+      probeRoot.string(),
+      ec.message()
+    );
+  }
+  return probeRoot;
+}
+
+// Renders the comparison, drives the bar to completion, then prints the
+// summary and opens the player.
+auto renderAndReportSingleInput(
   appctx::AppContext& ctx,
   PreviewOptions const& options,
   VideoProbe const& original,
   std::vector<Window> windows,
-  fs::path const& outputPath
+  std::vector<fs::path> const& segments,
+  fs::path const& outputPath,
+  progress::ProgressContext& progressCtx,
+  std::size_t bar,
+  std::optional<std::size_t> worstIndex
 ) -> eh::Result<int> {
-  auto const probeRoot =
-    fs::temp_directory_path() / std::format("encro_preview_probe_{}", getUUID());
-  {
-    auto ec = std::error_code{};
-    fs::create_directories(probeRoot, ec);
-    if (ec) {
-      return eh::makeError(
-        "Failed to create preview temp directory: {} ({})",
-        probeRoot.string(),
-        ec.message()
-      );
-    }
+  auto const spec = FiltergraphSpec{
+    .original = original,
+    .encoded = original,
+    .windows = windows,  // copy: the window list is part of the post-render summary
+    .encodedWindowsAreSegments = true,
+  };
+  auto const renderResult =
+    renderPreview(ctx, options, options.original, segments, spec, outputPath);
+  if (!renderResult) {
+    progressCtx.setTone(bar, progress::Tone::Failure);
+    progressCtx.setPostfixText(bar, "Preview generation failed");
+    return renderResult;
   }
-  struct ProbeRootGuard {
-    fs::path root;
-    ~ProbeRootGuard() {  // NOLINT(bugprone-exception-escape): error_code overloads never throw
-      // Remove the per-run dir; retry briefly because a just-exited child
-      // (scoring/encode) may still hold a transient handle on Windows.
-      for (auto attempt = 0; attempt < 3; ++attempt) {
-        auto ec = std::error_code{};
-        fs::remove_all(root, ec);
-        if (!ec) { return; }
-        std::this_thread::sleep_for(std::chrono::milliseconds{200});
-      }
-    }
-  } rootGuard{probeRoot};
+  progressCtx.setProgress(bar, 100.0f);
+  progressCtx.setTone(bar, progress::Tone::Success);
+  progressCtx.setPostfixText(bar, "Preview complete");
 
-  auto progressCtx = progress::ProgressContext{};
-  auto cursorGuard = progress::CursorGuard{};
-  auto const fileName = options.original.filename().string();
-  // One bar spans the whole pipeline: probe 0-40%, windows 40-85%, render 85-100%.
-  auto const bar =
-    progressCtx.addBar(std::format("Previewing: {}", fileName), progress::Tone::Active);
+  // Summary output only after the render finished.
+  printWindows(windows, worstIndex);
+  reportAndOpen(options, outputPath);
+  return renderResult;
+}
+
+// Probes the original for a single-input preview: drives the progress bar
+// through the probe phases and returns the plan plus the bar's window base.
+auto probeSingleInputPlan(
+  appctx::AppContext& ctx,
+  PreviewOptions const& options,
+  fs::path const& probeRoot,
+  progress::ProgressContext& progressCtx,
+  std::size_t bar,
+  std::string const& fileName
+) -> std::pair<encodeprobe::ProbePlan, float> {
   auto step = std::size_t{0};
   auto const onStep = [&](int cq, std::string_view phase) {
     ++step;
@@ -440,6 +601,28 @@ auto runSingleInput(
       encodeprobe::kDefaultCq
     );
   }
+  return {plan, windowBase};
+}
+
+auto runSingleInput(
+  appctx::AppContext& ctx,
+  PreviewOptions const& options,
+  VideoProbe const& original,
+  std::vector<Window> windows,
+  fs::path const& outputPath
+) -> eh::Result<int> {
+  auto const probeRoot = createPreviewProbeRoot();
+  if (!probeRoot) { return eh::makeError("{}", probeRoot.error()); }
+  PreviewProbeRootGuard rootGuard{probeRoot.value()};
+
+  auto progressCtx = progress::ProgressContext{};
+  auto cursorGuard = progress::CursorGuard{};
+  auto const fileName = options.original.filename().string();
+  // One bar spans the whole pipeline: probe 0-40%, windows 40-85%, render 85-100%.
+  auto const bar =
+    progressCtx.addBar(std::format("Previewing: {}", fileName), progress::Tone::Active);
+  auto const [plan, windowBase] =
+    probeSingleInputPlan(ctx, options, *probeRoot, progressCtx, bar, fileName);
 
   auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
   auto const info =
@@ -451,90 +634,21 @@ auto runSingleInput(
     ctx.config.nvencPreset
   );
 
-  // Windows are independent: encode + score each one in parallel (bounded by
-  // the configured job count), then collect in order for the report.
-  struct WindowOutcome {
-    videoquality::QualityMetric metric = videoquality::QualityMetric::Vmaf;
-    std::optional<double> score;
-  };
-  auto outcomes = std::vector<WindowOutcome>(windows.size());
-  auto segments = std::vector<fs::path>(windows.size());
-  auto windowsCompleted = std::atomic_size_t{0};
   auto windowEncodeFailed = std::atomic_bool{false};
-  {
-    auto tasks = std::vector<taskexec::TaskSpec>{};
-    tasks.reserve(windows.size());
-    for (auto index = std::size_t{}; index < windows.size(); ++index) {
-      auto const segFile = probeRoot / std::format("win{}.ts", index);
-      segments[index] = segFile;
-      tasks.push_back({
-        .id = std::format("preview-window:{}", index),
-        .label = std::format("window {}", index),
-        .input = options.original.string(),
-        .run = [&, index, segFile](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
-          taskexec::TaskContext&) -> eh::Result<void> {
-          auto const& window = windows[index];
-          auto const windowCq = ctx.config.crf.value_or(plan.chosenCq);
-          auto const ok = encodeprobe::runProbeEncode(
-            ctx,
-            options.original,
-            settings,
-            segFile,
-            windowCq,
-            encodeprobe::ProbeWindow{window.startUs, window.durationUs}
-          );
-          if (!ok) {
-            windowEncodeFailed.store(true);
-            return eh::makeError(
-              "Preview window encode failed at {}us of {}",
-              window.startUs,
-              options.original.string()
-            );
-          }
-          auto const scores = videoquality::measureSegmentQuality(
-            ffmpeg,
-            options.original,
-            segFile,
-            window.startUs,
-            window.durationUs,
-            info,
-            true  // segments carry segment-local PTS
-          );
-          if (scores.has_value()) {
-            outcomes[index].metric = scores->metric;
-            outcomes[index].score = videoquality::percentile(scores->frameScores, 5.0);
-          } else {
-            LOG_WARN(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
-              "Preview scoring failed for window {}us: {}",
-              window.startUs,
-              scores.error()
-            );
-          }
-          auto const done = windowsCompleted.fetch_add(1) + 1;
-          progressCtx.setProgress(
-            bar,
-            windowBase
-              + (85.0f - windowBase)
-                * static_cast<float>(done)
-                / static_cast<float>(windows.size())
-          );
-          progressCtx.setPostfixText(
-            bar,
-            std::format("Encoding windows: {}/{}", done, windows.size())
-          );
-          return {};
-        },
-      });
-    }
-    taskexec::runTasks({
-      .tasks = std::move(tasks),
-      .maxConcurrency = std::clamp<
-        std::size_t
-      >(ctx.config.maxParallelJobs.value_or(4), 1, windows.size()),
-      .progress = nullptr,
-      .hideCursor = false,
-    });
-  }
+  auto const windowBatch = encodeAndScoreAllWindows(
+    ctx,
+    options,
+    windows,
+    plan,
+    ffmpeg,
+    info,
+    settings,
+    *probeRoot,
+    progressCtx,
+    bar,
+    windowBase,
+    windowEncodeFailed
+  );
   if (windowEncodeFailed.load()) {
     progressCtx.setTone(bar, progress::Tone::Failure);
     progressCtx.setPostfixText(bar, "Window encode failed");
@@ -549,43 +663,21 @@ auto runSingleInput(
     return eh::makeError("Preview canceled by user.");
   }
 
-  auto worstIndex = std::optional<std::size_t>{};
-  auto worstScore = std::optional<double>{};
-  for (auto index = std::size_t{}; index < windows.size(); ++index) {
-    auto& window = windows[index];
-    window.metric = outcomes[index].metric;
-    window.score = outcomes[index].score;
-    if (
-      window.score.has_value()
-      && (!worstScore.has_value() || window.score.value() < worstScore.value())
-    ) {
-      worstScore = window.score;
-      worstIndex = index;
-    }
-  }
+  auto worstIndex = findWorstWindow(windows, windowBatch.outcomes);
 
   progressCtx.setProgress(bar, 85.0f);
   progressCtx.setPostfixText(bar, "Rendering comparison video...");
-  auto const spec = FiltergraphSpec{
-    .original = original,
-    .encoded = original,
-    .windows = windows,  // copy: the window list is part of the post-render summary
-    .encodedWindowsAreSegments = true,
-  };
-  auto const renderResult =
-    renderPreview(ctx, options, options.original, segments, spec, outputPath);
-  if (!renderResult) {
-    progressCtx.setTone(bar, progress::Tone::Failure);
-    progressCtx.setPostfixText(bar, "Preview generation failed");
-    return renderResult;
-  }
-  progressCtx.setProgress(bar, 100.0f);
-  progressCtx.setTone(bar, progress::Tone::Success);
-  progressCtx.setPostfixText(bar, "Preview complete");
-
-  // Summary output only after the render finished.
-  printWindows(windows, worstIndex);
-  reportAndOpen(options, outputPath);
+  auto const renderResult = renderAndReportSingleInput(
+    ctx,
+    options,
+    original,
+    windows,
+    windowBatch.segments,
+    outputPath,
+    progressCtx,
+    bar,
+    worstIndex
+  );
   return renderResult;
 }
 

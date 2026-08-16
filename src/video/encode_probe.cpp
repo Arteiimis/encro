@@ -470,38 +470,158 @@ auto buildProbeSegmentConfig(
   );
 }
 
+// One probe task: drives the slot bar for the file, forwards step/point
+// callbacks to the overall bar, and stores the resulting plan.
+// Removes the per-run probe dir; retries because a just-exited child
+// (scoring/encode) may still hold a transient handle on Windows.
+struct ProbeRootGuard {
+  fs::path root;
+  ~ProbeRootGuard() {  // NOLINT(bugprone-exception-escape): error_code overloads never throw
+    for (auto attempt = 0; attempt < 6; ++attempt) {
+      auto ec = std::error_code{};
+      fs::remove_all(root, ec);
+      if (!ec) { return; }
+      std::this_thread::sleep_for(std::chrono::milliseconds{500});
+    }
+    LOG_WARN("Probe temp dir cleanup failed: {}", root.string());
+  }
+};
+
+auto createProbeRoot() -> eh::Result<fs::path> {
+  auto probeRoot = fs::temp_directory_path() / std::format("encro_probe_{}", getUUID());
+  auto ec = std::error_code{};
+  fs::create_directories(probeRoot, ec);
+  if (ec) {
+    return eh::makeError(
+      "Failed to create probe directory: {} ({})",
+      probeRoot.string(),
+      ec.message()
+    );
+  }
+  return probeRoot;
+}
+
+auto initSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCount)
+  -> std::vector<std::size_t> {
+  auto slotBars = std::vector<std::size_t>(workerCount);
+  for (auto slot = std::size_t{}; slot < workerCount; ++slot) {
+    slotBars[slot] =
+      progressCtx
+        .addBar(std::format("Probing: [idle-{}]", slot + 1), progress::Tone::Idle);
+  }
+  return slotBars;
+}
+
+auto buildProbeTaskSpec(
+  appctx::AppContext& ctx,
+  std::span<fs::path const> vids,
+  std::size_t index,
+  fs::path const& probeRoot,
+  progress::ProgressContext& progressCtx,
+  std::vector<std::size_t> const& slotBars,
+  std::vector<std::atomic<float>>& slotProgress,
+  std::atomic_size_t& completed,
+  std::function<void()> const& updateOverall,
+  std::vector<ProbePlan>& plans
+) -> taskexec::TaskSpec {
+  auto const fileName = vids[index].filename().string();
+  return taskexec::TaskSpec{
+    .id = std::format("probe:{}", collisionnaming::stablePathString(vids[index])),
+    .label = fileName,
+    .input = vids[index].string(),
+.run = [&, index, fileName, updateOverall](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
+  // updateOverall captured by value: the std::function parameter is a
+  // temporary at the call site and its const& would dangle inside the task
+  taskexec::TaskContext& taskCtx) -> eh::Result<void> {
+  auto const slot = taskCtx.slot;
+  auto const barIndex = slotBars[slot];
+  progressCtx.setTone(barIndex, progress::Tone::Active);
+  progressCtx.resetEta(barIndex);
+  progressCtx.setProgress(barIndex, 0.0f);
+  progressCtx.setPostfixText(barIndex, std::format("Probing: {}", fileName));
+  auto step = std::size_t{0};
+  auto const onStep = [&, barIndex, slot](int cq, std::string_view phase) {
+    ++step;
+    auto const p =
+      100.0f * static_cast<float>(step) / static_cast<float>(kMaxProbeSteps);
+    slotProgress[slot].store(p);
+    progressCtx.setProgress(barIndex, p);
+    progressCtx.setPostfixText(
+      barIndex,
+      std::format("Probing: {} · CQ {} {}", fileName, cq, phase)
+    );
+    updateOverall();
+  };
+  auto const onPoint = [&, barIndex, slot](std::size_t done, int cq) {
+    auto const p = 100.0f
+      * static_cast<float>(done * kStepsPerProbePoint)
+      / static_cast<float>(kMaxProbeSteps);
+    slotProgress[slot].store(p);
+    progressCtx.setProgress(barIndex, p);
+    progressCtx.setPostfixText(
+      barIndex,
+      std::format("Probing: {} · CQ {} scored", fileName, cq)
+    );
+    updateOverall();
+  };
+  plans[index] = probeSingleFile(ctx, vids[index], probeRoot, onPoint, onStep);
+  auto const& plan = plans[index];
+  if (plan.probed) {
+    progressCtx.setProgress(barIndex, 100.0f);
+    progressCtx.setTone(barIndex, progress::Tone::Success);
+    progressCtx.setPostfixText(
+      barIndex,
+      std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
+    );
+  } else {
+    progressCtx.setTone(barIndex, progress::Tone::Idle);
+    progressCtx.setPostfixText(
+      barIndex,
+      std::format("Skipped: {} (default CQ {})", fileName, kDefaultCq)
+    );
+  }
+  slotProgress[slot].store(0.0f);
+  completed.fetch_add(1);
+  updateOverall();
+  return {};
+}
+  };
+}
+
+auto collectProbeResults(
+  std::span<fs::path const> vids,
+  std::vector<ProbePlan> const& plans,
+  taskexec::TaskRunResult const& runState
+) -> ProbePhaseResult {
+  auto result = ProbePhaseResult{};
+  for (auto index = std::size_t{0}; index < vids.size(); ++index) {
+    if (runState.attempted[index] == 0) { continue; }
+    auto const& plan = plans[index];
+    result.plans[vids[index]] = plan;
+    if (plan.unreachableFloor) {
+      result.attentionWarnings.push_back(
+        std::format(
+          "{}: quality floor unreachable (p5 {:.2f} at CQ {}); encoding at CQ {}",
+          vids[index].string(),
+          plan.p5.value_or(0.0),
+          plan.chosenCq,
+          plan.chosenCq
+        )
+      );
+    }
+  }
+  return result;
+}
+
 auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   -> eh::Result<ProbePhaseResult> {
   auto result = ProbePhaseResult{};
   if (vids.empty()) { return result; }
 
   auto const probeRoot =
-    fs::temp_directory_path() / std::format("encro_probe_{}", getUUID());
-  {
-    auto ec = std::error_code{};
-    fs::create_directories(probeRoot, ec);
-    if (ec) {
-      return eh::makeError(
-        "Failed to create probe directory: {} ({})",
-        probeRoot.string(),
-        ec.message()
-      );
-    }
-  }
-  struct ProbeRootGuard {
-    fs::path root;
-    ~ProbeRootGuard() {  // NOLINT(bugprone-exception-escape): error_code overloads never throw
-      // Remove the per-run dir; retry because a just-exited child
-      // (scoring/encode) may still hold a transient handle on Windows.
-      for (auto attempt = 0; attempt < 6; ++attempt) {
-        auto ec = std::error_code{};
-        fs::remove_all(root, ec);
-        if (!ec) { return; }
-        std::this_thread::sleep_for(std::chrono::milliseconds{500});
-      }
-      LOG_WARN("Probe temp dir cleanup failed: {}", root.string());
-    }
-  } rootGuard{probeRoot};
+    createProbeRoot();  // NOLINT(performance-no-automatic-move): read multiple times; const is intentional
+  if (!probeRoot) { return eh::makeError("{}", probeRoot.error()); }
+  ProbeRootGuard rootGuard{probeRoot.value()};
 
   auto plans = std::vector<ProbePlan>(vids.size());
   auto const workerCount =
@@ -514,12 +634,7 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
       )}
     : std::nullopt;
   // Slot bars mirror the encode bars: one per worker, reused across tasks.
-  auto slotBars = std::vector<std::size_t>(workerCount);
-  for (auto slot = std::size_t{}; slot < workerCount; ++slot) {
-    slotBars[slot] =
-      progressCtx
-        .addBar(std::format("Probing: [idle-{}]", slot + 1), progress::Tone::Idle);
-  }
+  auto const slotBars = initSlotBars(progressCtx, workerCount);
   auto slotProgress = std::vector<std::atomic<float>>(workerCount);
   auto completed = std::atomic_size_t{0};
   auto const updateOverall = [&] {
@@ -543,66 +658,18 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   auto tasks = std::vector<taskexec::TaskSpec>{};
   tasks.reserve(vids.size());
   for (auto index = std::size_t{0}; index < vids.size(); ++index) {
-    auto const fileName = vids[index].filename().string();
-    tasks.push_back({
-      .id = std::format("probe:{}", collisionnaming::stablePathString(vids[index])),
-      .label = fileName,
-      .input = vids[index].string(),
-      .run = [&, index, fileName](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
-        taskexec::TaskContext& taskCtx) -> eh::Result<void> {
-        auto const slot = taskCtx.slot;
-        auto const barIndex = slotBars[slot];
-        progressCtx.setTone(barIndex, progress::Tone::Active);
-        progressCtx.resetEta(barIndex);
-        progressCtx.setProgress(barIndex, 0.0f);
-        progressCtx.setPostfixText(barIndex, std::format("Probing: {}", fileName));
-        auto step = std::size_t{0};
-        auto const onStep = [&, barIndex, slot](int cq, std::string_view phase) {
-          ++step;
-          auto const p =
-            100.0f * static_cast<float>(step) / static_cast<float>(kMaxProbeSteps);
-          slotProgress[slot].store(p);
-          progressCtx.setProgress(barIndex, p);
-          progressCtx.setPostfixText(
-            barIndex,
-            std::format("Probing: {} · CQ {} {}", fileName, cq, phase)
-          );
-          updateOverall();
-        };
-        auto const onPoint = [&, barIndex, slot](std::size_t done, int cq) {
-          auto const p = 100.0f
-            * static_cast<float>(done * kStepsPerProbePoint)
-            / static_cast<float>(kMaxProbeSteps);
-          slotProgress[slot].store(p);
-          progressCtx.setProgress(barIndex, p);
-          progressCtx.setPostfixText(
-            barIndex,
-            std::format("Probing: {} · CQ {} scored", fileName, cq)
-          );
-          updateOverall();
-        };
-        plans[index] = probeSingleFile(ctx, vids[index], probeRoot, onPoint, onStep);
-        auto const& plan = plans[index];
-        if (plan.probed) {
-          progressCtx.setProgress(barIndex, 100.0f);
-          progressCtx.setTone(barIndex, progress::Tone::Success);
-          progressCtx.setPostfixText(
-            barIndex,
-            std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
-          );
-        } else {
-          progressCtx.setTone(barIndex, progress::Tone::Idle);
-          progressCtx.setPostfixText(
-            barIndex,
-            std::format("Skipped: {} (default CQ {})", fileName, kDefaultCq)
-          );
-        }
-        slotProgress[slot].store(0.0f);
-        completed.fetch_add(1);
-        updateOverall();
-        return {};
-      },
-    });
+    tasks.push_back(buildProbeTaskSpec(
+      ctx,
+      vids,
+      index,
+      *probeRoot,
+      progressCtx,
+      slotBars,
+      slotProgress,
+      completed,
+      updateOverall,
+      plans
+    ));
   }
 
   auto const runState = taskexec::runTasks({
@@ -617,24 +684,7 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     return eh::makeError("Probing canceled by user.");
   }
 
-  for (auto index = std::size_t{0}; index < vids.size(); ++index) {
-    if (runState.attempted[index] == 0) { continue; }
-    auto const& plan = plans[index];
-    result.plans[vids[index]] = plan;
-    if (plan.unreachableFloor) {
-      result.attentionWarnings.push_back(
-        std::format(
-          "{}: quality floor unreachable (p5 {:.2f} at CQ {}); encoding at CQ {}",
-          vids[index].string(),
-          plan.p5.value_or(0.0),
-          plan.chosenCq,
-          plan.chosenCq
-        )
-      );
-    }
-  }
-
-  return result;
+  return collectProbeResults(vids, plans, runState);
 }
 
 auto formatProbeP5(ProbePlan const& plan) -> std::string {
