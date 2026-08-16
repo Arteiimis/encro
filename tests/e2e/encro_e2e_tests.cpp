@@ -1987,6 +1987,18 @@ TEST_CASE(
   auto const outputDir = temp.path / "out";
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  // Probe temp dirs are named encro_probe_* under the system temp dir; count
+  // them before/after instead of asserting per dir entry, so the assertion
+  // count does not scale with unrelated files on that machine (Windows dev
+  // boxes vs clean CI runners: ~1200 vs ~7) and reports stay comparable.
+  auto const probeArtifactCount = []() {
+    auto count = 0;
+    for (auto const& entry: fs::directory_iterator{fs::temp_directory_path()}) {
+      if (entry.path().filename().string().starts_with("encro_probe_")) { ++count; }
+    }
+    return count;
+  };
+  auto const probesBefore = probeArtifactCount();
   auto const result = e2e::runEncro({
     "-i",
     inputPath.string(),
@@ -2003,10 +2015,7 @@ TEST_CASE(
   CHECK(result.stdoutText.find("Encoding plan") != std::string::npos);
   // No output files and no job state: dry-run leaves nothing behind.
   CHECK_FALSE(fs::exists(outputDir));
-  // No probe artifacts left behind.
-  for (auto const& entry: fs::directory_iterator{fs::temp_directory_path()}) {
-    CHECK_FALSE(entry.path().filename().string().starts_with("encro_probe_"));
-  }
+  CHECK(probeArtifactCount() == probesBefore);
 }
 
 TEST_CASE(
