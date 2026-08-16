@@ -9,7 +9,26 @@ sudo apt-get install -y wget ca-certificates
 # clang-18's __cpp_concepts=201907L makes libstdc++ <expected> empty
 # (fixed in clang 19, PR #87998); ubuntu 24.04 only ships clang-18, so use
 # apt.llvm.org's clang-19.
-wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+#
+# Fetch the signing key with a fingerprint check + retry: a truncated or
+# stale proxy-CD5 response makes apt's NO_PUBKEY fail intermittently
+# (seen once on the coverage runner while debug/release passed).
+KEYRING=/etc/apt/trusted.gpg.d/apt.llvm.org.asc
+FPR=15CF4D18AF4F7421
+for attempt in 1 2 3; do
+  wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee "$KEYRING" > /dev/null
+  if sudo gpg --batch --no-default-keyring \
+      --keyring "$KEYRING" --list-keys 2>/dev/null | grep -q "$FPR"; then
+    break
+  fi
+  echo "apt.llvm.org key missing $FPR (attempt $attempt); retrying..."
+  sleep 5
+  if [ "$attempt" = 3 ]; then
+    echo "apt.llvm.org signing key could not be verified" >&2
+    exit 1
+  fi
+  sudo rm -f "$KEYRING"
+done
 echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-toolchain.list
 sudo apt-get update
 sudo apt-get install -y clang-19 g++-14 llvm-19 lld-19 ffmpeg fonts-dejavu-core
