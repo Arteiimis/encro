@@ -75,8 +75,15 @@ jobs:
           fi
           exit $ec
 
+      - name: Run e2e tests
+        if: matrix.mode != 'coverage'
+        timeout-minutes: 20
+        run: xmake run e2e_tests
+
       - name: Upload test reports
-        # 失败时把完整 JUnit 报告 + console 日志留为 artifact，本地可直接下载分析
+        # 失败时把完整 JUnit 报告 + console 日志 + encro 运行日志（含 ffmpeg stderr）留为
+        # artifact，本地可直接下载分析。必须放在所有测试步骤之后：failure() 在此处
+        # 指“上一步失败”，提前放置会在 e2e 失败时错过上传。
         if: failure() && matrix.mode != 'coverage'
         uses: actions/upload-artifact@v4
         with:
@@ -84,12 +91,8 @@ jobs:
           path: |
             /tmp/ut.xml
             /tmp/ut.log
+            ~/.local/state/encro/logs/
           if-no-files-found: warn
-
-      - name: Run e2e tests
-        if: matrix.mode != 'coverage'
-        timeout-minutes: 20
-        run: xmake run e2e_tests
 
       - name: Run coverage (configures and builds itself)
         if: matrix.mode == 'coverage'
