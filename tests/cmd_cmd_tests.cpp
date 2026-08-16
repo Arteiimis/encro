@@ -352,6 +352,23 @@ TEST_CASE("commandLineInit parses --crf as integer", "[cmd]") {
   CHECK(result.crf.value() == 26);
 }
 
+TEST_CASE("app-level flags apply before the preview subcommand", "[cmd]") {
+  auto const result = parseArgs({"encro", "--crf", "15", "preview", "a.mp4"});
+
+  REQUIRE(result.preview);
+  REQUIRE(result.crf.has_value());
+  CHECK(result.crf.value() == 15);
+}
+
+TEST_CASE("preview subcommand does not swallow app-level flags", "[cmd]") {
+  auto const result =
+    parseArgs({"encro", "--video-codec", "libx264", "preview", "a.mp4", "--no-open"});
+
+  REQUIRE(result.preview);
+  REQUIRE(result.videoCodec.has_value());
+  CHECK(result.videoCodec.value() == "libx264");
+}
+
 TEST_CASE("commandLineInit does not set crf by default", "[cmd]") {
   auto const result = parseArgs({"encro"});
 
