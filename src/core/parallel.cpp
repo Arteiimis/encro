@@ -7,6 +7,7 @@
 
 #include <algorithm>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::CORE_PARALLEL);
 
 namespace parallel {

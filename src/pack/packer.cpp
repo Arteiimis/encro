@@ -23,6 +23,7 @@
 #include <stop_token>
 #include <thread>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::PACK_ZIP);
 
 namespace fs = std::filesystem;
@@ -50,7 +51,8 @@ struct ZipWriter {
     if (opened) {
       try {
         zip.close();
-      } catch (...) { }
+      } catch (...) { /* NOLINT(bugprone-empty-catch): destructor must never throw */
+      }
     }
   }
 
@@ -98,7 +100,7 @@ auto pack::Packer::makeUniqueZipEntryName(
   fs::path const& filePath,
   std::unordered_set<std::string>& usedEntryNames
 ) -> std::string {
-  auto const normalizedEntryName = normalizeZipEntryName(preferredEntryName);
+  auto normalizedEntryName = normalizeZipEntryName(preferredEntryName);
   if (usedEntryNames.insert(normalizedEntryName).second) { return normalizedEntryName; }
 
   auto const entryPath = fs::path{normalizedEntryName};
@@ -353,7 +355,7 @@ void pack::Packer::runFinalizingSpinner(
   std::size_t progressBarIndex,
   std::string_view progressText,
   std::atomic<bool>& finalizing,
-  std::stop_token stopToken
+  std::stop_token const& stopToken
 ) {
   using namespace std::chrono_literals;
   auto const frames = std::array{'|', '/', '-', '\\'};
@@ -375,7 +377,7 @@ auto pack::Packer::packFilesToZip(
   fs::path const& zipFilePath,
   progress::ProgressContext& progressCtx,
   std::string_view progressText,
-  ZipEntryNameResolver entryNameForFile
+  ZipEntryNameResolver const& entryNameForFile
 ) -> eh::Result<void> {
   auto entries = std::vector<PackFileEntry>{};
   entries.reserve(filePaths.size());
@@ -406,7 +408,9 @@ auto pack::Packer::packFilesToZip(
   zip.open(libzippp::ZipArchive::New);
 
   for (auto const& [index, entry]: std::views::enumerate(entries)) {
-    auto const progress = (size_t)std::round((index + 1) / (float)fileCount * 100.0f);
+    auto const progress = static_cast<std::size_t>(
+      std::round(static_cast<float>(index + 1) / static_cast<float>(fileCount) * 100.0f)
+    );
 
     if (fs::is_regular_file(entry.sourcePath)) {
       auto const entryName =
@@ -427,15 +431,20 @@ auto pack::Packer::packFilesToZip(
   progressCtx.setTone(progressBarIndex, progress::Tone::Finalizing);
 
   std::atomic<bool> finalizing{true};
-  auto spinnerThread = std::jthread([&](std::stop_token stopToken) {
-    runFinalizingSpinner(
-      progressCtx,
-      progressBarIndex,
-      progressText,
-      finalizing,
-      stopToken
-    );
-  });
+  auto spinnerThread = std::jthread(
+    [&](
+      std::stop_token
+        stopToken  // NOLINT(performance-unnecessary-value-param): jthread callback signature is fixed
+    ) {
+      runFinalizingSpinner(
+        progressCtx,
+        progressBarIndex,
+        progressText,
+        finalizing,
+        stopToken
+      );
+    }
+  );
 
   zip.close();
 
@@ -457,7 +466,7 @@ auto pack::Packer::packFilesToZip(
 auto pack::Packer::packFilesToZip(
   std::vector<PackFileEntry> const& entries,
   fs::path const& zipFilePath,
-  PackEntryProgressCallback onEntryPacked,
+  PackEntryProgressCallback const& onEntryPacked,
   std::atomic<std::size_t>* finalizingCount
 ) -> eh::Result<void> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());
@@ -794,7 +803,9 @@ auto pack::Packer::buildDirectoryPackPlan(
     .groups = std::move(groupedEntries),
     .outputDir = zipFileDir,
     .zipNameForIndex =
-      [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
+      [dirName = dirPath.filename().string(), ordinalRanges](  // NOLINT(bugprone-exception-escape): .at() throws intentionally on logic errors
+        std::size_t index
+      ) {
         return pack::internal::appendOrdinalRangeSuffix(
           std::format("{}_part{}.zip", dirName, index + 1),
           ordinalRanges.at(index)

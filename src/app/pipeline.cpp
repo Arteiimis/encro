@@ -18,6 +18,7 @@ namespace fs = std::filesystem;
 
 using enum terminal::MessageKind;
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::APP_PIPELINE);
 
 namespace pipeline {

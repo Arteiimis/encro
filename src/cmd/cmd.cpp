@@ -222,7 +222,7 @@ auto formatOptionHelp(
   auto const continuationWidth =
     displayDescriptionColumn < lineLength ? lineLength - displayDescriptionColumn : 1u;
 
-  auto const description = opt->get_description();
+  auto const& description = opt->get_description();
   auto const wrappedDescription =
     wrapDescription(description, firstLineWidth, continuationWidth);
   auto result = std::string{};
@@ -391,7 +391,8 @@ auto makeHelpFormatter(
   return  //
     [general, io, processing, fileop, helpOpt, advancedLongNames](
       CLI::App const* app_ptr,
-      std::string /*prev*/,
+      std::string /*prev*/
+      ,  // NOLINT(performance-unnecessary-value-param): CLI11 formatter callback signature is fixed
       CLI::AppFormatMode /*mode*/
     ) -> std::string {
       constexpr auto usageLines = std::array{
@@ -778,15 +779,6 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
     switch (def.kind) {
       case CmdFlagKind::Bool: opt = target->add_flag(name, desc); break;
       case CmdFlagKind::String:
-        opt = target->add_option(name, desc);
-        if (expectedMin == 0) {
-          opt->expected(0, 1)->default_str(std::string{def.defaultValue});
-        } else if (!def.defaultDisplay.empty()) {
-          opt->expected(1)->default_str(std::string{def.defaultDisplay});
-        } else {
-          opt->expected(1);
-        }
-        break;
       case CmdFlagKind::Int:
         opt = target->add_option(name, desc);
         if (expectedMin == 0) {

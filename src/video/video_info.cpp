@@ -15,6 +15,7 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_INFO);
 
 namespace fs = std::filesystem;
@@ -208,7 +209,10 @@ auto finalizeVideoList(
         auto const vidInfo = getVidInfo(toolchain, vidPath);
 
         if (config.outputFormat == "mp4" && isHevcEncodedInfo(vidInfo)) {
-          LOG_DEBUG("Skipping already HEVC encoded file: {}", vidPath.string());
+          LOG_DEBUG(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
+            "Skipping already HEVC encoded file: {}",
+            vidPath.string()
+          );
           return {};
         }
 

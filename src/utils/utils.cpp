@@ -33,6 +33,7 @@
 #include <optional>
 #include <variant>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::UTILS_SUBPROCESS);
 
 using enum terminal::MessageKind;
@@ -217,6 +218,7 @@ auto runProcess(
 
   // The parent must not keep a write end open, or the reader never sees EOF.
   auto pipeCloseEc = boost::system::error_code{};
+  // NOLINTNEXTLINE(bugprone-unused-return-value): asio close(ec) returns void via BOOST_ASIO_SYNC_OP_VOID
   pipeWriter.close(pipeCloseEc);
 
   auto pipeShared = std::make_shared<asio::readable_pipe>(std::move(pipeReader));

@@ -6,6 +6,7 @@
 
 #include <utility>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::CORE_JOB);
 
 namespace jobstate {
@@ -194,8 +195,8 @@ void Store::markProgress(
   if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
-  if (progress.has_value()) { task.lastProgress = progress.value(); }
-  if (frameCount.has_value()) { task.lastFrameCount = frameCount.value(); }
+  if (progress.has_value()) { task.lastProgress = progress; }
+  if (frameCount.has_value()) { task.lastFrameCount = frameCount; }
   if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
   task.updatedAtMs = detail::nowMs();
   snapshot_.updatedAtMs = task.updatedAtMs.value();

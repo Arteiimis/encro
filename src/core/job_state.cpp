@@ -18,6 +18,7 @@ namespace jobstate {
 namespace json = boost::json;
 using namespace std::chrono;
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::CORE_JOB);
 
 namespace detail {

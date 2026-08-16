@@ -167,7 +167,7 @@ auto fitPostfixWithEta(
   }
 
   auto const parts = splitPostfixParts(postfix);
-  auto const headPart = parts.front();
+  auto const& headPart = parts.front();
   auto tailPart = std::string{};
   for (auto i = 1ull; i < parts.size(); ++i) {
     if (i > 1) { tailPart += kPostfixDelim; }

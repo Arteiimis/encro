@@ -22,6 +22,7 @@
 #include <format>
 #include <thread>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_BATCH);
 
 namespace fs = std::filesystem;
@@ -339,7 +340,7 @@ auto videobatch::runEncodingTasks(
   auto const shouldProbe =
     ctx.config.outputFormat == "mp4" && !ctx.config.crf.has_value();
   if (shouldProbe) {
-    auto const probeRes = encodeprobe::runProbePhase(ctx, vids);
+    auto probeRes = encodeprobe::runProbePhase(ctx, vids);
     if (stopsignal::isStopRequested()) {
       noteStopRequest(ctx);
       return EncodingBatchOutcome{.results = std::nullopt};

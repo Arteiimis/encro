@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_PROBE);
 
 namespace fs = std::filesystem;
@@ -57,7 +58,7 @@ auto measurePoint(
   int cq,
   std::pair<ProbeWindow, ProbeWindow> const& windows,
   boost::json::value const& vidInfo,
-  ProbeStepCallback onStep = {}
+  ProbeStepCallback const& onStep = {}
 ) -> std::optional<ProbePoint> {
   // Segments are per-video: parallel probes of different inputs share
   // probeDir, so the file name carries a per-input key.
@@ -152,8 +153,8 @@ auto probeSingleFile(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
   fs::path const& probeDir,
-  ProbePointCallback onPoint,
-  ProbeStepCallback onStep
+  ProbePointCallback const& onPoint,
+  ProbeStepCallback const& onStep
 ) -> ProbePlan {
   auto plan = ProbePlan{};
   plan.inputPath = inputPath;
@@ -341,7 +342,7 @@ auto probeCqSequence(
   auto points = std::vector<ProbePoint>{};
   auto record = [&](ProbePoint point) {
     auto const cq = point.cq;
-    points.push_back(std::move(point));
+    points.push_back(point);
     if (onPoint) { onPoint(points.size(), cq); }
   };
 
@@ -371,7 +372,7 @@ auto probeCqSequence(
     });
     for (auto& baseResult: baseResults) {
       if (!baseResult.has_value()) { return std::nullopt; }
-      record(std::move(baseResult.value()));
+      record(baseResult.value());
     }
   }
 
@@ -379,10 +380,10 @@ auto probeCqSequence(
     // Floor unmet at 24: step down until it is met or the floor is proven
     // unreachable (p5@16 still below).
     if (auto const point = measure(kMinCq + kCqStep); point.has_value()) {
-      record(std::move(point.value()));
+      record(point.value());
       if (!meetsFloor(points.back(), vmafFloor)) {
         if (auto const low = measure(kMinCq); low.has_value()) {
-          record(std::move(low.value()));
+          record(low.value());
         } else {
           return std::nullopt;
         }
@@ -393,10 +394,10 @@ auto probeCqSequence(
   } else if (meetsFloor(points.back(), vmafFloor)) {
     // Floor still met at 32: step up until it is missed or 40 is reached.
     if (auto const point = measure(kMaxCq - kCqStep); point.has_value()) {
-      record(std::move(point.value()));
+      record(point.value());
       if (meetsFloor(points.back(), vmafFloor)) {
         if (auto const high = measure(kMaxCq); high.has_value()) {
-          record(std::move(high.value()));
+          record(high.value());
         } else {
           return std::nullopt;
         }
@@ -454,7 +455,7 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   }
   struct ProbeRootGuard {
     fs::path root;
-    ~ProbeRootGuard() {
+    ~ProbeRootGuard() {  // NOLINT(bugprone-exception-escape): error_code overloads never throw
       // Remove the per-run dir; retry because a just-exited child
       // (scoring/encode) may still hold a transient handle on Windows.
       for (auto attempt = 0; attempt < 6; ++attempt) {
@@ -512,7 +513,8 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
       .id = std::format("probe:{}", collisionnaming::stablePathString(vids[index])),
       .label = fileName,
       .input = vids[index].string(),
-      .run = [&, index, fileName](taskexec::TaskContext& taskCtx) -> eh::Result<void> {
+      .run = [&, index, fileName](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
+        taskexec::TaskContext& taskCtx) -> eh::Result<void> {
         auto const slot = taskCtx.slot;
         auto const barIndex = slotBars[slot];
         progressCtx.setTone(barIndex, progress::Tone::Active);
@@ -744,7 +746,11 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     lines.push_back(
       std::format(
         "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
-        padToWidth("File", nameWidth.value()),
+        padToWidth(
+          "File",
+          // NOLINTNEXTLINE(bugprone-unchecked-optional-access): guaranteed by the !layout.has_value() branch above
+          nameWidth.value()
+        ),
         "CQ",
         "p5",
         "Est.Size",

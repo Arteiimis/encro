@@ -31,6 +31,7 @@ auto setupLogging(CmdParseResult const& cmd) -> std::optional<fs::path> {
 
 }  // namespace
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::APP_PRELUDE);
 
 namespace prelude {

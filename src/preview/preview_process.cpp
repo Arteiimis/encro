@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::PREVIEW_PROCESS);
 
 namespace fs = std::filesystem;
@@ -345,7 +346,7 @@ auto runSingleInput(
   }
   struct ProbeRootGuard {
     fs::path root;
-    ~ProbeRootGuard() {
+    ~ProbeRootGuard() {  // NOLINT(bugprone-exception-escape): error_code overloads never throw
       // Remove the per-run dir; retry briefly because a just-exited child
       // (scoring/encode) may still hold a transient handle on Windows.
       for (auto attempt = 0; attempt < 3; ++attempt) {
@@ -438,7 +439,8 @@ auto runSingleInput(
         .id = std::format("preview-window:{}", index),
         .label = std::format("window {}", index),
         .input = options.original.string(),
-        .run = [&, index, segFile](taskexec::TaskContext&) -> eh::Result<void> {
+        .run = [&, index, segFile](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
+          taskexec::TaskContext&) -> eh::Result<void> {
           auto const& window = windows[index];
           auto const windowCq = ctx.config.crf.value_or(plan.chosenCq);
           auto const ok = encodeprobe::runProbeEncode(
@@ -470,7 +472,7 @@ auto runSingleInput(
             outcomes[index].metric = scores->metric;
             outcomes[index].score = videoquality::percentile(scores->frameScores, 5.0);
           } else {
-            LOG_WARN(
+            LOG_WARN(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
               "Preview scoring failed for window {}us: {}",
               window.startUs,
               scores.error()

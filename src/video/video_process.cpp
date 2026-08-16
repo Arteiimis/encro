@@ -21,10 +21,12 @@
 #include <boost/lambda2.hpp>
 #include <cstdint>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_PROCESS);
 
 namespace fs = std::filesystem;
-using boost::lambda2::_1;
+using boost::lambda2::
+  _1;  // NOLINT(bugprone-reserved-identifier): boost::lambda2's conventional placeholder name
 using boost::lambda2::second;
 using enum terminal::MessageKind;
 using pathroots::commonAncestorPath;
@@ -217,15 +219,15 @@ auto resolveMultiInputBasePath(
 ) -> std::optional<fs::path> {
   if (inputPaths.empty()) { return std::nullopt; }
 
-  if (config.outputPath.has_value()) { return config.outputPath.value(); }
+  if (config.outputPath.has_value()) { return *config.outputPath; }
 
   auto basePath = std::optional<fs::path>{normalizeInputRootDir(inputPaths.front())};
   for (auto const& inputPath: inputPaths) {
-    basePath = commonAncestorPath(basePath.value(), normalizeInputRootDir(inputPath));
+    basePath = commonAncestorPath(*basePath, normalizeInputRootDir(inputPath));
     if (!basePath.has_value()) { return std::nullopt; }
   }
 
-  return basePath.value();
+  return *basePath;
 }
 
 auto maybePackOutputs(
@@ -308,7 +310,7 @@ auto runScannedEncodingWorkflow(
     logging::ScopedTimer timer("video.encode");
     auto const encodeLabel = std::format("{} video(s)", vids.size());
     logging::ScopedErrorContext scopedCtx("video.encode", encodeLabel);
-    auto const outcome = videobatch::runEncodingTasks(
+    auto outcome = videobatch::runEncodingTasks(
       ctx,
       pendingVids,
       plannedOutputFiles,
@@ -555,7 +557,10 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
 
   auto const sourceRootDir = normalizeInputRootDir(inputPath);
   return runScannedEncodingWorkflow(ctx, vids, sourceRootDir, inputPath, [&] {
-    LOG_INFO("Path encoding done: {}", inputPath.string());
+    LOG_INFO(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in completion lambda
+      "Path encoding done: {}",
+      inputPath.string()
+    );
   });
 }
 
@@ -594,6 +599,9 @@ int handleMultiFileEncoding(
   }
 
   return runScannedEncodingWorkflow(ctx, vids, basePath, basePath, [&] {
-    LOG_INFO("Multi-file encoding done: input-count={}", inputPaths.size());
+    LOG_INFO(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in completion lambda
+      "Multi-file encoding done: input-count={}",
+      inputPaths.size()
+    );
   });
 }

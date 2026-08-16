@@ -19,6 +19,7 @@
 #include <memory>
 #include <unordered_map>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::PICTURE_PROCESS);
 
 namespace fs = std::filesystem;
@@ -508,11 +509,12 @@ auto executeCompressPackWorkflow(
     terminal::count(packInputs.size())
   );
 
+  auto const packInputCount = packInputs.size();
   auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
   auto const packRes = [&]() {
     logging::ScopedTimer timer("picture.pack");
-    auto const packLabel = std::format("{} entry(s)", packInputs.size());
+    auto const packLabel = std::format("{} entry(s)", packInputCount);
     logging::ScopedErrorContext scopedCtx("picture.pack", packLabel);
     return pack::execute(request);
   }();
