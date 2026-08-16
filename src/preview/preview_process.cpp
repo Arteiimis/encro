@@ -440,12 +440,13 @@ auto runSingleInput(
         .input = options.original.string(),
         .run = [&, index, segFile](taskexec::TaskContext&) -> eh::Result<void> {
           auto const& window = windows[index];
+          auto const windowCq = ctx.config.crf.value_or(plan.chosenCq);
           auto const ok = encodeprobe::runProbeEncode(
             ctx,
             options.original,
             settings,
             segFile,
-            plan.chosenCq,
+            windowCq,
             encodeprobe::ProbeWindow{window.startUs, window.durationUs}
           );
           if (!ok) {
