@@ -99,10 +99,12 @@ task("coverage")
         end
 
         local merged = path.join(coverage_dir, "all.profdata")
-        local merge_args = {"merge", "-sparse"}
-        for _, f in ipairs(prof_files) do
-          table.insert(merge_args, f)
-        end
+        -- profraw 数量多时（e2e 子进程几百个）直接传参会把命令行顶到
+        -- Windows CreateProcess 32767 字符上限，execv 返回 nil 报
+        -- "failed to run llvm-profdata"；改走 --input-files 列表文件。
+        local listfile = path.join(coverage_dir, "profraw.list")
+        io.writefile(listfile, table.concat(prof_files, "\n") .. "\n")
+        local merge_args = {"merge", "-sparse", "--input-files=" .. listfile}
         table.insert(merge_args, "-o")
         table.insert(merge_args, merged)
         run(find_tool("llvm-profdata"), merge_args)
