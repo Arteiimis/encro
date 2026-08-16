@@ -192,7 +192,25 @@ auto ensureToolchainReady(appctx::AppContext& ctx, prelude::StartupContext const
 // path) and skips job-state setup entirely.
 auto runPreview(prelude::StartupContext const& startup) -> int {
   auto ctx = appctx::AppContext{};
+
+  // Reuse the standard config builder so encode flags (--video-codec,
+  // --crf, --preset, --min-vmaf, ...) apply to preview windows too; the
+  // preview input fills the required input slot and gets validated as a
+  // file, matching the pre-existing "Preview input does not exist" check.
+  auto cmd = startup.cmd;
+  if (cmd.previewOriginal.has_value()) { cmd.input = cmd.previewOriginal; }
+  auto const configRes = cmd::buildConfig(cmd);
+  if (!configRes) {
+    return failWithHint(
+      startup,
+      std::format("Preview failed: {}", configRes.error()),
+      false,
+      &ctx
+    );
+  }
+  ctx.config = configRes.value();
   ctx.config.inputPath = fs::path{startup.cmd.previewOriginal.value()};
+
   if (startup.cmd.ffmpegPath.has_value()) {
     ctx.config.ffmpegInstallDir = fs::path{startup.cmd.ffmpegPath.value()};
   }

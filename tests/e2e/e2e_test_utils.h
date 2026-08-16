@@ -17,16 +17,16 @@
 // stdout/stderr (and the encro log tail named by "Log file:") into the failure
 // output. Macro form keeps the assertion's file:line at the call site (a helper
 // function would report this header).
-#define REQUIRE_SUCCESS(result)        \
-  do {                                 \
-    INFO(                              \
-      "child stdout:\n"              \
-      << (result).stdoutText          \
-      << "\nchild stderr:\n"         \
-      << (result).stderrText          \
+#define REQUIRE_SUCCESS(result)                 \
+  do {                                          \
+    INFO(                                       \
+      "child stdout:\n"                         \
+      << (result).stdoutText                    \
+      << "\nchild stderr:\n"                    \
+      << (result).stderrText                    \
       << e2e::encroLogTail((result).stdoutText) \
-    );                                 \
-    REQUIRE((result).exitCode == 0);   \
+    );                                          \
+    REQUIRE((result).exitCode == 0);            \
   } while (false)
 
 namespace fs = std::filesystem;
