@@ -224,6 +224,7 @@ void retryFailedTasks(
 
 }  // namespace
 
+// NOLINTNEXTLINE(readability-function-size): linear orchestration; task and retry helpers already extracted
 auto compressImageBatch(
   appctx::AppContext& ctx,
   std::span<CompressTask const> tasks,

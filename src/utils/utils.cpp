@@ -174,6 +174,7 @@ auto terminateOnStop(
   co_return std::nullopt;
 }
 
+// NOLINTNEXTLINE(readability-function-size): linear 3-way coroutine race; branches are 3-9 lines each
 auto runProcess(
   std::string cmd,
   std::function<void(std::string_view)> onLine,

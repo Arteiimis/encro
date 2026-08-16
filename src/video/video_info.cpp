@@ -307,6 +307,7 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
   }
 }
 
+// NOLINTNEXTLINE(readability-function-size): linear ffprobe fallback chain
 auto getVidTotalFrames(
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
