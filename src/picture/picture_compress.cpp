@@ -15,6 +15,7 @@
 #include <mutex>
 #include <vector>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::PICTURE_COMPRESS);
 
 namespace fs = std::filesystem;
@@ -78,7 +79,7 @@ auto compressImageTask(
 }  // namespace
 
 auto ImageCompressConfig::buildCMD() const -> std::string {
-  auto cmd = quoteToolPath(ffmpegPath.value());
+  auto cmd = quoteToolPath(ffmpegPath.value_or(fs::path{"ffmpeg"}));
   cmd += " -hide_banner -nostats -loglevel error -y";
   cmd += std::format(" -i \"{}\"", inputPath.string());
   cmd += std::format(" -q:v {}", quality);
@@ -238,7 +239,7 @@ auto compressImageBatch(
       "Adaptive concurrency: capped from {} to {} (max input file ~{} MB)",
       maxParallel,
       effectiveMaxParallel,
-      maxFileSize / (1024 * 1024)
+      maxFileSize / 1024 / 1024
     );
   }
 

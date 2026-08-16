@@ -18,6 +18,7 @@
 
 using namespace std::literals;
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_QUALITY);
 
 namespace fs = std::filesystem;
@@ -205,7 +206,10 @@ auto percentile(std::span<double const> scores, double percentile)
   std::ranges::sort(sorted);
 
   auto const rank = std::clamp(
-    static_cast<std::size_t>(std::ceil(percentile / 100.0 * sorted.size())),
+    static_cast<std::size_t>(std::ceil(
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions): percentile math needs double
+      percentile / 100.0 * sorted.size()
+    )),
     std::size_t{1},
     sorted.size()
   );
@@ -327,7 +331,8 @@ auto parseSsimStats(fs::path const& statsPath) -> eh::Result<std::vector<double>
       try {
         score = std::stod(line.substr(pos + std::char_traits<char>::length(marker)));
         break;
-      } catch (...) { }
+      } catch (...) { /* NOLINT(bugprone-empty-catch): format probe; try next marker */
+      }
     }
     if (score.has_value()) { scores.push_back(score.value()); }
   }
@@ -362,7 +367,7 @@ auto measureSegmentQuality(
   };
 
   if (!isHdrVideo(originalVideoInfo)) {
-    auto const vmafRes = runVmaf(
+    auto vmafRes = runVmaf(
       ffmpegPath,
       originalPath,
       encodedPath,
@@ -373,7 +378,7 @@ auto measureSegmentQuality(
     );
     if (vmafRes.has_value()) {
       removeLogs();
-      return SegmentScores{QualityMetric::Vmaf, std::move(vmafRes.value())};
+      return SegmentScores{QualityMetric::Vmaf, std::move(*vmafRes)};
     }
     LOG_WARN(
       "VMAF unavailable for segment (original={} start={}us); falling back to SSIM: {}",
@@ -383,7 +388,7 @@ auto measureSegmentQuality(
     );
   }
 
-  auto const ssimRes = runSsim(
+  auto ssimRes = runSsim(
     ffmpegPath,
     originalPath,
     encodedPath,
@@ -400,7 +405,7 @@ auto measureSegmentQuality(
       ssimRes.error()
     );
   }
-  return SegmentScores{QualityMetric::Ssim, std::move(ssimRes.value())};
+  return SegmentScores{QualityMetric::Ssim, std::move(*ssimRes)};
 }
 
 }  // namespace videoquality

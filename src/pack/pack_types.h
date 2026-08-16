@@ -44,6 +44,6 @@ struct PackProgressCallbacks {
   std::function<void(std::string_view)> onCompactStatusText;
 };
 
-inline constexpr auto kDefaultMaxArchiveGroupSize = std::uintmax_t{500 * 1024 * 1024};
+inline constexpr auto kDefaultMaxArchiveGroupSize = std::uintmax_t{500} * 1024 * 1024;
 
 }  // namespace pack

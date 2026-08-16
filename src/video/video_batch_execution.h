@@ -249,7 +249,8 @@ struct EncodingExecutionContext {
   }
 
   void updateOverall() {
-    if (!counters().overallBarIndex.has_value()) { return; }
+    auto const overallBarIndex = counters().overallBarIndex;
+    if (!overallBarIndex.has_value()) { return; }
 
     auto activeProgress = 0.0f;
     {
@@ -262,16 +263,21 @@ struct EncodingExecutionContext {
     }
 
     auto const completed = finished();
-    auto const totalCount = static_cast<float>(overallTotal());
+    auto const totalCount = static_cast<float>(
+      overallTotal()
+    );  // NOLINT(bugprone-narrowing-conversions): progress percent needs float; size_t precision loss irrelevant
     auto overallPercent = 0.0f;
     if (totalCount > 0.0f) {
-      overallPercent =
-        std::min(100.0f, (completed + activeProgress) / totalCount * 100.0f);
+      overallPercent = std::min(
+        100.0f,
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions): completed is size_t; float progress math is fine
+        (completed + activeProgress) / totalCount * 100.0f
+      );
     }
 
-    progress().setProgress(counters().overallBarIndex.value(), overallPercent);
+    progress().setProgress(overallBarIndex.value(), overallPercent);
     progress().setPostfixText(
-      counters().overallBarIndex.value(),
+      overallBarIndex.value(),
       std::format("Overall: {}/{}", completed, overallTotal())
     );
   }

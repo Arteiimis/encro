@@ -24,6 +24,7 @@
 namespace fs = std::filesystem;
 using enum terminal::MessageKind;
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::PACK_SERVICE);
 
 namespace pack {
@@ -130,18 +131,23 @@ struct CompactProgressState {
   }
 
   void startSpinner(std::function<void(std::string_view)> const& onCompactStatusText) {
-    spinnerThread = std::jthread{[this, &onCompactStatusText](std::stop_token stopToken) {
-      auto frameIndex = std::size_t{0};
-      while (
-        !stopToken.stop_requested() && !spinnerStop.load(std::memory_order_acquire)
+    spinnerThread = std::jthread{
+      [this, &onCompactStatusText](
+        std::stop_token
+          stopToken  // NOLINT(performance-unnecessary-value-param): jthread callback signature is fixed
       ) {
-        if (finalizingCount.load(std::memory_order_acquire) == 0) {
-          waitTick();
-          continue;
+        auto frameIndex = std::size_t{0};
+        while (
+          !stopToken.stop_requested() && !spinnerStop.load(std::memory_order_acquire)
+        ) {
+          if (finalizingCount.load(std::memory_order_acquire) == 0) {
+            waitTick();
+            continue;
+          }
+          renderFinalizingFrame(frameIndex, onCompactStatusText);
         }
-        renderFinalizingFrame(frameIndex, onCompactStatusText);
       }
-    }};
+    };
   }
 
   void tryUpdateStatus(
@@ -255,7 +261,9 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
       .id = std::format("archive:{}", collisionnaming::stablePathString(zipPath)),
       .label = label,
       .input = zipPath.string(),
-      .run = [&, index, zipPath, label](taskexec::TaskContext& taskCtx) {
+      .run = [&, index, zipPath, label](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
+               taskexec::TaskContext& taskCtx
+             ) {
         recorder.notifyGroupStart(index);
         return runGroup(index, zipPath, label, taskCtx, recorder);
       },

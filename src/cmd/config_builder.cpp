@@ -18,6 +18,7 @@ namespace fs = std::filesystem;
 using pathroots::commonAncestorPath;
 using pathroots::normalizeInputRootDir;
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::CMD_CONFIG);
 
 namespace {
@@ -62,7 +63,7 @@ auto requireRegularFile(fs::path const& path, std::string_view label)
 }
 
 auto readProcessType(CmdParseResult const& result) -> eh::Result<std::string> {
-  auto const typeStr = result.processType;
+  auto typeStr = result.processType;
   if (typeStr == "vid") { return std::string{"video"}; }
   if (typeStr == "pic") { return std::string{"picture"}; }
 
@@ -78,7 +79,7 @@ auto readProcessType(CmdParseResult const& result) -> eh::Result<std::string> {
 }
 
 auto readOutputFormat(CmdParseResult const& result) -> eh::Result<std::string> {
-  auto const outputFormat = result.outputFormat;
+  auto outputFormat = result.outputFormat;
   constexpr auto validFormats = std::array{"mp4", "webp"};
   if (!std::ranges::contains(validFormats, outputFormat)) {
     return eh::makeError(
@@ -186,7 +187,7 @@ auto resolveSharedInputDir(std::span<fs::path const> inputPaths)
   -> std::optional<fs::path> {
   if (inputPaths.empty()) { return std::nullopt; }
 
-  auto const sharedDir = normalizeInputRootDir(inputPaths.front());
+  auto sharedDir = normalizeInputRootDir(inputPaths.front());
   for (auto const& inputPath: inputPaths) {
     if (normalizeInputRootDir(inputPath) != sharedDir) { return std::nullopt; }
   }
@@ -394,8 +395,10 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
       );
     }
 
-    auto const& inputs =
-      hasMultiInputs ? result.inputs.value() : result.positionalInputs.value();
+    auto const& inputs = [&]() -> std::vector<std::string> const& {
+      if (result.inputs.has_value()) { return *result.inputs; }
+      return *result.positionalInputs;
+    }();
     if (inputs.empty()) { return eh::makeError("Input path is required."); }
 
     config.inputPaths.reserve(inputs.size());
@@ -410,8 +413,10 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
       config.inputPaths.emplace_back(path);
     }
   } else {
-    auto const& input =
-      hasSingleInput ? result.input.value() : result.positionalInputs.value().front();
+    auto const& input = [&]() -> std::string const& {
+      if (result.input.has_value()) { return *result.input; }
+      return result.positionalInputs.value().front();
+    }();
     config.inputPath = fs::absolute(fs::path{input}).lexically_normal();
     if (auto const exists = requireExists(config.inputPath, "input"); !exists) {
       return eh::makeError("{}", exists.error());

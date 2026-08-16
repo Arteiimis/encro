@@ -12,6 +12,7 @@
 #include <format>
 #include <optional>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::CORE_TASK);
 
 namespace taskexec {
@@ -88,14 +89,25 @@ auto runTasks(TaskPlan const& plan) -> TaskRunResult {
 
       try {
         results[taskIndex] = task.run(taskCtx);
-      } catch (std::exception const& ex) {
+      } catch (
+        std::exception const& ex
+      ) {  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda; id logged via attributes
         auto const message =
           std::format("Task {} threw exception: {}", task.id, ex.what());
-        LOG_ERROR("{}", message);
+        LOG_ERROR(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda; id logged via attributes
+          "{}",
+          message
+        );
         results[taskIndex] = makeTaskError(message);
-      } catch (...) {
+      } catch (
+        ...
+      ) {  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda; id logged via attributes
         auto const message = std::format("Task {} threw unknown exception", task.id);
-        LOG_ERROR("{}", message);
+        // NOLINTNEXTLINE(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda; id logged via attributes
+        LOG_ERROR(
+          "{}",
+          message
+        );  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda; id logged via attributes
         results[taskIndex] = makeTaskError(message);
       }
     }

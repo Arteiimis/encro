@@ -46,10 +46,9 @@ auto detectRawColumns() -> std::optional<std::size_t> {
   auto info = CONSOLE_SCREEN_BUFFER_INFO{};
   if (!GetConsoleScreenBufferInfo(out, &info)) { return std::nullopt; }
 
-  auto const width =
-    static_cast<std::size_t>(info.srWindow.Right - info.srWindow.Left + 1);
-  if (width == 0) { return std::nullopt; }
-  return width;
+  auto const width = info.srWindow.Right - info.srWindow.Left + 1;
+  if (width <= 0) { return std::nullopt; }
+  return static_cast<std::size_t>(width);
 #else
   auto info = winsize{};
   if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &info) != 0 || info.ws_col == 0) {

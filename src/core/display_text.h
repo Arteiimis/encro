@@ -145,7 +145,7 @@ inline auto truncateMiddle(std::string_view text, std::size_t maxWidth) -> std::
   auto const extWidth = displayWidth(ext);
   auto const prefixWidth =
     extWidth + 1 >= maxWidth ? maxWidth - 1 : maxWidth - extWidth - 1;
-  auto const prefix = takePrefixByDisplayWidth(text, prefixWidth);
+  auto prefix = takePrefixByDisplayWidth(text, prefixWidth);
   auto const used = displayWidth(prefix);
   if (used >= maxWidth) { return prefix; }
   return prefix

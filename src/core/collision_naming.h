@@ -66,8 +66,7 @@ inline auto relativeParentPath(
 ) -> std::optional<fs::path> {
   if (!sourceRootDir.has_value()) { return std::nullopt; }
 
-  auto const relativePath =
-    inputPath.parent_path().lexically_relative(sourceRootDir.value());
+  auto relativePath = inputPath.parent_path().lexically_relative(sourceRootDir.value());
   if (relativePath.empty() || relativePath == fs::path{"."}) { return std::nullopt; }
 
   return relativePath;

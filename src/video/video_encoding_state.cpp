@@ -15,6 +15,7 @@
 #include <chrono>
 #include <thread>
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_STATE);
 
 namespace fs = std::filesystem;
