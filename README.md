@@ -119,6 +119,35 @@ instrumented coverage runs). Format with `xmake format` (clang-format).
 - Features are TDD: failing test first, minimal implementation, one commit
   per change together with its tests.
 
+## Debugging CI failures
+
+A failed CI job leaves three places to look, in order:
+
+1. **The failed step's own log** (GitHub UI, or `gh run view <run-id> --log`
+   once the run has finished). E2E failures dump the child's stdout/stderr
+   **plus the tail of the encro log file named by `Log file:` in stdout** —
+   that tail contains the ffmpeg stderr for the failing command. The final
+   `Print debug info locations` step prints a self-contained pointer to the
+   artifact with its download command.
+2. **The `test-reports-<mode>` artifact** (download from the run page, or
+   `gh run download <run-id> -n test-reports-<mode>`). It contains
+   `/tmp/ut.xml` (JUnit: failing test names with `file:line`),
+   `/tmp/ut.log` (unit-test console), and
+   `~/.local/state/encro/logs/` (per-task encro logs, including the ffmpeg
+   command lines and their stderr).
+3. **Failed unit tests**: the `Run unit tests` step prints the JUnit failure
+   entries directly in its log; grep the artifact's `ut.xml` for `<failure>`
+   for the same list.
+
+Caveats:
+
+- Job logs are only fetchable after the whole run completes (jobs of an
+  in-progress run return empty via the CLI).
+- The coverage job uploads no artifact; only its step logs exist.
+- spdlog keeps 10 rotating encro logs; if the failing test ran first, its
+  log file may already be rotated away by the time the artifact is uploaded.
+  The `Log file:`-tail dump in the step log covers this case.
+
 ## License
 
 [MIT](LICENSE)
