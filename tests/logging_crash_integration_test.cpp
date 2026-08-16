@@ -332,8 +332,8 @@ TEST_CASE(
   TempDir temp;
 
   auto config = logging::LogConfig{
-    .colorsEnabled = false,
     .jsonEnabled = true,
+    .colorsEnabled = false,
     .customLogDir = temp.path,
   };
 
@@ -383,8 +383,8 @@ TEST_CASE(
   TempDir temp;
 
   auto config = logging::LogConfig{
-    .colorsEnabled = false,
     .jsonEnabled = false,
+    .colorsEnabled = false,
     .customLogDir = temp.path,
   };
 
