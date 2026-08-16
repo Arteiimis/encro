@@ -283,6 +283,7 @@ auto setRunId(std::string id) -> void {
   updateRunIdSnapshot(gRunId);
 }
 
+// NOLINTNEXTLINE(readability-function-size): linear sink wiring; numbered blocks are self-documenting
 auto setup(LogConfig const& config) -> std::optional<fs::path> {
   gCurrentLogFilePath = std::nullopt;
   gCurrentNdjsonFilePath = std::nullopt;

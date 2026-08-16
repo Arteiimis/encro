@@ -203,21 +203,112 @@ auto runWebpEncodingStep(
   return {exitCode, fs::file_size(outputFile), pid};
 }
 
+enum class WebpAttemptResult {
+  Succeeded,    // encoded under the target size
+  Aborted,      // stop requested or the step failed permanently
+  UnderTarget,  // still over target; try a lower quality
+};
+
+// One adaptive attempt: run the step, classify the outcome, and advance the
+// quality when the result is still over target.
+auto runWebpAdaptiveAttempt(
+  appctx::AppContext const& appCtx,
+  WebpEncodeContext const& encodeCtx,
+  fs::path const& outputFile,
+  unsigned& quality
+) -> WebpAttemptResult {
+  if (stopsignal::isStopRequested()) { return WebpAttemptResult::Aborted; }
+
+  if (encodeCtx.statusUpdater) { encodeCtx.statusUpdater(std::format("q={}", quality)); }
+  auto const stepRes = runWebpEncodingStep(appCtx, encodeCtx, quality, outputFile);
+  if (
+    stopsignal::isStopRequested() || stepRes.exitCode == stopsignal::kCanceledExitCode
+  ) {
+    return WebpAttemptResult::Aborted;
+  }
+  if (stepRes.exitCode != 0) {
+    LOG_ERROR(
+      "WebP encoding step failed permanently: input={} quality={} exitCode={}",
+      encodeCtx.inputVidPath.string(),
+      quality,
+      stepRes.exitCode
+    );
+    return WebpAttemptResult::Aborted;
+  }
+  if (!stepRes.outputSize.has_value()) {
+    LOG_ERROR(
+      "WebP encoding step produced no output file: input={} quality={} output={}",
+      encodeCtx.inputVidPath.string(),
+      quality,
+      outputFile.string()
+    );
+    return WebpAttemptResult::Aborted;
+  }
+
+  auto const outputSize = stepRes.outputSize.value();
+  if (outputSize < kWebpTargetMaxSize) {
+    LOG_DEBUG(
+      "WebP encoded under target size: {} ({} bytes, q={})",
+      outputFile.string(),
+      outputSize,
+      quality
+    );
+    return WebpAttemptResult::Succeeded;
+  }
+
+  auto const sizeGap = outputSize - kWebpTargetMaxSize;
+  auto const step =
+    sizeGap <= kWebpSmallGapThreshold ? kWebpFineQualityStep : kWebpQualityStep;
+  auto const nextQuality = quality - step;
+  if (encodeCtx.statusUpdater && nextQuality >= kWebpMinQuality) {
+    auto const outputSizeMB = static_cast<double>(outputSize) / 1024.0 / 1024.0;
+    encodeCtx
+      .statusUpdater(std::format("retry q={} ({:.1f}MB)", nextQuality, outputSizeMB));
+  }
+  quality = nextQuality;
+  return WebpAttemptResult::UnderTarget;
+}
+
+// Clears stale artifacts and logs the cancellation reason.
+auto abortWebpForStopRequest(
+  WebpEncodeContext const& encodeCtx,
+  fs::path const& outputFile
+) -> bool {
+  clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
+  LOG_INFO(
+    "WebP adaptive encoding canceled: input={} output={}",
+    encodeCtx.inputVidPath.string(),
+    outputFile.string()
+  );
+  return false;
+}
+
+// Minimum quality reached but still over target: keep the file with a warning.
+auto webpMinQualityFallback(
+  WebpEncodeContext const& encodeCtx,
+  fs::path const& outputFile
+) -> bool {
+  if (!fs::exists(outputFile)) { return false; }
+  LOG_WARN(
+    "WebP encoding reached minimum quality but still over target: input={} "
+    "output={} bytes={}",
+    encodeCtx.inputVidPath.string(),
+    outputFile.string(),
+    fs::file_size(outputFile)
+  );
+  if (encodeCtx.statusUpdater) {
+    auto const outputSizeMB =
+      static_cast<double>(fs::file_size(outputFile)) / 1024.0 / 1024.0;
+    encodeCtx.statusUpdater(std::format("min-q reached ({:.1f}MB)", outputSizeMB));
+  }
+  return true;
+}
+
 auto encodeWebpWithTargetSize(
   appctx::AppContext const& appCtx,
   WebpEncodeContext const& encodeCtx
 ) -> bool {
   auto const outputFile = encodeCtx.outputFilePath;
-
-  auto const abortForStopRequest = [&] {
-    clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
-    LOG_INFO(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
-      "WebP adaptive encoding canceled: input={} output={}",
-      encodeCtx.inputVidPath.string(),
-      outputFile.string()
-    );
-    return false;
-  };
 
   LOG_DEBUG(
     "WebP adaptive encoding start: input={} output={} target={} bytes",
@@ -229,84 +320,23 @@ auto encodeWebpWithTargetSize(
   auto const inputPathStr = encodeCtx.inputVidPath.string();
   logging::ScopedErrorContext ctx("video.encode.webp", inputPathStr);
 
-  auto const qualityStepForSize = [](std::uintmax_t outputSize) {
-    auto const sizeGap = outputSize - kWebpTargetMaxSize;
-    return sizeGap <= kWebpSmallGapThreshold ? kWebpFineQualityStep : kWebpQualityStep;
-  };
-
   auto quality = 80u;
   while (quality >= kWebpMinQuality) {
     auto const attemptDetail =
       std::format("q={} target={} bytes", quality, kWebpTargetMaxSize);
     logging::ScopedErrorContext attemptCtx("webp.attempt", attemptDetail);
 
-    if (stopsignal::isStopRequested()) { return abortForStopRequest(); }
-
-    if (encodeCtx.statusUpdater) {
-      encodeCtx.statusUpdater(std::format("q={}", quality));
-    }
-    auto const stepRes = runWebpEncodingStep(appCtx, encodeCtx, quality, outputFile);
-    if (
-      stopsignal::isStopRequested() || stepRes.exitCode == stopsignal::kCanceledExitCode
-    ) {
-      return abortForStopRequest();
-    }
-    if (stepRes.exitCode != 0) {
-      LOG_ERROR(
-        "WebP encoding step failed permanently: input={} quality={} exitCode={}",
-        encodeCtx.inputVidPath.string(),
-        quality,
-        stepRes.exitCode
-      );
+    auto const result = runWebpAdaptiveAttempt(appCtx, encodeCtx, outputFile, quality);
+    if (result == WebpAttemptResult::Succeeded) { return true; }
+    if (result == WebpAttemptResult::Aborted) {
+      if (stopsignal::isStopRequested()) {
+        return abortWebpForStopRequest(encodeCtx, outputFile);
+      }
       return false;
     }
-    if (!stepRes.outputSize.has_value()) {
-      LOG_ERROR(
-        "WebP encoding step produced no output file: input={} quality={} output={}",
-        encodeCtx.inputVidPath.string(),
-        quality,
-        outputFile.string()
-      );
-      return false;
-    }
-
-    auto const outputSize = stepRes.outputSize.value();
-    if (outputSize < kWebpTargetMaxSize) {
-      LOG_DEBUG(
-        "WebP encoded under target size: {} ({} bytes, q={})",
-        outputFile.string(),
-        outputSize,
-        quality
-      );
-      return true;
-    }
-
-    auto const step = qualityStepForSize(outputSize);
-    auto const nextQuality = quality - step;
-    if (encodeCtx.statusUpdater && nextQuality >= kWebpMinQuality) {
-      auto const outputSizeMB = static_cast<double>(outputSize) / 1024.0 / 1024.0;
-      encodeCtx
-        .statusUpdater(std::format("retry q={} ({:.1f}MB)", nextQuality, outputSizeMB));
-    }
-
-    quality -= step;
   }
 
-  if (fs::exists(outputFile)) {
-    LOG_WARN(
-      "WebP encoding reached minimum quality but still over target: input={} "
-      "output={} bytes={}",
-      encodeCtx.inputVidPath.string(),
-      outputFile.string(),
-      fs::file_size(outputFile)
-    );
-    if (encodeCtx.statusUpdater) {
-      auto const outputSizeMB =
-        static_cast<double>(fs::file_size(outputFile)) / 1024.0 / 1024.0;
-      encodeCtx.statusUpdater(std::format("min-q reached ({:.1f}MB)", outputSizeMB));
-    }
-    return true;
-  }
+  if (webpMinQualityFallback(encodeCtx, outputFile)) { return true; }
 
   LOG_ERROR(
     "WebP adaptive encoding failed: input={} output={}",
@@ -509,6 +539,7 @@ auto assembleSegments(
   return true;
 }
 
+// NOLINTNEXTLINE(readability-function-size): linear segment loop; phase comments delimit blocks
 auto runSegmentedEncoding(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
