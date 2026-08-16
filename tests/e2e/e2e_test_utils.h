@@ -14,17 +14,19 @@
 #include <vector>
 
 // Asserts that a child process invocation succeeded, dumping its captured
-// stdout/stderr into the failure output. Macro form keeps the assertion's
-// file:line at the call site (a helper function would report this header).
-#define REQUIRE_SUCCESS(result)      \
-  do {                               \
-    INFO(                            \
+// stdout/stderr (and the encro log tail named by "Log file:") into the failure
+// output. Macro form keeps the assertion's file:line at the call site (a helper
+// function would report this header).
+#define REQUIRE_SUCCESS(result)        \
+  do {                                 \
+    INFO(                              \
       "child stdout:\n"              \
-      << (result).stdoutText         \
+      << (result).stdoutText          \
       << "\nchild stderr:\n"         \
-      << (result).stderrText         \
-    );                               \
-    REQUIRE((result).exitCode == 0); \
+      << (result).stderrText          \
+      << e2e::encroLogTail((result).stdoutText) \
+    );                                 \
+    REQUIRE((result).exitCode == 0);   \
   } while (false)
 
 namespace fs = std::filesystem;
@@ -100,6 +102,10 @@ auto runEncro(
   std::optional<fs::path> const& workingDir = std::nullopt,
   std::map<std::string, std::string> const& environment = {}
 ) -> ProcessResult;
+
+// Tail of the encro log file named in a failed run's stdout ("Log file:"),
+// for REQUIRE_SUCCESS failure diagnostics.
+auto encroLogTail(std::string const& stdoutText) -> std::string;
 
 // Same as runEncro but returns a live handle for interruption tests.
 // The child is created in its own process group so console events can be
