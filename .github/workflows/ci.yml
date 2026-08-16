@@ -96,6 +96,30 @@ jobs:
             ~/.local/state/encro/logs/
           if-no-files-found: warn
 
+      - name: Print debug info locations
+        # 失败时在 job log 末尾打印自包含的 debug 指引：agent/人类展开本步骤即可
+        # 知道去哪里拿完整日志（artifact 名、下载命令、文件清单、已知盲区）。
+        if: failure()
+        run: |
+          echo "=== Debug info ==="
+          echo "run=${{ github.run_id }} job=${{ matrix.mode }} (fetch job logs after the run finishes)"
+          if [ "${{ matrix.mode }}" != "coverage" ]; then
+            echo "1. This step's own log: REQUIRE_SUCCESS failures dump child stdout/stderr"
+            echo "   plus the tail of the encro log named by 'Log file:' in stdout."
+            echo "2. Full report artifact (download from the run page or CLI):"
+            echo "   gh run download ${{ github.run_id }} -n test-reports-${{ matrix.mode }}"
+            echo "   contains: /tmp/ut.xml (JUnit: failing test name + file:line)"
+            echo "             /tmp/ut.log (unit-test console)"
+            echo "             ~/.local/state/encro/logs/ (per-task logs incl. ffmpeg stderr)"
+            echo "3. Failed unit tests: grep -oE '<testcase[^>]*>[^<]*<failure[^>]*>[^<]*' /tmp/ut.xml"
+            echo "4. Caveat: spdlog rotation (keep=10) may drop the failing test's"
+            echo "   encro log from the artifact; its tail is always in the step-log dump."
+          else
+            echo "Coverage job uploads no artifact; the only debug source is the"
+            echo "'Run coverage' step log above."
+          fi
+          echo "===================="
+
       - name: Run coverage (configures and builds itself)
         if: matrix.mode == 'coverage'
         # --keep: 跳过插件末尾的 release restore（xmake 3 的 execv bug；CI 用完即弃）
