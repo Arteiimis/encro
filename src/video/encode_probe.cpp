@@ -529,9 +529,9 @@ auto buildProbeTaskSpec(
     .id = std::format("probe:{}", collisionnaming::stablePathString(vids[index])),
     .label = fileName,
     .input = vids[index].string(),
-.run = [&, index, fileName, updateOverall](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
-  // updateOverall captured by value: the std::function parameter is a
-  // temporary at the call site and its const& would dangle inside the task
+.run = [&, index, fileName, updateOverall, vids](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
+  // updateOverall and vids captured by value: both are helper parameters
+  // (the span is a cheap POD copy) that would dangle inside the task
   taskexec::TaskContext& taskCtx) -> eh::Result<void> {
   auto const slot = taskCtx.slot;
   auto const barIndex = slotBars[slot];

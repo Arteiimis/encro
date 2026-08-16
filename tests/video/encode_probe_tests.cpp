@@ -437,7 +437,10 @@ TEST_CASE("runProbePhase probes and decides with fake tools", "[encode-probe]") 
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
 
-  auto const result = encodeprobe::runProbePhase(ctx, std::vector<fs::path>{inputPath});
+  // The span must outlive the probe tasks (run on worker threads), so the
+  // vector is a named local rather than a temporary.
+  auto const inputs = std::vector<fs::path>{inputPath};
+  auto const result = encodeprobe::runProbePhase(ctx, inputs);
   REQUIRE(result.has_value());
 
   auto const it = result->plans.find(inputPath);
@@ -464,7 +467,10 @@ TEST_CASE(
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   fillProbeContext(ctx, temp.path, inputPath, "100.0", "93.0", envs);
 
-  auto const result = encodeprobe::runProbePhase(ctx, std::vector<fs::path>{inputPath});
+  // The span must outlive the probe tasks (run on worker threads), so the
+  // vector is a named local rather than a temporary.
+  auto const inputs = std::vector<fs::path>{inputPath};
+  auto const result = encodeprobe::runProbePhase(ctx, inputs);
   REQUIRE(result.has_value());
 
   auto const it = result->plans.find(inputPath);
@@ -488,7 +494,10 @@ TEST_CASE("runProbePhase skips short videos with the default cq", "[encode-probe
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   fillProbeContext(ctx, temp.path, inputPath, "30.0", "96.0", envs);
 
-  auto const result = encodeprobe::runProbePhase(ctx, std::vector<fs::path>{inputPath});
+  // The span must outlive the probe tasks (run on worker threads), so the
+  // vector is a named local rather than a temporary.
+  auto const inputs = std::vector<fs::path>{inputPath};
+  auto const result = encodeprobe::runProbePhase(ctx, inputs);
   REQUIRE(result.has_value());
 
   auto const it = result->plans.find(inputPath);
