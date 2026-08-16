@@ -85,7 +85,7 @@ public:
     bool recursive = true,
     NamingStrategy namingStrategy = NamingStrategy::Flat,
     std::optional<std::size_t> maxParallelJobs = std::nullopt,
-    std::optional<std::filesystem::path> excludedPath = std::nullopt
+    std::optional<std::filesystem::path> const& excludedPath = std::nullopt
   ) -> eh::Result<PackPlan>;
 
 private:
@@ -102,6 +102,12 @@ private:
     std::filesystem::path const& dirPath,
     std::filesystem::path const& filePath
   ) -> std::string;
+
+  static auto buildGroupedEntries(
+    std::vector<std::vector<std::filesystem::path>> const& groupedFiles,
+    std::filesystem::path const& dirPath,
+    NamingStrategy namingStrategy
+  ) -> std::vector<std::vector<pack::PackFileEntry>>;
 
   static auto wouldExceedGroupLimits(
     std::uintmax_t currentSize,

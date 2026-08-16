@@ -142,6 +142,14 @@ private:
 
   void rebuildIndexLocked();
 
+  // Restore path of initialize(); callers must hold the lock. Returns true
+  // when the snapshot was restored, false when a fresh snapshot is needed.
+  auto tryRestoreExistingLocked(
+    ConfigSnapshot const& currentConfig,
+    bool resumeState,
+    bool* discardedMismatched
+  ) -> eh::Result<bool>;
+
   void persistLocked(std::string_view operation, bool force);
 
   auto flushLocked(bool force) -> eh::Result<void>;

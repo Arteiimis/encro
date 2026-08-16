@@ -77,7 +77,7 @@ using ProbeStepCallback = std::function<void(int cq, std::string_view phase)>;
 auto probeCqSequence(
   ProbeMeasure const& measure,
   int vmafFloor,
-  ProbePointCallback onPoint = {}
+  ProbePointCallback const& onPoint = {}
 ) -> std::optional<std::vector<ProbePoint>>;
 
 // Probe config: the production segment config (shared construction path) with
