@@ -263,40 +263,41 @@ auto resolveOutputPathSpec(appctx::AppConfig const& config, std::string_view raw
 
 namespace cmd {
 
-auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> {
-  auto config = appctx::AppConfig{};
+namespace {
 
-  config.resumeState = result.resume;
-  config.restartState = result.restart;
-
-  auto typeRes = readProcessType(result);
-  if (!typeRes) { return eh::makeError("{}", typeRes.error()); }
-  config.processType = typeRes.value();
-
-  auto formatRes = readOutputFormat(result);
-  if (!formatRes) { return eh::makeError("{}", formatRes.error()); }
-  config.outputFormat = formatRes.value();
-
-  auto jobsRes = readMaxParallelJobs(result);
-  if (!jobsRes) { return eh::makeError("{}", jobsRes.error()); }
-  config.maxParallelJobs = jobsRes.value();
-
-  auto layoutRes = readOutputLayout(result);
-  if (!layoutRes) { return eh::makeError("{}", layoutRes.error()); }
-  config.outputLayout = layoutRes.value();
-
-  auto forceNamingRes = readForceNameConflictHandling(result);
-  if (!forceNamingRes) { return eh::makeError("{}", forceNamingRes.error()); }
-  config.forceNameConflictHandling = forceNamingRes.value();
-
-  auto pictureFolderSummaryRes = readPictureFolderSummary(result);
-  if (!pictureFolderSummaryRes) {
-    return eh::makeError("{}", pictureFolderSummaryRes.error());
+auto resolveSingleInputPath(CmdParseResult const& result) -> eh::Result<fs::path> {
+  auto const& input = [&]() -> std::string const& {
+    if (result.input.has_value()) { return *result.input; }
+    return result.positionalInputs.value().front();
+  }();
+  auto path = fs::absolute(fs::path{input}).lexically_normal();
+  if (auto const exists = requireExists(path, "input"); !exists) {
+    return eh::makeError("{}", exists.error());
   }
-  config.pictureFolderSummary = pictureFolderSummaryRes.value();
+  return path;
+}
 
-  config.compressImages = result.compress;
+auto resolveInputPaths(std::vector<std::string> const& inputs)
+  -> eh::Result<std::vector<fs::path>> {
+  if (inputs.empty()) { return eh::makeError("Input path is required."); }
 
+  auto paths = std::vector<fs::path>{};
+  paths.reserve(inputs.size());
+  for (auto const& input: inputs) {
+    auto const path = fs::absolute(fs::path{input}).lexically_normal();
+    if (auto const exists = requireExists(path, "input"); !exists) {
+      return eh::makeError("{}", exists.error());
+    }
+    if (auto const regular = requireRegularFile(path, "input"); !regular) {
+      return eh::makeError("{}", regular.error());
+    }
+    paths.emplace_back(path);
+  }
+  return paths;
+}
+
+auto applyMediaOptionValidations(appctx::AppConfig& config, CmdParseResult const& result)
+  -> eh::Result<void> {
   if (config.processType != "picture" && config.compressImages) {
     return eh::makeError("--compress is only supported with --type picture.");
   }
@@ -335,28 +336,11 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
   }
 
   config.videoCodec = result.videoCodec;
+  return {};
+}
 
-  config.yesToAll = result.yesToAll;
-  config.recursive = result.recursive;
-  config.packOutput = result.pack;
-  config.packOnly = result.packOnly;
-  config.verbose = result.verbose;
-  config.fullProgress = result.fullProgress;
-  config.jsonEnabled = result.jsonEnabled;
-
-  if (result.stateFile.has_value()) {
-    config.stateFilePath =
-      fs::absolute(fs::path{result.stateFile.value()}).lexically_normal();
-  }
-
-  if (result.ffmpegPath.has_value()) {
-    auto const iptPath = fs::path{result.ffmpegPath.value()};
-    if (auto const validDir = requireDir(iptPath, "FFmpeg"); !validDir) {
-      return eh::makeError("{}", validDir.error());
-    }
-    config.ffmpegInstallDir = iptPath;
-  }
-
+auto applyInputSelection(appctx::AppConfig& config, CmdParseResult const& result)
+  -> eh::Result<void> {
   auto const hasSingleInput = result.input.has_value();
   auto const hasMultiInputs = result.inputs.has_value();
   auto const hasPositionalInputs = result.positionalInputs.has_value();
@@ -399,28 +383,81 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
       if (result.inputs.has_value()) { return *result.inputs; }
       return *result.positionalInputs;
     }();
-    if (inputs.empty()) { return eh::makeError("Input path is required."); }
-
-    config.inputPaths.reserve(inputs.size());
-    for (auto const& input: inputs) {
-      auto const path = fs::absolute(fs::path{input}).lexically_normal();
-      if (auto const exists = requireExists(path, "input"); !exists) {
-        return eh::makeError("{}", exists.error());
-      }
-      if (auto const regular = requireRegularFile(path, "input"); !regular) {
-        return eh::makeError("{}", regular.error());
-      }
-      config.inputPaths.emplace_back(path);
-    }
+    auto resolved = resolveInputPaths(inputs);
+    if (!resolved) { return eh::makeError("{}", resolved.error()); }
+    config.inputPaths = std::move(resolved.value());
   } else {
-    auto const& input = [&]() -> std::string const& {
-      if (result.input.has_value()) { return *result.input; }
-      return result.positionalInputs.value().front();
-    }();
-    config.inputPath = fs::absolute(fs::path{input}).lexically_normal();
-    if (auto const exists = requireExists(config.inputPath, "input"); !exists) {
-      return eh::makeError("{}", exists.error());
+    if (auto const input = resolveSingleInputPath(result); !input) {
+      return eh::makeError("{}", input.error());
+    } else {
+      config.inputPath = input.value();
     }
+  }
+  return {};
+}
+
+}  // namespace
+
+auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> {
+  auto config = appctx::AppConfig{};
+
+  config.resumeState = result.resume;
+  config.restartState = result.restart;
+
+  auto typeRes = readProcessType(result);
+  if (!typeRes) { return eh::makeError("{}", typeRes.error()); }
+  config.processType = typeRes.value();
+
+  auto formatRes = readOutputFormat(result);
+  if (!formatRes) { return eh::makeError("{}", formatRes.error()); }
+  config.outputFormat = formatRes.value();
+
+  auto jobsRes = readMaxParallelJobs(result);
+  if (!jobsRes) { return eh::makeError("{}", jobsRes.error()); }
+  config.maxParallelJobs = jobsRes.value();
+
+  auto layoutRes = readOutputLayout(result);
+  if (!layoutRes) { return eh::makeError("{}", layoutRes.error()); }
+  config.outputLayout = layoutRes.value();
+
+  auto forceNamingRes = readForceNameConflictHandling(result);
+  if (!forceNamingRes) { return eh::makeError("{}", forceNamingRes.error()); }
+  config.forceNameConflictHandling = forceNamingRes.value();
+
+  auto pictureFolderSummaryRes = readPictureFolderSummary(result);
+  if (!pictureFolderSummaryRes) {
+    return eh::makeError("{}", pictureFolderSummaryRes.error());
+  }
+  config.pictureFolderSummary = pictureFolderSummaryRes.value();
+
+  config.compressImages = result.compress;
+  if (auto const applied = applyMediaOptionValidations(config, result); !applied) {
+    return eh::makeError("{}", applied.error());
+  }
+
+  config.yesToAll = result.yesToAll;
+  config.recursive = result.recursive;
+  config.packOutput = result.pack;
+  config.packOnly = result.packOnly;
+  config.verbose = result.verbose;
+  config.fullProgress = result.fullProgress;
+  config.jsonEnabled = result.jsonEnabled;
+
+  if (result.stateFile.has_value()) {
+    config.stateFilePath =
+      fs::absolute(fs::path{result.stateFile.value()}).lexically_normal();
+  }
+
+  if (result.ffmpegPath.has_value()) {
+    auto const iptPath = fs::path{result.ffmpegPath.value()};
+    if (auto const validDir = requireDir(iptPath, "FFmpeg"); !validDir) {
+      return eh::makeError("{}", validDir.error());
+    }
+    config.ffmpegInstallDir = iptPath;
+  }
+
+  if (auto const applied = applyInputSelection(config, result); !applied) {
+    return eh::makeError("{}", applied.error());
   }
 
   if (result.output.has_value()) {

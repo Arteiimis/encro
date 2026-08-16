@@ -754,146 +754,147 @@ struct PendingExclusion {
   std::string_view description;
 };
 
-auto commandLineInit(int argc, char* argv[], std::string const& introLine)
-  -> CmdParseResult {
-  auto app = CLI::App{"Allowed options"};
-  app.description(introLine);
-  app.set_help_flag("");
+namespace {
 
-  // Create option groups
-  auto* general = app.add_option_group("General", "General options");
-  auto* io = app.add_option_group("IO", "Input/Output options");
-  auto* processing = app.add_option_group("Processing", "Processing options");
-  auto* fileop = app.add_option_group("FileOp", "File operation options");
+using ResultSetter = std::function<void(CmdParseResult&, CLI::Option const*)>;
 
-  // Registry for CLI::Option* lookups after parse
-  std::unordered_map<std::string_view, CLI::Option*> optRegistry;
-  std::vector<PendingExclusion> pendingExcludes;
+struct PreviewSubcommand {
+  CLI::App* app;
+  CLI::Option* original;
+  CLI::Option* encoded;
+  CLI::Option* output;
+  CLI::Option* start;
+  CLI::Option* duration;
+  CLI::Option* noOpen;
+  CLI::Option* help;
+};
 
-  // Data-driven flag registration helper
-  auto registerFlag = [&](CmdFlagDef const& def, CLI::App* target) {
-    auto const expectedMin = def.defaultValue.empty() ? 1 : 0;
-    std::string const name{def.name};
-    std::string const desc{def.description};
-    CLI::Option* opt = nullptr;
-    switch (def.kind) {
-      case CmdFlagKind::Bool: opt = target->add_flag(name, desc); break;
-      case CmdFlagKind::String:
-      case CmdFlagKind::Int:
-        opt = target->add_option(name, desc);
-        if (expectedMin == 0) {
-          opt->expected(0, 1)->default_str(std::string{def.defaultValue});
-        } else if (!def.defaultDisplay.empty()) {
-          opt->expected(1)->default_str(std::string{def.defaultDisplay});
-        } else {
-          opt->expected(1);
-        }
-        break;
-      case CmdFlagKind::SizeT:
-        opt = target->add_option(name, desc);
-        if (expectedMin == 0) {
-          opt->expected(0, 1)->default_str(std::string{def.defaultValue});
-        } else {
-          opt->expected(1);
-        }
-        break;
-      case CmdFlagKind::VecString:
-        opt = target->add_option(name, desc)->expected(0, def.expectedMax);
-        break;
-    }
-    if (opt) { optRegistry[def.name] = opt; }
-    if (opt && !def.excludes.empty()) {
-      pendingExcludes.emplace_back(opt, def.excludes, def.excludesDesc);
-    }
+// Subcommand names take precedence over positional input interpretation;
+// bare invocations fall through to the encode workflow unchanged.
+auto registerPreviewSubcommand(CLI::App& app) -> PreviewSubcommand {
+  auto* sub = app.add_subcommand(
+    "preview",
+    "compare an original video with its encoded output side by side"
+  );
+  sub->set_help_flag("");
+  return PreviewSubcommand{
+    .app = sub,
+    .original = sub->add_option("original", "original video path"),
+    .encoded = sub->add_option("encoded", "encoded video path"),
+    .output = sub->add_option(
+      "--output",
+      "output video path (default: <original-dir>/<original-stem>.preview.mp4)"
+    ),
+    .start = sub->add_option("--start", "manual window start in seconds"),
+    .duration = sub->add_option("--duration", "manual window duration in seconds"),
+    .noOpen = sub->add_flag("--no-open", "do not open the result in the default player"),
+    .help = sub->add_flag("-h,--help", "show preview help"),
   };
+}
 
-  // Register help and version on app (not in any group)
+auto collectAdvancedLongNames(
+  std::vector<std::string_view>& advancedLongNames,
+  auto const& defs
+) -> void {
+  for (auto const& def: defs) {
+    if (!def.advanced) { continue; }
+    auto longName = def.name;
+    if (auto const comma = longName.find(','); comma != std::string_view::npos) {
+      longName.remove_prefix(comma + 1);
+    }
+    if (longName.starts_with("--")) { longName.remove_prefix(2); }
+    advancedLongNames.push_back(longName);
+  }
+}
+
+// Data-driven flag registration helper.
+auto registerCmdFlag(
+  CmdFlagDef const& def,
+  CLI::App* target,
+  std::unordered_map<std::string_view, CLI::Option*>& optRegistry,
+  std::vector<PendingExclusion>& pendingExcludes
+) -> void {
+  auto const expectedMin = def.defaultValue.empty() ? 1 : 0;
+  std::string const name{def.name};
+  std::string const desc{def.description};
+  CLI::Option* opt = nullptr;
+  switch (def.kind) {
+    case CmdFlagKind::Bool: opt = target->add_flag(name, desc); break;
+    case CmdFlagKind::String:
+    case CmdFlagKind::Int:
+      opt = target->add_option(name, desc);
+      if (expectedMin == 0) {
+        opt->expected(0, 1)->default_str(std::string{def.defaultValue});
+      } else if (!def.defaultDisplay.empty()) {
+        opt->expected(1)->default_str(std::string{def.defaultDisplay});
+      } else {
+        opt->expected(1);
+      }
+      break;
+    case CmdFlagKind::SizeT:
+      opt = target->add_option(name, desc);
+      if (expectedMin == 0) {
+        opt->expected(0, 1)->default_str(std::string{def.defaultValue});
+      } else {
+        opt->expected(1);
+      }
+      break;
+    case CmdFlagKind::VecString:
+      opt = target->add_option(name, desc)->expected(0, def.expectedMax);
+      break;
+  }
+  if (opt) { optRegistry[def.name] = opt; }
+  if (opt && !def.excludes.empty()) {
+    pendingExcludes.emplace_back(opt, def.excludes, def.excludesDesc);
+  }
+}
+
+auto registerGeneralFlags(
+  CLI::App& app,
+  CLI::App* general,
+  std::unordered_map<std::string_view, CLI::Option*>& optRegistry,
+  std::vector<PendingExclusion>& pendingExcludes
+) -> void {
   for (auto const& def: std::span{GeneralFlags}.subspan(0, 2)) {
-    registerFlag(def, &app);
+    registerCmdFlag(def, &app, optRegistry, pendingExcludes);
   }
-
-  // Register remaining GeneralFlags on general group
   for (auto const& def: std::span{GeneralFlags}.subspan(2)) {
-    registerFlag(def, general);
+    registerCmdFlag(def, general, optRegistry, pendingExcludes);
+  }
+}
+
+auto collectAllAdvancedLongNames() -> std::vector<std::string_view> {
+  // Collect advanced long names from the same def arrays (single source of
+  // truth). -h/--help and --version are not marked advanced, so they never
+  // enter the set. The vector must outlive the formatter lambda, so it is
+  // returned to the caller rather than kept local.
+  auto advancedLongNames = std::vector<std::string_view>{};
+  collectAdvancedLongNames(advancedLongNames, GeneralFlags);
+  collectAdvancedLongNames(advancedLongNames, IOFrags);
+  collectAdvancedLongNames(advancedLongNames, ProcessingFlags);
+  collectAdvancedLongNames(advancedLongNames, FileOpFlags);
+  return advancedLongNames;
+}
+
+auto registerIoFlags(
+  CLI::App* io,
+  std::unordered_map<std::string_view, CLI::Option*>& optRegistry,
+  std::vector<PendingExclusion>& pendingExcludes
+) -> void {
+  for (auto const& def: IOFrags) {
+    registerCmdFlag(def, io, optRegistry, pendingExcludes);
   }
 
-  // Register IOFrags on io group
-  for (auto const& def: IOFrags) { registerFlag(def, io); }
-
-  // Positional input paths — alternative to -i/-I; conflicts validated in buildConfig
   constexpr auto kPositionalKey = std::string_view{"<positional>"};
   constexpr auto kMaxPositionalInputs = 1000000;
   auto* positionalOpt =
     io->add_option("input-paths", "input file or directory paths (alternative to -i/-I)")
       ->expected(0, kMaxPositionalInputs);
   optRegistry[kPositionalKey] = positionalOpt;
+}
 
-  // ── Preview subcommand ──
-  // Subcommand names take precedence over positional input interpretation;
-  // bare invocations fall through to the encode workflow unchanged.
-  auto* previewSub = app.add_subcommand(
-    "preview",
-    "compare an original video with its encoded output side by side"
-  );
-  previewSub->set_help_flag("");
-  auto* previewOriginal = previewSub->add_option("original", "original video path");
-  auto* previewEncoded = previewSub->add_option("encoded", "encoded video path");
-  auto* previewOutput = previewSub->add_option(
-    "--output",
-    "output video path (default: <original-dir>/<original-stem>.preview.mp4)"
-  );
-  auto* previewStart =
-    previewSub->add_option("--start", "manual window start in seconds");
-  auto* previewDuration =
-    previewSub->add_option("--duration", "manual window duration in seconds");
-  auto* previewNoOpen =
-    previewSub->add_flag("--no-open", "do not open the result in the default player");
-  auto* previewHelp = previewSub->add_flag("-h,--help", "show preview help");
-
-  // Register ProcessingFlags on processing group
-  for (auto const& def: ProcessingFlags) { registerFlag(def, processing); }
-
-  // Register FileOpFlags on fileop group
-  for (auto const& def: FileOpFlags) { registerFlag(def, fileop); }
-
-  // Resolve deferred exclusions
-  for (auto const& pe: pendingExcludes) {
-    auto it = optRegistry.find(pe.targetName);
-    if (it != optRegistry.end()) { pe.option->excludes(it->second); }
-  }
-
-  // Collect advanced long names from the same def arrays (single source of truth).
-  // -h/--help and --version are not marked advanced, so they never enter the set.
-  auto advancedLongNames = std::vector<std::string_view>{};
-  auto collectAdvanced = [&](auto const& defs) {
-    for (auto const& def: defs) {
-      if (!def.advanced) { continue; }
-      auto longName = def.name;
-      if (auto const comma = longName.find(','); comma != std::string_view::npos) {
-        longName.remove_prefix(comma + 1);
-      }
-      if (longName.starts_with("--")) { longName.remove_prefix(2); }
-      advancedLongNames.push_back(longName);
-    }
-  };
-  collectAdvanced(GeneralFlags);
-  collectAdvanced(IOFrags);
-  collectAdvanced(ProcessingFlags);
-  collectAdvanced(FileOpFlags);
-
-  // Configure formatter (unchanged)
-  app.formatter_fn(makeHelpFormatter(
-    general,
-    io,
-    processing,
-    fileop,
-    optRegistry.at("-h,--help"),
-    advancedLongNames
-  ));
-
-  // ── applyMap: per-flag result population ──
-  using ResultSetter = std::function<void(CmdParseResult&, CLI::Option const*)>;
-  std::unordered_map<std::string_view, ResultSetter> applyMap;
+auto buildGeneralApplyMap() -> std::unordered_map<std::string_view, ResultSetter> {
+  auto applyMap = std::unordered_map<std::string_view, ResultSetter>{};
 
   // General (app-level)
   applyMap["-h,--help"] = [](CmdParseResult& r, CLI::Option const* o) {
@@ -919,6 +920,12 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   applyMap["-y,--yes"] = [](CmdParseResult& r, CLI::Option const* o) {
     r.yesToAll = o->count() > 0;
   };
+
+  return applyMap;
+}
+
+auto buildIoApplyMap() -> std::unordered_map<std::string_view, ResultSetter> {
+  auto applyMap = std::unordered_map<std::string_view, ResultSetter>{};
 
   // IO
   applyMap["-i,--input"] = [](CmdParseResult& r, CLI::Option const* o) {
@@ -951,6 +958,12 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   applyMap["-r,--recursive"] = [](CmdParseResult& r, CLI::Option const* o) {
     r.recursive = o->count() > 0;
   };
+
+  return applyMap;
+}
+
+auto buildProcessingApplyMap() -> std::unordered_map<std::string_view, ResultSetter> {
+  auto applyMap = std::unordered_map<std::string_view, ResultSetter>{};
 
   // Processing
   applyMap["-t,--type"] = [](CmdParseResult& r, CLI::Option const* o) {
@@ -1015,6 +1028,12 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
     r.videoCodec = o->as<std::string>();
   };
 
+  return applyMap;
+}
+
+auto buildFileOpApplyMap() -> std::unordered_map<std::string_view, ResultSetter> {
+  auto applyMap = std::unordered_map<std::string_view, ResultSetter>{};
+
   // FileOp
   applyMap["-p,--pack"] = [](CmdParseResult& r, CLI::Option const* o) {
     r.pack = o->count() > 0;
@@ -1026,7 +1045,58 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
     r.overwrite = o->count() > 0;
   };
 
-  // ── Parse and populate ──
+  return applyMap;
+}
+
+auto buildResultApplyMap() -> std::unordered_map<std::string_view, ResultSetter> {
+  auto applyMap = buildGeneralApplyMap();
+  applyMap.merge(buildIoApplyMap());
+  applyMap.merge(buildProcessingApplyMap());
+  applyMap.merge(buildFileOpApplyMap());
+  return applyMap;
+}
+
+auto populatePreviewCommandResult(
+  CmdParseResult& result,
+  CLI::App* previewSub,
+  CLI::Option* previewHelp,
+  CLI::Option* previewOriginal,
+  CLI::Option* previewEncoded,
+  CLI::Option* previewOutput,
+  CLI::Option* previewStart,
+  CLI::Option* previewDuration,
+  CLI::Option* previewNoOpen
+) -> void {
+  if (previewHelp->count() > 0) {
+    result.help = true;
+    result.helpText = buildPreviewHelpText();
+  } else if (previewOriginal->count() == 0) {
+    result.error =
+      "preview requires at least one positional argument: <original> [<encoded>]";
+  } else {
+    result.previewOriginal = previewOriginal->as<std::string>();
+    if (previewEncoded->count() > 0) {
+      result.previewEncoded = previewEncoded->as<std::string>();
+    }
+    if (previewOutput->count() > 0) {
+      result.previewOutput = previewOutput->as<std::string>();
+    }
+    if (previewStart->count() > 0) { result.previewStart = previewStart->as<double>(); }
+    if (previewDuration->count() > 0) {
+      result.previewDuration = previewDuration->as<double>();
+    }
+    result.previewNoOpen = previewNoOpen->count() > 0;
+  }
+}
+
+auto parseAndPopulate(
+  CLI::App& app,
+  int argc,
+  char* argv[],
+  std::unordered_map<std::string_view, ResultSetter> const& applyMap,
+  std::unordered_map<std::string_view, CLI::Option*> const& optRegistry,
+  PreviewSubcommand const& previewSub
+) -> CmdParseResult {
   auto result = CmdParseResult{};
   try {
     app.parse(argc, argv);
@@ -1035,35 +1105,85 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
       if (it != optRegistry.end()) { setter(result, it->second); }
     }
     result.helpText = app.help();
-    if (app.got_subcommand(previewSub)) {
+    if (app.got_subcommand(previewSub.app)) {
       result.preview = true;
-      if (previewHelp->count() > 0) {
-        result.help = true;
-        result.helpText = buildPreviewHelpText();
-      } else if (previewOriginal->count() == 0) {
-        result.error =
-          "preview requires at least one positional argument: <original> [<encoded>]";
-      } else {
-        result.previewOriginal = previewOriginal->as<std::string>();
-        if (previewEncoded->count() > 0) {
-          result.previewEncoded = previewEncoded->as<std::string>();
-        }
-        if (previewOutput->count() > 0) {
-          result.previewOutput = previewOutput->as<std::string>();
-        }
-        if (previewStart->count() > 0) {
-          result.previewStart = previewStart->as<double>();
-        }
-        if (previewDuration->count() > 0) {
-          result.previewDuration = previewDuration->as<double>();
-        }
-        result.previewNoOpen = previewNoOpen->count() > 0;
-      }
+      populatePreviewCommandResult(
+        result,
+        previewSub.app,
+        previewSub.help,
+        previewSub.original,
+        previewSub.encoded,
+        previewSub.output,
+        previewSub.start,
+        previewSub.duration,
+        previewSub.noOpen
+      );
     }
   } catch (CLI::ParseError const& ex) {
     result.error = ex.what();
     result.helpText = app.help();
   }
-
   return result;
+}
+
+}  // namespace
+
+auto commandLineInit(int argc, char* argv[], std::string const& introLine)
+  -> CmdParseResult {
+  auto app = CLI::App{"Allowed options"};
+  app.description(introLine);
+  app.set_help_flag("");
+
+  // Create option groups
+  auto* general = app.add_option_group("General", "General options");
+  auto* io = app.add_option_group("IO", "Input/Output options");
+  auto* processing = app.add_option_group("Processing", "Processing options");
+  auto* fileop = app.add_option_group("FileOp", "File operation options");
+
+  // Registry for CLI::Option* lookups after parse
+  std::unordered_map<std::string_view, CLI::Option*> optRegistry;
+  std::vector<PendingExclusion> pendingExcludes;
+
+  // Register help and version on app (not in any group), then the rest on
+  // the general group
+  registerGeneralFlags(app, general, optRegistry, pendingExcludes);
+
+  // Register IOFrags on io group (incl. positional input paths — alternative
+  // to -i/-I; conflicts validated in buildConfig)
+  registerIoFlags(io, optRegistry, pendingExcludes);
+
+  auto const previewSub = registerPreviewSubcommand(app);
+
+  // Register ProcessingFlags on processing group
+  for (auto const& def: ProcessingFlags) {
+    registerCmdFlag(def, processing, optRegistry, pendingExcludes);
+  }
+
+  // Register FileOpFlags on fileop group
+  for (auto const& def: FileOpFlags) {
+    registerCmdFlag(def, fileop, optRegistry, pendingExcludes);
+  }
+
+  // Resolve deferred exclusions
+  for (auto const& pe: pendingExcludes) {
+    auto it = optRegistry.find(pe.targetName);
+    if (it != optRegistry.end()) { pe.option->excludes(it->second); }
+  }
+
+  auto const advancedLongNames = collectAllAdvancedLongNames();
+
+  // Configure formatter (the name vector must outlive the lambda it captures)
+  app.formatter_fn(makeHelpFormatter(
+    general,
+    io,
+    processing,
+    fileop,
+    optRegistry.at("-h,--help"),
+    advancedLongNames
+  ));
+
+  auto const applyMap = buildResultApplyMap();
+
+  // ── Parse and populate ──
+  return parseAndPopulate(app, argc, argv, applyMap, optRegistry, previewSub);
 }

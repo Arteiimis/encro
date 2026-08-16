@@ -637,6 +637,146 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   return result;
 }
 
+auto formatProbeP5(ProbePlan const& plan) -> std::string {
+  auto const p5 = plan.p5.value_or(0.0);
+  if (plan.metric == videoquality::QualityMetric::Ssim) {
+    return std::format("{:.3f}", p5);
+  }
+  return p5 < 95.0 ? std::format("{:.2f}", p5) : std::format("{:.1f}", p5);
+}
+
+auto probePlanRatio(ProbePlan const& plan) -> std::optional<double> {
+  if (!plan.estimatedBytes.has_value()) { return std::nullopt; }
+  auto ec = std::error_code{};
+  auto const sourceBytes = fs::file_size(plan.inputPath, ec);
+  if (sourceBytes == 0) { return std::nullopt; }
+  return static_cast<double>(plan.estimatedBytes.value())
+    / static_cast<double>(sourceBytes);
+}
+
+auto padToDisplayWidth(std::string_view text, std::size_t width) -> std::string {
+  auto const used = displaytext::displayWidth(text);
+  if (used >= width) { return std::string{text}; }
+  return std::string{text} + std::string(width - used, ' ');
+}
+
+struct PlanStats {
+  std::vector<ProbePlan const*> normal;
+  std::vector<ProbePlan const*> warnings;
+  std::uintmax_t totalEst = 0;
+  std::uintmax_t totalSource = 0;
+  std::size_t estCount = 0;
+};
+
+auto collectPlanStats(std::span<ProbePlan const> plans) -> PlanStats {
+  auto stats = PlanStats{};
+  stats.normal.reserve(plans.size());
+  for (auto const& plan: plans) {
+    auto ec = std::error_code{};
+    stats.totalSource += fs::file_size(plan.inputPath, ec);
+    if (plan.estimatedBytes.has_value()) {
+      stats.totalEst += plan.estimatedBytes.value();
+      ++stats.estCount;
+    }
+    (plan.unreachableFloor ? stats.warnings : stats.normal).push_back(&plan);
+  }
+  auto sortByName = [](std::vector<ProbePlan const*>& group) {
+    std::ranges::sort(group, [](ProbePlan const* a, ProbePlan const* b) {
+      return displaytext::pathToUtf8String(a->inputPath.filename())
+        < displaytext::pathToUtf8String(b->inputPath.filename());
+    });
+  };
+  sortByName(stats.normal);
+  sortByName(stats.warnings);
+  return stats;
+}
+
+// The name column never needs to be wider than the longest file name in
+// this batch; cap it so a very wide terminal does not pad short names
+// across the screen.
+auto resolvePlanNameWidth(
+  std::span<ProbePlan const> plans,
+  std::optional<displaytext::TableLayout> const& layout
+) -> std::optional<std::size_t> {
+  if (!layout.has_value()) { return std::nullopt; }
+  auto maxName = std::size_t{0};
+  for (auto const& plan: plans) {
+    maxName = std::max(
+      maxName,
+      displaytext::displayWidth(displaytext::pathToUtf8String(plan.inputPath.filename()))
+    );
+  }
+  return std::min(layout.value().nameWidth, std::max(maxName, std::size_t{20}));
+}
+
+// marker is the warning glyph ("\xE2\x9A\xA0 ") or empty; the two-space
+// indent is fixed, so the name column always starts at the same offset
+// and the numeric columns align with the header. Padding is applied by
+// display width (not code points), so wide glyphs and CJK names align.
+auto formatProbePlanRow(
+  ProbePlan const& plan,
+  std::string_view marker,
+  std::size_t nameWidth
+) -> std::string {
+  auto const prefixWidth = [](std::string_view prefix) -> std::size_t {
+    return displaytext::displayWidth(prefix);
+  };
+  auto const name = displaytext::truncateMiddle(
+    displaytext::pathToUtf8String(plan.inputPath.filename()),
+    nameWidth - prefixWidth(marker)
+  );
+  auto const ratio = probePlanRatio(plan);
+  auto const nameCell = marker.empty()
+    ? padToDisplayWidth(name, nameWidth)
+    : std::string{marker} + padToDisplayWidth(name, nameWidth - prefixWidth(marker));
+  if (!plan.probed) {
+    return std::format(
+      "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
+      nameCell,
+      plan.chosenCq,
+      "\xE2\x80\x94",
+      "\xE2\x80\x94",
+      "\xE2\x80\x94"
+    );
+  }
+  return std::format(
+    "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
+    nameCell,
+    plan.chosenCq,
+    formatProbeP5(plan),
+    displaytext::formatSizeBytes(plan.estimatedBytes),
+    ratio.has_value() ? displaytext::formatSignedPercent(ratio.value()) : "\xE2\x80\x94"
+  );
+}
+
+// Very narrow terminal: name on its own line, metrics indented below.
+auto printTwoLineRow(ProbePlan const& plan, std::string_view marker) -> void {
+  auto const ratio = probePlanRatio(plan);
+  if (!plan.probed) {
+    terminal::println(
+      Plain,
+      "  {}{} (default; not probed)",
+      marker,
+      displaytext::pathToUtf8String(plan.inputPath.filename())
+    );
+    return;
+  }
+  terminal::println(
+    Plain,
+    "  {}{}",
+    marker,
+    displaytext::pathToUtf8String(plan.inputPath.filename())
+  );
+  terminal::println(
+    Plain,
+    "    CQ {} \xC2\xB7 p5 {} \xC2\xB7 {} \xC2\xB7 {}",
+    plan.chosenCq,
+    formatProbeP5(plan),
+    displaytext::formatSizeBytes(plan.estimatedBytes),
+    ratio.has_value() ? displaytext::formatSignedPercent(ratio.value()) : "\xE2\x80\x94"
+  );
+}
+
 auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void {
   terminal::println(
     Info,
@@ -645,156 +785,44 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     minVmafFloor
   );
 
-  auto totalEst = std::uintmax_t{0};
-  auto totalSource = std::uintmax_t{0};
-  auto estCount = std::size_t{0};
-  auto const fileNameOf = [](ProbePlan const& plan) {
-    return displaytext::pathToUtf8String(plan.inputPath.filename());
-  };
+  auto const stats = collectPlanStats(plans);
 
-  auto normal = std::vector<ProbePlan const*>{};
-  auto warnings = std::vector<ProbePlan const*>{};
-  normal.reserve(plans.size());
-  for (auto const& plan: plans) {
-    auto ec = std::error_code{};
-    totalSource += fs::file_size(plan.inputPath, ec);
-    if (plan.estimatedBytes.has_value()) {
-      totalEst += plan.estimatedBytes.value();
-      ++estCount;
-    }
-    (plan.unreachableFloor ? warnings : normal).push_back(&plan);
-  }
-  auto sortByName = [&](std::vector<ProbePlan const*>& group) {
-    std::ranges::sort(group, [&](ProbePlan const* a, ProbePlan const* b) {
-      return fileNameOf(*a) < fileNameOf(*b);
-    });
-  };
-  sortByName(normal);
-  sortByName(warnings);
-
-  if (!warnings.empty()) {
+  if (!stats.warnings.empty()) {
     terminal::println(
       Warning,
       "\xE2\x9A\xA0 {} file(s) can't reach the floor; encoded at the lowest CQ {}.",
-      warnings.size(),
-      warnings.front()->chosenCq
+      stats.warnings.size(),
+      stats.warnings.front()->chosenCq
     );
   }
 
-  auto const formatP5 = [](ProbePlan const& plan) -> std::string {
-    auto const p5 = plan.p5.value_or(0.0);
-    if (plan.metric == videoquality::QualityMetric::Ssim) {
-      return std::format("{:.3f}", p5);
-    }
-    return p5 < 95.0 ? std::format("{:.2f}", p5) : std::format("{:.1f}", p5);
-  };
-  auto const prefixWidth = [](std::string_view prefix) -> std::size_t {
-    return displaytext::displayWidth(prefix);
-  };
   auto const layout = displaytext::layoutColumns(consolewidth::resolveColumns());
-  // The name column never needs to be wider than the longest file name in
-  // this batch; cap it so a very wide terminal does not pad short names
-  // across the screen.
-  auto const nameWidth = [&]() -> std::optional<std::size_t> {
-    if (!layout.has_value()) { return std::nullopt; }
-    auto maxName = std::size_t{0};
-    for (auto const& plan: plans) {
-      maxName = std::max(maxName, displaytext::displayWidth(fileNameOf(plan)));
-    }
-    return std::min(layout.value().nameWidth, std::max(maxName, std::size_t{20}));
-  }();
-  auto const planRatio = [](ProbePlan const& plan) -> std::optional<double> {
-    if (!plan.estimatedBytes.has_value()) { return std::nullopt; }
-    auto ec = std::error_code{};
-    auto const sourceBytes = fs::file_size(plan.inputPath, ec);
-    if (sourceBytes == 0) { return std::nullopt; }
-    return static_cast<double>(plan.estimatedBytes.value())
-      / static_cast<double>(sourceBytes);
-  };
-  auto const padToWidth = [](std::string_view text, std::size_t width) -> std::string {
-    auto const used = displaytext::displayWidth(text);
-    if (used >= width) { return std::string{text}; }
-    return std::string{text} + std::string(width - used, ' ');
-  };
-  auto const formatRow = [&](ProbePlan const& plan, std::string_view marker) {
-    // marker is the warning glyph ("\xE2\x9A\xA0 ") or empty; the two-space
-    // indent is fixed, so the name column always starts at the same offset
-    // and the numeric columns align with the header. Padding is applied by
-    // display width (not code points), so wide glyphs and CJK names align.
-    auto const name = displaytext::truncateMiddle(
-      fileNameOf(plan),
-      nameWidth.value() - prefixWidth(marker)
-    );
-    auto const ratio = planRatio(plan);
-    auto const nameCell = marker.empty()
-      ? padToWidth(name, nameWidth.value())
-      : std::string{marker} + padToWidth(name, nameWidth.value() - prefixWidth(marker));
-    if (!plan.probed) {
-      return std::format(
-        "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
-        nameCell,
-        plan.chosenCq,
-        "\xE2\x80\x94",
-        "\xE2\x80\x94",
-        "\xE2\x80\x94"
-      );
-    }
-    return std::format(
-      "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
-      nameCell,
-      plan.chosenCq,
-      formatP5(plan),
-      displaytext::formatSizeBytes(plan.estimatedBytes),
-      ratio.has_value() ? displaytext::formatSignedPercent(ratio.value()) : "\xE2\x80\x94"
-    );
-  };
+  auto const nameWidth = resolvePlanNameWidth(plans, layout);
 
   if (!layout.has_value()) {
-    // Very narrow terminal: name on its own line, metrics indented below.
-    auto const printTwoLine = [&](ProbePlan const& plan, std::string_view marker) {
-      auto const ratio = planRatio(plan);
-      if (!plan.probed) {
-        terminal::println(
-          Plain,
-          "  {}{} (default; not probed)",
-          marker,
-          fileNameOf(plan)
-        );
-        return;
-      }
-      terminal::println(Plain, "  {}{}", marker, fileNameOf(plan));
-      terminal::println(
-        Plain,
-        "    CQ {} \xC2\xB7 p5 {} \xC2\xB7 {} \xC2\xB7 {}",
-        plan.chosenCq,
-        formatP5(plan),
-        displaytext::formatSizeBytes(plan.estimatedBytes),
-        ratio.has_value() ? displaytext::formatSignedPercent(ratio.value())
-                          : "\xE2\x80\x94"
-      );
-    };
-    for (auto const* plan: normal) { printTwoLine(*plan, ""); }
-    for (auto const* plan: warnings) { printTwoLine(*plan, "\xE2\x9A\xA0 "); }
+    for (auto const* plan: stats.normal) { printTwoLineRow(*plan, ""); }
+    for (auto const* plan: stats.warnings) { printTwoLineRow(*plan, "\xE2\x9A\xA0 "); }
   } else {
+    // layout has a value here, so resolvePlanNameWidth cannot be nullopt
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access): same invariant as the layout branch
+    auto const width = nameWidth.value();
     auto lines = std::vector<std::string>{};
     lines.reserve(plans.size() + 1);
     lines.push_back(
       std::format(
         "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
-        padToWidth(
-          "File",
-          // NOLINTNEXTLINE(bugprone-unchecked-optional-access): guaranteed by the !layout.has_value() branch above
-          nameWidth.value()
-        ),
+        padToDisplayWidth("File", width),
         "CQ",
         "p5",
         "Est.Size",
         "Ratio"
       )
     );
-    for (auto const* plan: normal) { lines.push_back(formatRow(*plan, "")); }
-    for (auto const* plan: warnings) {
-      lines.push_back(formatRow(*plan, "\xE2\x9A\xA0 "));
+    for (auto const* plan: stats.normal) {
+      lines.push_back(formatProbePlanRow(*plan, "", width));
+    }
+    for (auto const* plan: stats.warnings) {
+      lines.push_back(formatProbePlanRow(*plan, "\xE2\x9A\xA0 ", width));
     }
     terminal::write(
       terminal::Stream::Stdout,
@@ -803,15 +831,17 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     );
   }
 
-  auto const ratio = totalSource > 0
-    ? static_cast<double>(totalEst) / static_cast<double>(totalSource)
+  auto const ratio = stats.totalSource > 0
+    ? static_cast<double>(stats.totalEst) / static_cast<double>(stats.totalSource)
     : 0.0;
   terminal::println(
     Info,
     "  Total: {} file(s), est. {}, source {} ({})",
     plans.size(),
-    displaytext::formatSizeBytes(estCount > 0 ? std::optional{totalEst} : std::nullopt),
-    displaytext::formatSizeBytes(totalSource),
+    displaytext::formatSizeBytes(
+      stats.estCount > 0 ? std::optional{stats.totalEst} : std::nullopt
+    ),
+    displaytext::formatSizeBytes(stats.totalSource),
     displaytext::formatSignedPercent(ratio)
   );
 }

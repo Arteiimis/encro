@@ -23,6 +23,44 @@ auto makeTaskError(std::string message) -> eh::Result<void> {
   return std::unexpected(std::move(message));
 }
 
+// Runs a single task with correlation attributes and exception conversion;
+// the worker loop owns the results slot and the attempted marker.
+auto runOneTask(
+  TaskSpec const& task,
+  std::size_t slot,
+  progress::ProgressContext& progressCtx
+) -> eh::Result<void> {
+  auto taskCtx = TaskContext{.slot = slot, .progress = progressCtx};
+
+  // Business tasks stamp task_id/input on every record emitted while
+  // they run; probe tasks (no input) stay uncorrelated.
+  auto attrs = std::optional<logging::ScopedLogAttributes>{};
+  if (task.input.has_value()) {
+    attrs.emplace(
+      std::initializer_list<std::pair<std::string_view, std::string_view>>{
+        {std::string_view{"task_id"}, task.id},
+        {std::string_view{"input"}, task.input.value()},
+      }
+    );
+  }
+
+  if (!task.run) {
+    return makeTaskError(std::format("Task runner is not set: {}", task.id));
+  }
+
+  try {
+    return task.run(taskCtx);
+  } catch (std::exception const& ex) {
+    auto const message = std::format("Task {} threw exception: {}", task.id, ex.what());
+    LOG_ERROR("{}", message);
+    return makeTaskError(message);
+  } catch (...) {
+    auto const message = std::format("Task {} threw unknown exception", task.id);
+    LOG_ERROR("{}", message);
+    return makeTaskError(message);
+  }
+}
+
 }  // namespace
 
 auto TaskContext::stopRequested() const -> bool {
@@ -66,50 +104,7 @@ auto runTasks(TaskPlan const& plan) -> TaskRunResult {
       attempted[taskIndex] = 1;
       attemptedCount.fetch_add(1, std::memory_order_release);
 
-      auto taskCtx = TaskContext{.slot = slot, .progress = progressCtx};
-      auto const& task = plan.tasks[taskIndex];
-
-      // Business tasks stamp task_id/input on every record emitted while
-      // they run; probe tasks (no input) stay uncorrelated.
-      auto attrs = std::optional<logging::ScopedLogAttributes>{};
-      if (task.input.has_value()) {
-        attrs.emplace(
-          std::initializer_list<std::pair<std::string_view, std::string_view>>{
-            {std::string_view{"task_id"}, task.id},
-            {std::string_view{"input"}, task.input.value()},
-          }
-        );
-      }
-
-      if (!task.run) {
-        results[taskIndex] =
-          makeTaskError(std::format("Task runner is not set: {}", task.id));
-        continue;
-      }
-
-      try {
-        results[taskIndex] = task.run(taskCtx);
-      } catch (
-        std::exception const& ex
-      ) {  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda; id logged via attributes
-        auto const message =
-          std::format("Task {} threw exception: {}", task.id, ex.what());
-        LOG_ERROR(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda; id logged via attributes
-          "{}",
-          message
-        );
-        results[taskIndex] = makeTaskError(message);
-      } catch (
-        ...
-      ) {  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda; id logged via attributes
-        auto const message = std::format("Task {} threw unknown exception", task.id);
-        // NOLINTNEXTLINE(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda; id logged via attributes
-        LOG_ERROR(
-          "{}",
-          message
-        );  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda; id logged via attributes
-        results[taskIndex] = makeTaskError(message);
-      }
+      results[taskIndex] = runOneTask(plan.tasks[taskIndex], slot, progressCtx);
     }
   });
 
