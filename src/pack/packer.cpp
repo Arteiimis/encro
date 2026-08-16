@@ -713,28 +713,13 @@ auto pack::Packer::groupPackFilesWithSubparts(
   return groupedPartitions;
 }
 
-auto pack::Packer::buildDirectoryPackPlan(
+auto scanDirectoryFiles(
   fs::path const& dirPath,
-  fs::path const& zipFileDir,
-  std::uintmax_t maxGroupSize,
   bool recursive,
-  NamingStrategy namingStrategy,
-  std::optional<std::size_t> maxParallelJobs,
-  std::optional<fs::path> excludedPath
-) -> eh::Result<pack::PackPlan> {
-  if (!fs::is_directory(dirPath)) {
-    return eh::makeError("Input path is not a directory: {}", dirPath.string());
-  }
+  std::optional<fs::path> const& excludedPath
+) -> std::vector<fs::path> {  // kept const& after format
 
   auto allFiles = std::vector<fs::path>{};
-
-  terminal::println(
-    Info,
-    "Scanning input path for files: {} (recursive={})...",
-    terminal::path(dirPath),
-    recursive ? terminal::value("true") : terminal::value("false")
-  );
-
   if (recursive) {
     for (auto const& entry: fs::recursive_directory_iterator(dirPath)) {
       if (!entry.is_regular_file()) { continue; }
@@ -758,19 +743,14 @@ auto pack::Packer::buildDirectoryPackPlan(
       allFiles.emplace_back(entry.path());
     }
   }
+  return allFiles;
+}
 
-  if (allFiles.empty()) {
-    return eh::makeError("No files found to pack in directory: {}", dirPath.string());
-  }
-
-  terminal::println(
-    Info,
-    "File scan completed, found {} file(s).",
-    terminal::count(allFiles.size())
-  );
-
-  auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
-  auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groupedFiles);
+auto pack::Packer::buildGroupedEntries(
+  std::vector<std::vector<fs::path>> const& groupedFiles,
+  fs::path const& dirPath,
+  NamingStrategy namingStrategy
+) -> std::vector<std::vector<pack::PackFileEntry>> {
   auto groupedEntries = std::vector<std::vector<pack::PackFileEntry>>{};
   groupedEntries.reserve(groupedFiles.size());
   for (auto const& group: groupedFiles) {
@@ -798,6 +778,44 @@ auto pack::Packer::buildDirectoryPackPlan(
     }
     groupedEntries.push_back(std::move(entries));
   }
+  return groupedEntries;
+}
+
+auto pack::Packer::buildDirectoryPackPlan(
+  fs::path const& dirPath,
+  fs::path const& zipFileDir,
+  std::uintmax_t maxGroupSize,
+  bool recursive,
+  NamingStrategy namingStrategy,
+  std::optional<std::size_t> maxParallelJobs,
+  std::optional<fs::path> const& excludedPath
+) -> eh::Result<pack::PackPlan> {
+  if (!fs::is_directory(dirPath)) {
+    return eh::makeError("Input path is not a directory: {}", dirPath.string());
+  }
+
+  terminal::println(
+    Info,
+    "Scanning input path for files: {} (recursive={})...",
+    terminal::path(dirPath),
+    recursive ? terminal::value("true") : terminal::value("false")
+  );
+
+  auto const allFiles = scanDirectoryFiles(dirPath, recursive, excludedPath);
+
+  if (allFiles.empty()) {
+    return eh::makeError("No files found to pack in directory: {}", dirPath.string());
+  }
+
+  terminal::println(
+    Info,
+    "File scan completed, found {} file(s).",
+    terminal::count(allFiles.size())
+  );
+
+  auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
+  auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groupedFiles);
+  auto groupedEntries = buildGroupedEntries(groupedFiles, dirPath, namingStrategy);
 
   return pack::PackPlan{
     .groups = std::move(groupedEntries),

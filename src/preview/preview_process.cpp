@@ -60,6 +60,136 @@ auto parseFraction(std::string_view text) -> std::optional<double> {
   return num.value() / den.value();
 }
 
+namespace {
+
+auto applyVideoStreamFields(
+  boost::json::object const& stream,
+  VideoProbe& probe,
+  fs::path const& path
+) -> eh::Result<void> {
+  if (
+    auto const codecIt = stream.find("codec_name");
+    codecIt != stream.end() && codecIt->value().is_string()
+  ) {
+    auto const codecName = std::string_view{codecIt->value().as_string()};
+    if (codecName == "webp" || codecName == "webp_anim") {
+      return eh::makeError(
+        "Preview supports video comparison only; input is WebP: {}",
+        path.string()
+      );
+    }
+  }
+  if (
+    auto const widthIt = stream.find("width");
+    widthIt != stream.end() && widthIt->value().is_int64()
+  ) {
+    probe.width = static_cast<int>(widthIt->value().as_int64());
+  }
+  if (
+    auto const heightIt = stream.find("height");
+    heightIt != stream.end() && heightIt->value().is_int64()
+  ) {
+    probe.height = static_cast<int>(heightIt->value().as_int64());
+  }
+  if (
+    auto const rateIt = stream.find("avg_frame_rate");
+    rateIt != stream.end() && rateIt->value().is_string()
+  ) {
+    probe.fps =
+      parseFraction(std::string_view{rateIt->value().as_string()}).value_or(0.0);
+  }
+  return {};
+}
+
+auto applyAudioStreamFields(boost::json::object const& stream, VideoProbe& probe)
+  -> void {
+  probe.hasAudio = true;
+  if (
+    auto const codecIt = stream.find("codec_name");
+    codecIt != stream.end() && codecIt->value().is_string()
+  ) {
+    probe.audioCodec = std::string{codecIt->value().as_string()};
+  }
+}
+
+auto probeStreamMetadata(
+  boost::json::value const& streamsVal,
+  VideoProbe& probe,
+  fs::path const& path
+) -> eh::Result<bool> {
+  auto foundVideo = false;
+  for (auto const& streamVal: streamsVal.as_array()) {
+    if (!streamVal.is_object()) { continue; }
+    auto const& stream = streamVal.as_object();
+    auto const codecTypeIt = stream.find("codec_type");
+    if (codecTypeIt == stream.end() || !codecTypeIt->value().is_string()) { continue; }
+    auto const codecType = std::string_view{codecTypeIt->value().as_string()};
+
+    if (codecType == "video") {
+      foundVideo = true;
+      if (auto const applied = applyVideoStreamFields(stream, probe, path); !applied) {
+        return eh::makeError("{}", applied.error());
+      }
+    } else if (codecType == "audio") {
+      applyAudioStreamFields(stream, probe);
+    }
+  }
+  return foundVideo;
+}
+
+// Prefer the video stream's own duration: format.duration can be dragged
+// past the video end by a longer audio track, and windows must stay within
+// the video.
+auto probeVideoStreamDurationUs(boost::json::value const& info) -> std::uint64_t {
+  auto const streamsIt = info.as_object().find("streams");
+  if (streamsIt == info.as_object().end() || !streamsIt->value().is_array()) { return 0; }
+  for (auto const& stream: streamsIt->value().as_array()) {
+    if (!stream.is_object()) { continue; }
+    auto const codecIt = stream.as_object().find("codec_type");
+    if (
+      codecIt == stream.as_object().end()
+      || !codecIt->value().is_string()
+      || std::string_view{codecIt->value().as_string()} != "video"
+    ) {
+      continue;
+    }
+    if (
+      auto const streamDurIt = stream.as_object().find("duration");
+      streamDurIt != stream.as_object().end() && streamDurIt->value().is_string()
+    ) {
+      if (
+        auto const duration =
+          parseDouble(std::string_view{streamDurIt->value().as_string()})
+      ) {
+        return static_cast<std::uint64_t>(std::llround(duration.value() * 1'000'000.0));
+      }
+    }
+    break;
+  }
+  return 0;
+}
+
+// Fall back to format.duration when the video stream carries none.
+auto probeFormatDurationUs(boost::json::value const& info) -> std::uint64_t {
+  auto const formatIt = info.as_object().find("format");
+  if (formatIt == info.as_object().end() || !formatIt->value().is_object()) { return 0; }
+  auto const durationIt = formatIt->value().as_object().find("duration");
+  if (
+    durationIt != formatIt->value().as_object().end() && durationIt->value().is_string()
+  ) {
+    if (
+      auto const duration = parseDouble(std::string_view{durationIt->value().as_string()})
+    ) {
+      return static_cast<std::uint64_t>(std::llround(duration.value() * 1'000'000.0));
+    }
+  }
+  return 0;
+}
+
+}  // namespace
+
+// ── Implementation ──────────────────────────────────────────────────────────
+
 auto probeVideo(
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
@@ -77,117 +207,19 @@ auto probeVideo(
   }
 
   auto probe = VideoProbe{};
-  auto foundVideo = false;
-  for (auto const& streamVal: streamsIt->value().as_array()) {
-    if (!streamVal.is_object()) { continue; }
-    auto const& stream = streamVal.as_object();
-    auto const codecTypeIt = stream.find("codec_type");
-    if (codecTypeIt == stream.end() || !codecTypeIt->value().is_string()) { continue; }
-    auto const codecType = std::string_view{codecTypeIt->value().as_string()};
-
-    if (codecType == "video") {
-      foundVideo = true;
-      if (
-        auto const codecIt = stream.find("codec_name");
-        codecIt != stream.end() && codecIt->value().is_string()
-      ) {
-        auto const codecName = std::string_view{codecIt->value().as_string()};
-        if (codecName == "webp" || codecName == "webp_anim") {
-          return eh::makeError(
-            "Preview supports video comparison only; input is WebP: {}",
-            path.string()
-          );
-        }
-      }
-      if (
-        auto const widthIt = stream.find("width");
-        widthIt != stream.end() && widthIt->value().is_int64()
-      ) {
-        probe.width = static_cast<int>(widthIt->value().as_int64());
-      }
-      if (
-        auto const heightIt = stream.find("height");
-        heightIt != stream.end() && heightIt->value().is_int64()
-      ) {
-        probe.height = static_cast<int>(heightIt->value().as_int64());
-      }
-      if (
-        auto const rateIt = stream.find("avg_frame_rate");
-        rateIt != stream.end() && rateIt->value().is_string()
-      ) {
-        probe.fps =
-          parseFraction(std::string_view{rateIt->value().as_string()}).value_or(0.0);
-      }
-    } else if (codecType == "audio") {
-      probe.hasAudio = true;
-      if (
-        auto const codecIt = stream.find("codec_name");
-        codecIt != stream.end() && codecIt->value().is_string()
-      ) {
-        probe.audioCodec = std::string{codecIt->value().as_string()};
-      }
-    }
+  auto const foundVideo = probeStreamMetadata(streamsIt->value(), probe, path);
+  if (!foundVideo) { return eh::makeError("{}", foundVideo.error()); }
+  if (
+    !foundVideo.value()
+  ) {  // NOLINT(bugprone-unchecked-optional-access): guarded by the !foundVideo check above
+    return eh::makeError("Not a video file: {}", path.string());
   }
-
-  if (!foundVideo) { return eh::makeError("Not a video file: {}", path.string()); }
   if (probe.width == 0 || probe.height == 0) {
     return eh::makeError("No video stream dimensions found for: {}", path.string());
   }
 
-  // Prefer the video stream's own duration: format.duration can be dragged
-  // past the video end by a longer audio track, and windows must stay within
-  // the video.
-  if (
-    auto const durationIt = info.as_object().find("streams");
-    durationIt != info.as_object().end() && durationIt->value().is_array()
-  ) {
-    for (auto const& stream: durationIt->value().as_array()) {
-      if (!stream.is_object()) { continue; }
-      auto const codecIt = stream.as_object().find("codec_type");
-      if (
-        codecIt == stream.as_object().end()
-        || !codecIt->value().is_string()
-        || std::string_view{codecIt->value().as_string()} != "video"
-      ) {
-        continue;
-      }
-      if (
-        auto const streamDurIt = stream.as_object().find("duration");
-        streamDurIt != stream.as_object().end() && streamDurIt->value().is_string()
-      ) {
-        if (
-          auto const duration =
-            parseDouble(std::string_view{streamDurIt->value().as_string()})
-        ) {
-          probe.durationUs =
-            static_cast<std::uint64_t>(std::llround(duration.value() * 1'000'000.0));
-        }
-      }
-      break;
-    }
-  }
-
-  // Fall back to format.duration when the video stream carries none.
-  if (probe.durationUs == 0) {
-    if (
-      auto const formatIt = info.as_object().find("format");
-      formatIt != info.as_object().end() && formatIt->value().is_object()
-    ) {
-      auto const durationIt = formatIt->value().as_object().find("duration");
-      if (
-        durationIt != formatIt->value().as_object().end()
-        && durationIt->value().is_string()
-      ) {
-        if (
-          auto const duration =
-            parseDouble(std::string_view{durationIt->value().as_string()})
-        ) {
-          probe.durationUs =
-            static_cast<std::uint64_t>(std::llround(duration.value() * 1'000'000.0));
-        }
-      }
-    }
-  }
+  probe.durationUs = probeVideoStreamDurationUs(info);
+  if (probe.durationUs == 0) { probe.durationUs = probeFormatDurationUs(info); }
 
   return probe;
 }
@@ -558,6 +590,96 @@ auto runSingleInput(
 }
 
 // Runs the comparison render: build the command, execute, report and open.
+namespace {
+
+auto resolveManualRange(PreviewOptions const& options)
+  -> std::optional<std::pair<double, double>> {
+  if (options.startSeconds.has_value() || options.durationSeconds.has_value()) {
+    return std::pair{
+      options.startSeconds.value_or(0.0),
+      options.durationSeconds.value_or(0.0),
+    };
+  }
+  return std::nullopt;
+}
+
+auto resolvePreviewOutputPath(PreviewOptions const& options) -> eh::Result<fs::path> {
+  auto outputPath = options.output.has_value() ? options.output.value()
+                                               : options.original.parent_path()
+      / std::format("{}.preview.mp4", options.original.stem().string());
+  if (
+    outputPath == options.original
+    || (options.encoded.has_value() && outputPath == options.encoded.value())
+  ) {
+    return eh::makeError(
+      "Preview output would overwrite an input file: {}",
+      outputPath.string()
+    );
+  }
+  return outputPath;
+}
+
+// Shorter of original and encoded durations; encoded is probed lazily only
+// when present (its cache entry is written by the probe below).
+auto resolveShorterDurationUs(
+  appctx::AppContext& ctx,
+  PreviewOptions const& options,
+  VideoProbe const& original
+) -> std::uint64_t {
+  if (!options.encoded.has_value()) { return original.durationUs; }
+  auto const encodedDurationUs =
+    probeVideo(ctx.toolchain, ctx.runtime, options.encoded.value())
+      .value_or(VideoProbe{})
+      .durationUs;
+  return std::min(original.durationUs, encodedDurationUs);
+}
+
+// Scores every window of the comparison and returns the index of the worst.
+auto scoreComparisonWindows(
+  appctx::AppContext& ctx,
+  PreviewOptions const& options,
+  VideoProbe const& original,
+  std::vector<Window>& windows
+) -> std::optional<std::size_t> {
+  auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
+  auto const info =
+    ctx.runtime.videoInfoCache.find(options.original).value_or(boost::json::value{});
+  auto worstIndex = std::optional<std::size_t>{};
+  auto worstScore = std::optional<double>{};
+  for (auto index = std::size_t{}; index < windows.size(); ++index) {
+    auto& window = windows[index];
+    auto const scores = videoquality::measureSegmentQuality(
+      ffmpeg,
+      options.original,
+      // NOLINTNEXTLINE(bugprone-unchecked-optional-access): caller only scores windows in comparison mode
+      options.encoded.value(),
+      window.startUs,
+      window.durationUs,
+      info
+    );
+    if (scores.has_value()) {
+      window.metric = scores->metric;
+      window.score = videoquality::percentile(scores->frameScores, 5.0);
+    } else {
+      LOG_WARN(
+        "Preview scoring failed for window {}us: {}",
+        window.startUs,
+        scores.error()
+      );
+    }
+    if (
+      window.score.has_value()
+      && (!worstScore.has_value() || window.score.value() < worstScore.value())
+    ) {
+      worstScore = window.score;
+      worstIndex = index;
+    }
+  }
+  return worstIndex;
+}
+
+}  // namespace
+
 auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<int> {
   if (!fs::is_regular_file(options.original)) {
     return eh::makeError("Preview input does not exist: {}", options.original.string());
@@ -569,18 +691,10 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
     );
   }
 
-  auto const outputPath = options.output.has_value() ? options.output.value()
-                                                     : options.original.parent_path()
-      / std::format("{}.preview.mp4", options.original.stem().string());
-  if (
-    outputPath == options.original
-    || (options.encoded.has_value() && outputPath == options.encoded.value())
-  ) {
-    return eh::makeError(
-      "Preview output would overwrite an input file: {}",
-      outputPath.string()
-    );
-  }
+  auto const outputPath = resolvePreviewOutputPath(
+    options
+  );  // NOLINT(performance-no-automatic-move): read multiple times; const is intentional
+  if (!outputPath) { return eh::makeError("{}", outputPath.error()); }
 
   auto const originalRes = probeVideo(ctx.toolchain, ctx.runtime, options.original);
   if (!originalRes) { return eh::makeError("{}", originalRes.error()); }
@@ -592,29 +706,16 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
     );
   }
 
-  auto manualRange = std::optional<std::pair<double, double>>{};
-  if (options.startSeconds.has_value() || options.durationSeconds.has_value()) {
-    manualRange = std::pair{
-      options.startSeconds.value_or(0.0),
-      options.durationSeconds.value_or(0.0),
-    };
-  }
+  auto const manualRange = resolveManualRange(options);
 
-  auto const shorterDurationUs = options.encoded.has_value()
-    ? std::min(
-        original.durationUs,
-        probeVideo(ctx.toolchain, ctx.runtime, options.encoded.value())
-          .value_or(VideoProbe{})
-          .durationUs
-      )
-    : original.durationUs;
+  auto const shorterDurationUs = resolveShorterDurationUs(ctx, options, original);
 
   auto windowsRes = pickPreviewWindows(shorterDurationUs, manualRange);
   if (!windowsRes) { return eh::makeError("{}", windowsRes.error()); }
   auto windows = std::move(windowsRes.value());
 
   if (!options.encoded.has_value()) {
-    return runSingleInput(ctx, options, original, std::move(windows), outputPath);
+    return runSingleInput(ctx, options, original, std::move(windows), outputPath.value());
   }
 
   auto const encodedRes = probeVideo(ctx.toolchain, ctx.runtime, options.encoded.value());
@@ -629,38 +730,7 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
 
   auto worstIndex = std::optional<std::size_t>{};
   if (!manualRange.has_value()) {
-    auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
-    auto const info =
-      ctx.runtime.videoInfoCache.find(options.original).value_or(boost::json::value{});
-    auto worstScore = std::optional<double>{};
-    for (auto index = std::size_t{}; index < windows.size(); ++index) {
-      auto& window = windows[index];
-      auto const scores = videoquality::measureSegmentQuality(
-        ffmpeg,
-        options.original,
-        options.encoded.value(),
-        window.startUs,
-        window.durationUs,
-        info
-      );
-      if (scores.has_value()) {
-        window.metric = scores->metric;
-        window.score = videoquality::percentile(scores->frameScores, 5.0);
-      } else {
-        LOG_WARN(
-          "Preview scoring failed for window {}us: {}",
-          window.startUs,
-          scores.error()
-        );
-      }
-      if (
-        window.score.has_value()
-        && (!worstScore.has_value() || window.score.value() < worstScore.value())
-      ) {
-        worstScore = window.score;
-        worstIndex = index;
-      }
-    }
+    worstIndex = scoreComparisonWindows(ctx, options, original, windows);
     printWindows(windows, worstIndex);
   }
 
@@ -675,11 +745,11 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
     options.original,
     {options.encoded.value()},
     spec,
-    outputPath
+    outputPath.value()
   );
   if (!renderResult) { return renderResult; }
   printWindows(windows, worstIndex);
-  reportAndOpen(options, outputPath);
+  reportAndOpen(options, outputPath.value());
   return renderResult;
 }
 

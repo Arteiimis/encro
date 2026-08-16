@@ -29,6 +29,8 @@ private:
   static auto extractElapsedMs(std::string_view payload) -> std::optional<int64_t>;
   static auto extractAttributes(std::string_view payload)
     -> std::pair<std::optional<std::size_t>, std::optional<boost::json::object>>;
+  static auto parseRunSummary(std::string_view payload)
+    -> std::optional<boost::json::object>;
 };
 
 // ── Implementation ──────────────────────────────────────────────────────────
@@ -98,36 +100,8 @@ JsonFormatter::format(spdlog::details::log_msg const& msg, spdlog::memory_buf_t&
 
   // End-of-run summary: turn the RUN SUMMARY: key=value body into a summary
   // object (log path + level_counts attached here, not in the body string)
-  if (payload.starts_with("RUN SUMMARY: ")) {
-    auto summary = json::object{};
-    auto summaryEc = boost::system::error_code{};
-    auto rest = payload.substr(std::string_view{"RUN SUMMARY: "}.size());
-    while (!rest.empty()) {
-      auto const space = rest.find(' ');
-      auto const token = (space == std::string_view::npos) ? rest : rest.substr(0, space);
-      auto const eq = token.find('=');
-      if (eq != std::string_view::npos) {
-        auto const key = token.substr(0, eq);
-        auto const value = token.substr(eq + 1);
-        // log/level_counts are regenerated authoritatively below
-        if (key == "log" || key == "level_counts") { /* skip */
-        } else if (key == "tasks_total" || key == "tasks_failed" || key == "elapsed_ms") {
-          auto const parsed = json::parse(value, summaryEc);
-          summary[key] = parsed;
-        } else {
-          summary[key] = json::string{value};
-        }
-      }
-      if (space == std::string_view::npos) { break; }
-      rest.remove_prefix(space + 1);
-    }
-    if (auto const logPath = currentLogFilePath(); logPath.has_value()) {
-      summary["log"] = json::string{logPath->string()};
-    }
-    auto levelCountsObj = json::object{};
-    for (auto const& [level, count]: levelCounts()) { levelCountsObj[level] = count; }
-    summary["level_counts"] = std::move(levelCountsObj);
-    obj["summary"] = std::move(summary);
+  if (auto summary = parseRunSummary(payload); summary.has_value()) {
+    obj["summary"] = std::move(summary.value());
   }
 
   // Optional: elapsed_ms from ScopedTimer completion pattern
@@ -141,6 +115,43 @@ JsonFormatter::format(spdlog::details::log_msg const& msg, spdlog::memory_buf_t&
 
 inline auto JsonFormatter::clone() const -> std::unique_ptr<spdlog::formatter> {
   return std::make_unique<JsonFormatter>();
+}
+
+inline auto JsonFormatter::parseRunSummary(std::string_view payload)
+  -> std::optional<boost::json::object> {
+  namespace json = boost::json;
+
+  if (!payload.starts_with("RUN SUMMARY: ")) { return std::nullopt; }
+
+  auto summary = json::object{};
+  auto summaryEc = boost::system::error_code{};
+  auto rest = payload.substr(std::string_view{"RUN SUMMARY: "}.size());
+  while (!rest.empty()) {
+    auto const space = rest.find(' ');
+    auto const token = (space == std::string_view::npos) ? rest : rest.substr(0, space);
+    auto const eq = token.find('=');
+    if (eq != std::string_view::npos) {
+      auto const key = token.substr(0, eq);
+      auto const value = token.substr(eq + 1);
+      // log/level_counts are regenerated authoritatively below
+      if (key == "log" || key == "level_counts") { /* skip */
+      } else if (key == "tasks_total" || key == "tasks_failed" || key == "elapsed_ms") {
+        auto const parsed = json::parse(value, summaryEc);
+        summary[key] = parsed;
+      } else {
+        summary[key] = json::string{value};
+      }
+    }
+    if (space == std::string_view::npos) { break; }
+    rest.remove_prefix(space + 1);
+  }
+  if (auto const logPath = currentLogFilePath(); logPath.has_value()) {
+    summary["log"] = json::string{logPath->string()};
+  }
+  auto levelCountsObj = json::object{};
+  for (auto const& [level, count]: levelCounts()) { levelCountsObj[level] = count; }
+  summary["level_counts"] = std::move(levelCountsObj);
+  return summary;
 }
 
 // ── Private helpers ─────────────────────────────────────────────────────────

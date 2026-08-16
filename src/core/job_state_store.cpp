@@ -22,6 +22,48 @@ auto Store::currentJobId() const -> std::string {
   return snapshot_.jobId;
 }
 
+// Restore path: load the snapshot and adopt it when the config matches.
+// Returns true when restored; false when the caller must create a fresh
+// snapshot; error when the load or persist fails.
+auto Store::tryRestoreExistingLocked(
+  ConfigSnapshot const& currentConfig,
+  bool resumeState,
+  bool* discardedMismatched
+) -> eh::Result<bool> {
+  auto const loaded = detail::loadSnapshot(stateFilePath_);
+  if (!loaded) { return eh::makeError("{}", loaded.error()); }
+
+  if (!configMatches(loaded->config, currentConfig)) {
+    if (resumeState) {
+      return eh::makeError(
+        "State file does not match current command: {}",
+        stateFilePath_.string()
+      );
+    }
+    if (discardedMismatched != nullptr) { *discardedMismatched = true; }
+    return false;
+  }
+
+  snapshot_ = loaded.value();
+  snapshot_.config = currentConfig;
+  snapshot_.cancelRequested = false;
+  snapshot_.updatedAtMs = detail::nowMs();
+  for (auto& task: snapshot_.tasks) { detail::normalizeExistingTask(task); }
+  rebuildIndexLocked();
+  // D3: align logging run id with the restored job so log records
+  // emitted after resume cross-reference the state file. A corrupted file
+  // missing the jobId gets a fresh id rather than an empty one.
+  if (snapshot_.jobId.empty()) { snapshot_.jobId = logging::runId(); }
+  logging::setRunId(snapshot_.jobId);
+  if (!flushLocked(true)) {
+    return eh::makeError(
+      "Failed to persist loaded job state: {}",
+      stateFilePath_.string()
+    );
+  }
+  return true;
+}
+
 auto Store::initialize(
   appctx::AppConfig const& config,
   bool restart,
@@ -42,35 +84,12 @@ auto Store::initialize(
   }
 
   if (!restart && stateExists) {
-    auto const loaded = detail::loadSnapshot(stateFilePath_);
-    if (!loaded) { return eh::makeError("{}", loaded.error()); }
-
-    if (!configMatches(loaded->config, currentConfig)) {
-      if (config.resumeState) {
-        return eh::makeError(
-          "State file does not match current command: {}",
-          stateFilePath_.string()
-        );
-      }
-      if (discardedMismatched != nullptr) { *discardedMismatched = true; }
-    } else {
-      snapshot_ = loaded.value();
-      snapshot_.config = currentConfig;
-      snapshot_.cancelRequested = false;
-      snapshot_.updatedAtMs = detail::nowMs();
-      for (auto& task: snapshot_.tasks) { detail::normalizeExistingTask(task); }
-      rebuildIndexLocked();
-      // D3: align logging run id with the restored job so log records
-      // emitted after resume cross-reference the state file. A corrupted file
-      // missing the jobId gets a fresh id rather than an empty one.
-      if (snapshot_.jobId.empty()) { snapshot_.jobId = logging::runId(); }
-      logging::setRunId(snapshot_.jobId);
-      if (!flushLocked(true)) {
-        return eh::makeError(
-          "Failed to persist loaded job state: {}",
-          stateFilePath_.string()
-        );
-      }
+    auto const restored =
+      tryRestoreExistingLocked(currentConfig, config.resumeState, discardedMismatched);
+    if (!restored) { return restored; }
+    if (
+      restored.value()
+    ) {  // NOLINT(bugprone-unchecked-optional-access): guarded by the !restored check above
       return true;
     }
   }
