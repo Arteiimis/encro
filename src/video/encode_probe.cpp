@@ -334,77 +334,112 @@ auto decideCq(std::span<ProbePoint const> points, int vmafFloor) -> ProbeDecisio
   };
 }
 
+namespace {
+
+auto recordProbePoint(
+  std::vector<ProbePoint>& points,
+  ProbePointCallback const& onPoint,
+  ProbePoint point
+) -> void {
+  auto const cq = point.cq;
+  points.push_back(point);
+  if (onPoint) { onPoint(points.size(), cq); }
+}
+
+// Wave 1: base CQs are independent — measure them in parallel. The result
+// is identical to serial order (collected in cq order); only the wall time
+// shrinks. Extension points stay serial: each depends on the previous.
+auto probeBaseCqs(
+  ProbeMeasure const& measure,
+  std::vector<ProbePoint>& points,
+  ProbePointCallback const& onPoint
+) -> bool {
+  auto baseResults = std::vector<std::optional<ProbePoint>>(kBaseCqs.size());
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(kBaseCqs.size());
+  for (auto index = std::size_t{}; index < kBaseCqs.size(); ++index) {
+    tasks.push_back({
+      .id = std::format("probe-cq:{}", kBaseCqs[index]),
+      .label = std::format("cq {}", kBaseCqs[index]),
+      .input = std::format("{}", kBaseCqs[index]),
+      .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
+        baseResults[index] = measure(kBaseCqs[index]);
+        return {};
+      },
+    });
+  }
+  taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = kBaseCqs.size(),
+    .progress = nullptr,
+    .hideCursor = false,
+  });
+  for (auto& baseResult: baseResults) {
+    if (!baseResult.has_value()) { return false; }
+    recordProbePoint(points, onPoint, baseResult.value());
+  }
+  return true;
+}
+
+// Floor unmet at 24: step down until it is met or the floor is proven
+// unreachable (p5@16 still below).
+auto probeLowSide(
+  ProbeMeasure const& measure,
+  std::vector<ProbePoint>& points,
+  ProbePointCallback const& onPoint,
+  int vmafFloor
+) -> bool {
+  if (auto const point = measure(kMinCq + kCqStep); point.has_value()) {
+    recordProbePoint(points, onPoint, point.value());
+    if (!meetsFloor(points.back(), vmafFloor)) {
+      if (auto const low = measure(kMinCq); low.has_value()) {
+        recordProbePoint(points, onPoint, low.value());
+      } else {
+        return false;
+      }
+    }
+  } else {
+    return false;
+  }
+  return true;
+}
+
+// Floor still met at 32: step up until it is missed or 40 is reached.
+auto probeHighSide(
+  ProbeMeasure const& measure,
+  std::vector<ProbePoint>& points,
+  ProbePointCallback const& onPoint,
+  int vmafFloor
+) -> bool {
+  if (auto const point = measure(kMaxCq - kCqStep); point.has_value()) {
+    recordProbePoint(points, onPoint, point.value());
+    if (meetsFloor(points.back(), vmafFloor)) {
+      if (auto const high = measure(kMaxCq); high.has_value()) {
+        recordProbePoint(points, onPoint, high.value());
+      } else {
+        return false;
+      }
+    }
+  } else {
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
 auto probeCqSequence(
   ProbeMeasure const& measure,
   int vmafFloor,
-  ProbePointCallback onPoint
+  ProbePointCallback const& onPoint
 ) -> std::optional<std::vector<ProbePoint>> {
   auto points = std::vector<ProbePoint>{};
-  auto record = [&](ProbePoint point) {
-    auto const cq = point.cq;
-    points.push_back(point);
-    if (onPoint) { onPoint(points.size(), cq); }
-  };
-
-  // Wave 1: base CQs are independent — measure them in parallel. The result
-  // is identical to serial order (collected in cq order); only the wall time
-  // shrinks. Extension points stay serial: each depends on the previous.
-  {
-    auto baseResults = std::vector<std::optional<ProbePoint>>(kBaseCqs.size());
-    auto tasks = std::vector<taskexec::TaskSpec>{};
-    tasks.reserve(kBaseCqs.size());
-    for (auto index = std::size_t{}; index < kBaseCqs.size(); ++index) {
-      tasks.push_back({
-        .id = std::format("probe-cq:{}", kBaseCqs[index]),
-        .label = std::format("cq {}", kBaseCqs[index]),
-        .input = std::format("{}", kBaseCqs[index]),
-        .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
-          baseResults[index] = measure(kBaseCqs[index]);
-          return {};
-        },
-      });
-    }
-    taskexec::runTasks({
-      .tasks = std::move(tasks),
-      .maxConcurrency = kBaseCqs.size(),
-      .progress = nullptr,
-      .hideCursor = false,
-    });
-    for (auto& baseResult: baseResults) {
-      if (!baseResult.has_value()) { return std::nullopt; }
-      record(baseResult.value());
-    }
-  }
+  if (!probeBaseCqs(measure, points, onPoint)) { return std::nullopt; }
 
   if (!meetsFloor(points.front(), vmafFloor)) {
-    // Floor unmet at 24: step down until it is met or the floor is proven
-    // unreachable (p5@16 still below).
-    if (auto const point = measure(kMinCq + kCqStep); point.has_value()) {
-      record(point.value());
-      if (!meetsFloor(points.back(), vmafFloor)) {
-        if (auto const low = measure(kMinCq); low.has_value()) {
-          record(low.value());
-        } else {
-          return std::nullopt;
-        }
-      }
-    } else {
-      return std::nullopt;
-    }
+    if (!probeLowSide(measure, points, onPoint, vmafFloor)) { return std::nullopt; }
   } else if (meetsFloor(points.back(), vmafFloor)) {
-    // Floor still met at 32: step up until it is missed or 40 is reached.
-    if (auto const point = measure(kMaxCq - kCqStep); point.has_value()) {
-      record(point.value());
-      if (meetsFloor(points.back(), vmafFloor)) {
-        if (auto const high = measure(kMaxCq); high.has_value()) {
-          record(high.value());
-        } else {
-          return std::nullopt;
-        }
-      }
-    } else {
-      return std::nullopt;
-    }
+    if (!probeHighSide(measure, points, onPoint, vmafFloor)) { return std::nullopt; }
   }
 
   return points;
