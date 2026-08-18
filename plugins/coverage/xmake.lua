@@ -4,27 +4,24 @@ task("coverage")
     usage = "xmake coverage [options]",
     description = "Run tests (and optionally e2e) under coverage and print llvm-cov report",
     options = {
-      {"", "summary", "k", nil, "Show summary-only report"},
-      {"", "e2e", "k", nil, "Also build and run e2e tests under coverage"},
-      {"", "keep", "k", nil, "Keep coverage build mode after finishing"}
+      {nil, "summary", "k", nil, "Show summary-only report"},
+      {nil, "e2e", "k", nil, "Also build and run e2e tests under coverage"},
+      {nil, "keep", "k", nil, "Keep coverage build mode after finishing"}
     }
   })
 
   on_run(function()
     local option = import("core.base.option")
+    local config = import("core.project.config")
 
-    local projectdir = os.projectdir()
-    local platform = os.host()
-    local coverage_dir = path.join(projectdir, "build", "coverage")
-    local mode_dir = path.join(projectdir, "build", platform, os.arch(), "coverage")
+    local platform = config.plat() or os.host()
+    local builddir = config.builddir({absolute = true})
+    local coverage_dir = path.join(builddir, "coverage")
+    local mode_dir = path.join(builddir, platform, os.arch(), "coverage")
     local ext = platform == "windows" and ".exe" or ""
 
     local function run(cmd, args, opts)
-      local ret = try {
-        function()
-          return os.execv(cmd, args, opts)
-        end
-      }
+      local ret = os.execv(cmd, args, table.join(opts or {}, {try = true}))
       if not ret then
         os.raise(string.format("failed to run %s", cmd))
       end
@@ -50,7 +47,7 @@ task("coverage")
     -- 否则 xmake 的 flag auto-check 静默丢弃了它们（add_cxxflags 缺 {force = true}），
     -- 整个流程会"成功"但产不出任何 profraw。
     local function assert_instrumented()
-      local cc_file = path.join(projectdir, "build", "compile_commands.json")
+      local cc_file = path.join(builddir, "compile_commands.json")
       if not os.exists(cc_file) then
         os.raise("build/compile_commands.json missing; keep plugin.compile_commands.autoupdate enabled")
       end

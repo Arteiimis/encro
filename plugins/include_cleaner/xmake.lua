@@ -5,8 +5,8 @@ task("include-cleaner")
     description = "Scan all TUs for unused includes via clang-include-cleaner (needs build/compile_commands.json)",
     options = {
       {"k", "check", "k", nil, "Exit non-zero if any unused include is found (CI mode)"},
-      {"f", "filter", "v", nil, "Only report headers containing this substring (e.g. job_state)"},
-      {"j", "jobs", "v", "16", "Parallel jobs, one TU per job (default: 16)"}
+      {"f", "filter", "kv", nil, "Only report headers containing this substring (e.g. job_state)"},
+      {"j", "jobs", "kv", "16", "Parallel jobs, one TU per job (default: 16)"}
     }
   })
 
@@ -28,17 +28,13 @@ task("include-cleaner")
       table.insert(argv, option.get("filter"))
     end
     table.insert(argv, "-j")
-    table.insert(argv, option.get("jobs") or "16")
+    table.insert(argv, option.get("jobs"))
 
-    local ok = try {
-      function()
-        return os.execv(tool.program, argv, {curdir = os.projectdir()})
-      end
-    }
-    if not ok then
-      assert(false, option.get("check")
+    local ret = os.execv(tool.program, argv, {curdir = os.projectdir(), try = true})
+    if ret ~= 0 then
+      os.raise(option.get("check")
         and "include-cleaner check failed: unused include(s) found"
-        or "include-cleaner scan failed")
+        or string.format("include-cleaner scan failed (exit %s)", tostring(ret)))
     end
   end)
 task_end()

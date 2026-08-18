@@ -1,11 +1,11 @@
-task("format")
+task("fmt")
   set_category("plugin")
   set_menu({
-    usage = "xmake format [options]",
+    usage = "xmake fmt [options]",
     description = "Format C/C++ sources with clang-format",
     options = {
       {"k", "check", "k", nil, "Check formatting without modifying files"},
-      {"s", "style", "v", nil, "clang-format style file or built-in style (default: D:/clangformat/.clang-format)"}
+      {"s", "style", "kv", nil, "clang-format style file or built-in style (default: D:/clangformat/.clang-format)"}
     }
   })
 
@@ -59,11 +59,7 @@ task("format")
     -- 跑完全部块再统一报错，让 check 模式一次列出所有违规文件
     local failed = false
     for _, chunk in ipairs(chunks) do
-      local ret = try {
-        function()
-          return os.execv(clang_format, table.join(base_args, chunk))
-        end
-      }
+      local ret = os.execv(clang_format, table.join(base_args, chunk), {try = true})
       if not ret or ret ~= 0 then
         failed = true
       end

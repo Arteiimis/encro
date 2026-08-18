@@ -110,7 +110,7 @@ xmake run e2e_tests
 
 Build modes: `debug` (all log levels), `release` (LTO, TRACE/DEBUG stripped),
 `releasedbg` (optimized + ASan), `coverage` (`xmake coverage` for
-instrumented coverage runs). Format with `xmake format` (clang-format).
+instrumented coverage runs). Format with `xmake fmt` (clang-format).
 
 ## Development
 
