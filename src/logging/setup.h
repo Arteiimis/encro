@@ -7,6 +7,11 @@
 #include <string>
 #include <string_view>
 
+// Shared per-user data directory root, resolved through the log-dir chain
+// (LOCALAPPDATA → APPDATA → XDG_STATE_HOME → HOME → temp); the probe cache
+// sits in its parent directory.
+auto resolveCommonLogDir() -> std::filesystem::path;
+
 namespace logging {
 
 // Bootstrap run id: lazily generated UUID before setup(), regenerated in

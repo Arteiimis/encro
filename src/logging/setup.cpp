@@ -32,52 +32,6 @@ namespace {
 static auto gPoolInitialized = std::atomic<bool>{false};
 static auto gPoolInitMutex = std::mutex{};
 
-// ── Env var reading (Windows) ───────────────────────────────────────────────
-
-#if defined(_WIN32) || defined(_WIN64)
-auto readWindowsEnvPath(char const* name) -> std::optional<fs::path> {
-  auto value = std::unique_ptr<char>{};
-  auto size = std::size_t{0};
-  // Note: the out_ptr write-back happens when the temporary is destroyed, so
-  // `value` must not be inspected inside the same full-expression.
-  auto const rc = _dupenv_s(std::out_ptr(value), &size, name);
-  if (rc != 0 || value == nullptr || size == 0) { return std::nullopt; }
-
-  auto result = fs::path{value.get()};
-  if (result.empty()) { return std::nullopt; }
-
-  return result;
-}
-#endif
-
-// ── Log directory resolution (migrated from prelude.cpp, logic unchanged) ──
-
-auto resolveCommonLogDir() -> fs::path {
-#if defined(_WIN32) || defined(_WIN64)
-  if (
-    auto const localAppData = readWindowsEnvPath("LOCALAPPDATA"); localAppData.has_value()
-  ) {
-    return localAppData.value() / "encro" / "logs";
-  }
-
-  if (auto const appData = readWindowsEnvPath("APPDATA"); appData.has_value()) {
-    return appData.value() / "encro" / "logs";
-  }
-#else
-  if (
-    auto const* xdgState = std::getenv("XDG_STATE_HOME");
-    xdgState != nullptr && *xdgState != '\0'
-  ) {
-    return fs::path{xdgState} / "encro" / "logs";
-  }
-  if (auto const* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
-    return fs::path{home} / ".local" / "state" / "encro" / "logs";
-  }
-#endif
-
-  return fs::temp_directory_path() / "encro" / "logs";
-}
-
 // ── Single log pattern (D-03 compatible — source location in message body, not %s:%#) ──
 
 constexpr auto kLogPattern = "[%Y-%m-%dT%H:%M:%S.%e%z] [%^%l%$] [%n] %v";
@@ -168,6 +122,51 @@ auto retainRecentLogs(fs::path const& logDir, int const maxKeep) -> std::size_t 
 }
 
 }  // namespace
+// ── Env var reading (Windows) ───────────────────────────────────────────────
+
+#if defined(_WIN32) || defined(_WIN64)
+auto readWindowsEnvPath(char const* name) -> std::optional<fs::path> {
+  auto value = std::unique_ptr<char>{};
+  auto size = std::size_t{0};
+  // Note: the out_ptr write-back happens when the temporary is destroyed, so
+  // `value` must not be inspected inside the same full-expression.
+  auto const rc = _dupenv_s(std::out_ptr(value), &size, name);
+  if (rc != 0 || value == nullptr || size == 0) { return std::nullopt; }
+
+  auto result = fs::path{value.get()};
+  if (result.empty()) { return std::nullopt; }
+
+  return result;
+}
+#endif
+
+// ── Log directory resolution (migrated from prelude.cpp, logic unchanged) ──
+
+auto resolveCommonLogDir() -> fs::path {
+#if defined(_WIN32) || defined(_WIN64)
+  if (
+    auto const localAppData = readWindowsEnvPath("LOCALAPPDATA"); localAppData.has_value()
+  ) {
+    return localAppData.value() / "encro" / "logs";
+  }
+
+  if (auto const appData = readWindowsEnvPath("APPDATA"); appData.has_value()) {
+    return appData.value() / "encro" / "logs";
+  }
+#else
+  if (
+    auto const* xdgState = std::getenv("XDG_STATE_HOME");
+    xdgState != nullptr && *xdgState != '\0'
+  ) {
+    return fs::path{xdgState} / "encro" / "logs";
+  }
+  if (auto const* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+    return fs::path{home} / ".local" / "state" / "encro" / "logs";
+  }
+#endif
+
+  return fs::temp_directory_path() / "encro" / "logs";
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // logging::setup / logging::shutdown
