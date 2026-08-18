@@ -5,9 +5,9 @@ task("size")
     description = "Analyze binary size: section overview, or per-object breakdown via PDB",
     options = {
       {"d", "breakdown", "k", nil, "Per-object breakdown (rebuilds with PDB if missing)"},
-      {"t", "target", "v", "encro", "Target binary name (default: encro)"},
-      {"m", "mode", "v", "release", "Build mode to analyze (default: release)"},
-      {"n", "top", "v", "20", "Rows to show per section (default: 20)"}
+      {"t", "target", "kv", "encro", "Target binary name (default: encro)"},
+      {"m", "mode", "kv", "release", "Build mode to analyze (default: release)"},
+      {"n", "top", "kv", "20", "Rows to show per section (default: 20)"}
     }
   })
 
@@ -16,13 +16,14 @@ task("size")
     local config = import("core.project.config")
     config.load()
 
-    local platform = os.host()
-    local target = option.get("target") or "encro"
-    local mode = option.get("mode") or "release"
-    local top = tonumber(option.get("top") or 20)
+    local platform = config.plat() or os.host()
+    local builddir = config.builddir({absolute = true})
+    local target = option.get("target")
+    local mode = option.get("mode")
+    local top = tonumber(option.get("top"))
     local ext = platform == "windows" and ".exe" or ""
 
-    local exe = path.join(os.projectdir(), "build", platform, os.arch(), mode, target .. ext)
+    local exe = path.join(builddir, platform, os.arch(), mode, target .. ext)
     if not os.exists(exe) then
       error(string.format("binary not found: %s (build it first)", exe))
     end
@@ -36,11 +37,7 @@ task("size")
     end
 
     local function run(cmd, args, opts)
-      local ret = try {
-        function()
-          return os.execv(cmd, args, opts)
-        end
-      }
+      local ret = os.execv(cmd, args, table.join(opts or {}, {try = true}))
       if not ret or ret ~= 0 then
         error(string.format("command failed: %s %s", cmd, table.concat(args, " ")))
       end
