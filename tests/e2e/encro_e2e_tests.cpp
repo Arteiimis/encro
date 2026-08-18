@@ -1971,6 +1971,126 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "encro probe cache persists decisions and skips re-probing",
+  "[e2e][video][probe][fake-toolchain][probe-cache]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  e2e::writeTextFile(inputPath, "fake-video");
+  auto const cachePath = temp.path / "probe-cache.json";
+  auto const log1 = temp.path / "tool1.log";
+  auto const log2 = temp.path / "tool2.log";
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  // Fake VMAF scoring makes probing succeed (probed=true); fake duration long
+  // enough for two probe windows; cache redirected to the temp dir.
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_FFPROBE_DURATION_SECS", "50"},
+    {"ENCRO_FAKE_FFMPEG_WRITE_VMAF", "1"},
+    {"ENCRO_FAKE_FFMPEG_VMAF_SCORES", "95"},
+    {"ENCRO_PROBE_CACHE", cachePath.string()},
+  };
+  // Distinct output dirs per run so the default job-state seed differs (same
+  // cache applies either way; the key does not include the output path).
+  auto makeArgs = [&](fs::path const& outputDir) {
+    return std::vector<std::string>{
+      "-y",
+      "-i",
+      inputPath.string(),
+      "-o",
+      outputDir.string(),
+      "-j",
+      "1",
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    };
+  };
+
+  // First run: probing happens, scoring runs, the decision is persisted.
+  auto env1 = env;
+  env1["ENCRO_FAKE_TOOL_LOG_FILE"] = log1.string();
+  auto const result1 = e2e::runEncro(makeArgs(temp.path / "out1"), std::nullopt, env1);
+  REQUIRE_SUCCESS(result1);
+  CHECK(result1.stdoutText.find("(cached)") == std::string::npos);
+  auto const probeScorings1 = countLogLines(log1, "libvmaf");
+  REQUIRE(probeScorings1 > 0);  // probing really scored
+  auto const cq1 = extractPlanCq(result1.stdoutText);
+  REQUIRE(cq1.has_value());
+
+  // Second run against the same cache: skip probing, reuse the decision.
+  auto env2 = env;
+  env2["ENCRO_FAKE_TOOL_LOG_FILE"] = log2.string();
+  auto const result2 = e2e::runEncro(makeArgs(temp.path / "out2"), std::nullopt, env2);
+  REQUIRE_SUCCESS(result2);
+  CHECK(result2.stdoutText.find("(cached)") != std::string::npos);
+  CHECK(countLogLines(log2, "libvmaf") == 0);  // no probe scoring
+  CHECK(extractPlanCq(result2.stdoutText) == cq1);
+}
+
+TEST_CASE(
+  "encro probe cache invalidates when the input file changes",
+  "[e2e][video][probe][fake-toolchain][probe-cache]"
+) {
+  TempDir temp;
+  // Distinct input name + out dirs from test 4.1 so the default job-state
+  // seed (processType|format|layout|inputs) cannot collide across tests.
+  auto const inputPath = temp.path / "sample2.avi";
+  auto const cachePath = temp.path / "probe-cache.json";
+  auto const log1 = temp.path / "tool1.log";
+  auto const log2 = temp.path / "tool2.log";
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_FFPROBE_DURATION_SECS", "50"},
+    {"ENCRO_FAKE_FFMPEG_WRITE_VMAF", "1"},
+    {"ENCRO_FAKE_FFMPEG_VMAF_SCORES", "95"},
+    {"ENCRO_PROBE_CACHE", cachePath.string()},
+  };
+
+  e2e::writeTextFile(inputPath, "fake-video");
+  auto env1 = env;
+  env1["ENCRO_FAKE_TOOL_LOG_FILE"] = log1.string();
+  REQUIRE_SUCCESS(
+    e2e::runEncro(
+      {"-y",
+       "-i",
+       inputPath.string(),
+       "-o",
+       (temp.path / "outA").string(),
+       "-j",
+       "1",
+       "--ffmpeg-path",
+       toolchain.root.string()},
+      std::nullopt,
+      env1
+    )
+  );
+
+  // Change the input (size + mtime): the cached key no longer matches.
+  std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  e2e::writeTextFile(inputPath, "fake-video-CHANGED");
+
+  auto env2 = env;
+  env2["ENCRO_FAKE_TOOL_LOG_FILE"] = log2.string();
+  auto const result2 = e2e::runEncro(
+    {"-y",
+     "-i",
+     inputPath.string(),
+     "-o",
+     (temp.path / "outB").string(),
+     "-j",
+     "1",
+     "--ffmpeg-path",
+     toolchain.root.string()},
+    std::nullopt,
+    env2
+  );
+  REQUIRE_SUCCESS(result2);
+  CHECK(result2.stdoutText.find("(cached)") == std::string::npos);  // re-probed
+  CHECK(countLogLines(log2, "libvmaf") > 0);                        // scoring ran again
+}
+
+TEST_CASE(
   "encro probes, prints the plan, encodes, and hints at preview with --yes",
   "[e2e][video][probe][fake-toolchain]"
 ) {
