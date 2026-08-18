@@ -1,5 +1,7 @@
 # AGENTS.md — encrō
 
+encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video transcoding (HEVC/H.264), picture → WebP/JPEG recompression, ZIP packing, a resumable job store, and an original-vs-encoded `preview` subcommand.
+
 ## Build & Run
 
 - **Build system:** xmake (not CMake). Toolchain: `clang-cl` + `lld-link` on Windows. C++26.
@@ -8,10 +10,10 @@
 - **Tests with failure summary:** `xmake test-report` — builds + runs unit tests, writes `build/last-test-report.xml` (JUnit) and `build/last-test-console.log` (full console text), and prints a summary instead of raw console: success shows `All tests passed (N assertions in M test cases)`, failure prints a per-test FAILED list (name + file:line + message) plus both artifact paths. Child stdout goes to the log file, so progress-bar frames never render (non-TTY) and the terminal output stays clean in every context; exit code is propagated. `--tag="[tag]"` limits to a tag filter (note: `=` form required).
 - **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)
 - **Single test:** `xmake run tests "[tag-name]"` (Catch2 tag filter)
-- **Format:** `xmake format` (apply) / `xmake format -k` (CI); `--style <style>` overrides the default `file:D:/clangformat/.clang-format` (NOT in repo) — value is passed to clang-format `-style=`, e.g. `--style file:<path>` or `--style llvm`.
-- **Static analysis:** `xmake tidy` — report-only clang-tidy over `src/`+`tests/` (`.clang-tidy` config, function-length/cognitive-complexity guardrails). Fast by default; `--analyzer` adds the slow clang static analyzer; `--sarif` writes `build/tidy-results.sarif`; `-f <substr>` filters TUs by path; `--selftest` runs the driver self-check. Needs `build/compile_commands.json` (build first).
-- **Coverage:** `xmake coverage` runs unit tests under coverage (`--e2e` also covers e2e/encro/fake-tool; `--keep` skips the release restore; `--summary` for totals). Rebuilds in coverage mode with instrumentation self-check, then restores release. Needs `llvm-profdata` + `llvm-cov` on PATH.
-- **Size:** `xmake size` prints section sizes (llvm-size); `-d` adds per-object breakdown via PDB (auto-rebuilds the target with debug info if the PDB is missing, then restores). Default `-m release`, `-t <target>`.
+- **Format:** `xmake format` (apply) / `xmake format -k` (check only, no CI gate). Default style `file:D:/clangformat/.clang-format` (NOT in repo); `--style` overrides it. Full options: `xmake format -h`.
+- **Static analysis:** `xmake tidy` — report-only clang-tidy over `src/`+`tests/` (`.clang-tidy` config, function-length/cognitive-complexity guardrails); needs `build/compile_commands.json` (build first). Full options: `xmake tidy -h`.
+- **Coverage:** `xmake coverage` runs tests under coverage with an instrumentation self-check, then restores release; needs `llvm-profdata` + `llvm-cov` on PATH. Full options: `xmake coverage -h`.
+- **Size:** `xmake size` prints section sizes (llvm-size); `-d` adds per-object breakdown via PDB (auto-rebuilds with debug info if missing). Full options: `xmake size -h`.
 - **ASan:** `xmake f -m releasedbg && xmake build encro` (config then build; `xmake f` alone only reconfigures)
 - **Dependency headers:** read `build/compile_commands.json` for absolute include paths (e.g., `F:\xmake\.xmake\packages\i\indicators\2.3\<hash>\include`). They live there, NOT in the repo — never search `~/.xmake`.
 
@@ -42,10 +44,11 @@
 ## Architecture
 
 ```
-main → prelude::initStartup → appentry::run → pipeline::run
+main → appentry::run → prelude::initStartup → pipeline::run
          ├─ runVideo() → video_process → video_batch_execution → video_encode_runner
          ├─ runPicture() → picture_process → picture_compress
-         └─ runPackOnly() → pack::execute()
+         ├─ runPackOnly() → pack::execute()
+         └─ preview subcommand → preview::run → preview_process (bypasses pipeline::run)
 ```
 
 - `src/app` CLI entry, startup, pipeline orchestration · `src/cmd` CLI11 parsing, config builder
@@ -53,6 +56,7 @@ main → prelude::initStartup → appentry::run → pipeline::run
 - `src/infra` crash handler, terminal, console_width, env, stacktrace, stop_signal, toolchain discovery
 - `src/logging` spdlog setup (async, rotating), JSON formatter, log tags
 - `src/pack` ZIP (PackRequest → PackPlan → Packer → libzippp) · `src/picture` ffmpeg WebP
+- `src/preview` original-vs-encoded side-by-side comparison (preview_process, preview_filtergraph)
 - `src/video` encode orchestration, progress parsing, output planning · `src/utils` exec2, FFmpeg discovery, UUID
 
 - **`appctx::AppContext`** — single mutable context, passed by mutable reference through the whole chain.
@@ -69,7 +73,7 @@ if (!result) { return eh::makeError("context: {}", result.error()); }  // REQUIR
 ## Testing
 
 - Catch2 v3 (`catch2/catch_all.hpp`), custom runner `tests/test_main.cpp`.
-- Fixtures/helpers in `tests/test_utils.h`: `TempDir`, `ScopedStopSignalReset`, `ScopedEnvVar`, `writeFile()`, `touchFile()`, `listRegularFiles()`, `listZipRegularEntryNames()`. `TempDir` keeps its directory (and prints the path to stderr) when a test fails, so state files / fake-tool logs survive for inspection; e2e subprocess failures dump child stdout/stderr via the `REQUIRE_SUCCESS` macro.
+- Fixtures/helpers in `tests/test_utils.h`. `TempDir` keeps its directory (and prints the path to stderr) when a test fails, so state files / fake-tool logs survive for inspection. E2E subprocess failures dump child stdout/stderr via `REQUIRE_SUCCESS` (in `tests/e2e/e2e_test_utils.h`).
 - E2E: `fake_media_tool.cpp` impersonates ffmpeg/ffprobe, controlled via env vars (`ENCRO_FAKE_FFMPEG_EXIT_CODE`, ...).
 - `[real-ffmpeg]`/`[smoke]` tests auto-skip via `SKIP()` when ffmpeg not on PATH.
 - Compile-only tests (`pack_api_standalone_compile_test.cpp`, `packer_standalone_compile_test.cpp`): `static_assert` verifies API boundaries.
