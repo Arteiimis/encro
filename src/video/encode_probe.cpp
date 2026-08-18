@@ -8,7 +8,9 @@
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
 #include "utils/utils.h"
+#include "video/probe_cache.h"
 #include "video/video_info.h"
+#include "video/video_quality.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -598,6 +600,85 @@ auto buildProbeTaskSpec(
   };
 }
 
+// Cache key for the decision inputs of inputPath; nullopt when the file cannot
+// be stat'ed or its preset is unresolved (no dimensions), which probing would
+// also have to measure anyway.
+auto cacheKeyForInput(appctx::AppContext& ctx, fs::path const& inputPath)
+  -> std::optional<std::string> {
+  auto ec = std::error_code{};
+  auto const fileSize = fs::file_size(inputPath, ec);
+  if (ec) { return std::nullopt; }
+  auto const mtimeMs = probecache::lastWriteTimeMs(inputPath);
+  if (mtimeMs == 0) { return std::nullopt; }
+
+  auto const codec = ctx.config.videoCodec.value_or("hevc_nvenc");
+  auto const settings = resolveInputEncodeSettings(
+    ctx.toolchain,
+    ctx.runtime,
+    inputPath,
+    ctx.config.nvencPreset
+  );
+  if (!settings.nvencPreset.has_value()) { return std::nullopt; }
+
+  auto const vidInfo = ctx.runtime.videoInfoCache.find(inputPath);
+  auto const metric = videoquality::isHdrVideo(vidInfo.value_or(boost::json::value{}))
+    ? std::string_view{"SSIM"}
+    : std::string_view{"VMAF"};
+
+  return probecache::probeCacheKey(
+    inputPath,
+    fileSize,
+    mtimeMs,
+    codec,
+    settings.nvencPreset,
+    settings.maxrateKbps,
+    ctx.config.minVmaf,
+    metric
+  );
+}
+
+auto planFromCache(probecache::Entry const& entry, fs::path const& inputPath)
+  -> ProbePlan {
+  auto plan = ProbePlan{};
+  plan.inputPath = inputPath;
+  plan.probed = true;
+  plan.fromCache = true;
+  plan.chosenCq = entry.chosenCq;
+  plan.p5 = entry.p5;
+  plan.estimatedBytes = entry.estimatedBytes;
+  plan.metric = entry.metric == "SSIM" ? videoquality::QualityMetric::Ssim
+                                       : videoquality::QualityMetric::Vmaf;
+  plan.unreachableFloor = entry.unreachableFloor;
+  return plan;
+}
+
+// Persist fresh decisions so the next run skips probing (single writer at the
+// end of the phase; never written for skipped/probed==false plans).
+auto flushCachePlans(
+  appctx::AppContext& ctx,
+  std::span<fs::path const> vids,
+  std::vector<ProbePlan> const& plans
+) -> void {
+  auto updates = std::vector<probecache::Entry>{};
+  for (auto index = std::size_t{0}; index < vids.size(); ++index) {
+    auto const& plan = plans[index];
+    if (!plan.probed || plan.fromCache) { continue; }
+    auto const key = cacheKeyForInput(ctx, vids[index]);
+    if (!key.has_value()) { continue; }
+    updates.push_back(
+      probecache::Entry{
+        .key = key.value(),
+        .chosenCq = plan.chosenCq,
+        .p5 = plan.p5.value_or(0.0),
+        .estimatedBytes = plan.estimatedBytes.value_or(0),
+        .metric = plan.metric == videoquality::QualityMetric::Ssim ? "SSIM" : "VMAF",
+        .unreachableFloor = plan.unreachableFloor,
+      }
+    );
+  }
+  if (!updates.empty()) { probecache::save(updates); }
+}
+
 auto collectProbeResults(
   std::span<fs::path const> vids,
   std::vector<ProbePlan> const& plans,
@@ -605,7 +686,14 @@ auto collectProbeResults(
 ) -> ProbePhaseResult {
   auto result = ProbePhaseResult{};
   for (auto index = std::size_t{0}; index < vids.size(); ++index) {
-    if (runState.attempted[index] == 0) { continue; }
+    // Cache hits have no probe task (attempted is empty), but still carry a
+    // probed plan; keep them. Non-probed files stay only when they were
+    // actually attempted. Guard the empty attempted vector.
+    if (!plans[index].probed) {
+      if (index >= runState.attempted.size() || runState.attempted[index] == 0) {
+        continue;
+      }
+    }
     auto const& plan = plans[index];
     result.plans[vids[index]] = plan;
     if (plan.unreachableFloor) {
@@ -623,6 +711,59 @@ auto collectProbeResults(
   return result;
 }
 
+// Builds probe tasks, resolving cache hits up front: a hit fills plans[i]
+// with the persisted decision and is skipped; misses become tasks.
+auto buildProbeTasksWithCache(
+  appctx::AppContext& ctx,
+  std::span<fs::path const> vids,
+  std::vector<probecache::Entry> const& cached,
+  fs::path const& probeRoot,
+  progress::ProgressContext& progressCtx,
+  std::vector<std::size_t> const& slotBars,
+  std::vector<std::atomic<float>>& slotProgress,
+  std::atomic_size_t& completed,
+  std::function<void()> const& updateOverall,
+  std::vector<ProbePlan>& plans,
+  std::size_t workerCount
+) -> std::vector<taskexec::TaskSpec> {
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(vids.size());
+
+  for (auto index = std::size_t{0}; index < vids.size(); ++index) {
+    if (auto const key = cacheKeyForInput(ctx, vids[index]); key.has_value()) {
+      if (
+        auto const it = std::ranges::find_if(
+          cached,
+          [&key](probecache::Entry const& e) { return e.key == key.value(); }
+        );
+        it != cached.end()
+      ) {
+        plans[index] = planFromCache(*it, vids[index]);
+        LOG_DEBUG(
+          "Probe cache hit: {} (CQ {})",
+          vids[index].string(),
+          plans[index].chosenCq
+        );
+        continue;
+      }
+    }
+    tasks.push_back(buildProbeTaskSpec(
+      ctx,
+      vids,
+      index,
+      probeRoot,
+      progressCtx,
+      slotBars,
+      slotProgress,
+      completed,
+      updateOverall,
+      plans,
+      workerCount
+    ));
+  }
+  return tasks;
+}
+
 auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   -> eh::Result<ProbePhaseResult> {
   auto result = ProbePhaseResult{};
@@ -632,6 +773,8 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     createProbeRoot();  // NOLINT(performance-no-automatic-move): read multiple times; const is intentional
   if (!probeRoot) { return eh::makeError("{}", probeRoot.error()); }
   ProbeRootGuard rootGuard{probeRoot.value()};
+
+  auto const cached = probecache::load();
 
   auto plans = std::vector<ProbePlan>(vids.size());
   auto const workerCount =
@@ -665,23 +808,19 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     );
   };
 
-  auto tasks = std::vector<taskexec::TaskSpec>{};
-  tasks.reserve(vids.size());
-  for (auto index = std::size_t{0}; index < vids.size(); ++index) {
-    tasks.push_back(buildProbeTaskSpec(
-      ctx,
-      vids,
-      index,
-      *probeRoot,
-      progressCtx,
-      slotBars,
-      slotProgress,
-      completed,
-      updateOverall,
-      plans,
-      workerCount
-    ));
-  }
+  auto tasks = buildProbeTasksWithCache(
+    ctx,
+    vids,
+    cached,
+    *probeRoot,
+    progressCtx,
+    slotBars,
+    slotProgress,
+    completed,
+    updateOverall,
+    plans,
+    workerCount
+  );
 
   auto const runState = taskexec::runTasks({
     .tasks = std::move(tasks),
@@ -694,6 +833,9 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     LOG_INFO("Probing aborted by stop request.");
     return eh::makeError("Probing canceled by user.");
   }
+
+  // Persist fresh decisions so the next run skips probing.
+  flushCachePlans(ctx, vids, plans);
 
   return collectProbeResults(vids, plans, runState);
 }
@@ -801,12 +943,13 @@ auto formatProbePlanRow(
     );
   }
   return std::format(
-    "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
+    "  {}  {:>3}  {:>6}  {:>9}  {:>6}{}",
     nameCell,
     plan.chosenCq,
     formatProbeP5(plan),
     displaytext::formatSizeBytes(plan.estimatedBytes),
-    ratio.has_value() ? displaytext::formatSignedPercent(ratio.value()) : "\xE2\x80\x94"
+    ratio.has_value() ? displaytext::formatSignedPercent(ratio.value()) : "\xE2\x80\x94",
+    plan.fromCache ? " (cached)" : ""
   );
 }
 
@@ -828,6 +971,7 @@ auto printTwoLineRow(ProbePlan const& plan, std::string_view marker) -> void {
     marker,
     displaytext::pathToUtf8String(plan.inputPath.filename())
   );
+  if (plan.fromCache) { terminal::println(Plain, "    (cached decision)"); }
   terminal::println(
     Plain,
     "    CQ {} \xC2\xB7 p5 {} \xC2\xB7 {} \xC2\xB7 {}",
