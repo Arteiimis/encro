@@ -3,6 +3,7 @@
 
 #include <fstream>
 #include <string>
+#include <thread>
 
 namespace fs = std::filesystem;
 

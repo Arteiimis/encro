@@ -11,6 +11,11 @@
 #include <cstdlib>
 #include <fstream>
 #include <string_view>
+#if defined(_WIN32)
+  #include <process.h>
+#else
+  #include <unistd.h>
+#endif
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_PROBE);
@@ -19,6 +24,14 @@ namespace fs = std::filesystem;
 
 namespace probecache {
 namespace {
+
+auto currentProcessId() -> int {
+#if defined(_WIN32)
+  return _getpid();
+#else
+  return getpid();
+#endif
+}
 
 auto defaultCacheFilePath() -> fs::path {
   if (
@@ -104,50 +117,52 @@ auto load(fs::path const& filePath) -> std::vector<Entry> {
   auto file = std::ifstream{resolvedPath};
   if (!file.is_open()) { return {}; }
 
-  try {
-    auto const value = boost::json::parse(
-      std::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}}
-    );
-    if (!value.is_object()) { return {}; }
-    auto const& obj = value.as_object();
-    auto const version = obj.if_contains("version") && obj.at("version").is_int64()
-      ? static_cast<int>(obj.at("version").as_int64())
-      : -1;
-    if (version != kSchemaVersion) { return {}; }
-    auto const& entries = obj.at("entries");
-    if (!entries.is_array()) { return {}; }
+  // Corrupt JSON is an operational failure handled via error_code; only
+  // catastrophic allocation failures may throw (caught by main).
+  auto ec = std::error_code{};
+  auto const value = boost::json::parse(
+    std::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}},
+    ec
+  );
+  if (ec) { return {}; }  // Corrupt cache: discard and re-probe; never block a run.
+  if (!value.is_object()) { return {}; }
+  auto const& obj = value.as_object();
+  auto const version = obj.if_contains("version") && obj.at("version").is_int64()
+    ? static_cast<int>(obj.at("version").as_int64())
+    : -1;
+  if (version != kSchemaVersion) { return {}; }
+  auto const& entries = obj.at("entries");
+  if (!entries.is_array()) { return {}; }
 
-    auto result = std::vector<Entry>{};
-    for (auto const& item: entries.as_array()) {
-      if (auto const entry = parseEntry(item); entry.has_value()) {
-        result.push_back(entry.value());
-      }
+  auto result = std::vector<Entry>{};
+  for (auto const& item: entries.as_array()) {
+    if (auto const entry = parseEntry(item); entry.has_value()) {
+      result.push_back(entry.value());
     }
-    return result;
-  } catch (std::exception const&) {
-    // Corrupt JSON: discard and re-probe everything; never block a run.
-    return {};
   }
+  return result;
 }
 
 auto save(std::vector<Entry> const& updates, fs::path const& filePath) -> void {
   auto const resolvedPath = filePath.empty() ? defaultCacheFilePath() : filePath;
   auto entries = load(resolvedPath);
 
+  auto const nowMs =
+    static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch()
+    )
+                                 .count());
   for (auto const& update: updates) {
     auto it = std::ranges::find_if(entries, [&update](Entry const& e) {
       return e.key == update.key;
     });
     if (it != entries.end()) {
       *it = update;
+      it->updatedAtMs = nowMs;
     } else {
       entries.push_back(update);
+      entries.back().updatedAtMs = nowMs;
     }
-    entries.back().updatedAtMs =
-      static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   std::chrono::system_clock::now().time_since_epoch()
-      )
-                                   .count());
   }
 
   // Oldest-first eviction beyond the cap.
@@ -156,7 +171,11 @@ auto save(std::vector<Entry> const& updates, fs::path const& filePath) -> void {
   });
   if (entries.size() > kMaxEntries) { entries.resize(kMaxEntries); }
 
-  auto const tmpPath = resolvedPath.string() + ".tmp";
+  // Best-effort single-writer semantics: the flush is the only writer per
+  // process, but a unique temp name (pid suffix) keeps two concurrent encro
+  // processes from clobbering each other's staging file.
+  auto const tmpPath =
+    resolvedPath.string() + "." + std::to_string(currentProcessId()) + ".tmp";
   {
     auto out = std::ofstream{tmpPath};
     if (!out) {
