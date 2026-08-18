@@ -388,6 +388,8 @@ auto encodeAndScoreAllWindows(
   auto windowsCompleted = std::atomic_size_t{0};
   auto tasks = std::vector<taskexec::TaskSpec>{};
   tasks.reserve(windows.size());
+  auto const previewWorkers =
+    std::clamp<std::size_t>(ctx.config.maxParallelJobs.value_or(4), 1, windows.size());
   for (auto index = std::size_t{}; index < windows.size(); ++index) {
     auto const segFile = probeRoot / std::format("win{}.ts", index);
     result.segments[index] = segFile;
@@ -405,7 +407,8 @@ options.original,
 settings,
 segFile,
 windowCq,
-encodeprobe::ProbeWindow{window.startUs, window.durationUs}
+encodeprobe::ProbeWindow{window.startUs, window.durationUs},
+previewWorkers
 );
 if (!ok) {
 windowEncodeFailed.store(true);
@@ -452,8 +455,7 @@ return {};
   }
   taskexec::runTasks({
     .tasks = std::move(tasks),
-    .maxConcurrency =
-      std::clamp<std::size_t>(ctx.config.maxParallelJobs.value_or(4), 1, windows.size()),
+    .maxConcurrency = previewWorkers,
     .progress = nullptr,
     .hideCursor = false,
   });
@@ -578,7 +580,7 @@ auto probeSingleInputPlan(
       .setPostfixText(bar, std::format("Probing: {} · CQ {} scored", fileName, cq));
   };
   auto const plan =
-    encodeprobe::probeSingleFile(ctx, options.original, probeRoot, onPoint, onStep);
+    encodeprobe::probeSingleFile(ctx, options.original, probeRoot, 1, onPoint, onStep);
   auto windowBase = 0.0f;
   if (plan.probed) {
     windowBase = 40.0f;

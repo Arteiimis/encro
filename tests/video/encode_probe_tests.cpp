@@ -300,7 +300,8 @@ TEST_CASE(
     24,
     10'000'000,
     10'000'000,
-    "probe/cq24_0.ts"
+    "probe/cq24_0.ts",
+    4
   );
   auto const productionCfg = buildSegmentEncodeConfig(
     toolchain,
@@ -312,9 +313,15 @@ TEST_CASE(
     0,
     10'000'000,
     10'000'000,
-    "probe/cq24_0.ts"
+    "probe/cq24_0.ts",
+    std::nullopt,
+    4
   );
   CHECK(probeCfg == productionCfg);
+  // Same worker count caps CPU-codec threads identically; nvenc ignores it.
+  auto const hw = std::thread::hardware_concurrency();
+  CHECK(probeCfg.threads.has_value() == (hw > 0));
+  if (hw > 0) { CHECK(probeCfg.threads.value() == std::max(1u, hw / 4)); }
 
   auto const defaultCfg = buildSegmentEncodeConfig(
     toolchain,

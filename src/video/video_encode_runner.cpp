@@ -363,7 +363,8 @@ auto encodeOneSegment(
   fs::path const& segmentDir,
   std::uint64_t index,
   std::uint64_t startUs,
-  std::uint64_t durationUs
+  std::uint64_t durationUs,
+  std::size_t workerCount
 ) -> bool {
   auto const segFile = segmentFilePath(segmentDir, index);
   auto const segProgressFile = segmentProgressFilePath(segmentDir, index);
@@ -390,7 +391,8 @@ auto encodeOneSegment(
     startUs,
     durationUs,
     segFile,
-    segProgressFile
+    segProgressFile,
+    workerCount
   );
 
   if (auto const validationResult = cfg.validate(); !validationResult) {
@@ -544,7 +546,8 @@ auto runSegmentedEncoding(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
   EncodeExecutionPlan const& plan,
-  function_ref statusUpdater
+  function_ref statusUpdater,
+  std::size_t workerCount
 ) -> bool {
   auto const taskId = state.actionId.value_or(
     std::format("encode:{}", collisionnaming::stablePathString(state.inputPath))
@@ -623,9 +626,16 @@ auto runSegmentedEncoding(
       durationUs
     );
 
-    if (
-      !encodeOneSegment(ctx, state, statusUpdater, segmentDir, index, startUs, durationUs)
-    ) {
+    if (!encodeOneSegment(
+          ctx,
+          state,
+          statusUpdater,
+          segmentDir,
+          index,
+          startUs,
+          durationUs,
+          workerCount
+        )) {
       return false;
     }
 
@@ -667,7 +677,8 @@ auto runSegmentedEncoding(
 bool encodeVideo(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
-  function_ref statusUpdater
+  function_ref statusUpdater,
+  std::size_t workerCount
 ) {
   auto const executionPlanRes = prepareEncodeExecution(state);
   if (!executionPlanRes) { return failEncoding(state, executionPlanRes.error()); }
@@ -712,5 +723,5 @@ bool encodeVideo(
     );
   }
 
-  return runSegmentedEncoding(ctx, state, executionPlan, statusUpdater);
+  return runSegmentedEncoding(ctx, state, executionPlan, statusUpdater, workerCount);
 }

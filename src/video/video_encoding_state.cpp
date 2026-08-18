@@ -24,9 +24,38 @@ using videoworkflow::withJobState;
 
 namespace {
 
+constexpr auto kProgressParseInterval = std::chrono::milliseconds{250};
+
 void noteStopRequest(appctx::AppContext& ctx) {
   if (!stopsignal::isStopRequested()) { return; }
   withJobState(ctx, [](jobstate::Store& store) { store.requestCancel(); });
+}
+
+// Stat-skip: reports whether the progress file changed since the last parse
+// pass, so the monitor does not re-read an untouched file. Keyed by path:
+// a segment switch swaps state.progressFilePath, which must trigger a read
+// even if the new file happens to match the previous size.
+auto progressFileChanged(appctx::EncodingState& state) -> bool {
+  auto progressFilePath = std::optional<fs::path>{};
+  {
+    auto lock = std::scoped_lock{state.mtx};
+    progressFilePath = state.progressFilePath;
+  }
+  if (!progressFilePath.has_value()) { return false; }
+
+  auto ec = std::error_code{};
+  auto const fileSize = fs::file_size(progressFilePath.value(), ec);
+  if (ec) { return false; }  // not created yet, or removed
+
+  auto lock = std::scoped_lock{state.mtx};
+  if (
+    state.lastProgressPath == progressFilePath && state.lastProgressFileSize == fileSize
+  ) {
+    return false;
+  }
+  state.lastProgressPath = progressFilePath;
+  state.lastProgressFileSize = fileSize;
+  return true;
 }
 
 auto getStateLabel(appctx::EncodingState const& state) -> std::string {
@@ -161,8 +190,32 @@ void renderProgress(
   }
 }
 
+// One throttled parse pass: reads and renders every active state whose
+// progress file changed. Called at most kProgressParseInterval apart.
+auto runParsePass(videobatch::detail::EncodingExecutionContext& executionCtx) {
+  auto const activeStates = executionCtx.activeStates();
+
+  for (auto const& activeState: activeStates) {
+    if (!activeState || stateFinished(*activeState)) { continue; }
+    if (!progressFileChanged(*activeState)) { continue; }
+
+    auto const progress = getEncodingProgress(executionCtx.app, *activeState);
+    if (!progress.has_value()) {
+      renderStalled(executionCtx, *activeState);
+      continue;
+    }
+
+    renderProgress(executionCtx, *activeState, progress.value());
+  }
+
+  executionCtx.updateOverall();
+}
+
 void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& executionCtx) {
   using namespace std::chrono_literals;
+
+  // First pass runs immediately, later passes every kProgressParseInterval.
+  auto lastParseAt = std::chrono::steady_clock::now() - kProgressParseInterval;
 
   while (true) {
     noteStopRequest(executionCtx.app);
@@ -175,19 +228,14 @@ void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& execu
       break;
     }
 
-    for (auto const& activeState: activeStates) {
-      if (!activeState || stateFinished(*activeState)) { continue; }
-
-      auto const progress = getEncodingProgress(executionCtx.app, *activeState);
-      if (!progress.has_value()) {
-        renderStalled(executionCtx, *activeState);
-        continue;
-      }
-
-      renderProgress(executionCtx, *activeState, progress.value());
+    // Progress parsing and bar rendering run on the throttled cadence; the
+    // loop still wakes every 20 ms for stop detection and the forensic
+    // snapshot.
+    auto const now = std::chrono::steady_clock::now();
+    if (now - lastParseAt >= kProgressParseInterval) {
+      lastParseAt = now;
+      runParsePass(executionCtx);
     }
-
-    executionCtx.updateOverall();
 
     logging::updateForensicSnapshot(
       static_cast<int>(activeStates.size()),

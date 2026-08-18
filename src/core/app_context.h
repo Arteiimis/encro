@@ -85,6 +85,11 @@ struct EncodingState {
   std::optional<uint64_t> lastFrameCount;
   std::optional<std::string> lastStatus;
   std::optional<std::string> lastError;
+  // Monitor stat-skip state: last observed progress-file path and size, so
+  // unchanged files are not re-read. Keyed by path because segments swap the
+  // progress file between encodes.
+  std::optional<fs::path> lastProgressPath;
+  std::uintmax_t lastProgressFileSize = 0;
   std::optional<int> chosenCq;  // probe decision; overrides config.crf
   std::optional<int64_t> totalFrames;
   std::uint64_t baseFrameOffset = 0;

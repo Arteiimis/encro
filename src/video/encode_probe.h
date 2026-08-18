@@ -91,7 +91,8 @@ auto buildProbeSegmentConfig(
   int cq,
   std::uint64_t startUs,
   std::uint64_t durationUs,
-  fs::path const& segFile
+  fs::path const& segFile,
+  std::size_t workerCount
 ) -> EncodeConfig;
 
 // Encodes one window segment with the production settings at cq (same codec,
@@ -104,7 +105,8 @@ auto runProbeEncode(
   EncodeInputSettings const& settings,
   fs::path const& segFile,
   int cq,
-  ProbeWindow const& window
+  ProbeWindow const& window,
+  std::size_t workerCount
 ) -> bool;
 
 struct ProbePlan {
@@ -136,6 +138,7 @@ auto probeSingleFile(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
   fs::path const& probeDir,
+  std::size_t workerCount,
   ProbePointCallback const& onPoint = {},
   ProbeStepCallback const& onStep = {}
 ) -> ProbePlan;
