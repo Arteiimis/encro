@@ -1,7 +1,5 @@
 #pragma once
 
-#include "core/app_context.h"
-
 #include <cstdint>
 #include <filesystem>
 #include <optional>
