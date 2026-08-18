@@ -328,6 +328,37 @@ TEST_CASE("encro pack-only CLI packs a directory", "[e2e][pack-only]") {
   CHECK(containsStemMarker(entries[1], "b"));
 }
 
+TEST_CASE("encro pack stores media entries without deflate", "[e2e][pack-only]") {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  fs::create_directories(inputDir);
+  e2e::writeTextFile(inputDir / "clip.mp4", "fake-video");
+  e2e::writeTextFile(inputDir / "photo.JPG", "fake-image");
+  e2e::writeTextFile(inputDir / "note.txt", "a");
+  e2e::writeTextFile(inputDir / "raw.wav", "b");
+
+  auto const result = e2e::runEncro({"-y", "-z", "-i", inputDir.string()});
+
+  auto const zipPath = inputDir / "packed" / "input_part1[1~4#4p].zip";
+  CAPTURE(result.stderrText, result.stdoutText);
+  REQUIRE(result.exitCode == 0);
+  REQUIRE(fs::exists(zipPath));
+
+  auto const methods = e2e::mapZipEntryCompression(zipPath);
+  auto findEntry = [&methods](std::string_view stem) -> libzippp::CompressionMethod {
+    for (auto const& [name, method]: methods) {
+      // Entry names carry dir/hash prefixes: input__<h>__clip__<h>.mp4
+      if (name.find(std::format("__{}__", stem)) != std::string::npos) { return method; }
+    }
+    return libzippp::CompressionMethod::DEFAULT;
+  };
+  CHECK(findEntry("clip") == libzippp::CompressionMethod::STORE);
+  CHECK(findEntry("photo") == libzippp::CompressionMethod::STORE);
+  // Uncompressed container and plain text keep deflate.
+  CHECK(findEntry("note") == libzippp::CompressionMethod::DEFLATE);
+  CHECK(findEntry("raw") == libzippp::CompressionMethod::DEFLATE);
+}
+
 TEST_CASE(
   "encro webp CLI can use the fake ffmpeg toolchain",
   "[e2e][video][fake-toolchain]"

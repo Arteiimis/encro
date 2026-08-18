@@ -467,3 +467,49 @@ TEST_CASE(
   CHECK(entries.front().getName() != nestedFile.filename().string());
   zip.close();
 }
+
+// ── Media STORE compression ─────────────────────────────────────────────
+
+TEST_CASE(
+  "shouldStoreEntry recognizes media and rejects uncompressed",
+  "[packer][store]"
+) {
+  CHECK(pack::shouldStoreEntry(fs::path{"vid.mp4"}));
+  CHECK(pack::shouldStoreEntry(fs::path{"vid.MKV"}));
+  CHECK(pack::shouldStoreEntry(fs::path{"a.heic"}));
+  CHECK(pack::shouldStoreEntry(fs::path{"x.webp"}));
+  CHECK(pack::shouldStoreEntry(fs::path{"nested/track.flac"}));
+
+  CHECK_FALSE(pack::shouldStoreEntry(fs::path{"doc.txt"}));
+  CHECK_FALSE(pack::shouldStoreEntry(fs::path{"raw.wav"}));
+  CHECK_FALSE(pack::shouldStoreEntry(fs::path{"pic.bmp"}));
+  CHECK_FALSE(pack::shouldStoreEntry(fs::path{"img.TIF"}));
+  CHECK_FALSE(pack::shouldStoreEntry(fs::path{"noext"}));
+}
+
+TEST_CASE("pack stores media entries and deflates non-media", "[packer][store]") {
+  TempDir temp;
+  auto const mediaFile = createSizedFile(temp.path, "clip.mp4", 128);
+  auto const audioFile = createSizedFile(temp.path, "audio.m4a", 128);
+  auto const textFile = createSizedFile(temp.path, "note.txt", 256);
+  auto const zipPath = temp.path / "out.zip";
+
+  auto progressCtx = progress::ProgressContext{};
+  auto const res =
+    pack::Packer{}
+      .packFilesToZip({mediaFile, audioFile, textFile}, zipPath, progressCtx, "Packing");
+  REQUIRE(res);
+
+  libzippp::ZipArchive zip{zipPath.string()};
+  zip.open(libzippp::ZipArchive::ReadOnly);
+  auto const mediaEntry = zip.getEntry("clip.mp4");
+  auto const audioEntry = zip.getEntry("audio.m4a");
+  auto const textEntry = zip.getEntry("note.txt");
+  REQUIRE_FALSE(mediaEntry.isNull());
+  REQUIRE_FALSE(audioEntry.isNull());
+  REQUIRE_FALSE(textEntry.isNull());
+  CHECK(mediaEntry.getCompressionMethod() == libzippp::CompressionMethod::STORE);
+  CHECK(audioEntry.getCompressionMethod() == libzippp::CompressionMethod::STORE);
+  CHECK(textEntry.getCompressionMethod() == libzippp::CompressionMethod::DEFLATE);
+  zip.close();
+}
