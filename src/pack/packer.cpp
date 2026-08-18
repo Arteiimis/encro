@@ -4,6 +4,7 @@
 #include "core/progress.h"
 #include "infra/terminal.h"
 #include "pack/pack_internal.h"
+#include "pack/pack_types.h"
 
 #include <libzippp/libzippp.h>
 #include "logging/log_tags.h"
@@ -370,6 +371,27 @@ void pack::Packer::runFinalizingSpinner(
   }
 }
 
+// Sets a packed entry's compression method: media entries are stored as-is,
+// everything else is deflated. libzip defaults to STORE, so non-media
+// entries must be told to deflate explicitly.
+auto applyEntryCompression(
+  libzippp::ZipArchive& zip,
+  std::string const& entryName,
+  fs::path const& sourcePath
+) -> eh::Result<void> {
+  auto zipEntry = zip.getEntry(entryName);
+  if (zipEntry.isNull()) {
+    return eh::makeError("Failed to locate packed entry: {}", entryName);
+  }
+  auto const method = pack::shouldStoreEntry(sourcePath)
+    ? libzippp::CompressionMethod::STORE
+    : libzippp::CompressionMethod::DEFLATE;
+  if (!zip.setEntryCompressionConfig(zipEntry, method, 0)) {
+    return eh::makeError("Failed to set zip entry compression: {}", entryName);
+  }
+  return {};
+}
+
 // === Public methods ===
 
 auto pack::Packer::packFilesToZip(
@@ -415,7 +437,14 @@ auto pack::Packer::packFilesToZip(
     if (fs::is_regular_file(entry.sourcePath)) {
       auto const entryName =
         makeUniqueZipEntryName(entry.zipEntryName, entry.sourcePath, usedEntryNames);
-      zip.addFile(entryName, entry.sourcePath.string());
+      if (!zip.addFile(entryName, entry.sourcePath.string())) {
+        return eh::makeError("Failed to add entry to zip: {}", entryName);
+      }
+      if (
+        auto const res = applyEntryCompression(zip, entryName, entry.sourcePath); !res
+      ) {
+        return res;
+      }
       progressCtx.setProgress(progressBarIndex, static_cast<float>(progress));
     }
 
@@ -477,7 +506,15 @@ auto pack::Packer::packFilesToZip(
 
   for (auto const& entry: entries) {
     if (fs::is_regular_file(entry.sourcePath)) {
-      zip.addFile(entry.zipEntryName, entry.sourcePath.string());
+      if (!zip.addFile(entry.zipEntryName, entry.sourcePath.string())) {
+        return eh::makeError("Failed to add entry to zip: {}", entry.zipEntryName);
+      }
+      if (
+        auto const res = applyEntryCompression(zip, entry.zipEntryName, entry.sourcePath);
+        !res
+      ) {
+        return res;
+      }
     }
     ++processedCount;
     if (onEntryPacked) { onEntryPacked(processedCount, totalCount); }
