@@ -49,6 +49,101 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "readLastNLines returns empty for empty file",
+  "[video-process][readLastNLines]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "empty.log";
+  { std::ofstream out{filePath}; }
+
+  auto const lastLines = readLastNLines(filePath, 2);
+  CHECK(lastLines.empty());
+}
+
+namespace {
+
+// Writes a progress file larger than the tail-read window (64 KiB) with a
+// real progress block at the end; the seek boundary lands mid-filler-line.
+auto writeLargeProgressFile(fs::path const& filePath) -> void {
+  std::ofstream out{filePath};
+  for (auto i = 0; i < 700; ++i) { out << std::string(100, 'x') << "\n"; }
+  out << "frame=4242\n";
+  out << "progress=end\n";
+}
+
+}  // namespace
+
+TEST_CASE(
+  "readLastNLines reads only the tail of a file larger than 64 KiB",
+  "[video-process][readLastNLines]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "large.log";
+  writeLargeProgressFile(filePath);
+
+  auto const lastLines = readLastNLines(filePath, 3);
+
+  REQUIRE(lastLines.size() == 3);
+  CHECK(lastLines[1] == "frame=4242");
+  CHECK(lastLines[2] == "progress=end");
+}
+
+TEST_CASE(
+  "readLastNLines drops the partial line at the tail boundary",
+  "[video-process][readLastNLines]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "large.log";
+  writeLargeProgressFile(filePath);
+
+  auto const lastLines = readLastNLines(filePath, 32);
+
+  // No line may be a garbage fragment cut by the seek boundary: filler lines
+  // are 101 chars, the trailing block lines are shorter.
+  for (auto const& line: lastLines) { CHECK(line.size() <= 101); }
+  CHECK(lastLines.size() == 32);
+}
+
+TEST_CASE(
+  "parseProgressFile reads the tail of a file larger than 64 KiB",
+  "[video-process][parseProgressFile]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "large.log";
+  writeLargeProgressFile(filePath);
+
+  auto const result = parseProgressFile(filePath);
+  REQUIRE(result.has_value());
+  auto const [frameCount, status] = *result;
+
+  CHECK(frameCount == 4242);
+  CHECK(status == "end");
+}
+
+TEST_CASE(
+  "parseSegmentEndUs reads the tail of a file larger than 64 KiB",
+  "[video-process][parseSegmentEndUs]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "large.log";
+  writeLargeProgressFile(filePath);
+
+  auto const endUs = parseSegmentEndUs(filePath);
+  CHECK_FALSE(endUs.has_value());  // large.log has no out_time_us line
+
+  {
+    std::ofstream out{filePath, std::ios::app};
+    for (auto i = 0; i < 700; ++i) { out << std::string(100, 'y') << "\n"; }
+    out << "out_time_us=10024000\n";
+    out << "progress=end\n";
+  }
+
+  auto const endUs2 = parseSegmentEndUs(filePath);
+  REQUIRE(endUs2.has_value());
+  CHECK(endUs2.value() == 10'024'000);
+}
+
+TEST_CASE(
   "parseProgressFile extracts latest frame and status",
   "[video-process][parseProgressFile]"
 ) {

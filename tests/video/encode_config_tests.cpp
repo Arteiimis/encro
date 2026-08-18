@@ -51,6 +51,48 @@ TEST_CASE("EncodeConfig rejects missing input", "[encode-config]") {
   CHECK(validation.error().find("Input path is required") != std::string::npos);
 }
 
+TEST_CASE("EncodeConfig adds -threads for CPU codecs", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.videoCodec = "libx264";
+  cfg.crf = 23;
+  cfg.threads = 4;
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-c:v libx264 -crf 23 -threads 4") != std::string::npos);
+}
+
+TEST_CASE("EncodeConfig omits -threads for nvenc codecs", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.videoCodec = "hevc_nvenc";
+  cfg.crf = 23;
+  cfg.threads = 4;
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-threads") == std::string::npos);
+  CHECK(cmd.find("-c:v hevc_nvenc") != std::string::npos);
+}
+
+TEST_CASE("EncodeConfig omits -threads for CPU codecs when unset", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+
+  EncodeConfig cfg;
+  cfg.inputPath = inputPath;
+  cfg.videoCodec = "libx265";
+  cfg.crf = 23;
+
+  auto const cmd = cfg.buildCMD();
+  CHECK(cmd.find("-threads") == std::string::npos);
+}
+
 TEST_CASE("EncodeConfig rejects invalid CRF", "[encode-config]") {
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "sample.mp4");
