@@ -4,6 +4,8 @@
 #include <boost/asio/readable_pipe.hpp>
 #include <boost/process/v2/process.hpp>
 
+#include <libzippp/libzippp.h>
+
 #include <chrono>
 #include <filesystem>
 #include <map>
@@ -125,5 +127,8 @@ auto installFakeToolchain(fs::path const& root) -> FakeToolchain;
 auto writeTextFile(fs::path const& path, std::string_view content = "x") -> void;
 
 auto listZipEntries(fs::path const& zipPath) -> std::vector<std::string>;
+
+auto mapZipEntryCompression(fs::path const& zipPath)
+  -> std::map<std::string, libzippp::CompressionMethod>;
 
 }  // namespace e2e
