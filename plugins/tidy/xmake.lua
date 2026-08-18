@@ -6,9 +6,9 @@ task("tidy")
     options = {
       {"s", "sarif", "k", nil, "Write build/tidy-results.sarif instead of text"},
       {"a", "analyzer", "k", nil, "Include the slow clang static analyzer checks (deep scan)"},
-      {"f", "filter", "v", nil, "Only scan TUs whose path contains this substring (e.g. video)"},
-      {"j", "jobs", "v", nil, "Parallel jobs (default: 8, 4 with --analyzer)"},
-      {"", "selftest", "k", nil, "Run the bundled check-set/header-filter self-test"}
+      {"f", "filter", "kv", nil, "Only scan TUs whose path contains this substring (e.g. video)"},
+      {"j", "jobs", "kv", nil, "Parallel jobs (default: 8, 4 with --analyzer)"},
+      {nil, "selftest", "k", nil, "Run the bundled check-set/header-filter self-test"}
     }
   })
 
@@ -40,13 +40,9 @@ task("tidy")
       table.insert(argv, option.get("jobs"))
     end
 
-    local ok = try {
-      function()
-        return os.execv(tool.program, argv, {curdir = os.projectdir()})
-      end
-    }
-    if not ok then
-      assert(false, "tidy failed; see output above")
+    local ret = os.execv(tool.program, argv, {curdir = os.projectdir(), try = true})
+    if ret ~= 0 then
+      os.raise(string.format("tidy failed (exit %s); see output above", tostring(ret)))
     end
   end)
 task_end()

@@ -7,7 +7,7 @@ task("test-report")
     usage = "xmake test-report [options]",
     description = "Run unit tests, write build/last-test-report.xml, print failure summary",
     options = {
-      {"", "tag", "v", nil, "Catch2 tag filter to run (e.g. [progress])"}
+      {nil, "tag", "kv", nil, "Catch2 tag filter to run (e.g. [progress])"}
     }
   })
 
@@ -15,18 +15,18 @@ task("test-report")
     local option = import("core.base.option")
     local config = import("core.project.config")
 
-    local projectdir = os.projectdir()
-    local platform = os.host()
+    local platform = config.plat() or os.host()
     local arch = os.arch()
     local mode = config.get("mode") or "release"
+    local builddir = config.builddir({absolute = true})
     local ext = platform == "windows" and ".exe" or ""
-    local tests_bin = path.join(projectdir, "build", platform, arch, mode, "tests" .. ext)
-    local report_path = path.join(projectdir, "build", "last-test-report.xml")
-    local console_path = path.join(projectdir, "build", "last-test-console.log")
+    local tests_bin = path.join(builddir, platform, arch, mode, "tests" .. ext)
+    local report_path = path.join(builddir, "last-test-report.xml")
+    local console_path = path.join(builddir, "last-test-console.log")
 
     local process = import("core.base.process")
 
-    -- os.execv returns nil for non-zero exits in xmake 3.1.0, so use the
+    -- os.execv raises on non-zero exits and hides the exit code, so use the
     -- process API directly to get the real exit code.
     local function run(cmd, args, opts)
       local proc = process.openv(cmd, args, opts)
