@@ -600,6 +600,17 @@ auto buildProbeTaskSpec(
   };
 }
 
+namespace {
+
+auto metricToString(videoquality::QualityMetric metric) -> std::string {
+  return metric == videoquality::QualityMetric::Ssim ? "SSIM" : "VMAF";
+}
+
+auto metricFromString(std::string_view metric) -> videoquality::QualityMetric {
+  return metric == "SSIM" ? videoquality::QualityMetric::Ssim
+                          : videoquality::QualityMetric::Vmaf;
+}
+
 // Cache key for the decision inputs of inputPath; nullopt when the file cannot
 // be stat'ed or its preset is unresolved (no dimensions), which probing would
 // also have to measure anyway.
@@ -646,8 +657,7 @@ auto planFromCache(probecache::Entry const& entry, fs::path const& inputPath)
   plan.chosenCq = entry.chosenCq;
   plan.p5 = entry.p5;
   plan.estimatedBytes = entry.estimatedBytes;
-  plan.metric = entry.metric == "SSIM" ? videoquality::QualityMetric::Ssim
-                                       : videoquality::QualityMetric::Vmaf;
+  plan.metric = metricFromString(entry.metric);
   plan.unreachableFloor = entry.unreachableFloor;
   return plan;
 }
@@ -671,7 +681,7 @@ auto flushCachePlans(
         .chosenCq = plan.chosenCq,
         .p5 = plan.p5.value_or(0.0),
         .estimatedBytes = plan.estimatedBytes.value_or(0),
-        .metric = plan.metric == videoquality::QualityMetric::Ssim ? "SSIM" : "VMAF",
+        .metric = metricToString(plan.metric),
         .unreachableFloor = plan.unreachableFloor,
       }
     );
@@ -682,18 +692,22 @@ auto flushCachePlans(
 auto collectProbeResults(
   std::span<fs::path const> vids,
   std::vector<ProbePlan> const& plans,
-  taskexec::TaskRunResult const& runState
+  taskexec::TaskRunResult const& runState,
+  std::vector<std::size_t> const& taskVids
 ) -> ProbePhaseResult {
   auto result = ProbePhaseResult{};
-  for (auto index = std::size_t{0}; index < vids.size(); ++index) {
-    // Cache hits have no probe task (attempted is empty), but still carry a
-    // probed plan; keep them. Non-probed files stay only when they were
-    // actually attempted. Guard the empty attempted vector.
-    if (!plans[index].probed) {
-      if (index >= runState.attempted.size() || runState.attempted[index] == 0) {
-        continue;
-      }
+  // A short/failed probe still runs a task and keeps its default-CQ plan;
+  // cache hits carry probed==true with no task. Map the task-indexed
+  // attempted flags back to vid indices (hits shrink the task list, hence
+  // the explicit mapping) and keep only files that were measured or probed.
+  auto measured = std::vector<char>(vids.size(), 0);
+  for (auto taskIndex = std::size_t{0}; taskIndex < taskVids.size(); ++taskIndex) {
+    if (runState.attempted.size() > taskIndex && runState.attempted[taskIndex] != 0) {
+      measured[taskVids[taskIndex]] = 1;
     }
+  }
+  for (auto index = std::size_t{0}; index < vids.size(); ++index) {
+    if (!plans[index].probed && measured[index] == 0) { continue; }
     auto const& plan = plans[index];
     result.plans[vids[index]] = plan;
     if (plan.unreachableFloor) {
@@ -724,10 +738,13 @@ auto buildProbeTasksWithCache(
   std::atomic_size_t& completed,
   std::function<void()> const& updateOverall,
   std::vector<ProbePlan>& plans,
-  std::size_t workerCount
+  std::size_t workerCount,
+  std::vector<std::size_t>& taskVids
 ) -> std::vector<taskexec::TaskSpec> {
   auto tasks = std::vector<taskexec::TaskSpec>{};
   tasks.reserve(vids.size());
+  taskVids.clear();
+  taskVids.reserve(vids.size());
 
   for (auto index = std::size_t{0}; index < vids.size(); ++index) {
     if (auto const key = cacheKeyForInput(ctx, vids[index]); key.has_value()) {
@@ -760,9 +777,12 @@ auto buildProbeTasksWithCache(
       plans,
       workerCount
     ));
+    taskVids.push_back(index);
   }
   return tasks;
 }
+
+}  // namespace
 
 auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   -> eh::Result<ProbePhaseResult> {
@@ -808,6 +828,7 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     );
   };
 
+  auto taskVids = std::vector<std::size_t>{};
   auto tasks = buildProbeTasksWithCache(
     ctx,
     vids,
@@ -819,7 +840,8 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     completed,
     updateOverall,
     plans,
-    workerCount
+    workerCount,
+    taskVids
   );
 
   auto const runState = taskexec::runTasks({
@@ -837,7 +859,7 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   // Persist fresh decisions so the next run skips probing.
   flushCachePlans(ctx, vids, plans);
 
-  return collectProbeResults(vids, plans, runState);
+  return collectProbeResults(vids, plans, runState, taskVids);
 }
 
 auto formatProbeP5(ProbePlan const& plan) -> std::string {

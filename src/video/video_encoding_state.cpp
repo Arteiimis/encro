@@ -45,9 +45,17 @@ auto progressFileChanged(appctx::EncodingState& state) -> bool {
 
   auto ec = std::error_code{};
   auto const fileSize = fs::file_size(progressFilePath.value(), ec);
-  if (ec) { return false; }  // not created yet, or removed
 
   auto lock = std::scoped_lock{state.mtx};
+  if (ec) {
+    // File removed (e.g. WebP steps clear and recreate the same progress
+    // path, or a fresh segment has not been created yet). Reset the recorded
+    // size to zero so the recreated file is detected once it grows past zero,
+    // even if it later reaches the previously recorded size.
+    state.lastProgressPath = progressFilePath;
+    state.lastProgressFileSize = 0;
+    return false;
+  }
   if (
     state.lastProgressPath == progressFilePath && state.lastProgressFileSize == fileSize
   ) {
@@ -192,7 +200,7 @@ void renderProgress(
 
 // One throttled parse pass: reads and renders every active state whose
 // progress file changed. Called at most kProgressParseInterval apart.
-auto runParsePass(videobatch::detail::EncodingExecutionContext& executionCtx) {
+auto runParsePass(videobatch::detail::EncodingExecutionContext& executionCtx) -> void {
   auto const activeStates = executionCtx.activeStates();
 
   for (auto const& activeState: activeStates) {
