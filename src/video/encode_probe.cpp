@@ -58,6 +58,7 @@ auto measurePoint(
   int cq,
   std::pair<ProbeWindow, ProbeWindow> const& windows,
   boost::json::value const& vidInfo,
+  std::size_t workerCount,
   ProbeStepCallback const& onStep = {}
 ) -> std::optional<ProbePoint> {
   // Segments are per-video: parallel probes of different inputs share
@@ -66,11 +67,11 @@ auto measurePoint(
   auto const segA = probeDir / std::format("cq{}_{}_{}.ts", vidKey, cq, 0);
   auto const segB = probeDir / std::format("cq{}_{}_{}.ts", vidKey, cq, 1);
   if (onStep) { onStep(cq, "encode 1/2"); }
-  if (!runProbeEncode(ctx, inputPath, settings, segA, cq, windows.first)) {
+  if (!runProbeEncode(ctx, inputPath, settings, segA, cq, windows.first, workerCount)) {
     return std::nullopt;
   }
   if (onStep) { onStep(cq, "encode 2/2"); }
-  if (!runProbeEncode(ctx, inputPath, settings, segB, cq, windows.second)) {
+  if (!runProbeEncode(ctx, inputPath, settings, segB, cq, windows.second, workerCount)) {
     return std::nullopt;
   }
 
@@ -153,6 +154,7 @@ auto probeSingleFile(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
   fs::path const& probeDir,
+  std::size_t workerCount,
   ProbePointCallback const& onPoint,
   ProbeStepCallback const& onStep
 ) -> ProbePlan {
@@ -190,6 +192,7 @@ auto probeSingleFile(
         cq,
         windows.value(),
         info,
+        workerCount,
         onStep
       );
     },
@@ -226,7 +229,8 @@ auto runProbeEncode(
   EncodeInputSettings const& settings,
   fs::path const& segFile,
   int cq,
-  ProbeWindow const& window
+  ProbeWindow const& window,
+  std::size_t workerCount
 ) -> bool {
   auto const cfg = buildProbeSegmentConfig(
     ctx.toolchain,
@@ -237,7 +241,8 @@ auto runProbeEncode(
     cq,
     window.startUs,
     window.durationUs,
-    segFile
+    segFile,
+    workerCount
   );
 
   auto ec = std::error_code{};
@@ -454,7 +459,8 @@ auto buildProbeSegmentConfig(
   int cq,
   std::uint64_t startUs,
   std::uint64_t durationUs,
-  fs::path const& segFile
+  fs::path const& segFile,
+  std::size_t workerCount
 ) -> EncodeConfig {
   return buildSegmentEncodeConfig(
     toolchain,
@@ -466,7 +472,9 @@ auto buildProbeSegmentConfig(
     0,
     startUs,
     durationUs,
-    segFile
+    segFile,
+    std::nullopt,
+    workerCount
   );
 }
 
@@ -522,7 +530,8 @@ auto buildProbeTaskSpec(
   std::vector<std::atomic<float>>& slotProgress,
   std::atomic_size_t& completed,
   std::function<void()> const& updateOverall,
-  std::vector<ProbePlan>& plans
+  std::vector<ProbePlan>& plans,
+  std::size_t workerCount
 ) -> taskexec::TaskSpec {
   auto const fileName = vids[index].filename().string();
   return taskexec::TaskSpec{
@@ -564,7 +573,8 @@ auto buildProbeTaskSpec(
     );
     updateOverall();
   };
-  plans[index] = probeSingleFile(ctx, vids[index], probeRoot, onPoint, onStep);
+  plans[index] =
+    probeSingleFile(ctx, vids[index], probeRoot, workerCount, onPoint, onStep);
   auto const& plan = plans[index];
   if (plan.probed) {
     progressCtx.setProgress(barIndex, 100.0f);
@@ -668,7 +678,8 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
       slotProgress,
       completed,
       updateOverall,
-      plans
+      plans,
+      workerCount
     ));
   }
 

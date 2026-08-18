@@ -12,6 +12,7 @@
 #include <format>
 #include <optional>
 #include <string>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -26,6 +27,7 @@ struct EncodeConfig {
   std::optional<std::string> nvencPreset;
   std::optional<int> maxrateKbps;
   std::optional<int> webpQuality;
+  std::optional<int> threads;  // CPU-codec thread cap; unset = ffmpeg auto
   std::optional<fs::path> progressFilePath;
   std::optional<std::uint64_t> segmentIndex;
   std::optional<std::uint64_t> segmentStartUs;
@@ -141,6 +143,7 @@ struct EncodeConfig {
       cmd += " -pix_fmt yuv420p";
     } else {
       cmd += std::format(" -c:v {} -crf {}", codec, crf.value_or(20));
+      if (threads.has_value()) { cmd += std::format(" -threads {}", threads.value()); }
     }
 
     if (isSegmented) { cmd += " -f mpegts"; }
@@ -203,6 +206,8 @@ inline auto resolveInputEncodeSettings(
 // Single construction path for segmented encodes: used by the real encode
 // (encodeOneSegment) and by quality probing, so probe encodes differ from
 // production only in CQ and output path (invariant asserted by tests).
+// workerCount caps CPU-codec threads to hw_threads / workers so N parallel
+// encodes do not oversubscribe the machine; 0 leaves threads on ffmpeg auto.
 inline auto buildSegmentEncodeConfig(
   appctx::ToolchainPaths const& toolchain,
   fs::path const& inputPath,
@@ -214,8 +219,15 @@ inline auto buildSegmentEncodeConfig(
   std::uint64_t startUs,
   std::uint64_t durationUs,
   fs::path const& tempOutputPath,
-  std::optional<fs::path> progressFilePath = std::nullopt
+  std::optional<fs::path> progressFilePath = std::nullopt,
+  std::size_t workerCount = 0
 ) -> EncodeConfig {
+  auto threads = std::optional<int>{};
+  if (workerCount > 0) {
+    auto const hw = std::thread::hardware_concurrency();
+    if (hw > 0) { threads = std::max(1u, hw / static_cast<unsigned>(workerCount)); }
+  }
+
   return EncodeConfig{
     .ffmpegPath = toolchain.ffmpegPath,
     .inputPath = inputPath,
@@ -224,6 +236,7 @@ inline auto buildSegmentEncodeConfig(
     .crf = crf,
     .nvencPreset = settings.nvencPreset,
     .maxrateKbps = settings.maxrateKbps,
+    .threads = threads,
     .progressFilePath = std::move(progressFilePath),
     .segmentIndex = segmentIndex,
     .segmentStartUs = startUs,

@@ -2059,6 +2059,48 @@ TEST_CASE(
   CHECK(log.find("-f null") == std::string::npos);
 }
 
+TEST_CASE(
+  "encro handles progress files larger than the 64 KiB tail window",
+  "[e2e][video][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  e2e::writeTextFile(inputPath, "fake-video");
+  auto const outputDir = temp.path / "out";
+  auto const logPath = temp.path / "tool.log";
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const result = e2e::runEncro(
+    {
+      "-y",
+      "-i",
+      inputPath.string(),
+      "-o",
+      outputDir.string(),
+      "-j",
+      "1",
+      "--crf",
+      "30",
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    },
+    std::nullopt,
+    {
+      {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+      {"ENCRO_FAKE_FFMPEG_PROGRESS_PAD", "100000"},
+    }
+  );
+
+  REQUIRE_SUCCESS(result);
+  auto const outputFiles = listFilesWithExtension(outputDir, ".mp4");
+  REQUIRE(outputFiles.size() == 1);
+  CHECK(fs::file_size(outputFiles.front()) > 0);
+
+  // One 10s segment encode + one concat assembly; progress parsing over the
+  // padded file must still resolve the segment end time.
+  CHECK(countActualFfmpegEncodes(logPath) == 2);
+}
+
 TEST_CASE("encro rejects out-of-range --min-vmaf", "[e2e][cli][probe]") {
   auto const result = e2e::runEncro({"-i", "a.mp4", "--min-vmaf", "120"});
   REQUIRE(result.exitCode == 1);

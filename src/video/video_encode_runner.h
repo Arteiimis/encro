@@ -9,5 +9,6 @@ using function_ref = std::function<void(std::string const&)> const&;
 auto encodeVideo(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
-  function_ref statusUpdater = {}
+  function_ref statusUpdater = {},
+  std::size_t workerCount = 1
 ) -> bool;

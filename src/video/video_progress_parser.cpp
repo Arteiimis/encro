@@ -17,6 +17,7 @@ DEFINE_LOGGER(logtags::VIDEO_PROGRESS);
 namespace {
 
 constexpr auto kProgressTailLines = std::size_t{32};
+constexpr auto kTailReadSize = std::int64_t{64} * 1024;
 
 auto containsCaseInsensitive(std::string_view text, std::string_view needle) -> bool {
   if (needle.empty()) { return true; }
@@ -118,10 +119,25 @@ auto readLastNLines(fs::path const& filePath, std::size_t n) -> std::vector<std:
   auto file = std::ifstream{filePath};
   if (!file.is_open() || n == 0) { return {}; }
 
+  // Tail read: seek to (size - window) instead of scanning the whole file,
+  // so the cost per read stays constant as the progress file grows.
+  file.seekg(0, std::ios::end);
+  auto const fileSize = static_cast<std::int64_t>(file.tellg());
+  if (fileSize <= 0) { return {}; }
+
+  auto const tailStart = std::max<std::int64_t>(0, fileSize - kTailReadSize);
+  file.seekg(tailStart);
+
   auto tail = std::deque<std::string>{};
   auto line = std::string{};
+  auto isFirstLine = true;
 
   while (std::getline(file, line)) {
+    if (tailStart > 0 && isFirstLine) {
+      isFirstLine = false;  // partial line cut by the seek boundary
+      continue;
+    }
+    isFirstLine = false;
     if (tail.size() == n) { tail.pop_front(); }
     tail.push_back(line);
   }

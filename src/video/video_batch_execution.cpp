@@ -201,10 +201,14 @@ auto runEncodingTask(
     }
   }
   executionCtx.barEncodingStart(*vidState, fileLabel);
-  auto const result =
-    encodeVideo(executionCtx.app, *vidState, [&](std::string const& status) {
+  auto const result = encodeVideo(
+    executionCtx.app,
+    *vidState,
+    [&](std::string const& status) {
       reportEncodingStatus(executionCtx, *vidState, fileLabel, status);
-    });
+    },
+    executionCtx.counters().workers
+  );
 
   executionCtx.finalizeState(vidState, result);
 
