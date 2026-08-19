@@ -35,6 +35,27 @@ xmake run encro -t video -i ./videos -o ./out --resume
 > Note: `xmake run encro` passes extra arguments directly to the program;
 > do not use `--` before them.
 
+## Where encro keeps its working files
+
+During a run, encro writes intermediates to three places:
+
+- `<work-root>\.encro\` — the hidden work directory at the output root (or
+  the inputs' common ancestor, or `--output` when given): per-task video
+  segments (`segments\`), the picture compression cache (`compress_q<N>\`)
+  and the job-state file (`job-state.json`). On success the per-task segment
+  dirs and the compression cache are removed; the directory itself is kept so
+  an interrupted run can be continued with `--resume`. Dot-prefixed names
+  keep it invisible on POSIX; on Windows it carries the Hidden attribute.
+- `%TEMP%\encro\scratch\` — per-run transient files (probe segments,
+  VMAF/SSIM logs, progress files). Entries untouched for over 24 hours are
+  swept at startup.
+- `%LOCALAPPDATA%\encro\` — rotating logs and the probe cache.
+
+> **Breaking change:** the default job-state path moved to
+> `<work-root>\.encro\job-state.json`. Pass `--state-file` for a custom
+> location. Multiple inputs without a common directory (e.g. cross-drive)
+> now require `--output`.
+
 ## Usage
 
 | Flag | Description |

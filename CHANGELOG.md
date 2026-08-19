@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.0-alpha.2] - 2026-08-19
+
+### Added
+
+- `preview` renders an original-versus-encoded comparison video, and accepts a single input to derive the encoded path itself.
+- Encoding plans are probed and printed before work starts, and `--dry-run` stops after printing them.
+- Probe results are cached, so a repeated run over the same inputs skips re-probing.
+- Duplicate media is stored once when packing, instead of once per output archive.
+- Structured log records correlate an item's stages — every record carries the same per-run `run_id`, and task records name the task and its input — so a single item's history can be read out of an interleaved log.
+- `encro` builds and runs on POSIX systems, not only Windows.
+
+### Changed
+
+- **Breaking:** the default job-state file moved into a hidden `.encro` directory beside the work root, and multiple inputs without a common parent directory now require `--output` instead of falling back to a temporary directory.
+- Picture compression resumes: an interrupted JPEG pass continues where it stopped rather than starting over.
+- Video encoding efficiency improved, and NVENC quality is tuned per resolution.
+- The plan output was rewritten to be readable, and diagnostics from failed piped runs no longer interleave bar frames.
+- CLI parsing accepts positional inputs alongside `-i` / `-I`.
+
+### Fixed
+
+- Errors that previously vanished in quiet or non-interactive runs are now visible in every mode.
+
 ## [2.0.0-alpha.1] - 2026-08-03
 
 ### Added
@@ -151,7 +174,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.1...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.2...HEAD
+[2.0.0-alpha.2]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.1...v2.0.0-alpha.2
 [2.0.0-alpha.1]: https://github.com/Arteiimis/encro/compare/v1.7.0...v2.0.0-alpha.1
 [1.7.0]: https://github.com/Arteiimis/encro/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/Arteiimis/encro/compare/v1.5.0...v1.6.0

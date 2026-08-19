@@ -1,5 +1,6 @@
 #include "video/video_quality.h"
 
+#include "core/work_dirs.h"
 #include "utils/utils.h"
 
 #include "logging/log_tags.h"
@@ -357,7 +358,8 @@ auto measureSegmentQuality(
 ) -> eh::Result<SegmentScores> {
   if (durationUs == 0) { return eh::makeError("Segment duration must be non-zero."); }
 
-  auto const logDir = fs::temp_directory_path();
+  workdirs::ensureScratchDir();
+  auto const logDir = workdirs::scratchDir();
   auto const vmafLog = logDir / std::format("vmaf_{}.json", getUUID());
   auto const ssimStats = logDir / std::format("ssim_{}.txt", getUUID());
   auto const removeLogs = [&] {

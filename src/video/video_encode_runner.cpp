@@ -76,6 +76,7 @@ auto failEncoding(appctx::EncodingState& state, std::string const& error) -> boo
 
 auto prepareEncodeExecution(appctx::EncodingState& state)
   -> eh::Result<EncodeExecutionPlan> {
+  workdirs::ensureScratchDir();
   auto progressFilePath = fs::path{};
   auto outputPath = std::optional<fs::path>{};
   auto plannedOutputFile = std::optional<fs::path>{};
@@ -83,7 +84,7 @@ auto prepareEncodeExecution(appctx::EncodingState& state)
     auto lock = std::scoped_lock{state.mtx};
     if (!state.progressFilePath.has_value()) {
       state.progressFilePath =
-        fs::temp_directory_path() / std::format("progress_{}.txt", getUUID());
+        workdirs::scratchDir() / std::format("progress_{}.txt", getUUID());
     }
     progressFilePath = state.progressFilePath.value();
     outputPath = state.outputPath;
@@ -327,17 +328,31 @@ auto encodeWebpWithTargetSize(
     logging::ScopedErrorContext attemptCtx("webp.attempt", attemptDetail);
 
     auto const result = runWebpAdaptiveAttempt(appCtx, encodeCtx, outputFile, quality);
-    if (result == WebpAttemptResult::Succeeded) { return true; }
+    if (result == WebpAttemptResult::Succeeded) {
+      // The progress file is only needed while ffmpeg runs; drop it so the
+      // final successful attempt leaves nothing behind (the per-attempt
+      // clearWebpStaleFiles only cleans at the *start* of the next attempt).
+      auto ec = std::error_code{};
+      fs::remove(encodeCtx.progressFilePath, ec);
+      return true;
+    }
     if (result == WebpAttemptResult::Aborted) {
       if (stopsignal::isStopRequested()) {
         return abortWebpForStopRequest(encodeCtx, outputFile);
       }
+      clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
       return false;
     }
   }
 
-  if (webpMinQualityFallback(encodeCtx, outputFile)) { return true; }
+  if (webpMinQualityFallback(encodeCtx, outputFile)) {
+    // Fallback keeps the output; only the progress file is dropped.
+    auto ec = std::error_code{};
+    fs::remove(encodeCtx.progressFilePath, ec);
+    return true;
+  }
 
+  clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
   LOG_ERROR(
     "WebP adaptive encoding failed: input={} output={}",
     encodeCtx.inputVidPath.string(),
@@ -552,7 +567,9 @@ auto runSegmentedEncoding(
   auto const taskId = state.actionId.value_or(
     std::format("encode:{}", collisionnaming::stablePathString(state.inputPath))
   );
-  auto const segmentDir = videoseg::segmentDirForTask(taskId);
+  auto const workRootRes = workdirs::resolveWorkRoot(ctx.config);
+  if (!workRootRes) { return failEncoding(state, workRootRes.error()); }
+  auto const segmentDir = videoseg::segmentDirForTask(*workRootRes, taskId);
 
   auto resumeSegment = std::uint64_t{0};
   auto resumeTimeUs = std::uint64_t{0};
