@@ -3,8 +3,14 @@
 # Keeps the compiler/apt environment identical everywhere.
 set -e
 
-sudo apt-get update
-sudo apt-get install -y wget ca-certificates
+# apt's default is NO per-connection timeout: a stalled mirror connection
+# wedges `apt-get update` forever (seen twice: all three CI jobs hung in the
+# install step until the step timeout killed them). Bound each connection and
+# let apt retry so a flaky network fails fast instead of hanging.
+APT_OPTS="-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3"
+
+sudo apt-get update $APT_OPTS
+sudo apt-get install -y $APT_OPTS wget ca-certificates
 
 # clang-18's __cpp_concepts=201907L makes libstdc++ <expected> empty
 # (fixed in clang 19, PR #87998); ubuntu 24.04 only ships clang-18, so use
@@ -32,8 +38,8 @@ for attempt in 1 2 3; do
   fi
 done
 echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm-toolchain.list
-sudo apt-get update
-sudo apt-get install -y clang-19 g++-14 llvm-19 lld-19 ffmpeg fonts-dejavu-core
+sudo apt-get update $APT_OPTS
+sudo apt-get install -y $APT_OPTS clang-19 g++-14 llvm-19 lld-19 ffmpeg fonts-dejavu-core
 
 # Same-version llvm tools for the coverage plugin (looks up unversioned names)
 sudo ln -sf /usr/bin/ld.lld-19 /usr/local/bin/ld.lld
