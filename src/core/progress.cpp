@@ -315,6 +315,18 @@ void ProgressContext::render() {
   // newlines/cursor escapes directly to std::cout, bypassing per-bar streams.
   if (!terminal::streamIsTerminal(terminal::Stream::Stdout)) { return; }
   manager_.print_progress();
+  renderedBarCount_ = bars_.size();
+}
+
+void ProgressContext::eraseBars() {
+  auto lock = std::scoped_lock{mtx_};
+  if (!terminal::streamIsTerminal(terminal::Stream::Stdout)) { return; }
+  for (std::size_t index = 0; index < renderedBarCount_; ++index) {
+    indicators::move_up(1);
+    indicators::erase_line();
+  }
+  renderedBarCount_ = 0;
+  std::cout << std::flush;
 }
 
 auto ProgressContext::manager() -> Manager& {

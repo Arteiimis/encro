@@ -531,6 +531,37 @@ auto writeSizedFile(fs::path const& path, std::uintmax_t size) -> void {
 }  // namespace
 
 TEST_CASE(
+  "runProbePhase flags plans whose estimate exceeds the source",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const kMegabyte = std::uintmax_t{1'048'576};
+  auto const small = temp.path / "small.mp4";  // est. ~10 MB > 2 MB source
+  auto const big = temp.path / "big.mp4";      // est. ~10 MB < 20 MB source
+  writeSizedFile(small, 2 * kMegabyte);
+  writeSizedFile(big, 20 * kMegabyte);
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillProbeContext(ctx, temp.path, small, "100.0", "96.0", envs);
+  envs.push_back(
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", std::to_string(kMegabyte))
+  );
+
+  auto const inputs = std::vector<fs::path>{small, big};
+  auto const result = encodeprobe::runProbePhase(ctx, inputs);
+  REQUIRE(result.has_value());
+
+  auto const smallPlan = result->plans.find(small);
+  auto const bigPlan = result->plans.find(big);
+  REQUIRE(smallPlan != result->plans.end());
+  REQUIRE(bigPlan != result->plans.end());
+  CHECK(smallPlan->second.skipEncode);
+  CHECK_FALSE(bigPlan->second.skipEncode);
+}
+
+TEST_CASE(
   "printProbePlan renders a sorted table with warnings at the bottom",
   "[encode-probe]"
 ) {
@@ -562,7 +593,8 @@ TEST_CASE(
      .metric = videoquality::QualityMetric::Vmaf,
      .p5 = 95.04,
      .estimatedBytes = 2 * kMegabyte,
-     .probed = true},
+     .probed = true,
+     .skipEncode = true},
   };
 
   auto const out = temp.path / "stdout.txt";
@@ -578,6 +610,10 @@ TEST_CASE(
   CHECK(text.find("CQ") != std::string::npos);
   CHECK(text.find("Est.Size") != std::string::npos);
   CHECK(text.find("Ratio") != std::string::npos);
+  // The table is framed by rules above and below.
+  CHECK(text.find("\xE2\x94\x80") != std::string::npos);
+  // Skipped (est. > source) rows carry a marker after the ratio column.
+  CHECK(text.find("(skipped: est. > source)") != std::string::npos);
   // Normal rows sorted by name; warning row last with a marker.
   auto const alphaPos = text.find("alpha.mp4");
   auto const betaPos = text.find("beta.mp4");
@@ -718,8 +754,9 @@ TEST_CASE(
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
+  writeSizedFile(inputPath, 1'048'576);  // sized source: the probe estimate fits
   ctx.config.yesToAll = true;
-  ctx.config.verbose = true;  // no progress bars in tests
+  ctx.config.verbose = true;             // no progress bars in tests
 
   auto const logPath = temp.path / "fake_tool.log";
   ScopedEnvVar logEnv{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
@@ -768,6 +805,7 @@ TEST_CASE(
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   fillProbeContext(ctx, temp.path, inputPath, "100.0", "93.0", envs);
+  writeSizedFile(inputPath, 1'048'576);  // sized source: the probe estimate fits
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
 
@@ -824,6 +862,49 @@ TEST_CASE(
   CHECK(outcome.results.value().empty());
   CHECK_FALSE(fs::exists(outputFile));
   CHECK(leftoverProbeDirs().empty());
+}
+
+TEST_CASE(
+  "runEncodingTasks skips videos whose probe estimate exceeds the source",
+  "[encode-probe][video-batch-execution]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.mp4";
+  testutils::touchFile(inputPath);
+  auto const outputFile = temp.path / "encoded" / "sample.mp4";
+
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
+  // Tiny source + large fake segments: the estimate exceeds the source, so
+  // probing drops the file from the encode stage.
+  envs.push_back(
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", std::to_string(1'048'576))
+  );
+  ctx.config.yesToAll = true;
+  ctx.config.verbose = true;
+
+  auto const logPath = temp.path / "ffmpeg_invocations.log";
+  ScopedEnvVar logEnv{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
+
+  auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
+  auto const outcome = videobatch::runEncodingTasks(
+    ctx,
+    {inputPath},
+    plannedOutputFiles,
+    videobatch::ActionIdMap{},
+    1,
+    0
+  );
+
+  REQUIRE(outcome.results.has_value());
+  CHECK(outcome.results.value().empty());
+  CHECK_FALSE(fs::exists(outputFile));
+  // Probe segment encodes ran, but no production segment encodes.
+  auto const log = testutils::readTextFile(logPath);
+  CHECK(log.find("seg_0.ts") == std::string::npos);
 }
 
 TEST_CASE("runEncodingTasks skips probing entirely with --crf", "[encode-probe]") {
