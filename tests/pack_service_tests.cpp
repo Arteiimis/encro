@@ -237,8 +237,13 @@ TEST_CASE(
   auto const result = testService.packGroups(plan);
 
   REQUIRE(result);
+  // The finalizing spinner emits "Finalizing |"-style animation frames on a
+  // 120 ms cadence while the archive closes; under load the archive can take
+  // longer than one tick, so tolerate any trailing animation frames after the
+  // deterministic packing sequence.
+  REQUIRE(statusTexts.size() >= 6);
   CHECK(
-    statusTexts
+    std::vector<std::string>{statusTexts.begin(), statusTexts.begin() + 6}
     == std::vector<std::string>{
       "Packing: archive 0/1 [file 0/3]",
       "Packing: archive 0/1 [file 1/3]",
@@ -248,6 +253,9 @@ TEST_CASE(
       "Packed: archive 1/1 complete",
     }
   );
+  for (auto it = statusTexts.begin() + 6; it != statusTexts.end(); ++it) {
+    CHECK(it->starts_with("Finalizing "));
+  }
 }
 
 TEST_CASE(
