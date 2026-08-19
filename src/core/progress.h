@@ -59,6 +59,11 @@ public:
   void setTone(std::size_t barIndex, Tone tone);
   void resetEta(std::size_t barIndex);
 
+  // Clears the rendered bar lines from the terminal. The bars stay alive in
+  // the manager (it holds references to them), so no render call may follow
+  // until the context is destroyed.
+  void eraseBars();
+
   auto manager() -> Manager&;
   auto manager() const -> Manager const&;
 
@@ -72,6 +77,9 @@ private:
   std::vector<Tone> tones_;
   std::vector<std::string> postfixes_;
   std::vector<EtaEstimator> etas_;
+  // Bars rendered on the last render pass; bars added but never rendered
+  // (all-cache-hit probe runs) leave no lines to erase.
+  std::size_t renderedBarCount_ = 0;
 };
 
 auto makeBar(std::string_view promptText, Tone tone = Tone::Default) -> BarPtr;

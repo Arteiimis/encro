@@ -115,9 +115,10 @@ struct ProbePlan {
   videoquality::QualityMetric metric = videoquality::QualityMetric::Vmaf;
   std::optional<double> p5;
   std::optional<std::uintmax_t> estimatedBytes;
-  bool probed = false;     // false: skipped (short video / scoring failed)
+  bool probed = false;      // false: skipped (short video / scoring failed)
   bool unreachableFloor = false;
-  bool fromCache = false;  // decision reused from the persisted probe cache
+  bool fromCache = false;   // decision reused from the persisted probe cache
+  bool skipEncode = false;  // estimatedBytes > source size; excluded from encoding
 };
 
 struct
