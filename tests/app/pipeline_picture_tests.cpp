@@ -1,5 +1,6 @@
 #include "app/pipeline.h"
 #include "core/job_state.h"
+#include "core/work_dirs.h"
 #include "infra/stop_signal.h"
 #include "test_utils.h"
 
@@ -144,7 +145,7 @@ TEST_CASE("picture pipeline skips job state by default", "[pipeline]") {
   ctx.config.yesToAll = true;
   ctx.config.inputPath = inputDir;
 
-  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config);
+  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config).value();
   auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
@@ -568,7 +569,7 @@ TEST_CASE(
   ctx.config.inputPath = inputDir;
   ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
 
-  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config);
+  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config).value();
   auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
@@ -602,8 +603,8 @@ TEST_CASE(
   ctx.config.inputPath = inputDir;
   ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
 
-  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config);
-  auto const cacheDir = inputDir / "packed" / ".compress_tmp_q5";
+  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config).value();
+  auto const cacheDir = workdirs::compressCacheDir(inputDir, 5);
 
   auto requester = std::jthread([](std::stop_token token) {
     std::this_thread::sleep_for(1200ms);
@@ -681,7 +682,7 @@ TEST_CASE(
     listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
   REQUIRE(entryNames.size() == 2);
   for (auto const& name: entryNames) { CHECK(name.ends_with(".jpg")); }
-  CHECK_FALSE(fs::exists(inputDir / "packed" / ".compress_tmp_q5"));
+  CHECK_FALSE(fs::exists(workdirs::compressCacheDir(inputDir, 5)));
 }
 
 TEST_CASE(
@@ -788,9 +789,9 @@ TEST_CASE(
   REQUIRE(canceledRes);
   CHECK(canceledRes.value() == stopsignal::kCanceledExitCode);
   stopsignal::reset();
-  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config);
+  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config).value();
   CHECK(fs::exists(stateFilePath));
-  CHECK(fs::exists(inputDir / "packed" / ".compress_tmp_q5"));
+  CHECK(fs::exists(workdirs::compressCacheDir(inputDir, 5)));
   fs::remove(stateFilePath);
 
   auto const countingScript = temp.path / "fake_ffmpeg_count.cmd";
@@ -849,7 +850,7 @@ TEST_CASE(
   REQUIRE(canceledRes);
   CHECK(canceledRes.value() == stopsignal::kCanceledExitCode);
   stopsignal::reset();
-  CHECK(fs::exists(inputDir / "packed" / ".compress_tmp_q5"));
+  CHECK(fs::exists(workdirs::compressCacheDir(inputDir, 5)));
 
   auto const countingScript = temp.path / "fake_ffmpeg_count.cmd";
   auto const countFile = temp.path / "count.txt";
@@ -869,7 +870,7 @@ TEST_CASE(
   REQUIRE(rerunRes);
   CHECK(rerunRes.value() == 0);
   CHECK(readInvocationCount(countFile) == 2);
-  CHECK_FALSE(fs::exists(inputDir / "packed" / ".compress_tmp_q5"));
+  CHECK_FALSE(fs::exists(workdirs::compressCacheDir(inputDir, 5)));
 }
 
 TEST_CASE(
@@ -908,7 +909,7 @@ TEST_CASE(
   REQUIRE(canceledRes);
   CHECK(canceledRes.value() == stopsignal::kCanceledExitCode);
   stopsignal::reset();
-  CHECK(fs::exists(inputDir / "packed" / ".compress_tmp_q5"));
+  CHECK(fs::exists(workdirs::compressCacheDir(inputDir, 5)));
 
   auto const countingScript = temp.path / "fake_ffmpeg_count.cmd";
   auto const countFile = temp.path / "count.txt";
@@ -929,6 +930,6 @@ TEST_CASE(
   REQUIRE(rerunRes);
   CHECK(rerunRes.value() == 0);
   CHECK(readInvocationCount(countFile) == 2);
-  CHECK_FALSE(fs::exists(inputDir / "packed" / ".compress_tmp_q5"));
+  CHECK_FALSE(fs::exists(workdirs::compressCacheDir(inputDir, 5)));
 }
 #endif

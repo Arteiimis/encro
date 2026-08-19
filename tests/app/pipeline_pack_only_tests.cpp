@@ -55,7 +55,7 @@ TEST_CASE("pack-only pipeline skips job state by default", "[pipeline]") {
   ctx.config.processType = "video";
   ctx.config.inputPath = inputDir;
 
-  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config);
+  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config).value();
   auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);

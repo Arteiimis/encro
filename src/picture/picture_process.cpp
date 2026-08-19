@@ -5,6 +5,7 @@
 #include "core/collision_naming.h"
 #include "core/job_state.h"
 #include "core/media_scanner.h"
+#include "core/work_dirs.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
 #include "pack/pack.h"
@@ -36,10 +37,6 @@ using stopsignal::canceledExitCodeForPromptAbort;
 constexpr auto kMaxPicturesPerPack = std::size_t{2000};
 constexpr auto kPictureArchiveBaseName = std::string_view{"pics"};
 constexpr auto kDefaultPictureCompressQuality = 2;
-
-auto buildCompressCacheDir(fs::path const& outputDir, int quality) -> fs::path {
-  return outputDir / std::format(".compress_tmp_q{}", quality);
-}
 
 auto buildFlatPictureEntryName(std::string_view entryName) -> std::string {
   return std::format("1000__{}", entryName);
@@ -360,30 +357,38 @@ auto scanPictures(appctx::AppContext& ctx, fs::path const& dirPath)
   return scannedPics.value();
 }
 
-// Preps the cache directory: clears stale .compress_tmp* siblings from
-// previous runs and rebuilds the current temp dir unless the resume cache
-// matches. Never clears on a stop-requested resume (cache must survive).
+// Preps the cache directory: clears stale compress_* siblings (other
+// qualities) from the hidden .encro dir and one-time-removes legacy
+// .compress_tmp* dirs from the packed output dir, then rebuilds the current
+// temp dir unless the resume cache matches. Never clears on a stop-requested
+// resume (cache must survive).
 auto prepareCompressTempDir(
   fs::path const& outputDir,
+  fs::path const& workRoot,
   fs::path const& tempDir,
   bool jobStateMatched
 ) -> void {
   auto ec = std::error_code{};
   auto const keepCache = jobStateMatched && fs::exists(tempDir, ec) && !ec;
-  if (fs::is_directory(outputDir, ec) && !ec) {
-    for (auto const& de: fs::directory_iterator(outputDir)) {
+  auto removeSiblings = [&](fs::path const& parent, std::string_view prefix) {
+    if (!fs::is_directory(parent, ec) || ec) { return; }
+    for (auto const& de: fs::directory_iterator(parent)) {
       auto deEc = std::error_code{};
       if (!de.is_directory(deEc) || deEc) { continue; }
-      if (
-        de.path().filename().string().starts_with(".compress_tmp") && de.path() != tempDir
-      ) {
+      if (de.path().filename().string().starts_with(prefix) && de.path() != tempDir) {
         fs::remove_all(de.path(), deEc);
       }
     }
-  }
+  };
+  // New layout: sibling quality caches under the hidden .encro dir.
+  removeSiblings(workdirs::encroDir(workRoot), "compress_");
+  // Legacy layout: .compress_tmp* caches inside the old packed output dir
+  // (historical location) are removed once; the new cache never lives there.
+  removeSiblings(outputDir, ".compress_tmp");
   if (!keepCache) {
     fs::remove_all(tempDir, ec);
     fs::create_directories(tempDir);
+    workdirs::setHiddenOnEncroDir(tempDir);
   }
 }
 
@@ -544,11 +549,13 @@ auto executeCompressPackWorkflow(
     return canceledExitCodeForPromptAbort();
   }
 
-  auto const tempDir = buildCompressCacheDir(outputDir, quality);
+  auto const workRootRes = workdirs::resolveWorkRoot(ctx.config);
+  if (!workRootRes) { return eh::makeError("{}", workRootRes.error()); }
+  auto const tempDir = workdirs::compressCacheDir(*workRootRes, quality);
   auto ec = std::error_code{};
   fs::create_directories(outputDir, ec);
 
-  prepareCompressTempDir(outputDir, tempDir, ctx.runtime.jobStateMatched);
+  prepareCompressTempDir(outputDir, *workRootRes, tempDir, ctx.runtime.jobStateMatched);
 
   auto summaryPics = std::vector<fs::path>{};
   if (ctx.config.pictureFolderSummary) {

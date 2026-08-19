@@ -628,7 +628,7 @@ TEST_CASE(
   auto const total = e2e::runEncro(
     totalArgs,
     std::nullopt,
-    {{"ENCRO_FAKE_FFMPEG_FAIL_MATCH", ".compress_tmp"}}
+    {{"ENCRO_FAKE_FFMPEG_FAIL_MATCH", "compress_q"}}
   );
   REQUIRE(total.exitCode == 1);
   CHECK(total.stdoutText.find("All picture compressions failed") != std::string::npos);
@@ -1823,7 +1823,7 @@ TEST_CASE(
     },
     std::nullopt,
     {
-      {"ENCRO_FAKE_FFMPEG_FAIL_MATCH", ".compress_tmp"},
+      {"ENCRO_FAKE_FFMPEG_FAIL_MATCH", "compress_q"},
 #if defined(_WIN32)
       {"LOCALAPPDATA", logRoot.string()}
 #else
@@ -2138,14 +2138,16 @@ TEST_CASE(
   auto const outputDir = temp.path / "out";
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
-  // Probe temp dirs are named encro_probe_* under the system temp dir; count
-  // them before/after instead of asserting per dir entry, so the assertion
-  // count does not scale with unrelated files on that machine (Windows dev
-  // boxes vs clean CI runners: ~1200 vs ~7) and reports stay comparable.
+  // Probe temp dirs now live under the scratch dir (%TEMP%/encro/scratch) as
+  // probe_*; count them before/after instead of asserting per dir entry, so
+  // the assertion count does not scale with unrelated files on that machine
+  // and reports stay comparable across machines.
   auto const probeArtifactCount = []() {
     auto count = 0;
-    for (auto const& entry: fs::directory_iterator{fs::temp_directory_path()}) {
-      if (entry.path().filename().string().starts_with("encro_probe_")) { ++count; }
+    auto const scratch = fs::temp_directory_path() / "encro" / "scratch";
+    if (!fs::is_directory(scratch)) { return count; }
+    for (auto const& entry: fs::directory_iterator{scratch}) {
+      if (entry.path().filename().string().starts_with("probe_")) { ++count; }
     }
     return count;
   };
@@ -2166,6 +2168,9 @@ TEST_CASE(
   CHECK(result.stdoutText.find("Encoding plan") != std::string::npos);
   // No output files and no job state: dry-run leaves nothing behind.
   CHECK_FALSE(fs::exists(outputDir));
+  // Strict equality: the probe root is RAII-removed, so a leak would surface
+  // here. A zero-count lambda (e.g. after another scratch move) must fail
+  // rather than silently pass as 0 <= 0.
   CHECK(probeArtifactCount() == probesBefore);
 }
 

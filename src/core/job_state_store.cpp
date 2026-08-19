@@ -1,5 +1,7 @@
 #include "core/job_state_detail.h"
 
+#include "core/work_dirs.h"
+
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 #include "logging/setup.h"
@@ -73,6 +75,7 @@ auto Store::initialize(
   if (discardedMismatched != nullptr) { *discardedMismatched = false; }
   auto ec = std::error_code{};
   fs::create_directories(stateFilePath_.parent_path(), ec);
+  workdirs::setHiddenOnEncroDir(stateFilePath_.parent_path());
 
   auto const currentConfig = buildConfigSnapshot(config);
   auto const stateExists = fs::exists(stateFilePath_, ec) && !ec;

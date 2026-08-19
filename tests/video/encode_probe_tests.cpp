@@ -1,4 +1,5 @@
 #include "core/display_text.h"
+#include "core/work_dirs.h"
 #include "video/encode_probe.h"
 #include "video/encode_config.h"
 #include "video/video_batch_execution.h"
@@ -420,15 +421,17 @@ auto fillProbeContext(
 
   ctx.config.outputFormat = "mp4";
   ctx.config.minVmaf = 95;
+  ctx.config.inputPath = inputPath;
   testutils::touchFile(inputPath);
 }
 
 auto leftoverProbeDirs() -> std::vector<fs::path> {
   auto dirs = std::vector<fs::path>{};
-  for (auto const& entry: fs::directory_iterator{fs::temp_directory_path()}) {
-    if (
-      entry.is_directory() && entry.path().filename().string().starts_with("encro_probe_")
-    ) {
+  auto const scratchRoot = workdirs::scratchDir();
+  auto ec = std::error_code{};
+  if (!fs::is_directory(scratchRoot, ec) || ec) { return dirs; }
+  for (auto const& entry: fs::directory_iterator{scratchRoot}) {
+    if (entry.is_directory() && entry.path().filename().string().starts_with("probe_")) {
       dirs.push_back(entry.path());
     }
   }
@@ -854,8 +857,8 @@ TEST_CASE("runEncodingTasks skips probing entirely with --crf", "[encode-probe]"
   CHECK(fs::exists(outputFile));
 
   auto const log = testutils::readTextFile(logPath);
-  // No probe segment encodes (they live under encro_probe_ temp dirs) and no
-  // scoring invocations (log_path=).
-  CHECK(log.find("encro_probe_") == std::string::npos);
+  // No probe segment encodes (probe dirs now live under the scratch dir) and
+  // no scoring invocations (log_path=).
+  CHECK(leftoverProbeDirs().empty());
   CHECK(log.find("log_path=") == std::string::npos);
 }
