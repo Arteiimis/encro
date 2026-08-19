@@ -106,9 +106,10 @@ auto lastWriteTimeMs(fs::path const& path) -> std::uint64_t {
   auto ec = std::error_code{};
   auto const mtime = fs::last_write_time(path, ec);
   if (ec) { return 0; }
-  auto const sinceEpoch = std::chrono::time_point_cast<std::chrono::milliseconds>(
-    decltype(mtime)::clock::to_utc(mtime)
-  );
+  // file_clock's epoch differs per platform (1601 vs 1970) but is constant
+  // locally, so time_since_epoch is comparable within one machine's cache and
+  // avoids to_utc()/from_utc(), which libstdc++ headers do not provide.
+  auto const sinceEpoch = std::chrono::time_point_cast<std::chrono::milliseconds>(mtime);
   return static_cast<std::uint64_t>(sinceEpoch.time_since_epoch().count());
 }
 
