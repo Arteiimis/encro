@@ -57,6 +57,19 @@ auto readEnvSize(std::string const& key, std::uintmax_t defaultValue) -> std::ui
   return defaultValue;
 }
 
+#if defined(_WIN32)
+  #include <process.h>
+#endif
+
+// Stable per-process id for concurrency proofs (Windows has no getpid).
+auto processId() -> long {
+#if defined(_WIN32)
+  return static_cast<long>(::_getpid());
+#else
+  return static_cast<long>(::getpid());
+#endif
+}
+
 auto hasArg(int argc, char* argv[], std::string_view needle) -> bool {
   for (auto index = 1; index < argc; ++index) {
     if (std::string_view{argv[index]} == needle) { return true; }
@@ -281,7 +294,32 @@ auto runFakeFfmpeg(int argc, char* argv[]) -> int {
   }
 
   auto const delayMs = readEnvInt("ENCRO_FAKE_FFMPEG_DELAY_MS", 0);
-  if (delayMs > 0) { std::this_thread::sleep_for(std::chrono::milliseconds(delayMs)); }
+  if (delayMs > 0) {
+    auto const concurrencyDir = readEnv("ENCRO_FAKE_FFMPEG_CONCURRENCY_DIR");
+    if (concurrencyDir) {
+      // Record [start, end] into a per-process file under the given directory
+      // so tests can assert that two delayed invocations actually overlap
+      // (parallel scheduling proof). Per-process files avoid cross-process
+      // append races on a shared file. steady_clock timestamps are
+      // comparable across processes.
+      auto const file = fs::path{concurrencyDir.value()} / std::to_string(processId());
+      auto const nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::steady_clock::now().time_since_epoch()
+      )
+                           .count();
+      {
+        auto out = std::ofstream{file, std::ios::app};
+        if (out.is_open()) { out << nowMs << "\n"; }
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+      {
+        auto out = std::ofstream{file, std::ios::app};
+        if (out.is_open()) { out << nowMs + delayMs << "\n"; }
+      }
+    } else {
+      std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+    }
+  }
 
   if (invocation.progressFile.has_value()) {
     auto const frameCount = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_FRAMES", 10);

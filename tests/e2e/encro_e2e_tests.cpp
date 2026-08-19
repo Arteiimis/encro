@@ -689,10 +689,18 @@ TEST_CASE(
   e2e::writeTextFile(inputDir / "beta.avi", "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
-  auto const env = std::map<std::string, std::string>{{{
-    "ENCRO_FAKE_FFMPEG_DELAY_MS",
-    "3000",
-  }}};
+  auto const concurrencyDir = temp.path / "concurrency";
+  fs::create_directories(concurrencyDir);
+  auto const env = std::map<std::string, std::string>{
+    {{
+       "ENCRO_FAKE_FFMPEG_DELAY_MS",
+       "3000",
+     },
+     {
+       "ENCRO_FAKE_FFMPEG_CONCURRENCY_DIR",
+       concurrencyDir.string(),
+     }}
+  };
   auto const args = std::vector<std::string>{
     "-y",
     "-i",
@@ -707,20 +715,42 @@ TEST_CASE(
     toolchain.root.string(),
   };
 
-  auto const started = std::chrono::steady_clock::now();
   auto const result = e2e::runEncro(args, std::nullopt, env);
-  auto const elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::steady_clock::now() - started
-  )
-                           .count();
 
   REQUIRE_SUCCESS(result);
   auto const outputFiles = listFilesWithExtension(outputDir, ".webp");
   REQUIRE(outputFiles.size() == 2);
   CHECK(fs::file_size(outputFiles[0]) > 0);
   CHECK(fs::file_size(outputFiles[1]) > 0);
-  // Two 3 s encodes in parallel finish well under the 6 s serial time.
-  CHECK(elapsedMs < 5500);
+  // The two 3 s encodes must have overlapped: the fake tool records each
+  // delayed invocation's [start, end] window in its own file under
+  // concurrencyDir, and parallel scheduling shows up as a long overlap
+  // between two processes. Wall-clock thresholds would couple the assertion
+  // to machine load (parallel shards, busy CI), so the overlap itself is the
+  // load-independent proof.
+  auto intervals = std::map<long, std::pair<std::int64_t, std::int64_t>>{};
+  for (auto const& entry: fs::directory_iterator{concurrencyDir}) {
+    if (!entry.is_regular_file()) { continue; }
+    auto const pid = std::stol(entry.path().filename().string());
+    auto lines = std::vector<std::int64_t>{};
+    auto stream = std::ifstream{entry.path()};
+    for (auto ts = std::int64_t{0}; stream >> ts;) { lines.push_back(ts); }
+    if (lines.size() >= 2) { intervals[pid] = {lines.front(), lines.back()}; }
+  }
+  auto maxOverlapMs = std::int64_t{0};
+  auto pids = std::vector<long>{};
+  for (auto const& [pidA, a]: intervals) {
+    pids.push_back(pidA);
+    for (auto const& [pidB, b]: intervals) {
+      if (pidA >= pidB) { continue; }
+      auto const overlap = std::min(a.second, b.second) - std::max(a.first, b.first);
+      maxOverlapMs = std::max(maxOverlapMs, overlap);
+    }
+  }
+  // Two fully-overlapped 3 s encodes share ~3 s; a serialized execution
+  // leaves zero overlap. Allow scheduling slack.
+  CHECK(pids.size() >= 2);
+  CHECK(maxOverlapMs >= 2500);
 }
 
 TEST_CASE(
