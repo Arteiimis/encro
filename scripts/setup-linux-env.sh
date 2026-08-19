@@ -14,10 +14,12 @@ sudo apt-get install -y wget ca-certificates
 # proxy-CD5 copy (apt fails with NO_PUBKEY; seen once on one runner).
 # Note: gpg --keyring does NOT parse ASCII-armor files, so verify the raw
 # stream via --show-keys before tee'ing it into trusted.gpg.d.
+# --timeout: a stalled connection would otherwise hang the step forever
+# (wget's default is no timeout); seen wedging all three CI jobs.
 KEYRING=/etc/apt/trusted.gpg.d/apt.llvm.org.asc
 FPR=15CF4D18AF4F7421
 for attempt in 1 2 3; do
-  data=$(wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key) || { sleep 5; continue; }
+  data=$(wget -qO- --timeout=30 https://apt.llvm.org/llvm-snapshot.gpg.key) || { sleep 5; continue; }
   if printf '%s' "$data" | gpg --batch --show-keys 2>/dev/null | grep -q "$FPR"; then
     printf '%s' "$data" | sudo tee "$KEYRING" > /dev/null
     break
