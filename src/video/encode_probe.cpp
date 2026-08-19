@@ -690,6 +690,22 @@ auto flushCachePlans(
   if (!updates.empty()) { probecache::save(updates); }
 }
 
+// Re-encoding would not shrink the file when the estimate exceeds the source
+// size; such plans are flagged and excluded from the encode stage.
+auto probePlanRatio(ProbePlan const& plan) -> std::optional<double> {
+  if (!plan.estimatedBytes.has_value()) { return std::nullopt; }
+  auto ec = std::error_code{};
+  auto const sourceBytes = fs::file_size(plan.inputPath, ec);
+  if (sourceBytes == 0) { return std::nullopt; }
+  return static_cast<double>(plan.estimatedBytes.value())
+    / static_cast<double>(sourceBytes);
+}
+
+auto estimateExceedsSource(ProbePlan const& plan) -> bool {
+  auto const ratio = probePlanRatio(plan);
+  return ratio.has_value() && ratio.value() > 1.0;
+}
+
 auto collectProbeResults(
   std::span<fs::path const> vids,
   std::vector<ProbePlan> const& plans,
@@ -709,7 +725,8 @@ auto collectProbeResults(
   }
   for (auto index = std::size_t{0}; index < vids.size(); ++index) {
     if (!plans[index].probed && measured[index] == 0) { continue; }
-    auto const& plan = plans[index];
+    auto plan = plans[index];
+    plan.skipEncode = estimateExceedsSource(plan);
     result.plans[vids[index]] = plan;
     if (plan.unreachableFloor) {
       result.attentionWarnings.push_back(
@@ -726,24 +743,16 @@ auto collectProbeResults(
   return result;
 }
 
-// Builds probe tasks, resolving cache hits up front: a hit fills plans[i]
-// with the persisted decision and is skipped; misses become tasks.
-auto buildProbeTasksWithCache(
+// Resolves cache hits up front: a hit fills plans[i] and is skipped; the
+// remaining indices become probe tasks. Kept separate from task building so
+// the slot bars can be sized to the actual task count.
+auto scanProbeCache(
   appctx::AppContext& ctx,
   std::span<fs::path const> vids,
   std::vector<probecache::Entry> const& cached,
-  fs::path const& probeRoot,
-  progress::ProgressContext& progressCtx,
-  std::vector<std::size_t> const& slotBars,
-  std::vector<std::atomic<float>>& slotProgress,
-  std::atomic_size_t& completed,
-  std::function<void()> const& updateOverall,
   std::vector<ProbePlan>& plans,
-  std::size_t workerCount,
   std::vector<std::size_t>& taskVids
-) -> std::vector<taskexec::TaskSpec> {
-  auto tasks = std::vector<taskexec::TaskSpec>{};
-  tasks.reserve(vids.size());
+) -> void {
   taskVids.clear();
   taskVids.reserve(vids.size());
 
@@ -765,6 +774,26 @@ auto buildProbeTasksWithCache(
         continue;
       }
     }
+    taskVids.push_back(index);
+  }
+}
+
+auto buildProbeTasks(
+  appctx::AppContext& ctx,
+  std::span<fs::path const> vids,
+  std::span<std::size_t const> taskVids,
+  fs::path const& probeRoot,
+  progress::ProgressContext& progressCtx,
+  std::vector<std::size_t> const& slotBars,
+  std::vector<std::atomic<float>>& slotProgress,
+  std::atomic_size_t& completed,
+  std::function<void()> const& updateOverall,
+  std::vector<ProbePlan>& plans,
+  std::size_t workerCount
+) -> std::vector<taskexec::TaskSpec> {
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(taskVids.size());
+  for (auto const index: taskVids) {
     tasks.push_back(buildProbeTaskSpec(
       ctx,
       vids,
@@ -778,13 +807,13 @@ auto buildProbeTasksWithCache(
       plans,
       workerCount
     ));
-    taskVids.push_back(index);
   }
   return tasks;
 }
 
 }  // namespace
 
+// NOLINTNEXTLINE(readability-function-size): cache scan + slot bars + task run; phases delimit blocks
 auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   -> eh::Result<ProbePhaseResult> {
   auto result = ProbePhaseResult{};
@@ -807,9 +836,14 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
         progress::Tone::Overall
       )}
     : std::nullopt;
-  // Slot bars mirror the encode bars: one per worker, reused across tasks.
-  auto const slotBars = initSlotBars(progressCtx, workerCount);
-  auto slotProgress = std::vector<std::atomic<float>>(workerCount);
+  // Slot bars mirror the encode bars: one per actual worker, reused across
+  // tasks. Sized after the cache scan so fewer files than workers do not
+  // leave idle bars on screen for the whole phase.
+  auto taskVids = std::vector<std::size_t>{};
+  scanProbeCache(ctx, vids, cached, plans, taskVids);
+  auto const slotCount = taskexec::resolveWorkerCount(taskVids.size(), workerCount);
+  auto const slotBars = initSlotBars(progressCtx, slotCount);
+  auto slotProgress = std::vector<std::atomic<float>>(slotCount);
   auto completed = std::atomic_size_t{0};
   auto const updateOverall = [&] {
     if (!overallBar.has_value()) { return; }
@@ -829,11 +863,10 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     );
   };
 
-  auto taskVids = std::vector<std::size_t>{};
-  auto tasks = buildProbeTasksWithCache(
+  auto tasks = buildProbeTasks(
     ctx,
     vids,
-    cached,
+    taskVids,
     *probeRoot,
     progressCtx,
     slotBars,
@@ -841,8 +874,7 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     completed,
     updateOverall,
     plans,
-    workerCount,
-    taskVids
+    workerCount
   );
 
   auto const runState = taskexec::runTasks({
@@ -852,10 +884,14 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     .hideCursor = true,
   });
 
+  progressCtx.eraseBars();
   if (stopsignal::isStopRequested()) {
     LOG_INFO("Probing aborted by stop request.");
     return eh::makeError("Probing canceled by user.");
   }
+
+  // The bars are gone; a single line replaces them.
+  terminal::println(Info, "Probing complete: {} file(s).", vids.size());
 
   // Persist fresh decisions so the next run skips probing.
   flushCachePlans(ctx, vids, plans);
@@ -869,15 +905,6 @@ auto formatProbeP5(ProbePlan const& plan) -> std::string {
     return std::format("{:.3f}", p5);
   }
   return p5 < 95.0 ? std::format("{:.2f}", p5) : std::format("{:.1f}", p5);
-}
-
-auto probePlanRatio(ProbePlan const& plan) -> std::optional<double> {
-  if (!plan.estimatedBytes.has_value()) { return std::nullopt; }
-  auto ec = std::error_code{};
-  auto const sourceBytes = fs::file_size(plan.inputPath, ec);
-  if (sourceBytes == 0) { return std::nullopt; }
-  return static_cast<double>(plan.estimatedBytes.value())
-    / static_cast<double>(sourceBytes);
 }
 
 auto padToDisplayWidth(std::string_view text, std::size_t width) -> std::string {
@@ -916,6 +943,10 @@ auto collectPlanStats(std::span<ProbePlan const> plans) -> PlanStats {
   sortByName(stats.warnings);
   return stats;
 }
+
+constexpr auto kSkippedSuffix = std::string_view{" (skipped: est. > source)"};
+constexpr auto kRuleFixedWidth =
+  std::size_t{34};  // sum of the fixed numeric column widths
 
 // The name column never needs to be wider than the longest file name in
 // this batch; cap it so a very wide terminal does not pad short names
@@ -957,7 +988,7 @@ auto formatProbePlanRow(
     : std::string{marker} + padToDisplayWidth(name, nameWidth - prefixWidth(marker));
   if (!plan.probed) {
     return std::format(
-      "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
+      "  {}  {:>3}  {:>6}  {:>9}  {:<6}",
       nameCell,
       plan.chosenCq,
       "\xE2\x80\x94",
@@ -965,14 +996,17 @@ auto formatProbePlanRow(
       "\xE2\x80\x94"
     );
   }
+  auto suffix = std::string{};
+  if (plan.skipEncode) { suffix += kSkippedSuffix; }
+  if (plan.fromCache) { suffix += " (cached)"; }
   return std::format(
-    "  {}  {:>3}  {:>6}  {:>9}  {:>6}{}",
+    "  {}  {:>3}  {:>6}  {:>9}  {:<6}{}",
     nameCell,
     plan.chosenCq,
     formatProbeP5(plan),
     displaytext::formatSizeBytes(plan.estimatedBytes),
     ratio.has_value() ? displaytext::formatSignedPercent(ratio.value()) : "\xE2\x80\x94",
-    plan.fromCache ? " (cached)" : ""
+    suffix
   );
 }
 
@@ -997,17 +1031,34 @@ auto printTwoLineRow(ProbePlan const& plan, std::string_view marker) -> void {
   if (plan.fromCache) { terminal::println(Plain, "    (cached decision)"); }
   terminal::println(
     Plain,
-    "    CQ {} \xC2\xB7 p5 {} \xC2\xB7 {} \xC2\xB7 {}",
+    "    CQ {} \xC2\xB7 p5 {} \xC2\xB7 {} \xC2\xB7 {}{}",
     plan.chosenCq,
     formatProbeP5(plan),
     displaytext::formatSizeBytes(plan.estimatedBytes),
-    ratio.has_value() ? displaytext::formatSignedPercent(ratio.value()) : "\xE2\x80\x94"
+    ratio.has_value() ? displaytext::formatSignedPercent(ratio.value()) : "\xE2\x80\x94",
+    plan.skipEncode ? kSkippedSuffix : ""
   );
 }
 
+auto probeRule(std::size_t width) -> std::string {
+  auto rule = std::string{};
+  rule.reserve(width * 3);
+  for (auto index = std::size_t{0}; index < width; ++index) { rule += "\xE2\x94\x80"; }
+  return rule;
+}
+
 auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void {
+  auto const layout = displaytext::layoutColumns(consolewidth::resolveColumns());
+  auto const nameWidth = resolvePlanNameWidth(plans, layout);
+  // Rule matches the table width when the table renders; fixed width on the
+  // two-line fallback.
+  auto const ruleWidth = layout.has_value()
+    ? nameWidth.value_or(std::size_t{40}) + kRuleFixedWidth
+    : std::size_t{40};
+
+  terminal::println(Plain, "{}", probeRule(ruleWidth));
   terminal::println(
-    Info,
+    Plain,
     "Encoding plan (min p5-{} {}):",
     metricLabel(plans.empty() ? videoquality::QualityMetric::Vmaf : plans.front().metric),
     minVmafFloor
@@ -1024,9 +1075,6 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     );
   }
 
-  auto const layout = displaytext::layoutColumns(consolewidth::resolveColumns());
-  auto const nameWidth = resolvePlanNameWidth(plans, layout);
-
   if (!layout.has_value()) {
     for (auto const* plan: stats.normal) { printTwoLineRow(*plan, ""); }
     for (auto const* plan: stats.warnings) { printTwoLineRow(*plan, "\xE2\x9A\xA0 "); }
@@ -1038,7 +1086,7 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     lines.reserve(plans.size() + 1);
     lines.push_back(
       std::format(
-        "  {}  {:>3}  {:>6}  {:>9}  {:>6}",
+        "  {}  {:>3}  {:>6}  {:>9}  {:<6}",
         padToDisplayWidth("File", width),
         "CQ",
         "p5",
@@ -1063,7 +1111,7 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     ? static_cast<double>(stats.totalEst) / static_cast<double>(stats.totalSource)
     : 0.0;
   terminal::println(
-    Info,
+    Plain,
     "  Total: {} file(s), est. {}, source {} ({})",
     plans.size(),
     displaytext::formatSizeBytes(
@@ -1072,6 +1120,7 @@ auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void 
     displaytext::formatSizeBytes(stats.totalSource),
     displaytext::formatSignedPercent(ratio)
   );
+  terminal::println(Plain, "{}", probeRule(ruleWidth));
 }
 
 }  // namespace encodeprobe

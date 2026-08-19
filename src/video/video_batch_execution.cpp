@@ -325,16 +325,22 @@ enum class ProbeStageStatus {
 
 // Probing stage of runEncodingTasks (MP4 only; --crf bypasses it entirely):
 // picks a per-file CQ meeting the quality floor and prints the plan before
-// the confirmation prompt. Fills probeCqByInput/attentionWarnings on success.
+// the confirmation prompt. Fills probeCqByInput/attentionWarnings on
+// success; encodableVids receives the videos that survive the probe (plans
+// whose estimated size exceeds the source are dropped).
 auto runProbeStage(
   appctx::AppContext& ctx,
   std::vector<fs::path> const& vids,
+  std::vector<fs::path>& encodableVids,
   appctx::path_map<int>& probeCqByInput,
   std::vector<std::string>& attentionWarnings
 ) -> ProbeStageStatus {
   auto const shouldProbe =
     ctx.config.outputFormat == "mp4" && !ctx.config.crf.has_value();
-  if (!shouldProbe) { return ProbeStageStatus::Proceed; }
+  if (!shouldProbe) {
+    encodableVids.assign(vids.begin(), vids.end());
+    return ProbeStageStatus::Proceed;
+  }
 
   auto probeRes = encodeprobe::runProbePhase(ctx, vids);
   if (stopsignal::isStopRequested()) {
@@ -348,6 +354,14 @@ auto runProbeStage(
   }
   for (auto const& [vidPath, plan]: probeRes->plans) {
     probeCqByInput[vidPath] = plan.chosenCq;
+  }
+  // Plans marked skipEncode (estimated output > source) never reach the
+  // encode stage; the printed plan flags them as skipped.
+  encodableVids.clear();
+  for (auto const& vidPath: vids) {
+    auto const it = probeRes->plans.find(vidPath);
+    if (it != probeRes->plans.end() && it->second.skipEncode) { continue; }
+    encodableVids.push_back(vidPath);
   }
   attentionWarnings = std::move(probeRes->attentionWarnings);
 
@@ -542,7 +556,8 @@ auto videobatch::runEncodingTasks(
   // confirmation prompt. A stop request during probing aborts the run.
   auto attentionWarnings = std::vector<std::string>{};
   auto probeCqByInput = appctx::path_map<int>{};
-  switch (runProbeStage(ctx, vids, probeCqByInput, attentionWarnings)) {
+  auto encodableVids = std::vector<fs::path>{};  // filled by runProbeStage
+  switch (runProbeStage(ctx, vids, encodableVids, probeCqByInput, attentionWarnings)) {
     case ProbeStageStatus::Proceed: break;
     case ProbeStageStatus::DryRun:
       return EncodingBatchOutcome{
@@ -560,24 +575,39 @@ auto videobatch::runEncodingTasks(
 
   if (ctx.config.verbose) {
     return EncodingBatchOutcome{
-      .results =
-        runVerboseEncoding(ctx, vids, plannedOutputFiles, actionIds, probeCqByInput),
+      .results = runVerboseEncoding(
+        ctx,
+        encodableVids,
+        plannedOutputFiles,
+        actionIds,
+        probeCqByInput
+      ),
       .attentionWarnings = std::move(attentionWarnings),
     };
   }
 
+  if (encodableVids.empty()) {
+    return EncodingBatchOutcome{
+      .results = EncodeResultsMap{},
+      .attentionWarnings = std::move(attentionWarnings),
+    };
+  }
+
+  // Skipped (too-large estimate) files count as completed up front so the
+  // overall bar reaches its total when the remaining encodes finish.
+  auto const skippedBeforeStart = vids.size() - encodableVids.size();
   auto execution = prepareEncodingExecution(
     ctx,
-    vids,
+    encodableVids,
     plannedOutputFiles,
     actionIds,
     overallTotalCount,
-    initialCompletedCount,
+    initialCompletedCount + skippedBeforeStart,
     probeCqByInput
   );
 
   auto const runState = taskexec::runTasks({
-    .tasks = buildEncodeTasks(vids, *execution.ctx),
+    .tasks = buildEncodeTasks(encodableVids, *execution.ctx),
     .maxConcurrency = execution.maxConcurrentJobs,
     .progress = &execution.progressState->progressCtx,
     .hideCursor = true,
@@ -585,7 +615,7 @@ auto videobatch::runEncodingTasks(
 
   execution.monitorThread.join();
 
-  auto const results = collectEncodingResults(vids, runState);
+  auto const results = collectEncodingResults(encodableVids, runState);
 
   LOG_INFO(
     "Encoding batch completed: attempted={} completed={} ",
