@@ -3,6 +3,15 @@
 # Keeps the compiler/apt environment identical everywhere.
 set -e
 
+# GitHub runner 的 apt 镜像（azure.archive.ubuntu.com，经 /etc/apt/apt-mirrors.txt
+# mirrorlist 解析）曾在整个下午龟速：连接不挂但 ~30KB/s，两次把 install 步骤
+# 拖到超时。切到官方 Fastly CDN 源（从 runner 访问稳定）。runner 是临时
+# 机器，无需还原。两个候选配置文件都替换，不存在则忽略。
+sudo sed -i \
+  -e 's|http://azure\.archive\.ubuntu\.com|http://archive.ubuntu.com|g' \
+  -e 's|https://azure\.archive\.ubuntu\.com|https://archive.ubuntu.com|g' \
+  /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+
 # apt's default is NO per-connection timeout: a stalled mirror connection
 # wedges `apt-get update` forever (seen twice: all three CI jobs hung in the
 # install step until the step timeout killed them). Bound each connection and
