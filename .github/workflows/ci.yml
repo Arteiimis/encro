@@ -43,6 +43,9 @@ jobs:
             xmake-packages-
 
       - name: Install toolchain and dependencies
+        # apt.llvm.org has wedged runner installs before (wget stalls without
+        # a timeout); fail fast instead of occupying a runner for 6h.
+        timeout-minutes: 10
         run: bash scripts/setup-linux-env.sh
 
       - name: Configure
