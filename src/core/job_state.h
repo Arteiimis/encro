@@ -161,7 +161,7 @@ private:
   std::int64_t lastFlushAtMs_ = 0;
 };
 
-auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> fs::path;
+auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> eh::Result<fs::path>;
 
 auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot;
 

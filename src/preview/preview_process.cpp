@@ -5,6 +5,7 @@
 #include "infra/terminal.h"
 #include "core/progress.h"
 #include "core/task_executor.h"
+#include "core/work_dirs.h"
 #include "utils/utils.h"
 #include "video/encode_probe.h"
 #include "video/video_info.h"
@@ -499,8 +500,7 @@ struct PreviewProbeRootGuard {
 };
 
 auto createPreviewProbeRoot() -> eh::Result<fs::path> {
-  auto probeRoot =
-    fs::temp_directory_path() / std::format("encro_preview_probe_{}", getUUID());
+  auto const probeRoot = workdirs::scratchDir() / std::format("preview_{}", getUUID());
   auto ec = std::error_code{};
   fs::create_directories(probeRoot, ec);
   if (ec) {

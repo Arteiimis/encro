@@ -2,6 +2,7 @@
 #include "core/job_state_detail.h"
 
 #include "core/collision_naming.h"
+#include "core/work_dirs.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -27,15 +28,6 @@ constexpr auto kFlushIntervalMs = std::int64_t{2000};
 
 auto nowMs() -> std::int64_t {
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-}
-
-auto toPathStrings(std::span<fs::path const> paths) -> std::vector<std::string> {
-  auto values = std::vector<std::string>{};
-  values.reserve(paths.size());
-  for (auto const& path: paths) {
-    values.push_back(path.lexically_normal().generic_string());
-  }
-  return values;
 }
 
 auto inputWriteTime(fs::path const& path) -> std::optional<std::int64_t> {
@@ -460,47 +452,6 @@ void normalizeExistingTask(TaskRecord& task) {
   }
 }
 
-auto buildFallbackStateFilePath(appctx::AppConfig const& config) -> fs::path {
-  auto inputKeys = std::vector<std::string>{};
-  if (!config.inputPaths.empty()) {
-    inputKeys = toPathStrings(config.inputPaths);
-  } else if (!config.inputPath.empty()) {
-    inputKeys.push_back(config.inputPath.lexically_normal().generic_string());
-  }
-  std::ranges::sort(inputKeys);
-
-  auto seed = std::format(
-    "{}|{}|{}|{}",
-    config.processType,
-    config.outputFormat,
-    outputLayoutToString(config.outputLayout),
-    std::accumulate(
-      inputKeys.begin(),
-      inputKeys.end(),
-      std::string{},
-      [](std::string acc, std::string const& value) {
-        if (!acc.empty()) { acc += '|'; }
-        acc += value;
-        return acc;
-      }
-    )
-  );
-
-  return fs::temp_directory_path()
-    / "encro"
-    / "jobs"
-    / std::format("{}.job-state.json", collisionnaming::shortPathHash(seed));
-}
-
-auto commonParent(std::span<fs::path const> paths) -> std::optional<fs::path> {
-  if (paths.empty()) { return std::nullopt; }
-  auto root = paths.front().parent_path();
-  for (auto const& path: paths) {
-    if (path.parent_path() != root) { return std::nullopt; }
-  }
-  return root;
-}
-
 auto flushSnapshot(
   fs::path const& stateFilePath,
   Snapshot& snapshot,
@@ -549,27 +500,12 @@ auto flushSnapshot(
 
 }  // namespace detail
 
-auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> fs::path {
+auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> eh::Result<fs::path> {
   if (config.stateFilePath.has_value()) { return config.stateFilePath.value(); }
 
-  if (config.outputPath.has_value()) {
-    return config.outputPath.value() / "encro.job-state.json";
-  }
-
-  if (!config.inputPaths.empty()) {
-    if (auto const parent = detail::commonParent(config.inputPaths); parent.has_value()) {
-      return parent.value() / "encro.job-state.json";
-    }
-    return detail::buildFallbackStateFilePath(config);
-  }
-
-  if (!config.inputPath.empty()) {
-    auto const base = fs::is_directory(config.inputPath) ? config.inputPath
-                                                         : config.inputPath.parent_path();
-    return base / "encro.job-state.json";
-  }
-
-  return detail::buildFallbackStateFilePath(config);
+  auto const root = workdirs::resolveWorkRoot(config);
+  if (!root) { return eh::makeError("{}", root.error()); }
+  return workdirs::jobStateFile(*root);
 }
 
 auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot {

@@ -4,6 +4,7 @@
 #include "core/display_text.h"
 #include "core/progress.h"
 #include "core/task_executor.h"
+#include "core/work_dirs.h"
 #include "infra/console_width.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
@@ -498,7 +499,7 @@ struct ProbeRootGuard {
 };
 
 auto createProbeRoot() -> eh::Result<fs::path> {
-  auto probeRoot = fs::temp_directory_path() / std::format("encro_probe_{}", getUUID());
+  auto const probeRoot = workdirs::scratchDir() / std::format("probe_{}", getUUID());
   auto ec = std::error_code{};
   fs::create_directories(probeRoot, ec);
   if (ec) {

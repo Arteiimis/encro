@@ -434,6 +434,7 @@ TEST_CASE(
 
   auto ctx = appctx::AppContext{};
   ctx.config.outputFormat = "mp4";
+  ctx.config.inputPath = inputPath;
   ctx.config.yesToAll = true;
   ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
   ctx.toolchain.ffprobePath = makeCmdScriptCommand(ffprobeScriptPath);

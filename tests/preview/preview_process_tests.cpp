@@ -1,5 +1,7 @@
 #include "preview/preview_process.h"
 
+#include "core/work_dirs.h"
+
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
@@ -274,18 +276,16 @@ TEST_CASE(
   CHECK(fs::exists(outputPath));
   CHECK(fs::file_size(outputPath) > 0);
 
-  // Probe and window segments live in a temp dir that is cleaned up.
+  // Probe and window segments live in the scratch dir that is cleaned up.
   auto leftover = false;
   auto ec = std::error_code{};
-  for (
-    auto const& entry: fs::directory_iterator(
-      fs::temp_directory_path(),
-      fs::directory_options::skip_permission_denied,
-      ec
-    )
-  ) {
-    if (entry.path().filename().string().starts_with("encro_preview_probe_")) {
-      leftover = true;
+  auto const scratch = workdirs::scratchDir();
+  if (fs::is_directory(scratch, ec) && !ec) {
+    for (
+      auto const& entry:
+      fs::directory_iterator(scratch, fs::directory_options::skip_permission_denied, ec)
+    ) {
+      if (entry.path().filename().string().starts_with("preview_")) { leftover = true; }
     }
   }
   CHECK_FALSE(leftover);
