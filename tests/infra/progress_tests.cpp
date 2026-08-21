@@ -45,6 +45,45 @@ TEST_CASE("progress bars emit no frames when stdout is not a terminal", "[progre
   CHECK(text.find("status line") != std::string::npos);
 }
 
+TEST_CASE("ProgressContext tick is safe on an empty context", "[progress]") {
+  auto ctx = progress::ProgressContext{};
+  ctx.tick();
+  ctx.tick();
+}
+
+TEST_CASE(
+  "ProgressContext tick emits no frames when stdout is not a terminal",
+  "[progress]"
+) {
+  TempDir temp;
+  auto const capturePath = temp.path / "out.txt";
+
+  {
+    auto capture = testutils::StdoutCapture{capturePath};
+    auto ctx = progress::ProgressContext{};
+    auto const barIndex = ctx.addBar("tick", progress::Tone::Default);
+    ctx.setProgress(barIndex, 0.5f);
+    ctx.tick();
+    terminal::write(terminal::Stream::Stdout, "status line", true);
+  }
+
+  auto const text = testutils::readTextFile(capturePath);
+  CHECK(text.find("tick") == std::string::npos);
+  CHECK(text.find("status line") != std::string::npos);
+}
+
+TEST_CASE(
+  "ProgressContext tick keeps subsequent progress updates working",
+  "[progress]"
+) {
+  auto ctx = progress::ProgressContext{};
+  auto const barIndex = ctx.addBar("tick", progress::Tone::Default);
+  ctx.setProgress(barIndex, 10.0f);
+  for (auto i = 0; i < 5; ++i) { ctx.tick(); }
+  ctx.setProgress(barIndex, 100.0f);
+  ctx.setPostfixText(barIndex, "done");
+}
+
 TEST_CASE("resolveColor maps progress tones to distinct roles", "[progress]") {
   using indicators::Color;
   using progress::Tone;
