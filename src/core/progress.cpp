@@ -300,6 +300,15 @@ void ProgressContext::resetEta(std::size_t barIndex) {
   etas_[barIndex].reset();
 }
 
+void ProgressContext::tick() {
+  auto lock = std::scoped_lock{mtx_};
+  if (bars_.empty()) { return; }
+  for (auto index = 0ull; index < bars_.size(); ++index) {
+    applyBarText(index, etas_[index].lastProgress());
+  }
+  render();
+}
+
 void ProgressContext::setTone(std::size_t barIndex, Tone tone) {
   auto lock = std::scoped_lock{mtx_};
   if (tones_[barIndex] == tone) { return; }
