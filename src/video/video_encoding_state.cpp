@@ -25,6 +25,7 @@ using videoworkflow::withJobState;
 namespace {
 
 constexpr auto kProgressParseInterval = std::chrono::milliseconds{250};
+constexpr auto kScrollTickInterval = std::chrono::milliseconds{100};
 
 void noteStopRequest(appctx::AppContext& ctx) {
   if (!stopsignal::isStopRequested()) { return; }
@@ -224,6 +225,7 @@ void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& execu
 
   // First pass runs immediately, later passes every kProgressParseInterval.
   auto lastParseAt = std::chrono::steady_clock::now() - kProgressParseInterval;
+  auto lastTickAt = std::chrono::steady_clock::now();
 
   while (true) {
     noteStopRequest(executionCtx.app);
@@ -243,6 +245,14 @@ void monitorEncodingProgress(videobatch::detail::EncodingExecutionContext& execu
     if (now - lastParseAt >= kProgressParseInterval) {
       lastParseAt = now;
       runParsePass(executionCtx);
+    }
+
+    // Scroll animation is repainted on its own timer, independent of
+    // progress-file updates, so long labels keep scrolling while a file's
+    // progress is unchanged.
+    if (now - lastTickAt >= kScrollTickInterval) {
+      lastTickAt = now;
+      executionCtx.progress().tick();
     }
 
     logging::updateForensicSnapshot(

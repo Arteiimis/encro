@@ -59,6 +59,11 @@ public:
   void setTone(std::size_t barIndex, Tone tone);
   void resetEta(std::size_t barIndex);
 
+  // Repaints all bars with their current scroll state without touching
+  // progress values or ETA sampling; lets the postfix scroll animation
+  // advance on a timer of its own, decoupled from progress data updates.
+  void tick();
+
   // Clears the rendered bar lines from the terminal. The bars stay alive in
   // the manager (it holds references to them), so no render call may follow
   // until the context is destroyed.
