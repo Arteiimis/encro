@@ -305,9 +305,9 @@ TEST_CASE("preview single-input manual mode encodes one window", "[preview]") {
     ctx,
     preview::PreviewOptions{
       .original = original,
-      .noOpen = true,
       .startSeconds = 10.0,
       .durationSeconds = 20.0,
+      .noOpen = true,
     }
   );
   REQUIRE(res.has_value());
