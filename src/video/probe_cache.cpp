@@ -1,5 +1,6 @@
 #include "video/probe_cache.h"
 
+#include "infra/env.h"
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 #include "logging/setup.h"
@@ -34,11 +35,8 @@ auto currentProcessId() -> int {
 }
 
 auto defaultCacheFilePath() -> fs::path {
-  if (
-    auto const* overridePath = std::getenv("ENCRO_PROBE_CACHE");
-    overridePath != nullptr && *overridePath != '\0'
-  ) {
-    return fs::path{overridePath};
+  if (auto const overridePath = processenv::readNonEmptyEnvVar("ENCRO_PROBE_CACHE")) {
+    return fs::path{*overridePath};
   }
   return resolveCommonLogDir().parent_path() / "probe-cache.json";
 }

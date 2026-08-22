@@ -1,5 +1,6 @@
 #include "core/display_text.h"
 #include "core/work_dirs.h"
+#include "infra/env.h"
 #include "video/encode_probe.h"
 #include "video/encode_config.h"
 #include "video/video_batch_execution.h"
@@ -353,9 +354,9 @@ class ScopedEnvVar {
 public:
   ScopedEnvVar(std::string name, std::string value)
     : name_(std::move(name)), hadOriginal_(false) {
-    auto const original = std::getenv(name_.c_str());
-    if (original != nullptr) {
-      originalValue_ = original;
+    auto const original = processenv::readEnvVar(name_);
+    if (original.has_value()) {
+      originalValue_ = *original;
       hadOriginal_ = true;
     }
 #if defined(_WIN32)
