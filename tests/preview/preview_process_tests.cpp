@@ -1,6 +1,7 @@
 #include "preview/preview_process.h"
 
 #include "core/work_dirs.h"
+#include "infra/env.h"
 
 #include "test_utils.h"
 
@@ -75,9 +76,9 @@ class ScopedEnvVar {
 public:
   ScopedEnvVar(std::string name, std::string value)
     : name_(std::move(name)), hadOriginal_(false) {
-    auto const original = std::getenv(name_.c_str());
-    if (original != nullptr) {
-      originalValue_ = original;
+    auto const original = processenv::readEnvVar(name_);
+    if (original.has_value()) {
+      originalValue_ = *original;
       hadOriginal_ = true;
     }
     _putenv_s(name_.c_str(), value.c_str());

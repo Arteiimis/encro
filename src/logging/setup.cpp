@@ -1,6 +1,7 @@
 #include "logging/setup.h"
 
 #include "core/app_context.h"
+#include "infra/env.h"
 #include "infra/terminal.h"
 #include "logging/json_formatter.h"
 #include "logging/log_tags.h"
@@ -154,14 +155,11 @@ auto resolveCommonLogDir() -> fs::path {
     return appData.value() / "encro" / "logs";
   }
 #else
-  if (
-    auto const* xdgState = std::getenv("XDG_STATE_HOME");
-    xdgState != nullptr && *xdgState != '\0'
-  ) {
-    return fs::path{xdgState} / "encro" / "logs";
+  if (auto const xdgState = processenv::readNonEmptyEnvVar("XDG_STATE_HOME")) {
+    return fs::path{*xdgState} / "encro" / "logs";
   }
-  if (auto const* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
-    return fs::path{home} / ".local" / "state" / "encro" / "logs";
+  if (auto const home = processenv::readNonEmptyEnvVar("HOME")) {
+    return fs::path{*home} / ".local" / "state" / "encro" / "logs";
   }
 #endif
 
