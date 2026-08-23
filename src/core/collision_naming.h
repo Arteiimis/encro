@@ -21,7 +21,7 @@ inline auto stablePathString(fs::path const& path) -> std::string {
   return normalized;
 }
 
-inline auto fnv1a32(std::string_view text) -> std::uint32_t {
+inline std::uint32_t fnv1a32(std::string_view text) {
   auto hash = std::uint32_t{2166136261u};
   for (auto const ch: text) {
     hash ^= static_cast<unsigned char>(ch);

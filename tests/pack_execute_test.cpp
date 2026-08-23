@@ -32,7 +32,7 @@ namespace fs = std::filesystem;
 namespace {
 
 // Helper: create a file with given size (binary content)
-auto createBinaryFile(fs::path const& filePath, std::size_t sizeBytes = 100) -> void {
+void createBinaryFile(fs::path const& filePath, std::size_t sizeBytes = 100) {
   fs::create_directories(filePath.parent_path());
   auto out = std::ofstream{filePath, std::ios::binary};
   auto const data = std::string(sizeBytes, 'X');

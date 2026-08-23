@@ -35,14 +35,14 @@ public:
   }
 
 private:
-  auto set(std::string const& value) -> void {
+  void set(std::string const& value) {
 #if defined(_WIN32) || defined(_WIN64)
     _putenv_s(name_.c_str(), value.c_str());
 #else
     setenv(name_.c_str(), value.c_str(), 1);
 #endif
   }
-  auto unset() -> void {
+  void unset() {
 #if defined(_WIN32) || defined(_WIN64)
     _putenv_s(name_.c_str(), "");
 #else
@@ -66,7 +66,7 @@ auto parseArgs(std::vector<std::string> const& args) -> CmdParseResult {
   return commandLineInit(static_cast<int>(argv.size() - 1), argv.data(), "");
 }
 
-auto longestHelpLine(std::string_view text) -> std::size_t {
+std::size_t longestHelpLine(std::string_view text) {
   auto longest = std::size_t{0};
   auto start = std::size_t{0};
 

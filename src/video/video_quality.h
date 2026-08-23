@@ -29,10 +29,10 @@ auto mean(std::span<double const> scores) -> std::optional<double>;
 
 // Maps a VMAF floor to the equivalent SSIM floor via the anchor points
 // 97->0.985 / 95->0.980 / 90->0.970 (piecewise-linear, clamped outside).
-auto ssimFloorForVmafFloor(int vmafFloor) -> double;
+double ssimFloorForVmafFloor(int vmafFloor);
 
 // True when the probed video is HDR (bit depth > 8 or HDR transfer curve).
-auto isHdrVideo(boost::json::value const& vidInfo) -> bool;
+bool isHdrVideo(boost::json::value const& vidInfo);
 
 // Parses a libvmaf JSON log (log_fmt=json) into per-frame VMAF scores.
 auto parseVmafLog(std::filesystem::path const& logPath)

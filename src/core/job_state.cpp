@@ -26,7 +26,7 @@ namespace detail {
 
 constexpr auto kFlushIntervalMs = std::int64_t{2000};
 
-auto nowMs() -> std::int64_t {
+std::int64_t nowMs() {
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
@@ -385,7 +385,7 @@ auto loadSnapshot(fs::path const& path) -> eh::Result<Snapshot> {
   }
 }
 
-auto fingerprintChanged(TaskRecord const& task) -> bool {
+bool fingerprintChanged(TaskRecord const& task) {
   return task.fingerprint != currentFingerprint(task);
 }
 
@@ -532,7 +532,7 @@ auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot {
   };
 }
 
-auto configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) -> bool {
+bool configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) {
   return lhs.processType == rhs.processType
     && lhs.outputFormat == rhs.outputFormat
     && lhs.outputLayout == rhs.outputLayout
@@ -617,11 +617,11 @@ auto primaryTargetPath(TaskRecord const& task) -> std::optional<fs::path> {
   return task.targetPaths.front();
 }
 
-auto needsExecution(TaskRecord const& task) -> bool {
+bool needsExecution(TaskRecord const& task) {
   return task.status != TaskStatus::Succeeded;
 }
 
-auto actionTargetExists(TaskRecord const& task) -> bool {
+bool actionTargetExists(TaskRecord const& task) {
   auto ec = std::error_code{};
   if (task.targetPaths.empty()) { return false; }
 

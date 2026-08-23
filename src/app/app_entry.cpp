@@ -61,7 +61,7 @@ auto buildSummary(appctx::AppContext const* ctx, std::string status)
   return data;
 }
 
-auto parseDecimal(std::string_view text) -> int {
+int parseDecimal(std::string_view text) {
   auto value = 0;
   for (char const ch: text) {
     if (ch == ' ') { continue; }
@@ -70,7 +70,7 @@ auto parseDecimal(std::string_view text) -> int {
   return value;
 }
 
-auto monthNumber(std::string_view month) -> int {
+int monthNumber(std::string_view month) {
   using namespace std::literals;
   constexpr auto months = std::array{
     "Jan"sv,
@@ -105,20 +105,20 @@ auto compileTimestamp() -> std::string {
   return std::format("{:04d}-{:02d}-{:02d} {}", year, month, day, buildTime);
 }
 
-auto printHelp(CmdParseResult const& cmd) -> void {
+void printHelp(CmdParseResult const& cmd) {
   std::cout << cmd.helpText;
 }
 
-auto printHelpHint() -> void {
+void printHelpHint() {
   terminal::println(Hint, "Run encro -h for help (or -hh for all options).");
 }
 
-auto failWithHint(
+int failWithHint(
   prelude::StartupContext const& startup,
   std::string const& message,
   bool showHelpHint = false,
   appctx::AppContext* ctx = nullptr
-) -> int {
+) {
   if (startup.cmd.verbose) {
     LOG_ERROR("{}", message);
   } else {
@@ -171,8 +171,10 @@ auto buildAppConfig(prelude::StartupContext const& startup)
   return config;
 }
 
-auto ensureToolchainReady(appctx::AppContext& ctx, prelude::StartupContext const& startup)
-  -> bool {
+bool ensureToolchainReady(
+  appctx::AppContext& ctx,
+  prelude::StartupContext const& startup
+) {
   if (ctx.config.packOnly) { return true; }
 
   auto const toolRes = toolchain::resolve(ctx.config, ctx.toolchain);
@@ -191,7 +193,7 @@ auto ensureToolchainReady(appctx::AppContext& ctx, prelude::StartupContext const
 
 // Preview runs before buildAppConfig (which hard-fails without an input
 // path) and skips job-state setup entirely.
-auto runPreview(prelude::StartupContext const& startup) -> int {
+int runPreview(prelude::StartupContext const& startup) {
   auto ctx = appctx::AppContext{};
 
   // Reuse the standard config builder so encode flags (--video-codec,
@@ -251,8 +253,7 @@ auto runPreview(prelude::StartupContext const& startup) -> int {
   return runRes.value();
 }
 
-auto runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& startup)
-  -> int {
+int runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& startup) {
   auto runRes = pipeline::run(ctx);
   if (!runRes) {
     return failWithHint(
@@ -286,7 +287,7 @@ auto helpIntroLine() -> std::string {
   );
 }
 
-auto run(int argc, char* argv[]) -> int {
+int run(int argc, char* argv[]) {
   stopsignal::installHandler();
   stopsignal::reset();
 

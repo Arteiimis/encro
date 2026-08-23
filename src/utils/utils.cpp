@@ -340,7 +340,7 @@ bool readUserIpt(bool yesToAll, std::string_view prompt) {
 
 // exec2 resolves the quoted exe token itself (posix find_executable cannot
 // handle absolute paths), so quotes are safe on both platforms here.
-auto probeTool(fs::path const& toolPath) -> bool {
+bool probeTool(fs::path const& toolPath) {
   auto const cmd = std::format("\"{}\" -version", toolPath.string());
   return exec2(cmd).exitCode == 0;
 }

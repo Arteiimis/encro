@@ -60,8 +60,7 @@ struct ScopedStopSignalReset {
   ~ScopedStopSignalReset() { stopsignal::reset(); }
 };
 
-inline auto writeTextFile(fs::path const& filePath, std::string_view content = "x")
-  -> void {
+inline void writeTextFile(fs::path const& filePath, std::string_view content = "x") {
   auto const parentPath = filePath.parent_path();
   if (!parentPath.empty()) { fs::create_directories(parentPath); }
 
@@ -70,11 +69,11 @@ inline auto writeTextFile(fs::path const& filePath, std::string_view content = "
   out << content;
 }
 
-inline auto writeFile(fs::path const& filePath, std::string_view content = "x") -> void {
+inline void writeFile(fs::path const& filePath, std::string_view content = "x") {
   writeTextFile(filePath, content);
 }
 
-inline auto touchFile(fs::path const& filePath) -> void {
+inline void touchFile(fs::path const& filePath) {
   writeTextFile(filePath);
 }
 
@@ -85,11 +84,11 @@ inline auto stripCollisionSafePrefix(std::string_view entryName) -> std::string_
     : entryName;
 }
 
-inline auto hasCollisionSafePrefix(
+inline bool hasCollisionSafePrefix(
   std::string_view entryName,
   std::string_view dirLabel,
   std::string_view stem
-) -> bool {
+) {
   auto const normalized = stripCollisionSafePrefix(entryName);
   return normalized.starts_with(std::format("{}__", dirLabel))
     && normalized.find(std::format("__{}__", stem)) != std::string_view::npos;

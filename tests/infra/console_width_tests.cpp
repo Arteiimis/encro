@@ -30,7 +30,7 @@ public:
   }
 
 private:
-  auto set(std::string const& value) -> void {
+  void set(std::string const& value) {
 #if defined(_WIN32) || defined(_WIN64)
     _putenv_s(name_.c_str(), value.c_str());
 #else
@@ -38,7 +38,7 @@ private:
 #endif
   }
 
-  auto unset() -> void {
+  void unset() {
 #if defined(_WIN32) || defined(_WIN64)
     _putenv_s(name_.c_str(), "");
 #else

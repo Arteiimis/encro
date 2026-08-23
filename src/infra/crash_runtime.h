@@ -17,7 +17,7 @@ void reportUnknownException(std::string_view context);
 // logging is active, a companion NDJSON record is written best-effort too
 // (may be absent). Returns false if no log file is active or the write fails
 // after bounded retries.
-auto writeDirectLogLine(std::string_view message) -> bool;
+bool writeDirectLogLine(std::string_view message);
 
 // Builds a single-line NDJSON crash record matching the logging schema:
 // {timestamp (UTC .sssZ), level=critical, module=infra.crash, message (escaped,

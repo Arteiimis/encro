@@ -19,7 +19,7 @@ DEFINE_LOGGER(logtags::VIDEO_OUTPUT);
 
 namespace {
 
-auto shouldForceConflictNaming(appctx::AppConfig const& config) -> bool {
+bool shouldForceConflictNaming(appctx::AppConfig const& config) {
   return config.forceNameConflictHandling
     && config.outputLayout == appctx::OutputLayout::Flat
     && (config.outputFormat != "mp4" || config.packOutput);
@@ -73,7 +73,7 @@ auto resolvePlannedOutputDir(
   return outputDir;
 }
 
-auto ensureUniqueOutputPaths(appctx::path_map<fs::path>& plannedOutputFiles) -> void {
+void ensureUniqueOutputPaths(appctx::path_map<fs::path>& plannedOutputFiles) {
   while (true) {
     auto duplicateGroups = appctx::path_map<std::vector<fs::path>>{};
     duplicateGroups.reserve(plannedOutputFiles.size());

@@ -19,7 +19,7 @@ namespace json = boost::json;
 
 namespace {
 
-auto containsStemMarker(std::string const& name, std::string_view stem) -> bool {
+bool containsStemMarker(std::string const& name, std::string_view stem) {
   return name.find(std::format("__{}__", stem)) != std::string::npos;
 }
 
@@ -41,7 +41,7 @@ auto listRegularFiles(fs::path const& dir) -> std::vector<fs::path> {
   return files;
 }
 
-auto countActualFfmpegEncodes(fs::path const& logPath) -> std::size_t {
+std::size_t countActualFfmpegEncodes(fs::path const& logPath) {
   auto const content = readTextFile(logPath);
   auto stream = std::istringstream{content};
   auto line = std::string{};
@@ -75,7 +75,7 @@ auto systemToolPath(std::string_view stem) -> fs::path {
   return resolved.value();
 }
 
-auto systemToolAvailable(std::string_view stem) -> bool {
+bool systemToolAvailable(std::string_view stem) {
   try {
     auto const resolved = e2e::resolveToolOnPath(stem);
     if (!resolved.has_value()) { return false; }
@@ -84,7 +84,7 @@ auto systemToolAvailable(std::string_view stem) -> bool {
   } catch (...) { return false; }
 }
 
-auto requireRealToolchainOrSkip() -> void {
+void requireRealToolchainOrSkip() {
   if (systemToolAvailable("ffmpeg") && systemToolAvailable("ffprobe")) { return; }
   SKIP("System FFmpeg/FFprobe not available on PATH.");
 }
@@ -217,14 +217,16 @@ auto listFilesWithExtension(fs::path const& dir, std::string_view extension)
   return filtered;
 }
 
-auto allFilesUseCodec(std::vector<fs::path> const& files, std::string_view expectedCodec)
-  -> bool {
+bool allFilesUseCodec(
+  std::vector<fs::path> const& files,
+  std::string_view expectedCodec
+) {
   return std::ranges::all_of(files, [&](fs::path const& filePath) {
     return probePrimaryCodecName(filePath) == expectedCodec;
   });
 }
 
-auto countLogLines(fs::path const& logPath, std::string_view needle) -> std::size_t {
+std::size_t countLogLines(fs::path const& logPath, std::string_view needle) {
   auto const content = readTextFile(logPath);
   auto stream = std::istringstream{content};
   auto line = std::string{};
@@ -1434,7 +1436,7 @@ TEST_CASE(
 
 namespace {
 
-auto waitUntil(std::chrono::milliseconds timeout, auto&& predicate) -> bool {
+bool waitUntil(std::chrono::milliseconds timeout, auto&& predicate) {
   auto const deadline = std::chrono::steady_clock::now() + timeout;
   while (std::chrono::steady_clock::now() < deadline) {
     if (predicate()) { return true; }
@@ -1443,12 +1445,12 @@ auto waitUntil(std::chrono::milliseconds timeout, auto&& predicate) -> bool {
   return predicate();
 }
 
-auto encodeInFlight(fs::path const& logPath) -> bool {
+bool encodeInFlight(fs::path const& logPath) {
   if (!fs::exists(logPath)) { return false; }
   return countActualFfmpegEncodes(logPath) >= 1;
 }
 
-auto requireConsoleCtrlOrSkip() -> void {
+void requireConsoleCtrlOrSkip() {
   if (e2e::consoleCtrlEventsAvailable()) { return; }
   SKIP("Console Ctrl+C delivery unavailable (no console).");
 }

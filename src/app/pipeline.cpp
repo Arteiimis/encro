@@ -33,7 +33,7 @@ auto toNamingStrategy(appctx::AppConfig const& config) -> pack::NamingStrategy {
   return pack::NamingStrategy::Flat;
 }
 
-auto shouldEnableJobState(appctx::AppConfig const& config) -> bool {
+bool shouldEnableJobState(appctx::AppConfig const& config) {
   if (config.dryRun) { return false; }  // dry-run leaves no state behind
   if (config.processType == "video" && !config.packOnly) { return true; }
   if (config.processType == "picture" && config.compressImages) { return true; }
@@ -73,17 +73,17 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
   return {};
 }
 
-auto jobStateNeverStarted(jobstate::Store const& store) -> bool {
+bool jobStateNeverStarted(jobstate::Store const& store) {
   auto const tasks = store.tasks();
   return std::ranges::all_of(tasks, [](jobstate::TaskRecord const& task) {
     return task.status == jobstate::TaskStatus::Pending && task.attemptCount == 0;
   });
 }
 
-auto maybeRemoveUnstartedCanceledJobState(
+void maybeRemoveUnstartedCanceledJobState(
   appctx::AppContext& ctx,
   eh::Result<int> const& runRes
-) -> void {
+) {
   if (!runRes || runRes.value() != stopsignal::kCanceledExitCode) { return; }
   if (!ctx.runtime.jobState) { return; }
   if (!jobStateNeverStarted(*ctx.runtime.jobState)) { return; }

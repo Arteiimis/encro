@@ -152,14 +152,14 @@ exit /b 0
   testutils::writeTextFile(scriptPath, script);
 }
 
-auto writeFakeFfmpegFailingScript(fs::path const& scriptPath) -> void {
+void writeFakeFfmpegFailingScript(fs::path const& scriptPath) {
   testutils::writeTextFile(scriptPath, "@echo off\nexit /b 1\n");
 }
 
-auto writeFakeFfmpegFirstCallOkScript(
+void writeFakeFfmpegFirstCallOkScript(
   fs::path const& scriptPath,
   fs::path const& counterPath
-) -> void {
+) {
   auto const script = std::format(
     R"(@echo off
 setlocal EnableExtensions EnableDelayedExpansion

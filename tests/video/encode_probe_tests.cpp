@@ -402,14 +402,14 @@ auto copyFakeTool(fs::path const& dir, std::string const& name) -> fs::path {
 // copied per role so argv[0] selects ffprobe vs ffmpeg. The ffmpeg side writes a
 // fake libvmaf JSON log for scoring invocations when ENCRO_FAKE_FFMPEG_WRITE_VMAF=1,
 // with scores from ENCRO_FAKE_FFMPEG_VMAF_SCORES; duration via ENCRO_FAKE_FFPROBE_DURATION_SECS.
-auto fillProbeContext(
+void fillProbeContext(
   appctx::AppContext& ctx,
   fs::path const& toolDir,
   fs::path const& inputPath,
   std::string const& duration,
   std::string const& vmafScores,
   std::vector<std::unique_ptr<ScopedEnvVar>>& envs
-) -> void {
+) {
   ctx.toolchain.ffprobePath = copyFakeTool(toolDir, "ffprobe");
   ctx.toolchain.ffmpegPath = copyFakeTool(toolDir, "ffmpeg");
   envs.push_back(
@@ -523,7 +523,7 @@ TEST_CASE("runProbePhase skips short videos with the default cq", "[encode-probe
 namespace {
 
 // Writes a file of the given byte size without allocating a huge buffer.
-auto writeSizedFile(fs::path const& path, std::uintmax_t size) -> void {
+void writeSizedFile(fs::path const& path, std::uintmax_t size) {
   auto out = std::ofstream{path, std::ios::binary};
   out.seekp(static_cast<std::streamoff>(size) - 1);
   out.put('\0');

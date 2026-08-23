@@ -16,7 +16,7 @@ struct ProgressData {
   std::string status;
 };
 
-auto isLikelyFfmpegErrorLine(std::string_view line) -> bool;
+bool isLikelyFfmpegErrorLine(std::string_view line);
 
 auto readLastNLines(fs::path const& filePath, std::size_t n) -> std::vector<std::string>;
 
@@ -24,11 +24,11 @@ auto parseProgressFile(fs::path const& progressFilePath) -> std::optional<Progre
 
 auto parseSegmentEndUs(fs::path const& progressFilePath) -> std::optional<std::uint64_t>;
 
-inline auto segmentBaseFrameOffset(
+inline std::uint64_t segmentBaseFrameOffset(
   std::uint64_t cumulativeDurationUs,
   std::int64_t totalFrames,
   std::uint64_t totalDurationUs
-) -> std::uint64_t {
+) {
   if (totalFrames <= 0 || totalDurationUs == 0) { return 0; }
   return static_cast<std::uint64_t>(std::llround(  // NOLINT(bugprone-narrowing-conversions): frame math needs double
     static_cast<double>(cumulativeDurationUs)
@@ -37,11 +37,11 @@ inline auto segmentBaseFrameOffset(
   ));
 }
 
-inline auto progressPercent(
+inline float progressPercent(
   std::uint64_t frameCount,
   std::uint64_t baseFrameOffset,
   std::int64_t totalFrames
-) -> float {
+) {
   if (totalFrames <= 0) { return 0.0f; }
   return std::min(
     (static_cast<float>(baseFrameOffset + frameCount) / static_cast<float>(totalFrames))

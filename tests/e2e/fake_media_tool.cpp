@@ -39,7 +39,7 @@ auto readEnv(std::string const& key) -> std::optional<std::string> {
 #endif
 }
 
-auto readEnvInt(std::string const& key, int defaultValue) -> int {
+int readEnvInt(std::string const& key, int defaultValue) {
   if (auto const value = readEnv(key); value.has_value()) {
     try {
       return std::stoi(value.value());
@@ -48,7 +48,7 @@ auto readEnvInt(std::string const& key, int defaultValue) -> int {
   return defaultValue;
 }
 
-auto readEnvSize(std::string const& key, std::uintmax_t defaultValue) -> std::uintmax_t {
+std::uintmax_t readEnvSize(std::string const& key, std::uintmax_t defaultValue) {
   if (auto const value = readEnv(key); value.has_value()) {
     try {
       return static_cast<std::uintmax_t>(std::stoull(value.value()));
@@ -62,7 +62,7 @@ auto readEnvSize(std::string const& key, std::uintmax_t defaultValue) -> std::ui
 #endif
 
 // Stable per-process id for concurrency proofs (Windows has no getpid).
-auto processId() -> long {
+long processId() {
 #if defined(_WIN32)
   return static_cast<long>(::_getpid());
 #else
@@ -70,7 +70,7 @@ auto processId() -> long {
 #endif
 }
 
-auto hasArg(int argc, char* argv[], std::string_view needle) -> bool {
+bool hasArg(int argc, char* argv[], std::string_view needle) {
   for (auto index = 1; index < argc; ++index) {
     if (std::string_view{argv[index]} == needle) { return true; }
   }
@@ -83,7 +83,7 @@ auto readTextFile(fs::path const& path) -> std::optional<std::string> {
   return std::string{std::istreambuf_iterator<char>{input}, {}};
 }
 
-auto appendInvocationLog(std::string_view toolName, int argc, char* argv[]) -> void {
+void appendInvocationLog(std::string_view toolName, int argc, char* argv[]) {
   auto const logFile = readEnv("ENCRO_FAKE_TOOL_LOG_FILE");
   if (!logFile.has_value()) { return; }
 
@@ -98,7 +98,7 @@ auto appendInvocationLog(std::string_view toolName, int argc, char* argv[]) -> v
   out << '\n';
 }
 
-auto writeSizedFile(fs::path const& path, std::uintmax_t sizeInBytes) -> void {
+void writeSizedFile(fs::path const& path, std::uintmax_t sizeInBytes) {
   if (!path.parent_path().empty()) { fs::create_directories(path.parent_path()); }
   auto out = std::ofstream{path, std::ios::binary};
   if (!out.is_open()) { return; }
@@ -161,12 +161,12 @@ auto parseFfmpegInvocation(int argc, char* argv[]) -> FfmpegInvocation {
   return invocation;
 }
 
-auto emitVersion(std::string_view toolName) -> int {
+int emitVersion(std::string_view toolName) {
   std::cout << toolName << " version n5.1-fake\n";
   return 0;
 }
 
-auto runFakeFfprobe(int argc, char* argv[]) -> int {
+int runFakeFfprobe(int argc, char* argv[]) {
   appendInvocationLog("ffprobe", argc, argv);
   if (hasArg(argc, argv, "-version")) { return emitVersion("ffprobe"); }
 
@@ -220,7 +220,7 @@ auto runFakeFfprobe(int argc, char* argv[]) -> int {
 // back to the default CQ); unit tests enable it via
 // ENCRO_FAKE_FFMPEG_WRITE_VMAF=1 with scores from ENCRO_FAKE_FFMPEG_VMAF_SCORES
 // (comma-separated, one frame each; a single value yields two identical frames).
-auto writeFakeVmafLog(int argc, char* argv[]) -> void {
+void writeFakeVmafLog(int argc, char* argv[]) {
   auto const scores = readEnv("ENCRO_FAKE_FFMPEG_VMAF_SCORES").value_or("96.0");
   auto values = std::vector<std::string>{};
   {
@@ -273,7 +273,7 @@ auto writeFakeVmafLog(int argc, char* argv[]) -> void {
   }
 }
 
-auto runFakeFfmpeg(int argc, char* argv[]) -> int {
+int runFakeFfmpeg(int argc, char* argv[]) {
   appendInvocationLog("ffmpeg", argc, argv);
   if (hasArg(argc, argv, "-version")) { return emitVersion("ffmpeg"); }
 

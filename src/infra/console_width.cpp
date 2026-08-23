@@ -61,7 +61,7 @@ auto detectRawColumns() -> std::optional<std::size_t> {
 
 }  // namespace
 
-auto resolveColumns(Config const& config) -> std::size_t {
+std::size_t resolveColumns(Config const& config) {
   auto const minColumns = std::max(config.minColumns, std::size_t{1});
 
   auto columns = detectRawColumns().value_or(std::max(config.defaultColumns, minColumns));

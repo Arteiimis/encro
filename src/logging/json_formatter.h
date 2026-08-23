@@ -19,8 +19,7 @@ namespace logging {
 
 class JsonFormatter final: public spdlog::formatter {
 public:
-  auto format(spdlog::details::log_msg const& msg, spdlog::memory_buf_t& dest)
-    -> void override;
+  void format(spdlog::details::log_msg const& msg, spdlog::memory_buf_t& dest) override;
   auto clone() const -> std::unique_ptr<spdlog::formatter> override;
 
 private:
@@ -35,9 +34,8 @@ private:
 
 // ── Implementation ──────────────────────────────────────────────────────────
 
-inline auto
-JsonFormatter::format(spdlog::details::log_msg const& msg, spdlog::memory_buf_t& dest)
-  -> void {
+inline void
+JsonFormatter::format(spdlog::details::log_msg const& msg, spdlog::memory_buf_t& dest) {
   namespace json = boost::json;
 
   auto obj = json::object{};

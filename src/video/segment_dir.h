@@ -20,13 +20,13 @@ inline auto segmentDirForTask(fs::path const& workRoot, std::string_view taskId)
   );
 }
 
-inline auto createSegmentDir(fs::path const& dir) -> void {
+inline void createSegmentDir(fs::path const& dir) {
   auto ec = std::error_code{};
   fs::create_directories(dir, ec);
   workdirs::setHiddenOnEncroDir(dir);
 }
 
-inline auto removeSegmentDir(fs::path const& dir) -> void {
+inline void removeSegmentDir(fs::path const& dir) {
   auto ec = std::error_code{};
   fs::remove_all(dir, ec);
 }

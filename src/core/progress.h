@@ -41,7 +41,7 @@ public:
   void sample(std::chrono::steady_clock::time_point now, float progress);
   void reset();
   auto etaSeconds(float progress) const -> std::optional<float>;
-  auto lastProgress() const -> float;
+  float lastProgress() const;
 
 private:
   std::chrono::steady_clock::time_point lastSampleAt_{};
@@ -53,7 +53,7 @@ private:
 
 class ProgressContext {
 public:
-  auto addBar(std::string_view promptText, Tone tone = Tone::Default) -> std::size_t;
+  std::size_t addBar(std::string_view promptText, Tone tone = Tone::Default);
   void setPostfixText(std::size_t barIndex, std::string_view promptText);
   void setProgress(std::size_t barIndex, float progress);
   void setTone(std::size_t barIndex, Tone tone);
@@ -100,15 +100,15 @@ auto fitPostfixWithEta(
 auto scrollWindow(std::string_view text, std::size_t budget, std::size_t startCol)
   -> std::string;
 
-auto bounceOffset(std::uint64_t elapsedMs, std::size_t travel) -> std::size_t;
+std::size_t bounceOffset(std::uint64_t elapsedMs, std::size_t travel);
 
-auto addBar(
+std::size_t addBar(
   Manager& manager,
   BarCollection& bars,
   std::vector<Tone>& tones,
   std::string_view promptText,
   Tone tone = Tone::Default
-) -> std::size_t;
+);
 
 void setCursorVisible(bool visible);
 

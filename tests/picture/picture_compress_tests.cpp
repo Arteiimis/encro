@@ -46,7 +46,7 @@ exit /b 1
   testutils::writeTextFile(scriptPath, script);
 }
 
-auto writeFakeFfmpegPartialThenFailScript(fs::path const& scriptPath) -> void {
+void writeFakeFfmpegPartialThenFailScript(fs::path const& scriptPath) {
   auto const script = std::string{R"(@echo off
 set "outputPath="
 :parse

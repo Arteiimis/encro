@@ -34,7 +34,7 @@ struct EncodeConfig {
   std::optional<std::uint64_t> segmentDurationUs;
   std::optional<fs::path> tempOutputPath;
 
-  auto operator==(EncodeConfig const&) const -> bool = default;
+  bool operator==(EncodeConfig const&) const = default;
 
   eh::Result<void> validate() const {
     if (!inputPath.has_value()) { return eh::makeError("Input path is required."); }
@@ -167,7 +167,7 @@ inline auto pickNvencPresetForDimensions(int width, int height) -> std::string {
   return "p5";
 }
 
-inline auto pickMaxrateKbpsForDimensions(int width, int height) -> int {
+inline int pickMaxrateKbpsForDimensions(int width, int height) {
   auto const pixels = static_cast<std::int64_t>(width) * height;
   if (pixels >= 3'686'400) { return 15000; }  // 2K (2560x1440)
   if (pixels >= 2'073'600) { return 10000; }  // 1080p (1920x1080)

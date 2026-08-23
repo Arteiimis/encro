@@ -19,7 +19,7 @@ namespace {
 constexpr auto kProgressTailLines = std::size_t{32};
 constexpr auto kTailReadSize = std::int64_t{64} * 1024;
 
-auto containsCaseInsensitive(std::string_view text, std::string_view needle) -> bool {
+bool containsCaseInsensitive(std::string_view text, std::string_view needle) {
   if (needle.empty()) { return true; }
   if (text.size() < needle.size()) { return false; }
 
@@ -46,7 +46,7 @@ auto trimWhitespace(std::string_view text) -> std::string_view {
   return text.substr(begin, end - begin + 1);
 }
 
-auto startsWithCaseInsensitive(std::string_view text, std::string_view prefix) -> bool {
+bool startsWithCaseInsensitive(std::string_view text, std::string_view prefix) {
   if (text.size() < prefix.size()) { return false; }
 
   for (std::size_t i = 0; i < prefix.size(); ++i) {
@@ -58,7 +58,7 @@ auto startsWithCaseInsensitive(std::string_view text, std::string_view prefix) -
   return true;
 }
 
-auto isLikelyFfmpegMetadataLine(std::string_view line) -> bool {
+bool isLikelyFfmpegMetadataLine(std::string_view line) {
   auto const trimmed = trimWhitespace(line);
   if (trimmed.empty()) { return false; }
 
@@ -79,7 +79,7 @@ auto isLikelyFfmpegMetadataLine(std::string_view line) -> bool {
 
 }  // namespace
 
-auto isLikelyFfmpegErrorLine(std::string_view line) -> bool {
+bool isLikelyFfmpegErrorLine(std::string_view line) {
   auto const trimmed = trimWhitespace(line);
   if (trimmed.empty() || isLikelyFfmpegMetadataLine(trimmed)) { return false; }
 

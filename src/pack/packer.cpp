@@ -122,14 +122,14 @@ auto pack::Packer::makeUniqueZipEntryName(
   return candidate;
 }
 
-auto pack::Packer::wouldExceedGroupLimits(
+bool pack::Packer::wouldExceedGroupLimits(
   std::uintmax_t currentSize,
   std::size_t currentCount,
   std::uintmax_t additionalSize,
   std::size_t additionalCount,
   std::uintmax_t maxGroupSize,
   std::optional<std::size_t> maxFilesPerGroup
-) -> bool {
+) {
   if (currentSize + additionalSize > maxGroupSize) { return true; }
   return maxFilesPerGroup.has_value()
     && currentCount + additionalCount > maxFilesPerGroup.value();

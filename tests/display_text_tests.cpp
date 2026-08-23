@@ -11,7 +11,7 @@ auto asString(std::u8string_view text) -> std::string {
   return out;
 }
 
-auto hasWholeCodePoints(std::string const& text) -> bool {
+bool hasWholeCodePoints(std::string const& text) {
   if (text.empty()) { return true; }
   auto const first = static_cast<unsigned char>(text.front());
   auto const last = static_cast<unsigned char>(text.back());

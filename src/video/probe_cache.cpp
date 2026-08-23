@@ -26,7 +26,7 @@ namespace fs = std::filesystem;
 namespace probecache {
 namespace {
 
-auto currentProcessId() -> int {
+int currentProcessId() {
 #if defined(_WIN32)
   return _getpid();
 #else
@@ -100,7 +100,7 @@ auto probeCacheKey(
   );
 }
 
-auto lastWriteTimeMs(fs::path const& path) -> std::uint64_t {
+std::uint64_t lastWriteTimeMs(fs::path const& path) {
   auto ec = std::error_code{};
   auto const mtime = fs::last_write_time(path, ec);
   if (ec) { return 0; }
@@ -142,7 +142,7 @@ auto load(fs::path const& filePath) -> std::vector<Entry> {
   return result;
 }
 
-auto save(std::vector<Entry> const& updates, fs::path const& filePath) -> void {
+void save(std::vector<Entry> const& updates, fs::path const& filePath) {
   auto const resolvedPath = filePath.empty() ? defaultCacheFilePath() : filePath;
   auto entries = load(resolvedPath);
 

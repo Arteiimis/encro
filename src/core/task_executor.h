@@ -15,7 +15,7 @@ struct TaskContext {
   std::size_t slot = 0;
   progress::ProgressContext& progress;
 
-  auto stopRequested() const -> bool;
+  bool stopRequested() const;
 };
 
 struct TaskSpec {
@@ -41,7 +41,7 @@ struct TaskRunResult {
   bool canceled = false;
 };
 
-auto resolveWorkerCount(std::size_t taskCount, std::size_t maxConcurrency) -> std::size_t;
+std::size_t resolveWorkerCount(std::size_t taskCount, std::size_t maxConcurrency);
 
 auto runTasks(TaskPlan const& plan) -> TaskRunResult;
 

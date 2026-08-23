@@ -178,10 +178,10 @@ auto collectPackInputs(PackRequest const& request)
 // --- appendSummaryEntries ---
 // Appends summary PackEntryInput records to the packInputs vector when
 // SummaryConfig is enabled.
-auto appendSummaryEntries(
+void appendSummaryEntries(
   PackRequest const& request,
   std::vector<pack::detail::PackEntryInput>& packInputs
-) -> void {
+) {
   if (!request.summary.has_value() || !request.summary->enabled) { return; }
   for (auto const& summaryEntry: request.summary->entries) {
     packInputs.push_back({
@@ -262,10 +262,10 @@ auto partitionPackInputs(
 // --- applyEntryNameOverrides ---
 // Applies the entryNameForFile callback to override zip entry names when
 // entries are provided as raw paths (not via entryInputs).
-auto applyEntryNameOverrides(
+void applyEntryNameOverrides(
   PackRequest const& request,
   std::vector<std::vector<PackFileEntry>>& groups
-) -> void {
+) {
   if (request.entryInputs.empty() && request.entryNameForFile) {
     for (auto& group: groups) {
       for (auto& entry: group) {

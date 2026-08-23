@@ -41,7 +41,7 @@ enum class MessageKind {
 
 auto parseColorMode(std::string_view text) -> std::optional<ColorMode>;
 
-auto streamIsTerminal(Stream stream) -> bool;
+bool streamIsTerminal(Stream stream);
 
 void configure(ColorMode mode);
 
@@ -51,7 +51,7 @@ auto colorMode() -> ColorMode;
 
 auto configureFromColorString(std::string_view colorValue) -> std::optional<std::string>;
 
-auto colorsEnabled(Stream stream = Stream::Stdout) -> bool;
+bool colorsEnabled(Stream stream = Stream::Stdout);
 
 auto styleFor(MessageKind kind) -> fmt::text_style;
 
