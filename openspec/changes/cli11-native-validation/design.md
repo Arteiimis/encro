@@ -2,12 +2,12 @@
 
 ## Context
 
-Current state (see proposal.md for motivation): `src/cmd/cmd.cpp` registers all options data-driven from four `CmdFlagDef` arrays, then copies parsed values into `CmdParseResult` via a parallel hand-written `applyMap` (`ResultSetter` lambdas keyed by the same name strings as the def arrays). Validation lives partly at parse time (CLI11 `excludes()`, `ParseError` catch) and partly in `src/cmd/config_builder.cpp` (enum/range/alias checks with hand-written messages). The `preview` subcommand has its help flag disabled (`set_help_flag("")`), hand-written error checks, a hard-coded help text (`buildPreviewHelpText`), and unbound options. CLI11 v2.6.2 is the pinned dependency.
+Current state (see proposal.md for motivation): `src/cmd/cmd.cpp` registers all options data-driven from four `CmdFlagDef` arrays, then copies parsed values into `CmdParseResult` via a parallel hand-written `applyMap` (`ResultSetter` lambdas keyed by the same name strings as the def arrays). Validation lives partly at parse time (CLI11 `excludes()`, `ParseError` catch) and partly in `src/cmd/config_builder.cpp` (enum/range/alias checks with hand-written messages). The `preview` subcommand has its help flag disabled (`set_help_flag("")`), hand-written error checks, a hard-coded help text (`buildPreviewHelpText`), and unbound options. CLI11 v2.7.2 is in use (unpinned `add_requires("cli11")`; API facts below were verified against the v2.6.2 headers and hold identically in v2.7.2, per line-by-line comparison).
 
-Verified CLI11 v2.6.2 facts the design relies on:
+Verified CLI11 facts the design relies on (headers v2.6.2, identical in v2.7.2):
 - `Option::excludes()` exists in pointer and string form (`excludes("--name")`); native message is `ExcludesError: "<name> excludes <other>"` (`Error.hpp:304`, names via `get_name()`).
 - `RequiredError(name)` → `"<name> is required"` (`Error.hpp:230`).
-- `CallForHelp` is a `ParseError` subclass (`Error.hpp:174`, exit code Success) — must be caught *before* `ParseError`. It is thrown from `_process_help_flags` (`App_inl.hpp:1320`), **before** required-checks run, so `encro preview -h` without `original` still shows help. `Error` has **no `get_app()` accessor** in v2.6.2 — the caller must pick the app (see Decision 4).
+- `CallForHelp` is a `ParseError` subclass (`Error.hpp:174`, exit code Success) — must be caught *before* `ParseError`. It is thrown from `_process_help_flags` (`App_inl.hpp:1320`), **before** required-checks run, so `encro preview -h` without `original` still shows help. `Error` has **no `get_app()` accessor** — the caller must pick the app (see Decision 4).
 - Subcommands inherit the parent's help flag (guarded by non-null, `App_inl.hpp:34-35`) and formatter (unguarded copy, `App_inl.hpp:58`) **at construction time** — registration order matters (see Decision 4).
 - `IsMember`/`CheckedTransformer`/`Range`/`PositiveNumber`/`NonNegativeNumber` are available in `<CLI/CLI.hpp>`.
 - Under `expected(0,1)` with a non-empty `default_str`, a bare flag (no value) is filled with the default string (`App_inl.hpp:2279-2285` → `Option_inl.hpp:435-441`) and validates/assigns as if the default were passed — the bound variable ends up at its default. (Empty `default_str` would yield an empty result instead; all options here have non-empty defaults.)
@@ -50,7 +50,7 @@ Mapping rules per option:
 - **Registration order per group must reproduce the current def-array order** — the help formatter renders options in registration order (byte-stability contract).
 - `-h,--help` and `--version` stay hand-registered flags on the app (tier counting via `count()`).
 
-Side-effect check (verified against v2.6.2): on any `expected(0,1)` option — `--color`, `-f`, `-t`, `-j`, `--min-vmaf`, `--force-conflict-handling` — a bare flag is already filled with the default string today and silently behaves as the default; the hand-written `results().empty()` guards in the apply map are unreachable dead code (same verdict for the `-q`/`--crf`/`--preset`/`--video-codec` guards on `expected(1)` options). Binding preserves this exactly: **no observable change, no spec scenario needed**.
+Side-effect check (verified against the headers): on any `expected(0,1)` option — `--color`, `-f`, `-t`, `-j`, `--min-vmaf`, `--force-conflict-handling` — a bare flag is already filled with the default string today and silently behaves as the default; the hand-written `results().empty()` guards in the apply map are unreachable dead code (same verdict for the `-q`/`--crf`/`--preset`/`--video-codec` guards on `expected(1)` options). Binding preserves this exactly: **no observable change, no spec scenario needed**.
 
 ### Decision 2: Validators per option (parse-time)
 
@@ -73,7 +73,7 @@ Side-effect check (verified against v2.6.2): on any `expected(0,1)` option — `
 
 ### Decision 3: Conflicts & dependencies via native declarations
 
-- `excludes(pointer)` where both options are registered in the same function scope (all existing pairs are); removes the deferred `PendingExclusion` mechanism and the dead `excludesDesc` field. Native message `"X excludes Y"` per verified v2.6.2 behavior.
+- `excludes(pointer)` where both options are registered in the same function scope (all existing pairs are); removes the deferred `PendingExclusion` mechanism and the dead `excludesDesc` field. Native message `"X excludes Y"` per verified v2.6.2/v2.7.2 behavior.
 - Positional `input-paths` ↔ `-i`/`-I`: add `excludes()` between the positional option and both input options (replaces the hand-written branch in `applyInputSelection`).
 - `--dry-run` ↔ `--crf`: move from `buildConfig` to `excludes()`.
 - `--image-quality` → `needs(--compress)`: existence dependency, expressible natively (replaces the hand-written message in `applyMediaOptionValidations`).
@@ -88,7 +88,7 @@ Side-effect check (verified against v2.6.2): on any `expected(0,1)` option — `
 ```cpp
 } catch (CLI::CallForHelp const&) {
   result.help = true;                       // exit code 0 path
-  // v2.6.2 Error has no app accessor; CallForHelp can only originate from the
+  // Error has no app accessor; CallForHelp can only originate from the
   // preview subcommand (the parent app has no native help flag)
   result.helpText = app.got_subcommand(previewSub.app)
     ? previewSub.app->help()

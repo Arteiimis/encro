@@ -1,6 +1,6 @@
 ## Why
 
-The CLI layer underuses CLI11 (v2.6.2): value validation (enums, ranges, aliases), option binding, subcommand checks, and error messages are hand-rolled in `src/cmd/` (~640 lines) even though CLI11 provides native `IsMember`/`CheckedTransformer`/`Range`/`needs`/`excludes`/`RequiredError`/`CallForHelp`. This duplicates logic (`CmdFlagDef` arrays vs. a parallel `applyMap` keyed by the same strings), leaves dead code (`excludesDesc` is collected but never applied; hand-rolled "option requires a value" errors on options that CLI11 already enforces), and makes the `preview` subcommand bypass native help/validation entirely.
+The CLI layer underuses CLI11 (v2.7.2): value validation (enums, ranges, aliases), option binding, subcommand checks, and error messages are hand-rolled in `src/cmd/` (~640 lines) even though CLI11 provides native `IsMember`/`CheckedTransformer`/`Range`/`needs`/`excludes`/`RequiredError`/`CallForHelp`. This duplicates logic (`CmdFlagDef` arrays vs. a parallel `applyMap` keyed by the same strings), leaves dead code (`excludesDesc` is collected but never applied; hand-rolled "option requires a value" errors on options that CLI11 already enforces), and makes the `preview` subcommand bypass native help/validation entirely.
 
 ## What Changes
 
@@ -26,4 +26,4 @@ The CLI layer underuses CLI11 (v2.6.2): value validation (enums, ranges, aliases
 - `src/cmd/cmd.h`: `CmdParseResult` unchanged.
 - `src/app/prelude.cpp`: `--color` no longer reaches its error path with an invalid value (parse-time check), error branch becomes unreachable.
 - Tests: `tests/cmd_cmd_tests.cpp`, `tests/cmd_config_builder_tests.cpp` (native message assertions); `tests/cmd_help_tiering_tests.cpp` must stay green unchanged (help layout contract).
-- Dependency: CLI11 v2.6.2 already in use, no version change.
+- Dependency: CLI11 (unpinned `add_requires("cli11")`, resolves to v2.7.2) already in use, no version change.
