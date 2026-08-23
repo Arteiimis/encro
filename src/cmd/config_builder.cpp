@@ -5,9 +5,6 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
-#include <algorithm>
-#include <array>
-#include <cctype>
 #include <filesystem>
 #include <span>
 #include <string>
@@ -62,60 +59,9 @@ auto requireRegularFile(fs::path const& path, std::string_view label)
   return {};
 }
 
-auto readProcessType(CmdParseResult const& result) -> eh::Result<std::string> {
-  auto typeStr = result.processType;
-  if (typeStr == "vid") { return std::string{"video"}; }
-  if (typeStr == "pic") { return std::string{"picture"}; }
-
-  constexpr auto validTypes = std::array{"video", "picture"};
-  if (!std::ranges::contains(validTypes, typeStr)) {
-    return eh::makeError(
-      "Invalid process type: {}. Valid types are: video, picture.",
-      typeStr
-    );
-  }
-
-  return typeStr;
-}
-
-auto readOutputFormat(CmdParseResult const& result) -> eh::Result<std::string> {
-  auto outputFormat = result.outputFormat;
-  constexpr auto validFormats = std::array{"mp4", "webp"};
-  if (!std::ranges::contains(validFormats, outputFormat)) {
-    return eh::makeError(
-      "Invalid output format: {}. Valid formats are: mp4, webp.",
-      outputFormat
-    );
-  }
-
-  return outputFormat;
-}
-
-auto readMaxParallelJobs(CmdParseResult const& result)
-  -> eh::Result<std::optional<std::size_t>> {
-  if (!result.maxJobs.has_value()) { return std::nullopt; }
-
-  auto const jobs = result.maxJobs.value();
-  if (jobs == 0) { return eh::makeError("Invalid jobs value: 0. --jobs must be >= 1."); }
-
-  return jobs;
-}
-
 auto readOutputLayout(CmdParseResult const& result) -> eh::Result<appctx::OutputLayout> {
   if (result.keep) { return appctx::OutputLayout::Keep; }
   return appctx::OutputLayout::Flat;
-}
-
-auto readForceNameConflictHandling(CmdParseResult const& result) -> eh::Result<bool> {
-  auto value = result.forceConflictHandling;
-  std::ranges::transform(value, value.begin(), [](unsigned char ch) {
-    return static_cast<char>(std::tolower(ch));
-  });
-
-  if (value == "y") { return true; }
-  if (value == "n") { return false; }
-
-  return eh::makeError("--force-conflict-handling must be set to y or n.");
 }
 
 auto readPictureFolderSummary(CmdParseResult const& result) -> eh::Result<bool> {
@@ -302,33 +248,13 @@ auto applyMediaOptionValidations(appctx::AppConfig& config, CmdParseResult const
     return eh::makeError("--compress is only supported with --type picture.");
   }
 
-  if (result.imageQuality.has_value()) {
-    auto const quality = result.imageQuality.value();
-    if (quality < 2 || quality > 31) {
-      return eh::makeError("--image-quality must be between 2 and 31.");
-    }
-    config.imageQuality = quality;
+  // Value checks for -q/--crf/--min-vmaf moved to parse time (CLI::Range);
+  // --image-quality requires --compress moved to Option::needs().
+  config.imageQuality = result.imageQuality;
+  config.crf = result.crf;
 
-    if (!config.compressImages) {
-      return eh::makeError("--image-quality requires --compress to be enabled.");
-    }
-  }
-
-  if (result.crf.has_value()) {
-    auto const crf = result.crf.value();
-    if (crf < 0 || crf > 51) { return eh::makeError("--crf must be between 0 and 51."); }
-    config.crf = crf;
-  }
-
-  if (result.minVmaf < 0 || result.minVmaf > 100) {
-    return eh::makeError("--min-vmaf must be between 0 and 100.");
-  }
   config.minVmaf = result.minVmaf;
-
   config.dryRun = result.dryRun;
-  if (config.dryRun && config.crf.has_value()) {
-    return eh::makeError("--dry-run requires probing; it cannot be combined with --crf.");
-  }
 
   config.nvencPreset = result.nvencPreset;
   if (config.nvencPreset.has_value() && config.nvencPreset.value() == "auto") {
@@ -341,24 +267,13 @@ auto applyMediaOptionValidations(appctx::AppConfig& config, CmdParseResult const
 
 auto applyInputSelection(appctx::AppConfig& config, CmdParseResult const& result)
   -> eh::Result<void> {
-  auto const hasSingleInput = result.input.has_value();
-  auto const hasMultiInputs = result.inputs.has_value();
+  // Positional-vs-(-i/-I) and -i-vs--I conflicts are rejected at parse time by
+  // native excludes(); only the remaining checks live here.
   auto const hasPositionalInputs = result.positionalInputs.has_value();
-
-  if (hasPositionalInputs && (hasSingleInput || hasMultiInputs)) {
-    return eh::makeError(
-      "Use either positional input paths or -i/--input/-I/--inputs, not both."
-    );
-  }
-
   auto const positionalCount =
     hasPositionalInputs ? result.positionalInputs.value().size() : std::size_t{0};
-  auto const effectiveSingleInput = hasSingleInput || positionalCount == 1;
-  auto const effectiveMultiInputs = hasMultiInputs || positionalCount > 1;
-
-  if (effectiveSingleInput && effectiveMultiInputs) {
-    return eh::makeError("Use either -i/--input or -I/--inputs, not both.");
-  }
+  auto const effectiveSingleInput = result.input.has_value() || positionalCount == 1;
+  auto const effectiveMultiInputs = result.inputs.has_value() || positionalCount > 1;
 
   if (!effectiveSingleInput && !effectiveMultiInputs) {
     return eh::makeError(
@@ -404,25 +319,17 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
   config.resumeState = result.resume;
   config.restartState = result.restart;
 
-  auto typeRes = readProcessType(result);
-  if (!typeRes) { return eh::makeError("{}", typeRes.error()); }
-  config.processType = typeRes.value();
-
-  auto formatRes = readOutputFormat(result);
-  if (!formatRes) { return eh::makeError("{}", formatRes.error()); }
-  config.outputFormat = formatRes.value();
-
-  auto jobsRes = readMaxParallelJobs(result);
-  if (!jobsRes) { return eh::makeError("{}", jobsRes.error()); }
-  config.maxParallelJobs = jobsRes.value();
+  // Canonical values and validation come from parse time (CheckedTransformer
+  // for -t, IsMember for -f/--force-conflict-handling, PositiveNumber for -j).
+  config.processType = result.processType;
+  config.outputFormat = result.outputFormat;
+  config.maxParallelJobs = result.maxJobs;
 
   auto layoutRes = readOutputLayout(result);
   if (!layoutRes) { return eh::makeError("{}", layoutRes.error()); }
   config.outputLayout = layoutRes.value();
 
-  auto forceNamingRes = readForceNameConflictHandling(result);
-  if (!forceNamingRes) { return eh::makeError("{}", forceNamingRes.error()); }
-  config.forceNameConflictHandling = forceNamingRes.value();
+  config.forceNameConflictHandling = result.forceConflictHandling == "y";
 
   auto pictureFolderSummaryRes = readPictureFolderSummary(result);
   if (!pictureFolderSummaryRes) {

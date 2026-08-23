@@ -10,7 +10,7 @@ Lets users get a concise overview of common commands with `-h` while keeping the
 
 The `-h`/`--help` output SHALL show usage lines and only the non-advanced options, grouped as today (General / Input-Output / Processing / File operation), and SHALL end with the hint line `Run 'encro -hh' to view all options.`
 
-Advanced options hidden from the brief help: `-v`, `--log-json`, `-F`, `--color`, `-I`, `--state-file`, `--force-conflict-handling`, `-x`, `--preset`.
+Advanced options hidden from the brief help: `-v`, `--log-json`, `-F`, `--color`, `-I`, `--state-file`, `--force-conflict-handling`, `-x`, `--preset`, `--video-codec`.
 
 #### Scenario: Brief help invoked once
 - **WHEN** the user runs `encro -h` with no other flags
@@ -27,7 +27,7 @@ The `-hh` output SHALL show every option including the advanced ones, SHALL NOT 
 
 #### Scenario: Full help via repeated short flag
 - **WHEN** the user runs `encro -hh`
-- **THEN** the output includes the advanced options (`-v`, `--log-json`, `--color`, `-I`, `--state-file`, `--force-conflict-handling`, `-x`, `--preset`)
+- **THEN** the output includes the advanced options (`-v`, `--log-json`, `-F`, `--color`, `-I`, `--state-file`, `--force-conflict-handling`, `-x`, `--preset`, `--video-codec`)
 - **AND** the output has no `Run 'encro -hh'` hint line
 
 #### Scenario: Full help via repeated invocations
