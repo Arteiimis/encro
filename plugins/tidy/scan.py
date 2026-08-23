@@ -5,6 +5,8 @@ Invoked by the xmake `tidy` plugin task. Default prints warnings as text;
 fixture to assert the check set and header-filter behave.
 """
 import concurrent.futures
+import glob
+import hashlib
 import json
 import os
 import re
@@ -12,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 BS = chr(92)
 FS = '/'
@@ -57,19 +60,20 @@ def find_tus():
         sys.exit(2)
     with open(ccfile, encoding='utf-8') as f:
         entries = json.load(f)
-    # dict.fromkeys keeps the FIRST occurrence deterministically; duplicate
+    # Keep the FIRST entry per unique file deterministically; duplicate
     # entries exist (encro + tests targets) and clang-tidy re-looks-up the
     # file in the database anyway, so scanning once per unique file is right.
-    tus = list(dict.fromkeys(
-        e['file']
-        for e in entries
-        if e.get('file', '').replace(BS, FS).endswith('.cpp') and os.path.isfile(e['file'])
-    ))
-    tus.sort()
+    flags = {}
+    for e in entries:
+        f = e.get('file', '')
+        norm = f.replace(BS, FS)
+        if norm.endswith('.cpp') and os.path.isfile(f) and norm not in flags:
+            flags[norm] = ' '.join(e.get('arguments') or []) or e.get('command', '')
+    tus = sorted(flags)
     if not tus:
         print('No TU entries found in build/compile_commands.json', file=sys.stderr)
         sys.exit(2)
-    return tus
+    return tus, flags
 
 
 def is_project(path):
@@ -78,7 +82,169 @@ def is_project(path):
     return bool(PROJECT_RE.search(path))
 
 
-def scan_tu(tu, analyzer):
+CACHE_DIR = os.path.join('build', '.tidy-cache')
+_DEP_ROOTS = None
+_TOOL_VERSION = None
+
+
+def clang_tidy_version():
+    global _TOOL_VERSION
+    if _TOOL_VERSION is None:
+        v = subprocess.run([TOOL, '--version'], capture_output=True, text=True)
+        m = re.search(r'LLVM version (\S+)', v.stdout)
+        _TOOL_VERSION = m.group(1) if m else 'unknown'
+    return _TOOL_VERSION
+
+
+def find_dep_roots():
+    global _DEP_ROOTS
+    if _DEP_ROOTS is None:
+        _DEP_ROOTS = sorted(glob.glob(
+            os.path.join('build', '.deps', '*', 'windows', 'x64', 'release')
+        ))
+    return _DEP_ROOTS
+
+
+def parse_depfile(path):
+    """Parse an xmake depfile-metadata file into the TU's dependency list.
+
+    xmake writes these as Lua-style tables (not JSON), e.g.
+    `depfiles = "target: dep1 dep2 \\\n  dep3",`.
+    """
+    try:
+        with open(path, encoding='utf-8') as f:
+            text = f.read()
+    except OSError:
+        return None
+    # (?s): depfile lines end with a backslash-newline continuation, so
+    # the `\\.` escape must be allowed to consume newlines too.
+    m = re.search(r'(?s)depfiles\s*=\s*\"((?:[^\"\\]|\\.)*)\"', text)
+    if not m:
+        return None
+    s = m.group(1)  # keep Lua escapes; the tokenizer below handles `\` pairs
+    tokens = []
+    cur = ''
+    i = 0
+    while i < len(s):
+        c = s[i]
+        if c == '\\':
+            if i + 1 < len(s) and s[i + 1] == '\\':
+                cur += '\\'
+                i += 2
+            elif i + 1 < len(s) and s[i + 1] == ' ':
+                cur += ' '
+                i += 2
+            elif i + 1 < len(s) and s[i + 1] in '\r\n':
+                i += 2  # line continuation
+            else:
+                i += 1
+        elif c in ' \t\r\n':
+            if cur:
+                tokens.append(cur)
+                cur = ''
+            i += 1
+        else:
+            cur += c
+            i += 1
+    if cur:
+        tokens.append(cur)
+    if tokens and (tokens[0].endswith('.obj') or tokens[0].endswith('.obj:')):
+        tokens = tokens[1:]  # drop the target itself
+    return [t for t in tokens if t != '\\']
+
+
+def find_deps(tu):
+    """Resolve the depfile for a TU; None when unavailable (fall back to full scan)."""
+    rel = tu.replace('\\', '/')
+    if os.path.isabs(rel):
+        try:
+            rel = os.path.relpath(rel, os.getcwd()).replace('\\', '/')
+        except ValueError:
+            return None
+    if rel.startswith('./'):
+        rel = rel[2:]
+    for root in find_dep_roots():
+        p = os.path.join(root, rel + '.obj.d')
+        if os.path.isfile(p):
+            return parse_depfile(p)
+    return None
+
+
+def cache_key(tu, flags, mode, deps):
+    parts = [tu, flags, mode, clang_tidy_version()]
+    for p in ['.clang-tidy', tu]:
+        try:
+            parts.append(str(os.path.getmtime(p)))
+        except OSError:
+            parts.append('missing')
+    for d in sorted(set(deps)):
+        try:
+            parts.append(str(os.path.getmtime(d)))
+        except OSError:
+            parts.append('missing')
+    return hashlib.sha256('\n'.join(parts).encode('utf-8')).hexdigest()
+
+
+def load_cached(key):
+    p = os.path.join(CACHE_DIR, key + '.json')
+    if not os.path.isfile(p):
+        return None
+    try:
+        with open(p, encoding='utf-8') as f:
+            return json.load(f)['warnings']
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def save_cache(key, tu, mode, warnings):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    p = os.path.join(CACHE_DIR, key + '.json')
+    tmp = p + '.tmp'
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump({'tu': tu, 'mode': mode, 'warnings': warnings}, f)
+        os.replace(tmp, p)
+    except OSError:
+        pass
+
+
+def cleanup_cache(active_tus, mode, used_keys):
+    """Drop stale cached results: same TU as this run, but a key the run did
+    not produce (its sources changed). Results for TUs outside this run's
+    scope (e.g. a -f filtered scan) are kept."""
+    if not os.path.isdir(CACHE_DIR):
+        return
+    active = {t.replace('\\', '/') for t in active_tus}
+    for name in os.listdir(CACHE_DIR):
+        if not name.endswith('.json'):
+            continue
+        p = os.path.join(CACHE_DIR, name)
+        try:
+            with open(p, encoding='utf-8') as f:
+                meta = json.load(f)
+            tu_norm = meta.get('tu', '').replace('\\', '/')
+            stale = (
+                meta.get('mode') != mode
+                or (tu_norm in active and name[:-5] not in used_keys)
+            )
+        except (OSError, ValueError):
+            stale = True
+        if stale:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
+def scan_tu(tu, analyzer, flags):
+    mode = 'analyzer' if analyzer else 'fast'
+    deps = find_deps(tu)
+    key = None
+    if deps is not None:
+        key = cache_key(tu, flags, mode, deps)
+        cached = load_cached(key)
+        if cached is not None:
+            return cached, 'cached', key
     cmd = [TOOL, tu, '-p', 'build', '-header-filter=' + HEADER_FILTER, '--quiet']
     if not analyzer:
         # The path-sensitive static analyzer dominates cost (minutes and GBs per
@@ -88,26 +254,24 @@ def scan_tu(tu, analyzer):
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired:
         print(f'clang-tidy timed out on {tu}; skipped', file=sys.stderr)
-        return [], 'timeout'
+        return [], 'timeout', key
     warnings = []
     for line in r.stdout.splitlines():
         w = parse_warning(line)
         if w and is_project(w['path']):
             warnings.append(w)
+    if key is not None and r.returncode == 0:
+        save_cache(key, tu, mode, warnings)
     if r.returncode == 0:
-        return warnings, 'ok'
+        return warnings, 'ok', key
     # Exit 1 is a deterministic clang-tidy error (compile failure, bad
     # config); only the crash-ish codes are worth a sequential retry.
-    return warnings, 'crashed' if r.returncode not in (0, 1) else 'failed'
+    return warnings, 'crashed' if r.returncode not in (0, 1) else 'failed', key
 
 
 def sarif_document(all_warnings):
     rules = sorted({w['check'] for w in all_warnings if w['check']})
-    ver = ''
-    v = subprocess.run([TOOL, '--version'], capture_output=True, text=True)
-    m = re.search(r'LLVM version (\S+)', v.stdout)
-    if m:
-        ver = m.group(1)
+    ver = clang_tidy_version()
     results = [
         {
             'ruleId': w['check'] or 'clang-tidy',
@@ -215,7 +379,8 @@ def main():
 
     # Fast checks are cheap (~seconds/TU); the analyzer needs minutes and ~2GB
     # per process, so cap its parallelism to keep peak memory sane.
-    jobs = 4 if analyzer else 8
+    cpus = os.cpu_count() or 4
+    jobs = min(cpus - 2, 14) if not analyzer else min(cpus // 2, 8)
     if '-j' in args:
         i = args.index('-j')
         jobs = int(args[i + 1])
@@ -227,40 +392,58 @@ def main():
         filt = args[i + 1]
         del args[i:i + 2]
 
-    tus = find_tus()
+    tus, flags = find_tus()
     if filt:
-        tus = [tu for tu in tus if filt in tu.replace(BS, FS)]
+        tus = [tu for tu in tus if filt in tu]
         if not tus:
             print(f'=== tidy: 0 warnings (filter: {filt}) ===')
             sys.exit(0)
 
     all_warnings = []
     crashed = []
+    used_keys = set()
+    cached_count = 0
+    started = time.monotonic()
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as ex:
-        for tu, (warnings, status) in zip(tus, ex.map(lambda t: scan_tu(t, analyzer), tus)):
+        for tu, (warnings, status, key) in zip(
+            tus, ex.map(lambda t: scan_tu(t, analyzer, flags[t]), tus)
+        ):
             all_warnings.extend(warnings)
             if status == 'crashed':
                 crashed.append(tu)
+            if status == 'cached':
+                cached_count += 1
+            if key is not None:
+                used_keys.add(key)
+    elapsed = time.monotonic() - started
 
     # clang-tidy can crash (access violation) under high parallelism; retry
     # crashed TUs sequentially, one process at a time.
     for tu in crashed:
-        warnings, status = scan_tu(tu, analyzer)
+        warnings, status, key = scan_tu(tu, analyzer, flags[tu])
         all_warnings.extend(warnings)
         if status != 'ok':
             print(f'clang-tidy failed on {tu}; skipped', file=sys.stderr)
+        if key is not None:
+            used_keys.add(key)
+
+    cleanup_cache(tus, 'analyzer' if analyzer else 'fast', used_keys)
 
     all_warnings = dedupe(all_warnings)
     all_warnings.sort(key=lambda w: (w['path'], w['line'], w['col']))
 
+    summary = (
+        f'=== tidy: {len(all_warnings)} warning(s), {cached_count} cached '
+        f'of {len(tus)} TUs ({elapsed:.1f}s) ==='
+    )
     if sarif:
         with open(SARIF_OUT, 'w', encoding='utf-8') as f:
             json.dump(sarif_document(all_warnings), f, indent=2)
-        print(f'=== tidy: {len(all_warnings)} warning(s), SARIF written to {SARIF_OUT} ===')
+        print(summary + f', SARIF written to {SARIF_OUT}')
     else:
         for w in all_warnings:
             print(f'{w["path"]}:{w["line"]}:{w["col"]}: warning: {w["message"]} [{w["check"]}]')
-        print(f'=== tidy: {len(all_warnings)} warning(s) ===')
+        print(summary)
     sys.exit(0)
 
 
