@@ -6,15 +6,15 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 
 - **Build system:** xmake (not CMake). Toolchain: `clang-cl` + `lld-link` on Windows. C++26.
 - **Build:** `xmake build encro` · **Run:** `xmake run encro <args>` (e.g. `xmake run encro -h`; do NOT use `--` — it is passed through to the program and breaks CLI11 parsing)
-- **Tests with failure summary:** `xmake test-report` — builds + runs unit tests, writes `build/last-test-report.xml` (JUnit) and `build/last-test-console.log` (full console text), and prints a summary instead of raw console: success shows `All tests passed (N assertions in M test cases)`, failure prints a per-test FAILED list (name + file:line + message) plus both artifact paths. Child stdout goes to the log file, so progress-bar frames never render (non-TTY) and the terminal output stays clean in every context; exit code is propagated. `--tag="[tag]"` limits to a tag filter (note: `=` form required).
+- **Tests with failure summary:** `xmake test-report` — builds + runs unit tests, writes `build/last-test-report.xml` (JUnit) and `build/last-test-console.log` (full console text), and prints a summary instead of raw console: success shows `All tests passed (N assertions in M test cases)`, failure prints a per-test FAILED list (name + file:line + message) plus both artifact paths. `--tag="[tag]"` limits to a tag filter (note: `=` form required).
 - **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)
-- **Tests (parallel):** `xmake test-parallel` — builds then runs the unit suite in 8 Catch2 shards and the e2e suite in 4 shards concurrently (~13s vs ~88s serial on 16 cores; real-ffmpeg tests included). Each shard gets an isolated temp root under `build/.test-parallel/`, so shared scratch/TempDir/log state never collides. Shard counts auto-scale from CPU count (`--unit-shards=N` / `--e2e-shards=N` override). Success/failure is judged from the Catch2 logs (parallel `proc:wait` statuses are unreliable); failed shard logs are printed with paths under `build/.test-parallel/`.
-- **Format:** `xmake fmt` (apply) / `xmake fmt -k` (check only, no CI gate). Default style `file:D:/clangformat/.clang-format` (NOT in repo); `--style` overrides it. Full options: `xmake fmt -h`.
+- **Tests (parallel):** `xmake test-parallel` — builds then runs the unit suite in 8 Catch2 shards and the e2e suite in 4 shards concurrently (real-ffmpeg tests included). Each shard gets an isolated temp root under `build/.test-parallel/`, so shared scratch/TempDir/log state never collides. Shard counts auto-scale from CPU count (`--unit-shards=N` / `--e2e-shards=N` override). Success/failure is judged from the Catch2 logs (parallel `proc:wait` statuses are unreliable); failed shard logs are printed with paths under `build/.test-parallel/`.
+- **Format:** `xmake fmt` (apply) / `xmake fmt -k` (check only, no CI gate). Default style `file:D:/clangformat/.clang-format` (not in repo); `--style` overrides it. Full options: `xmake fmt -h`.
 - **Static analysis:** `xmake tidy` — report-only clang-tidy over `src/`+`tests/` (`.clang-tidy` config, function-length/cognitive-complexity guardrails); needs `build/compile_commands.json` (build first). Full options: `xmake tidy -h`.
 - **Coverage:** `xmake coverage` runs tests under coverage with an instrumentation self-check, then restores release; needs `llvm-profdata` + `llvm-cov` on PATH. Full options: `xmake coverage -h`.
 - **Size:** `xmake size` prints section sizes (llvm-size); `-d` adds per-object breakdown via PDB (auto-rebuilds with debug info if missing). Full options: `xmake size -h`.
 - **ASan:** `xmake f -m releasedbg && xmake build encro` (config then build; `xmake f` alone only reconfigures)
-- **Dependency headers:** read `build/compile_commands.json` for absolute include paths (e.g., `F:\xmake\.xmake\packages\i\indicators\2.3\<hash>\include`). They live there, NOT in the repo — never search `~/.xmake`.
+- **Dependency headers:** read `build/compile_commands.json` for absolute include paths — they live there, not in the repo (never search `~/.xmake`).
 
 ### Build Modes
 
@@ -37,7 +37,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 | Namespaces     | lowercase, no separators, no indent inside                           |
 | Header guards  | `#pragma once` only                                                  |
 | Include order  | own header → project headers by module → third-party → stdlib; relative to `src/` |
-| Comments       | Minimal, no Doxygen; code is self-documenting                        |
+| Comments       | Minimal, no Doxygen                                         |
 | Template params| `Ty` (single), `Tys` (pack)                                          |
 
 ## Testing
@@ -56,9 +56,9 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 ## Development Workflows
 
 - **OpenSpec:** features follow proposal → specs → design → tasks → implementation via `.pi/skills/openspec-*` (explore → propose → apply/update → sync → archive; artifacts in `openspec/changes/`). **Before starting any OpenSpec step (explore, propose, apply, update, sync, archive), read the corresponding skill first (`.pi/skills/openspec-<step>/SKILL.md`) and follow its workflow exactly** — never run an OpenSpec step from memory. Every feature needs ≥1 test. **All OpenSpec/spec documents (proposal, specs, design, tasks) must be written in English.**
-- **OpenSpec review timing:** When a change's planning artifacts need review, first write ALL planning artifacts (proposal → specs → design → tasks), then run one full review of the proposal against the complete artifact set. Never review the proposal in isolation before the later artifacts exist — a proposal review without its specs/design/tasks cannot validate the contract between the artifacts.
-- **TDD:** 1) write failing test first (RED) 2) minimal code to pass (GREEN) 3) refactor under test protection 4) verify all pass. Never write implementation before tests; test + implementation go in the same commit.
-- **Post-Change Review:** after self-verification, unless the change is trivial (typos, docs-only, one-liner or mechanical refactor), run the `code-review` skill (parallel Standards + Spec axis sub-agents; spec from `openspec/changes/`); for large multi-area changes additionally launch ≤1 sub-agent per touched functional area to review edge cases only (empty inputs, unusual codecs, exit codes, concurrency, stop-signal paths); report severity + file:line findings; triage and fix, then re-run full verification.
+- **OpenSpec review timing:** write ALL planning artifacts (proposal → specs → design → tasks) before reviewing the proposal against the complete set — a proposal review without its specs/design/tasks cannot validate the contract between them.
+- **TDD:** never write implementation before tests; test + implementation go in the same commit.
+- **Post-Change Review:** after self-verification, unless trivial (typos, docs-only, one-liner or mechanical refactor), run the `code-review` skill (spec from `openspec/changes/`); for large multi-area changes add ≤1 sub-agent per functional area for edge cases only; report severity + file:line findings, triage, fix, re-verify.
 
 ## Platform & Git
 
