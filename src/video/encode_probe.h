@@ -99,7 +99,7 @@ auto buildProbeSegmentConfig(
 // preset-by-resolution, maxrate; only CQ and output differ). Returns false
 // when the encode fails or the segment is missing. Shared by the probe phase
 // and single-input preview.
-auto runProbeEncode(
+bool runProbeEncode(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
   EncodeInputSettings const& settings,
@@ -107,7 +107,7 @@ auto runProbeEncode(
   int cq,
   ProbeWindow const& window,
   std::size_t workerCount
-) -> bool;
+);
 
 struct ProbePlan {
   fs::path inputPath;
@@ -145,7 +145,7 @@ auto probeSingleFile(
   ProbeStepCallback const& onStep = {}
 ) -> ProbePlan;
 
-auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void;
+void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor);
 
 // One-line summary hint pointing at the comparison tool.
 inline auto previewHint(fs::path const& original, fs::path const& encoded)

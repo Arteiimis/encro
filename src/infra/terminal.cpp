@@ -38,18 +38,18 @@ auto streamFile(Stream stream) -> FILE* {
   return stream == Stream::Stdout ? stdout : stderr;
 }
 
-auto envVarEquals(std::string_view name, std::string_view expected) -> bool {
+bool envVarEquals(std::string_view name, std::string_view expected) {
   auto const value = processenv::readNonEmptyEnvVar(name);
   if (!value.has_value()) { return false; }
   return toLowerCopy(value.value()) == toLowerCopy(expected);
 }
 
-auto noColorRequested() -> bool {
+bool noColorRequested() {
   return processenv::readNonEmptyEnvVar("NO_COLOR").has_value();
 }
 
 #if defined(_WIN32) || defined(_WIN64)
-auto enableVirtualTerminal(Stream stream) -> bool {
+bool enableVirtualTerminal(Stream stream) {
   auto const handle =
     GetStdHandle(stream == Stream::Stdout ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
   if (handle == nullptr || handle == INVALID_HANDLE_VALUE) { return false; }
@@ -117,7 +117,7 @@ auto parseColorMode(std::string_view text) -> std::optional<ColorMode> {
   return std::nullopt;
 }
 
-auto streamIsTerminal(Stream stream) -> bool {
+bool streamIsTerminal(Stream stream) {
 #if defined(_WIN32) || defined(_WIN64)
   auto const fd = _fileno(streamFile(stream));
   return fd >= 0 && _isatty(fd) != 0;
@@ -151,7 +151,7 @@ auto configureFromColorString(std::string_view colorValue) -> std::optional<std:
   return std::nullopt;
 }
 
-auto colorsEnabled(Stream stream) -> bool {
+bool colorsEnabled(Stream stream) {
   switch (colorMode()) {
     case ColorMode::Never : return false;
     case ColorMode::Always: return true;

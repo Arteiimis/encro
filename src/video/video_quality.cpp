@@ -40,7 +40,7 @@ constexpr auto kHdrTransfers = std::array{
   "smpte428"sv,
 };
 
-auto seconds(std::uint64_t micros) -> double {
+double seconds(std::uint64_t micros) {
   return static_cast<double>(micros) / 1'000'000.0;
 }
 
@@ -62,7 +62,7 @@ auto quoteFilterPath(fs::path const& path) -> std::string {
   return std::format("'{}'", escaped);
 }
 
-auto isVmafLogEmpty(boost::json::value const& log) -> bool {
+bool isVmafLogEmpty(boost::json::value const& log) {
   if (!log.is_object()) { return true; }
   auto const framesIt = log.as_object().find("frames");
   if (framesIt == log.as_object().end() || !framesIt->value().is_array()) { return true; }
@@ -224,7 +224,7 @@ auto mean(std::span<double const> scores) -> std::optional<double> {
   return sum / static_cast<double>(scores.size());
 }
 
-auto ssimFloorForVmafFloor(int vmafFloor) -> double {
+double ssimFloorForVmafFloor(int vmafFloor) {
   auto const anchor = std::ranges::find_if(kSsimFloorAnchors, [vmafFloor](auto const& a) {
     return a.first == vmafFloor;
   });
@@ -247,7 +247,7 @@ auto ssimFloorForVmafFloor(int vmafFloor) -> double {
   return low.second + t * (high.second - low.second);
 }
 
-auto isHdrVideo(boost::json::value const& vidInfo) -> bool {
+bool isHdrVideo(boost::json::value const& vidInfo) {
   if (!vidInfo.is_object()) { return false; }
 
   auto const streamsIt = vidInfo.as_object().find("streams");

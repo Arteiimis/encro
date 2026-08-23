@@ -42,7 +42,7 @@ void writeToStderr(std::string const& message) {
 // terminate from I/O failures (D-14, Pitfall #10).
 // Bounded retry covers the µs-scale rotating-sink close→reopen window where a
 // momentary open failure would otherwise fall through to tier 2.
-auto tryWriteDirectToLogFile(std::string const& message) -> bool {
+bool tryWriteDirectToLogFile(std::string const& message) {
   constexpr auto kMaxAttempts = 3;
   constexpr auto kRetryDelay = std::chrono::milliseconds{10};
 
@@ -124,7 +124,7 @@ auto tryWriteDirectToLogFile(std::string const& message) -> bool {
   return false;
 }
 
-auto tryWriteToLogger(std::string const& message) -> bool {
+bool tryWriteToLogger(std::string const& message) {
   auto* logger = spdlog::default_logger_raw();
   if (logger == nullptr) { return false; }
 
@@ -226,7 +226,7 @@ void reportUnknownException(std::string_view context) {
 
 // Public single-line direct append (tier-1 logic) for paths that bypass all
 // spdlog machinery, e.g. the force-exit watchdog before ExitProcess.
-auto writeDirectLogLine(std::string_view message) -> bool {
+bool writeDirectLogLine(std::string_view message) {
   return tryWriteDirectToLogFile(std::string{message});
 }
 

@@ -32,7 +32,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 | Item           | Rule                                                                 |
 | -------------- | -------------------------------------------------------------------- |
 | East const     | `std::string const&`                                                 |
-| Trailing return| `auto fn(...) -> ReturnType` on all functions, incl. `main`          |
+| Trailing return| Simple scalar types and `void` use prefix style (`bool f()`, `int main()`); trailing `auto f(...) -> T` for complex/derived types only. Lambdas keep explicit return types when deduction would change them (e.g. mixed `return 0;`/`uint64_t`). |
 | Naming         | Files `snake_case` · Types `PascalCase` · Functions `camelCase`      |
 | Members        | `camelCase` + trailing `_` (e.g., `stateFilePath_`)                  |
 | Constants      | `k` + `PascalCase` (e.g., `kEncodeVideoKind`)                        |

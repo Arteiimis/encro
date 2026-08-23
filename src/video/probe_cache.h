@@ -38,7 +38,7 @@ auto probeCacheKey(
   std::string_view metric
 ) -> std::string;
 
-auto lastWriteTimeMs(fs::path const& path) -> std::uint64_t;
+std::uint64_t lastWriteTimeMs(fs::path const& path);
 
 // Loads the cache file; a missing file yields an empty cache, a corrupt file
 // or schema mismatch yields an empty cache (re-probe + rewrite). File lives
@@ -49,6 +49,6 @@ auto load(fs::path const& filePath = {}) -> std::vector<Entry>;
 // Merges updates into the cache, drops oldest entries beyond the cap, and
 // writes atomically (temp file + rename). Best-effort: a write failure is
 // logged and ignored so probing never fails because of the cache.
-auto save(std::vector<Entry> const& updates, fs::path const& filePath = {}) -> void;
+void save(std::vector<Entry> const& updates, fs::path const& filePath = {});
 
 }  // namespace probecache

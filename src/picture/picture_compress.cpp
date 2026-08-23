@@ -34,11 +34,11 @@ struct BatchState {
   progress::ProgressContext& progressCtx;
 };
 
-auto recordCompressSuccess(
+void recordCompressSuccess(
   CompressTask const& task,
   std::vector<CompressResult>& results,
   std::mutex& resultsMutex
-) -> void {
+) {
   auto lock = std::scoped_lock{resultsMutex};
   results.push_back({
     .originalPath = task.inputPath,
@@ -87,12 +87,12 @@ auto ImageCompressConfig::buildCMD() const -> std::string {
   return cmd;
 }
 
-auto compressImage(
+bool compressImage(
   appctx::AppContext const& ctx,
   fs::path const& inputPath,
   fs::path const& outputPath,
   int quality
-) -> bool {
+) {
   auto const partialPath = fs::path{std::format("{}.partial", outputPath.string())};
 
   auto const cfg = ImageCompressConfig{
@@ -149,7 +149,7 @@ auto compressImage(
 
 namespace {
 
-auto probeMaxFileSize(std::span<CompressTask const> tasks) -> std::uintmax_t {
+std::uintmax_t probeMaxFileSize(std::span<CompressTask const> tasks) {
   auto maxSize = std::uintmax_t{0};
   for (auto const& task: tasks) {
     auto ec = std::error_code{};
@@ -159,8 +159,8 @@ auto probeMaxFileSize(std::span<CompressTask const> tasks) -> std::uintmax_t {
   return maxSize;
 }
 
-auto capConcurrencyByFileSize(std::uintmax_t maxFileSize, std::size_t maxParallel)
-  -> std::size_t {
+std::size_t
+capConcurrencyByFileSize(std::uintmax_t maxFileSize, std::size_t maxParallel) {
   constexpr auto kOneMB = 1024ULL * 1024;
   auto const result = maxParallel;
   if (maxFileSize > 20 * kOneMB) { return std::min(result, std::size_t{1}); }

@@ -32,17 +32,17 @@ auto makeTestDir(std::string const& name) -> fs::path {
   return dir;
 }
 
-auto removeDir(fs::path const& dir) -> void {
+void removeDir(fs::path const& dir) {
   auto ec = std::error_code{};
   fs::remove_all(dir, ec);
 }
 
-auto createFakeLogFile(fs::path const& dir, std::string const& filename) -> void {
+void createFakeLogFile(fs::path const& dir, std::string const& filename) {
   auto ofs = std::ofstream{dir / filename};
   ofs << "fake log content\n";
 }
 
-auto countEncroFiles(fs::path const& dir) -> std::size_t {
+std::size_t countEncroFiles(fs::path const& dir) {
   auto const logPattern = std::regex{R"(encro_.*\.(log|ndjson).*)"};
   auto count = std::size_t{0};
   auto ec = std::error_code{};
@@ -75,7 +75,7 @@ auto sortedEncroFiles(fs::path const& dir) -> std::vector<fs::path> {
   return files;
 }
 
-auto isTimestampedName(fs::path const& p) -> bool {
+bool isTimestampedName(fs::path const& p) {
   // Matches encro_YYYYMMDD_HHMMSS.log or encro_YYYYMMDD_HHMMSS_PID.log
   auto const pattern = std::regex{R"(encro_\d{8}_\d{6}(_\d+)?\.log)"};
   return std::regex_match(p.filename().string(), pattern);

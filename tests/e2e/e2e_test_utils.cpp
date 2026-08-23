@@ -51,7 +51,7 @@ auto readProcessStream(boost::asio::readable_pipe& stream) -> std::string {
   return result;
 }
 
-auto setEnvVar(std::string const& key, std::optional<std::string> const& value) -> void {
+void setEnvVar(std::string const& key, std::optional<std::string> const& value) {
 #if defined(_WIN32)
   ::SetEnvironmentVariableA(key.c_str(), value.has_value() ? value->c_str() : nullptr);
 #else
@@ -133,8 +133,7 @@ auto runChild(
   return captureStreams(child);
 }
 
-auto copyExecutableWithoutExtension(fs::path const& source, fs::path const& destination)
-  -> void {
+void copyExecutableWithoutExtension(fs::path const& source, fs::path const& destination) {
   fs::create_directories(destination.parent_path());
   fs::copy_file(source, destination, fs::copy_options::overwrite_existing);
 }
@@ -288,7 +287,7 @@ auto RunningProcess::wait(std::chrono::milliseconds timeout)
   };
 }
 
-auto RunningProcess::sendCtrlC() -> bool {
+bool RunningProcess::sendCtrlC() {
 #if defined(_WIN32)
   // CTRL_BREAK_EVENT, not CTRL_C_EVENT: under ConPTY/mintty the C event is
   // silently dropped for CREATE_NEW_PROCESS_GROUP children, while BREAK is
@@ -300,11 +299,11 @@ auto RunningProcess::sendCtrlC() -> bool {
 #endif
 }
 
-auto RunningProcess::terminate() -> void {
+void RunningProcess::terminate() {
   child_.terminate();
 }
 
-auto RunningProcess::id() -> std::size_t {
+std::size_t RunningProcess::id() {
   return static_cast<std::size_t>(child_.id());
 }
 
@@ -317,7 +316,7 @@ auto runEncroAsync(
   return RunningProcess{encroBinaryPath(), args, workingDir};
 }
 
-auto consoleCtrlEventsAvailable() -> bool {
+bool consoleCtrlEventsAvailable() {
 #if defined(_WIN32)
   // GetConsoleWindow() is NULL under ConPTY even though a console exists;
   // GetConsoleCP() is nonzero exactly when the process has a console.
@@ -343,7 +342,7 @@ auto installFakeToolchain(fs::path const& root) -> FakeToolchain {
   };
 }
 
-auto writeTextFile(fs::path const& path, std::string_view content) -> void {
+void writeTextFile(fs::path const& path, std::string_view content) {
   fs::create_directories(path.parent_path());
   auto out = std::ofstream{path, std::ios::binary};
   out << content;

@@ -39,11 +39,11 @@ exit /b 0
   testutils::writeTextFile(scriptPath, script);
 }
 
-auto writeFakeFfmpegSecondCallSlowScript(
+void writeFakeFfmpegSecondCallSlowScript(
   fs::path const& scriptPath,
   fs::path const& counterPath,
   fs::path const& survivorMarkerPath
-) -> void {
+) {
   auto const script = std::format(
     R"(@echo off
 setlocal EnableExtensions EnableDelayedExpansion
@@ -78,10 +78,10 @@ exit /b 0
   testutils::writeTextFile(scriptPath, script);
 }
 
-auto writeFakeFfmpegCountingScript(
+void writeFakeFfmpegCountingScript(
   fs::path const& scriptPath,
   fs::path const& counterPath
-) -> void {
+) {
   auto const script = std::format(
     R"(@echo off
 setlocal EnableExtensions EnableDelayedExpansion
@@ -107,7 +107,7 @@ exit /b 0
   testutils::writeTextFile(scriptPath, script);
 }
 
-auto readInvocationCount(fs::path const& counterPath) -> std::size_t {
+std::size_t readInvocationCount(fs::path const& counterPath) {
   auto in = std::ifstream{counterPath, std::ios::binary};
   auto value = std::size_t{0};
   if (in.is_open()) { in >> value; }

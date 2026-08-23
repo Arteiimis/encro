@@ -90,7 +90,7 @@ auto tryParseNbFrames(boost::json::value const& val) -> std::optional<int64_t> {
   return std::nullopt;
 }
 
-auto isHevcEncodedInfo(boost::json::value const& vidInfo) -> bool {
+bool isHevcEncodedInfo(boost::json::value const& vidInfo) {
   if (!vidInfo.is_object()) { return false; }
 
   auto const& obj = vidInfo.as_object();
@@ -114,7 +114,7 @@ auto isHevcEncodedInfo(boost::json::value const& vidInfo) -> bool {
   return false;
 }
 
-auto isKnownVideoExtension(fs::path const& filePath) -> bool {
+bool isKnownVideoExtension(fs::path const& filePath) {
   namespace rng = std::ranges;
 
   auto const vidsExt = filePath.extension().string();
@@ -134,8 +134,7 @@ auto tryReadFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t> 
   return std::nullopt;
 }
 
-auto keepsWebpInputSizeLimit(appctx::AppConfig const& config, fs::path const& filePath)
-  -> bool {
+bool keepsWebpInputSizeLimit(appctx::AppConfig const& config, fs::path const& filePath) {
   if (config.outputFormat != "webp") { return true; }
 
   auto const fileSize = tryReadFileSize(filePath);
@@ -165,8 +164,10 @@ auto tryCollectVideoInput(appctx::AppConfig const& config, fs::path const& fileP
   return filePath;
 }
 
-auto keepScannedVideoCandidate(appctx::AppConfig const& config, fs::path const& filePath)
-  -> bool {
+bool keepScannedVideoCandidate(
+  appctx::AppConfig const& config,
+  fs::path const& filePath
+) {
   return keepsWebpInputSizeLimit(config, filePath);
 }
 
@@ -239,12 +240,12 @@ auto finalizeVideoList(
   return filtered;
 }
 
-auto prewarmWebpVideoInfoCache(
+void prewarmWebpVideoInfoCache(
   appctx::AppConfig const& config,
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
   std::span<fs::path const> vids
-) -> void {
+) {
   if (vids.empty()) { return; }
 
   auto const configuredOrDetected = config.maxParallelJobs.value_or(

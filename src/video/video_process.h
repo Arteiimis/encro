@@ -7,11 +7,11 @@
 
 namespace fs = std::filesystem;
 
-auto handleSingleFileEncoding(appctx::AppContext& ctx, fs::path const& videoPath) -> int;
+int handleSingleFileEncoding(appctx::AppContext& ctx, fs::path const& videoPath);
 
-auto handleMultiFileEncoding(
+int handleMultiFileEncoding(
   appctx::AppContext& ctx,
   std::span<fs::path const> inputPaths
-) -> int;
+);
 
-auto handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) -> int;
+int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath);

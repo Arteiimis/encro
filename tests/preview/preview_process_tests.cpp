@@ -110,13 +110,13 @@ auto copyFakeTool(fs::path const& dir, std::string const& name) -> fs::path {
 // Fake ffmpeg/ffprobe = the e2e fake_media_tool.exe (FAKE_TOOL_EXE_PATH), copied
 // per role so argv[0] selects ffprobe vs ffmpeg. The ffmpeg side writes a fake
 // libvmaf JSON log for scoring invocations when ENCRO_FAKE_FFMPEG_WRITE_VMAF=1.
-auto fillPreviewContext(
+void fillPreviewContext(
   appctx::AppContext& ctx,
   fs::path const& toolDir,
   std::vector<std::unique_ptr<ScopedEnvVar>>& envs,
   std::string const& codecName = "h264",
   std::string const& vmafScores = "96.0"
-) -> void {
+) {
   ctx.toolchain.ffprobePath = copyFakeTool(toolDir, "ffprobe");
   ctx.toolchain.ffmpegPath = copyFakeTool(toolDir, "ffmpeg");
   envs.emplace_back(

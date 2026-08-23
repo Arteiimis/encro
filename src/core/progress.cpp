@@ -43,7 +43,7 @@ constexpr auto kMaxBarWidth = std::size_t{52};
 // CI) they render into this null sink instead of std::cout.
 class NullStreamBuffer final: public std::streambuf {
 public:
-  auto overflow(int character) -> int override { return character; }
+  int overflow(int character) override { return character; }
 };
 
 auto barOutputStream() -> std::ostream& {
@@ -126,7 +126,7 @@ auto scrollWindow(std::string_view text, std::size_t budget, std::size_t startCo
   return displaytext::takeWindowByDisplayWidth(text, clamped, budget);
 }
 
-auto bounceOffset(std::uint64_t elapsedMs, std::size_t travel) -> std::size_t {
+std::size_t bounceOffset(std::uint64_t elapsedMs, std::size_t travel) {
   if (travel == 0) { return 0; }
 
   auto const sweepMs = static_cast<std::uint64_t>(travel) * kMsPerCol;
@@ -248,11 +248,11 @@ auto EtaEstimator::etaSeconds(float progress) const -> std::optional<float> {
   return (100.0f - progress) / std::max(ratePerSec_, 0.01f);
 }
 
-auto EtaEstimator::lastProgress() const -> float {
+float EtaEstimator::lastProgress() const {
   return lastProgress_;
 }
 
-auto ProgressContext::addBar(std::string_view promptText, Tone tone) -> std::size_t {
+std::size_t ProgressContext::addBar(std::string_view promptText, Tone tone) {
   auto lock = std::scoped_lock{mtx_};
   auto const index = progress::addBar(manager_, bars_, tones_, promptText, tone);
   postfixes_.emplace_back(promptText);
@@ -368,13 +368,13 @@ auto makeBar(std::string_view promptText, Tone tone) -> BarPtr {
   );
 }
 
-auto addBar(
+std::size_t addBar(
   Manager& manager,
   BarCollection& bars,
   std::vector<Tone>& tones,
   std::string_view promptText,
   Tone tone
-) -> std::size_t {
+) {
   bars.emplace_back(makeBar(promptText, tone));
   tones.push_back(tone);
   return manager.push_back(*bars.back());

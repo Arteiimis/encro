@@ -186,7 +186,7 @@ void Store::requestCancel() {
   persistLocked("requestCancel", true);
 }
 
-auto Store::isCancelRequested() const -> bool {
+bool Store::isCancelRequested() const {
   auto lock = std::scoped_lock{mtx_};
   return snapshot_.cancelRequested;
 }

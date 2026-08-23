@@ -52,7 +52,7 @@ inline constexpr auto kStoredMediaExtensions = std::array<std::string_view, 27>{
   ".avif",
 };
 
-inline auto shouldStoreEntry(fs::path const& sourcePath) -> bool {
+inline bool shouldStoreEntry(fs::path const& sourcePath) {
   auto ext = sourcePath.extension().string();
   std::ranges::transform(ext, ext.begin(), [](unsigned char c) {
     return static_cast<char>(std::tolower(c));
@@ -65,7 +65,7 @@ struct PackFileEntry {
   std::string zipEntryName;
   bool isSummary = false;
 
-  auto operator==(PackFileEntry const&) const -> bool = default;
+  bool operator==(PackFileEntry const&) const = default;
 };
 
 struct PackEntryInput {
@@ -75,7 +75,7 @@ struct PackEntryInput {
   std::optional<std::string> fileKey;
   bool isSummary = false;
 
-  auto operator==(PackEntryInput const&) const -> bool = default;
+  bool operator==(PackEntryInput const&) const = default;
 };
 
 struct FileOrdinalRange {

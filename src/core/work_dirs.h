@@ -26,11 +26,11 @@ auto scratchDir() -> fs::path;
 
 // Creates the scratch root if missing. Best-effort: writers create it lazily
 // before spawning ffmpeg, whose failures surface at the caller anyway.
-auto ensureScratchDir() -> void;
+void ensureScratchDir();
 
 // Marks a directory with the Windows Hidden attribute. No-op on POSIX.
 // Idempotent: only calls SetFileAttributesW when the attribute is missing.
-inline auto setHiddenAttribute(fs::path const& path) -> void {
+inline void setHiddenAttribute(fs::path const& path) {
 #if defined(_WIN32)
   auto const wide = path.wstring();
   auto const attrs = ::GetFileAttributesW(wide.c_str());
@@ -45,7 +45,7 @@ inline auto setHiddenAttribute(fs::path const& path) -> void {
 // Applies the Hidden attribute to the nearest `.encro` ancestor of `path`,
 // i.e. the work dir that was just created as part of the chain. No-op when
 // the path has no `.encro` component (e.g. an explicit --state-file dir).
-inline auto setHiddenOnEncroDir(fs::path const& path) -> void {
+inline void setHiddenOnEncroDir(fs::path const& path) {
   auto current = path;
   while (current.filename() != kEncroDirName) {
     auto const parent = current.parent_path();
@@ -73,7 +73,7 @@ auto jobStateFile(fs::path const& workRoot) -> fs::path;
 // Deletes stale entries under the scratch dir older than 24 hours. Best-effort:
 // failures are ignored, and fresh files (written by live runs) are never
 // touched because ffmpeg/probe writers keep updating mtimes continuously.
-auto sweepScratchDir() -> void;
+void sweepScratchDir();
 
 // Resolves the work root (the directory holding `.encro\`) from the run
 // configuration. Anchor rule (design D1):

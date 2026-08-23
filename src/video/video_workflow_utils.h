@@ -28,7 +28,7 @@ inline auto lookupPlannedOutputFile(
 }
 
 template<class Fn>
-inline auto withJobState(appctx::AppContext& ctx, Fn&& fn) -> bool {
+inline bool withJobState(appctx::AppContext& ctx, Fn&& fn) {
   if (auto* store = maybeJobState(ctx); store != nullptr) {
     std::forward<Fn>(fn)(*store);
     return true;

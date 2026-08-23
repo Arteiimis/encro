@@ -294,8 +294,7 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
   return zippedFiles;
 }
 
-auto countPackedFiles(std::vector<std::vector<PackFileEntry>> const& groups)
-  -> std::size_t {
+std::size_t countPackedFiles(std::vector<std::vector<PackFileEntry>> const& groups) {
   auto total = std::size_t{0};
   for (auto const& group: groups) { total += group.size(); }
   return total;

@@ -32,12 +32,12 @@ struct CompressResult {
   std::string originalEntryName;
 };
 
-auto compressImage(
+bool compressImage(
   appctx::AppContext const& ctx,
   fs::path const& inputPath,
   fs::path const& outputPath,
   int quality
-) -> bool;
+);
 
 auto compressImageBatch(
   appctx::AppContext& ctx,
