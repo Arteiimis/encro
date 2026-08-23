@@ -513,22 +513,25 @@ auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::Ap
   // Native help flag: CallForHelp is thrown only while parsing the preview
   // subcommand (the parent app cleared its help flag).
   sub->set_help_flag("-h,--help", "show preview help");
-  sub->add_option("original", result.previewOriginal, "original video path")->required();
-  sub->add_option("encoded", result.previewEncoded, "encoded video path")->expected(0, 1);
+  auto* original =
+    sub->add_option("original", result.previewOriginal, "original video path");
+  original->required();
+  auto* encoded = sub->add_option("encoded", result.previewEncoded, "encoded video path");
+  encoded->expected(0, 1);
   sub->add_option(
     "--output",
     result.previewOutput,
     "output video path (default: <original-dir>/<original-stem>.preview.mp4)"
   );
-  sub->add_option("--start", result.previewStart, "manual window start in seconds")
-    ->check(CLI::NonNegativeNumber);
-  sub
-    ->add_option(
-      "--duration",
-      result.previewDuration,
-      "manual window duration in seconds"
-    )
-    ->check(CLI::NonNegativeNumber);
+  auto* start =
+    sub->add_option("--start", result.previewStart, "manual window start in seconds");
+  start->check(CLI::NonNegativeNumber);
+  auto* duration = sub->add_option(
+    "--duration",
+    result.previewDuration,
+    "manual window duration in seconds"
+  );
+  duration->check(CLI::NonNegativeNumber);
   sub->add_flag(
     "--no-open",
     result.previewNoOpen,
@@ -559,18 +562,19 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
     result.fullProgress,
     "show full progress with per-worker encoding bars and per-archive packing bars"
   );
-  general->add_option("--color", result.color, "terminal colors: auto, always, never")
-    ->expected(0, 1)
-    ->default_str("auto")
-    // transform() lowercases so IsMember can match case-insensitively and the
-    // stored value is canonical (IsMember alone never rewrites the input)
-    ->transform([](std::string value) {
-      std::ranges::transform(value, value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-      });
-      return value;
-    })
-    ->check(CLI::IsMember({"auto", "always", "never"}));
+  auto* color =
+    general->add_option("--color", result.color, "terminal colors: auto, always, never");
+  color->expected(0, 1);
+  color->default_str("auto");
+  // transform() lowercases so IsMember can match case-insensitively and the
+  // stored value is canonical (IsMember alone never rewrites the input)
+  color->transform([](std::string value) {
+    std::ranges::transform(value, value.begin(), [](unsigned char ch) {
+      return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+  });
+  color->check(CLI::IsMember({"auto", "always", "never"}));
   general->add_flag("-y,--yes", result.yesToAll, "automatic yes to prompts");
   return helpOpt;
 }
@@ -579,8 +583,8 @@ auto registerIoFlags(CLI::App* io, CmdParseResult& result) -> void {
   constexpr auto kMaxPositionalInputs = 1000000;
   auto* input =
     io->add_option("-i,--input", result.input, "input file or directory path");
-  auto* inputs = io->add_option("-I,--inputs", result.inputs, "input video file paths")
-                   ->expected(0, kMaxPositionalInputs);
+  auto* inputs = io->add_option("-I,--inputs", result.inputs, "input video file paths");
+  inputs->expected(0, kMaxPositionalInputs);
   io->add_option(
     "-o,--output",
     result.output,
@@ -588,28 +592,32 @@ auto registerIoFlags(CLI::App* io, CmdParseResult& result) -> void {
     "common:// for common root"
   );
   io->add_option("--state-file", result.stateFile, "custom job state file path");
-  io->add_option("-f,--output-format", result.outputFormat, "target format: mp4 or webp")
-    ->expected(0, 1)
-    ->default_str("mp4")
-    ->check(CLI::IsMember({"mp4", "webp"}));
+  auto* outputFormat = io->add_option(
+    "-f,--output-format",
+    result.outputFormat,
+    "target format: mp4 or webp"
+  );
+  outputFormat->expected(0, 1);
+  outputFormat->default_str("mp4");
+  outputFormat->check(CLI::IsMember({"mp4", "webp"}));
   io->add_flag(
     "--keep",
     result.keep,
     "preserve relative input subdirectories inside the output directory "
     "(default: flatten)"
   );
-  io->add_option(
-      "--force-conflict-handling",
-      result.forceConflictHandling,
-      "same-name collisions in flat output: y=auto-rename, n=allow duplicates"
-  )
-    ->expected(0, 1)
-    ->default_str("y")
-    // transform(): CheckedTransformer rewrites the input to the mapped value
-    // (check-only validators leave the raw input untouched)
-    ->transform(
-      CLI::CheckedTransformer({{{"y", "y"}, {"Y", "y"}, {"n", "n"}, {"N", "n"}}})
-    );
+  auto* conflict = io->add_option(
+    "--force-conflict-handling",
+    result.forceConflictHandling,
+    "same-name collisions in flat output: y=auto-rename, n=allow duplicates"
+  );
+  conflict->expected(0, 1);
+  conflict->default_str("y");
+  // CheckedTransformer rewrites Y/N to y/n; check-only validators leave the
+  // raw input untouched
+  conflict->transform(
+    CLI::CheckedTransformer({{{"y", "y"}, {"Y", "y"}, {"n", "n"}, {"N", "n"}}})
+  );
   io->add_flag(
     "-s,--folder-summary",
     result.folderSummary,
@@ -618,28 +626,32 @@ auto registerIoFlags(CLI::App* io, CmdParseResult& result) -> void {
   io->add_flag("-r,--recursive", result.recursive, "enable recursively search");
 
   auto* positional = io->add_option(
-                         "input-paths",
-                         result.positionalInputs,
-                         "input file or directory paths (alternative to -i/-I)"
-  )
-                       ->expected(0, kMaxPositionalInputs);
+    "input-paths",
+    result.positionalInputs,
+    "input file or directory paths (alternative to -i/-I)"
+  );
+  positional->expected(0, kMaxPositionalInputs);
   input->excludes(inputs);
   positional->excludes(input);
   positional->excludes(inputs);
 }
 
 auto registerProcessingFlags(CLI::App* processing, CmdParseResult& result) -> void {
-  processing
-    ->add_option("-t,--type", result.processType, "process type: video(vid)|picture(pic)")
-    ->expected(0, 1)
-    ->default_str("video")
-    // transform(): maps vid/pic to the canonical values and rejects anything
-    // else with a native message; canonical values pass through unchanged
-    ->transform(CLI::CheckedTransformer({{"vid", "video"}, {"pic", "picture"}}));
-  processing->add_option("-j,--jobs", result.maxJobs, "max parallel jobs (>=1)")
-    ->expected(0, 1)
-    ->default_str("10")
-    ->check(CLI::PositiveNumber);
+  auto* type = processing->add_option(
+    "-t,--type",
+    result.processType,
+    "process type: video(vid)|picture(pic)"
+  );
+  type->expected(0, 1);
+  type->default_str("video");
+  // CheckedTransformer maps vid/pic to the canonical values and rejects
+  // anything else; canonical values pass through unchanged
+  type->transform(CLI::CheckedTransformer({{"vid", "video"}, {"pic", "picture"}}));
+  auto* jobs =
+    processing->add_option("-j,--jobs", result.maxJobs, "max parallel jobs (>=1)");
+  jobs->expected(0, 1);
+  jobs->default_str("10");
+  jobs->check(CLI::PositiveNumber);
   auto* resume = processing->add_flag(
     "--resume",
     result.resume,
@@ -651,37 +663,36 @@ auto registerProcessingFlags(CLI::App* processing, CmdParseResult& result) -> vo
     "ignore previous job state and start a fresh run"
   );
   resume->excludes(restart);
-  processing
-    ->add_option("-x,--ffmpeg-path", result.ffmpegPath, "custom ffmpeg install path");
+  auto* ffmpegPath =
+    processing
+      ->add_option("-x,--ffmpeg-path", result.ffmpegPath, "custom ffmpeg install path");
   auto* compress = processing->add_flag(
     "-c,--compress",
     result.compress,
     "enable JPEG compression during picture processing"
   );
-  auto* imageQuality = processing
-                         ->add_option(
-                           "-q,--image-quality",
-                           result.imageQuality,
-                           "JPEG compression quality (2-31, lower=better)"
-                         )
-                         ->expected(1)
-                         ->default_str("2")
-                         ->check(CLI::Range(2, 31));
+  auto* imageQuality = processing->add_option(
+    "-q,--image-quality",
+    result.imageQuality,
+    "JPEG compression quality (2-31, lower=better)"
+  );
+  imageQuality->expected(1);
+  imageQuality->default_str("2");
+  imageQuality->check(CLI::Range(2, 31));
   auto* crf =
     processing
-      ->add_option("--crf", result.crf, "video encode quality (0-51, lower=better)")
-      ->expected(1)
-      ->default_str("28")
-      ->check(CLI::Range(0, 51));
-  processing
-    ->add_option(
-      "--min-vmaf",
-      result.minVmaf,
-      "minimum p5-VMAF quality floor for probing (0-100)"
-    )
-    ->expected(0, 1)
-    ->default_str("95")
-    ->check(CLI::Range(0, 100));
+      ->add_option("--crf", result.crf, "video encode quality (0-51, lower=better)");
+  crf->expected(1);
+  crf->default_str("28");
+  crf->check(CLI::Range(0, 51));
+  auto* minVmaf = processing->add_option(
+    "--min-vmaf",
+    result.minVmaf,
+    "minimum p5-VMAF quality floor for probing (0-100)"
+  );
+  minVmaf->expected(0, 1);
+  minVmaf->default_str("95");
+  minVmaf->check(CLI::Range(0, 100));
   auto* dryRun = processing->add_flag(
     "--dry-run",
     result.dryRun,
@@ -689,22 +700,20 @@ auto registerProcessingFlags(CLI::App* processing, CmdParseResult& result) -> vo
   );
   dryRun->excludes(crf);
   imageQuality->needs(compress);
-  processing
-    ->add_option(
-      "--preset",
-      result.nvencPreset,
-      "NVENC preset (p1-p7; auto picks by resolution)"
-    )
-    ->expected(1)
-    ->default_str("auto")
-    ->check(CLI::IsMember({"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}));
-  processing
-    ->add_option(
-      "--video-codec",
-      result.videoCodec,
-      "video encoder (default hevc_nvenc; libx265/libx264 on cpu)"
-    )
-    ->default_str("hevc_nvenc");
+  auto* preset = processing->add_option(
+    "--preset",
+    result.nvencPreset,
+    "NVENC preset (p1-p7; auto picks by resolution)"
+  );
+  preset->expected(1);
+  preset->default_str("auto");
+  preset->check(CLI::IsMember({"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}));
+  auto* videoCodec = processing->add_option(
+    "--video-codec",
+    result.videoCodec,
+    "video encoder (default hevc_nvenc; libx265/libx264 on cpu)"
+  );
+  videoCodec->default_str("hevc_nvenc");
 }
 
 auto registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) -> void {
