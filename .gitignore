@@ -7,6 +7,9 @@ build/
 
 # vscode settings
 .vscode/
+
+# clice
+.clice/
 # Playwright MCP artifacts
 .playwright-mcp/
 
