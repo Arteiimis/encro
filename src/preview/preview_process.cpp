@@ -370,6 +370,61 @@ struct WindowBatchResult {
   std::vector<fs::path> segments;
 };
 
+// Encodes one probe window and scores it against the original segment.
+// Returns the outcome (default on scoring failure) or an error on encode
+// failure, which also flags windowEncodeFailed for the batch.
+auto encodeAndScoreWindow(
+  appctx::AppContext& ctx,
+  fs::path const& original,
+  EncodeInputSettings const& settings,
+  fs::path const& segFile,
+  Window const& window,
+  int windowCq,
+  std::size_t workers,
+  fs::path const& ffmpeg,
+  boost::json::value const& info,
+  std::atomic_bool& windowEncodeFailed
+) -> eh::Result<WindowOutcome> {
+  auto const ok = encodeprobe::runProbeEncode(
+    ctx,
+    original,
+    settings,
+    segFile,
+    windowCq,
+    encodeprobe::ProbeWindow{window.startUs, window.durationUs},
+    workers
+  );
+  if (!ok) {
+    windowEncodeFailed.store(true);
+    return eh::makeError(
+      "Preview window encode failed at {}us of {}",
+      window.startUs,
+      original.string()
+    );
+  }
+  auto const scores = videoquality::measureSegmentQuality(
+    ffmpeg,
+    original,
+    segFile,
+    window.startUs,
+    window.durationUs,
+    info,
+    true  // segments carry segment-local PTS
+  );
+  if (!scores.has_value()) {
+    LOG_WARN(
+      "Preview scoring failed for window {}us: {}",
+      window.startUs,
+      scores.error()
+    );
+    return WindowOutcome{};
+  }
+  auto outcome = WindowOutcome{};
+  outcome.metric = scores->metric;
+  outcome.score = videoquality::percentile(scores->frameScores, 5.0);
+  return outcome;
+}
+
 auto encodeAndScoreAllWindows(
   appctx::AppContext& ctx,
   PreviewOptions const& options,
@@ -395,65 +450,41 @@ auto encodeAndScoreAllWindows(
   for (auto index = std::size_t{}; index < windows.size(); ++index) {
     auto const segFile = probeRoot / std::format("win{}.ts", index);
     result.segments[index] = segFile;
-    tasks.push_back({
-      .id = std::format("preview-window:{}", index),
-      .label = std::format("window {}", index),
-      .input = options.original.string(),
-.run = [&, index, segFile](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
-taskexec::TaskContext&) -> eh::Result<void> {
-auto const& window = windows[index];
-auto const windowCq = ctx.config.crf.value_or(plan.chosenCq);
-auto const ok = encodeprobe::runProbeEncode(
-ctx,
-options.original,
-settings,
-segFile,
-windowCq,
-encodeprobe::ProbeWindow{window.startUs, window.durationUs},
-previewWorkers
-);
-if (!ok) {
-windowEncodeFailed.store(true);
-return eh::makeError(
-"Preview window encode failed at {}us of {}",
-window.startUs,
-options.original.string()
-);
-}
-auto const scores = videoquality::measureSegmentQuality(
-ffmpeg,
-options.original,
-segFile,
-window.startUs,
-window.durationUs,
-info,
-true  // segments carry segment-local PTS
-);
-if (scores.has_value()) {
-result.outcomes[index].metric = scores->metric;
-result.outcomes[index].score = videoquality::percentile(scores->frameScores, 5.0);
-} else {
-LOG_WARN(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
-"Preview scoring failed for window {}us: {}",
-window.startUs,
-scores.error()
-);
-}
-auto const done = windowsCompleted.fetch_add(1) + 1;
-progressCtx.setProgress(
-bar,
-windowBase
-+ (85.0f - windowBase)
-* static_cast<float>(done)
-/ static_cast<float>(windows.size())
-);
-progressCtx.setPostfixText(
-bar,
-std::format("Encoding windows: {}/{}", done, windows.size())
-);
-return {};
-}
-    });
+    tasks.push_back(
+      {.id = std::format("preview-window:{}", index),
+       .label = std::format("window {}", index),
+       .input = options.original.string(),
+       // NOLINTNEXTLINE(bugprone-exception-escape): taskexec::runTasks catches
+       .run = [&, index, segFile](taskexec::TaskContext&) -> eh::Result<void> {
+         auto outcome = encodeAndScoreWindow(
+           ctx,
+           options.original,
+           settings,
+           segFile,
+           windows[index],
+           ctx.config.crf.value_or(plan.chosenCq),
+           previewWorkers,
+           ffmpeg,
+           info,
+           windowEncodeFailed
+         );
+         if (!outcome) { return std::unexpected(outcome.error()); }
+         result.outcomes[index] = *outcome;
+         auto const done = windowsCompleted.fetch_add(1) + 1;
+         progressCtx.setProgress(
+           bar,
+           windowBase
+             + (85.0f - windowBase)
+               * static_cast<float>(done)
+               / static_cast<float>(windows.size())
+         );
+         progressCtx.setPostfixText(
+           bar,
+           std::format("Encoding windows: {}/{}", done, windows.size())
+         );
+         return {};
+       }}
+    );
   }
   taskexec::runTasks({
     .tasks = std::move(tasks),
@@ -501,7 +532,7 @@ struct PreviewProbeRootGuard {
 };
 
 auto createPreviewProbeRoot() -> eh::Result<fs::path> {
-  auto const probeRoot = workdirs::scratchDir() / std::format("preview_{}", getUUID());
+  auto probeRoot = workdirs::scratchDir() / std::format("preview_{}", getUUID());
   auto ec = std::error_code{};
   fs::create_directories(probeRoot, ec);
   if (ec) {
