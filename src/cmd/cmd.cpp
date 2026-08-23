@@ -1,5 +1,7 @@
 #include "cmd/cmd.h"
 
+#include "cmd/option_specs.h"
+
 #include "infra/env.h"
 #include "infra/terminal.h"
 
@@ -513,224 +515,234 @@ auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::Ap
   // Native help flag: CallForHelp is thrown only while parsing the preview
   // subcommand (the parent app cleared its help flag).
   sub->set_help_flag("-h,--help", "show preview help");
-  auto* original =
-    sub->add_option("original", result.previewOriginal, "original video path");
-  original->required();
-  auto* encoded = sub->add_option("encoded", result.previewEncoded, "encoded video path");
-  encoded->expected(0, 1);
-  sub->add_option(
-    "--output",
-    result.previewOutput,
-    "output video path (default: <original-dir>/<original-stem>.preview.mp4)"
-  );
-  auto* start =
-    sub->add_option("--start", result.previewStart, "manual window start in seconds");
-  start->check(CLI::NonNegativeNumber);
-  auto* duration = sub->add_option(
-    "--duration",
-    result.previewDuration,
-    "manual window duration in seconds"
-  );
-  duration->check(CLI::NonNegativeNumber);
-  sub->add_flag(
-    "--no-open",
-    result.previewNoOpen,
-    "do not open the result in the default player"
-  );
+  auto const options = std::tuple{
+    opt("original", &result.previewOriginal, "original video path", cfg::Required{}),
+    opt("encoded", &result.previewEncoded, "encoded video path", cfg::Expected{0, 1}),
+    opt(
+      "--output",
+      &result.previewOutput,
+      "output video path (default: <original-dir>/<original-stem>.preview.mp4)"
+    ),
+    opt(
+      "--start",
+      &result.previewStart,
+      "manual window start in seconds",
+      cfg::NonNegativeNumber{}
+    ),
+    opt(
+      "--duration",
+      &result.previewDuration,
+      "manual window duration in seconds",
+      cfg::NonNegativeNumber{}
+    ),
+    opt(
+      "--no-open",
+      &result.previewNoOpen,
+      "do not open the result in the default player"
+    ),
+  };
+  registerAll(sub, options);
   sub->formatter_fn(makePreviewHelpFormatter(sub));
   return sub;
 }
 
 auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& result)
   -> CLI::Option* {
+  // help/version bypass the spec table: the -hh two-tier mechanism needs the
+  // help option pointer returned to the caller
   auto* helpOpt =
     app.add_flag("-h,--help", result.help, "show help; use -hh to show all options");
   app.add_flag("--version", result.version, "show version information");
-
-  general->add_flag(
-    "-v,--verbose",
-    result.verbose,
-    "echo log lines to the console (disables progress bars)"
-  );
-  general->add_flag(
-    "--log-json",
-    result.jsonEnabled,
-    "enable NDJSON structured log output (one JSON object per line)"
-  );
-  general->add_flag(
-    "-F,--full-progress",
-    result.fullProgress,
-    "show full progress with per-worker encoding bars and per-archive packing bars"
-  );
-  auto* color =
-    general->add_option("--color", result.color, "terminal colors: auto, always, never");
-  color->expected(0, 1);
-  color->default_str("auto");
-  // transform() lowercases so IsMember can match case-insensitively and the
-  // stored value is canonical (IsMember alone never rewrites the input)
-  color->transform([](std::string value) {
-    std::ranges::transform(value, value.begin(), [](unsigned char ch) {
-      return static_cast<char>(std::tolower(ch));
-    });
-    return value;
-  });
-  color->check(CLI::IsMember({"auto", "always", "never"}));
-  general->add_flag("-y,--yes", result.yesToAll, "automatic yes to prompts");
+  auto const options = std::tuple{
+    opt(
+      "-v,--verbose",
+      &result.verbose,
+      "echo log lines to the console (disables progress bars)"
+    ),
+    opt(
+      "--log-json",
+      &result.jsonEnabled,
+      "enable NDJSON structured log output (one JSON object per line)"
+    ),
+    opt(
+      "-F,--full-progress",
+      &result.fullProgress,
+      "show full progress with per-worker encoding bars and per-archive packing "
+      "bars"
+    ),
+    opt(
+      "--color",
+      &result.color,
+      "terminal colors: auto, always, never",
+      cfg::OptionalDefault{"auto"},
+      cfg::Transform{[](std::string value) {
+        std::ranges::transform(value, value.begin(), [](unsigned char ch) {
+          return static_cast<char>(std::tolower(ch));
+        });
+        return value;
+      }},
+      cfg::Members{"auto", "always", "never"}
+    ),
+    opt("-y,--yes", &result.yesToAll, "automatic yes to prompts"),
+  };
+  registerAll(general, options);
   return helpOpt;
 }
 
 auto registerIoFlags(CLI::App* io, CmdParseResult& result) -> void {
   constexpr auto kMaxPositionalInputs = 1000000;
-  auto* input =
-    io->add_option("-i,--input", result.input, "input file or directory path");
-  auto* inputs = io->add_option("-I,--inputs", result.inputs, "input video file paths");
-  inputs->expected(0, kMaxPositionalInputs);
-  io->add_option(
-    "-o,--output",
-    result.output,
-    "custom output directory path\n  aliases: + or input:// for input root, = or "
-    "common:// for common root"
-  );
-  io->add_option("--state-file", result.stateFile, "custom job state file path");
-  auto* outputFormat = io->add_option(
-    "-f,--output-format",
-    result.outputFormat,
-    "target format: mp4 or webp"
-  );
-  outputFormat->expected(0, 1);
-  outputFormat->default_str("mp4");
-  outputFormat->check(CLI::IsMember({"mp4", "webp"}));
-  io->add_flag(
-    "--keep",
-    result.keep,
-    "preserve relative input subdirectories inside the output directory "
-    "(default: flatten)"
-  );
-  auto* conflict = io->add_option(
-    "--force-conflict-handling",
-    result.forceConflictHandling,
-    "same-name collisions in flat output: y=auto-rename, n=allow duplicates"
-  );
-  conflict->expected(0, 1);
-  conflict->default_str("y");
-  // CheckedTransformer rewrites Y/N to y/n; check-only validators leave the
-  // raw input untouched
-  conflict->transform(
-    CLI::CheckedTransformer({{{"y", "y"}, {"Y", "y"}, {"n", "n"}, {"N", "n"}}})
-  );
-  io->add_flag(
-    "-s,--folder-summary",
-    result.folderSummary,
-    "enable picture-mode folder summary images in flat packs"
-  );
-  io->add_flag("-r,--recursive", result.recursive, "enable recursively search");
-
-  auto* positional = io->add_option(
-    "input-paths",
-    result.positionalInputs,
-    "input file or directory paths (alternative to -i/-I)"
-  );
-  positional->expected(0, kMaxPositionalInputs);
-  input->excludes(inputs);
-  positional->excludes(input);
-  positional->excludes(inputs);
+  auto const options = std::tuple{
+    opt(
+      "-i,--input",
+      &result.input,
+      "input file or directory path",
+      cfg::Excludes{"--inputs"}
+    ),
+    opt(
+      "-I,--inputs",
+      &result.inputs,
+      "input video file paths",
+      cfg::Expected{0, kMaxPositionalInputs}
+    ),
+    opt(
+      "-o,--output",
+      &result.output,
+      "custom output directory path\n  aliases: + or input:// for input "
+      "root, = or common:// for common root"
+    ),
+    opt("--state-file", &result.stateFile, "custom job state file path"),
+    opt(
+      "-f,--output-format",
+      &result.outputFormat,
+      "target format: mp4 or webp",
+      cfg::OptionalDefault{"mp4"},
+      cfg::Members{"mp4", "webp"}
+    ),
+    opt(
+      "--keep",
+      &result.keep,
+      "preserve relative input subdirectories inside the output directory "
+      "(default: flatten)"
+    ),
+    opt(
+      "--force-conflict-handling",
+      &result.forceConflictHandling,
+      "same-name collisions in flat output: y=auto-rename, n=allow "
+      "duplicates",
+      cfg::OptionalDefault{"y"},
+      cfg::CheckedTransformer{{{"y", "y"}, {"Y", "y"}, {"n", "n"}, {"N", "n"}}}
+    ),
+    opt(
+      "-s,--folder-summary",
+      &result.folderSummary,
+      "enable picture-mode folder summary images in flat packs"
+    ),
+    opt("-r,--recursive", &result.recursive, "enable recursively search"),
+  };
+  registerAll(io, options);
+  auto const positional = std::tuple{
+    opt(
+      "input-paths",
+      &result.positionalInputs,
+      "input file or directory paths (alternative to -i/-I)",
+      cfg::Expected{0, kMaxPositionalInputs},
+      cfg::Excludes{"--input"},
+      cfg::Excludes{"--inputs"}
+    ),
+  };
+  registerAll(io, positional);
 }
 
 auto registerProcessingFlags(CLI::App* processing, CmdParseResult& result) -> void {
-  auto* type = processing->add_option(
-    "-t,--type",
-    result.processType,
-    "process type: video(vid)|picture(pic)"
-  );
-  type->expected(0, 1);
-  type->default_str("video");
-  // CheckedTransformer maps vid/pic to the canonical values and rejects
-  // anything else; canonical values pass through unchanged
-  type->transform(CLI::CheckedTransformer({{"vid", "video"}, {"pic", "picture"}}));
-  auto* jobs =
-    processing->add_option("-j,--jobs", result.maxJobs, "max parallel jobs (>=1)");
-  jobs->expected(0, 1);
-  jobs->default_str("10");
-  jobs->check(CLI::PositiveNumber);
-  auto* resume = processing->add_flag(
-    "--resume",
-    result.resume,
-    "require matching previous job state; error if missing or mismatched"
-  );
-  auto* restart = processing->add_flag(
-    "--restart",
-    result.restart,
-    "ignore previous job state and start a fresh run"
-  );
-  resume->excludes(restart);
-  auto* ffmpegPath =
-    processing
-      ->add_option("-x,--ffmpeg-path", result.ffmpegPath, "custom ffmpeg install path");
-  auto* compress = processing->add_flag(
-    "-c,--compress",
-    result.compress,
-    "enable JPEG compression during picture processing"
-  );
-  auto* imageQuality = processing->add_option(
-    "-q,--image-quality",
-    result.imageQuality,
-    "JPEG compression quality (2-31, lower=better)"
-  );
-  imageQuality->expected(1);
-  imageQuality->default_str("2");
-  imageQuality->check(CLI::Range(2, 31));
-  auto* crf =
-    processing
-      ->add_option("--crf", result.crf, "video encode quality (0-51, lower=better)");
-  crf->expected(1);
-  crf->default_str("28");
-  crf->check(CLI::Range(0, 51));
-  auto* minVmaf = processing->add_option(
-    "--min-vmaf",
-    result.minVmaf,
-    "minimum p5-VMAF quality floor for probing (0-100)"
-  );
-  minVmaf->expected(0, 1);
-  minVmaf->default_str("95");
-  minVmaf->check(CLI::Range(0, 100));
-  auto* dryRun = processing->add_flag(
-    "--dry-run",
-    result.dryRun,
-    "probe and print the encoding plan, then exit without encoding"
-  );
-  dryRun->excludes(crf);
-  imageQuality->needs(compress);
-  auto* preset = processing->add_option(
-    "--preset",
-    result.nvencPreset,
-    "NVENC preset (p1-p7; auto picks by resolution)"
-  );
-  preset->expected(1);
-  preset->default_str("auto");
-  preset->check(CLI::IsMember({"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}));
-  auto* videoCodec = processing->add_option(
-    "--video-codec",
-    result.videoCodec,
-    "video encoder (default hevc_nvenc; libx265/libx264 on cpu)"
-  );
-  videoCodec->default_str("hevc_nvenc");
+  auto const options = std::tuple{
+    opt(
+      "-t,--type",
+      &result.processType,
+      "process type: video(vid)|picture(pic)",
+      cfg::OptionalDefault{"video"},
+      cfg::CheckedTransformer{{"vid", "video"}, {"pic", "picture"}}
+    ),
+    opt(
+      "-j,--jobs",
+      &result.maxJobs,
+      "max parallel jobs (>=1)",
+      cfg::OptionalDefault{"10"},
+      cfg::PositiveNumber{}
+    ),
+    opt(
+      "--resume",
+      &result.resume,
+      "require matching previous job state; error if missing or mismatched",
+      cfg::Excludes{"--restart"}
+    ),
+    opt("--restart", &result.restart, "ignore previous job state and start a fresh run"),
+    opt("-x,--ffmpeg-path", &result.ffmpegPath, "custom ffmpeg install path"),
+    opt(
+      "-c,--compress",
+      &result.compress,
+      "enable JPEG compression during picture processing"
+    ),
+    opt(
+      "-q,--image-quality",
+      &result.imageQuality,
+      "JPEG compression quality (2-31, lower=better)",
+      cfg::RequiredDefault{"2"},
+      cfg::Range{2, 31},
+      cfg::Needs{"--compress"}
+    ),
+    opt(
+      "--crf",
+      &result.crf,
+      "video encode quality (0-51, lower=better)",
+      cfg::RequiredDefault{"28"},
+      cfg::Range{0, 51}
+    ),
+    opt(
+      "--min-vmaf",
+      &result.minVmaf,
+      "minimum p5-VMAF quality floor for probing (0-100)",
+      cfg::OptionalDefault{"95"},
+      cfg::Range{0, 100}
+    ),
+    opt(
+      "--dry-run",
+      &result.dryRun,
+      "probe and print the encoding plan, then exit without encoding",
+      cfg::Excludes{"--crf"}
+    ),
+    opt(
+      "--preset",
+      &result.nvencPreset,
+      "NVENC preset (p1-p7; auto picks by resolution)",
+      cfg::RequiredDefault{"auto"},
+      cfg::Members{"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}
+    ),
+    opt(
+      "--video-codec",
+      &result.videoCodec,
+      "video encoder (default hevc_nvenc; libx265/libx264 on cpu)",
+      cfg::DefaultValue{"hevc_nvenc"}
+    ),
+  };
+  registerAll(processing, options);
 }
 
 auto registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) -> void {
-  auto* pack =
-    fileop
-      ->add_flag("-p,--pack", result.pack, "pack encoded video outputs into zip files");
-  auto* packOnly = fileop->add_flag(
-    "-z,--pack-only",
-    result.packOnly,
-    "pack only: zip all files in input directory"
-  );
-  pack->excludes(packOnly);
-  fileop->add_flag(
-    "-w,--overwrite",
-    result.overwrite,
-    "overwrite existing files without prompt"
-  );
+  auto const options = std::tuple{
+    opt(
+      "-p,--pack",
+      &result.pack,
+      "pack encoded video outputs into zip files",
+      cfg::Excludes{"--pack-only"}
+    ),
+    opt(
+      "-z,--pack-only",
+      &result.packOnly,
+      "pack only: zip all files in input directory"
+    ),
+    opt("-w,--overwrite", &result.overwrite, "overwrite existing files without prompt"),
+  };
+  registerAll(fileop, options);
 }
 
 auto parseAndPopulate(
