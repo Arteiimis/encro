@@ -38,4 +38,4 @@
 
 - [x] 6.1 Full build + unit suite + e2e suite green (`xmake test-report`, `xmake test-parallel`)
 - [x] 6.2 Run `xmake fmt -k` and `xmake tidy`; fix findings
-- [ ] 6.3 Commit implementation + tests + tasks.md checkboxes in one commit (conventional message, English)
+- [x] 6.3 Commit implementation + tests + tasks.md checkboxes in one commit (conventional message, English)
