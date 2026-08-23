@@ -36,7 +36,7 @@ void noteStopRequest(appctx::AppContext& ctx) {
 // pass, so the monitor does not re-read an untouched file. Keyed by path:
 // a segment switch swaps state.progressFilePath, which must trigger a read
 // even if the new file happens to match the previous size.
-auto progressFileChanged(appctx::EncodingState& state) -> bool {
+bool progressFileChanged(appctx::EncodingState& state) {
   auto progressFilePath = std::optional<fs::path>{};
   {
     auto lock = std::scoped_lock{state.mtx};
@@ -126,7 +126,7 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
   );
 }
 
-auto stateFinished(appctx::EncodingState& state) -> bool {
+bool stateFinished(appctx::EncodingState& state) {
   auto lock = std::scoped_lock{state.mtx};
   return state.finished;
 }
@@ -201,7 +201,7 @@ void renderProgress(
 
 // One throttled parse pass: reads and renders every active state whose
 // progress file changed. Called at most kProgressParseInterval apart.
-auto runParsePass(videobatch::detail::EncodingExecutionContext& executionCtx) -> void {
+void runParsePass(videobatch::detail::EncodingExecutionContext& executionCtx) {
   auto const activeStates = executionCtx.activeStates();
 
   for (auto const& activeState: activeStates) {

@@ -11,7 +11,7 @@ namespace fs = std::filesystem;
 
 namespace openfile {
 
-auto openWithDefaultApp(fs::path const& path) -> bool {
+bool openWithDefaultApp(fs::path const& path) {
 #if defined(_WIN32)
   auto const wide = path.wstring();
   auto const result = reinterpret_cast<std::intptr_t>(

@@ -28,7 +28,7 @@ struct ScopedColorNever {
 
 constexpr auto kHintLine = std::string_view{"Run 'encro -hh' to view all options."};
 
-auto isLastNonEmptyLine(std::string_view text, std::string_view needle) -> bool {
+bool isLastNonEmptyLine(std::string_view text, std::string_view needle) {
   auto const pos = text.find(needle);
   if (pos == std::string_view::npos) { return false; }
 

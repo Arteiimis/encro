@@ -26,17 +26,17 @@ bool extensionMatches(
 // True for entries whose filename starts with a dot (e.g. ".encro"). These
 // are the program's own hidden work directories and hidden files; they are
 // never scanned as input (media-scan spec).
-auto isDotEntry(fs::path const& path) -> bool {
+bool isDotEntry(fs::path const& path) {
   auto const name = path.filename().string();
   return !name.empty() && name.front() == '.';
 }
 
-auto scanDir(
+void scanDir(
   fs::path const& dirPath,
   std::span<std::string_view const> extensions,
   bool recursive,
   ScanResult& out
-) -> void {
+) {
   auto collectEntry = [&](fs::directory_entry const& entry) {
     if (isDotEntry(entry.path())) { return; }
     auto ec = std::error_code{};

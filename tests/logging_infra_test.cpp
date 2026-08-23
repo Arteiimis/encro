@@ -46,7 +46,7 @@ auto registerCapturingLogger(char const* name)
 
 // ── Helper: remove temp directory ──
 
-auto tryRemoveAll(fs::path const& p) -> void {
+void tryRemoveAll(fs::path const& p) {
   auto ec = std::error_code{};
   fs::remove_all(p, ec);
 }

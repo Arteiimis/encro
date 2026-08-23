@@ -60,11 +60,11 @@ public:
   auto wait(std::chrono::milliseconds timeout) -> std::optional<ProcessResult>;
 
   // Delivers Ctrl+C to the process group (Windows: console event; POSIX: SIGINT).
-  auto sendCtrlC() -> bool;
+  bool sendCtrlC();
 
-  auto terminate() -> void;
+  void terminate();
 
-  auto id() -> std::size_t;
+  std::size_t id();
 
 private:
   // Order matters: the context must outlive the pipes; streams must outlive
@@ -120,11 +120,11 @@ auto runEncroAsync(
 
 // False when the platform cannot deliver console events to a child
 // (Windows without a console); interruption tests SKIP in that case.
-auto consoleCtrlEventsAvailable() -> bool;
+bool consoleCtrlEventsAvailable();
 
 auto installFakeToolchain(fs::path const& root) -> FakeToolchain;
 
-auto writeTextFile(fs::path const& path, std::string_view content = "x") -> void;
+void writeTextFile(fs::path const& path, std::string_view content = "x");
 
 auto listZipEntries(fs::path const& zipPath) -> std::vector<std::string>;
 

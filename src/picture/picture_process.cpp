@@ -51,7 +51,7 @@ auto buildSummaryPictureEntryName(fs::path const& dirPath, fs::path const& fileP
   );
 }
 
-auto shouldForcePictureConflictNaming(appctx::AppConfig const& config) -> bool {
+bool shouldForcePictureConflictNaming(appctx::AppConfig const& config) {
   return config.forceNameConflictHandling
     && config.outputLayout == appctx::OutputLayout::Flat;
 }
@@ -153,13 +153,13 @@ auto collectFolderSummaryPictures(
   return summaryPictures;
 }
 
-auto addCompressTask(
+void addCompressTask(
   fs::path const& tempDir,
   std::error_code& ec,
   std::vector<CompressTask>& compressTasks,
   fs::path const& picPath,
   std::string const& entryName
-) -> void {
+) {
   auto const jpgEntryName = toJpgEntryName(entryName);
   auto const outputPath = tempDir / jpgEntryName;
 
@@ -181,7 +181,7 @@ auto addCompressTask(
   );
 }
 
-auto confirmPicturePack(appctx::AppConfig const& config) -> bool {
+bool confirmPicturePack(appctx::AppConfig const& config) {
   return readUserIpt(
     config.yesToAll,
     "do you want to proceed with packing the pictures? (Y/n): "
@@ -362,12 +362,12 @@ auto scanPictures(appctx::AppContext& ctx, fs::path const& dirPath)
 // .compress_tmp* dirs from the packed output dir, then rebuilds the current
 // temp dir unless the resume cache matches. Never clears on a stop-requested
 // resume (cache must survive).
-auto prepareCompressTempDir(
+void prepareCompressTempDir(
   fs::path const& outputDir,
   fs::path const& workRoot,
   fs::path const& tempDir,
   bool jobStateMatched
-) -> void {
+) {
   auto ec = std::error_code{};
   auto const keepCache = jobStateMatched && fs::exists(tempDir, ec) && !ec;
   auto removeSiblings = [&](fs::path const& parent, std::string_view prefix) {

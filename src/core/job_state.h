@@ -104,7 +104,7 @@ public:
 
   void requestCancel();
 
-  auto isCancelRequested() const -> bool;
+  bool isCancelRequested() const;
 
   void markRunning(std::string_view id);
 
@@ -165,7 +165,7 @@ auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> eh::Result<fs
 
 auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot;
 
-auto configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) -> bool;
+bool configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs);
 
 auto makeEncodeTask(fs::path const& inputPath, fs::path const& plannedOutputFile)
   -> TaskRecord;
@@ -182,8 +182,8 @@ auto primarySourcePath(TaskRecord const& task) -> std::optional<fs::path>;
 
 auto primaryTargetPath(TaskRecord const& task) -> std::optional<fs::path>;
 
-auto needsExecution(TaskRecord const& task) -> bool;
+bool needsExecution(TaskRecord const& task);
 
-auto actionTargetExists(TaskRecord const& task) -> bool;
+bool actionTargetExists(TaskRecord const& task);
 
 }  // namespace jobstate

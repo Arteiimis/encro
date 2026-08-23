@@ -65,7 +65,7 @@ auto truncateEncodingStatus(std::string const& text, std::size_t maxLen = 256)
   return displaytext::truncateWithEllipsis(sanitized, maxLen);
 }
 
-auto failEncoding(appctx::EncodingState& state, std::string const& error) -> bool {
+bool failEncoding(appctx::EncodingState& state, std::string const& error) {
   {
     auto lock = std::scoped_lock{state.mtx};
     state.lastError = error;
@@ -271,10 +271,10 @@ auto runWebpAdaptiveAttempt(
 }
 
 // Clears stale artifacts and logs the cancellation reason.
-auto abortWebpForStopRequest(
+bool abortWebpForStopRequest(
   WebpEncodeContext const& encodeCtx,
   fs::path const& outputFile
-) -> bool {
+) {
   clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
   LOG_INFO(
     "WebP adaptive encoding canceled: input={} output={}",
@@ -285,10 +285,10 @@ auto abortWebpForStopRequest(
 }
 
 // Minimum quality reached but still over target: keep the file with a warning.
-auto webpMinQualityFallback(
+bool webpMinQualityFallback(
   WebpEncodeContext const& encodeCtx,
   fs::path const& outputFile
-) -> bool {
+) {
   if (!fs::exists(outputFile)) { return false; }
   LOG_WARN(
     "WebP encoding reached minimum quality but still over target: input={} "
@@ -305,10 +305,10 @@ auto webpMinQualityFallback(
   return true;
 }
 
-auto encodeWebpWithTargetSize(
+bool encodeWebpWithTargetSize(
   appctx::AppContext const& appCtx,
   WebpEncodeContext const& encodeCtx
-) -> bool {
+) {
   auto const outputFile = encodeCtx.outputFilePath;
 
   LOG_DEBUG(
@@ -371,7 +371,7 @@ auto segmentProgressFilePath(fs::path const& segmentDir, std::uint64_t index)
   return segmentDir / std::format("seg_{}.progress", index);
 }
 
-auto encodeOneSegment(
+bool encodeOneSegment(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
   function_ref statusUpdater,
@@ -380,7 +380,7 @@ auto encodeOneSegment(
   std::uint64_t startUs,
   std::uint64_t durationUs,
   std::size_t workerCount
-) -> bool {
+) {
   auto const segFile = segmentFilePath(segmentDir, index);
   auto const segProgressFile = segmentProgressFilePath(segmentDir, index);
   {
@@ -494,7 +494,7 @@ auto ensureAudioFile(
   return eh::makeError("Failed to extract audio from: {}", state.inputPath.string());
 }
 
-auto assembleSegments(
+bool assembleSegments(
   appctx::AppContext const& ctx,
   appctx::EncodingState& state,
   EncodeExecutionPlan const& plan,
@@ -502,7 +502,7 @@ auto assembleSegments(
   std::uint64_t segmentCount,
   std::optional<fs::path> const& audioPath,
   function_ref statusUpdater
-) -> bool {
+) {
   auto const listPath = segmentDir / "list.txt";
   {
     auto out = std::ofstream{listPath};
@@ -557,13 +557,13 @@ auto assembleSegments(
 }
 
 // NOLINTNEXTLINE(readability-function-size): linear segment loop; phase comments delimit blocks
-auto runSegmentedEncoding(
+bool runSegmentedEncoding(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
   EncodeExecutionPlan const& plan,
   function_ref statusUpdater,
   std::size_t workerCount
-) -> bool {
+) {
   auto const taskId = state.actionId.value_or(
     std::format("encode:{}", collisionnaming::stablePathString(state.inputPath))
   );

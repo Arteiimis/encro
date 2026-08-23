@@ -21,15 +21,15 @@ void requestStop();
 
 void reset();
 
-auto isStopRequested() -> bool;
+bool isStopRequested();
 
 auto stopEventHandle() -> StopEventHandle;
 
 // Blocks up to timeout; returns true when a stop has been requested. Wakes
 // immediately on a stop request instead of sleeping the full timeout.
-auto waitForStop(std::chrono::milliseconds timeout) -> bool;
+bool waitForStop(std::chrono::milliseconds timeout);
 
-inline auto canceledExitCodeForPromptAbort() -> int {
+inline int canceledExitCodeForPromptAbort() {
   return isStopRequested() ? kCanceledExitCode : 0;
 }
 

@@ -119,7 +119,7 @@ struct RuntimeContext {
       return std::nullopt;
     }
 
-    auto size() const -> std::size_t { return snapshot.load()->size(); }
+    std::size_t size() const { return snapshot.load()->size(); }
 
     auto load() const { return snapshot.load(); }
 

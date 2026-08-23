@@ -90,7 +90,7 @@ auto formatOptionName(CLI::Option const* opt) -> std::string {
   return names;
 }
 
-auto countLeadingWhitespace(std::string_view text) -> std::size_t {
+std::size_t countLeadingWhitespace(std::string_view text) {
   auto count = std::size_t{0};
   while (
     count < text.size() && std::isspace(static_cast<unsigned char>(text[count])) != 0
@@ -289,14 +289,14 @@ auto formatHelpSection(
   return result;
 }
 
-auto hasOptionNames(CLI::Option const* opt) -> bool {
+bool hasOptionNames(CLI::Option const* opt) {
   return opt->nonpositional() || opt->get_positional();
 }
 
-auto isAdvancedOption(
+bool isAdvancedOption(
   CLI::Option const* opt,
   std::span<std::string_view const> advancedLongNames
-) -> bool {
+) {
   auto const& lnames = opt->get_lnames();
   return !lnames.empty()
     && std::ranges::find(advancedLongNames, lnames.front()) != advancedLongNames.end();
@@ -338,13 +338,13 @@ auto formatDefaultStr(CLI::Option const* opt) -> std::string {
 }
 
 // Max column width across visible options (name + default).
-auto computeMaxColumnLen(
+unsigned computeMaxColumnLen(
   CLI::App const* general,
   std::span<CLI::App const* const> groups,
   CLI::App const* appPtr,
   std::span<std::string_view const> advancedLongNames,
   bool fullTier
-) -> unsigned {
+) {
   auto maxLen = 0u;
   for (auto const* group: groups) {
     for (auto const* opt: visibleOptionsOf(group, general, appPtr)) {
@@ -589,7 +589,7 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
   return helpOpt;
 }
 
-auto registerIoFlags(CLI::App* io, CmdParseResult& result) -> void {
+void registerIoFlags(CLI::App* io, CmdParseResult& result) {
   constexpr auto kMaxPositionalInputs = 1000000;
   auto const options = std::tuple{
     opt(
@@ -653,7 +653,7 @@ auto registerIoFlags(CLI::App* io, CmdParseResult& result) -> void {
   registerAll(io, positional);
 }
 
-auto registerProcessingFlags(CLI::App* processing, CmdParseResult& result) -> void {
+void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
   auto const options = std::tuple{
     opt(
       "-t,--type",
@@ -727,7 +727,7 @@ auto registerProcessingFlags(CLI::App* processing, CmdParseResult& result) -> vo
   registerAll(processing, options);
 }
 
-auto registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) -> void {
+void registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) {
   auto const options = std::tuple{
     opt(
       "-p,--pack",

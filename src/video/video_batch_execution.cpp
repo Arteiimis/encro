@@ -40,21 +40,21 @@ void noteStopRequest(appctx::AppContext& ctx) {
   withJobState(ctx, [](jobstate::Store& store) { store.requestCancel(); });
 }
 
-auto markRunningNoProgress(
+void markRunningNoProgress(
   appctx::AppContext& ctx,
   std::optional<std::string> const& actionId
-) -> void {
+) {
   if (auto* store = maybeJobState(ctx); actionId.has_value()) {
     store->markRunning(actionId.value());
   }
 }
 
-auto finalizeEncodeResult(
+void finalizeEncodeResult(
   appctx::AppContext& ctx,
   std::optional<std::string> const& actionId,
   bool success,
   std::string const& failureReason
-) -> void {
+) {
   if (auto* store = maybeJobState(ctx); actionId.has_value()) {
     if (success) {
       store->markSucceeded(actionId.value());
@@ -68,12 +68,12 @@ auto makeSlotLabel(fs::path const& vidPath) -> std::string {
   return displaytext::pathToUtf8String(vidPath.filename());
 }
 
-auto reportEncodingStatus(
+void reportEncodingStatus(
   EncodingExecutionContext& executionCtx,
   appctx::EncodingState& vidState,
   std::string const& fileLabel,
   std::string const& status
-) -> void {
+) {
   executionCtx.barEncodingStatus(vidState, fileLabel, status);
   auto actionId = std::optional<std::string>{};
   auto lock = std::scoped_lock{vidState.mtx};
@@ -113,11 +113,11 @@ auto createEncodingState(
 // Records the message of an exception that escaped runEncodingTask (which
 // would otherwise leave no specific failure reason and a stale active slot)
 // onto the slot's encoding state, then clears the slot.
-auto recordTaskException(
+void recordTaskException(
   EncodingExecutionContext& executionCtx,
   std::size_t slot,
   std::string_view message
-) -> void {
+) {
   auto const state = executionCtx.activeState(slot);
   if (state) {
     auto lock = std::scoped_lock{state->mtx};
@@ -506,12 +506,12 @@ auto prepareEncodingExecution(
   };
 }
 
-auto logBatchStart(
+void logBatchStart(
   appctx::AppContext const& ctx,
   std::vector<fs::path> const& vids,
   std::size_t overallTotalCount,
   std::size_t initialCompletedCount
-) -> void {
+) {
   LOG_INFO(
     "Preparing encoding batch: pending={} overall={} completed-before-start={} "
     "output-format={} pack-output={}",
@@ -524,7 +524,7 @@ auto logBatchStart(
 }
 
 // Prompts before encoding starts; false when the user declined.
-auto confirmEncodingStart(appctx::AppContext& ctx) -> bool {
+bool confirmEncodingStart(appctx::AppContext& ctx) {
   auto const proceed = readUserIpt(
     ctx.config.yesToAll,
     std::format(

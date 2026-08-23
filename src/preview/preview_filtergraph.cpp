@@ -22,11 +22,11 @@ constexpr auto kFontFile = "C:/Windows/Fonts/arial.ttf";
 constexpr auto kFontFile = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 #endif
 
-auto evenRoundDown(int value) -> int {
+int evenRoundDown(int value) {
   return value & ~1;
 }
 
-auto seconds(std::uint64_t micros) -> double {
+double seconds(std::uint64_t micros) {
   return static_cast<double>(micros) / 1'000'000.0;
 }
 

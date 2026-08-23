@@ -64,7 +64,7 @@ namespace {
 
 // Writes a progress file larger than the tail-read window (64 KiB) with a
 // real progress block at the end; the seek boundary lands mid-filler-line.
-auto writeLargeProgressFile(fs::path const& filePath) -> void {
+void writeLargeProgressFile(fs::path const& filePath) {
   std::ofstream out{filePath};
   for (auto i = 0; i < 700; ++i) { out << std::string(100, 'x') << "\n"; }
   out << "frame=4242\n";

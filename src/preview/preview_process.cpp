@@ -42,7 +42,7 @@ constexpr auto kWindowCount = std::size_t{5};
 constexpr auto kWindowDurationUs = std::uint64_t{10'000'000};
 constexpr auto kFullComparisonBudgetUs = std::uint64_t{50'000'000};
 
-auto seconds(std::uint64_t micros) -> double {
+double seconds(std::uint64_t micros) {
   return static_cast<double>(micros) / 1'000'000.0;
 }
 
@@ -102,8 +102,7 @@ auto applyVideoStreamFields(
   return {};
 }
 
-auto applyAudioStreamFields(boost::json::object const& stream, VideoProbe& probe)
-  -> void {
+void applyAudioStreamFields(boost::json::object const& stream, VideoProbe& probe) {
   probe.hasAudio = true;
   if (
     auto const codecIt = stream.find("codec_name");
@@ -141,7 +140,7 @@ auto probeStreamMetadata(
 // Prefer the video stream's own duration: format.duration can be dragged
 // past the video end by a longer audio track, and windows must stay within
 // the video.
-auto probeVideoStreamDurationUs(boost::json::value const& info) -> std::uint64_t {
+std::uint64_t probeVideoStreamDurationUs(boost::json::value const& info) {
   auto const streamsIt = info.as_object().find("streams");
   if (streamsIt == info.as_object().end() || !streamsIt->value().is_array()) { return 0; }
   for (auto const& stream: streamsIt->value().as_array()) {
@@ -171,7 +170,7 @@ auto probeVideoStreamDurationUs(boost::json::value const& info) -> std::uint64_t
 }
 
 // Fall back to format.duration when the video stream carries none.
-auto probeFormatDurationUs(boost::json::value const& info) -> std::uint64_t {
+std::uint64_t probeFormatDurationUs(boost::json::value const& info) {
   auto const formatIt = info.as_object().find("format");
   if (formatIt == info.as_object().end() || !formatIt->value().is_object()) { return 0; }
   auto const durationIt = formatIt->value().as_object().find("duration");
@@ -229,8 +228,10 @@ auto metricText(videoquality::QualityMetric metric) -> std::string_view {
   return metric == videoquality::QualityMetric::Vmaf ? "VMAF" : "SSIM";
 }
 
-auto printWindows(std::span<Window const> windows, std::optional<std::size_t> worstIndex)
-  -> void {
+void printWindows(
+  std::span<Window const> windows,
+  std::optional<std::size_t> worstIndex
+) {
   terminal::println(
     Info,
     "Preview windows ({}):",
@@ -346,7 +347,7 @@ auto renderPreview(
   return 0;
 }
 
-auto reportAndOpen(PreviewOptions const& options, fs::path const& outputPath) -> void {
+void reportAndOpen(PreviewOptions const& options, fs::path const& outputPath) {
   terminal::println(Success, "Preview written to: {}", terminal::path(outputPath));
   if (!options.noOpen) {
     if (openfile::openWithDefaultApp(outputPath)) {
@@ -715,11 +716,11 @@ auto resolvePreviewOutputPath(PreviewOptions const& options) -> eh::Result<fs::p
 
 // Shorter of original and encoded durations; encoded is probed lazily only
 // when present (its cache entry is written by the probe below).
-auto resolveShorterDurationUs(
+std::uint64_t resolveShorterDurationUs(
   appctx::AppContext& ctx,
   PreviewOptions const& options,
   VideoProbe const& original
-) -> std::uint64_t {
+) {
   if (!options.encoded.has_value()) { return original.durationUs; }
   auto const encodedDurationUs =
     probeVideo(ctx.toolchain, ctx.runtime, options.encoded.value())

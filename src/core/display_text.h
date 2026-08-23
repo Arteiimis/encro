@@ -14,14 +14,13 @@
 
 namespace displaytext {
 
-inline auto displayWidth(std::string_view text) -> std::size_t {
+inline std::size_t displayWidth(std::string_view text) {
   auto const width = unicode::display_width(std::string{text});
   if (width < 0) { return text.size(); }
   return static_cast<std::size_t>(width);
 }
 
-inline auto utf8CodePointLength(std::string_view text, std::size_t offset)
-  -> std::size_t {
+inline std::size_t utf8CodePointLength(std::string_view text, std::size_t offset) {
   if (offset >= text.size()) { return 0; }
 
   auto const lead = static_cast<unsigned char>(text[offset]);

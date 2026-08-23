@@ -297,12 +297,12 @@ inline auto contextStack() -> std::vector<ContextFrame>& {
   return stack;
 }
 
-inline auto truncatedFrameCount() -> int& {
+inline int& truncatedFrameCount() {
   thread_local auto count = int{0};
   return count;
 }
 
-inline auto pushContextFrame(std::string_view stage, std::string_view detail) -> void {
+inline void pushContextFrame(std::string_view stage, std::string_view detail) {
   auto& stack = contextStack();
   if (stack.size() >= 16) {
     stack.erase(stack.begin());
@@ -311,12 +311,12 @@ inline auto pushContextFrame(std::string_view stage, std::string_view detail) ->
   stack.push_back({stage, detail});
 }
 
-inline auto popContextFrame() -> void {
+inline void popContextFrame() {
   auto& stack = contextStack();
   if (!stack.empty()) { stack.pop_back(); }
 }
 
-inline auto resetContextStack() -> void {
+inline void resetContextStack() {
   contextStack().clear();
   truncatedFrameCount() = 0;
 }
@@ -397,7 +397,7 @@ inline auto attributeStack() -> std::vector<AttributeFrame>& {
   return stack;
 }
 
-inline auto pushAttributeFrame(std::string_view key, std::string_view value) -> void {
+inline void pushAttributeFrame(std::string_view key, std::string_view value) {
   auto& stack = attributeStack();
   // ponytail: FIFO eviction + pop-by-count can over-pop an outer scope's
   // frames when >16 nested scopes exist (same trade-off as the context
@@ -406,12 +406,12 @@ inline auto pushAttributeFrame(std::string_view key, std::string_view value) -> 
   stack.push_back({key, value});
 }
 
-inline auto popAttributeFrame() -> void {
+inline void popAttributeFrame() {
   auto& stack = attributeStack();
   if (!stack.empty()) { stack.pop_back(); }
 }
 
-inline auto resetAttributeStack() -> void {
+inline void resetAttributeStack() {
   attributeStack().clear();
 }
 

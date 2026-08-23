@@ -14,12 +14,12 @@ auto scratchDir() -> fs::path {
   return fs::temp_directory_path() / "encro" / kScratchDirName;
 }
 
-auto ensureScratchDir() -> void {
+void ensureScratchDir() {
   auto ec = std::error_code{};
   fs::create_directories(scratchDir(), ec);
 }
 
-auto sweepScratchDir() -> void {
+void sweepScratchDir() {
   using namespace std::chrono;
   constexpr auto kStaleAfter = 24h;
   auto const dir = scratchDir();

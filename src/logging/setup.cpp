@@ -46,22 +46,20 @@ class LevelCountingSink final: public spdlog::sinks::sink {
 public:
   explicit LevelCountingSink(spdlog::sink_ptr next): next_(std::move(next)) { }
 
-  auto log(spdlog::details::log_msg const& msg) -> void override {
+  void log(spdlog::details::log_msg const& msg) override {
     ++counts_[static_cast<std::size_t>(msg.level)];
     next_->log(msg);
   }
 
-  auto flush() -> void override { next_->flush(); }
+  void flush() override { next_->flush(); }
 
-  auto set_pattern(std::string const& pattern) -> void override {
-    next_->set_pattern(pattern);
-  }
+  void set_pattern(std::string const& pattern) override { next_->set_pattern(pattern); }
 
-  auto set_formatter(std::unique_ptr<spdlog::formatter> sinkFormatter) -> void override {
+  void set_formatter(std::unique_ptr<spdlog::formatter> sinkFormatter) override {
     next_->set_formatter(std::move(sinkFormatter));
   }
 
-  auto count(std::size_t level) const -> std::uint64_t {
+  std::uint64_t count(std::size_t level) const {
     return counts_[level].load(std::memory_order_relaxed);
   }
 
@@ -87,7 +85,7 @@ auto allModuleTags() -> std::vector<char const*> {
 
 // ── Log file retention cleanup (D-04~D-07) ─────────────────────────────────
 
-auto retainRecentLogs(fs::path const& logDir, int const maxKeep) -> std::size_t {
+std::size_t retainRecentLogs(fs::path const& logDir, int const maxKeep) {
   try {
     auto entries = std::vector<fs::path>{};
     auto ec = std::error_code{};
@@ -189,7 +187,7 @@ static auto gRunId = std::string{};
 // never take a lock — the crashing thread may hold gRunIdMutex at death.
 static auto gRunIdSnapshot = std::atomic<char const*>{nullptr};
 
-auto updateRunIdSnapshot(std::string_view id) -> void {
+void updateRunIdSnapshot(std::string_view id) {
   auto* copy = new std::string{id};
   gRunIdSnapshot.store(copy->c_str(), std::memory_order_release);
 }
@@ -234,7 +232,7 @@ auto levelCounts() -> std::map<std::string, std::uint64_t> {
   return gLevelCountSnapshot;
 }
 
-auto logRunSummary(SummaryData const& data) -> void {
+void logRunSummary(SummaryData const& data) {
   // key=value body, values guaranteed space-free (log path and level_counts
   // are appended last; the formatter regenerates them authoritatively)
   auto body = std::string{"RUN SUMMARY: status="};
@@ -274,7 +272,7 @@ auto runId() -> std::string {
   return gRunId;
 }
 
-auto setRunId(std::string id) -> void {
+void setRunId(std::string id) {
   auto lock = std::scoped_lock{gRunIdMutex};
   gRunId = std::move(id);
   updateRunIdSnapshot(gRunId);
@@ -439,7 +437,7 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
   return logFilePath;
 }
 
-auto shutdown() -> void {
+void shutdown() {
   spdlog::shutdown();
   gPoolInitialized = false;
   gCurrentLogFilePath = std::nullopt;
@@ -467,16 +465,16 @@ static auto
   gForensicSnapshotData =  // NOLINT(bugprone-throwing-static-initialization): EnvironmentSnapshot is noexcept-default-constructible
   EnvironmentSnapshot{};
 
-auto setForensicAppContext(void* appCtx) -> void {
+void setForensicAppContext(void* appCtx) {
   gForensicAppCtx.store(appCtx, std::memory_order_release);
 }
 
-auto updateForensicSnapshot(
+void updateForensicSnapshot(
   int const activeSlots,
   int const totalSlots,
   int const pending,
   int const finished
-) -> void {
+) {
   gForensicSnapshotData.hasEncodingContext = true;
   gForensicSnapshotData.activeSlots = activeSlots;
   gForensicSnapshotData.totalSlots = totalSlots;
@@ -484,11 +482,11 @@ auto updateForensicSnapshot(
   gForensicSnapshotData.finished = finished;
 }
 
-auto setForensicSnapshotData(EnvironmentSnapshot const& data) -> void {
+void setForensicSnapshotData(EnvironmentSnapshot const& data) {
   gForensicSnapshotData = data;
 }
 
-auto clearForensicSnapshotData() -> void {
+void clearForensicSnapshotData() {
   gForensicAppCtx.store(nullptr, std::memory_order_release);
   gForensicSnapshotData = EnvironmentSnapshot{};
 }

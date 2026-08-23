@@ -109,14 +109,14 @@ private:
     NamingStrategy namingStrategy
   ) -> std::vector<std::vector<pack::PackFileEntry>>;
 
-  static auto wouldExceedGroupLimits(
+  static bool wouldExceedGroupLimits(
     std::uintmax_t currentSize,
     std::size_t currentCount,
     std::uintmax_t additionalSize,
     std::size_t additionalCount,
     std::uintmax_t maxGroupSize,
     std::optional<std::size_t> maxFilesPerGroup
-  ) -> bool;
+  );
   static void flushGroupedEntries(
     std::vector<PackFileEntry>& currentGroup,
     std::uintmax_t& currentSize,

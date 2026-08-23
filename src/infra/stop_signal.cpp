@@ -80,7 +80,7 @@ auto gForceExitGracePeriod = std::chrono::milliseconds{kDefaultForceExitGracePer
 stopsignal::ForceExitFn gForceExitFn =
   reinterpret_cast<stopsignal::ForceExitFn>(::ExitProcess);
 
-auto nowMs() -> unsigned long long {
+unsigned long long nowMs() {
   using namespace std::chrono;
   return static_cast<unsigned long long>(
     duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count()
@@ -207,7 +207,7 @@ void reset() {
 #endif
 }
 
-auto isStopRequested() -> bool {
+bool isStopRequested() {
   auto const requested = gStopRequested.load(std::memory_order_acquire);
 #if !defined(_WIN32)
   // Log the cancellation event once on the polling side (signal handlers are
@@ -245,7 +245,7 @@ auto stopEventHandle() -> StopEventHandle {
 #endif
 }
 
-auto waitForStop(std::chrono::milliseconds timeout) -> bool {
+bool waitForStop(std::chrono::milliseconds timeout) {
   if (isStopRequested()) { return true; }
 #if defined(_WIN32)
   auto const handle = stopEventHandle();

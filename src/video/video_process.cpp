@@ -52,12 +52,12 @@ auto toStdVector(immer::vector<Ty> const& values) -> std::vector<Ty> {
   return result;
 }
 
-auto packEncodedVideos(
+int packEncodedVideos(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes
-) -> int;
+);
 
 void printEncodingSummary(
   std::span<fs::path const> vids,
@@ -66,7 +66,7 @@ void printEncodingSummary(
   std::span<std::string const> attentionWarnings
 );
 
-auto hasEncodingFailures(EncodeResultsMap const& vidsRunRes) -> bool;
+bool hasEncodingFailures(EncodeResultsMap const& vidsRunRes);
 
 }  // namespace
 
@@ -230,12 +230,12 @@ auto resolveMultiInputBasePath(
   return *basePath;
 }
 
-auto maybePackOutputs(
+int maybePackOutputs(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes
-) -> int {
+) {
   if (!ctx.config.packOutput) { return 0; }
   return packEncodedVideos(ctx, inputPath, plannedOutputFiles, vidsRunRes);
 }
@@ -266,12 +266,12 @@ auto maybeHandleInterruptedEncoding(
   return stopsignal::kCanceledExitCode;
 }
 
-auto maybePackWorkflowOutputs(
+int maybePackWorkflowOutputs(
   appctx::AppContext& ctx,
   std::optional<fs::path> const& packInputPath,
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes
-) -> int {
+) {
   if (!ctx.config.packOutput) { return 0; }
 
   if (!packInputPath.has_value()) {
@@ -285,13 +285,13 @@ auto maybePackWorkflowOutputs(
   return maybePackOutputs(ctx, packInputPath.value(), plannedOutputFiles, vidsRunRes);
 }
 
-auto runScannedEncodingWorkflow(
+int runScannedEncodingWorkflow(
   appctx::AppContext& ctx,
   std::vector<fs::path> const& vids,
   std::optional<fs::path> const& planningRootDir,
   std::optional<fs::path> const& packInputPath,
   std::function<void()> const& onCompleted
-) -> int {
+) {
   auto const plannedOutputFilesRes =
     planVideoOutputFiles(ctx.config, vids, planningRootDir);
   if (!plannedOutputFilesRes) {
@@ -402,12 +402,12 @@ auto collectEncodedOutputFiles(
   return encodedOutputFiles;
 }
 
-auto packEncodedVideos(
+int packEncodedVideos(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes
-) -> int {
+) {
   logging::ScopedTimer timer("video.pack");
   auto const packPathStr = inputPath.string();
   logging::ScopedErrorContext scopedCtx("video.pack", packPathStr);
@@ -530,7 +530,7 @@ void printEncodingSummary(
   }
 }
 
-auto hasEncodingFailures(EncodeResultsMap const& vidsRunRes) -> bool {
+bool hasEncodingFailures(EncodeResultsMap const& vidsRunRes) {
   return std::ranges::any_of(vidsRunRes, !(_1->*second));
 }
 

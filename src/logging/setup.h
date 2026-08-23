@@ -17,7 +17,7 @@ namespace logging {
 // Bootstrap run id: lazily generated UUID before setup(), regenerated in
 // setup(); job-state adopt it as the fresh jobId (D3).
 [[nodiscard]] auto runId() -> std::string;
-auto setRunId(std::string id) -> void;
+void setRunId(std::string id);
 
 // Lock-free snapshot of the current run id, safe to call from crash handlers
 // (never takes a lock). Returns either the previous or the new id, atomically;
@@ -37,7 +37,7 @@ struct SummaryData {
   std::optional<std::int64_t> elapsedMs;
 };
 
-auto logRunSummary(SummaryData const& data) -> void;
+void logRunSummary(SummaryData const& data);
 
 // Level name -> record count, accumulated by the pass-through counting sink.
 [[nodiscard]] auto levelCounts() -> std::map<std::string, std::uint64_t>;
@@ -73,7 +73,7 @@ struct EnvironmentSnapshot {
 [[nodiscard]] auto setup(LogConfig const& config) -> std::optional<std::filesystem::path>;
 
 // Teardown: flush + shut down all loggers
-auto shutdown() -> void;
+void shutdown();
 
 // Returns the currently active log file path (D-13: crash handler integration).
 // Returns std::nullopt if setup() was not called or no file sink is active.
@@ -81,17 +81,16 @@ auto shutdown() -> void;
 
 // ── Forensic context ────────────────────────────────────────────────────────
 // Store app context pointer for environment snapshot access.
-auto setForensicAppContext(void* appCtx) -> void;
+void setForensicAppContext(void* appCtx);
 
 // Update the forensic snapshot with live encoding progress (called from monitor thread).
-auto updateForensicSnapshot(int activeSlots, int totalSlots, int pending, int finished)
-  -> void;
+void updateForensicSnapshot(int activeSlots, int totalSlots, int pending, int finished);
 
 // Test-only: directly set snapshot data for test verification.
-auto setForensicSnapshotData(EnvironmentSnapshot const& data) -> void;
+void setForensicSnapshotData(EnvironmentSnapshot const& data);
 
 // Test-only: clear all forensic state.
-auto clearForensicSnapshotData() -> void;
+void clearForensicSnapshotData();
 
 // Capture a lock-free environment snapshot. Returns "" when no AppContext is set.
 // Returns a minimal snapshot when no encoding context is active.

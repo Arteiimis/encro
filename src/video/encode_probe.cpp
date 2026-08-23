@@ -40,14 +40,14 @@ namespace encodeprobe {
 
 namespace {
 
-auto meetsFloor(ProbePoint const& point, int vmafFloor) -> bool {
+bool meetsFloor(ProbePoint const& point, int vmafFloor) {
   auto const floor = point.metric == videoquality::QualityMetric::Vmaf
     ? static_cast<double>(vmafFloor)
     : videoquality::ssimFloorForVmafFloor(vmafFloor);
   return point.p5 >= floor;
 }
 
-auto floorForMetric(videoquality::QualityMetric metric, int vmafFloor) -> double {
+double floorForMetric(videoquality::QualityMetric metric, int vmafFloor) {
   return metric == videoquality::QualityMetric::Vmaf
     ? static_cast<double>(vmafFloor)
     : videoquality::ssimFloorForVmafFloor(vmafFloor);
@@ -120,7 +120,7 @@ auto measurePoint(
   return ProbePoint{cq, p5.value(), scoresA->metric, bytes};
 }
 
-auto audioBitrateBps(boost::json::value const& vidInfo) -> double {
+double audioBitrateBps(boost::json::value const& vidInfo) {
   if (!vidInfo.is_object()) { return 0.0; }
   auto const streamsIt = vidInfo.as_object().find("streams");
   if (streamsIt == vidInfo.as_object().end() || !streamsIt->value().is_array()) {
@@ -226,7 +226,7 @@ auto probeSingleFile(
   return plan;
 }
 
-auto runProbeEncode(
+bool runProbeEncode(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
   EncodeInputSettings const& settings,
@@ -234,7 +234,7 @@ auto runProbeEncode(
   int cq,
   ProbeWindow const& window,
   std::size_t workerCount
-) -> bool {
+) {
   auto const cfg = buildProbeSegmentConfig(
     ctx.toolchain,
     inputPath,
@@ -344,11 +344,11 @@ auto decideCq(std::span<ProbePoint const> points, int vmafFloor) -> ProbeDecisio
 
 namespace {
 
-auto recordProbePoint(
+void recordProbePoint(
   std::vector<ProbePoint>& points,
   ProbePointCallback const& onPoint,
   ProbePoint point
-) -> void {
+) {
   auto const cq = point.cq;
   points.push_back(point);
   if (onPoint) { onPoint(points.size(), cq); }
@@ -357,11 +357,11 @@ auto recordProbePoint(
 // Wave 1: base CQs are independent — measure them in parallel. The result
 // is identical to serial order (collected in cq order); only the wall time
 // shrinks. Extension points stay serial: each depends on the previous.
-auto probeBaseCqs(
+bool probeBaseCqs(
   ProbeMeasure const& measure,
   std::vector<ProbePoint>& points,
   ProbePointCallback const& onPoint
-) -> bool {
+) {
   auto baseResults = std::vector<std::optional<ProbePoint>>(kBaseCqs.size());
   auto tasks = std::vector<taskexec::TaskSpec>{};
   tasks.reserve(kBaseCqs.size());
@@ -391,12 +391,12 @@ auto probeBaseCqs(
 
 // Floor unmet at 24: step down until it is met or the floor is proven
 // unreachable (p5@16 still below).
-auto probeLowSide(
+bool probeLowSide(
   ProbeMeasure const& measure,
   std::vector<ProbePoint>& points,
   ProbePointCallback const& onPoint,
   int vmafFloor
-) -> bool {
+) {
   if (auto const point = measure(kMinCq + kCqStep); point.has_value()) {
     recordProbePoint(points, onPoint, point.value());
     if (!meetsFloor(points.back(), vmafFloor)) {
@@ -413,12 +413,12 @@ auto probeLowSide(
 }
 
 // Floor still met at 32: step up until it is missed or 40 is reached.
-auto probeHighSide(
+bool probeHighSide(
   ProbeMeasure const& measure,
   std::vector<ProbePoint>& points,
   ProbePointCallback const& onPoint,
   int vmafFloor
-) -> bool {
+) {
   if (auto const point = measure(kMaxCq - kCqStep); point.has_value()) {
     recordProbePoint(points, onPoint, point.value());
     if (meetsFloor(points.back(), vmafFloor)) {
@@ -665,11 +665,11 @@ auto planFromCache(probecache::Entry const& entry, fs::path const& inputPath)
 
 // Persist fresh decisions so the next run skips probing (single writer at the
 // end of the phase; never written for skipped/probed==false plans).
-auto flushCachePlans(
+void flushCachePlans(
   appctx::AppContext& ctx,
   std::span<fs::path const> vids,
   std::vector<ProbePlan> const& plans
-) -> void {
+) {
   auto updates = std::vector<probecache::Entry>{};
   for (auto index = std::size_t{0}; index < vids.size(); ++index) {
     auto const& plan = plans[index];
@@ -701,7 +701,7 @@ auto probePlanRatio(ProbePlan const& plan) -> std::optional<double> {
     / static_cast<double>(sourceBytes);
 }
 
-auto estimateExceedsSource(ProbePlan const& plan) -> bool {
+bool estimateExceedsSource(ProbePlan const& plan) {
   auto const ratio = probePlanRatio(plan);
   return ratio.has_value() && ratio.value() > 1.0;
 }
@@ -746,13 +746,13 @@ auto collectProbeResults(
 // Resolves cache hits up front: a hit fills plans[i] and is skipped; the
 // remaining indices become probe tasks. Kept separate from task building so
 // the slot bars can be sized to the actual task count.
-auto scanProbeCache(
+void scanProbeCache(
   appctx::AppContext& ctx,
   std::span<fs::path const> vids,
   std::vector<probecache::Entry> const& cached,
   std::vector<ProbePlan>& plans,
   std::vector<std::size_t>& taskVids
-) -> void {
+) {
   taskVids.clear();
   taskVids.reserve(vids.size());
 
@@ -1011,7 +1011,7 @@ auto formatProbePlanRow(
 }
 
 // Very narrow terminal: name on its own line, metrics indented below.
-auto printTwoLineRow(ProbePlan const& plan, std::string_view marker) -> void {
+void printTwoLineRow(ProbePlan const& plan, std::string_view marker) {
   auto const ratio = probePlanRatio(plan);
   if (!plan.probed) {
     terminal::println(
@@ -1047,7 +1047,7 @@ auto probeRule(std::size_t width) -> std::string {
   return rule;
 }
 
-auto printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) -> void {
+void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) {
   auto const layout = displaytext::layoutColumns(consolewidth::resolveColumns());
   auto const nameWidth = resolvePlanNameWidth(plans, layout);
   // Rule matches the table width when the table renders; fixed width on the

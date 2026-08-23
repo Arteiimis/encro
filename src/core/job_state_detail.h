@@ -6,7 +6,7 @@ namespace jobstate::detail {
 
 inline constexpr auto kStateVersion = 1;
 
-auto nowMs() -> std::int64_t;
+std::int64_t nowMs();
 
 auto outputLayoutToString(appctx::OutputLayout layout) -> std::string;
 

@@ -130,7 +130,7 @@ auto registerOne(CLI::App* app, Spec const& spec) -> CLI::Option* {
 
 // Phase 2: resolve Excludes/Needs by long name against the same app scope.
 template<typename Spec>
-auto applyDeps(CLI::App* app, CLI::Option* self, Spec const& spec) -> void {
+void applyDeps(CLI::App* app, CLI::Option* self, Spec const& spec) {
   std::apply(
     [&](auto const&... cfgItems) {
       auto const applyOne = [&](auto const& item) {
@@ -156,7 +156,7 @@ auto applyDeps(CLI::App* app, CLI::Option* self, Spec const& spec) -> void {
 
 // Both phases over a tuple of specs, in registration order.
 template<typename... Specs>
-auto registerAll(CLI::App* app, std::tuple<Specs...> const& specs) -> void {
+void registerAll(CLI::App* app, std::tuple<Specs...> const& specs) {
   [&]<std::size_t... I>(std::index_sequence<I...>) {
     auto const options =
       std::array<CLI::Option*, sizeof...(Specs)>{registerOne(app, std::get<I>(specs))...};

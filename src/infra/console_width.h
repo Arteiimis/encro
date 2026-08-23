@@ -11,6 +11,6 @@ struct Config {
   std::optional<std::size_t> maxColumns;
 };
 
-auto resolveColumns(Config const& config = {}) -> std::size_t;
+std::size_t resolveColumns(Config const& config = {});
 
 }  // namespace consolewidth
