@@ -83,6 +83,7 @@ def is_project(path):
 
 
 CACHE_DIR = os.path.join('build', '.tidy-cache')
+MAX_CACHE_ENTRIES = 512
 _DEP_ROOTS = None
 _TOOL_VERSION = None
 
@@ -196,22 +197,23 @@ def load_cached(key):
         return None
 
 
-def save_cache(key, tu, mode, warnings):
+def save_cache(key, tu, mode, checks, warnings):
     os.makedirs(CACHE_DIR, exist_ok=True)
     p = os.path.join(CACHE_DIR, key + '.json')
     tmp = p + '.tmp'
     try:
         with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump({'tu': tu, 'mode': mode, 'warnings': warnings}, f)
+            json.dump({'tu': tu, 'mode': mode, 'checks': checks, 'warnings': warnings}, f)
         os.replace(tmp, p)
     except OSError:
         pass
 
 
-def cleanup_cache(active_tus, mode, used_keys):
-    """Drop stale cached results: same TU as this run, but a key the run did
-    not produce (its sources changed). Results for TUs outside this run's
-    scope (e.g. a -f filtered scan) are kept."""
+def cleanup_cache(active_tus, mode, checks, used_keys):
+    """Drop stale cached results: same TU and same (mode, checks) set as this
+    run, but a key the run did not produce (its sources changed). Results for
+    TUs outside this run's scope (e.g. a -f filtered scan) and for other
+    (mode, checks) sets are kept, so sets never evict each other."""
     if not os.path.isdir(CACHE_DIR):
         return
     active = {t.replace('\\', '/') for t in active_tus}
@@ -223,10 +225,12 @@ def cleanup_cache(active_tus, mode, used_keys):
             with open(p, encoding='utf-8') as f:
                 meta = json.load(f)
             tu_norm = meta.get('tu', '').replace('\\', '/')
-            stale = (
-                meta.get('mode') != mode
-                or (tu_norm in active and name[:-5] not in used_keys)
+            same_set = (
+                meta.get('mode') == mode and meta.get('checks') == checks
             )
+            # Only prune stale keys inside this run's (mode, checks) set;
+            # other sets are kept so they never evict each other.
+            stale = same_set and (tu_norm in active and name[:-5] not in used_keys)
         except (OSError, ValueError):
             stale = True
         if stale:
@@ -234,6 +238,18 @@ def cleanup_cache(active_tus, mode, used_keys):
                 os.remove(p)
             except OSError:
                 pass
+    # Bound total entries (arbitrary checks sets could accumulate one key per
+    # TU per set); drop the oldest beyond the cap.
+    files = sorted(
+        (os.path.getmtime(os.path.join(CACHE_DIR, n)), n)
+        for n in os.listdir(CACHE_DIR)
+        if n.endswith('.json')
+    )
+    for _, name in files[:-MAX_CACHE_ENTRIES]:
+        try:
+            os.remove(os.path.join(CACHE_DIR, name))
+        except OSError:
+            pass
 
 
 def scan_tu(tu, analyzer, flags, checks):
@@ -263,7 +279,7 @@ def scan_tu(tu, analyzer, flags, checks):
         if w and is_project(w['path']):
             warnings.append(w)
     if key is not None and r.returncode == 0:
-        save_cache(key, tu, mode, warnings)
+        save_cache(key, tu, mode, checks, warnings)
     if r.returncode == 0:
         return warnings, 'ok', key
     # Exit 1 is a deterministic clang-tidy error (compile failure, bad
@@ -435,7 +451,7 @@ def main():
         if key is not None:
             used_keys.add(key)
 
-    cleanup_cache(tus, 'analyzer' if analyzer else 'fast', used_keys)
+    cleanup_cache(tus, 'analyzer' if analyzer else 'fast', checks, used_keys)
 
     all_warnings = dedupe(all_warnings)
     all_warnings.sort(key=lambda w: (w['path'], w['line'], w['col']))
