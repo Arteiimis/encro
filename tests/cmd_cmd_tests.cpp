@@ -326,14 +326,14 @@ TEST_CASE("commandLineInit does not set --compress by default", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit parses --image-quality as integer", "[cmd]") {
-  auto const result = parseArgs({"encro", "--image-quality", "15"});
+  auto const result = parseArgs({"encro", "--compress", "--image-quality", "15"});
 
   REQUIRE(result.imageQuality.has_value());
   CHECK(result.imageQuality.value() == 15);
 }
 
 TEST_CASE("commandLineInit parses -q short option for quality", "[cmd]") {
-  auto const result = parseArgs({"encro", "-q", "15"});
+  auto const result = parseArgs({"encro", "-c", "-q", "15"});
 
   REQUIRE(result.imageQuality.has_value());
   CHECK(result.imageQuality.value() == 15);
@@ -606,17 +606,16 @@ TEST_CASE("preview parses output start duration and no-open", "[cmd][cli-positio
 
 TEST_CASE("preview without positionals reports a clear error", "[cmd][cli-positional]") {
   auto const result = parseArgs({"encro", "preview"});
-  CHECK(result.preview);
+  // Native RequiredError; parse never completes, so preview is not flagged
+  CHECK_FALSE(result.preview);
   REQUIRE(result.error.has_value());
-  CHECK(
-    result.error.value().find("preview requires at least one positional argument")
-    != std::string::npos
-  );
+  CHECK(result.error.value().find("original is required") != std::string::npos);
 }
 
 TEST_CASE("preview -h renders preview help text", "[cmd][cli-positional]") {
   auto const result = parseArgs({"encro", "preview", "-h"});
-  CHECK(result.preview);
+  // CallForHelp path: parse never completes, so preview is not flagged
+  CHECK_FALSE(result.preview);
   CHECK(result.help);
   CHECK_FALSE(result.error.has_value());
   CHECK(
@@ -641,4 +640,182 @@ TEST_CASE("bare invocation with flags still falls through", "[cmd][cli-positiona
   CHECK_FALSE(result.preview);
   REQUIRE(result.input.has_value());
   CHECK_FALSE(result.error.has_value());
+}
+
+// ── CLI11-native parse-time validation (spec: cli11-native-validation) ──
+
+TEST_CASE("cli11 rejects invalid output format values", "[cmd][cli11-native]") {
+  auto const result = parseArgs({"encro", "-f", "avi"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--output-format") != std::string::npos);
+  CHECK(result.error.value().find("mp4") != std::string::npos);
+}
+
+TEST_CASE(
+  "cli11 rejects invalid conflict-handling value and accepts case variants",
+  "[cmd][cli11-native]"
+) {
+  auto const bad = parseArgs({"encro", "--force-conflict-handling", "x"});
+  REQUIRE(bad.error.has_value());
+  CHECK(bad.error.value().find("--force-conflict-handling") != std::string::npos);
+
+  auto const upper = parseArgs({"encro", "--force-conflict-handling", "Y"});
+  CHECK_FALSE(upper.error.has_value());
+  CHECK(upper.forceConflictHandling == "y");  // CheckedTransformer maps Y->y
+}
+
+TEST_CASE("cli11 rejects invalid color modes", "[cmd][cli11-native]") {
+  auto const result = parseArgs({"encro", "--color", "pink"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--color") != std::string::npos);
+  CHECK(result.error.value().find("pink") != std::string::npos);
+}
+
+TEST_CASE("cli11 rejects invalid presets", "[cmd][cli11-native]") {
+  auto const result = parseArgs({"encro", "--preset", "p9"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--preset") != std::string::npos);
+  CHECK(result.error.value().find("p9") != std::string::npos);
+}
+
+TEST_CASE("cli11 accepts all preset values", "[cmd][cli11-native]") {
+  for (auto const value: {"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}) {
+    auto const result = parseArgs({"encro", "--preset", value});
+    CAPTURE(value);
+    CHECK_FALSE(result.error.has_value());
+  }
+}
+
+TEST_CASE(
+  "cli11 accepts case variants and bare default for --color",
+  "[cmd][cli11-native]"
+) {
+  auto const always = parseArgs({"encro", "--color", "ALWAYS"});
+  CHECK_FALSE(always.error.has_value());
+  CHECK(always.color == "always");  // IsMember writes the canonical member
+
+  auto const bare = parseArgs({"encro", "--color"});
+  CHECK_FALSE(bare.error.has_value());
+  CHECK(bare.color == "auto");  // default_str fills the bare flag
+}
+
+TEST_CASE("cli11 maps -t aliases to canonical values", "[cmd][cli11-native]") {
+  auto const vid = parseArgs({"encro", "-t", "vid"});
+  CHECK_FALSE(vid.error.has_value());
+  CHECK(vid.processType == "video");
+
+  auto const pic = parseArgs({"encro", "-t", "pic"});
+  CHECK_FALSE(pic.error.has_value());
+  CHECK(pic.processType == "picture");
+
+  auto const canonical = parseArgs({"encro", "-t", "picture"});
+  CHECK_FALSE(canonical.error.has_value());
+  CHECK(canonical.processType == "picture");
+
+  auto const bad = parseArgs({"encro", "-t", "film"});
+  REQUIRE(bad.error.has_value());
+  CHECK(bad.error.value().find("film") != std::string::npos);
+}
+
+TEST_CASE(
+  "cli11 rejects out-of-range -q/--crf/--min-vmaf and accepts boundaries",
+  "[cmd][cli11-native]"
+) {
+  auto const qHigh = parseArgs({"encro", "-c", "-q", "99"});
+  REQUIRE(qHigh.error.has_value());
+
+  auto const qTooLow = parseArgs({"encro", "-c", "-q", "1"});
+  REQUIRE(qTooLow.error.has_value());
+
+  auto const qMin = parseArgs({"encro", "-c", "-q", "2"});
+  CHECK_FALSE(qMin.error.has_value());
+  REQUIRE(qMin.imageQuality.has_value());
+  CHECK(qMin.imageQuality.value() == 2);
+
+  auto const qMax = parseArgs({"encro", "-c", "-q", "31"});
+  CHECK_FALSE(qMax.error.has_value());
+  REQUIRE(qMax.imageQuality.has_value());
+  CHECK(qMax.imageQuality.value() == 31);
+
+  auto const crfHigh = parseArgs({"encro", "--crf", "52"});
+  REQUIRE(crfHigh.error.has_value());
+
+  auto const crfMin = parseArgs({"encro", "--crf", "0"});
+  CHECK_FALSE(crfMin.error.has_value());
+  REQUIRE(crfMin.crf.has_value());
+  CHECK(crfMin.crf.value() == 0);
+
+  auto const crfMax = parseArgs({"encro", "--crf", "51"});
+  CHECK_FALSE(crfMax.error.has_value());
+  REQUIRE(crfMax.crf.has_value());
+  CHECK(crfMax.crf.value() == 51);
+}
+
+TEST_CASE(
+  "cli11 rejects --min-vmaf out of range and accepts boundaries",
+  "[cmd][cli11-native]"
+) {
+  auto const high = parseArgs({"encro", "--min-vmaf", "101"});
+  REQUIRE(high.error.has_value());
+
+  auto const low = parseArgs({"encro", "--min-vmaf", "-1"});
+  REQUIRE(low.error.has_value());
+
+  auto const min = parseArgs({"encro", "--min-vmaf", "0"});
+  CHECK_FALSE(min.error.has_value());
+  CHECK(min.minVmaf == 0);
+
+  auto const max = parseArgs({"encro", "--min-vmaf", "100"});
+  CHECK_FALSE(max.error.has_value());
+  CHECK(max.minVmaf == 100);
+}
+
+TEST_CASE("cli11 rejects zero jobs and accepts one", "[cmd][cli11-native]") {
+  auto const zero = parseArgs({"encro", "-j", "0"});
+  REQUIRE(zero.error.has_value());
+  CHECK(zero.error.value().find("--jobs") != std::string::npos);
+
+  auto const one = parseArgs({"encro", "-j", "1"});
+  CHECK_FALSE(one.error.has_value());
+  REQUIRE(one.maxJobs.has_value());
+  CHECK(one.maxJobs.value() == 1);
+}
+
+TEST_CASE("cli11 rejects --dry-run combined with --crf", "[cmd][cli11-native]") {
+  auto const result = parseArgs({"encro", "--dry-run", "--crf", "20"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--dry-run") != std::string::npos);
+  CHECK(result.error.value().find("--crf") != std::string::npos);
+}
+
+TEST_CASE("cli11 rejects positional inputs mixed with -i or -I", "[cmd][cli11-native]") {
+  auto const withInput = parseArgs({"encro", "a.mp4", "-i", "b.mp4"});
+  REQUIRE(withInput.error.has_value());
+  CHECK(withInput.error.value().find("input-paths") != std::string::npos);
+  CHECK(withInput.error.value().find("--input") != std::string::npos);
+
+  auto const withInputs = parseArgs({"encro", "a.mp4", "-I", "b.mp4", "c.mp4"});
+  REQUIRE(withInputs.error.has_value());
+  CHECK(withInputs.error.value().find("input-paths") != std::string::npos);
+  CHECK(withInputs.error.value().find("--inputs") != std::string::npos);
+}
+
+TEST_CASE("cli11 rejects --image-quality without --compress", "[cmd][cli11-native]") {
+  auto const result = parseArgs({"encro", "-q", "15"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(
+    result.error.value().find("--image-quality requires --compress") != std::string::npos
+  );
+}
+
+TEST_CASE("cli11 rejects negative preview --start", "[cmd][cli11-native]") {
+  auto const result = parseArgs({"encro", "preview", "a.mp4", "--start", "-5"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--start") != std::string::npos);
 }
