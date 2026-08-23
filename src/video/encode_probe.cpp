@@ -499,7 +499,7 @@ struct ProbeRootGuard {
 };
 
 auto createProbeRoot() -> eh::Result<fs::path> {
-  auto const probeRoot = workdirs::scratchDir() / std::format("probe_{}", getUUID());
+  auto probeRoot = workdirs::scratchDir() / std::format("probe_{}", getUUID());
   auto ec = std::error_code{};
   fs::create_directories(probeRoot, ec);
   if (ec) {

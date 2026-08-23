@@ -526,6 +526,44 @@ auto executePicturePack(
   return 0;
 }
 
+// Runs the compression phase of the compress-and-pack workflow. Returns 0 on
+// success, the cancel exit code when the user aborted, or an error when every
+// compression attempt failed (the temp dir is cleaned up on that path).
+auto runCompressPackPhase(
+  appctx::AppContext& ctx,
+  fs::path const& tempDir,
+  std::vector<CompressTask> const& compressTasks,
+  int quality,
+  std::size_t maxParallel
+) -> eh::Result<int> {
+  if (compressTasks.empty()) { return 0; }
+  terminal::println(
+    Info,
+    "Compressing {} picture(s) to JPEG (quality={})...",
+    terminal::count(compressTasks.size()),
+    terminal::count(quality)
+  );
+
+  auto const compressOutcome =
+    runCompressionPhase(ctx, compressTasks, quality, maxParallel);
+  if (!compressOutcome) {  // all failed
+    auto ec = std::error_code{};
+    fs::remove_all(tempDir, ec);
+    return eh::makeError("{}", compressOutcome.error());
+  }
+  if (
+    compressOutcome.value().canceled
+  ) {  // NOLINT(bugprone-unchecked-optional-access): guarded by the !compressOutcome check above
+    return stopsignal::kCanceledExitCode;
+  }
+  terminal::println(
+    Info,
+    "{} picture(s) prepared for packing, preparing pack plan...",
+    terminal::count(compressOutcome.value().results.size())
+  );
+  return 0;
+}
+
 auto executeCompressPackWorkflow(
   appctx::AppContext& ctx,
   fs::path const& dirPath,
@@ -569,31 +607,10 @@ auto executeCompressPackWorkflow(
     buildCompressTaskList(tempDir, summaryPics, scannedPics, plannedEntryNames, dirPath);
 
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
-  if (!compressTasks.empty()) {
-    terminal::println(
-      Info,
-      "Compressing {} picture(s) to JPEG (quality={})...",
-      terminal::count(compressTasks.size()),
-      terminal::count(quality)
-    );
-
-    auto const compressOutcome =
-      runCompressionPhase(ctx, compressTasks, quality, maxParallel);
-    if (!compressOutcome) {  // all failed
-      fs::remove_all(tempDir, ec);
-      return eh::makeError("{}", compressOutcome.error());
-    }
-    if (
-      compressOutcome.value().canceled
-    ) {  // NOLINT(bugprone-unchecked-optional-access): guarded by the !compressOutcome check above
-      return stopsignal::kCanceledExitCode;
-    }
-    terminal::println(
-      Info,
-      "{} picture(s) prepared for packing, preparing pack plan...",
-      terminal::count(compressOutcome.value().results.size())
-    );
-  }
+  auto const compressPhase =
+    runCompressPackPhase(ctx, tempDir, compressTasks, quality, maxParallel);
+  if (!compressPhase) { return eh::makeError("{}", compressPhase.error()); }
+  if (compressPhase.value() != 0) { return compressPhase.value(); }
 
   auto packInputs = buildPackEntryInputs(
     summaryPics,

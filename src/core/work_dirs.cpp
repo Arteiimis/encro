@@ -42,7 +42,7 @@ auto encroDir(fs::path const& workRoot) -> fs::path {
 }
 
 auto ensureEncroDir(fs::path const& workRoot) -> eh::Result<fs::path> {
-  auto const dir = encroDir(workRoot);
+  auto dir = encroDir(workRoot);
   auto ec = std::error_code{};
   fs::create_directories(dir, ec);
   if (ec) {
