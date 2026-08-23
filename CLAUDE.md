@@ -6,11 +6,9 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 
 - **Build system:** xmake (not CMake). Toolchain: `clang-cl` + `lld-link` on Windows. C++26.
 - **Build:** `xmake build encro` · **Run:** `xmake run encro <args>` (e.g. `xmake run encro -h`; do NOT use `--` — it is passed through to the program and breaks CLI11 parsing)
-- **Tests (unit/integration):** `xmake build tests && xmake run tests`
 - **Tests with failure summary:** `xmake test-report` — builds + runs unit tests, writes `build/last-test-report.xml` (JUnit) and `build/last-test-console.log` (full console text), and prints a summary instead of raw console: success shows `All tests passed (N assertions in M test cases)`, failure prints a per-test FAILED list (name + file:line + message) plus both artifact paths. Child stdout goes to the log file, so progress-bar frames never render (non-TTY) and the terminal output stays clean in every context; exit code is propagated. `--tag="[tag]"` limits to a tag filter (note: `=` form required).
 - **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)
 - **Tests (parallel):** `xmake test-parallel` — builds then runs the unit suite in 8 Catch2 shards and the e2e suite in 4 shards concurrently (~13s vs ~88s serial on 16 cores; real-ffmpeg tests included). Each shard gets an isolated temp root under `build/.test-parallel/`, so shared scratch/TempDir/log state never collides. Shard counts auto-scale from CPU count (`--unit-shards=N` / `--e2e-shards=N` override). Success/failure is judged from the Catch2 logs (parallel `proc:wait` statuses are unreliable); failed shard logs are printed with paths under `build/.test-parallel/`.
-- **Single test:** `xmake run tests "[tag-name]"` (Catch2 tag filter)
 - **Format:** `xmake fmt` (apply) / `xmake fmt -k` (check only, no CI gate). Default style `file:D:/clangformat/.clang-format` (NOT in repo); `--style` overrides it. Full options: `xmake fmt -h`.
 - **Static analysis:** `xmake tidy` — report-only clang-tidy over `src/`+`tests/` (`.clang-tidy` config, function-length/cognitive-complexity guardrails); needs `build/compile_commands.json` (build first). Full options: `xmake tidy -h`.
 - **Coverage:** `xmake coverage` runs tests under coverage with an instrumentation self-check, then restores release; needs `llvm-profdata` + `llvm-cov` on PATH. Full options: `xmake coverage -h`.
@@ -42,35 +40,6 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 | Comments       | Minimal, no Doxygen; code is self-documenting                        |
 | Template params| `Ty` (single), `Tys` (pack)                                          |
 
-## Architecture
-
-```
-main → appentry::run → prelude::initStartup → pipeline::run
-         ├─ runVideo() → video_process → video_batch_execution → video_encode_runner
-         ├─ runPicture() → picture_process → picture_compress
-         ├─ runPackOnly() → pack::execute()
-         └─ preview subcommand → preview::run → preview_process (bypasses pipeline::run)
-```
-
-- `src/app` CLI entry, startup, pipeline orchestration · `src/cmd` CLI11 parsing, config builder
-- `src/core` AppContext, JobState, TaskExecutor, Progress, media_scanner, error_handle, collision_naming, display_text, parallel, path_roots
-- `src/infra` crash handler, terminal, console_width, env, stacktrace, stop_signal, toolchain discovery
-- `src/logging` spdlog setup (async, rotating), JSON formatter, log tags
-- `src/pack` ZIP (PackRequest → PackPlan → Packer → libzippp) · `src/picture` ffmpeg WebP
-- `src/preview` original-vs-encoded side-by-side comparison (preview_process, preview_filtergraph)
-- `src/video` encode orchestration, progress parsing, output planning · `src/utils` exec2, FFmpeg discovery, UUID
-
-- **`appctx::AppContext`** — single mutable context, passed by mutable reference through the whole chain.
-- **`eh::Result<T>`** = `std::expected<T, std::string>`; all operational failures return it. Exceptions only for catastrophic errors (caught in `main.cpp`).
-- **`jobstate::Store`** — persists task records as JSON for resume after interruption.
-
-## Error Handling
-
-```cpp
-return eh::makeError("Failed to open state file: {}", path.string());
-if (!result) { return eh::makeError("context: {}", result.error()); }  // REQUIRE(result) in tests
-```
-
 ## Testing
 
 - Catch2 v3 (`catch2/catch_all.hpp`), custom runner `tests/test_main.cpp`.
@@ -90,10 +59,6 @@ if (!result) { return eh::makeError("context: {}", result.error()); }  // REQUIR
 - **OpenSpec review timing:** When a change's planning artifacts need review, first write ALL planning artifacts (proposal → specs → design → tasks), then run one full review of the proposal against the complete artifact set. Never review the proposal in isolation before the later artifacts exist — a proposal review without its specs/design/tasks cannot validate the contract between the artifacts.
 - **TDD:** 1) write failing test first (RED) 2) minimal code to pass (GREEN) 3) refactor under test protection 4) verify all pass. Never write implementation before tests; test + implementation go in the same commit.
 - **Post-Change Review:** after self-verification, unless the change is trivial (typos, docs-only, one-liner or mechanical refactor), run the `code-review` skill (parallel Standards + Spec axis sub-agents; spec from `openspec/changes/`); for large multi-area changes additionally launch ≤1 sub-agent per touched functional area to review edge cases only (empty inputs, unusual codecs, exit codes, concurrency, stop-signal paths); report severity + file:line findings; triage and fix, then re-run full verification.
-
-## Key Dependencies
-
-- **CLI11** CLI parsing · **Boost** json/parser/lambda2/lexical_cast/process/stacktrace/uuid · **spdlog** async logging to `%LOCALAPPDATA%/encro/logs/` (rotating, keep 10) · **fmt** formatting · **libzippp** ZIP I/O · **immer** immutable structures · **indicators** progress bars · **thread-pool** parallel execution
 
 ## Platform & Git
 
