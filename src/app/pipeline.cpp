@@ -46,7 +46,7 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
 
   auto const stateFileRes = jobstate::buildDefaultStateFilePath(ctx.config);
   if (!stateFileRes) { return eh::makeError("{}", stateFileRes.error()); }
-  auto const stateFilePath = *stateFileRes;
+  auto const& stateFilePath = *stateFileRes;
   ctx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
   auto discardedMismatched = false;
   auto const initRes =
