@@ -7,6 +7,7 @@ task("tidy")
       {"s", "sarif", "k", nil, "Write build/tidy-results.sarif instead of text"},
       {"a", "analyzer", "k", nil, "Include the slow clang static analyzer checks (deep scan)"},
       {"f", "filter", "kv", nil, "Only scan TUs whose path contains this substring (e.g. video)"},
+      {"c", "checks", "kv", nil, "Override clang-tidy checks (e.g. '-*,bugprone-*'); cached per checks set"},
       {"j", "jobs", "kv", nil, "Parallel jobs (default: 8, 4 with --analyzer)"},
       {nil, "selftest", "k", nil, "Run the bundled check-set/header-filter self-test"}
     }
@@ -31,6 +32,10 @@ task("tidy")
     if option.get("filter") then
       table.insert(argv, "-f")
       table.insert(argv, option.get("filter"))
+    end
+    if option.get("checks") then
+      table.insert(argv, "--checks")
+      table.insert(argv, option.get("checks"))
     end
     if option.get("selftest") then
       table.insert(argv, "--selftest")

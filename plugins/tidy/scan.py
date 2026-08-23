@@ -170,8 +170,8 @@ def find_deps(tu):
     return None
 
 
-def cache_key(tu, flags, mode, deps):
-    parts = [tu, flags, mode, clang_tidy_version()]
+def cache_key(tu, flags, mode, deps, checks):
+    parts = [tu, flags, mode, checks or '', clang_tidy_version()]
     for p in ['.clang-tidy', tu]:
         try:
             parts.append(str(os.path.getmtime(p)))
@@ -236,17 +236,19 @@ def cleanup_cache(active_tus, mode, used_keys):
                 pass
 
 
-def scan_tu(tu, analyzer, flags):
+def scan_tu(tu, analyzer, flags, checks):
     mode = 'analyzer' if analyzer else 'fast'
     deps = find_deps(tu)
     key = None
     if deps is not None:
-        key = cache_key(tu, flags, mode, deps)
+        key = cache_key(tu, flags, mode, deps, checks)
         cached = load_cached(key)
         if cached is not None:
             return cached, 'cached', key
     cmd = [TOOL, tu, '-p', 'build', '-header-filter=' + HEADER_FILTER, '--quiet']
-    if not analyzer:
+    if checks:
+        cmd.append('--checks=' + checks)
+    elif not analyzer:
         # The path-sensitive static analyzer dominates cost (minutes and GBs per
         # TU); strip it for the default fast run.
         cmd.append('--checks=-clang-analyzer-*')
@@ -377,6 +379,12 @@ def main():
     analyzer = '--analyzer' in args
     args = [a for a in args if a != '--analyzer']
 
+    checks = None
+    if '--checks' in args:
+        i = args.index('--checks')
+        checks = args[i + 1]
+        del args[i:i + 2]
+
     # Fast checks are cheap (~seconds/TU); the analyzer needs minutes and ~2GB
     # per process, so cap its parallelism to keep peak memory sane.
     cpus = os.cpu_count() or 4
@@ -406,7 +414,7 @@ def main():
     started = time.monotonic()
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as ex:
         for tu, (warnings, status, key) in zip(
-            tus, ex.map(lambda t: scan_tu(t, analyzer, flags[t]), tus)
+            tus, ex.map(lambda t: scan_tu(t, analyzer, flags[t], checks), tus)
         ):
             all_warnings.extend(warnings)
             if status == 'crashed':
@@ -420,7 +428,7 @@ def main():
     # clang-tidy can crash (access violation) under high parallelism; retry
     # crashed TUs sequentially, one process at a time.
     for tu in crashed:
-        warnings, status, key = scan_tu(tu, analyzer, flags[tu])
+        warnings, status, key = scan_tu(tu, analyzer, flags[tu], checks)
         all_warnings.extend(warnings)
         if status != 'ok':
             print(f'clang-tidy failed on {tu}; skipped', file=sys.stderr)
