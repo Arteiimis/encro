@@ -1028,10 +1028,9 @@ TEST_CASE("encro rejects positional input mixed with -i", "[e2e][cli]") {
   auto const result = e2e::runEncro({"-y", "a.mp4", "-i", "b.mp4"});
 
   CHECK(result.exitCode == 1);
-  CHECK(
-    result.stdoutText.find("positional input paths or -i/--input/-I/--inputs")
-    != std::string::npos
-  );
+  // native exclusion message
+  CHECK(result.stdoutText.find("input-paths") != std::string::npos);
+  CHECK(result.stdoutText.find("--input") != std::string::npos);
 }
 
 TEST_CASE("encro fails when custom ffmpeg directory has no tools", "[e2e][toolchain]") {
@@ -2290,15 +2289,15 @@ TEST_CASE(
 TEST_CASE("encro rejects out-of-range --min-vmaf", "[e2e][cli][probe]") {
   auto const result = e2e::runEncro({"-i", "a.mp4", "--min-vmaf", "120"});
   REQUIRE(result.exitCode == 1);
-  CHECK(
-    result.stdoutText.find("--min-vmaf must be between 0 and 100") != std::string::npos
-  );
+  // native range validation message
+  CHECK(result.stdoutText.find("not in range [0 - 100]") != std::string::npos);
 }
 
 TEST_CASE("encro rejects --dry-run combined with --crf", "[e2e][cli][probe]") {
   auto const result = e2e::runEncro({"-i", "a.mp4", "--dry-run", "--crf", "28"});
   REQUIRE(result.exitCode == 1);
-  CHECK(result.stdoutText.find("--dry-run requires probing") != std::string::npos);
+  // native exclusion message
+  CHECK(result.stdoutText.find("--crf excludes --dry-run") != std::string::npos);
 }
 
 // ── Preview subcommand ────────────────────────────────────────────────────
@@ -2424,10 +2423,8 @@ TEST_CASE(
   });
 
   REQUIRE(result.exitCode == 1);
-  CHECK(
-    result.stdoutText.find("preview requires at least one positional argument")
-    != std::string::npos
-  );
+  // native RequiredError
+  CHECK(result.stdoutText.find("original is required") != std::string::npos);
 }
 
 // ── Real-ffmpeg smoke tests ───────────────────────────────────────────────
