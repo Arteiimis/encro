@@ -1,5 +1,7 @@
 #include "cmd/cmd.h"
 
+#include "cmd/option_specs.h"
+
 #include "infra/env.h"
 #include "infra/terminal.h"
 
@@ -10,12 +12,10 @@
 #include <charconv>
 #include <cctype>
 #include <format>
-#include <functional>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 using namespace std::literals;
@@ -183,12 +183,8 @@ auto formatOptionHelp(
 ) -> std::string {
   auto const nameStr = formatOptionName(opt);
 
-  auto typeStr = std::string{};
-  if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
-    auto const typeName = opt->get_type_name();
-    if (typeName != "TEXT"sv && typeName != "text"sv) { typeStr = " " + typeName; }
-  }
-
+  // Column 1 = name + (=default); a type column is intentionally never
+  // rendered, so binding/validator type names cannot leak into help.
   auto defaultText = std::string{};
   auto styledDefaultText = std::string{};
   if (!opt->get_default_str().empty()) {
@@ -206,13 +202,12 @@ auto formatOptionHelp(
     nameStr
   );
 
-  // Pad the full first column (name + type + default) to colWidth for alignment
-  auto const firstCol = nameStr + typeStr + defaultText;
+  // Pad the full first column (name + default) to colWidth for alignment
+  auto const firstCol = nameStr + defaultText;
   auto const gap = firstCol.size() < colWidth ? colWidth - firstCol.size() : 2u;
   auto const displayDescriptionColumn = static_cast<unsigned>(2 + firstCol.size() + gap);
-  auto const renderedDescriptionColumn = static_cast<unsigned>(
-    2 + coloredName.size() + typeStr.size() + styledDefaultText.size() + gap
-  );
+  auto const renderedDescriptionColumn =
+    static_cast<unsigned>(2 + coloredName.size() + styledDefaultText.size() + gap);
   auto const indent = std::string(displayDescriptionColumn, ' ');
   auto const firstLineDescriptionColumn =
     explicitWidthConstraint ? renderedDescriptionColumn : displayDescriptionColumn;
@@ -235,9 +230,8 @@ auto formatOptionHelp(
     );
     if (lineNum == 0) {
       result += std::format(
-        "  {}{}{}{:<{}}{}\n",
+        "  {}{}{:<{}}{}\n",
         coloredName,
-        typeStr,
         styledDefaultText,
         "",
         gap,
@@ -321,41 +315,29 @@ auto visibleOptionsOf(
   return opts;
 }
 
-auto buildPreviewHelpText() -> std::string {
-  auto result = std::string{};
-  result +=
-    "encro preview: compare an original video with its encoded output side by side\n\n";
-  result += "Usage:\n";
-  result += "  encro preview <original> [<encoded>] [options]\n\n";
-  result += "Positional:\n";
-  result += "  original            source video\n";
-  result += "  encoded             optional encoded output to compare against; when\n";
-  result += "                      omitted, the source is probed and compared against\n";
-  result += "                      windows encoded with the chosen CQ\n\n";
-  result += "Options:\n";
-  result += "  --output <path>     output video path (default: "
-            "<original-dir>/<original-stem>.preview.mp4)\n";
-  result += "  --start <seconds>   manual window start (skips sampling and scoring)\n";
-  result += "  --duration <seconds> manual window duration (clamped at the video end)\n";
-  result += "  --no-open           do not open the result in the default player\n";
-  result += "  -h, --help          show this help\n";
-  return result;
-}
-
-auto formatTypeStr(CLI::Option const* opt) -> std::string {
-  if (opt->get_expected_min() > 0 && !opt->get_type_name().empty()) {
-    auto const typeName = opt->get_type_name();
-    if (typeName != "TEXT"sv && typeName != "text"sv) { return " " + typeName; }
-  }
-  return {};
-}
+// Direct-binding option registration keeps per-group registration order from
+// the old CmdFlagDef arrays (help order contract). long names of advanced
+// options only — the -hh/-h tiering list; code list is authoritative (the
+// cli-help-tiering main spec's enumeration misses --video-codec).
+constexpr auto kAdvancedLongNames = std::array{
+  "verbose"sv,
+  "log-json"sv,
+  "full-progress"sv,
+  "color"sv,
+  "inputs"sv,
+  "state-file"sv,
+  "force-conflict-handling"sv,
+  "ffmpeg-path"sv,
+  "preset"sv,
+  "video-codec"sv,
+};
 
 auto formatDefaultStr(CLI::Option const* opt) -> std::string {
   auto const defaultStr = opt->get_default_str();
   return defaultStr.empty() ? std::string{} : " (=" + defaultStr + ")";
 }
 
-// Max column width across visible options (name + type + default).
+// Max column width across visible options (name + default).
 auto computeMaxColumnLen(
   CLI::App const* general,
   std::span<CLI::App const* const> groups,
@@ -371,9 +353,7 @@ auto computeMaxColumnLen(
       auto const nameStr = formatOptionName(opt);
       maxLen = std::max(
         maxLen,
-        static_cast<unsigned>(
-          nameStr.size() + formatTypeStr(opt).size() + formatDefaultStr(opt).size()
-        )
+        static_cast<unsigned>(nameStr.size() + formatDefaultStr(opt).size())
       );
     }
   }
@@ -465,660 +445,324 @@ auto makeHelpFormatter(
     };
 }
 
-}  // namespace
+// Preview subcommand help: rendered from the subcommand's own option
+// definitions with the same style helpers as the main help. It deliberately
+// does not reuse makeHelpFormatter, which renders the whole main option
+// table (captured parent group pointers).
+auto makePreviewHelpFormatter(CLI::App const* previewApp) -> auto {
+  return  //
+    [previewApp](
+      CLI::App const* appPtr,
+      std::string /*prev*/
+      ,  // NOLINT(performance-unnecessary-value-param): CLI11 formatter callback signature is fixed
+      CLI::AppFormatMode /*mode*/
+    ) -> std::string {
+      constexpr auto usageLines = std::array{
+        "encro preview <original> [<encoded>] [--start <s>] [--duration <s>] [--output <path>] [--no-open]"sv,
+      };
+      auto result = std::string{};
+      auto const layout = resolveHelpTextLayout();
+      auto const desc = appPtr->get_description();
+      if (!desc.empty()) {
+        result += terminal::styledText(
+          terminal::Stream::Stdout,
+          terminal::MessageKind::Usage,
+          desc
+        );
+        result += "\n\n";
+      }
+      result += formatHelpSection("Usage", std::span{usageLines}, layout.lineLength);
+      result += "\n";
 
-enum class CmdFlagKind {
-  Bool,
-  String,
-  Int,
-  SizeT,
-  VecString
-};
+      // Same column-width logic as the main formatter, over the subcommand's
+      // own options only (general=nullptr keeps visibleOptionsOf from
+      // double-adding the app-level options).
+      auto const maxColumnLen =
+        computeMaxColumnLen(nullptr, std::span{&previewApp, 1}, previewApp, {}, true);
+      auto const maxColWidthFromLayout =
+        layout.lineLength > layout.minDescriptionLength + 2
+        ? layout.lineLength - layout.minDescriptionLength - 2
+        : 1u;
+      auto const colWidth = std::clamp(
+        maxColumnLen,
+        std::min(34u, maxColWidthFromLayout),
+        std::min(48u, maxColWidthFromLayout)
+      );
 
-struct CmdFlagDef {
-  std::string_view name;  // CLI11-native format: "-v,--verbose" or "--version"
-  CmdFlagKind kind;       // Bool | String | Int | SizeT | VecString
-  std::string_view description;
-  std::string_view
-    defaultValue;  // "" → no default (expectedMin=1); non-empty → has default (expectedMin=0)
-  int expectedMax;            // 0=flag, 1=single value, >1=multi-value upper bound
-  std::string_view excludes;  // flag name this excludes ("" = none); CLI11 ->excludes()
-  std::string_view excludesDesc;    // custom error message for the exclusion
-  bool advanced = false;            // hidden from brief (-h) help
-  std::string_view defaultDisplay;  // "" = none; shown as (=value) in help
-};
+      for (auto const* opt: previewApp->get_options()) {
+        if (!hasOptionNames(opt)) continue;
+        result += formatOptionHelp(
+          opt,
+          colWidth,
+          layout.lineLength,
+          layout.explicitWidthConstraint
+        );
+        result += '\n';
+      }
 
-// ── General flags (7) ──  help/version on app, rest on general group ──
-constexpr auto GeneralFlags = std::array{
-  CmdFlagDef{
-    .name = "-h,--help",
-    .kind = CmdFlagKind::Bool,
-    .description = "show help; use -hh to show all options",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-  CmdFlagDef{
-    .name = "--version",
-    .kind = CmdFlagKind::Bool,
-    .description = "show version information",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-  CmdFlagDef{
-    .name = "-v,--verbose",
-    .kind = CmdFlagKind::Bool,
-    .description = "echo log lines to the console (disables progress bars)",
-    .defaultValue = "",
-    .expectedMax = 0,
-    .advanced = true
-  },
-  CmdFlagDef{
-    .name = "--log-json",
-    .kind = CmdFlagKind::Bool,
-    .description = "enable NDJSON structured log output (one JSON object per line)",
-    .defaultValue = "",
-    .expectedMax = 0,
-    .advanced = true
-  },
-  CmdFlagDef{
-    .name = "-F,--full-progress",
-    .kind = CmdFlagKind::Bool,
-    .description =
-      "show full progress with per-worker encoding bars and per-archive packing bars",
-    .defaultValue = "",
-    .expectedMax = 0,
-    .advanced = true
-  },
-  CmdFlagDef{
-    .name = "--color",
-    .kind = CmdFlagKind::String,
-    .description = "terminal colors: auto, always, never",
-    .defaultValue = "auto",
-    .expectedMax = 1,
-    .advanced = true
-  },
-  CmdFlagDef{
-    .name = "-y,--yes",
-    .kind = CmdFlagKind::Bool,
-    .description = "automatic yes to prompts",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-};
-
-// ── Input/Output flags (9) ──
-constexpr auto IOFrags = std::array{
-  CmdFlagDef{
-    .name = "-i,--input",
-    .kind = CmdFlagKind::String,
-    .description = "input file or directory path",
-    .defaultValue = "",
-    .expectedMax = 1,
-    .excludes = "-I,--inputs",
-    .excludesDesc =
-      "Use -i for a single input path, or -I for multiple input paths — not both."
-  },
-  CmdFlagDef{
-    .name = "-I,--inputs",
-    .kind = CmdFlagKind::VecString,
-    .description = "input video file paths",
-    .defaultValue = "",
-    .expectedMax = 1000000,
-    .advanced = true
-  },
-  CmdFlagDef{
-    .name = "-o,--output",
-    .kind = CmdFlagKind::String,
-    .description =
-      "custom output directory path\n  aliases: + or input:// for input root, = or "
-      "common:// for common root",
-    .defaultValue = "",
-    .expectedMax = 1
-  },
-  CmdFlagDef{
-    .name = "--state-file",
-    .kind = CmdFlagKind::String,
-    .description = "custom job state file path",
-    .defaultValue = "",
-    .expectedMax = 1,
-    .advanced = true
-  },
-  CmdFlagDef{
-    .name = "-f,--output-format",
-    .kind = CmdFlagKind::String,
-    .description = "target format: mp4 or webp",
-    .defaultValue = "mp4",
-    .expectedMax = 1
-  },
-  CmdFlagDef{
-    .name = "--keep",
-    .kind = CmdFlagKind::Bool,
-    .description = "preserve relative input subdirectories inside the output directory "
-                   "(default: flatten)",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-  CmdFlagDef{
-    .name = "--force-conflict-handling",
-    .kind = CmdFlagKind::String,
-    .description =
-      "same-name collisions in flat output: y=auto-rename, n=allow duplicates",
-    .defaultValue = "y",
-    .expectedMax = 1,
-    .advanced = true
-  },
-  CmdFlagDef{
-    .name = "-s,--folder-summary",
-    .kind = CmdFlagKind::Bool,
-    .description = "enable picture-mode folder summary images in flat packs",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-  CmdFlagDef{
-    .name = "-r,--recursive",
-    .kind = CmdFlagKind::Bool,
-    .description = "enable recursively search",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-};
-
-// ── Processing flags (9) ──
-constexpr auto ProcessingFlags = std::array{
-  CmdFlagDef{
-    .name = "-t,--type",
-    .kind = CmdFlagKind::String,
-    .description = "process type: video(vid)|picture(pic)",
-    .defaultValue = "video",
-    .expectedMax = 1
-  },
-  CmdFlagDef{
-    .name = "-j,--jobs",
-    .kind = CmdFlagKind::SizeT,
-    .description = "max parallel jobs (>=1)",
-    .defaultValue = "10",
-    .expectedMax = 1
-  },
-  CmdFlagDef{
-    .name = "--resume",
-    .kind = CmdFlagKind::Bool,
-    .description = "require matching previous job state; error if missing or mismatched",
-    .defaultValue = "",
-    .expectedMax = 0,
-    .excludes = "--restart",
-    .excludesDesc =
-      "--resume continues a previous job; use --restart to discard state and begin fresh."
-  },
-  CmdFlagDef{
-    .name = "--restart",
-    .kind = CmdFlagKind::Bool,
-    .description = "ignore previous job state and start a fresh run",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-  CmdFlagDef{
-    .name = "-x,--ffmpeg-path",
-    .kind = CmdFlagKind::String,
-    .description = "custom ffmpeg install path",
-    .defaultValue = "",
-    .expectedMax = 1,
-    .advanced = true
-  },
-  CmdFlagDef{
-    .name = "-c,--compress",
-    .kind = CmdFlagKind::Bool,
-    .description = "enable JPEG compression during picture processing",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-  CmdFlagDef{
-    .name = "-q,--image-quality",
-    .kind = CmdFlagKind::Int,
-    .description = "JPEG compression quality (2-31, lower=better)",
-    .defaultValue = "",
-    .expectedMax = 1,
-    .defaultDisplay = "2"
-  },
-  CmdFlagDef{
-    .name = "--crf",
-    .kind = CmdFlagKind::Int,
-    .description = "video encode quality (0-51, lower=better)",
-    .defaultValue = "",
-    .expectedMax = 1,
-    .defaultDisplay = "28"
-  },
-  CmdFlagDef{
-    .name = "--min-vmaf",
-    .kind = CmdFlagKind::Int,
-    .description = "minimum p5-VMAF quality floor for probing (0-100)",
-    .defaultValue = "95",
-    .expectedMax = 1
-  },
-  CmdFlagDef{
-    .name = "--dry-run",
-    .kind = CmdFlagKind::Bool,
-    .description = "probe and print the encoding plan, then exit without encoding",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-  CmdFlagDef{
-    .name = "--preset",
-    .kind = CmdFlagKind::String,
-    .description = "NVENC preset (p1-p7; auto picks by resolution)",
-    .defaultValue = "",
-    .expectedMax = 1,
-    .advanced = true,
-    .defaultDisplay = "auto"
-  },
-  CmdFlagDef{
-    .name = "--video-codec",
-    .kind = CmdFlagKind::String,
-    .description = "video encoder (default hevc_nvenc; libx265/libx264 on cpu)",
-    .defaultValue = "",
-    .expectedMax = 1,
-    .advanced = true,
-    .defaultDisplay = "hevc_nvenc"
-  },
-};
-
-// ── File operation flags (3) ──
-constexpr auto FileOpFlags = std::array{
-  CmdFlagDef{
-    .name = "-p,--pack",
-    .kind = CmdFlagKind::Bool,
-    .description = "pack encoded video outputs into zip files",
-    .defaultValue = "",
-    .expectedMax = 0,
-    .excludes = "-z,--pack-only",
-    .excludesDesc = "--pack encodes then packs; use --pack-only to pack without encoding."
-  },
-  CmdFlagDef{
-    .name = "-z,--pack-only",
-    .kind = CmdFlagKind::Bool,
-    .description = "pack only: zip all files in input directory",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-  CmdFlagDef{
-    .name = "-w,--overwrite",
-    .kind = CmdFlagKind::Bool,
-    .description = "overwrite existing files without prompt",
-    .defaultValue = "",
-    .expectedMax = 0
-  },
-};
-
-struct PendingExclusion {
-  CLI::Option* option;
-  std::string_view targetName;
-  std::string_view description;
-};
-
-namespace {
-
-using ResultSetter = std::function<void(CmdParseResult&, CLI::Option const*)>;
-
-struct PreviewSubcommand {
-  CLI::App* app;
-  CLI::Option* original;
-  CLI::Option* encoded;
-  CLI::Option* output;
-  CLI::Option* start;
-  CLI::Option* duration;
-  CLI::Option* noOpen;
-  CLI::Option* help;
-};
+      if (result.ends_with('\n')) { result.pop_back(); }
+      return result;
+    };
+}
 
 // Subcommand names take precedence over positional input interpretation;
 // bare invocations fall through to the encode workflow unchanged.
-auto registerPreviewSubcommand(CLI::App& app) -> PreviewSubcommand {
+auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
   auto* sub = app.add_subcommand(
     "preview",
     "compare an original video with its encoded output side by side"
   );
-  sub->set_help_flag("");
-  return PreviewSubcommand{
-    .app = sub,
-    .original = sub->add_option("original", "original video path"),
-    .encoded = sub->add_option("encoded", "encoded video path"),
-    .output = sub->add_option(
+  // Native help flag: CallForHelp is thrown only while parsing the preview
+  // subcommand (the parent app cleared its help flag).
+  sub->set_help_flag("-h,--help", "show preview help");
+  auto const options = std::tuple{
+    opt("original", &result.previewOriginal, "original video path", cfg::Required{}),
+    opt("encoded", &result.previewEncoded, "encoded video path", cfg::Expected{0, 1}),
+    opt(
       "--output",
+      &result.previewOutput,
       "output video path (default: <original-dir>/<original-stem>.preview.mp4)"
     ),
-    .start = sub->add_option("--start", "manual window start in seconds"),
-    .duration = sub->add_option("--duration", "manual window duration in seconds"),
-    .noOpen = sub->add_flag("--no-open", "do not open the result in the default player"),
-    .help = sub->add_flag("-h,--help", "show preview help"),
+    opt(
+      "--start",
+      &result.previewStart,
+      "manual window start in seconds",
+      cfg::NonNegativeNumber{}
+    ),
+    opt(
+      "--duration",
+      &result.previewDuration,
+      "manual window duration in seconds",
+      cfg::NonNegativeNumber{}
+    ),
+    opt(
+      "--no-open",
+      &result.previewNoOpen,
+      "do not open the result in the default player"
+    ),
   };
+  registerAll(sub, options);
+  sub->formatter_fn(makePreviewHelpFormatter(sub));
+  return sub;
 }
 
-auto collectAdvancedLongNames(
-  std::vector<std::string_view>& advancedLongNames,
-  auto const& defs
-) -> void {
-  for (auto const& def: defs) {
-    if (!def.advanced) { continue; }
-    auto longName = def.name;
-    if (auto const comma = longName.find(','); comma != std::string_view::npos) {
-      longName.remove_prefix(comma + 1);
-    }
-    if (longName.starts_with("--")) { longName.remove_prefix(2); }
-    advancedLongNames.push_back(longName);
-  }
+auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& result)
+  -> CLI::Option* {
+  // help/version bypass the spec table: the -hh two-tier mechanism needs the
+  // help option pointer returned to the caller
+  auto* helpOpt =
+    app.add_flag("-h,--help", result.help, "show help; use -hh to show all options");
+  app.add_flag("--version", result.version, "show version information");
+  auto const options = std::tuple{
+    opt(
+      "-v,--verbose",
+      &result.verbose,
+      "echo log lines to the console (disables progress bars)"
+    ),
+    opt(
+      "--log-json",
+      &result.jsonEnabled,
+      "enable NDJSON structured log output (one JSON object per line)"
+    ),
+    opt(
+      "-F,--full-progress",
+      &result.fullProgress,
+      "show full progress with per-worker encoding bars and per-archive packing "
+      "bars"
+    ),
+    opt(
+      "--color",
+      &result.color,
+      "terminal colors: auto, always, never",
+      cfg::OptionalDefault{"auto"},
+      cfg::Transform{[](std::string value) {
+        std::ranges::transform(value, value.begin(), [](unsigned char ch) {
+          return static_cast<char>(std::tolower(ch));
+        });
+        return value;
+      }},
+      cfg::Members{"auto", "always", "never"}
+    ),
+    opt("-y,--yes", &result.yesToAll, "automatic yes to prompts"),
+  };
+  registerAll(general, options);
+  return helpOpt;
 }
 
-// Data-driven flag registration helper.
-auto registerCmdFlag(
-  CmdFlagDef const& def,
-  CLI::App* target,
-  std::unordered_map<std::string_view, CLI::Option*>& optRegistry,
-  std::vector<PendingExclusion>& pendingExcludes
-) -> void {
-  auto const expectedMin = def.defaultValue.empty() ? 1 : 0;
-  std::string const name{def.name};
-  std::string const desc{def.description};
-  CLI::Option* opt = nullptr;
-  switch (def.kind) {
-    case CmdFlagKind::Bool: opt = target->add_flag(name, desc); break;
-    case CmdFlagKind::String:
-    case CmdFlagKind::Int:
-      opt = target->add_option(name, desc);
-      if (expectedMin == 0) {
-        opt->expected(0, 1)->default_str(std::string{def.defaultValue});
-      } else if (!def.defaultDisplay.empty()) {
-        opt->expected(1)->default_str(std::string{def.defaultDisplay});
-      } else {
-        opt->expected(1);
-      }
-      break;
-    case CmdFlagKind::SizeT:
-      opt = target->add_option(name, desc);
-      if (expectedMin == 0) {
-        opt->expected(0, 1)->default_str(std::string{def.defaultValue});
-      } else {
-        opt->expected(1);
-      }
-      break;
-    case CmdFlagKind::VecString:
-      opt = target->add_option(name, desc)->expected(0, def.expectedMax);
-      break;
-  }
-  if (opt) { optRegistry[def.name] = opt; }
-  if (opt && !def.excludes.empty()) {
-    pendingExcludes.emplace_back(opt, def.excludes, def.excludesDesc);
-  }
-}
-
-auto registerGeneralFlags(
-  CLI::App& app,
-  CLI::App* general,
-  std::unordered_map<std::string_view, CLI::Option*>& optRegistry,
-  std::vector<PendingExclusion>& pendingExcludes
-) -> void {
-  for (auto const& def: std::span{GeneralFlags}.subspan(0, 2)) {
-    registerCmdFlag(def, &app, optRegistry, pendingExcludes);
-  }
-  for (auto const& def: std::span{GeneralFlags}.subspan(2)) {
-    registerCmdFlag(def, general, optRegistry, pendingExcludes);
-  }
-}
-
-auto collectAllAdvancedLongNames() -> std::vector<std::string_view> {
-  // Collect advanced long names from the same def arrays (single source of
-  // truth). -h/--help and --version are not marked advanced, so they never
-  // enter the set. The vector must outlive the formatter lambda, so it is
-  // returned to the caller rather than kept local.
-  auto advancedLongNames = std::vector<std::string_view>{};
-  collectAdvancedLongNames(advancedLongNames, GeneralFlags);
-  collectAdvancedLongNames(advancedLongNames, IOFrags);
-  collectAdvancedLongNames(advancedLongNames, ProcessingFlags);
-  collectAdvancedLongNames(advancedLongNames, FileOpFlags);
-  return advancedLongNames;
-}
-
-auto registerIoFlags(
-  CLI::App* io,
-  std::unordered_map<std::string_view, CLI::Option*>& optRegistry,
-  std::vector<PendingExclusion>& pendingExcludes
-) -> void {
-  for (auto const& def: IOFrags) {
-    registerCmdFlag(def, io, optRegistry, pendingExcludes);
-  }
-
-  constexpr auto kPositionalKey = std::string_view{"<positional>"};
+auto registerIoFlags(CLI::App* io, CmdParseResult& result) -> void {
   constexpr auto kMaxPositionalInputs = 1000000;
-  auto* positionalOpt =
-    io->add_option("input-paths", "input file or directory paths (alternative to -i/-I)")
-      ->expected(0, kMaxPositionalInputs);
-  optRegistry[kPositionalKey] = positionalOpt;
+  auto const options = std::tuple{
+    opt(
+      "-i,--input",
+      &result.input,
+      "input file or directory path",
+      cfg::Excludes{"--inputs"}
+    ),
+    opt(
+      "-I,--inputs",
+      &result.inputs,
+      "input video file paths",
+      cfg::Expected{0, kMaxPositionalInputs}
+    ),
+    opt(
+      "-o,--output",
+      &result.output,
+      "custom output directory path\n  aliases: + or input:// for input "
+      "root, = or common:// for common root"
+    ),
+    opt("--state-file", &result.stateFile, "custom job state file path"),
+    opt(
+      "-f,--output-format",
+      &result.outputFormat,
+      "target format: mp4 or webp",
+      cfg::OptionalDefault{"mp4"},
+      cfg::Members{"mp4", "webp"}
+    ),
+    opt(
+      "--keep",
+      &result.keep,
+      "preserve relative input subdirectories inside the output directory "
+      "(default: flatten)"
+    ),
+    opt(
+      "--force-conflict-handling",
+      &result.forceConflictHandling,
+      "same-name collisions in flat output: y=auto-rename, n=allow "
+      "duplicates",
+      cfg::OptionalDefault{"y"},
+      cfg::CheckedTransformer{{{"y", "y"}, {"Y", "y"}, {"n", "n"}, {"N", "n"}}}
+    ),
+    opt(
+      "-s,--folder-summary",
+      &result.folderSummary,
+      "enable picture-mode folder summary images in flat packs"
+    ),
+    opt("-r,--recursive", &result.recursive, "enable recursively search"),
+  };
+  registerAll(io, options);
+  auto const positional = std::tuple{
+    opt(
+      "input-paths",
+      &result.positionalInputs,
+      "input file or directory paths (alternative to -i/-I)",
+      cfg::Expected{0, kMaxPositionalInputs},
+      cfg::Excludes{"--input"},
+      cfg::Excludes{"--inputs"}
+    ),
+  };
+  registerAll(io, positional);
 }
 
-auto buildGeneralApplyMap() -> std::unordered_map<std::string_view, ResultSetter> {
-  auto applyMap = std::unordered_map<std::string_view, ResultSetter>{};
-
-  // General (app-level)
-  applyMap["-h,--help"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.help = o->count() > 0;
+auto registerProcessingFlags(CLI::App* processing, CmdParseResult& result) -> void {
+  auto const options = std::tuple{
+    opt(
+      "-t,--type",
+      &result.processType,
+      "process type: video(vid)|picture(pic)",
+      cfg::OptionalDefault{"video"},
+      cfg::CheckedTransformer{{"vid", "video"}, {"pic", "picture"}}
+    ),
+    opt(
+      "-j,--jobs",
+      &result.maxJobs,
+      "max parallel jobs (>=1)",
+      cfg::OptionalDefault{"10"},
+      cfg::PositiveNumber{}
+    ),
+    opt(
+      "--resume",
+      &result.resume,
+      "require matching previous job state; error if missing or mismatched",
+      cfg::Excludes{"--restart"}
+    ),
+    opt("--restart", &result.restart, "ignore previous job state and start a fresh run"),
+    opt("-x,--ffmpeg-path", &result.ffmpegPath, "custom ffmpeg install path"),
+    opt(
+      "-c,--compress",
+      &result.compress,
+      "enable JPEG compression during picture processing"
+    ),
+    opt(
+      "-q,--image-quality",
+      &result.imageQuality,
+      "JPEG compression quality (2-31, lower=better)",
+      cfg::RequiredDefault{"2"},
+      cfg::Range{2, 31},
+      cfg::Needs{"--compress"}
+    ),
+    opt(
+      "--crf",
+      &result.crf,
+      "video encode quality (0-51, lower=better)",
+      cfg::RequiredDefault{"28"},
+      cfg::Range{0, 51}
+    ),
+    opt(
+      "--min-vmaf",
+      &result.minVmaf,
+      "minimum p5-VMAF quality floor for probing (0-100)",
+      cfg::OptionalDefault{"95"},
+      cfg::Range{0, 100}
+    ),
+    opt(
+      "--dry-run",
+      &result.dryRun,
+      "probe and print the encoding plan, then exit without encoding",
+      cfg::Excludes{"--crf"}
+    ),
+    opt(
+      "--preset",
+      &result.nvencPreset,
+      "NVENC preset (p1-p7; auto picks by resolution)",
+      cfg::RequiredDefault{"auto"},
+      cfg::Members{"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}
+    ),
+    opt(
+      "--video-codec",
+      &result.videoCodec,
+      "video encoder (default hevc_nvenc; libx265/libx264 on cpu)",
+      cfg::DefaultValue{"hevc_nvenc"}
+    ),
   };
-  applyMap["--version"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.version = o->count() > 0;
-  };
-
-  // General (group)
-  applyMap["-v,--verbose"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.verbose = o->count() > 0;
-  };
-  applyMap["--log-json"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.jsonEnabled = o->count() > 0;
-  };
-  applyMap["-F,--full-progress"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.fullProgress = o->count() > 0;
-  };
-  applyMap["--color"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.color = o->as<std::string>();
-  };
-  applyMap["-y,--yes"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.yesToAll = o->count() > 0;
-  };
-
-  return applyMap;
+  registerAll(processing, options);
 }
 
-auto buildIoApplyMap() -> std::unordered_map<std::string_view, ResultSetter> {
-  auto applyMap = std::unordered_map<std::string_view, ResultSetter>{};
-
-  // IO
-  applyMap["-i,--input"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() > 0) { r.input = o->as<std::string>(); }
+auto registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) -> void {
+  auto const options = std::tuple{
+    opt(
+      "-p,--pack",
+      &result.pack,
+      "pack encoded video outputs into zip files",
+      cfg::Excludes{"--pack-only"}
+    ),
+    opt(
+      "-z,--pack-only",
+      &result.packOnly,
+      "pack only: zip all files in input directory"
+    ),
+    opt("-w,--overwrite", &result.overwrite, "overwrite existing files without prompt"),
   };
-  applyMap["-I,--inputs"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() > 0) { r.inputs = o->as<std::vector<std::string>>(); }
-  };
-  applyMap["<positional>"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() > 0) { r.positionalInputs = o->as<std::vector<std::string>>(); }
-  };
-  applyMap["-o,--output"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() > 0) { r.output = o->as<std::string>(); }
-  };
-  applyMap["--state-file"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() > 0) { r.stateFile = o->as<std::string>(); }
-  };
-  applyMap["-f,--output-format"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.outputFormat = o->as<std::string>();
-  };
-  applyMap["--keep"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.keep = o->count() > 0;
-  };
-  applyMap["--force-conflict-handling"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.forceConflictHandling = o->as<std::string>();
-  };
-  applyMap["-s,--folder-summary"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.folderSummary = o->count() > 0;
-  };
-  applyMap["-r,--recursive"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.recursive = o->count() > 0;
-  };
-
-  return applyMap;
-}
-
-auto buildProcessingApplyMap() -> std::unordered_map<std::string_view, ResultSetter> {
-  auto applyMap = std::unordered_map<std::string_view, ResultSetter>{};
-
-  // Processing
-  applyMap["-t,--type"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.processType = o->as<std::string>();
-  };
-  applyMap["-j,--jobs"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() > 0) { r.maxJobs = o->as<std::size_t>(); }
-  };
-  applyMap["--resume"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.resume = o->count() > 0;
-  };
-  applyMap["--restart"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.restart = o->count() > 0;
-  };
-  applyMap["-x,--ffmpeg-path"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() > 0) { r.ffmpegPath = o->as<std::string>(); }
-  };
-  applyMap["-c,--compress"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.compress = o->count() > 0;
-  };
-  applyMap["-q,--image-quality"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() == 0) { return; }
-    if (o->results().empty()) {
-      r.error = "Option --image-quality requires a value.";
-      return;
-    }
-    r.imageQuality = o->as<int>();
-  };
-  applyMap["--crf"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() == 0) { return; }
-    if (o->results().empty()) {
-      r.error = "Option --crf requires a value.";
-      return;
-    }
-    r.crf = o->as<int>();
-  };
-  applyMap["--min-vmaf"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() == 0) { return; }
-    if (o->results().empty()) {
-      r.error = "Option --min-vmaf requires a value.";
-      return;
-    }
-    r.minVmaf = o->as<int>();
-  };
-  applyMap["--dry-run"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.dryRun = o->count() > 0;
-  };
-  applyMap["--preset"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() == 0) { return; }
-    if (o->results().empty()) {
-      r.error = "Option --preset requires a value.";
-      return;
-    }
-    r.nvencPreset = o->as<std::string>();
-  };
-  applyMap["--video-codec"] = [](CmdParseResult& r, CLI::Option const* o) {
-    if (o->count() == 0) { return; }
-    if (o->results().empty()) {
-      r.error = "Option --video-codec requires a value.";
-      return;
-    }
-    r.videoCodec = o->as<std::string>();
-  };
-
-  return applyMap;
-}
-
-auto buildFileOpApplyMap() -> std::unordered_map<std::string_view, ResultSetter> {
-  auto applyMap = std::unordered_map<std::string_view, ResultSetter>{};
-
-  // FileOp
-  applyMap["-p,--pack"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.pack = o->count() > 0;
-  };
-  applyMap["-z,--pack-only"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.packOnly = o->count() > 0;
-  };
-  applyMap["-w,--overwrite"] = [](CmdParseResult& r, CLI::Option const* o) {
-    r.overwrite = o->count() > 0;
-  };
-
-  return applyMap;
-}
-
-auto buildResultApplyMap() -> std::unordered_map<std::string_view, ResultSetter> {
-  auto applyMap = buildGeneralApplyMap();
-  applyMap.merge(buildIoApplyMap());
-  applyMap.merge(buildProcessingApplyMap());
-  applyMap.merge(buildFileOpApplyMap());
-  return applyMap;
-}
-
-auto populatePreviewCommandResult(
-  CmdParseResult& result,
-  CLI::App* previewSub,
-  CLI::Option* previewHelp,
-  CLI::Option* previewOriginal,
-  CLI::Option* previewEncoded,
-  CLI::Option* previewOutput,
-  CLI::Option* previewStart,
-  CLI::Option* previewDuration,
-  CLI::Option* previewNoOpen
-) -> void {
-  if (previewHelp->count() > 0) {
-    result.help = true;
-    result.helpText = buildPreviewHelpText();
-  } else if (previewOriginal->count() == 0) {
-    result.error =
-      "preview requires at least one positional argument: <original> [<encoded>]";
-  } else {
-    result.previewOriginal = previewOriginal->as<std::string>();
-    if (previewEncoded->count() > 0) {
-      result.previewEncoded = previewEncoded->as<std::string>();
-    }
-    if (previewOutput->count() > 0) {
-      result.previewOutput = previewOutput->as<std::string>();
-    }
-    if (previewStart->count() > 0) { result.previewStart = previewStart->as<double>(); }
-    if (previewDuration->count() > 0) {
-      result.previewDuration = previewDuration->as<double>();
-    }
-    result.previewNoOpen = previewNoOpen->count() > 0;
-  }
+  registerAll(fileop, options);
 }
 
 auto parseAndPopulate(
   CLI::App& app,
   int argc,
   char* argv[],
-  std::unordered_map<std::string_view, ResultSetter> const& applyMap,
-  std::unordered_map<std::string_view, CLI::Option*> const& optRegistry,
-  PreviewSubcommand const& previewSub
-) -> CmdParseResult {
-  auto result = CmdParseResult{};
+  CLI::App* previewSub,
+  CmdParseResult& result
+) -> CmdParseResult& {
+  // result is the SAME object the options were bound to at registration time
+  // (bound callbacks write into it during parse).
   try {
     app.parse(argc, argv);
-    for (auto const& [name, setter]: applyMap) {
-      auto const it = optRegistry.find(name);
-      if (it != optRegistry.end()) { setter(result, it->second); }
-    }
     result.helpText = app.help();
-    if (app.got_subcommand(previewSub.app)) {
-      result.preview = true;
-      populatePreviewCommandResult(
-        result,
-        previewSub.app,
-        previewSub.help,
-        previewSub.original,
-        previewSub.encoded,
-        previewSub.output,
-        previewSub.start,
-        previewSub.duration,
-        previewSub.noOpen
-      );
-    }
+    if (app.got_subcommand(previewSub)) { result.preview = true; }
+  } catch (CLI::CallForHelp const&) {
+    // Only the preview subcommand has a native help flag (the parent app
+    // cleared its own), so the help text always comes from the subcommand.
+    result.help = true;
+    result.helpText = previewSub->help();
   } catch (CLI::ParseError const& ex) {
     result.error = ex.what();
     result.helpText = app.help();
@@ -1130,6 +774,7 @@ auto parseAndPopulate(
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   -> CmdParseResult {
+  auto result = CmdParseResult{};
   auto app = CLI::App{"Allowed options"};
   app.description(introLine);
   app.set_help_flag("");
@@ -1140,50 +785,22 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   auto* processing = app.add_option_group("Processing", "Processing options");
   auto* fileop = app.add_option_group("FileOp", "File operation options");
 
-  // Registry for CLI::Option* lookups after parse
-  std::unordered_map<std::string_view, CLI::Option*> optRegistry;
-  std::vector<PendingExclusion> pendingExcludes;
-
   // Register help and version on app (not in any group), then the rest on
   // the general group
-  registerGeneralFlags(app, general, optRegistry, pendingExcludes);
+  auto const helpOpt = registerGeneralFlags(app, general, result);
 
-  // Register IOFrags on io group (incl. positional input paths — alternative
-  // to -i/-I; conflicts validated in buildConfig)
-  registerIoFlags(io, optRegistry, pendingExcludes);
+  registerIoFlags(io, result);
 
-  auto const previewSub = registerPreviewSubcommand(app);
+  auto const previewSub = registerPreviewSubcommand(app, result);
 
-  // Register ProcessingFlags on processing group
-  for (auto const& def: ProcessingFlags) {
-    registerCmdFlag(def, processing, optRegistry, pendingExcludes);
-  }
+  registerProcessingFlags(processing, result);
+  registerFileOpFlags(fileop, result);
 
-  // Register FileOpFlags on fileop group
-  for (auto const& def: FileOpFlags) {
-    registerCmdFlag(def, fileop, optRegistry, pendingExcludes);
-  }
-
-  // Resolve deferred exclusions
-  for (auto const& pe: pendingExcludes) {
-    auto it = optRegistry.find(pe.targetName);
-    if (it != optRegistry.end()) { pe.option->excludes(it->second); }
-  }
-
-  auto const advancedLongNames = collectAllAdvancedLongNames();
-
-  // Configure formatter (the name vector must outlive the lambda it captures)
-  app.formatter_fn(makeHelpFormatter(
-    general,
-    io,
-    processing,
-    fileop,
-    optRegistry.at("-h,--help"),
-    advancedLongNames
-  ));
-
-  auto const applyMap = buildResultApplyMap();
+  // Configure formatter (static storage: kAdvancedLongNames outlives the lambda)
+  app.formatter_fn(
+    makeHelpFormatter(general, io, processing, fileop, helpOpt, kAdvancedLongNames)
+  );
 
   // ── Parse and populate ──
-  return parseAndPopulate(app, argc, argv, applyMap, optRegistry, previewSub);
+  return parseAndPopulate(app, argc, argv, previewSub, result);
 }

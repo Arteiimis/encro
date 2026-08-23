@@ -179,26 +179,6 @@ TEST_CASE("buildConfig reads enabled folder summary flag", "[cmd][config]") {
   CHECK(configRes->pictureFolderSummary);
 }
 
-TEST_CASE("buildConfig rejects invalid conflict-handling value", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "video",
-    "mp4",
-    "maybe"
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("must be set to y or n") != std::string::npos);
-}
-
 TEST_CASE("buildConfig reads resume restart and state-file options", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
@@ -244,54 +224,6 @@ TEST_CASE("buildConfig supports multiple inputs", "[cmd][config]") {
   CHECK(config.inputPaths[1] == inputB);
   CHECK(config.inputPaths[0].is_absolute());
   CHECK(config.inputPaths[1].is_absolute());
-}
-
-TEST_CASE("buildConfig rejects both input and inputs", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
-
-  auto const result =
-    makeResult(inputPath.string(), std::vector<std::string>{inputPath.string()});
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("either -i/--input or -I/--inputs") != std::string::npos);
-}
-
-TEST_CASE("buildConfig rejects invalid process type", "[cmd][config]") {
-  auto const result =
-    makeResult(std::nullopt, std::nullopt, std::nullopt, std::nullopt, "bad");
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("Invalid process type") != std::string::npos);
-}
-
-TEST_CASE("buildConfig maps vid alias to video", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
-
-  auto const result =
-    makeResult(inputPath.string(), std::nullopt, std::nullopt, std::nullopt, "vid");
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE(configRes);
-  CHECK(configRes->processType == "video");
-}
-
-TEST_CASE("buildConfig maps pic alias to picture", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
-
-  auto const result =
-    makeResult(inputPath.string(), std::nullopt, std::nullopt, std::nullopt, "pic");
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE(configRes);
-  CHECK(configRes->processType == "picture");
 }
 
 TEST_CASE("buildConfig rejects multi-input for picture type", "[cmd][config]") {
@@ -344,25 +276,6 @@ TEST_CASE("buildConfig rejects multi-input directory path", "[cmd][config]") {
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("not a file") != std::string::npos);
-}
-
-TEST_CASE("buildConfig rejects invalid output format", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "video",
-    "mkv"
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("Invalid output format") != std::string::npos);
 }
 
 TEST_CASE("buildConfig requires input path", "[cmd][config]") {
@@ -566,58 +479,6 @@ TEST_CASE(
 
   REQUIRE_FALSE(configRes);
   CHECK(configRes.error().find("not a file") != std::string::npos);
-}
-
-TEST_CASE("buildConfig rejects positionals combined with -i", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "video",
-    "mp4",
-    "y",
-    "auto",
-    std::nullopt,
-    {},
-    std::nullopt,
-    std::vector<std::string>{inputPath.string()}
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("positional") != std::string::npos);
-  CHECK(configRes.error().find("--input") != std::string::npos);
-}
-
-TEST_CASE("buildConfig rejects positionals combined with -I", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
-
-  auto const result = makeResult(
-    std::nullopt,
-    std::vector<std::string>{inputPath.string()},
-    std::nullopt,
-    std::nullopt,
-    "video",
-    "mp4",
-    "y",
-    "auto",
-    std::nullopt,
-    {},
-    std::nullopt,
-    std::vector<std::string>{inputPath.string()}
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("positional") != std::string::npos);
-  CHECK(configRes.error().find("--inputs") != std::string::npos);
 }
 
 TEST_CASE("buildConfig rejects missing input path", "[cmd][config]") {
@@ -844,28 +705,6 @@ TEST_CASE("buildConfig reads custom max parallel jobs", "[cmd][config]") {
   CHECK(configRes->maxParallelJobs.value() == 4);
 }
 
-TEST_CASE("buildConfig rejects jobs = 0", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "video",
-    "mp4",
-    "y",
-    "auto",
-    std::size_t{0}
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(configRes.error().find("--jobs must be >= 1") != std::string::npos);
-}
-
 TEST_CASE("buildConfig enables compressImages with --compress", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "pics";
@@ -940,86 +779,6 @@ TEST_CASE("buildConfig reads --image-quality with --compress", "[cmd][config]") 
   CHECK(configRes->compressImages == true);
   REQUIRE(configRes->imageQuality.has_value());
   CHECK(configRes->imageQuality.value() == 10);
-}
-
-TEST_CASE("buildConfig rejects --image-quality without --compress", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "pics";
-  fs::create_directories(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "picture",
-    "mp4",
-    "y",
-    "auto",
-    std::nullopt,
-    {},
-    10
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(
-    configRes.error().find("--image-quality requires --compress") != std::string::npos
-  );
-}
-
-TEST_CASE("buildConfig rejects --image-quality below 2", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "pics";
-  fs::create_directories(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "picture",
-    "mp4",
-    "y",
-    "auto",
-    std::nullopt,
-    {"compress"},
-    1
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(
-    configRes.error().find("--image-quality must be between 2 and 31")
-    != std::string::npos
-  );
-}
-
-TEST_CASE("buildConfig rejects --image-quality above 31", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "pics";
-  fs::create_directories(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "picture",
-    "mp4",
-    "y",
-    "auto",
-    std::nullopt,
-    {"compress"},
-    32
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE_FALSE(configRes);
-  CHECK(
-    configRes.error().find("--image-quality must be between 2 and 31")
-    != std::string::npos
-  );
 }
 
 TEST_CASE("buildConfig accepts --image-quality at minimum 2", "[cmd][config]") {
@@ -1124,29 +883,4 @@ TEST_CASE("buildConfig reads min-vmaf default and dry-run flag", "[cmd][config]"
   REQUIRE(custom);
   CHECK(custom->dryRun);
   CHECK(custom->minVmaf == 95);
-}
-
-TEST_CASE("buildConfig rejects out-of-range min-vmaf", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "in.mp4";
-  writeFile(inputPath);
-
-  auto result = makeResult(inputPath.string());
-  result.minVmaf = 120;
-  auto const res = cmd::buildConfig(result);
-  REQUIRE_FALSE(res);
-  CHECK(res.error().find("--min-vmaf must be between 0 and 100") != std::string::npos);
-}
-
-TEST_CASE("buildConfig rejects dry-run combined with crf", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "in.mp4";
-  writeFile(inputPath);
-
-  auto result = makeResult(inputPath.string());
-  result.crf = 28;
-  result.dryRun = true;
-  auto const res = cmd::buildConfig(result);
-  REQUIRE_FALSE(res);
-  CHECK(res.error().find("--dry-run requires probing") != std::string::npos);
 }
