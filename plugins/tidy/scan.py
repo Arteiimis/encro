@@ -83,7 +83,7 @@ def is_project(path):
 
 
 CACHE_DIR = os.path.join('build', '.tidy-cache')
-MAX_CACHE_ENTRIES = 512
+MAX_CACHE_BYTES = 10 * 1024 * 1024
 _DEP_ROOTS = None
 _TOOL_VERSION = None
 
@@ -238,16 +238,20 @@ def cleanup_cache(active_tus, mode, checks, used_keys):
                 os.remove(p)
             except OSError:
                 pass
-    # Bound total entries (arbitrary checks sets could accumulate one key per
-    # TU per set); drop the oldest beyond the cap.
+    # Bound total cache size (arbitrary checks sets could accumulate one key
+    # per TU per set); drop the oldest beyond the cap.
     files = sorted(
-        (os.path.getmtime(os.path.join(CACHE_DIR, n)), n)
+        (os.path.getmtime(os.path.join(CACHE_DIR, n)), os.path.join(CACHE_DIR, n))
         for n in os.listdir(CACHE_DIR)
         if n.endswith('.json')
     )
-    for _, name in files[:-MAX_CACHE_ENTRIES]:
+    total = sum(os.path.getsize(p) for _, p in files)
+    for _, p in files:
+        if total <= MAX_CACHE_BYTES:
+            break
         try:
-            os.remove(os.path.join(CACHE_DIR, name))
+            total -= os.path.getsize(p)
+            os.remove(p)
         except OSError:
             pass
 
