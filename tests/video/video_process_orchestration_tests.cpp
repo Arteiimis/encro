@@ -430,7 +430,7 @@ TEST_CASE(
   };
   auto const setupRes = logging::setup(config);
   REQUIRE(setupRes.has_value());
-  auto const logPath = setupRes.value();
+  auto const& logPath = setupRes.value();
 
   auto ctx = appctx::AppContext{};
   ctx.config.outputFormat = "mp4";

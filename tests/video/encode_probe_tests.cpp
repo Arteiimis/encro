@@ -352,7 +352,7 @@ namespace {
 
 class ScopedEnvVar {
 public:
-  ScopedEnvVar(std::string name, std::string value)
+  ScopedEnvVar(std::string name, std::string const& value)
     : name_(std::move(name)), hadOriginal_(false) {
     auto const original = processenv::readEnvVar(name_);
     if (original.has_value()) {
