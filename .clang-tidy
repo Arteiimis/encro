@@ -12,4 +12,8 @@ Checks: >
 
 CheckOptions:
   readability-function-size.LineThreshold: '80'
+  # Catch2 TEST_CASE macros expand to CATCH2_INTERNAL_TEST_* functions whose
+  # complexity mixes user code with framework machinery; skip macro-defined
+  # functions entirely (hand-written ones are still checked).
+  readability-function-cognitive-complexity.IgnoreMacros: 'true'
   readability-function-cognitive-complexity.Threshold: '25'
