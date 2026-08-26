@@ -115,8 +115,8 @@ task("coverage")
         end
         table.insert(report_args, "-instr-profile")
         table.insert(report_args, merged)
-        -- 只统计项目代码，过滤第三方头文件（boost/catch2/spdlog/fmt/immer/indicators/libzip/thread-pool/asio）
-        table.insert(report_args, "-ignore-filename-regex=(^|[\\\\/])(boost|catch2|spdlog|fmt|immer|indicators|libzip|thread%-pool|asio)([\\\\/]|$)")
+        -- 只统计项目代码，过滤第三方头文件（boost/catch2/spdlog/fmt/indicators/libzip/thread-pool/asio）
+        table.insert(report_args, "-ignore-filename-regex=(^|[\\\\/])(boost|catch2|spdlog|fmt|indicators|libzip|thread%-pool|asio)([\\\\/]|$)")
         if option.get("summary") then
           table.insert(report_args, "--summary-only")
         end

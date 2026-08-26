@@ -158,7 +158,7 @@ TEST_CASE("readAllVids keeps only <32MB videos for webp in directory", "[video-i
   CHECK(vids->front() == smallVideo);
 }
 
-TEST_CASE("getVidTotalFrames reads cached info from immer snapshot", "[video-info]") {
+TEST_CASE("getVidTotalFrames reads cached info from shared cache", "[video-info]") {
   auto runtime = appctx::RuntimeContext{};
   auto toolchain = appctx::ToolchainPaths{};
   auto const videoPath = fs::path{"sample.mp4"};

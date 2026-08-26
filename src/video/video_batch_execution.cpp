@@ -92,8 +92,11 @@ auto createEncodingState(
   auto vidState = std::make_shared<appctx::EncodingState>();
   vidState->inputPath = vidPath;
   vidState->barIndex = barIndex;
-  if (auto const* actionId = executionCtx.actionIds.find(vidPath); actionId != nullptr) {
-    vidState->actionId = *actionId;
+  if (
+    auto const it = executionCtx.actionIds.find(vidPath);
+    it != executionCtx.actionIds.end()
+  ) {
+    vidState->actionId = it->second;
   }
   vidState->startTime = std::chrono::steady_clock::now();
   vidState->plannedOutputFile =
@@ -266,8 +269,8 @@ auto runEncodingWithoutProgress(
 
     auto state = appctx::EncodingState{};
     state.inputPath = vidPath;
-    if (auto const* actionId = job.actionIds.find(vidPath); actionId != nullptr) {
-      state.actionId = *actionId;
+    if (auto const it = job.actionIds.find(vidPath); it != job.actionIds.end()) {
+      state.actionId = it->second;
     }
     state.plannedOutputFile = lookupPlannedOutputFile(job.plannedOutputFiles, vidPath);
     if (state.plannedOutputFile.has_value()) {
@@ -293,7 +296,7 @@ auto runEncodingWithoutProgress(
       auto ec = std::error_code{};
       fs::remove(state.progressFilePath.value(), ec);
     }
-    vidsRunRes = vidsRunRes.set(vidPath, success);
+    vidsRunRes.emplace(vidPath, success);
     finalizeEncodeResult(
       ctx,
       state.actionId,
@@ -413,7 +416,7 @@ auto collectEncodingResults(
   auto results = videobatch::EncodeResultsMap{};
   for (auto taskIndex = std::size_t{0}; taskIndex < vids.size(); ++taskIndex) {
     if (runState.attempted[taskIndex] == 0) { continue; }
-    results = results.set(vids[taskIndex], runState.results[taskIndex].has_value());
+    results.emplace(vids[taskIndex], runState.results[taskIndex].has_value());
   }
   return results;
 }
