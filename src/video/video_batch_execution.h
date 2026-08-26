@@ -18,7 +18,11 @@ namespace fs = std::filesystem;
 
 namespace videobatch {
 
+// Lookup-only action-id map keyed by input path. Unordered by design: only
+// ever queried via find(), never iterated for user-visible output.
 using ActionIdMap = appctx::path_map<std::string>;
+// Ordered result map (path-sorted iteration) — the failure list and zip
+// member order in the summary/output collection depend on this ordering.
 using EncodeResultsMap = std::map<fs::path, bool>;
 
 struct EncodingBatchOutcome {
