@@ -158,6 +158,18 @@ TEST_CASE("filtergraph uses ssim labels and omits scores without values", "[prev
   CHECK(manualGraph.find("VMAF") == std::string::npos);
 }
 
+TEST_CASE("filtergraph renders xpsnr scores as signed dB", "[preview]") {
+  auto spec = preview::FiltergraphSpec{};
+  spec.original = makeProbe(640, 360);
+  spec.encoded = makeProbe(640, 360);
+  auto window = makeWindow(0, 41.05);
+  window.metric = videoquality::QualityMetric::Xpsnr;
+  spec.windows = {window};
+
+  auto const graph = preview::buildPreviewFiltergraph(spec);
+  CHECK(graph.find("text='00\\:00-00\\:10, XPSNR 41.05 dB'") != std::string::npos);
+}
+
 TEST_CASE("preview command encodes with x264 crf 14 and aac audio", "[preview]") {
   auto spec = preview::FiltergraphSpec{};
   spec.original = makeProbe(640, 360, 30.0, true);

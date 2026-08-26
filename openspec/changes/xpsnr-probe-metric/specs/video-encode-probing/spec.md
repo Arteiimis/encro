@@ -57,9 +57,7 @@ Before the confirmation prompt, the system SHALL print a per-file plan containin
 #### Scenario: Mixed-metric batch renders each row in its own units
 
 - **WHEN** a batch contains files scored with different metrics (e.g. one HDR file scored with SSIM and non-HDR files scored with XPSNR)
-- **THEN** each plan row renders its p5 value formatted for that file's metric instead of forcing one unit onto all rows
-
-- **THEN** the plan line is marked as a warning, the encode proceeds with the lowest probed CQ, and the file appears in the "needs attention" list of the final summary
+- **THEN** each plan row renders its p5 value formatted for that file's metric instead of forcing one unit onto all rows, and the plan header describes the floor in its stable VMAF-scale meaning rather than deriving its metric name from any single file's metric
 
 ### Requirement: Unreachable floor degrades to lowest-CQ with warning
 

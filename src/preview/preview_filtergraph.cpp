@@ -61,12 +61,15 @@ auto drawtext(std::string const& text, int fontSize, int y) -> std::string {
 auto segmentLabel(Window const& window) -> std::string {
   auto label = formatTimeRange(window.startUs, window.durationUs);
   if (window.score.has_value()) {
-    auto const metric =
-      window.metric == videoquality::QualityMetric::Vmaf ? "VMAF" : "SSIM";
+    auto const isVmaf = window.metric == videoquality::QualityMetric::Vmaf;
+    auto const isXpsnr = window.metric == videoquality::QualityMetric::Xpsnr;
+    auto const metric = videoquality::metricName(window.metric);
     // Comma separator: '|' is a cmd metacharacter that would break batch
     // invocations (unit-test fakes) even inside quoted arguments.
-    if (window.metric == videoquality::QualityMetric::Vmaf) {
+    if (isVmaf) {
       label += std::format(", {} {:.1f}", metric, window.score.value());
+    } else if (isXpsnr) {
+      label += std::format(", {} {:.2f} dB", metric, window.score.value());
     } else {
       label += std::format(", {} {:.3f}", metric, window.score.value());
     }
