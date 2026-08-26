@@ -13,13 +13,13 @@
 #include "video/video_info.h"
 #include "utils/utils.h"
 
-#include <immer/vector.hpp>
-#include "logging/log_tags.h"
-#include "logging/logging.h"
-
 #include <algorithm>
 #include <boost/lambda2.hpp>
 #include <cstdint>
+#include <map>
+
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_PROCESS);
@@ -40,17 +40,9 @@ namespace {
 
 using ActionIdMap = videobatch::ActionIdMap;
 using EncodeResultsMap = videobatch::EncodeResultsMap;
-using PendingVidList = immer::vector<fs::path>;
-using PendingActionIdList = immer::vector<std::string>;
+using PendingVidList = std::vector<fs::path>;
+using PendingActionIdList = std::vector<std::string>;
 constexpr auto kVideoArchiveBaseName = std::string_view{"videos"};
-
-template<class Ty>
-auto toStdVector(immer::vector<Ty> const& values) -> std::vector<Ty> {
-  auto result = std::vector<Ty>{};
-  result.reserve(values.size());
-  for (auto const& value: values) { result.push_back(value); }
-  return result;
-}
 
 int packEncodedVideos(
   appctx::AppContext& ctx,
@@ -72,6 +64,7 @@ bool hasEncodingFailures(EncodeResultsMap const& vidsRunRes);
 
 namespace {
 
+// NOLINTNEXTLINE(bugprone-exception-escape): implicit default ctor is noexcept (std containers default-construct noexcept); clang-tidy conservative check on the aggregate
 struct PreparedEncodeActions {
   PendingVidList pendingVids;
   ActionIdMap actionIds;
@@ -116,14 +109,14 @@ auto prepareEncodeActions(
   for (auto const& task: mergedTasks) {
     auto const inputPath = jobstate::primarySourcePath(task);
     if (!inputPath.has_value()) { continue; }
-    prepared.actionIds = prepared.actionIds.set(inputPath.value(), task.id);
+    prepared.actionIds.emplace(inputPath.value(), task.id);
     if (jobstate::needsExecution(task)) {
-      prepared.pendingVids = prepared.pendingVids.push_back(inputPath.value());
-      prepared.pendingActionIds = prepared.pendingActionIds.push_back(task.id);
+      prepared.pendingVids.push_back(inputPath.value());
+      prepared.pendingActionIds.push_back(task.id);
       continue;
     }
 
-    prepared.initialResults = prepared.initialResults.set(inputPath.value(), true);
+    prepared.initialResults.emplace(inputPath.value(), true);
   }
 
   if (!prepared.initialResults.empty()) {
@@ -245,7 +238,7 @@ auto mergeEncodeResults(
   EncodeResultsMap const& runResults
 ) -> EncodeResultsMap {
   for (auto const& [vidPath, success]: runResults) {
-    initialResults = initialResults.set(vidPath, success);
+    initialResults.emplace(vidPath, success);
   }
 
   return initialResults;
@@ -259,7 +252,7 @@ auto maybeHandleInterruptedEncoding(
 
   withJobState(ctx, [&](jobstate::Store& store) {
     store.requestCancel();
-    auto const pendingActionIds = toStdVector(prepared.pendingActionIds);
+    auto const pendingActionIds = prepared.pendingActionIds;
     store.markIncompleteInterrupted(pendingActionIds);
   });
 
@@ -303,7 +296,7 @@ int runScannedEncodingWorkflow(
   withJobState(ctx, [](jobstate::Store& store) { store.setStage("encoding"); });
 
   auto const prepared = prepareEncodeActions(ctx, vids, plannedOutputFiles);
-  auto const pendingVids = toStdVector(prepared.pendingVids);
+  auto const pendingVids = prepared.pendingVids;
   auto vidsRunRes = EncodeResultsMap{};
   auto attentionWarnings = std::vector<std::string>{};
   {

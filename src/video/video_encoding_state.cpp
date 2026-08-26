@@ -182,7 +182,6 @@ void renderProgress(
   auto lastFrameCount = std::optional<std::uint64_t>{};
   {
     auto lock = std::scoped_lock{activeState.mtx};
-    activeState.lastProgress = progressValue;
     activeState.lastProgressAtomic.store(progressValue, std::memory_order_release);
     barIndex = activeState.barIndex;
     actionId = activeState.actionId;

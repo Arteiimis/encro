@@ -787,7 +787,7 @@ TEST_CASE(
   );
 
   REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results.value()[inputPath]);
+  CHECK(outcome.results.value().at(inputPath));
   CHECK_FALSE(outcome.dryRun);
   CHECK(outcome.attentionWarnings.empty());
   CHECK(fs::exists(outputFile));
@@ -840,7 +840,7 @@ TEST_CASE(
   );
 
   REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results.value()[inputPath]);
+  CHECK(outcome.results.value().at(inputPath));
   REQUIRE(outcome.attentionWarnings.size() == 1);
   CHECK(
     outcome.attentionWarnings.front().find("quality floor unreachable")
@@ -957,7 +957,7 @@ TEST_CASE("runEncodingTasks skips probing entirely with --crf", "[encode-probe]"
   );
 
   REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results.value()[inputPath]);
+  CHECK(outcome.results.value().at(inputPath));
   CHECK(fs::exists(outputFile));
 
   auto const log = testutils::readTextFile(logPath);

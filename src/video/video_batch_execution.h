@@ -8,21 +8,18 @@
 #include <cstddef>
 #include <filesystem>
 #include <format>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
 
-#include <immer/atom.hpp>
-#include <immer/map.hpp>
-#include <immer/vector.hpp>
-
 namespace fs = std::filesystem;
 
 namespace videobatch {
 
-using ActionIdMap = immer::map<fs::path, std::string>;
-using EncodeResultsMap = immer::map<fs::path, bool>;
+using ActionIdMap = appctx::path_map<std::string>;
+using EncodeResultsMap = std::map<fs::path, bool>;
 
 struct EncodingBatchOutcome {
   std::optional<EncodeResultsMap> results;     // nullopt = canceled at the prompt
@@ -49,11 +46,7 @@ auto runEncodingTasks(
 namespace detail {
 
 struct EncodingProgressState {
-  using ActiveSlots = immer::vector<appctx::EncodingStatePtr>;
-
-  struct SharedSnapshot {
-    ActiveSlots active;
-  };
+  using ActiveSlots = std::vector<appctx::EncodingStatePtr>;
 
   struct Counters {
     std::atomic_size_t finished;
@@ -63,7 +56,8 @@ struct EncodingProgressState {
     std::optional<std::size_t> overallBarIndex;
   } counters;
 
-  immer::atom<SharedSnapshot> snapshot;
+  std::mutex slotsMtx;
+  ActiveSlots activeSlots;
 
   struct Slots {
     std::vector<std::size_t> barIndexes;
@@ -88,7 +82,8 @@ struct EncodingProgressState {
         workers,
         std::nullopt
       },
-      snapshot{makeInitialSnapshot(workers)},
+      slotsMtx{},
+      activeSlots(workers),
       slots{
         std::vector<std::size_t>{},
       },
@@ -99,15 +94,6 @@ struct EncodingProgressState {
   }
 
 private:
-  static auto makeInitialSnapshot(std::size_t workerCount) -> SharedSnapshot {
-    auto active = ActiveSlots{};
-    for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
-      active = active.push_back(appctx::EncodingStatePtr{});
-    }
-
-    return SharedSnapshot{std::move(active)};
-  }
-
   static auto createOverallBar(
     progress::ProgressContext& progressCtx,
     std::size_t totalTasks,
@@ -160,7 +146,6 @@ struct EncodingExecutionContext {
   auto const& slots() const { return progressState.slots; }
   auto& progress() { return progressState.progressCtx; }
   auto const& progress() const { return progressState.progressCtx; }
-  auto loadShared() const { return progressState.snapshot.load(); }
 
   auto pendingTotal() const { return counters().pendingTotal; }
 
@@ -178,34 +163,28 @@ struct EncodingExecutionContext {
   }
 
   void setActive(std::size_t slot, appctx::EncodingStatePtr const& vidState) {
-    progressState.snapshot
-      .update([=](EncodingProgressState::SharedSnapshot const& shared) {
-        return EncodingProgressState::SharedSnapshot{
-          .active = shared.active.set(slot, vidState),
-        };
-      });
+    auto lock = std::scoped_lock{progressState.slotsMtx};
+    progressState.activeSlots[slot] = vidState;
   }
 
   void clearActive(std::size_t slot) {
-    progressState.snapshot
-      .update([=](EncodingProgressState::SharedSnapshot const& shared) {
-        return EncodingProgressState::SharedSnapshot{
-          .active = shared.active.set(slot, appctx::EncodingStatePtr{}),
-        };
-      });
+    auto lock = std::scoped_lock{progressState.slotsMtx};
+    progressState.activeSlots[slot] = nullptr;
   }
 
   auto activeState(std::size_t slot) const -> appctx::EncodingStatePtr {
-    auto const shared = loadShared();
-    return shared->active[slot];
+    auto lock = std::scoped_lock{progressState.slotsMtx};
+    return progressState.activeSlots[slot];
   }
 
   auto activeStates() -> appctx::EncodingStateList {
     auto activeStates = appctx::EncodingStateList{};
-    auto const shared = loadShared();
-    activeStates.reserve(shared->active.size());
-    for (auto const& activeState: shared->active) {
-      if (activeState) { activeStates.push_back(activeState); }
+    {
+      auto lock = std::scoped_lock{progressState.slotsMtx};
+      activeStates.reserve(progressState.activeSlots.size());
+      for (auto const& activeState: progressState.activeSlots) {
+        if (activeState) { activeStates.push_back(activeState); }
+      }
     }
     return activeStates;
   }
@@ -307,7 +286,6 @@ struct EncodingExecutionContext {
       vidState->finished = true;
       vidState->success = result;
       vidState->endTime = std::chrono::steady_clock::now();
-      vidState->lastProgress = 100.0f;
       vidState->lastProgressAtomic.store(100.0f, std::memory_order_release);
 
       progressFileToRemove = vidState->progressFilePath;
