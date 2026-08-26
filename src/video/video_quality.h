@@ -21,6 +21,19 @@ struct SegmentScores {
   std::vector<double> frameScores;
 };
 
+// One aligned original-vs-encoded segment to score: the two paths, the time
+// range, and the input metadata the metric decision needs.
+struct QualityRequest {
+  std::filesystem::path ffmpegPath;
+  std::filesystem::path originalPath;
+  std::filesystem::path encodedPath;
+  std::uint64_t startUs;
+  std::uint64_t durationUs;
+  boost::json::value originalVideoInfo = boost::json::value{};
+  bool encodedHasLocalPts =
+    false;  // probe segments already seeked; only original is re-seeked
+};
+
 // p-th percentile of the scores (nearest-rank); nullopt for empty input.
 auto percentile(std::span<double const> scores, double percentile)
   -> std::optional<double>;
@@ -45,14 +58,6 @@ auto parseSsimStats(std::filesystem::path const& statsPath)
 // Decodes the aligned segment pair (original vs encoded) and runs libvmaf,
 // falling back to ssim for HDR inputs or VMAF-unavailable builds. Returns
 // the per-frame scores in the metric that was actually used.
-auto measureSegmentQuality(
-  std::filesystem::path const& ffmpegPath,
-  std::filesystem::path const& originalPath,
-  std::filesystem::path const& encodedPath,
-  std::uint64_t startUs,
-  std::uint64_t durationUs,
-  boost::json::value const& originalVideoInfo = boost::json::value{},
-  bool encodedHasLocalPts = false
-) -> eh::Result<SegmentScores>;
+auto measureSegmentQuality(QualityRequest const& request) -> eh::Result<SegmentScores>;
 
 }  // namespace videoquality

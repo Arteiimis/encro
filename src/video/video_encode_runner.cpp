@@ -58,6 +58,14 @@ struct EncodeExecutionPlan {
   fs::path outputFilePath;
 };
 
+// The output side of segmented encoding: which segments to assemble and the
+// transcript audio, if any.
+struct SegmentAssemblySpec {
+  fs::path segmentDir;
+  std::uint64_t segmentCount;
+  std::optional<fs::path> audioPath;
+};
+
 auto truncateEncodingStatus(std::string const& text, std::size_t maxLen = 256)
   -> std::string {
   auto sanitized = text;
@@ -375,14 +383,11 @@ bool encodeOneSegment(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
   function_ref statusUpdater,
-  fs::path const& segmentDir,
-  std::uint64_t index,
-  std::uint64_t startUs,
-  std::uint64_t durationUs,
+  SegmentEncodeSpec const& spec,
   std::size_t workerCount
 ) {
-  auto const segFile = segmentFilePath(segmentDir, index);
-  auto const segProgressFile = segmentProgressFilePath(segmentDir, index);
+  auto const segProgressFile =
+    segmentProgressFilePath(spec.tempOutputPath.parent_path(), spec.segmentIndex);
   {
     auto ec = std::error_code{};
     fs::remove(segProgressFile, ec);
@@ -397,24 +402,22 @@ bool encodeOneSegment(
 
   auto const cfg = buildSegmentEncodeConfig(
     ctx.toolchain,
-    state.inputPath,
-    ctx.config.outputFormat,
-    state.chosenCq.has_value() ? state.chosenCq : ctx.config.crf,
-    ctx.config.videoCodec,
-    settings,
-    index,
-    startUs,
-    durationUs,
-    segFile,
-    segProgressFile,
-    workerCount
+    spec,
+    EncodeProfile{
+      .outputFormat = ctx.config.outputFormat,
+      .videoCodec = ctx.config.videoCodec,
+      .crf = state.chosenCq.has_value() ? state.chosenCq : ctx.config.crf,
+      .settings = settings,
+      .workerCount = workerCount,
+    },
+    segProgressFile
   );
 
   if (auto const validationResult = cfg.validate(); !validationResult) {
     LOG_ERROR(
       "Segment config invalid: input={} segment={} error={}",
       state.inputPath.string(),
-      index,
+      spec.segmentIndex,
       validationResult.error()
     );
     return false;
@@ -437,13 +440,13 @@ bool encodeOneSegment(
     LOG_WARN(
       "Segment encode exited with non-zero code: input={} segment={} exitCode={}",
       state.inputPath.string(),
-      index,
+      spec.segmentIndex,
       exitCode
     );
     return false;
   }
 
-  return fs::exists(segFile);
+  return fs::exists(spec.tempOutputPath);
 }
 
 auto ensureAudioFile(
@@ -498,20 +501,18 @@ bool assembleSegments(
   appctx::AppContext const& ctx,
   appctx::EncodingState& state,
   EncodeExecutionPlan const& plan,
-  fs::path const& segmentDir,
-  std::uint64_t segmentCount,
-  std::optional<fs::path> const& audioPath,
+  SegmentAssemblySpec const& spec,
   function_ref statusUpdater
 ) {
-  auto const listPath = segmentDir / "list.txt";
+  auto const listPath = spec.segmentDir / "list.txt";
   {
     auto out = std::ofstream{listPath};
     if (!out) {
       LOG_ERROR("Failed to write segment list: {}", listPath.string());
       return false;
     }
-    for (auto index = std::uint64_t{0}; index < segmentCount; ++index) {
-      auto pathStr = segmentFilePath(segmentDir, index).string();
+    for (auto index = std::uint64_t{0}; index < spec.segmentCount; ++index) {
+      auto pathStr = segmentFilePath(spec.segmentDir, index).string();
       std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
       out << "file '" << pathStr << "'\n";
     }
@@ -520,7 +521,7 @@ bool assembleSegments(
   auto const cmd = buildSegmentAssemblyCmd(
     ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"}),
     listPath,
-    audioPath,
+    spec.audioPath,
     plan.outputFilePath
   );
 
@@ -643,18 +644,14 @@ bool runSegmentedEncoding(
       durationUs
     );
 
-    if (!encodeOneSegment(
-          ctx,
-          state,
-          statusUpdater,
-          segmentDir,
-          index,
-          startUs,
-          durationUs,
-          workerCount
-        )) {
-      return false;
-    }
+    auto const spec = SegmentEncodeSpec{
+      .inputPath = state.inputPath,
+      .segmentIndex = index,
+      .startUs = startUs,
+      .durationUs = durationUs,
+      .tempOutputPath = segmentFilePath(segmentDir, index),
+    };
+    if (!encodeOneSegment(ctx, state, statusUpdater, spec, workerCount)) { return false; }
 
     auto const parsedEndUs =
       parseSegmentEndUs(segmentProgressFilePath(segmentDir, index));
@@ -673,17 +670,12 @@ bool runSegmentedEncoding(
     if (store) { store->markSegmentProgress(taskId, index + 1, resumeTimeUs); }
   }
 
-  if (!assembleSegments(
-        ctx,
-        state,
-        plan,
-        segmentDir,
-        segmentCount,
-        audioPath,
-        statusUpdater
-      )) {
-    return false;
-  }
+  auto const assembly = SegmentAssemblySpec{
+    .segmentDir = segmentDir,
+    .segmentCount = segmentCount,
+    .audioPath = audioPath,
+  };
+  if (!assembleSegments(ctx, state, plan, assembly, statusUpdater)) { return false; }
 
   videoseg::removeSegmentDir(segmentDir);
   return true;

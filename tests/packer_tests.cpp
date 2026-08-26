@@ -425,7 +425,8 @@ TEST_CASE(
   auto const f3 = createSizedFile(inputDir, "c.bin", 60);
 
   pack::PackService s;
-  auto const packRes = s.packAllFilesInDirectory(inputDir, outputDir, 300, true);
+  auto const packRes =
+    s.packAllFilesInDirectory(inputDir, outputDir, 300, {.recursive = true});
 
   REQUIRE(packRes);
   REQUIRE(fs::exists(outputDir / "input_part1[1~2#2p].zip"));
@@ -456,7 +457,8 @@ TEST_CASE(
   auto const nestedFile = createSizedFile(nestedDir, "nested.bin", 64);
 
   pack::PackService s;
-  auto const packRes = s.packAllFilesInDirectory(inputDir, outputDir, 300, false);
+  auto const packRes =
+    s.packAllFilesInDirectory(inputDir, outputDir, 300, {.recursive = false});
 
   REQUIRE(packRes);
   libzippp::ZipArchive zip{(outputDir / "input_part1[1~1#1p].zip").string()};

@@ -295,29 +295,37 @@ TEST_CASE(
 
   auto const probeCfg = encodeprobe::buildProbeSegmentConfig(
     toolchain,
-    "in.mp4",
-    "mp4",
-    videoCodec,
-    settings,
-    24,
-    10'000'000,
-    10'000'000,
-    "probe/cq24_0.ts",
-    4
+    SegmentEncodeSpec{
+      .inputPath = "in.mp4",
+      .segmentIndex = 0,
+      .startUs = 10'000'000,
+      .durationUs = 10'000'000,
+      .tempOutputPath = "probe/cq24_0.ts",
+    },
+    EncodeProfile{
+      .outputFormat = "mp4",
+      .videoCodec = videoCodec,
+      .settings = settings,
+      .workerCount = 4,
+    },
+    24
   );
   auto const productionCfg = buildSegmentEncodeConfig(
     toolchain,
-    "in.mp4",
-    "mp4",
-    24,
-    videoCodec,
-    settings,
-    0,
-    10'000'000,
-    10'000'000,
-    "probe/cq24_0.ts",
-    std::nullopt,
-    4
+    SegmentEncodeSpec{
+      .inputPath = "in.mp4",
+      .segmentIndex = 0,
+      .startUs = 10'000'000,
+      .durationUs = 10'000'000,
+      .tempOutputPath = "probe/cq24_0.ts",
+    },
+    EncodeProfile{
+      .outputFormat = "mp4",
+      .videoCodec = videoCodec,
+      .crf = 24,
+      .settings = settings,
+      .workerCount = 4,
+    }
   );
   CHECK(probeCfg == productionCfg);
   // Same worker count caps CPU-codec threads identically; nvenc ignores it.
@@ -327,15 +335,19 @@ TEST_CASE(
 
   auto const defaultCfg = buildSegmentEncodeConfig(
     toolchain,
-    "in.mp4",
-    "mp4",
-    28,
-    videoCodec,
-    settings,
-    0,
-    10'000'000,
-    10'000'000,
-    "probe/cq24_0.ts"
+    SegmentEncodeSpec{
+      .inputPath = "in.mp4",
+      .segmentIndex = 0,
+      .startUs = 10'000'000,
+      .durationUs = 10'000'000,
+      .tempOutputPath = "probe/cq24_0.ts",
+    },
+    EncodeProfile{
+      .outputFormat = "mp4",
+      .videoCodec = videoCodec,
+      .crf = 28,
+      .settings = settings,
+    }
   );
   CHECK(probeCfg.crf == 24);
   CHECK(defaultCfg.crf == 28);
@@ -765,9 +777,11 @@ TEST_CASE(
   auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
   auto const outcome = videobatch::runEncodingTasks(
     ctx,
-    {inputPath},
-    plannedOutputFiles,
-    videobatch::ActionIdMap{},
+    videobatch::EncodingBatchJob{
+      .vids = {inputPath},
+      .plannedOutputFiles = plannedOutputFiles,
+      .actionIds = videobatch::ActionIdMap{},
+    },
     1,
     0
   );
@@ -816,9 +830,11 @@ TEST_CASE(
   auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
   auto const outcome = videobatch::runEncodingTasks(
     ctx,
-    {inputPath},
-    plannedOutputFiles,
-    videobatch::ActionIdMap{},
+    videobatch::EncodingBatchJob{
+      .vids = {inputPath},
+      .plannedOutputFiles = plannedOutputFiles,
+      .actionIds = videobatch::ActionIdMap{},
+    },
     1,
     0
   );
@@ -851,9 +867,11 @@ TEST_CASE(
   auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
   auto const outcome = videobatch::runEncodingTasks(
     ctx,
-    {inputPath},
-    plannedOutputFiles,
-    videobatch::ActionIdMap{},
+    videobatch::EncodingBatchJob{
+      .vids = {inputPath},
+      .plannedOutputFiles = plannedOutputFiles,
+      .actionIds = videobatch::ActionIdMap{},
+    },
     1,
     0
   );
@@ -893,9 +911,11 @@ TEST_CASE(
   auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
   auto const outcome = videobatch::runEncodingTasks(
     ctx,
-    {inputPath},
-    plannedOutputFiles,
-    videobatch::ActionIdMap{},
+    videobatch::EncodingBatchJob{
+      .vids = {inputPath},
+      .plannedOutputFiles = plannedOutputFiles,
+      .actionIds = videobatch::ActionIdMap{},
+    },
     1,
     0
   );
@@ -927,9 +947,11 @@ TEST_CASE("runEncodingTasks skips probing entirely with --crf", "[encode-probe]"
   auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
   auto const outcome = videobatch::runEncodingTasks(
     ctx,
-    {inputPath},
-    plannedOutputFiles,
-    videobatch::ActionIdMap{},
+    videobatch::EncodingBatchJob{
+      .vids = {inputPath},
+      .plannedOutputFiles = plannedOutputFiles,
+      .actionIds = videobatch::ActionIdMap{},
+    },
     1,
     0
   );

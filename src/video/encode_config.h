@@ -179,6 +179,29 @@ struct EncodeInputSettings {
   std::optional<int> maxrateKbps;
 };
 
+// Identity of one segmented encode: which input, which segment, and where
+// the temporary output goes. Shared by production encodes and probe encodes
+// so both describe the same segment the same way.
+struct SegmentEncodeSpec {
+  fs::path inputPath;
+  std::uint64_t segmentIndex;
+  std::uint64_t startUs;
+  std::uint64_t durationUs;
+  fs::path tempOutputPath;
+};
+
+// "How to encode" cluster: format/codec/quality settings plus the worker
+// count used to cap CPU-codec threads. Probe encodes reuse the same values
+// (only the CQ/crf differs), which keeps probe and production configs
+// aligned via the single construction path below.
+struct EncodeProfile {
+  std::string outputFormat;
+  std::optional<std::string> videoCodec;
+  std::optional<int> crf;
+  EncodeInputSettings settings;
+  std::size_t workerCount = 0;  // 0 = ffmpeg auto threads
+};
+
 // Resolves the preset/maxrate a production encode of inputPath would use:
 // the configured preset when set, otherwise picked by resolution; the
 // maxrate cap is always picked by resolution when dimensions are known.
@@ -210,38 +233,32 @@ inline auto resolveInputEncodeSettings(
 // encodes do not oversubscribe the machine; 0 leaves threads on ffmpeg auto.
 inline auto buildSegmentEncodeConfig(
   appctx::ToolchainPaths const& toolchain,
-  fs::path const& inputPath,
-  std::string const& outputFormat,
-  std::optional<int> crf,
-  std::optional<std::string> const& videoCodec,
-  EncodeInputSettings const& settings,
-  std::uint64_t segmentIndex,
-  std::uint64_t startUs,
-  std::uint64_t durationUs,
-  fs::path const& tempOutputPath,
-  std::optional<fs::path> progressFilePath = std::nullopt,
-  std::size_t workerCount = 0
+  SegmentEncodeSpec const& spec,
+  EncodeProfile const& profile,
+  std::optional<fs::path> progressFilePath = std::nullopt
 ) -> EncodeConfig {
   auto threads = std::optional<int>{};
-  if (workerCount > 0) {
+  if (profile.workerCount > 0) {
     auto const hw = std::thread::hardware_concurrency();
-    if (hw > 0) { threads = std::max(1u, hw / static_cast<unsigned>(workerCount)); }
+    if (hw > 0) {
+      threads = std::max(1u, hw / static_cast<unsigned>(profile.workerCount));
+    }
   }
 
   return EncodeConfig{
     .ffmpegPath = toolchain.ffmpegPath,
-    .inputPath = inputPath,
-    .outputFormat = outputFormat,
-    .videoCodec = videoCodec,
-    .crf = crf,
-    .nvencPreset = settings.nvencPreset,
-    .maxrateKbps = settings.maxrateKbps,
+    .inputPath = spec.inputPath,
+    .outputFormat = profile.outputFormat,
+    .videoCodec = profile.videoCodec,
+    .crf = profile.crf,
+    .nvencPreset = profile.settings.nvencPreset,
+    .maxrateKbps = profile.settings.maxrateKbps,
     .threads = threads,
     .progressFilePath = std::move(progressFilePath),
-    .segmentIndex = segmentIndex,
-    .segmentStartUs = startUs,
-    .segmentDurationUs = durationUs,
-    .tempOutputPath = tempOutputPath
+    .segmentIndex = spec.segmentIndex,
+    .segmentStartUs = spec.startUs,
+    .segmentDurationUs = spec.durationUs,
+    .tempOutputPath = spec.tempOutputPath
   };
 }
 

@@ -84,15 +84,9 @@ auto probeCqSequence(
 // only CQ and the output path differing — the invariant tests assert this.
 auto buildProbeSegmentConfig(
   appctx::ToolchainPaths const& toolchain,
-  fs::path const& inputPath,
-  std::string const& outputFormat,
-  std::optional<std::string> const& videoCodec,
-  EncodeInputSettings const& settings,
-  int cq,
-  std::uint64_t startUs,
-  std::uint64_t durationUs,
-  fs::path const& segFile,
-  std::size_t workerCount
+  SegmentEncodeSpec const& spec,
+  EncodeProfile const& profile,
+  int cq
 ) -> EncodeConfig;
 
 // Encodes one window segment with the production settings at cq (same codec,

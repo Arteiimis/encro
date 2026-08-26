@@ -547,18 +547,10 @@ auto PackService::packAllFilesInDirectory(
   fs::path const& dirPath,
   fs::path const& zipFileDir,
   std::uintmax_t maxGroupSize,
-  bool recursive,
-  NamingStrategy namingStrategy,
-  std::optional<std::size_t> maxParallelJobs
+  DirectoryPackOptions options
 ) -> eh::Result<void> {
-  auto const planRes = packer_.buildDirectoryPackPlan(
-    dirPath,
-    zipFileDir,
-    maxGroupSize,
-    recursive,
-    namingStrategy,
-    maxParallelJobs
-  );
+  auto const planRes =
+    packer_.buildDirectoryPackPlan(dirPath, zipFileDir, maxGroupSize, options);
   if (!planRes) { return eh::makeError("{}", planRes.error()); }
 
   auto const packRes = packGroups(planRes.value());
@@ -576,12 +568,16 @@ auto PackService::runDirectoryPackWorkflow(
     dirPath,
     zipOutputDir,
     kDefaultMaxArchiveGroupSize,
-    true,
-    ctx.config.forceNameConflictHandling ? NamingStrategy::FlatWithForce
-                                         : NamingStrategy::Flat,
-    ctx.config.maxParallelJobs,
-    ctx.runtime.jobState ? std::optional<fs::path>{ctx.runtime.jobState->stateFilePath()}
-                         : std::nullopt
+    DirectoryPackOptions{
+      .recursive = true,
+      .namingStrategy = ctx.config.forceNameConflictHandling
+        ? NamingStrategy::FlatWithForce
+        : NamingStrategy::Flat,
+      .maxParallelJobs = ctx.config.maxParallelJobs,
+      .excludedPath = ctx.runtime.jobState
+        ? std::optional<fs::path>{ctx.runtime.jobState->stateFilePath()}
+        : std::nullopt,
+    }
   );
   if (!planRes) { return eh::makeError("Failed to pack files: {}", planRes.error()); }
 

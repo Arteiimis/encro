@@ -471,10 +471,11 @@ auto execute(PackRequest const& request) -> eh::Result<PackRunResult> {
       request.entries[0],  // directory path
       request.outputDir,
       kDefaultMaxArchiveGroupSize,
-      request.recursive,
-      namingStrategy,
-      request.maxParallelJobs,
-      std::nullopt  // excludedPath — not needed for pack-only
+      DirectoryPackOptions{
+        .recursive = request.recursive,
+        .namingStrategy = namingStrategy,
+        .maxParallelJobs = request.maxParallelJobs,
+      }
     );
 
     if (!planRes) { return eh::makeError("{}", planRes.error()); }

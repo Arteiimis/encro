@@ -178,11 +178,13 @@ TEST_CASE(
   // A nonexistent ffmpeg path fails the scoring command (and both the VMAF
   // and SSIM attempts), yielding the "scores unparsable" error path.
   auto const res = videoquality::measureSegmentQuality(
-    temp.path / "no-such-ffmpeg",
-    original,
-    encoded,
-    0,
-    10'000'000
+    videoquality::QualityRequest{
+      .ffmpegPath = temp.path / "no-such-ffmpeg",
+      .originalPath = original,
+      .encodedPath = encoded,
+      .startUs = 0,
+      .durationUs = 10'000'000,
+    }
   );
   REQUIRE_FALSE(res.has_value());
   CHECK(res.error().find("scores unparsable") != std::string::npos);
