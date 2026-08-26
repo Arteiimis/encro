@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iterator>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 
@@ -32,6 +33,17 @@ constexpr auto kSsimFloorAnchors = std::array{
   std::pair{90, 0.970},
   std::pair{95, 0.980},
   std::pair{97, 0.985},
+};
+
+// XPSNR thresholds (dB) calibrated against VMAF on a 5-sample corpus
+// (2026-08: two noisy live-action, one anime, one 60fps, one low-res
+// low-bitrate), production chain: nvenc hevc p5, two pooled 10s windows,
+// p5 rule. Cross-content stdev ~1.4dB (~±3 VMAF points); anime needs
+// ~+2.7dB more at the same floor — recalibrate when that matters.
+constexpr auto kXpsnrFloorAnchors = std::array{
+  std::pair{90, 38.5},
+  std::pair{95, 41.0},
+  std::pair{97, 42.5},
 };
 
 constexpr auto kHdrTransfers = std::array{
@@ -133,8 +145,49 @@ auto buildTrimmedPairChain(std::uint64_t durationUs) -> std::string {
   );
 }
 
-auto runVmaf(QualityRequest const& request, fs::path const& logPath)
-  -> eh::Result<std::vector<double>> {
+// Frame lines look like "n:    1  XPSNR y: 47.9710  XPSNR u: 51.4535 ...";
+// the filter's summary line does not start with "n:" and is skipped. Each
+// frame's score is the mean of its plane dB values.
+auto parseXpsnrFrameScores(std::string_view content) -> std::vector<double> {
+  auto scores = std::vector<double>{};
+  for (auto const line: std::views::split(content, '\n')) {
+    auto const text = std::string_view{line};
+    auto const trimmedStart = text.find_first_not_of(" \t\r");
+    if (
+      trimmedStart == std::string_view::npos || text.compare(trimmedStart, 2, "n:") != 0
+    ) {
+      continue;
+    }
+
+    auto sum = 0.0;
+    auto planes = 0;
+    auto pos = text.find("XPSNR", trimmedStart);
+    while (pos != std::string_view::npos) {
+      auto const colon = text.find(':', pos + sizeof("XPSNR") - 1);
+      if (colon == std::string_view::npos) { break; }
+      // stod skips leading whitespace and stops at the first non-numeric
+      // char, so "47.9710  XPSNR..." parses cleanly.
+      try {
+        sum += std::stod(std::string{text.substr(colon + 1)});
+        ++planes;
+      } catch (...) {  // NOLINT(bugprone-empty-catch): format probe; try next marker
+      }
+      pos = text.find("XPSNR", colon + 1);
+    }
+    if (planes > 0) { scores.push_back(sum / static_cast<double>(planes)); }
+  }
+  return scores;
+}
+
+// Shared body for the three scoring filters: identical input/seek/trim
+// plumbing, differing only in the filter clause, link label, and parser.
+auto runScoringFilter(
+  QualityRequest const& request,
+  fs::path const& artifactPath,
+  std::string_view filterClause,
+  std::string_view linkLabel,
+  std::function<eh::Result<std::vector<double>>(fs::path const&)> const& parse
+) -> eh::Result<std::vector<double>> {
   auto const chain = buildTrimmedPairChain(request.durationUs);
   auto const startSec = seconds(request.startUs);
   auto const encodedInput = !request.encodedHasLocalPts
@@ -142,45 +195,69 @@ auto runVmaf(QualityRequest const& request, fs::path const& logPath)
     : std::format("-i \"{}\"", request.encodedPath.string());
   auto const cmd = std::format(
     "{} -hide_banner -nostats -loglevel error -y -ss {:.6f} -i \"{}\" {} "
-    "-filter_complex \"{};[enc][ref]libvmaf=log_fmt=json:log_path={}[vnul]\" "
-    "-map \"[vnul]\" -f null -",
+    "-filter_complex \"{};[enc][ref]{}={}[{}]\" "
+    "-map \"[{}]\" -f null -",
     quoteToolPath(request.ffmpegPath),
     startSec,
     request.originalPath.string(),
     encodedInput,
     chain,
-    quoteFilterPath(logPath)
+    filterClause,
+    quoteFilterPath(artifactPath),
+    linkLabel,
+    linkLabel
   );
 
   auto const runRes = runScoringCommand(request.ffmpegPath, cmd);
   if (!runRes) { return eh::makeError("{}", runRes.error()); }
 
-  return parseVmafLog(logPath);
+  return parse(artifactPath);
+}
+
+auto runVmaf(QualityRequest const& request, fs::path const& logPath)
+  -> eh::Result<std::vector<double>> {
+  return runScoringFilter(
+    request,
+    logPath,
+    "libvmaf=log_fmt=json:log_path",
+    "vnul",
+    parseVmafLog
+  );
 }
 
 auto runSsim(QualityRequest const& request, fs::path const& statsPath)
   -> eh::Result<std::vector<double>> {
-  auto const chain = buildTrimmedPairChain(request.durationUs);
-  auto const startSec = seconds(request.startUs);
-  auto const encodedInput = !request.encodedHasLocalPts
-    ? std::format("-ss {:.6f} -i \"{}\"", startSec, request.encodedPath.string())
-    : std::format("-i \"{}\"", request.encodedPath.string());
-  auto const cmd = std::format(
-    "{} -hide_banner -nostats -loglevel error -y -ss {:.6f} -i \"{}\" {} "
-    "-filter_complex \"{};[enc][ref]ssim=stats_file={}[snul]\" "
-    "-map \"[snul]\" -f null -",
-    quoteToolPath(request.ffmpegPath),
-    startSec,
-    request.originalPath.string(),
-    encodedInput,
-    chain,
-    quoteFilterPath(statsPath)
+  return runScoringFilter(request, statsPath, "ssim=stats_file", "snul", parseSsimStats);
+}
+
+auto runXpsnr(QualityRequest const& request, fs::path const& statsPath)
+  -> eh::Result<std::vector<double>> {
+  return runScoringFilter(
+    request,
+    statsPath,
+    "xpsnr=stats_file",
+    "xnul",
+    parseXpsnrStats
   );
+}
 
-  auto const runRes = runScoringCommand(request.ffmpegPath, cmd);
-  if (!runRes) { return eh::makeError("{}", runRes.error()); }
+double floorFromAnchors(std::span<std::pair<int, double> const> anchors, int vmafFloor) {
+  auto const anchor = std::ranges::find_if(anchors, [vmafFloor](auto const& a) {
+    return a.first == vmafFloor;
+  });
+  if (anchor != anchors.end()) { return anchor->second; }
 
-  return parseSsimStats(statsPath);
+  if (vmafFloor <= anchors.front().first) { return anchors.front().second; }
+  if (vmafFloor >= anchors.back().first) { return anchors.back().second; }
+
+  auto const next = std::ranges::find_if(anchors, [vmafFloor](auto const& a) {
+    return a.first > vmafFloor;
+  });
+  auto const& low = *(next - 1);
+  auto const& high = *next;
+  auto const t = static_cast<double>(vmafFloor - low.first)
+    / static_cast<double>(high.first - low.first);
+  return low.second + t * (high.second - low.second);
 }
 
 }  // namespace
@@ -203,6 +280,16 @@ auto percentile(std::span<double const> scores, double percentile)
   return sorted[rank - 1];
 }
 
+auto metricName(QualityMetric metric) -> std::string_view {
+  using enum QualityMetric;
+  switch (metric) {
+    case Ssim : return "SSIM";
+    case Xpsnr: return "XPSNR";
+    case Vmaf : break;
+  }
+  return "VMAF";
+}
+
 auto mean(std::span<double const> scores) -> std::optional<double> {
   if (scores.empty()) { return std::nullopt; }
   auto sum = 0.0;
@@ -211,26 +298,11 @@ auto mean(std::span<double const> scores) -> std::optional<double> {
 }
 
 double ssimFloorForVmafFloor(int vmafFloor) {
-  auto const anchor = std::ranges::find_if(kSsimFloorAnchors, [vmafFloor](auto const& a) {
-    return a.first == vmafFloor;
-  });
-  if (anchor != kSsimFloorAnchors.end()) { return anchor->second; }
+  return floorFromAnchors(kSsimFloorAnchors, vmafFloor);
+}
 
-  if (vmafFloor <= kSsimFloorAnchors.front().first) {
-    return kSsimFloorAnchors.front().second;
-  }
-  if (vmafFloor >= kSsimFloorAnchors.back().first) {
-    return kSsimFloorAnchors.back().second;
-  }
-
-  auto const next = std::ranges::find_if(kSsimFloorAnchors, [vmafFloor](auto const& a) {
-    return a.first > vmafFloor;
-  });
-  auto const& low = *(next - 1);
-  auto const& high = *next;
-  auto const t = static_cast<double>(vmafFloor - low.first)
-    / static_cast<double>(high.first - low.first);
-  return low.second + t * (high.second - low.second);
+double xpsnrFloorForVmafFloor(int vmafFloor) {
+  return floorFromAnchors(kXpsnrFloorAnchors, vmafFloor);
 }
 
 bool isHdrVideo(boost::json::value const& vidInfo) {
@@ -330,6 +402,23 @@ auto parseSsimStats(fs::path const& statsPath) -> eh::Result<std::vector<double>
   return scores;
 }
 
+auto parseXpsnrStats(fs::path const& statsPath) -> eh::Result<std::vector<double>> {
+  auto input = std::ifstream{statsPath, std::ios::binary};
+  if (!input.is_open()) {
+    return eh::makeError("XPSNR stats file not found: {}", statsPath.string());
+  }
+
+  auto const content = std::string{std::istreambuf_iterator<char>{input}, {}};
+  auto scores = parseXpsnrFrameScores(content);
+  if (scores.empty()) {
+    return eh::makeError(
+      "XPSNR stats file contains no frame scores: {}",
+      statsPath.string()
+    );
+  }
+  return scores;
+}
+
 // encodedHasLocalPts: probe segments carry segment-local PTS (their -ss seek
 // already happened), so only the original is seeked to the window. Full-file
 // inputs (preview) are seeked on both sides.
@@ -342,13 +431,27 @@ auto measureSegmentQuality(QualityRequest const& request) -> eh::Result<SegmentS
   auto const logDir = workdirs::scratchDir();
   auto const vmafLog = logDir / std::format("vmaf_{}.json", getUUID());
   auto const ssimStats = logDir / std::format("ssim_{}.txt", getUUID());
+  auto const xpsnrStats = logDir / std::format("xpsnr_{}.txt", getUUID());
   auto const removeLogs = [&] {
     auto ec = std::error_code{};
     fs::remove(vmafLog, ec);
     fs::remove(ssimStats, ec);
+    fs::remove(xpsnrStats, ec);
   };
 
   if (!isHdrVideo(request.originalVideoInfo)) {
+    auto xpsnrRes = runXpsnr(request, xpsnrStats);
+    if (xpsnrRes.has_value()) {
+      removeLogs();
+      return SegmentScores{QualityMetric::Xpsnr, std::move(*xpsnrRes)};
+    }
+    LOG_WARN(
+      "XPSNR unavailable for segment (original={} start={}us); falling back to VMAF: {}",
+      request.originalPath.string(),
+      request.startUs,
+      xpsnrRes.error()
+    );
+
     auto vmafRes = runVmaf(request, vmafLog);
     if (vmafRes.has_value()) {
       removeLogs();

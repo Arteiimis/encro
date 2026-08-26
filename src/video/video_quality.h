@@ -13,7 +13,8 @@ namespace videoquality {
 
 enum class QualityMetric {
   Vmaf,
-  Ssim
+  Ssim,
+  Xpsnr
 };
 
 struct SegmentScores {
@@ -40,9 +41,16 @@ auto percentile(std::span<double const> scores, double percentile)
 
 auto mean(std::span<double const> scores) -> std::optional<double>;
 
+// Display name for a quality metric ("VMAF" | "SSIM" | "XPSNR").
+auto metricName(QualityMetric metric) -> std::string_view;
+
 // Maps a VMAF floor to the equivalent SSIM floor via the anchor points
 // 97->0.985 / 95->0.980 / 90->0.970 (piecewise-linear, clamped outside).
 double ssimFloorForVmafFloor(int vmafFloor);
+
+// Maps a VMAF floor onto the equivalent XPSNR threshold in dB via the anchors
+// 97->42.5 / 95->41.0 / 90->38.5 (piecewise-linear, clamped outside).
+double xpsnrFloorForVmafFloor(int vmafFloor);
 
 // True when the probed video is HDR (bit depth > 8 or HDR transfer curve).
 bool isHdrVideo(boost::json::value const& vidInfo);
@@ -55,9 +63,14 @@ auto parseVmafLog(std::filesystem::path const& logPath)
 auto parseSsimStats(std::filesystem::path const& statsPath)
   -> eh::Result<std::vector<double>>;
 
-// Decodes the aligned segment pair (original vs encoded) and runs libvmaf,
-// falling back to ssim for HDR inputs or VMAF-unavailable builds. Returns
-// the per-frame scores in the metric that was actually used.
+// Parses an xpsnr filter stats_file into per-frame XPSNR dB scores (each
+// frame's score is the mean of its plane values).
+auto parseXpsnrStats(std::filesystem::path const& statsPath)
+  -> eh::Result<std::vector<double>>;
+
+// Decodes the aligned segment pair (original vs encoded) and runs XPSNR for
+// non-HDR inputs, falling back to libvmaf and then ssim (HDR skips straight
+// to ssim). Returns the per-frame scores in the metric actually used.
 auto measureSegmentQuality(QualityRequest const& request) -> eh::Result<SegmentScores>;
 
 }  // namespace videoquality

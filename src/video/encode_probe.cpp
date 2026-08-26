@@ -40,17 +40,18 @@ namespace encodeprobe {
 
 namespace {
 
-bool meetsFloor(ProbePoint const& point, int vmafFloor) {
-  auto const floor = point.metric == videoquality::QualityMetric::Vmaf
-    ? static_cast<double>(vmafFloor)
-    : videoquality::ssimFloorForVmafFloor(vmafFloor);
-  return point.p5 >= floor;
+auto floorForMetric(videoquality::QualityMetric metric, int vmafFloor) -> double {
+  using enum videoquality::QualityMetric;
+  switch (metric) {
+    case Vmaf : return static_cast<double>(vmafFloor);
+    case Ssim : return videoquality::ssimFloorForVmafFloor(vmafFloor);
+    case Xpsnr: return videoquality::xpsnrFloorForVmafFloor(vmafFloor);
+  }
+  return static_cast<double>(vmafFloor);
 }
 
-double floorForMetric(videoquality::QualityMetric metric, int vmafFloor) {
-  return metric == videoquality::QualityMetric::Vmaf
-    ? static_cast<double>(vmafFloor)
-    : videoquality::ssimFloorForVmafFloor(vmafFloor);
+bool meetsFloor(ProbePoint const& point, int vmafFloor) {
+  return point.p5 >= floorForMetric(point.metric, vmafFloor);
 }
 
 auto measurePoint(
@@ -114,6 +115,20 @@ auto measurePoint(
     return std::nullopt;
   }
 
+  // The two windows pool into one percentile: mixing scales (e.g. one window
+  // degraded XPSNR→VMAF asymmetrically) is meaningless, so discard the point.
+  if (scoresA->metric != scoresB->metric) {
+    LOG_WARN(
+      "Probe windows scored with different metrics for {} at cq={} ({}/{}); discarding "
+      "point",
+      inputPath.string(),
+      cq,
+      videoquality::metricName(scoresA->metric),
+      videoquality::metricName(scoresB->metric)
+    );
+    return std::nullopt;
+  }
+
   auto allFrames = scoresA->frameScores;
   allFrames
     .insert(allFrames.end(), scoresB->frameScores.begin(), scoresB->frameScores.end());
@@ -150,10 +165,6 @@ double audioBitrateBps(boost::json::value const& vidInfo) {
     }
   }
   return 0.0;
-}
-
-auto metricLabel(videoquality::QualityMetric metric) -> std::string_view {
-  return metric == videoquality::QualityMetric::Vmaf ? "VMAF" : "SSIM";
 }
 
 }  // namespace
@@ -604,12 +615,14 @@ auto buildProbeTaskSpec(
 namespace {
 
 auto metricToString(videoquality::QualityMetric metric) -> std::string {
-  return metric == videoquality::QualityMetric::Ssim ? "SSIM" : "VMAF";
+  return std::string{videoquality::metricName(metric)};
 }
 
 auto metricFromString(std::string_view metric) -> videoquality::QualityMetric {
-  return metric == "SSIM" ? videoquality::QualityMetric::Ssim
-                          : videoquality::QualityMetric::Vmaf;
+  using enum videoquality::QualityMetric;
+  if (metric == "SSIM") { return Ssim; }
+  if (metric == "XPSNR") { return Xpsnr; }
+  return Vmaf;
 }
 
 // Cache key for the decision inputs of inputPath; nullopt when the file cannot
@@ -635,7 +648,7 @@ auto cacheKeyForInput(appctx::AppContext& ctx, fs::path const& inputPath)
   auto const vidInfo = ctx.runtime.videoInfoCache.find(inputPath);
   auto const metric = videoquality::isHdrVideo(vidInfo.value_or(boost::json::value{}))
     ? std::string_view{"SSIM"}
-    : std::string_view{"VMAF"};
+    : std::string_view{"XPSNR"};
 
   return probecache::probeCacheKey(
     inputPath,
@@ -887,6 +900,10 @@ auto formatProbeP5(ProbePlan const& plan) -> std::string {
   if (plan.metric == videoquality::QualityMetric::Ssim) {
     return std::format("{:.3f}", p5);
   }
+  if (plan.metric == videoquality::QualityMetric::Xpsnr) {
+    // dB values can be negative; always render the explicit unit.
+    return std::format("{:.2f} dB", p5);
+  }
   return p5 < 95.0 ? std::format("{:.2f}", p5) : std::format("{:.1f}", p5);
 }
 
@@ -1040,12 +1057,7 @@ void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) {
     : std::size_t{40};
 
   terminal::println(Plain, "{}", probeRule(ruleWidth));
-  terminal::println(
-    Plain,
-    "Encoding plan (min p5-{} {}):",
-    metricLabel(plans.empty() ? videoquality::QualityMetric::Vmaf : plans.front().metric),
-    minVmafFloor
-  );
+  terminal::println(Plain, "Encoding plan (min p5-VMAF-equivalent {}):", minVmafFloor);
 
   auto const stats = collectPlanStats(plans);
 

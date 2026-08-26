@@ -215,31 +215,33 @@ int runFakeFfprobe(int argc, char* argv[]) {
   return 0;
 }
 
-// Emulate libvmaf for scoring invocations: write the JSON log at the path in
-// the -filter_complex log_path= option. Off by default (probing then falls
-// back to the default CQ); unit tests enable it via
-// ENCRO_FAKE_FFMPEG_WRITE_VMAF=1 with scores from ENCRO_FAKE_FFMPEG_VMAF_SCORES
-// (comma-separated, one frame each; a single value yields two identical frames).
-void writeFakeVmafLog(int argc, char* argv[]) {
-  auto const scores = readEnv("ENCRO_FAKE_FFMPEG_VMAF_SCORES").value_or("96.0");
+// Emulate libvmaf/xpsnr for scoring invocations. Two independent switches:
+//   ENCRO_FAKE_FFMPEG_WRITE_VMAF=1  -> write the JSON log at log_path=
+//   ENCRO_FAKE_FFMPEG_WRITE_XPSNR=1 -> write per-plane dB lines at stats_file=
+// Scores come from *_SCORES (comma-separated, one value per plane/frame slot;
+// a single value yields two identical two-frame sets). Off by default so
+// probing deterministically falls back to the default CQ.
+auto splitScores(std::string const& raw) -> std::vector<std::string> {
   auto values = std::vector<std::string>{};
-  {
-    auto start = std::size_t{0};
-    while (start <= scores.size()) {
-      auto const comma = scores.find(',', start);
-      values.push_back(scores.substr(
-        start,
-        comma == std::string::npos ? std::string::npos : comma - start
-      ));
-      if (comma == std::string::npos) { break; }
-      start = comma + 1;
-    }
+  auto start = std::size_t{0};
+  while (start <= raw.size()) {
+    auto const comma = raw.find(',', start);
+    values.push_back(
+      raw.substr(start, comma == std::string::npos ? std::string::npos : comma - start)
+    );
+    if (comma == std::string::npos) { break; }
+    start = comma + 1;
   }
   if (values.size() == 1) { values.push_back(values.front()); }
+  return values;
+}
 
+// Extracts the escaped stats_file/log_path='...' target from the
+// -filter_complex argument and returns the unescaped path.
+auto extractFilterFileTarget(int argc, char* argv[], std::string_view marker)
+  -> std::optional<std::string> {
   for (auto index = 1; index < argc; ++index) {
     auto const arg = std::string_view{argv[index]};
-    auto const marker = std::string_view{"log_path="};
     auto const markerPos = arg.find(marker);
     if (markerPos == std::string_view::npos) { continue; }
     auto rest = arg.substr(markerPos + marker.size());
@@ -258,19 +260,131 @@ void writeFakeVmafLog(int argc, char* argv[]) {
         path += part[i];
       }
     }
-    auto out = std::ofstream{fs::path{path}};
-    if (!out.is_open()) {
-      std::cerr << "cannot open vmaf log: " << path << '\n';
-      return;
-    }
-    out << "{\"frames\":[";
-    for (std::size_t i = 0; i < values.size(); ++i) {
-      if (i > 0) { out << ','; }
-      out << "{\"frameNum\":" << i << ",\"metrics\":{\"vmaf\":" << values[i] << "}}";
-    }
-    out << "]}\n";
+    return path;
+  }
+  return std::nullopt;
+}
+
+void writeFakeVmafLog(int argc, char* argv[]) {
+  auto const values =
+    splitScores(readEnv("ENCRO_FAKE_FFMPEG_VMAF_SCORES").value_or("96.0"));
+
+  auto const path = extractFilterFileTarget(argc, argv, "log_path=");
+  if (!path.has_value()) { return; }
+  auto out = std::ofstream{fs::path{path.value()}};
+  if (!out.is_open()) {
+    std::cerr << "cannot open vmaf log: " << path.value() << '\n';
     return;
   }
+  out << "{\"frames\":[";
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) { out << ','; }
+    out << "{\"frameNum\":" << i << ",\"metrics\":{\"vmaf\":" << values[i] << "}}";
+  }
+  out << "]}\n";
+}
+
+void writeFakeXpsnrStats(int argc, char* argv[]) {
+  auto const values =
+    splitScores(readEnv("ENCRO_FAKE_FFMPEG_XPSNR_SCORES").value_or("41.5"));
+
+  auto const path = extractFilterFileTarget(argc, argv, "stats_file=");
+  if (!path.has_value()) { return; }
+  auto out = std::ofstream{fs::path{path.value()}};
+  if (!out.is_open()) {
+    std::cerr << "cannot open xpsnr stats: " << path.value() << '\n';
+    return;
+  }
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    // One value reuses all three planes, keeping the parsed frame mean equal
+    // to the configured value.
+    out
+      << "n:    "
+      << (i + 1)
+      << "  XPSNR y: "
+      << values[i]
+      << "  XPSNR u: "
+      << values[i]
+      << "  XPSNR v: "
+      << values[i]
+      << '\n';
+  }
+}
+
+// SSIM variant writing modern "All:" lines at stats_file= so tests can walk
+// the chain all the way to the terminal fallback.
+void writeFakeSsimStats(int argc, char* argv[]) {
+  auto const values =
+    splitScores(readEnv("ENCRO_FAKE_FFMPEG_SSIM_SCORES").value_or("0.98"));
+
+  auto const path = extractFilterFileTarget(argc, argv, "stats_file=");
+  if (!path.has_value()) { return; }
+  auto out = std::ofstream{fs::path{path.value()}};
+  if (!out.is_open()) {
+    std::cerr << "cannot open ssim stats: " << path.value() << '\n';
+    return;
+  }
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    out << "n:" << (i + 1) << " All:" << values[i] << " (dB)\n";
+  }
+}
+
+auto scoringFailureRequested(int argc, char* argv[]) -> bool {
+  auto const match = readEnv("ENCRO_FAKE_FFMPEG_SCORING_FAIL_MATCH");
+  if (!match.has_value()) { return false; }
+  auto const unless = readEnv("ENCRO_FAKE_FFMPEG_SCORING_FAIL_UNLESS");
+  auto matched = false;
+  auto exempted = false;
+  for (auto index = 1; index < argc; ++index) {
+    auto const arg = std::string_view{argv[index]};
+    if (arg.find(match.value()) != std::string_view::npos) { matched = true; }
+    if (unless && arg.find(unless.value()) != std::string_view::npos) { exempted = true; }
+  }
+  return matched && !exempted;
+}
+
+// Scoring invocations (-f null -) write no output file. Optionally emulate
+// libvmaf/xpsnr/ssim (see writeFake*); off by default so probing
+// deterministically falls back to the default CQ. Returns the exit code.
+auto runScoringInvocation(int argc, char* argv[]) -> int {
+  if (scoringFailureRequested(argc, argv)) {
+    return readEnvInt("ENCRO_FAKE_FFMPEG_EXIT_CODE", 1);
+  }
+  if (readEnvInt("ENCRO_FAKE_FFMPEG_WRITE_XPSNR", 0) != 0) {
+    writeFakeXpsnrStats(argc, argv);
+  }
+  if (readEnvInt("ENCRO_FAKE_FFMPEG_WRITE_VMAF", 0) != 0) {
+    writeFakeVmafLog(argc, argv);
+  }
+  if (readEnvInt("ENCRO_FAKE_FFMPEG_WRITE_SSIM", 0) != 0) {
+    writeFakeSsimStats(argc, argv);
+  }
+  return 0;
+}
+
+// Emulates -progress output so the parser paths are exercised end to end.
+void writeFakeProgressFile(FfmpegInvocation const& invocation) {
+  auto const frameCount = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_FRAMES", 10);
+  auto const padBytes = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_PAD", 0);
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access): caller checks has_value
+  auto out = std::ofstream{invocation.progressFile.value()};
+  if (!out.is_open()) { return; }
+  if (padBytes > 0) {
+    // Emulates an old/oversized -progress file so the tail-read path is
+    // exercised end to end.
+    auto filler = std::string(padBytes, 'x');
+    for (auto offset = std::size_t{0}; offset < filler.size(); offset += 101) {
+      out << filler.substr(offset, 100) << "\n";
+    }
+  }
+  out << "frame=" << frameCount << "\n";
+  if (invocation.seekSeconds.has_value() && invocation.durationSeconds.has_value()) {
+    auto const endUs = static_cast<std::uint64_t>(
+      (invocation.seekSeconds.value() + invocation.durationSeconds.value()) * 1e6
+    );
+    out << "out_time_us=" << endUs << "\n";
+  }
+  out << "progress=end\n";
 }
 
 int runFakeFfmpeg(int argc, char* argv[]) {
@@ -321,29 +435,7 @@ int runFakeFfmpeg(int argc, char* argv[]) {
     }
   }
 
-  if (invocation.progressFile.has_value()) {
-    auto const frameCount = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_FRAMES", 10);
-    auto const padBytes = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_PAD", 0);
-    auto out = std::ofstream{invocation.progressFile.value()};
-    if (out.is_open()) {
-      if (padBytes > 0) {
-        // Emulates an old/oversized -progress file so the tail-read path is
-        // exercised end to end.
-        auto filler = std::string(padBytes, 'x');
-        for (auto offset = std::size_t{0}; offset < filler.size(); offset += 101) {
-          out << filler.substr(offset, 100) << "\n";
-        }
-      }
-      out << "frame=" << frameCount << "\n";
-      if (invocation.seekSeconds.has_value() && invocation.durationSeconds.has_value()) {
-        auto const endUs = static_cast<std::uint64_t>(
-          (invocation.seekSeconds.value() + invocation.durationSeconds.value()) * 1e6
-        );
-        out << "out_time_us=" << endUs << "\n";
-      }
-      out << "progress=end\n";
-    }
-  }
+  if (invocation.progressFile.has_value()) { writeFakeProgressFile(invocation); }
 
   auto const exitCode = readEnvInt("ENCRO_FAKE_FFMPEG_EXIT_CODE", 0);
   if (exitCode != 0) { return exitCode; }
@@ -353,15 +445,10 @@ int runFakeFfmpeg(int argc, char* argv[]) {
     return 2;
   }
 
-  // Scoring invocations (-f null -) write no output file. Optionally emulate
-  // libvmaf by writing the JSON log (see writeFakeVmafLog); off by default so
-  // probing deterministically falls back to the default CQ.
-  if (invocation.outputFile->string() == "-") {
-    if (readEnvInt("ENCRO_FAKE_FFMPEG_WRITE_VMAF", 0) != 0) {
-      writeFakeVmafLog(argc, argv);
-    }
-    return 0;
-  }
+  // Scoring invocations (-f null -) produce no output file and are handled
+  // by the metric impersonators.
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access): guarded by has_value above
+  if (invocation.outputFile->string() == "-") { return runScoringInvocation(argc, argv); }
 
   writeSizedFile(
     invocation.outputFile.value(),
