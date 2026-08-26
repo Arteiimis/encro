@@ -159,6 +159,27 @@ TEST_CASE("decideCq compares ssim points against the mapped floor", "[encode-pro
   CHECK(decision.p5 == Catch::Approx(0.980));
 }
 
+TEST_CASE("decideCq compares xpsnr points against the mapped floor", "[encode-probe]") {
+  auto const xpsnr = [](int cq, double p5) {
+    return encodeprobe::ProbePoint{
+      .cq = cq,
+      .p5 = p5,
+      .metric = videoquality::QualityMetric::Xpsnr,
+      .segmentBytes = 100'000,
+    };
+  };
+  // Floor 95 → 41.0 dB; crossing between 28 (41.5) and 32 (40.5).
+  auto const points = std::vector{
+    xpsnr(24, 42.0),
+    xpsnr(28, 41.5),
+    xpsnr(32, 40.5),
+  };
+  auto const decision = encodeprobe::decideCq(points, 95);
+  CHECK_FALSE(decision.unreachableFloor);
+  CHECK(decision.cq == 30);
+  CHECK(decision.p5 == Catch::Approx(41.0));
+}
+
 TEST_CASE(
   "probeCqSequence stops at the base grid when the floor is bracketed",
   "[encode-probe]"
@@ -476,6 +497,9 @@ TEST_CASE("runProbePhase probes and decides with fake tools", "[encode-probe]") 
   CHECK(plan.p5.value() == Catch::Approx(96.0));
   CHECK(plan.estimatedBytes.has_value());
   CHECK_FALSE(plan.unreachableFloor);
+  // The fake provides no xpsnr stats (WRITE_XPSNR unset), so the primary
+  // attempt fails and scoring degrades to VMAF, recorded as such.
+  CHECK(plan.metric == videoquality::QualityMetric::Vmaf);
   CHECK(result->attentionWarnings.empty());
   CHECK(leftoverProbeDirs().empty());
 }
@@ -965,4 +989,130 @@ TEST_CASE("runEncodingTasks skips probing entirely with --crf", "[encode-probe]"
   // no scoring invocations (log_path=).
   CHECK(leftoverProbeDirs().empty());
   CHECK(log.find("log_path=") == std::string::npos);
+}
+
+TEST_CASE(
+  "runProbePhase scores with the fake xpsnr provider end to end",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.mp4";
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
+  envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_WRITE_XPSNR", "1"));
+  envs
+    .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_XPSNR_SCORES", "40.5"));
+
+  auto const inputs = std::vector<fs::path>{inputPath};
+  auto const result = encodeprobe::runProbePhase(ctx, inputs);
+  REQUIRE(result.has_value());
+
+  auto const& plan = result->plans.at(inputPath);
+  // 40.5 dB never meets the floor-95 threshold (41.0), so every extension
+  // point fails too and the file degrades to the lowest probed CQ.
+  CHECK(plan.probed);
+  CHECK(plan.metric == videoquality::QualityMetric::Xpsnr);
+  CHECK(plan.unreachableFloor);
+  CHECK(plan.chosenCq == encodeprobe::kMinCq);
+}
+
+TEST_CASE(
+  "runProbePhase discards probe points whose windows mix metrics",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.mp4";
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
+  envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_WRITE_XPSNR", "1"));
+  envs
+    .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_XPSNR_SCORES", "40.5"));
+  // The second window's XPSNR scoring fails ("_1.ts" match) while its VMAF
+  // retry is exempted via the log_path= marker: window A scores XPSNR,
+  // window B scores VMAF. Pooling would mix scales, so each point must be
+  // discarded by the metric-consistency guard.
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SCORING_FAIL_MATCH", "_1.ts")
+  );
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SCORING_FAIL_UNLESS", "log_path=")
+  );
+
+  auto const inputs = std::vector<fs::path>{inputPath};
+  auto const result = encodeprobe::runProbePhase(ctx, inputs);
+  REQUIRE(result.has_value());
+
+  auto const& plan = result->plans.at(inputPath);
+  CHECK_FALSE(plan.probed);
+  CHECK(plan.chosenCq == encodeprobe::kDefaultCq);
+}
+
+TEST_CASE(
+  "runProbePhase falls back from vmaf to ssim when libvmaf fails",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.mp4";
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
+  // No XPSNR stats are provided (primary attempt fails), and the VMAF
+  // invocations fail via their log_path= marker; only the SSIM attempts
+  // produce usable output, so the terminal fallback scores the file.
+  envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_WRITE_SSIM", "1"));
+  envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SSIM_SCORES", "0.98"));
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SCORING_FAIL_MATCH", "log_path=")
+  );
+
+  auto const inputs = std::vector<fs::path>{inputPath};
+  auto const result = encodeprobe::runProbePhase(ctx, inputs);
+  REQUIRE(result.has_value());
+
+  auto const& plan = result->plans.at(inputPath);
+  CHECK(plan.probed);
+  CHECK(plan.metric == videoquality::QualityMetric::Ssim);
+  REQUIRE(plan.p5.has_value());
+  CHECK(plan.p5.value() == Catch::Approx(0.98));
+}
+
+TEST_CASE(
+  "printProbePlan renders per-metric rows and a stable VMAF-scale header",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const kMegabyte = std::uintmax_t{1'048'576};
+  auto const first = temp.path / "alpha.mp4";
+  auto const second = temp.path / "beta.mp4";
+  writeSizedFile(first, kMegabyte);
+  writeSizedFile(second, kMegabyte);
+  auto plans = std::vector<encodeprobe::ProbePlan>{
+    {.inputPath = first,
+     .chosenCq = 26,
+     .metric = videoquality::QualityMetric::Xpsnr,
+     .p5 = 41.05,
+     .estimatedBytes = kMegabyte,
+     .probed = true},
+    {.inputPath = second,
+     .chosenCq = 28,
+     .metric = videoquality::QualityMetric::Ssim,
+     .p5 = 0.982,
+     .estimatedBytes = kMegabyte,
+     .probed = true},
+  };
+  auto const out = temp.path / "stdout.txt";
+  {
+    ScopedEnvVar columns("COLUMNS", "80");
+    auto capture = testutils::StdoutCapture{out};
+    encodeprobe::printProbePlan(plans, 95);
+  }
+  auto const text = testutils::readTextFile(out);
+  // The header describes the floor in its VMAF-scale meaning, not the lead
+  // file's metric.
+  CHECK(text.find("min p5-VMAF-equivalent 95") != std::string::npos);
+  // Each row renders in its own metric's units.
+  CHECK(text.find("41.05 dB") != std::string::npos);
+  CHECK(text.find("0.982") != std::string::npos);
 }

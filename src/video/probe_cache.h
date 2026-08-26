@@ -17,7 +17,7 @@ struct Entry {
   int chosenCq = 0;
   double p5 = 0.0;
   std::uintmax_t estimatedBytes = 0;
-  std::string metric;  // "VMAF" | "SSIM"
+  std::string metric;  // "VMAF" | "SSIM" | "XPSNR"
   bool unreachableFloor = false;
   std::uint64_t updatedAtMs = 0;
 };
