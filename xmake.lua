@@ -60,7 +60,6 @@ add_requires("thread-pool")
 add_requires("spdlog[fmt_external]")
 add_requires("fmt")
 add_requires("indicators")
-add_requires("immer")
 add_requires("libzippp")
 -- add_requireconfs("libzippp.libzip", {configs = {toolchains = "clang"}})
 add_requires("catch2")
@@ -72,7 +71,7 @@ target("encro")
     set_policy("build.optimization.lto", true)
   end
 
-  add_packages("boost", "thread-pool", "indicators", "libzippp", "immer", "fmt", "spdlog", "cli11")
+  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11")
   if is_plat("windows") then
     add_syslinks("dbghelp")
   else
@@ -94,7 +93,7 @@ target("tests")
   set_kind("binary")
   set_default(false)
 
-  add_packages("catch2", "boost", "thread-pool", "indicators", "fmt", "spdlog", "libzippp", "immer", "cli11")
+  add_packages("catch2", "boost", "thread-pool", "indicators", "fmt", "spdlog", "libzippp", "cli11")
   if is_plat("windows") then
     add_syslinks("dbghelp")
   else
@@ -124,7 +123,7 @@ target("e2e_tests")
   set_kind("binary")
   set_default(false)
 
-  add_packages("catch2", "boost", "libzippp", "immer", "fmt", "spdlog", "cli11")
+  add_packages("catch2", "boost", "libzippp", "fmt", "spdlog", "cli11")
   add_includedirs("tests")
   if is_plat("windows") then
     add_syslinks("dbghelp")

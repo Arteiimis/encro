@@ -4,7 +4,7 @@
 
 namespace fs = std::filesystem;
 
-TEST_CASE("video info cache store reads values from immer snapshot", "[app-context]") {
+TEST_CASE("video info cache store reads values from shared cache", "[app-context]") {
   auto runtime = appctx::RuntimeContext{};
   auto const path = fs::path{"sample.mp4"};
 

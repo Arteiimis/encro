@@ -2,9 +2,6 @@
 
 #include <boost/json.hpp>
 
-#include <immer/atom.hpp>
-#include <immer/map.hpp>
-
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -12,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -80,7 +78,6 @@ struct EncodingState {
   std::optional<std::size_t> barIndex;
   std::optional<std::chrono::steady_clock::time_point> startTime;
   std::optional<std::chrono::steady_clock::time_point> endTime;
-  std::optional<float> lastProgress;
   std::atomic<float> lastProgressAtomic{-1.0f};
   std::optional<uint64_t> lastFrameCount;
   std::optional<std::string> lastStatus;
@@ -104,27 +101,26 @@ using EncodingStatePtr = std::shared_ptr<EncodingState>;
 using EncodingStateList = std::vector<EncodingStatePtr>;
 
 struct RuntimeContext {
-  using VideoInfoCacheMap = immer::map<fs::path, json::value>;
-
   struct VideoInfoCacheStore {
     void set(fs::path const& path, json::value const& value) {
-      snapshot.update([path, value](VideoInfoCacheMap const& cache) {
-        return cache.set(path, value);
-      });
+      auto lock = std::unique_lock{mtx_};  // NOLINT(bugprone-unused-raii)
+      cache_[path] = value;
     }
 
     auto find(fs::path const& path) const -> std::optional<json::value> {
-      auto const cache = snapshot.load();
-      if (auto const* value = cache->find(path); value != nullptr) { return *value; }
+      auto lock = std::shared_lock{mtx_};  // NOLINT(bugprone-unused-raii)
+      if (auto const it = cache_.find(path); it != cache_.end()) { return it->second; }
       return std::nullopt;
     }
 
-    std::size_t size() const { return snapshot.load()->size(); }
-
-    auto load() const { return snapshot.load(); }
+    std::size_t size() const {
+      auto lock = std::shared_lock{mtx_};  // NOLINT(bugprone-unused-raii)
+      return cache_.size();
+    }
 
   private:
-    immer::atom<VideoInfoCacheMap> snapshot;
+    mutable std::shared_mutex mtx_;
+    path_map<json::value> cache_;
   } videoInfoCache;
 
   std::shared_ptr<::jobstate::Store> jobState;
