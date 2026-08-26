@@ -30,11 +30,18 @@ struct EncodingBatchOutcome {
   bool dryRun = false;  // probe plan printed; exit without encoding
 };
 
+// Batch job description threaded through the encode pipeline: the files to
+// encode, where each output lands, and the job-state action ids tracking
+// them. Produced together by the caller and consumed as one unit.
+struct EncodingBatchJob {
+  std::vector<fs::path> vids;
+  appctx::path_map<fs::path> plannedOutputFiles;
+  ActionIdMap actionIds;
+};
+
 auto runEncodingTasks(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& vids,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  ActionIdMap const& actionIds,
+  EncodingBatchJob const& job,
   std::size_t overallTotalCount,
   std::size_t initialCompletedCount
 ) -> EncodingBatchOutcome;

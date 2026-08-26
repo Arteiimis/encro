@@ -60,7 +60,6 @@ auto measurePoint(
   fs::path const& probeDir,
   int cq,
   std::pair<ProbeWindow, ProbeWindow> const& windows,
-  boost::json::value const& vidInfo,
   std::size_t workerCount,
   ProbeStepCallback const& onStep = {}
 ) -> std::optional<ProbePoint> {
@@ -79,25 +78,31 @@ auto measurePoint(
   }
 
   auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
+  auto const info =
+    ctx.runtime.videoInfoCache.find(inputPath).value_or(boost::json::value{});
   if (onStep) { onStep(cq, "score 1/2"); }
   auto const scoresA = videoquality::measureSegmentQuality(
-    ffmpeg,
-    inputPath,
-    segA,
-    windows.first.startUs,
-    windows.first.durationUs,
-    vidInfo,
-    true  // probe segments carry segment-local PTS
+    videoquality::QualityRequest{
+      .ffmpegPath = ffmpeg,
+      .originalPath = inputPath,
+      .encodedPath = segA,
+      .startUs = windows.first.startUs,
+      .durationUs = windows.first.durationUs,
+      .originalVideoInfo = info,
+      .encodedHasLocalPts = true,  // probe segments carry segment-local PTS
+    }
   );
   if (onStep) { onStep(cq, "score 2/2"); }
   auto const scoresB = videoquality::measureSegmentQuality(
-    ffmpeg,
-    inputPath,
-    segB,
-    windows.second.startUs,
-    windows.second.durationUs,
-    vidInfo,
-    true  // probe segments carry segment-local PTS
+    videoquality::QualityRequest{
+      .ffmpegPath = ffmpeg,
+      .originalPath = inputPath,
+      .encodedPath = segB,
+      .startUs = windows.second.startUs,
+      .durationUs = windows.second.durationUs,
+      .originalVideoInfo = info,
+      .encodedHasLocalPts = true,  // probe segments carry segment-local PTS
+    }
   );
   if (!scoresA.has_value() || !scoresB.has_value()) {
     LOG_WARN(
@@ -176,14 +181,16 @@ auto probeSingleFile(
     return plan;
   }
 
-  auto const vidInfo = ctx.runtime.videoInfoCache.find(inputPath);
-  auto const info = vidInfo.value_or(boost::json::value{});
   auto const settings = resolveInputEncodeSettings(
     ctx.toolchain,
     ctx.runtime,
     inputPath,
     ctx.config.nvencPreset
   );
+  // Used for the bitrate estimate below; measurePoint re-resolves it from the
+  // same cache when scoring.
+  auto const info =
+    ctx.runtime.videoInfoCache.find(inputPath).value_or(boost::json::value{});
 
   auto const points = probeCqSequence(
     [&](int cq) -> std::optional<ProbePoint> {
@@ -194,7 +201,6 @@ auto probeSingleFile(
         probeDir,
         cq,
         windows.value(),
-        info,
         workerCount,
         onStep
       );
@@ -237,15 +243,20 @@ bool runProbeEncode(
 ) {
   auto const cfg = buildProbeSegmentConfig(
     ctx.toolchain,
-    inputPath,
-    ctx.config.outputFormat,
-    ctx.config.videoCodec,
-    settings,
-    cq,
-    window.startUs,
-    window.durationUs,
-    segFile,
-    workerCount
+    SegmentEncodeSpec{
+      .inputPath = inputPath,
+      .segmentIndex = 0,
+      .startUs = window.startUs,
+      .durationUs = window.durationUs,
+      .tempOutputPath = segFile,
+    },
+    EncodeProfile{
+      .outputFormat = ctx.config.outputFormat,
+      .videoCodec = ctx.config.videoCodec,
+      .settings = settings,
+      .workerCount = workerCount,
+    },
+    cq
   );
 
   auto ec = std::error_code{};
@@ -455,30 +466,13 @@ auto probeCqSequence(
 
 auto buildProbeSegmentConfig(
   appctx::ToolchainPaths const& toolchain,
-  fs::path const& inputPath,
-  std::string const& outputFormat,
-  std::optional<std::string> const& videoCodec,
-  EncodeInputSettings const& settings,
-  int cq,
-  std::uint64_t startUs,
-  std::uint64_t durationUs,
-  fs::path const& segFile,
-  std::size_t workerCount
+  SegmentEncodeSpec const& spec,
+  EncodeProfile const& profile,
+  int cq
 ) -> EncodeConfig {
-  return buildSegmentEncodeConfig(
-    toolchain,
-    inputPath,
-    outputFormat,
-    cq,
-    videoCodec,
-    settings,
-    0,
-    startUs,
-    durationUs,
-    segFile,
-    std::nullopt,
-    workerCount
-  );
+  auto probeProfile = profile;
+  probeProfile.crf = cq;
+  return buildSegmentEncodeConfig(toolchain, spec, probeProfile);
 }
 
 // One probe task: drives the slot bar for the file, forwards step/point
@@ -512,6 +506,17 @@ auto createProbeRoot() -> eh::Result<fs::path> {
   return probeRoot;
 }
 
+// Progress plumbing shared by probe tasks: bar registry, per-slot bars and
+// progress cells, the completed counter, and the overall-bar updater. One
+// instance per probe phase, constructed flat in runProbePhase.
+struct ProbeProgress {
+  progress::ProgressContext& progressCtx;
+  std::span<std::size_t const> slotBars;
+  std::vector<std::atomic<float>>& slotProgress;
+  std::atomic_size_t& completed;
+  std::function<void()> const& updateOverall;
+};
+
 auto initSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCount)
   -> std::vector<std::size_t> {
   auto slotBars = std::vector<std::size_t>(workerCount);
@@ -528,11 +533,7 @@ auto buildProbeTaskSpec(
   std::span<fs::path const> vids,
   std::size_t index,
   fs::path const& probeRoot,
-  progress::ProgressContext& progressCtx,
-  std::vector<std::size_t> const& slotBars,
-  std::vector<std::atomic<float>>& slotProgress,
-  std::atomic_size_t& completed,
-  std::function<void()> const& updateOverall,
+  ProbeProgress const& progress,
   std::vector<ProbePlan>& plans,
   std::size_t workerCount
 ) -> taskexec::TaskSpec {
@@ -541,61 +542,60 @@ auto buildProbeTaskSpec(
     .id = std::format("probe:{}", collisionnaming::stablePathString(vids[index])),
     .label = fileName,
     .input = vids[index].string(),
-.run = [&, index, fileName, updateOverall, vids](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
-  // updateOverall and vids captured by value: both are helper parameters
-  // (the span is a cheap POD copy) that would dangle inside the task
+.run = [&, index, fileName, vids, progress](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
+  // vids captured by value: a cheap POD copy that would dangle otherwise
   taskexec::TaskContext& taskCtx) -> eh::Result<void> {
   auto const slot = taskCtx.slot;
-  auto const barIndex = slotBars[slot];
-  progressCtx.setTone(barIndex, progress::Tone::Active);
-  progressCtx.resetEta(barIndex);
-  progressCtx.setProgress(barIndex, 0.0f);
-  progressCtx.setPostfixText(barIndex, std::format("Probing: {}", fileName));
+  auto const barIndex = progress.slotBars[slot];
+  progress.progressCtx.setTone(barIndex, progress::Tone::Active);
+  progress.progressCtx.resetEta(barIndex);
+  progress.progressCtx.setProgress(barIndex, 0.0f);
+  progress.progressCtx.setPostfixText(barIndex, std::format("Probing: {}", fileName));
   auto step = std::size_t{0};
   auto const onStep = [&, barIndex, slot](int cq, std::string_view phase) {
     ++step;
     auto const p =
       100.0f * static_cast<float>(step) / static_cast<float>(kMaxProbeSteps);
-    slotProgress[slot].store(p);
-    progressCtx.setProgress(barIndex, p);
-    progressCtx.setPostfixText(
+    progress.slotProgress[slot].store(p);
+    progress.progressCtx.setProgress(barIndex, p);
+    progress.progressCtx.setPostfixText(
       barIndex,
       std::format("Probing: {} · CQ {} {}", fileName, cq, phase)
     );
-    updateOverall();
+    progress.updateOverall();
   };
   auto const onPoint = [&, barIndex, slot](std::size_t done, int cq) {
     auto const p = 100.0f
       * static_cast<float>(done * kStepsPerProbePoint)
       / static_cast<float>(kMaxProbeSteps);
-    slotProgress[slot].store(p);
-    progressCtx.setProgress(barIndex, p);
-    progressCtx.setPostfixText(
+    progress.slotProgress[slot].store(p);
+    progress.progressCtx.setProgress(barIndex, p);
+    progress.progressCtx.setPostfixText(
       barIndex,
       std::format("Probing: {} · CQ {} scored", fileName, cq)
     );
-    updateOverall();
+    progress.updateOverall();
   };
   plans[index] =
     probeSingleFile(ctx, vids[index], probeRoot, workerCount, onPoint, onStep);
   auto const& plan = plans[index];
   if (plan.probed) {
-    progressCtx.setProgress(barIndex, 100.0f);
-    progressCtx.setTone(barIndex, progress::Tone::Success);
-    progressCtx.setPostfixText(
+    progress.progressCtx.setProgress(barIndex, 100.0f);
+    progress.progressCtx.setTone(barIndex, progress::Tone::Success);
+    progress.progressCtx.setPostfixText(
       barIndex,
       std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
     );
   } else {
-    progressCtx.setTone(barIndex, progress::Tone::Idle);
-    progressCtx.setPostfixText(
+    progress.progressCtx.setTone(barIndex, progress::Tone::Idle);
+    progress.progressCtx.setPostfixText(
       barIndex,
       std::format("Skipped: {} (default CQ {})", fileName, kDefaultCq)
     );
   }
-  slotProgress[slot].store(0.0f);
-  completed.fetch_add(1);
-  updateOverall();
+  progress.slotProgress[slot].store(0.0f);
+  progress.completed.fetch_add(1);
+  progress.updateOverall();
   return {};
 }
   };
@@ -783,30 +783,16 @@ auto buildProbeTasks(
   std::span<fs::path const> vids,
   std::span<std::size_t const> taskVids,
   fs::path const& probeRoot,
-  progress::ProgressContext& progressCtx,
-  std::vector<std::size_t> const& slotBars,
-  std::vector<std::atomic<float>>& slotProgress,
-  std::atomic_size_t& completed,
-  std::function<void()> const& updateOverall,
+  ProbeProgress const& progress,
   std::vector<ProbePlan>& plans,
   std::size_t workerCount
 ) -> std::vector<taskexec::TaskSpec> {
   auto tasks = std::vector<taskexec::TaskSpec>{};
   tasks.reserve(taskVids.size());
   for (auto const index: taskVids) {
-    tasks.push_back(buildProbeTaskSpec(
-      ctx,
-      vids,
-      index,
-      probeRoot,
-      progressCtx,
-      slotBars,
-      slotProgress,
-      completed,
-      updateOverall,
-      plans,
-      workerCount
-    ));
+    tasks.push_back(
+      buildProbeTaskSpec(ctx, vids, index, probeRoot, progress, plans, workerCount)
+    );
   }
   return tasks;
 }
@@ -863,19 +849,16 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     );
   };
 
-  auto tasks = buildProbeTasks(
-    ctx,
-    vids,
-    taskVids,
-    *probeRoot,
-    progressCtx,
-    slotBars,
-    slotProgress,
-    completed,
-    updateOverall,
-    plans,
-    workerCount
-  );
+  ProbeProgress const progress{
+    .progressCtx = progressCtx,
+    .slotBars = slotBars,
+    .slotProgress = slotProgress,
+    .completed = completed,
+    .updateOverall = updateOverall,
+  };
+
+  auto tasks =
+    buildProbeTasks(ctx, vids, taskVids, *probeRoot, progress, plans, workerCount);
 
   auto const runState = taskexec::runTasks({
     .tasks = std::move(tasks),

@@ -310,11 +310,14 @@ int runScannedEncodingWorkflow(
     logging::ScopedTimer timer("video.encode");
     auto const encodeLabel = std::format("{} video(s)", vids.size());
     logging::ScopedErrorContext scopedCtx("video.encode", encodeLabel);
+    auto const encodeJob = videobatch::EncodingBatchJob{
+      .vids = pendingVids,
+      .plannedOutputFiles = plannedOutputFiles,
+      .actionIds = prepared.actionIds,
+    };
     auto outcome = videobatch::runEncodingTasks(
       ctx,
-      pendingVids,
-      plannedOutputFiles,
-      prepared.actionIds,
+      encodeJob,
       prepared.totalActions,
       prepared.initialResults.size()
     );

@@ -63,6 +63,17 @@ struct NamingConfig {
     zipNameStrategy;
 };
 
+// How a directory pack walks the tree and names the entries: recursion,
+// entry naming, zip concurrency, and optional scan exclusion (job-state
+// file). Packed together because they arrive from the same config and are
+// consumed only by the directory plan builder.
+struct DirectoryPackOptions {
+  bool recursive = true;
+  NamingStrategy namingStrategy = NamingStrategy::Flat;
+  std::optional<std::size_t> maxParallelJobs = std::nullopt;
+  std::optional<fs::path> excludedPath = std::nullopt;
+};
+
 struct SummaryConfig {
   std::vector<PackFileEntry> entries;
   std::string prefix = "";

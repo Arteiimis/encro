@@ -133,65 +133,51 @@ auto buildTrimmedPairChain(std::uint64_t durationUs) -> std::string {
   );
 }
 
-auto runVmaf(
-  fs::path const& ffmpegPath,
-  fs::path const& originalPath,
-  fs::path const& encodedPath,
-  std::uint64_t startUs,
-  std::uint64_t durationUs,
-  fs::path const& logPath,
-  bool seekEncodedToWindow
-) -> eh::Result<std::vector<double>> {
-  auto const chain = buildTrimmedPairChain(durationUs);
-  auto const startSec = seconds(startUs);
-  auto const encodedInput = seekEncodedToWindow
-    ? std::format("-ss {:.6f} -i \"{}\"", startSec, encodedPath.string())
-    : std::format("-i \"{}\"", encodedPath.string());
+auto runVmaf(QualityRequest const& request, fs::path const& logPath)
+  -> eh::Result<std::vector<double>> {
+  auto const chain = buildTrimmedPairChain(request.durationUs);
+  auto const startSec = seconds(request.startUs);
+  auto const encodedInput = !request.encodedHasLocalPts
+    ? std::format("-ss {:.6f} -i \"{}\"", startSec, request.encodedPath.string())
+    : std::format("-i \"{}\"", request.encodedPath.string());
   auto const cmd = std::format(
     "{} -hide_banner -nostats -loglevel error -y -ss {:.6f} -i \"{}\" {} "
     "-filter_complex \"{};[enc][ref]libvmaf=log_fmt=json:log_path={}[vnul]\" "
     "-map \"[vnul]\" -f null -",
-    quoteToolPath(ffmpegPath),
+    quoteToolPath(request.ffmpegPath),
     startSec,
-    originalPath.string(),
+    request.originalPath.string(),
     encodedInput,
     chain,
     quoteFilterPath(logPath)
   );
 
-  auto const runRes = runScoringCommand(ffmpegPath, cmd);
+  auto const runRes = runScoringCommand(request.ffmpegPath, cmd);
   if (!runRes) { return eh::makeError("{}", runRes.error()); }
 
   return parseVmafLog(logPath);
 }
 
-auto runSsim(
-  fs::path const& ffmpegPath,
-  fs::path const& originalPath,
-  fs::path const& encodedPath,
-  std::uint64_t startUs,
-  std::uint64_t durationUs,
-  fs::path const& statsPath,
-  bool seekEncodedToWindow
-) -> eh::Result<std::vector<double>> {
-  auto const chain = buildTrimmedPairChain(durationUs);
-  auto const startSec = seconds(startUs);
-  auto const encodedInput = seekEncodedToWindow
-    ? std::format("-ss {:.6f} -i \"{}\"", startSec, encodedPath.string())
-    : std::format("-i \"{}\"", encodedPath.string());
+auto runSsim(QualityRequest const& request, fs::path const& statsPath)
+  -> eh::Result<std::vector<double>> {
+  auto const chain = buildTrimmedPairChain(request.durationUs);
+  auto const startSec = seconds(request.startUs);
+  auto const encodedInput = !request.encodedHasLocalPts
+    ? std::format("-ss {:.6f} -i \"{}\"", startSec, request.encodedPath.string())
+    : std::format("-i \"{}\"", request.encodedPath.string());
   auto const cmd = std::format(
     "{} -hide_banner -nostats -loglevel error -y -ss {:.6f} -i \"{}\" {} "
     "-filter_complex \"{};[enc][ref]ssim=stats_file={}[snul]\" "
     "-map \"[snul]\" -f null -",
-    quoteToolPath(ffmpegPath),
+    quoteToolPath(request.ffmpegPath),
     startSec,
-    originalPath.string(),
+    request.originalPath.string(),
     encodedInput,
     chain,
     quoteFilterPath(statsPath)
   );
 
-  auto const runRes = runScoringCommand(ffmpegPath, cmd);
+  auto const runRes = runScoringCommand(request.ffmpegPath, cmd);
   if (!runRes) { return eh::makeError("{}", runRes.error()); }
 
   return parseSsimStats(statsPath);
@@ -347,16 +333,10 @@ auto parseSsimStats(fs::path const& statsPath) -> eh::Result<std::vector<double>
 // encodedHasLocalPts: probe segments carry segment-local PTS (their -ss seek
 // already happened), so only the original is seeked to the window. Full-file
 // inputs (preview) are seeked on both sides.
-auto measureSegmentQuality(
-  fs::path const& ffmpegPath,
-  fs::path const& originalPath,
-  fs::path const& encodedPath,
-  std::uint64_t startUs,
-  std::uint64_t durationUs,
-  boost::json::value const& originalVideoInfo,
-  bool encodedHasLocalPts
-) -> eh::Result<SegmentScores> {
-  if (durationUs == 0) { return eh::makeError("Segment duration must be non-zero."); }
+auto measureSegmentQuality(QualityRequest const& request) -> eh::Result<SegmentScores> {
+  if (request.durationUs == 0) {
+    return eh::makeError("Segment duration must be non-zero.");
+  }
 
   workdirs::ensureScratchDir();
   auto const logDir = workdirs::scratchDir();
@@ -368,42 +348,26 @@ auto measureSegmentQuality(
     fs::remove(ssimStats, ec);
   };
 
-  if (!isHdrVideo(originalVideoInfo)) {
-    auto vmafRes = runVmaf(
-      ffmpegPath,
-      originalPath,
-      encodedPath,
-      startUs,
-      durationUs,
-      vmafLog,
-      !encodedHasLocalPts
-    );
+  if (!isHdrVideo(request.originalVideoInfo)) {
+    auto vmafRes = runVmaf(request, vmafLog);
     if (vmafRes.has_value()) {
       removeLogs();
       return SegmentScores{QualityMetric::Vmaf, std::move(*vmafRes)};
     }
     LOG_WARN(
       "VMAF unavailable for segment (original={} start={}us); falling back to SSIM: {}",
-      originalPath.string(),
-      startUs,
+      request.originalPath.string(),
+      request.startUs,
       vmafRes.error()
     );
   }
 
-  auto ssimRes = runSsim(
-    ffmpegPath,
-    originalPath,
-    encodedPath,
-    startUs,
-    durationUs,
-    ssimStats,
-    !encodedHasLocalPts
-  );
+  auto ssimRes = runSsim(request, ssimStats);
   removeLogs();
   if (!ssimRes) {
     return eh::makeError(
       "Quality scores unparsable for segment of {}: {}",
-      originalPath.string(),
+      request.originalPath.string(),
       ssimRes.error()
     );
   }

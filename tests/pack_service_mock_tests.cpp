@@ -39,9 +39,10 @@ TEST_CASE("packAllFilesInDirectory packs files from a real directory", "[pack-se
     srcDir,
     outDir,
     500ULL * 1024 * 1024,
-    true,
-    pack::NamingStrategy::Flat,
-    std::nullopt
+    pack::DirectoryPackOptions{
+      .recursive = true,
+      .namingStrategy = pack::NamingStrategy::Flat,
+    }
   );
 
   REQUIRE(result);
@@ -68,9 +69,10 @@ TEST_CASE(
     nonExistentDir,
     outDir,
     500ULL * 1024 * 1024,
-    true,
-    pack::NamingStrategy::Flat,
-    std::nullopt
+    pack::DirectoryPackOptions{
+      .recursive = true,
+      .namingStrategy = pack::NamingStrategy::Flat,
+    }
   );
 
   REQUIRE_FALSE(result);
@@ -93,9 +95,10 @@ TEST_CASE("packAllFilesInDirectory respects non-recursive flag", "[pack-service]
     srcDir,
     outDir,
     500ULL * 1024 * 1024,
-    false,
-    pack::NamingStrategy::Flat,
-    std::nullopt
+    pack::DirectoryPackOptions{
+      .recursive = false,
+      .namingStrategy = pack::NamingStrategy::Flat,
+    }
   );
 
   REQUIRE(result);
@@ -123,9 +126,10 @@ TEST_CASE("packAllFilesInDirectory with forceNameConflictHandling", "[pack-servi
     srcDir,
     outDir,
     500ULL * 1024 * 1024,
-    true,
-    pack::NamingStrategy::FlatWithForce,
-    std::nullopt
+    pack::DirectoryPackOptions{
+      .recursive = true,
+      .namingStrategy = pack::NamingStrategy::FlatWithForce,
+    }
   );
 
   REQUIRE(result);

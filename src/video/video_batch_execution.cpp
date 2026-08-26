@@ -248,19 +248,17 @@ auto runEncodingTask(
 
 auto runEncodingWithoutProgress(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& vids,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  videobatch::ActionIdMap const& actionIds,
+  videobatch::EncodingBatchJob const& job,
   appctx::path_map<int> const& probeCqByInput
 ) -> videobatch::EncodeResultsMap {
   auto vidsRunRes = videobatch::EncodeResultsMap{};
 
   LOG_INFO(
     "Running encoding without progress bars (verbose output mode), total={}.",
-    vids.size()
+    job.vids.size()
   );
 
-  for (auto const& vidPath: vids) {
+  for (auto const& vidPath: job.vids) {
     if (stopsignal::isStopRequested()) {
       noteStopRequest(ctx);
       break;
@@ -268,10 +266,10 @@ auto runEncodingWithoutProgress(
 
     auto state = appctx::EncodingState{};
     state.inputPath = vidPath;
-    if (auto const* actionId = actionIds.find(vidPath); actionId != nullptr) {
+    if (auto const* actionId = job.actionIds.find(vidPath); actionId != nullptr) {
       state.actionId = *actionId;
     }
-    state.plannedOutputFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
+    state.plannedOutputFile = lookupPlannedOutputFile(job.plannedOutputFiles, vidPath);
     if (state.plannedOutputFile.has_value()) {
       state.outputPath = state.plannedOutputFile->parent_path();
     }
@@ -440,26 +438,16 @@ struct PreparedEncodingExecution {
 
 auto runVerboseEncoding(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& vids,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  videobatch::ActionIdMap const& actionIds,
+  videobatch::EncodingBatchJob const& job,
   appctx::path_map<int>& probeCqByInput
 ) -> videobatch::EncodeResultsMap {
   terminal::println(Warning, "Verbose output enabled: progress bars are disabled.");
-  return runEncodingWithoutProgress(
-    ctx,
-    vids,
-    plannedOutputFiles,
-    actionIds,
-    probeCqByInput
-  );
+  return runEncodingWithoutProgress(ctx, job, probeCqByInput);
 }
 
 auto prepareEncodingExecution(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& vids,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  videobatch::ActionIdMap const& actionIds,
+  videobatch::EncodingBatchJob const& job,
   std::size_t overallTotalCount,
   std::size_t initialCompletedCount,
   appctx::path_map<int>& probeCqByInput
@@ -467,30 +455,31 @@ auto prepareEncodingExecution(
   constexpr auto kMaxConcurrentJobs = std::size_t{10};
   auto const maxConcurrentJobs =
     std::max<std::size_t>(1, ctx.config.maxParallelJobs.value_or(kMaxConcurrentJobs));
-  auto const workerCount = taskexec::resolveWorkerCount(vids.size(), maxConcurrentJobs);
+  auto const workerCount =
+    taskexec::resolveWorkerCount(job.vids.size(), maxConcurrentJobs);
   auto const compact = !ctx.config.fullProgress;
   auto progressState = std::make_unique<
     EncodingProgressState
-  >(vids.size(), overallTotalCount, initialCompletedCount, workerCount, compact);
+  >(job.vids.size(), overallTotalCount, initialCompletedCount, workerCount, compact);
 
   terminal::println(
     Info,
     "Scheduling {} video(s) with max {} concurrent encode job(s)...",
-    terminal::count(vids.size()),
+    terminal::count(job.vids.size()),
     terminal::count(workerCount)
   );
   LOG_INFO(
     "Scheduling encoding workers: workers={} pending={} overall={} "
     "completed-before-start={}",
     workerCount,
-    vids.size(),
+    job.vids.size(),
     overallTotalCount,
     initialCompletedCount
   );
 
   auto executionCtx = std::make_unique<
     EncodingExecutionContext
-  >(ctx, *progressState, plannedOutputFiles, actionIds);
+  >(ctx, *progressState, job.plannedOutputFiles, job.actionIds);
   executionCtx->probeCqByInput = std::move(probeCqByInput);
   executionCtx->updateOverall();
 
@@ -542,14 +531,12 @@ bool confirmEncodingStart(appctx::AppContext& ctx) {
 
 auto videobatch::runEncodingTasks(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& vids,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  videobatch::ActionIdMap const& actionIds,
+  videobatch::EncodingBatchJob const& job,
   std::size_t overallTotalCount,
   std::size_t initialCompletedCount
 ) -> EncodingBatchOutcome {
-  if (vids.empty()) { return EncodingBatchOutcome{.results = EncodeResultsMap{}}; }
-  logBatchStart(ctx, vids, overallTotalCount, initialCompletedCount);
+  if (job.vids.empty()) { return EncodingBatchOutcome{.results = EncodeResultsMap{}}; }
+  logBatchStart(ctx, job.vids, overallTotalCount, initialCompletedCount);
 
   // Pre-encode quality probing (MP4 only; --crf bypasses it entirely): picks
   // a per-file CQ meeting the quality floor and prints the plan before the
@@ -557,7 +544,8 @@ auto videobatch::runEncodingTasks(
   auto attentionWarnings = std::vector<std::string>{};
   auto probeCqByInput = appctx::path_map<int>{};
   auto encodableVids = std::vector<fs::path>{};  // filled by runProbeStage
-  switch (runProbeStage(ctx, vids, encodableVids, probeCqByInput, attentionWarnings)) {
+  switch (
+    runProbeStage(ctx, job.vids, encodableVids, probeCqByInput, attentionWarnings)) {
     case ProbeStageStatus::Proceed: break;
     case ProbeStageStatus::DryRun:
       return EncodingBatchOutcome{
@@ -573,41 +561,39 @@ auto videobatch::runEncodingTasks(
     return EncodingBatchOutcome{.results = std::nullopt};
   }
 
+  // Skipped (too-large estimate) files count as completed up front so the
+  // overall bar reaches its total when the remaining encodes finish.
+  auto const skippedBeforeStart = job.vids.size() - encodableVids.size();
+  auto const encodableJob = EncodingBatchJob{
+    .vids = std::move(encodableVids),
+    .plannedOutputFiles = job.plannedOutputFiles,
+    .actionIds = job.actionIds,
+  };
+
   if (ctx.config.verbose) {
     return EncodingBatchOutcome{
-      .results = runVerboseEncoding(
-        ctx,
-        encodableVids,
-        plannedOutputFiles,
-        actionIds,
-        probeCqByInput
-      ),
+      .results = runVerboseEncoding(ctx, encodableJob, probeCqByInput),
       .attentionWarnings = std::move(attentionWarnings),
     };
   }
 
-  if (encodableVids.empty()) {
+  if (encodableJob.vids.empty()) {
     return EncodingBatchOutcome{
       .results = EncodeResultsMap{},
       .attentionWarnings = std::move(attentionWarnings),
     };
   }
 
-  // Skipped (too-large estimate) files count as completed up front so the
-  // overall bar reaches its total when the remaining encodes finish.
-  auto const skippedBeforeStart = vids.size() - encodableVids.size();
   auto execution = prepareEncodingExecution(
     ctx,
-    encodableVids,
-    plannedOutputFiles,
-    actionIds,
+    encodableJob,
     overallTotalCount,
     initialCompletedCount + skippedBeforeStart,
     probeCqByInput
   );
 
   auto const runState = taskexec::runTasks({
-    .tasks = buildEncodeTasks(encodableVids, *execution.ctx),
+    .tasks = buildEncodeTasks(encodableJob.vids, *execution.ctx),
     .maxConcurrency = execution.maxConcurrentJobs,
     .progress = &execution.progressState->progressCtx,
     .hideCursor = true,
@@ -615,7 +601,7 @@ auto videobatch::runEncodingTasks(
 
   execution.monitorThread.join();
 
-  auto const results = collectEncodingResults(encodableVids, runState);
+  auto const results = collectEncodingResults(encodableJob.vids, runState);
 
   LOG_INFO(
     "Encoding batch completed: attempted={} completed={} ",
