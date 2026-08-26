@@ -8,6 +8,8 @@
 #include "core/job_state.h"
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 #include "pack/pack.h"
 #include "video/encode_probe.h"
 #include "video/video_info.h"
@@ -17,9 +19,6 @@
 #include <boost/lambda2.hpp>
 #include <cstdint>
 #include <map>
-
-#include "logging/log_tags.h"
-#include "logging/logging.h"
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_PROCESS);
@@ -238,7 +237,9 @@ auto mergeEncodeResults(
   EncodeResultsMap const& runResults
 ) -> EncodeResultsMap {
   for (auto const& [vidPath, success]: runResults) {
-    initialResults.emplace(vidPath, success);
+    // insert_or_assign: run results win over recovered/initial entries,
+    // preserving immer::set's last-write-wins semantics.
+    initialResults.insert_or_assign(vidPath, success);
   }
 
   return initialResults;
