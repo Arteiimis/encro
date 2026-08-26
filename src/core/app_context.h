@@ -103,7 +103,7 @@ using EncodingStateList = std::vector<EncodingStatePtr>;
 struct RuntimeContext {
   struct VideoInfoCacheStore {
     void set(fs::path const& path, json::value const& value) {
-      auto lock = std::unique_lock{mtx_};  // NOLINT(bugprone-unused-raii)
+      auto lock = std::scoped_lock{mtx_};  // NOLINT(bugprone-unused-raii)
       cache_[path] = value;
     }
 
