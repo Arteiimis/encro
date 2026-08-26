@@ -225,7 +225,7 @@ auto probeVideo(
 }
 
 auto metricText(videoquality::QualityMetric metric) -> std::string_view {
-  return metric == videoquality::QualityMetric::Vmaf ? "VMAF" : "SSIM";
+  return videoquality::metricName(metric);
 }
 
 void printWindows(
@@ -241,7 +241,10 @@ void printWindows(
     auto const& window = windows[index];
     auto scoreText = std::string{"-"};
     if (window.score.has_value()) {
-      if (window.metric == videoquality::QualityMetric::Vmaf) {
+      if (window.metric == videoquality::QualityMetric::Xpsnr) {
+        scoreText =
+          std::format("{} {:.2f} dB", metricText(window.metric), window.score.value());
+      } else if (window.metric == videoquality::QualityMetric::Vmaf) {
         scoreText =
           std::format("{} {:.1f}", metricText(window.metric), window.score.value());
       } else {
