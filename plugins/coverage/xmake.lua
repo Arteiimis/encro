@@ -118,7 +118,8 @@ task("coverage")
         table.insert(common_args, "-instr-profile")
         table.insert(common_args, merged)
         -- 只统计项目代码，过滤第三方头文件（boost/catch2/spdlog/fmt/indicators/libzip/thread-pool/asio）
-        table.insert(common_args, "-ignore-filename-regex=(^|[\\\\/])(boost|catch2|spdlog|fmt|indicators|libzip|thread%-pool|asio)([\\\\/]|$)")
+        local ignore_re = "-ignore-filename-regex=(^|[\\\\/])(boost|catch2|spdlog|fmt|indicators|libzip|thread%-pool|asio)([\\\\/]|$)"
+        table.insert(common_args, ignore_re)
 
         local report_args = table.join({"report"}, common_args)
         if option.get("summary") then
@@ -129,10 +130,18 @@ task("coverage")
         if option.get("html") then
           local html_dir = path.join(coverage_dir, "html")
           os.mkdir(html_dir)
-          -- --summary-only 是 report 专属，show 不能带
-          local show_args = table.join({"show", "--format=html", "-output-dir=" .. html_dir}, common_args)
-          run(find_tool("llvm-cov"), show_args)
-          cprint("${green}HTML report written to %s", html_dir)
+          -- llvm-cov show --format=html 传多个 binary 时产出空报告（Totals 0/0，
+          -- 本机 llvm 22 实测；为平台一致性统一规避），HTML 只对主测试二进制生成
+          local html_args = {"show", "--format=html", "-output-dir=" .. html_dir}
+          local tests_bin = path.join(mode_dir, "tests" .. ext)
+          if os.exists(tests_bin) then
+            table.insert(html_args, tests_bin)
+            table.insert(html_args, "-instr-profile")
+            table.insert(html_args, merged)
+            table.insert(html_args, ignore_re)
+            run(find_tool("llvm-cov"), html_args)
+            cprint("${green}HTML report written to %s", html_dir)
+          end
         end
       end,
       catch {
