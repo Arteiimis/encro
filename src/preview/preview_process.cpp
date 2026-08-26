@@ -370,6 +370,25 @@ struct WindowBatchResult {
   std::vector<fs::path> segments;
 };
 
+// The single preview progress bar: its context, handle, and the percent
+// offset where the window phase starts (40 after a successful probe).
+struct BarSlot {
+  progress::ProgressContext& progressCtx;
+  std::size_t bar;
+  float windowBase;
+};
+
+// One window-encode batch for a single-input preview: the input, the
+// windows to encode, the probe plan (CQ decision), the encode settings,
+// and the temp dir for the segments.
+struct WindowBatchSpec {
+  fs::path const& original;
+  std::vector<Window> const& windows;
+  encodeprobe::ProbePlan const& plan;
+  EncodeInputSettings const& settings;
+  fs::path const& probeRoot;
+};
+
 // Encodes one probe window and scores it against the original segment.
 // Returns the outcome (default on scoring failure) or an error on encode
 // failure, which also flags windowEncodeFailed for the batch.
@@ -381,8 +400,6 @@ auto encodeAndScoreWindow(
   Window const& window,
   int windowCq,
   std::size_t workers,
-  fs::path const& ffmpeg,
-  boost::json::value const& info,
   std::atomic_bool& windowEncodeFailed
 ) -> eh::Result<WindowOutcome> {
   auto const ok = encodeprobe::runProbeEncode(
@@ -402,14 +419,19 @@ auto encodeAndScoreWindow(
       original.string()
     );
   }
+  auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
+  auto const info =
+    ctx.runtime.videoInfoCache.find(original).value_or(boost::json::value{});
   auto const scores = videoquality::measureSegmentQuality(
-    ffmpeg,
-    original,
-    segFile,
-    window.startUs,
-    window.durationUs,
-    info,
-    true  // segments carry segment-local PTS
+    videoquality::QualityRequest{
+      .ffmpegPath = ffmpeg,
+      .originalPath = original,
+      .encodedPath = segFile,
+      .startUs = window.startUs,
+      .durationUs = window.durationUs,
+      .originalVideoInfo = info,
+      .encodedHasLocalPts = true,  // segments carry segment-local PTS
+    }
   );
   if (!scores.has_value()) {
     LOG_WARN(
@@ -427,60 +449,51 @@ auto encodeAndScoreWindow(
 
 auto encodeAndScoreAllWindows(
   appctx::AppContext& ctx,
-  PreviewOptions const& options,
-  std::vector<Window> const& windows,
-  encodeprobe::ProbePlan const& plan,
-  fs::path const& ffmpeg,
-  boost::json::value const& info,
-  EncodeInputSettings const& settings,
-  fs::path const& probeRoot,
-  progress::ProgressContext& progressCtx,
-  std::size_t bar,
-  float windowBase,
+  WindowBatchSpec const& spec,
+  BarSlot const& bars,
   std::atomic_bool& windowEncodeFailed
 ) -> WindowBatchResult {
   auto result = WindowBatchResult{};
-  result.outcomes.resize(windows.size());
-  result.segments.resize(windows.size());
+  result.outcomes.resize(spec.windows.size());
+  result.segments.resize(spec.windows.size());
   auto windowsCompleted = std::atomic_size_t{0};
   auto tasks = std::vector<taskexec::TaskSpec>{};
-  tasks.reserve(windows.size());
-  auto const previewWorkers =
-    std::clamp<std::size_t>(ctx.config.maxParallelJobs.value_or(4), 1, windows.size());
-  for (auto index = std::size_t{}; index < windows.size(); ++index) {
-    auto const segFile = probeRoot / std::format("win{}.ts", index);
+  tasks.reserve(spec.windows.size());
+  auto const previewWorkers = std::clamp<
+    std::size_t
+  >(ctx.config.maxParallelJobs.value_or(4), 1, spec.windows.size());
+  for (auto index = std::size_t{}; index < spec.windows.size(); ++index) {
+    auto const segFile = spec.probeRoot / std::format("win{}.ts", index);
     result.segments[index] = segFile;
     tasks.push_back(
       {.id = std::format("preview-window:{}", index),
        .label = std::format("window {}", index),
-       .input = options.original.string(),
+       .input = spec.original.string(),
        // NOLINTNEXTLINE(bugprone-exception-escape): taskexec::runTasks catches
        .run = [&, index, segFile](taskexec::TaskContext&) -> eh::Result<void> {
          auto outcome = encodeAndScoreWindow(
            ctx,
-           options.original,
-           settings,
+           spec.original,
+           spec.settings,
            segFile,
-           windows[index],
-           ctx.config.crf.value_or(plan.chosenCq),
+           spec.windows[index],
+           ctx.config.crf.value_or(spec.plan.chosenCq),
            previewWorkers,
-           ffmpeg,
-           info,
            windowEncodeFailed
          );
          if (!outcome) { return std::unexpected(outcome.error()); }
          result.outcomes[index] = *outcome;
          auto const done = windowsCompleted.fetch_add(1) + 1;
-         progressCtx.setProgress(
-           bar,
-           windowBase
-             + (85.0f - windowBase)
+         bars.progressCtx.setProgress(
+           bars.bar,
+           bars.windowBase
+             + (85.0f - bars.windowBase)
                * static_cast<float>(done)
-               / static_cast<float>(windows.size())
+               / static_cast<float>(spec.windows.size())
          );
-         progressCtx.setPostfixText(
-           bar,
-           std::format("Encoding windows: {}/{}", done, windows.size())
+         bars.progressCtx.setPostfixText(
+           bars.bar,
+           std::format("Encoding windows: {}/{}", done, spec.windows.size())
          );
          return {};
        }}
@@ -554,8 +567,7 @@ auto renderAndReportSingleInput(
   std::vector<Window> windows,
   std::vector<fs::path> const& segments,
   fs::path const& outputPath,
-  progress::ProgressContext& progressCtx,
-  std::size_t bar,
+  BarSlot const& bars,
   std::optional<std::size_t> worstIndex
 ) -> eh::Result<int> {
   auto const spec = FiltergraphSpec{
@@ -567,13 +579,13 @@ auto renderAndReportSingleInput(
   auto const renderResult =
     renderPreview(ctx, options, options.original, segments, spec, outputPath);
   if (!renderResult) {
-    progressCtx.setTone(bar, progress::Tone::Failure);
-    progressCtx.setPostfixText(bar, "Preview generation failed");
+    bars.progressCtx.setTone(bars.bar, progress::Tone::Failure);
+    bars.progressCtx.setPostfixText(bars.bar, "Preview generation failed");
     return renderResult;
   }
-  progressCtx.setProgress(bar, 100.0f);
-  progressCtx.setTone(bar, progress::Tone::Success);
-  progressCtx.setPostfixText(bar, "Preview complete");
+  bars.progressCtx.setProgress(bars.bar, 100.0f);
+  bars.progressCtx.setTone(bars.bar, progress::Tone::Success);
+  bars.progressCtx.setPostfixText(bars.bar, "Preview complete");
 
   // Summary output only after the render finished.
   printWindows(windows, worstIndex);
@@ -587,40 +599,43 @@ auto probeSingleInputPlan(
   appctx::AppContext& ctx,
   PreviewOptions const& options,
   fs::path const& probeRoot,
-  progress::ProgressContext& progressCtx,
-  std::size_t bar,
+  BarSlot const& bars,
   std::string const& fileName
 ) -> std::pair<encodeprobe::ProbePlan, float> {
   auto step = std::size_t{0};
   auto const onStep = [&](int cq, std::string_view phase) {
     ++step;
-    progressCtx.setProgress(
-      bar,
+    bars.progressCtx.setProgress(
+      bars.bar,
       40.0f * static_cast<float>(step) / static_cast<float>(encodeprobe::kMaxProbeSteps)
     );
-    progressCtx
-      .setPostfixText(bar, std::format("Probing: {} · CQ {} {}", fileName, cq, phase));
+    bars.progressCtx.setPostfixText(
+      bars.bar,
+      std::format("Probing: {} · CQ {} {}", fileName, cq, phase)
+    );
   };
   auto const onPoint = [&](std::size_t done, int cq) {
-    progressCtx.setProgress(
-      bar,
+    bars.progressCtx.setProgress(
+      bars.bar,
       40.0f
         * static_cast<float>(done * encodeprobe::kStepsPerProbePoint)
         / static_cast<float>(encodeprobe::kMaxProbeSteps)
     );
-    progressCtx
-      .setPostfixText(bar, std::format("Probing: {} · CQ {} scored", fileName, cq));
+    bars.progressCtx
+      .setPostfixText(bars.bar, std::format("Probing: {} · CQ {} scored", fileName, cq));
   };
   auto const plan =
     encodeprobe::probeSingleFile(ctx, options.original, probeRoot, 1, onPoint, onStep);
   auto windowBase = 0.0f;
   if (plan.probed) {
     windowBase = 40.0f;
-    progressCtx
-      .setPostfixText(bar, std::format("Probed: {} (CQ {})", fileName, plan.chosenCq));
+    bars.progressCtx.setPostfixText(
+      bars.bar,
+      std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
+    );
   } else {
-    progressCtx.setPostfixText(
-      bar,
+    bars.progressCtx.setPostfixText(
+      bars.bar,
       std::format(
         "Probing skipped: {} (default CQ {})",
         fileName,
@@ -655,12 +670,11 @@ auto runSingleInput(
   // One bar spans the whole pipeline: probe 0-40%, windows 40-85%, render 85-100%.
   auto const bar =
     progressCtx.addBar(std::format("Previewing: {}", fileName), progress::Tone::Active);
+  auto const probeSlot = BarSlot{progressCtx, bar, 0.0f};
   auto const [plan, windowBase] =
-    probeSingleInputPlan(ctx, options, *probeRoot, progressCtx, bar, fileName);
+    probeSingleInputPlan(ctx, options, *probeRoot, probeSlot, fileName);
+  auto const windowBars = BarSlot{progressCtx, bar, windowBase};
 
-  auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
-  auto const info =
-    ctx.runtime.videoInfoCache.find(options.original).value_or(boost::json::value{});
   auto const settings = resolveInputEncodeSettings(
     ctx.toolchain,
     ctx.runtime,
@@ -671,16 +685,14 @@ auto runSingleInput(
   auto windowEncodeFailed = std::atomic_bool{false};
   auto const windowBatch = encodeAndScoreAllWindows(
     ctx,
-    options,
-    windows,
-    plan,
-    ffmpeg,
-    info,
-    settings,
-    *probeRoot,
-    progressCtx,
-    bar,
-    windowBase,
+    WindowBatchSpec{
+      .original = options.original,
+      .windows = windows,
+      .plan = plan,
+      .settings = settings,
+      .probeRoot = *probeRoot,
+    },
+    windowBars,
     windowEncodeFailed
   );
   if (windowEncodeFailed.load()) {
@@ -708,8 +720,7 @@ auto runSingleInput(
     windows,
     windowBatch.segments,
     outputPath,
-    progressCtx,
-    bar,
+    windowBars,
     worstIndex
   );
   return renderResult;
@@ -775,13 +786,15 @@ auto scoreComparisonWindows(
   for (auto index = std::size_t{}; index < windows.size(); ++index) {
     auto& window = windows[index];
     auto const scores = videoquality::measureSegmentQuality(
-      ffmpeg,
-      options.original,
-      // NOLINTNEXTLINE(bugprone-unchecked-optional-access): caller only scores windows in comparison mode
-      options.encoded.value(),
-      window.startUs,
-      window.durationUs,
-      info
+      videoquality::QualityRequest{
+        .ffmpegPath = ffmpeg,
+        .originalPath = options.original,
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access): caller only scores windows in comparison mode
+        .encodedPath = options.encoded.value(),
+        .startUs = window.startUs,
+        .durationUs = window.durationUs,
+        .originalVideoInfo = info,
+      }
     );
     if (scores.has_value()) {
       window.metric = scores->metric;

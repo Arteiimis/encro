@@ -82,15 +82,26 @@ public:
     std::filesystem::path const& dirPath,
     std::filesystem::path const& zipFileDir,
     std::uintmax_t maxGroupSize = pack::kDefaultMaxArchiveGroupSize,
-    bool recursive = true,
-    NamingStrategy namingStrategy = NamingStrategy::Flat,
-    std::optional<std::size_t> maxParallelJobs = std::nullopt,
-    std::optional<std::filesystem::path> const& excludedPath = std::nullopt
+    DirectoryPackOptions options = {}
   ) -> eh::Result<PackPlan>;
 
 private:
   struct PreparedPackEntry;
   struct PreparedPackChunk;
+
+  // Grouping limits shared by the group-formation helpers.
+  struct GroupLimits {
+    std::uintmax_t maxGroupSize;
+    std::optional<std::size_t> maxFilesPerGroup;
+  };
+
+  // In-flight grouping state: the open group plus the finalized groups.
+  struct GroupState {
+    std::vector<PackFileEntry> currentGroup;
+    std::uintmax_t currentSize = 0;
+    std::size_t currentCount = 0;
+    std::vector<std::vector<PackFileEntry>> groupedEntries;
+  };
 
   static auto normalizeZipEntryName(std::string const& entryName) -> std::string;
   static auto makeUniqueZipEntryName(
@@ -145,12 +156,8 @@ private:
   ) -> std::vector<PreparedPackChunk>;
   static void packSourceEntryChunks(
     std::vector<PreparedPackEntry> const& entries,
-    std::uintmax_t maxGroupSize,
-    std::optional<std::size_t> maxFilesPerGroup,
-    std::vector<PackFileEntry>& currentGroup,
-    std::uintmax_t& currentSize,
-    std::size_t& currentCount,
-    std::vector<std::vector<PackFileEntry>>& groupedEntries
+    GroupLimits const& limits,
+    GroupState& state
   );
   static auto buildPackEntryStableKey(PackFileEntry const& entry) -> std::string;
   static auto sourcePathsForGroup(std::vector<PackFileEntry> const& entries)

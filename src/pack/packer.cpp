@@ -225,33 +225,35 @@ auto pack::Packer::splitSourceDirectoryEntries(
 
 void pack::Packer::packSourceEntryChunks(
   std::vector<PreparedPackEntry> const& entries,
-  std::uintmax_t maxGroupSize,
-  std::optional<std::size_t> maxFilesPerGroup,
-  std::vector<PackFileEntry>& currentGroup,
-  std::uintmax_t& currentSize,
-  std::size_t& currentCount,
-  std::vector<std::vector<PackFileEntry>>& groupedEntries
+  GroupLimits const& limits,
+  GroupState& state
 ) {
   auto const sourceChunks =
-    splitSourceDirectoryEntries(entries, maxGroupSize, maxFilesPerGroup);
+    splitSourceDirectoryEntries(entries, limits.maxGroupSize, limits.maxFilesPerGroup);
   for (auto const& chunk: sourceChunks) {
     if (
-      !currentGroup.empty()
+      !state.currentGroup.empty()
       && wouldExceedGroupLimits(
-        currentSize,
-        currentCount,
+        state.currentSize,
+        state.currentCount,
         chunk.totalSize,
         chunk.fileCount,
-        maxGroupSize,
-        maxFilesPerGroup
+        limits.maxGroupSize,
+        limits.maxFilesPerGroup
       )
     ) {
-      flushGroupedEntries(currentGroup, currentSize, currentCount, groupedEntries);
+      flushGroupedEntries(
+        state.currentGroup,
+        state.currentSize,
+        state.currentCount,
+        state.groupedEntries
+      );
     }
 
-    currentGroup.insert(currentGroup.end(), chunk.entries.begin(), chunk.entries.end());
-    currentSize += chunk.totalSize;
-    currentCount += chunk.fileCount;
+    state.currentGroup
+      .insert(state.currentGroup.end(), chunk.entries.begin(), chunk.entries.end());
+    state.currentSize += chunk.totalSize;
+    state.currentCount += chunk.fileCount;
   }
 }
 
@@ -270,6 +272,8 @@ auto pack::Packer::groupPreparedEntries(
   std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed
 ) -> std::vector<std::vector<PackFileEntry>> {
   if (preparedEntries.empty()) { return {}; }
+
+  auto const limits = GroupLimits{maxGroupSize, maxFilesPerGroup};
 
   if (
     !keepSourceDirsTogetherWhenTotalFilesExceed.has_value()
@@ -290,10 +294,7 @@ auto pack::Packer::groupPreparedEntries(
     }
   );
 
-  auto groupedEntries = std::vector<std::vector<PackFileEntry>>{};
-  auto currentGroup = std::vector<PackFileEntry>{};
-  auto currentSize = std::uintmax_t{0};
-  auto currentCount = std::size_t{0};
+  auto state = GroupState{};
 
   auto currentSourceEntries = std::vector<PreparedPackEntry>{};
   auto currentSourceKey = std::string{};
@@ -302,15 +303,7 @@ auto pack::Packer::groupPreparedEntries(
     if (currentSourceEntries.empty()) {
       currentSourceKey = entry.sourceKey;
     } else if (entry.sourceKey != currentSourceKey) {
-      packSourceEntryChunks(
-        currentSourceEntries,
-        maxGroupSize,
-        maxFilesPerGroup,
-        currentGroup,
-        currentSize,
-        currentCount,
-        groupedEntries
-      );
+      packSourceEntryChunks(currentSourceEntries, limits, state);
       currentSourceEntries.clear();
       currentSourceKey = entry.sourceKey;
     }
@@ -318,18 +311,15 @@ auto pack::Packer::groupPreparedEntries(
     currentSourceEntries.emplace_back(entry);
   }
 
-  packSourceEntryChunks(
-    currentSourceEntries,
-    maxGroupSize,
-    maxFilesPerGroup,
-    currentGroup,
-    currentSize,
-    currentCount,
-    groupedEntries
+  packSourceEntryChunks(currentSourceEntries, limits, state);
+  flushGroupedEntries(
+    state.currentGroup,
+    state.currentSize,
+    state.currentCount,
+    state.groupedEntries
   );
-  flushGroupedEntries(currentGroup, currentSize, currentCount, groupedEntries);
 
-  return groupedEntries;
+  return state.groupedEntries;
 }
 
 auto pack::Packer::sourcePathsForGroup(std::vector<PackFileEntry> const& entries)
@@ -823,10 +813,7 @@ auto pack::Packer::buildDirectoryPackPlan(
   fs::path const& dirPath,
   fs::path const& zipFileDir,
   std::uintmax_t maxGroupSize,
-  bool recursive,
-  NamingStrategy namingStrategy,
-  std::optional<std::size_t> maxParallelJobs,
-  std::optional<fs::path> const& excludedPath
+  DirectoryPackOptions options
 ) -> eh::Result<pack::PackPlan> {
   if (!fs::is_directory(dirPath)) {
     return eh::makeError("Input path is not a directory: {}", dirPath.string());
@@ -836,10 +823,11 @@ auto pack::Packer::buildDirectoryPackPlan(
     Info,
     "Scanning input path for files: {} (recursive={})...",
     terminal::path(dirPath),
-    recursive ? terminal::value("true") : terminal::value("false")
+    options.recursive ? terminal::value("true") : terminal::value("false")
   );
 
-  auto const allFiles = scanDirectoryFiles(dirPath, recursive, excludedPath);
+  auto const allFiles =
+    scanDirectoryFiles(dirPath, options.recursive, options.excludedPath);
 
   if (allFiles.empty()) {
     return eh::makeError("No files found to pack in directory: {}", dirPath.string());
@@ -853,7 +841,8 @@ auto pack::Packer::buildDirectoryPackPlan(
 
   auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);
   auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groupedFiles);
-  auto groupedEntries = buildGroupedEntries(groupedFiles, dirPath, namingStrategy);
+  auto groupedEntries =
+    buildGroupedEntries(groupedFiles, dirPath, options.namingStrategy);
 
   return pack::PackPlan{
     .groups = std::move(groupedEntries),
@@ -867,7 +856,7 @@ auto pack::Packer::buildDirectoryPackPlan(
           ordinalRanges.at(index)
         );
       },
-    .maxParallelJobs = maxParallelJobs,
+    .maxParallelJobs = options.maxParallelJobs,
     .compact = true
   };
 }
