@@ -11,6 +11,11 @@ on:
       - '.githooks/**'
       - 'openspec/**'
   workflow_dispatch:
+    inputs:
+      modes:
+        description: 'JSON array of matrix modes, e.g. ["coverage"]'
+        required: true
+        default: '["debug","release","coverage"]'
 
 concurrency:
   group: ${{ github.ref }}
@@ -23,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [debug, release, coverage]
+        mode: ${{ github.event_name == 'workflow_dispatch' && fromJSON(inputs.modes) || fromJSON('["debug","release","coverage"]') }}
     steps:
       - uses: actions/checkout@v5
 
@@ -121,16 +126,29 @@ jobs:
             echo "3. Failed unit tests: grep -oE '<testcase[^>]*>[^<]*<failure[^>]*>[^<]*' /tmp/ut.xml"
             echo "4. Caveat: spdlog rotation (keep=10) may drop the failing test's"
             echo "   encro log from the artifact; its tail is always in the step-log dump."
-          else
-            echo "Coverage job uploads no artifact; the only debug source is the"
-            echo "'Run coverage' step log above."
+            else
+            echo "Coverage job: 'Run coverage' step log shows the summary; per-file HTML"
+            echo "report artifact: gh run download ${{ github.run_id }} -n coverage-report"
+            echo "contains build/coverage/html/ + all.profdata (local re-report without rerun)."
           fi
           echo "===================="
 
       - name: Run coverage (configures and builds itself)
         if: matrix.mode == 'coverage'
         # --keep: 跳过插件末尾的 release restore（xmake 3 的 execv bug；CI 用完即弃）
-        run: xmake coverage --summary --keep
+        # --html: 生成 build/coverage/html，由下方步骤上传为 artifact
+        run: xmake coverage --summary --keep --html
+
+      - name: Upload coverage report
+        # always(): 测试失败也留报告；插件早期失败时 html 不存在 → warn 不报错
+        if: always() && matrix.mode == 'coverage'
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-report
+          path: |
+            build/coverage/html/
+            build/coverage/all.profdata
+          if-no-files-found: warn
 
       - name: Save xmake packages cache
         # 显式保存（job 失败也保存，否则每次 miss 全量重编 boost）；命中时跳过避免重复 key

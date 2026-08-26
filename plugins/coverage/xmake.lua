@@ -5,6 +5,7 @@ task("coverage")
     description = "Run tests (and optionally e2e) under coverage and print llvm-cov report",
     options = {
       {nil, "summary", "k", nil, "Show summary-only report"},
+      {nil, "html", "k", nil, "Also write an HTML report to build/coverage/html"},
       {nil, "e2e", "k", nil, "Also build and run e2e tests under coverage"},
       {nil, "keep", "k", nil, "Keep coverage build mode after finishing"}
     }
@@ -106,21 +107,33 @@ task("coverage")
         table.insert(merge_args, merged)
         run(find_tool("llvm-profdata"), merge_args)
 
-        local report_args = {"report"}
+        -- 公共参数：binary 列表 + profdata + 第三方头文件过滤（report/show 共用）
+        local common_args = {}
         for _, name in ipairs({"tests", "e2e_tests", "encro", "encro_e2e_tool"}) do
           local bin = path.join(mode_dir, name .. ext)
           if os.exists(bin) then
-            table.insert(report_args, bin)
+            table.insert(common_args, bin)
           end
         end
-        table.insert(report_args, "-instr-profile")
-        table.insert(report_args, merged)
+        table.insert(common_args, "-instr-profile")
+        table.insert(common_args, merged)
         -- 只统计项目代码，过滤第三方头文件（boost/catch2/spdlog/fmt/indicators/libzip/thread-pool/asio）
-        table.insert(report_args, "-ignore-filename-regex=(^|[\\\\/])(boost|catch2|spdlog|fmt|indicators|libzip|thread%-pool|asio)([\\\\/]|$)")
+        table.insert(common_args, "-ignore-filename-regex=(^|[\\\\/])(boost|catch2|spdlog|fmt|indicators|libzip|thread%-pool|asio)([\\\\/]|$)")
+
+        local report_args = table.join({"report"}, common_args)
         if option.get("summary") then
           table.insert(report_args, "--summary-only")
         end
         run(find_tool("llvm-cov"), report_args)
+
+        if option.get("html") then
+          local html_dir = path.join(coverage_dir, "html")
+          os.mkdir(html_dir)
+          -- --summary-only 是 report 专属，show 不能带
+          local show_args = table.join({"show", "--format=html", "-output-dir=" .. html_dir}, common_args)
+          run(find_tool("llvm-cov"), show_args)
+          cprint("${green}HTML report written to %s", html_dir)
+        end
       end,
       catch {
         function(e)
