@@ -6,7 +6,7 @@ A read-only audit of `tests/` (59 files, ~18K lines, 701 TEST_CASEs) found ~550-
 
 ## What Changes
 
-- Delete redundant TEST_CASEs (~14 total; every deleted assertion is a strict subset of a surviving test in the same or a sibling file):
+- Delete redundant TEST_CASEs (11 total; every deleted assertion is a strict subset of a surviving test in the same or a sibling file):
   - `tests/app/app_entry_tests.cpp`: second timestamp-format test (copy of the first).
   - `tests/video/video_batch_execution_tests.cpp`: 3 of 4 empty-shell "types compile / helpers extracted" tests (identical empty-map bodies, two with no meaningful assertion).
   - `tests/video/probe_cache_tests.cpp`: XPSNR round-trip duplicate (subset of the SSIM/VMAF round-trip) and metric-differentiation duplicate (same branch as the key test).
@@ -15,11 +15,11 @@ A read-only audit of `tests/` (59 files, ~18K lines, 701 TEST_CASEs) found ~550-
   - `tests/pack_service_mock_tests.cpp`: "packAllFilesInDirectory respects non-recursive" (same public function, same branch, near-identical name as `packer_tests.cpp`'s version, which asserts entry names more precisely).
 - Hoist duplicated helpers into `tests/test_utils.h`:
   - `registerCapturingLogger` (8 copies: logging infra/error-context/scoped-timer/snapshot/json, stop_signal, task_executor, job_state; one already carries a "hoist when a fifth copy appears" comment).
-  - File-creation helpers (10 copies: 4 sparse-sized variants, 2 byte-identical `createBinaryFile`, 2 byte-identical `createFile`, plus `createSizedFile`/`createTempFile`) behind one `writeSizedFile`.
+  - File-creation helpers (11 copies: 4 sparse-sized variants, 2 byte-identical `createBinaryFile`, 2 byte-identical `createFile`, plus `createSizedFile` and 2 `createTempFile`) behind one `writeSizedFile`.
   - 3 `readFileContent`-style helpers replaced by `testutils::readTextFile`.
   - `cmd_cmd_tests.cpp` local `ScopedEnvVar` (line-equivalent to `testutils::ScopedEnvVar`) and the duplicated `parseArgs`/`findHelpLine` pair shared with `cmd_help_tiering_tests.cpp`.
-  - A 5-line `countOccurrences` helper for the 6 hand-rolled counting loops in `logging_scoped_timer_test.cpp`; a local scaffold factory for the 6 ~20-line setups in `encode_probe_tests.cpp` `runEncodingTasks` tests (tests kept, scaffolding deduplicated).
-  - Merge the 4 `e2e_test_utils` items that duplicate `test_utils.h` (`writeTextFile`, `listZipEntries`, `listRegularFiles`, and the env-override pair, keeping the e2e variant's restore-to-unset semantics).
+  - A 5-line `countOccurrences` helper for the 8 hand-rolled counting loops in `logging_scoped_timer_test.cpp`; a local scaffold factory for the 5 ~20-line setups in `encode_probe_tests.cpp` `runEncodingTasks` tests (tests kept, scaffolding deduplicated).
+  - Merge the 3 `e2e_test_utils` items that duplicate `test_utils.h` (`writeTextFile`, `listZipEntries`, local `listRegularFiles` in `encro_e2e_tests.cpp`). The env-override pair is deferred: `e2e::ScopedEnvironmentOverrides` is a multi-key superset (restore-to-unset semantics), not a duplicate.
 - Delete dead code (2 items, the audit's only true dead code):
   - `RunningProcess::id()` declaration + definition in `tests/e2e/e2e_test_utils.{h,cpp}` (zero call sites).
   - `ENCRO_FAKE_FFMPEG_PROGRESS_FRAMES` knob in `tests/e2e/fake_media_tool.cpp` (no test references it; hardcode frame=10; progress emission stays env-configurable via the PROGRESS_PAD / PROGRESS_NO_END_TIME knobs, so the portable-fake-tool mechanism contract is untouched).
@@ -37,7 +37,7 @@ A read-only audit of `tests/` (59 files, ~18K lines, 701 TEST_CASEs) found ~550-
 
 ## Impact
 
-- `tests/**` only (~550-600 lines removed net; TEST_CASE count drops by ~14; no assertion coverage lost - each deletion is a subset of a surviving test).
+- `tests/**` only (~550-600 lines removed net; TEST_CASE count drops by 11; no assertion coverage lost - each deletion is a subset of a surviving test).
 - `tests/test_utils.h` grows by the hoisted helpers (~40 lines) while 20+ local copies disappear.
 - `tests/e2e/e2e_test_utils.{h,cpp}`, `tests/e2e/fake_media_tool.cpp`: dead-code removal only.
 - `src/`: untouched. Build system: only file renames (xmake wildcard globs already pick up `tests/**`; verify both unit and e2e targets still configure).
