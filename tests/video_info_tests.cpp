@@ -5,15 +5,12 @@
 #include <cstdint>
 #include <fstream>
 
+using testutils::copyFakeProbe;
 using testutils::copyFakeTool;
-using testutils::ScopedEnvVar;
 
 namespace fs = std::filesystem;
 
 namespace {
-
-constexpr auto kFakeProbeJson =
-  R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]})";
 
 void createFileWithSize(fs::path const& filePath, std::uintmax_t sizeInBytes) {
   auto file = std::ofstream{filePath, std::ios::binary};
@@ -77,11 +74,8 @@ TEST_CASE("readAllVids for webp prewarms video info cache", "[video-info]") {
   auto toolchain = appctx::ToolchainPaths{};
   auto runtime = appctx::RuntimeContext{};
 
-  auto const probeJsonPath = temp.path / "probe.json";
-  testutils::writeTextFile(probeJsonPath, kFakeProbeJson);
   toolchain.ffprobePath = copyFakeTool(temp.path, "ffprobe");
-  auto const probeJsonEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
+  auto const probeEnv = copyFakeProbe(temp.path);
 
   auto const vids = readAllVids(config, toolchain, runtime, temp.path);
 
@@ -110,11 +104,8 @@ TEST_CASE(
   auto toolchain = appctx::ToolchainPaths{};
   auto runtime = appctx::RuntimeContext{};
 
-  auto const probeJsonPath = temp.path / "probe.json";
-  testutils::writeTextFile(probeJsonPath, kFakeProbeJson);
   toolchain.ffprobePath = copyFakeTool(temp.path, "ffprobe");
-  auto const probeJsonEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
+  auto const probeEnv = copyFakeProbe(temp.path);
 
   auto const inputFiles = std::array{firstVideo, secondVideo, thirdVideo};
   auto const vids = readAllVidsFromFiles(config, toolchain, runtime, inputFiles);

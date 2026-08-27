@@ -63,7 +63,9 @@ struct ScopedStopSignalReset {
 
 // Environment variable scoped to the current test case: restores the previous
 // value (or unset state) on destruction so later cases observe a clean
-// environment regardless of execution order.
+// environment regardless of execution order. Caveat: a pre-case value of ""
+// cannot be distinguished from unset on Windows (_putenv_s("N", "") unsets),
+// so restoring an originally-empty variable removes it instead.
 class ScopedEnvVar {
 public:
   ScopedEnvVar(std::string name, std::string value)
@@ -131,6 +133,17 @@ inline void writeTextFile(fs::path const& filePath, std::string_view content = "
   auto out = std::ofstream{filePath, std::ios::binary};
   REQUIRE(out.is_open());
   out << content;
+}
+
+// Canonical ffprobe metadata fixture: writes the JSON next to the tool copies
+// and scopes the ENCRO_FAKE_FFPROBE_JSON_FILE env var for the test case.
+inline constexpr auto kFakeProbeJson =
+  R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]})";
+
+inline auto copyFakeProbe(fs::path const& dir) -> ScopedEnvVar {
+  auto const probeJsonPath = dir / "fake-ffprobe.json";
+  writeTextFile(probeJsonPath, kFakeProbeJson);
+  return ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
 }
 
 inline void writeFile(fs::path const& filePath, std::string_view content = "x") {

@@ -67,6 +67,30 @@ Two webp-prewarm cases configured fake ffprobe under `_WIN32` only; now both
 platforms use role-copied fake ffprobe + JSON fixture, making prewarm
 assertions platform-independent.
 
+## Review-driven deviations from the planning artifacts
+
+- **xmake.lua is touched** despite the proposal's "no change needed": the
+  compile-time `#error` guard on `FAKE_TOOL_EXE_PATH` (design D2) breaks
+  `e2e_tests`, whose TU already includes `test_utils.h` but had no define.
+  Both `tests` and `e2e_tests` now route through a shared
+  `injectFakeToolDefine()` `after_load` hook.
+- **`ENCRO_FAKE_FFMPEG_INPUT_LOG` is a 5th knob beyond design D3's four
+  known gaps** — required to replace the survivor-marker batch scripts of
+  `pipeline_picture_tests.cpp` (input recorded only on successful
+  invocations).
+- **`video_info_tests.cpp` ported though absent from the proposal Impact
+  list** — mandated by the spec's "zero test cases excluded solely for
+  impersonating an external media tool" scenario.
+
+## Behavioral deltas vs the old batch scripts (accepted)
+
+- **Counter bump happens before all early exits** in the fake tool, so an
+  invocation that ends without producing output still consumes a schedule
+  slot; the old batch scripts bumped only on the success path. No ported
+  test depends on the old ordering.
+- `ScopedEnvVar` cannot restore an originally-**empty** (as opposed to
+  unset) variable on Windows; documented on the class.
+
 ## Remaining `_WIN32` references in tests/ (accepted, out of scope)
 
 All remaining references either branch on platform *behavior being tested*

@@ -402,7 +402,7 @@ void writeFakeProgressFile(FfmpegInvocation const& invocation) {
 // Per-call schedules let one fake binary behave differently per invocation
 // index (a delayed second call, failures from call N on), keyed by a
 // persistent counter file so sequential child processes share the sequence.
-auto nextScheduledCallIndex() -> int {
+int nextScheduledCallIndex() {
   auto const countFilePath = readEnv("ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE");
   if (!countFilePath.has_value()) { return -1; }
 
@@ -476,7 +476,10 @@ void recordCompletedInput(int argc, char* argv[]) {
   if (!inputPath.has_value()) { return; }
 
   auto const logPath = fs::path{dest.value()};
-  if (!logPath.parent_path().empty()) { fs::create_directories(logPath.parent_path()); }
+  if (!logPath.parent_path().empty()) {
+    auto ec = std::error_code{};
+    fs::create_directories(logPath.parent_path(), ec);
+  }
   auto out = std::ofstream{logPath, std::ios::app};
   if (!out.is_open()) { return; }
   out << inputPath.value() << '\n';
