@@ -7,6 +7,8 @@
 #include <string>
 
 namespace fs = std::filesystem;
+using testutils::copyFakeTool;
+using testutils::ScopedEnvVar;
 
 namespace {
 
@@ -17,65 +19,18 @@ auto createTempFile(fs::path const& dir, std::string_view name) -> fs::path {
   return filePath;
 }
 
-#if defined(_WIN32)
-auto makeCmdScriptCommand(fs::path const& scriptPath) -> fs::path {
-  return fs::path{std::format("cmd.exe /d /c call \"{}\"", scriptPath.string())};
-}
-
-void writeFakeFfmpegScript(fs::path const& scriptPath) {
-  auto const script = std::string{R"(@echo off
-set "outputPath="
-:parse
-if "%~1"=="" goto done
-set "outputPath=%~1"
-shift
-goto parse
-:done
-if "%outputPath%"=="" exit /b 2
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
-type nul > "%outputPath%"
-exit /b 0
-)"};
-  testutils::writeTextFile(scriptPath, script);
-}
-
-void writeFakeFfmpegFailingScript(fs::path const& scriptPath) {
-  auto const script = std::string{R"(@echo off
-exit /b 1
-)"};
-  testutils::writeTextFile(scriptPath, script);
-}
-
-void writeFakeFfmpegPartialThenFailScript(fs::path const& scriptPath) {
-  auto const script = std::string{R"(@echo off
-set "outputPath="
-:parse
-if "%~1"=="" goto done
-set "outputPath=%~1"
-shift
-goto parse
-:done
-if "%outputPath%"=="" exit /b 2
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
-> "%outputPath%" echo partial-jpeg
-exit /b 1
-)"};
-  testutils::writeTextFile(scriptPath, script);
-}
-
-void configureCompressContext(
+auto configureCompressContext(
   appctx::AppContext& ctx,
-  fs::path const& ffmpegScriptPath,
+  fs::path const& toolDir,
   fs::path const& inputPath
-) {
+) -> void {
   ctx.config.inputPath = inputPath;
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(ffmpegScriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(toolDir, "ffmpeg");
 }
-#endif
 
 }  // namespace
 
@@ -154,16 +109,13 @@ TEST_CASE("ImageCompressConfig::buildCMD uses maximum quality", "[picture-compre
   CHECK(cmd.find(" -q:v 31") != std::string::npos);
 }
 
-#if defined(_WIN32)
 TEST_CASE("compressImage returns true on success", "[picture-compress]") {
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
-  writeFakeFfmpegScript(scriptPath);
 
   auto ctx = appctx::AppContext{};
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const result = compressImage(ctx, inputPath, outputPath, 5);
   CHECK(result == true);
@@ -174,11 +126,10 @@ TEST_CASE("compressImage returns false on ffmpeg failure", "[picture-compress]")
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
-  auto const scriptPath = temp.path / "fake_ffmpeg_fail.cmd";
-  writeFakeFfmpegFailingScript(scriptPath);
 
+  auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "1"};
   auto ctx = appctx::AppContext{};
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const result = compressImage(ctx, inputPath, outputPath, 5);
   CHECK(result == false);
@@ -191,11 +142,11 @@ TEST_CASE(
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
-  auto const scriptPath = temp.path / "fake_ffmpeg_partial.cmd";
-  writeFakeFfmpegPartialThenFailScript(scriptPath);
 
+  auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "1"};
+  auto const partialBytesEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_FAIL_OUTPUT_BYTES", "64"};
   auto ctx = appctx::AppContext{};
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const result = compressImage(ctx, inputPath, outputPath, 5);
   CHECK(result == false);
@@ -210,11 +161,9 @@ TEST_CASE(
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
-  writeFakeFfmpegScript(scriptPath);
 
   auto ctx = appctx::AppContext{};
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const result = compressImage(ctx, inputPath, outputPath, 5);
   CHECK(result == true);
@@ -224,11 +173,9 @@ TEST_CASE(
 
 TEST_CASE("compressImageBatch returns empty for empty input", "[picture-compress]") {
   TempDir temp;
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
-  writeFakeFfmpegScript(scriptPath);
 
   auto ctx = appctx::AppContext{};
-  configureCompressContext(ctx, scriptPath, temp.path);
+  configureCompressContext(ctx, temp.path, temp.path);
 
   auto const results = compressImageBatch(ctx, std::span<CompressTask const>{}, 5, 2);
   CHECK(results.empty());
@@ -237,11 +184,9 @@ TEST_CASE("compressImageBatch returns empty for empty input", "[picture-compress
 TEST_CASE("compressImageBatch compresses single image", "[picture-compress]") {
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "photo.png");
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
-  writeFakeFfmpegScript(scriptPath);
 
   auto ctx = appctx::AppContext{};
-  configureCompressContext(ctx, scriptPath, temp.path);
+  configureCompressContext(ctx, temp.path, temp.path);
 
   auto const tasks = std::vector<CompressTask>{
     {.inputPath = inputPath,
@@ -265,11 +210,9 @@ TEST_CASE(
   auto const inputA = createTempFile(temp.path, "a.png");
   auto const inputB = createTempFile(temp.path, "b.png");
   auto const inputC = createTempFile(temp.path, "c.png");
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
-  writeFakeFfmpegScript(scriptPath);
 
   auto ctx = appctx::AppContext{};
-  configureCompressContext(ctx, scriptPath, temp.path);
+  configureCompressContext(ctx, temp.path, temp.path);
 
   auto const tasks = std::vector<CompressTask>{
     {.inputPath = inputA, .outputPath = temp.path / "a.jpg", .entryName = "a.jpg"},
@@ -290,11 +233,10 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = createTempFile(temp.path, "photo.png");
-  auto const scriptPath = temp.path / "fake_ffmpeg_fail.cmd";
-  writeFakeFfmpegFailingScript(scriptPath);
 
+  auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "1"};
   auto ctx = appctx::AppContext{};
-  configureCompressContext(ctx, scriptPath, temp.path);
+  configureCompressContext(ctx, temp.path, temp.path);
 
   auto const tasks = std::vector<CompressTask>{
     {.inputPath = inputPath,
@@ -313,11 +255,6 @@ TEST_CASE(
   TempDir temp;
   auto const inputOk = createTempFile(temp.path, "ok.png");
   auto const inputFail = createTempFile(temp.path, "fail.png");
-  auto const goodScript = temp.path / "fake_good.cmd";
-  auto const failScript = temp.path / "fake_fail.cmd";
-  writeFakeFfmpegScript(goodScript);
-  writeFakeFfmpegFailingScript(failScript);
-
   auto ctx = appctx::AppContext{};
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
@@ -338,15 +275,15 @@ TEST_CASE(
   auto results = std::vector<CompressResult>{};
   results.reserve(2);
 
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(goodScript);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
   {
     auto const taskOk = std::vector<CompressTask>{tasks[0]};
     auto const batchOk = compressImageBatch(ctx, taskOk, 5, 1);
     for (auto const& r: batchOk) { results.push_back(r); }
   }
 
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(failScript);
   {
+    auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "1"};
     auto const taskFail = std::vector<CompressTask>{tasks[1]};
     auto const batchFail = compressImageBatch(ctx, taskFail, 5, 1);
     for (auto const& r: batchFail) { results.push_back(r); }
@@ -355,4 +292,3 @@ TEST_CASE(
   REQUIRE(results.size() == 1);
   CHECK(results[0].entryName == "ok.jpg");
 }
-#endif

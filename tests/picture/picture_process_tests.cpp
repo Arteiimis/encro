@@ -14,6 +14,8 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+using testutils::copyFakeTool;
+using testutils::ScopedEnvVar;
 
 namespace {
 
@@ -34,158 +36,6 @@ auto createSparseSizedFile(
   out.close();
   return filePath;
 }
-
-#if defined(_WIN32)
-auto makeCmdScriptCommand(fs::path const& scriptPath) -> fs::path {
-  return fs::path{std::format("cmd.exe /d /c call \"{}\"", scriptPath.string())};
-}
-
-auto readTextFile(fs::path const& filePath) -> std::string {
-  auto in = std::ifstream{filePath, std::ios::binary};
-  REQUIRE(in.is_open());
-  return std::string{
-    std::istreambuf_iterator<char>{in},
-    std::istreambuf_iterator<char>{}
-  };
-}
-
-void writeFakeFfmpegScript(fs::path const& scriptPath) {
-  auto const script = std::string{R"(@echo off
-set "outputPath="
-:parse
-if "%~1"=="" goto done
-set "outputPath=%~1"
-shift
-goto parse
-:done
-if "%outputPath%"=="" exit /b 2
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
->"%outputPath%" echo fake-compressed-jpeg
-exit /b 0
-)"};
-  testutils::writeTextFile(scriptPath, script);
-}
-
-void writeFakeFfmpegCaptureArgsScript(
-  fs::path const& scriptPath,
-  fs::path const& argsPath
-) {
-  auto const script = std::format(
-    R"(@echo off
-setlocal EnableExtensions
->"{}" echo %*
-set "outputPath="
-:parse
-if "%~1"=="" goto done
-set "outputPath=%~1"
-shift
-goto parse
-:done
-if "%outputPath%"=="" exit /b 2
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
->"%outputPath%" echo fake-compressed-jpeg
-exit /b 0
-)",
-    argsPath.string()
-  );
-  testutils::writeTextFile(scriptPath, script);
-}
-
-void writeFakeFfmpegLargerOutputScript(fs::path const& scriptPath) {
-  auto const script = std::string{R"(@echo off
-setlocal EnableExtensions
-set "outputPath="
-:parse
-if "%~1"=="" goto done
-set "outputPath=%~1"
-shift
-goto parse
-:done
-if "%outputPath%"=="" exit /b 2
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
->"%outputPath%" (
-  echo line01
-  echo line02
-  echo line03
-  echo line04
-  echo line05
-  echo line06
-  echo line07
-  echo line08
-  echo line09
-  echo line10
-  echo line11
-  echo line12
-)
-exit /b 0
- )"};
-  testutils::writeTextFile(scriptPath, script);
-}
-
-void writeFakeFfmpegSecondCallSlowScript(
-  fs::path const& scriptPath,
-  fs::path const& counterPath
-) {
-  auto const script = std::format(
-    R"(@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-set "outputPath="
-set "counterPath={}"
-:parse
-if "%~1"=="" goto done
-set "outputPath=%~1"
-shift
-goto parse
-:done
-if "%outputPath%"=="" exit /b 2
-set /a count=0
-if exist "%counterPath%" set /p count=<"%counterPath%"
-set /a count+=1
->"%counterPath%" echo(!count!
-if !count! GEQ 2 ping -n 8 127.0.0.1 >nul
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
->%outputPath% echo fake-compressed-jpeg
-exit /b 0
-)",
-    counterPath.string()
-  );
-  testutils::writeTextFile(scriptPath, script);
-}
-
-void writeFakeFfmpegFailingScript(fs::path const& scriptPath) {
-  testutils::writeTextFile(scriptPath, "@echo off\nexit /b 1\n");
-}
-
-void writeFakeFfmpegFirstCallOkScript(
-  fs::path const& scriptPath,
-  fs::path const& counterPath
-) {
-  auto const script = std::format(
-    R"(@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-set "outputPath="
-set "counterPath={}"
-:parse
-if "%~1"=="" goto done
-set "outputPath=%~1"
-shift
-goto parse
-:done
-if "%outputPath%"=="" exit /b 2
-set /a count=0
-if exist "%counterPath%" set /p count=<"%counterPath%"
-set /a count+=1
->"%counterPath%" echo(!count!
-if !count! GEQ 2 exit /b 1
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
->%outputPath% echo fake-compressed-jpeg
-exit /b 0
-)",
-    counterPath.string()
-  );
-  testutils::writeTextFile(scriptPath, script);
-}
-#endif
 
 }  // namespace
 
@@ -425,19 +275,18 @@ TEST_CASE(
   }));
 }
 
-#if defined(_WIN32)
 TEST_CASE(
   "runPicturePackWorkflow compress+pack produces .jpg entries in zip",
   "[picture-process][compress]"
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   fs::create_directories(inputDir);
   createSparseSizedFile(inputDir, "a.png", 32);
   createSparseSizedFile(inputDir, "b.png", 32);
-  writeFakeFfmpegScript(scriptPath);
 
+  // Fake outputs stay smaller than sources so conversion beats size fallback.
+  auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -445,7 +294,7 @@ TEST_CASE(
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
   REQUIRE(runRes);
@@ -464,26 +313,27 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const scriptPath = temp.path / "fake_ffmpeg_capture.cmd";
-  auto const argsPath = temp.path / "ffmpeg-args.txt";
+  auto const logPath = temp.path / "ffmpeg-invocations.log";
   fs::create_directories(inputDir);
   createSparseSizedFile(inputDir, "a.png", 32);
-  writeFakeFfmpegCaptureArgsScript(scriptPath, argsPath);
 
+  auto const logEnv = ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
+  auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
   ctx.config.compressImages = true;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
 
-  auto const argsText = readTextFile(argsPath);
-  CHECK(argsText.find("-q:v 2") != std::string::npos);
+  // Invocation log is tab-separated: toolName\targv...
+  auto const logText = testutils::readTextFile(logPath);
+  CHECK(logText.find("-q:v\t2") != std::string::npos);
 }
 
 TEST_CASE(
@@ -492,11 +342,10 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const scriptPath = temp.path / "fake_ffmpeg_large.cmd";
   fs::create_directories(inputDir);
   createSparseSizedFile(inputDir, "a.png", 8);
-  writeFakeFfmpegLargerOutputScript(scriptPath);
 
+  auto const largeOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "512"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -504,7 +353,7 @@ TEST_CASE(
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
   REQUIRE(runRes);
@@ -525,13 +374,12 @@ TEST_CASE(
   auto const inputDir = temp.path / "pics";
   auto const dirA = inputDir / "a";
   auto const dirB = inputDir / "b";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
   createSparseSizedFile(dirA, "same.png", 32);
   createSparseSizedFile(dirB, "same.png", 32);
-  writeFakeFfmpegScript(scriptPath);
 
+  auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -540,7 +388,7 @@ TEST_CASE(
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
   REQUIRE(runRes);
@@ -572,15 +420,14 @@ TEST_CASE(
   auto const inputDir = temp.path / "pics";
   auto const dirA = inputDir / "a";
   auto const dirB = inputDir / "b";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
   createSparseSizedFile(dirA, "alpha.png", 32);
   createSparseSizedFile(dirA, "beta.png", 32);
   createSparseSizedFile(dirB, "alpha.png", 32);
   createSparseSizedFile(dirB, "beta.png", 32);
-  writeFakeFfmpegScript(scriptPath);
 
+  auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -590,7 +437,7 @@ TEST_CASE(
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
   REQUIRE(runRes);
@@ -641,11 +488,10 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const scriptPath = temp.path / "fake_ffmpeg_fail.cmd";
   fs::create_directories(inputDir);
   createSparseSizedFile(inputDir, "a.png", 32);
-  writeFakeFfmpegFailingScript(scriptPath);
 
+  auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "1"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -653,7 +499,7 @@ TEST_CASE(
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
   REQUIRE(!runRes);
@@ -666,13 +512,17 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const counterPath = temp.path / "compress-count.txt";
-  auto const scriptPath = temp.path / "fake_ffmpeg_first_ok.cmd";
   fs::create_directories(inputDir);
   createSparseSizedFile(inputDir, "good.png", 32);
   createSparseSizedFile(inputDir, "bad.png", 32);
-  writeFakeFfmpegFirstCallOkScript(scriptPath, counterPath);
 
+  // Call 1 succeeds (writes a small jpg); every later call fails without output.
+  auto const cntEnv = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    (temp.path / "compress-count.txt").string()
+  };
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:0:1"};
+  auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -681,7 +531,7 @@ TEST_CASE(
   ctx.config.imageQuality = 5;
   ctx.config.maxParallelJobs = 1;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
   REQUIRE(runRes);
@@ -702,13 +552,17 @@ TEST_CASE(
   testutils::ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const scriptPath = temp.path / "fake_ffmpeg_slow.cmd";
-  auto const counterPath = temp.path / "compress-count.txt";
   fs::create_directories(inputDir);
   createSparseSizedFile(inputDir, "fast.png", 32);
   createSparseSizedFile(inputDir, "slow.png", 32);
-  writeFakeFfmpegSecondCallSlowScript(scriptPath, counterPath);
 
+  // Call 2 blocks in-flight yet would ultimately succeed - cancellation must
+  // cut through it regardless.
+  auto const cntEnv = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    (temp.path / "compress-count.txt").string()
+  };
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2:3000:0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -717,7 +571,7 @@ TEST_CASE(
   ctx.config.imageQuality = 5;
   ctx.config.maxParallelJobs = 1;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto requester = std::jthread([](std::stop_token token) {
     std::this_thread::sleep_for(1200ms);
@@ -737,12 +591,11 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   fs::create_directories(inputDir);
   createSparseSizedFile(inputDir, "photo.png", 32);
   createSparseSizedFile(inputDir, "other.png", 32);
-  writeFakeFfmpegScript(scriptPath);
 
+  auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -750,7 +603,7 @@ TEST_CASE(
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
   REQUIRE(runRes);
@@ -763,4 +616,3 @@ TEST_CASE(
   CHECK(entryNames[1].ends_with(".jpg"));
   CHECK(entryNames[0] != entryNames[1]);
 }
-#endif

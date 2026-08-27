@@ -1,5 +1,6 @@
 #pragma once
 
+#include "infra/env.h"
 #include "infra/stop_signal.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -59,6 +60,69 @@ struct ScopedStopSignalReset {
 
   ~ScopedStopSignalReset() { stopsignal::reset(); }
 };
+
+// Environment variable scoped to the current test case: restores the previous
+// value (or unset state) on destruction so later cases observe a clean
+// environment regardless of execution order.
+class ScopedEnvVar {
+public:
+  ScopedEnvVar(std::string name, std::string value)
+    : name_(std::move(name)), hadOriginal_(false) {
+    auto const original = processenv::readEnvVar(name_);
+    if (original.has_value()) {
+      originalValue_ = *original;
+      hadOriginal_ = true;
+    }
+    set(value);
+  }
+
+  ScopedEnvVar(ScopedEnvVar const&) = delete;
+  auto operator=(ScopedEnvVar const&) -> ScopedEnvVar& = delete;
+
+  ~ScopedEnvVar() {
+    if (hadOriginal_) {
+      set(originalValue_);
+    } else {
+#if defined(_WIN32)
+      // CRT removal semantics: an empty value stands in for "unset".
+      _putenv_s(name_.c_str(), "");
+#else
+      ::unsetenv(name_.c_str());
+#endif
+    }
+  }
+
+private:
+  void set(std::string const& value) const {
+#if defined(_WIN32)
+    _putenv_s(name_.c_str(), value.c_str());
+#else
+    ::setenv(name_.c_str(), value.c_str(), 1);
+#endif
+  }
+
+  std::string name_;
+  std::string originalValue_;
+  bool hadOriginal_;
+};
+
+// Fake ffmpeg/ffprobe = the e2e fake_media_tool binary (FAKE_TOOL_EXE_PATH,
+// injected by xmake from target tests' encro_e2e_tool dependency), copied
+// under a role name so argv[0] basename selects ffprobe vs ffmpeg. Same call
+// works on Windows (.exe suffix added) and POSIX.
+#ifndef FAKE_TOOL_EXE_PATH
+  #error "FAKE_TOOL_EXE_PATH missing: build the tests target through xmake"
+#endif
+inline auto copyFakeTool(fs::path const& dir, std::string const& name) -> fs::path {
+  auto const fileName = std::string{name}
+#if defined(_WIN32)
+    + ".exe"
+#endif
+    ;
+  auto const dst = dir / fileName;
+  fs::copy_file(fs::path{FAKE_TOOL_EXE_PATH}, dst, fs::copy_options::overwrite_existing);
+  return dst;
+}
 
 inline void writeTextFile(fs::path const& filePath, std::string_view content = "x") {
   auto const parentPath = filePath.parent_path();
