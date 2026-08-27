@@ -574,7 +574,6 @@ TEST_CASE(
   auto const countFile = temp.path / "resume-count.txt";
   auto const cntEnv2 =
     ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
-  auto const emptyOut2 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";
@@ -653,7 +652,6 @@ TEST_CASE(
   auto const cntEnv2 =
     ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
   auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
-  auto const emptyOut2 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";
@@ -723,7 +721,6 @@ TEST_CASE(
   auto const cntEnv2 =
     ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
   auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
-  auto const emptyOut2 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";
@@ -786,7 +783,6 @@ TEST_CASE(
   auto const cntEnv2 =
     ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
   auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
-  auto const emptyOut2 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";
@@ -850,7 +846,6 @@ TEST_CASE(
   auto const cntEnv2 =
     ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
   auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
-  auto const emptyOut2 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";

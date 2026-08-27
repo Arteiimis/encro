@@ -19,11 +19,11 @@ auto createTempFile(fs::path const& dir, std::string_view name) -> fs::path {
   return filePath;
 }
 
-auto configureCompressContext(
+void configureCompressContext(
   appctx::AppContext& ctx,
   fs::path const& toolDir,
   fs::path const& inputPath
-) -> void {
+) {
   ctx.config.inputPath = inputPath;
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
