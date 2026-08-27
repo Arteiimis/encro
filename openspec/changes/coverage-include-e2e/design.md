@@ -2,7 +2,7 @@
 
 ## Context
 
-The coverage plugin (`plugins/coverage/xmake.lua`) already implements `--e2e` (runs e2e under instrumentation, merges `e2e-%p.profraw` into `all.profdata`) and `--html` (single-binary HTML from `tests.exe`, which embeds all `src/` + `tests/` sources; multi-binary HTML is a known llvm-cov 22.x empty-output trap, see the earlier fix). CI (`ci.yml`) runs `xmake coverage --summary --html` and uploads `build/coverage/html` as an artifact. The e2e-vs-unit audit produced a case-by-case duplication table (18 duplicate / 12 complementary / 28 unique). Baseline numbers: src line coverage 82.79% (pure-src scope), with the gap concentrated in app entry (0-20%) and video orchestration (35-74%) - the layers e2e exercises on every run.
+The coverage plugin (`plugins/coverage/xmake.lua`) already implements `--e2e` (runs e2e under instrumentation, merges `e2e-%p.profraw` into `all.profdata`) and `--html` (single-binary HTML from `tests.exe`, which embeds all `src/` + `tests/` sources; multi-binary HTML is a known llvm-cov 22.x empty-output trap, see the earlier fix). CI (`ci.yml`) runs `xmake coverage --summary --keep --html` and uploads `build/coverage/html` as an artifact. The e2e-vs-unit audit produced a case-by-case duplication table (17 duplicate / 12 complementary / 28 unique / 1 misplaced harness self-test). Baseline numbers: src line coverage 82.79% (pure-src scope), with the gap concentrated in app entry (0-20%) and video orchestration (35-74%) - the layers e2e exercises on every run.
 
 ## Goals / Non-Goals
 

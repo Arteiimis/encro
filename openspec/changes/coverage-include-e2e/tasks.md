@@ -17,7 +17,7 @@
 - [ ] 3.4 Delete the 2 duplicate pack-only e2e cases (survivors: `app/pipeline_pack_only_tests.cpp`, `packer_tests.cpp:492`).
 - [ ] 3.5 Delete the duplicate resume-skip, `--min-vmaf` rejection, `--dry-run`+`--crf` rejection, and 64-KiB progress e2e cases (survivors: `video_process_orchestration_tests.cpp:104` + `job_state_tests.cpp:69`, `cmd_cmd_tests.cpp:758`, `cmd_cmd_tests.cpp:787`, `video_progress_parser_tests.cpp:108/:124`).
 - [ ] 3.6 Move the fake-ffprobe `check-input` harness self-test from `tests/e2e/encro_e2e_tests.cpp` to the unit suite's `[fake-tool]` section (same assertions, same env knob).
-- [ ] 3.7 Run `xmake build e2e_tests && xmake run e2e_tests` and the unit suite; confirm both green and e2e case count is 58 - 18 = 40 + 1 relocated.
+- [ ] 3.7 Run `xmake build e2e_tests && xmake run e2e_tests` and the unit suite; confirm both green and e2e case count is 58 - 17 deleted - 1 relocated = 40; unit suite gains +1.
 
 ## 4. CI wiring
 
