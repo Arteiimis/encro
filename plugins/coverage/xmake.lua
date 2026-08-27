@@ -117,8 +117,9 @@ task("coverage")
         end
         table.insert(common_args, "-instr-profile")
         table.insert(common_args, merged)
-        -- 只统计项目代码，过滤第三方头文件（boost/catch2/spdlog/fmt/indicators/libzip/thread-pool/asio）
-        local ignore_re = "-ignore-filename-regex=(^|[\\\\/])(boost|catch2|spdlog|fmt|indicators|libzip|thread%-pool|asio)([\\\\/]|$)"
+        -- 只统计项目代码：过滤第三方头文件（boost/catch2/spdlog/fmt/indicators/libzip/thread-pool/asio）
+        -- 与测试源码（tests/ 不是被测对象，其行覆盖率恒近 100% 只会稀释聚合口径）
+        local ignore_re = "-ignore-filename-regex=(^|[\\\\/])(boost|catch2|spdlog|fmt|indicators|libzip|thread%-pool|asio|tests)([\\\\/]|$)"
         table.insert(common_args, ignore_re)
 
         local report_args = table.join({"report"}, common_args)
