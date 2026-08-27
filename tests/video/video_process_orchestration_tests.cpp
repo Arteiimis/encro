@@ -14,8 +14,10 @@
 
 namespace fs = std::filesystem;
 
+using testutils::copyFakeTool;
 using testutils::listRegularFiles;
 using testutils::readTextFile;
+using testutils::ScopedEnvVar;
 using testutils::ScopedStopSignalReset;
 using testutils::StdoutCapture;
 using testutils::writeTextFile;
@@ -32,67 +34,12 @@ struct ScopedCurrentPath {
   ~ScopedCurrentPath() { fs::current_path(previous); }
 };
 
-#if defined(_WIN32)
-auto makeCmdScriptCommand(fs::path const& scriptPath) -> fs::path {
-  return fs::path{std::format("cmd.exe /d /c call \"{}\"", scriptPath.string())};
-}
-
-void writeFakeFfmpegScript(fs::path const& scriptPath) {
-  auto const script = std::format(
-    R"(
-@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-set "progressPath="
-set "outputPath="
-set "previousArg="
-
-for %%A in (%*) do (
-  set "currentArg=%%~A"
-  if /I "!previousArg!"=="-progress" (
-    set "progressPath=!currentArg!"
-  )
-  if /I "!currentArg!"=="-progress" (
-    set "outputPath=!previousArg!"
-  )
-  set "previousArg=!currentArg!"
-)
-
-if not defined outputPath (
-  for %%A in (%*) do set "lastArg=%%~A"
-  set "outputPath=!lastArg!"
-)
-
-if defined progressPath (
-  for %%I in ("%progressPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
-  > "%progressPath%" (
-    echo frame=10
-    echo progress=end
-  )
-)
-
-if not defined outputPath exit /b 2
-
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
-> "%outputPath%" echo fake-output
-exit /b 0
-)"
-  );
-  writeTextFile(scriptPath, script);
-}
-
-void writeFakeFfprobeScript(fs::path const& scriptPath) {
-  auto const script = R"(
-@echo off
-setlocal EnableExtensions
-echo {"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]}
-exit /b 0
-)";
-  writeTextFile(scriptPath, script);
-}
-
+// Fake ffmpeg = the shared e2e fake_media_tool binary (testutils::copyFakeTool).
+// The encoder side writes frame=/progress= progress entries by default;
+// outputs are placeholder-sized via ENCRO_FAKE_FFMPEG_OUTPUT_BYTES.
 void configureVideoContext(
   appctx::AppContext& ctx,
-  fs::path const& ffmpegScriptPath,
+  fs::path const& toolDir,
   fs::path const& inputPath,
   bool packOutput = false
 ) {
@@ -101,7 +48,7 @@ void configureVideoContext(
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;
   ctx.config.packOutput = packOutput;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(ffmpegScriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(toolDir, "ffmpeg");
 }
 
 TEST_CASE(
@@ -112,13 +59,11 @@ TEST_CASE(
   TempDir temp;
   auto const strayProgressPath = fs::current_path() / "-progress";
   auto const inputPath = temp.path / "sample.mp4";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
   writeTextFile(inputPath, "fake-video");
-  writeFakeFfmpegScript(scriptPath);
 
   auto ctx = appctx::AppContext{};
-  configureVideoContext(ctx, scriptPath, inputPath);
+  configureVideoContext(ctx, temp.path, inputPath);
 
   auto const result = handlePathEncoding(ctx, inputPath);
   auto const encodedFiles = listRegularFiles(temp.path / "encoded_webp");
@@ -137,15 +82,13 @@ TEST_CASE(
   TempDir temp;
   auto const strayProgressPath = fs::current_path() / "-progress";
   auto const inputDir = temp.path / "videos";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
   fs::create_directories(inputDir);
   writeTextFile(inputDir / "a.mp4", "a");
   writeTextFile(inputDir / "b.mov", "b");
-  writeFakeFfmpegScript(scriptPath);
 
   auto ctx = appctx::AppContext{};
-  configureVideoContext(ctx, scriptPath, inputDir, true);
+  configureVideoContext(ctx, temp.path, inputDir, true);
 
   auto const result = handlePathEncoding(ctx, inputDir);
   auto const packedFiles = listRegularFiles(inputDir / "packed");
@@ -165,16 +108,14 @@ TEST_CASE(
   TempDir temp;
   auto const strayProgressPath = fs::current_path() / "-progress";
   auto const inputDir = temp.path / "videos";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   auto const stateFilePath = temp.path / "encro.job-state.json";
   if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
   fs::create_directories(inputDir);
   writeTextFile(inputDir / "a.mp4", "a");
   writeTextFile(inputDir / "b.mov", "b");
-  writeFakeFfmpegScript(scriptPath);
 
   auto ctx = appctx::AppContext{};
-  configureVideoContext(ctx, scriptPath, inputDir);
+  configureVideoContext(ctx, temp.path, inputDir);
   ctx.config.stateFilePath = stateFilePath;
   ctx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
   auto const initRes = ctx.runtime.jobState->initialize(ctx.config, false);
@@ -196,7 +137,7 @@ TEST_CASE(
   CHECK(encodeTaskBefore.attemptCount == 1);
 
   auto packCtx = appctx::AppContext{};
-  configureVideoContext(packCtx, scriptPath, inputDir, true);
+  configureVideoContext(packCtx, temp.path, inputDir, true);
   packCtx.config.stateFilePath = stateFilePath;
   packCtx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
   auto const resumeRes = packCtx.runtime.jobState->initialize(packCtx.config, false);
@@ -235,13 +176,11 @@ TEST_CASE(
   TempDir temp;
   auto const strayProgressPath = fs::current_path() / "-progress";
   auto const inputPath = temp.path / "slow.mp4";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
   writeTextFile(inputPath, "slow-video");
-  writeFakeFfmpegScript(scriptPath);
 
   auto ctx = appctx::AppContext{};
-  configureVideoContext(ctx, scriptPath, inputPath);
+  configureVideoContext(ctx, temp.path, inputPath);
   stopsignal::requestStop();
 
   auto const result = handlePathEncoding(ctx, inputPath);
@@ -258,17 +197,25 @@ TEST_CASE(
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputPath = temp.path / "slow.mp4";
-  auto const ffprobeScriptPath = temp.path / "fake_ffprobe.cmd";
   auto const stateFilePath = temp.path / "encro.job-state.json";
   writeTextFile(inputPath, "slow-video");
-  writeFakeFfprobeScript(ffprobeScriptPath);
+
+  // ffprobe is never reached (stop fires before encoding starts), but the
+  // toolchain must still resolve for configuration.
+  auto const probeJsonPath = temp.path / "probe.json";
+  testutils::writeTextFile(
+    probeJsonPath,
+    R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]})"
+  );
+  auto const probeJsonEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "video";
   ctx.config.outputFormat = "webp";
   ctx.config.inputPath = inputPath;
   ctx.config.stateFilePath = stateFilePath;
-  ctx.toolchain.ffprobePath = makeCmdScriptCommand(ffprobeScriptPath);
+  ctx.toolchain.ffprobePath = copyFakeTool(temp.path, "ffprobe");
 
   stopsignal::requestStop();
 
@@ -287,13 +234,11 @@ TEST_CASE(
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputPath = temp.path / "sample.mp4";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   auto const capturePath = temp.path / "stdout.txt";
   writeTextFile(inputPath, "fake-video");
-  writeFakeFfmpegScript(scriptPath);
 
   auto ctx = appctx::AppContext{};
-  configureVideoContext(ctx, scriptPath, inputPath);
+  configureVideoContext(ctx, temp.path, inputPath);
 
   auto result = 0;
   {
@@ -312,7 +257,6 @@ TEST_CASE(
   );
   CHECK(captured.find("Scheduling") == std::string::npos);
 }
-#endif
 
 TEST_CASE(
   "handleMultiFileEncoding rejects mixed absolute and relative inputs without a shared "
@@ -341,7 +285,6 @@ TEST_CASE(
 
 }  // namespace
 
-#if defined(_WIN32)
 TEST_CASE(
   "webp retry tier failure updates the state's subprocess cmdline",
   "[video-process][orchestration]"
@@ -351,43 +294,19 @@ TEST_CASE(
   auto const strayProgressPath = fs::current_path() / "-progress";
   if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
   auto const inputPath = temp.path / "sample.mp4";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   writeTextFile(inputPath, "fake-video");
 
-  // Script: first call succeeds with a >20MB output (forces a retry tier),
-  // every later call fails.
-  auto const script = std::format(
-    R"(
-@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-set "outputPath="
-set "previousArg="
-
-for %%A in (%*) do (
-  set "currentArg=%%~A"
-  if /I "!currentArg!"=="-progress" ( set "outputPath=!previousArg!" )
-  set "previousArg=!currentArg!"
-)
-
-set /p cnt=<"%~dp0calls.txt" 2>nul
-if not defined cnt set cnt=0
-set /a cnt+=1
-> "%~dp0calls.txt" echo !cnt!
-
-if !cnt!==1 (
-  for %%I in ("!outputPath!") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
-  fsutil file createnew "!outputPath!" 22020096 >nul
-  exit /b 0
-)
-exit /b 1
-)"
-  );
-  writeTextFile(scriptPath, script);
+  // First call succeeds with a >20MB output (forces a retry tier), every
+  // later call fails.
+  auto const cntEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", (temp.path / "calls.txt").string()};
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:0:1"};
+  auto const bigOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "22020096"};
 
   auto ctx = appctx::AppContext{};
   ctx.config.outputFormat = "webp";
   ctx.config.yesToAll = true;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto state = appctx::EncodingState{};
   state.inputPath = inputPath;
@@ -415,14 +334,19 @@ TEST_CASE(
   auto const strayProgressPath = fs::current_path() / "-progress";
   if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
   auto const inputPath = temp.path / "sample.mp4";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
-  auto const ffprobeScriptPath = temp.path / "fake_ffprobe.cmd";
   auto const logDir = temp.path / "logs";
   writeTextFile(inputPath, "fake-video");
-  // Standard fake script writes frame=/progress= lines but no out_time_us=,
-  // so parseSegmentEndUs fails and must fall back with a warning.
-  writeFakeFfmpegScript(scriptPath);
-  writeFakeFfprobeScript(ffprobeScriptPath);
+
+  // Suppress out_time_us= so parseSegmentEndUs fails and must fall back
+  // with a warning.
+  auto const noEndTimeEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_PROGRESS_NO_END_TIME", "1"};
+  auto const probeJsonPath = temp.path / "probe.json";
+  testutils::writeTextFile(
+    probeJsonPath,
+    R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]})"
+  );
+  auto const probeJsonEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
 
   auto config = logging::LogConfig{
     .colorsEnabled = false,
@@ -436,8 +360,8 @@ TEST_CASE(
   ctx.config.outputFormat = "mp4";
   ctx.config.inputPath = inputPath;
   ctx.config.yesToAll = true;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
-  ctx.toolchain.ffprobePath = makeCmdScriptCommand(ffprobeScriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
+  ctx.toolchain.ffprobePath = copyFakeTool(temp.path, "ffprobe");
 
   auto state = appctx::EncodingState{};
   state.inputPath = inputPath;
@@ -453,4 +377,3 @@ TEST_CASE(
   CAPTURE(content);
   CHECK(content.find("falling back to nominal duration") != std::string::npos);
 }
-#endif

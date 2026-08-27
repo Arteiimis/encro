@@ -89,6 +89,16 @@ target("encro_e2e_tool")
   add_files("tests/e2e/fake_media_tool.cpp")
 target_end()
 
+-- Injects the absolute path of the fake media tool binary as a compile-time
+-- define, so unit and e2e test binaries can spawn it directly.
+local function injectFakeToolDefine(target)
+  local dep = target:dep("encro_e2e_tool")
+  if dep then
+    local exe = path.absolute(dep:targetfile())
+    target:add("defines", "FAKE_TOOL_EXE_PATH=\"" .. exe:gsub("\\", "\\\\") .. "\"")
+  end
+end
+
 target("tests")
   set_kind("binary")
   set_default(false)
@@ -110,13 +120,7 @@ target("tests")
 
   -- Unit tests spawn the fake media tool exe directly (no cmd.exe layer).
   add_deps("encro_e2e_tool")
-  after_load(function(target)
-    local dep = target:dep("encro_e2e_tool")
-    if dep then
-      local exe = path.absolute(dep:targetfile())
-      target:add("defines", "FAKE_TOOL_EXE_PATH=\"" .. exe:gsub("\\", "\\\\") .. "\"")
-    end
-  end)
+  after_load(injectFakeToolDefine)
 target_end()
 
 target("e2e_tests")
@@ -132,6 +136,7 @@ target("e2e_tests")
   end
 
   add_deps("encro", "encro_e2e_tool")
+  after_load(injectFakeToolDefine)
   add_files("tests/e2e/*.cpp|fake_media_tool.cpp")
 target_end()
 

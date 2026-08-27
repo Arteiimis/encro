@@ -6,9 +6,12 @@
 #include <iostream>
 #include <iterator>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -367,7 +370,12 @@ void writeFakeProgressFile(FfmpegInvocation const& invocation) {
   auto const frameCount = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_FRAMES", 10);
   auto const padBytes = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_PAD", 0);
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access): caller checks has_value
-  auto out = std::ofstream{invocation.progressFile.value()};
+  auto const progressPath = invocation.progressFile.value();
+  if (auto const parentPath = progressPath.parent_path(); !parentPath.empty()) {
+    std::error_code ec;
+    fs::create_directories(parentPath, ec);
+  }
+  auto out = std::ofstream{progressPath};
   if (!out.is_open()) { return; }
   if (padBytes > 0) {
     // Emulates an old/oversized -progress file so the tail-read path is
@@ -378,7 +386,11 @@ void writeFakeProgressFile(FfmpegInvocation const& invocation) {
     }
   }
   out << "frame=" << frameCount << "\n";
-  if (invocation.seekSeconds.has_value() && invocation.durationSeconds.has_value()) {
+  if (
+    readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_NO_END_TIME", 0) == 0
+    && invocation.seekSeconds.has_value()
+    && invocation.durationSeconds.has_value()
+  ) {
     auto const endUs = static_cast<std::uint64_t>(
       (invocation.seekSeconds.value() + invocation.durationSeconds.value()) * 1e6
     );
@@ -387,11 +399,118 @@ void writeFakeProgressFile(FfmpegInvocation const& invocation) {
   out << "progress=end\n";
 }
 
+// Per-call schedules let one fake binary behave differently per invocation
+// index (a delayed second call, failures from call N on), keyed by a
+// persistent counter file so sequential child processes share the sequence.
+auto nextScheduledCallIndex() -> int {
+  auto const countFilePath = readEnv("ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE");
+  if (!countFilePath.has_value()) { return -1; }
+
+  auto const filePath = fs::path{countFilePath.value()};
+  auto previous = 0;
+  {
+    auto in = std::ifstream{filePath};
+    if (in.is_open()) {
+      int stored = 0;
+      if (in >> stored) { previous = stored; }
+    }
+  }
+  auto const index = previous + 1;
+  {
+    auto out = std::ofstream{filePath, std::ios::trunc};
+    if (out.is_open()) { out << index; }
+  }
+  return index;
+}
+
+struct ScheduleSegment {
+  int callIndex;
+  int delayMs;
+  int exitCode;
+  bool fromCallOnwards;
+};
+
+// Plan grammar: "<call>[-]:<delayMs>:<exitCode>[;...]" - "2:" targets only
+// call 2, "2-" targets call 2 and every later call.
+auto parseCallPlan(std::string const& plan) -> std::vector<ScheduleSegment> {
+  auto segments = std::vector<ScheduleSegment>{};
+  auto stream = std::istringstream{plan};
+  std::string part;
+  while (std::getline(stream, part, ';')) {
+    auto parser = std::istringstream{part};
+    std::string callToken;
+    std::string delayToken;
+    std::string exitToken;
+    if (
+      !std::getline(parser, callToken, ':')
+      || !std::getline(parser, delayToken, ':')
+      || !static_cast<bool>(parser >> exitToken)
+    ) {
+      continue;
+    }
+
+    auto segment = ScheduleSegment{};
+    try {
+      size_t consumed = 0;
+      segment.callIndex = std::stoi(callToken, &consumed);
+      segment.fromCallOnwards = callToken.find('-', consumed) != std::string::npos;
+      segment.delayMs = std::stoi(delayToken);
+      segment.exitCode = std::stoi(exitToken);
+    } catch (...) { continue; }
+    segments.push_back(segment);
+  }
+  return segments;
+}
+
+// Optional completion record (ENCRO_FAKE_FFMPEG_INPUT_LOG): every invocation
+// that reaches the success path appends its -i input path, letting tests
+// identify which sources a cancelled run actually finished.
+void recordCompletedInput(int argc, char* argv[]) {
+  auto const dest = readEnv("ENCRO_FAKE_FFMPEG_INPUT_LOG");
+  if (!dest.has_value()) { return; }
+
+  std::optional<std::string_view> inputPath;
+  for (auto index = 1; index + 1 < argc; ++index) {
+    if (std::string_view{argv[index]} == "-i") { inputPath = argv[index + 1]; }
+  }
+  if (!inputPath.has_value()) { return; }
+
+  auto const logPath = fs::path{dest.value()};
+  if (!logPath.parent_path().empty()) { fs::create_directories(logPath.parent_path()); }
+  auto out = std::ofstream{logPath, std::ios::app};
+  if (!out.is_open()) { return; }
+  out << inputPath.value() << '\n';
+}
+
 int runFakeFfmpeg(int argc, char* argv[]) {
   appendInvocationLog("ffmpeg", argc, argv);
   if (hasArg(argc, argv, "-version")) { return emitVersion("ffmpeg"); }
 
   auto const invocation = parseFfmpegInvocation(argc, argv);
+
+  // Resolve this invocation's call index and any matching schedule entry.
+  auto scheduledDelayMs = -1;
+  auto scheduledExitCode = -1;
+  auto const callIndex = nextScheduledCallIndex();
+  if (callIndex > 0) {
+    if (auto const planText = readEnv("ENCRO_FAKE_FFMPEG_CALL_PLAN"); planText) {
+      for (auto const& segment: parseCallPlan(planText.value())) {
+        if (
+          segment.callIndex != callIndex
+          && !(segment.fromCallOnwards && callIndex >= segment.callIndex)
+        ) {
+          continue;
+        }
+        scheduledDelayMs = segment.delayMs;
+        scheduledExitCode = segment.exitCode;
+        break;
+      }
+    }
+  }
+
+  auto const effectiveDelayMs = scheduledDelayMs >= 0
+    ? scheduledDelayMs
+    : readEnvInt("ENCRO_FAKE_FFMPEG_DELAY_MS", 0);
 
   if (auto const stderrText = readEnv("ENCRO_FAKE_FFMPEG_STDERR"); stderrText) {
     std::cerr << stderrText.value();
@@ -407,7 +526,7 @@ int runFakeFfmpeg(int argc, char* argv[]) {
     }
   }
 
-  auto const delayMs = readEnvInt("ENCRO_FAKE_FFMPEG_DELAY_MS", 0);
+  auto const delayMs = effectiveDelayMs;
   if (delayMs > 0) {
     auto const concurrencyDir = readEnv("ENCRO_FAKE_FFMPEG_CONCURRENCY_DIR");
     if (concurrencyDir) {
@@ -437,8 +556,18 @@ int runFakeFfmpeg(int argc, char* argv[]) {
 
   if (invocation.progressFile.has_value()) { writeFakeProgressFile(invocation); }
 
-  auto const exitCode = readEnvInt("ENCRO_FAKE_FFMPEG_EXIT_CODE", 0);
-  if (exitCode != 0) { return exitCode; }
+  auto const exitCode = scheduledExitCode >= 0
+    ? scheduledExitCode
+    : readEnvInt("ENCRO_FAKE_FFMPEG_EXIT_CODE", 0);
+  if (exitCode != 0) {
+    // Optional partial-output-before-failure semantics: some orchestration
+    // flows leave a .partial file behind that the parent must clean up.
+    auto const failBytes = readEnvSize("ENCRO_FAKE_FFMPEG_FAIL_OUTPUT_BYTES", 0);
+    if (failBytes > 0 && invocation.outputFile.has_value()) {
+      writeSizedFile(invocation.outputFile.value(), failBytes);
+    }
+    return exitCode;
+  }
 
   if (!invocation.outputFile.has_value()) {
     std::cerr << "missing output file\n";
@@ -449,6 +578,8 @@ int runFakeFfmpeg(int argc, char* argv[]) {
   // by the metric impersonators.
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access): guarded by has_value above
   if (invocation.outputFile->string() == "-") { return runScoringInvocation(argc, argv); }
+
+  recordCompletedInput(argc, argv);
 
   writeSizedFile(
     invocation.outputFile.value(),

@@ -11,101 +11,13 @@
 
 namespace fs = std::filesystem;
 
+using testutils::copyFakeTool;
 using testutils::listZipRegularEntryNames;
+using testutils::ScopedEnvVar;
 using testutils::ScopedStopSignalReset;
 using testutils::touchFile;
 
-#if defined(_WIN32)
 namespace {
-
-auto makeCmdScriptCommand(fs::path const& scriptPath) -> fs::path {
-  return fs::path{std::format("cmd.exe /d /c call \"{}\"", scriptPath.string())};
-}
-
-void writeFakeFfmpegScript(fs::path const& scriptPath) {
-  auto const script = std::string{R"(@echo off
-set "outputPath="
-:parse
-if "%~1"=="" goto done
-set "outputPath=%~1"
-shift
-goto parse
-:done
-if "%outputPath%"=="" exit /b 2
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
-type nul > "%outputPath%"
-exit /b 0
-)"};
-  testutils::writeTextFile(scriptPath, script);
-}
-
-void writeFakeFfmpegSecondCallSlowScript(
-  fs::path const& scriptPath,
-  fs::path const& counterPath,
-  fs::path const& survivorMarkerPath
-) {
-  auto const script = std::format(
-    R"(@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-set "outputPath="
-set "inputPath="
-set "counterPath={}"
-set "markerPath={}"
-:parse
-if "%~1"=="" goto done
-if "%~1"=="-i" set "inputPath=%~2"
-set "outputPath=%~1"
-shift
-goto parse
-:done
-if "%outputPath%"=="" exit /b 2
-set /a count=0
-if exist "%counterPath%" set /p count=<"%counterPath%"
-set /a count+=1
->"%counterPath%" echo(!count!
-if !count! GEQ 2 (
-  ping -n 8 127.0.0.1 >nul
-  exit /b 130
-)
->"%markerPath%" echo(%inputPath%
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
-type nul > "%outputPath%"
-exit /b 0
-)",
-    counterPath.string(),
-    survivorMarkerPath.string()
-  );
-  testutils::writeTextFile(scriptPath, script);
-}
-
-void writeFakeFfmpegCountingScript(
-  fs::path const& scriptPath,
-  fs::path const& counterPath
-) {
-  auto const script = std::format(
-    R"(@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-set "outputPath="
-set "counterPath={}"
-:parse
-if "%~1"=="" goto done
-set "outputPath=%~1"
-shift
-goto parse
-:done
-if "%outputPath%"=="" exit /b 2
-set /a count=0
-if exist "%counterPath%" set /p count=<"%counterPath%"
-set /a count+=1
->"%counterPath%" echo(!count!
-for %%I in ("%outputPath%") do if not "%%~dpI"=="" mkdir "%%~dpI" 2>nul
-type nul > "%outputPath%"
-exit /b 0
-)",
-    counterPath.string()
-  );
-  testutils::writeTextFile(scriptPath, script);
-}
 
 std::size_t readInvocationCount(fs::path const& counterPath) {
   auto in = std::ifstream{counterPath, std::ios::binary};
@@ -115,7 +27,6 @@ std::size_t readInvocationCount(fs::path const& counterPath) {
 }
 
 }  // namespace
-#endif
 
 TEST_CASE("picture pipeline packs directory", "[pipeline]") {
   TempDir temp;
@@ -434,19 +345,17 @@ TEST_CASE("picture pipeline keeps relative paths in keep mode", "[pipeline]") {
   CHECK(allEntries.size() >= 1);
 }
 
-#if defined(_WIN32)
 TEST_CASE(
   "picture pipeline compress+pack produces .jpg entries",
   "[pipeline][compress]"
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   fs::create_directories(inputDir);
   touchFile(inputDir / "a.png");
   touchFile(inputDir / "b.png");
-  writeFakeFfmpegScript(scriptPath);
 
+  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -454,7 +363,7 @@ TEST_CASE(
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
@@ -475,13 +384,12 @@ TEST_CASE(
   auto const inputDir = temp.path / "pics";
   auto const dirA = inputDir / "a";
   auto const dirB = inputDir / "b";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
   touchFile(dirA / "same.png");
   touchFile(dirB / "same.png");
-  writeFakeFfmpegScript(scriptPath);
 
+  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -491,7 +399,7 @@ TEST_CASE(
   ctx.config.imageQuality = 5;
   ctx.config.outputLayout = appctx::OutputLayout::Keep;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
@@ -512,15 +420,14 @@ TEST_CASE(
   auto const inputDir = temp.path / "pics";
   auto const dirA = inputDir / "a";
   auto const dirB = inputDir / "b";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
   touchFile(dirA / "alpha.png");
   touchFile(dirA / "beta.png");
   touchFile(dirB / "alpha.png");
   touchFile(dirB / "beta.png");
-  writeFakeFfmpegScript(scriptPath);
 
+  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -530,7 +437,7 @@ TEST_CASE(
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto runRes = pipeline::run(ctx);
   REQUIRE(runRes);
@@ -555,11 +462,10 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const scriptPath = temp.path / "fake_ffmpeg.cmd";
   fs::create_directories(inputDir);
   touchFile(inputDir / "a.png");
-  writeFakeFfmpegScript(scriptPath);
 
+  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -567,7 +473,7 @@ TEST_CASE(
   ctx.config.compressImages = true;
   ctx.config.imageQuality = 5;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config).value();
   auto runRes = pipeline::run(ctx);
@@ -585,14 +491,17 @@ TEST_CASE(
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const scriptPath = temp.path / "fake_ffmpeg_slow.cmd";
-  auto const counterPath = temp.path / "compress-count.txt";
-  auto const survivorMarker = temp.path / "survivor.txt";
   fs::create_directories(inputDir);
   touchFile(inputDir / "fast.png");
   touchFile(inputDir / "slow.png");
-  writeFakeFfmpegSecondCallSlowScript(scriptPath, counterPath, survivorMarker);
 
+  // Call 1 completes and caches; later calls block then would exit 130.
+  auto const cntEnv = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    (temp.path / "compress-count.txt").string()
+  };
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -601,7 +510,7 @@ TEST_CASE(
   ctx.config.imageQuality = 5;
   ctx.config.maxParallelJobs = 1;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(scriptPath);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config).value();
   auto const cacheDir = workdirs::compressCacheDir(inputDir, 5);
@@ -631,14 +540,16 @@ TEST_CASE(
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const slowScript = temp.path / "fake_ffmpeg_slow.cmd";
-  auto const slowCounter = temp.path / "slow-count.txt";
-  auto const survivorMarker = temp.path / "survivor.txt";
   fs::create_directories(inputDir);
   touchFile(inputDir / "fast.png");
   touchFile(inputDir / "slow.png");
-  writeFakeFfmpegSecondCallSlowScript(slowScript, slowCounter, survivorMarker);
 
+  auto const cntEnv1 = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    (temp.path / "slow-count.txt").string()
+  };
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -647,7 +558,7 @@ TEST_CASE(
   ctx.config.imageQuality = 5;
   ctx.config.maxParallelJobs = 1;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(slowScript);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto requester = std::jthread([](std::stop_token token) {
     std::this_thread::sleep_for(1200ms);
@@ -659,9 +570,11 @@ TEST_CASE(
   CHECK(canceledRes.value() == stopsignal::kCanceledExitCode);
   stopsignal::reset();
 
-  auto const countingScript = temp.path / "fake_ffmpeg_count.cmd";
-  auto const countFile = temp.path / "count.txt";
-  writeFakeFfmpegCountingScript(countingScript, countFile);
+  // Resume run must re-compress only the missing file.
+  auto const countFile = temp.path / "resume-count.txt";
+  auto const cntEnv2 =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
+  auto const emptyOut2 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";
@@ -671,7 +584,7 @@ TEST_CASE(
   ctx2.config.imageQuality = 5;
   ctx2.config.maxParallelJobs = 1;
   ctx2.config.inputPath = inputDir;
-  ctx2.toolchain.ffmpegPath = makeCmdScriptCommand(countingScript);
+  ctx2.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const resumeRes = pipeline::run(ctx2);
   REQUIRE(resumeRes);
@@ -694,14 +607,20 @@ TEST_CASE(
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const slowScript = temp.path / "fake_ffmpeg_slow.cmd";
-  auto const slowCounter = temp.path / "slow-count.txt";
-  auto const survivorMarker = temp.path / "survivor.txt";
   fs::create_directories(inputDir);
   touchFile(inputDir / "a.png");
   touchFile(inputDir / "b.png");
-  writeFakeFfmpegSecondCallSlowScript(slowScript, slowCounter, survivorMarker);
 
+  auto const cntEnv1 = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    (temp.path / "slow-count.txt").string()
+  };
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
+  auto const inputsLogEnv = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_INPUT_LOG",
+    (temp.path / "completed-inputs.log").string()
+  };
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -710,7 +629,7 @@ TEST_CASE(
   ctx.config.imageQuality = 5;
   ctx.config.maxParallelJobs = 1;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(slowScript);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto requester = std::jthread([](std::stop_token token) {
     std::this_thread::sleep_for(1200ms);
@@ -722,16 +641,19 @@ TEST_CASE(
   CHECK(canceledRes.value() == stopsignal::kCanceledExitCode);
   stopsignal::reset();
 
-  auto survivorIn = std::ifstream{survivorMarker, std::ios::binary};
-  auto survivorLine = std::string{};
-  if (survivorIn.is_open()) { std::getline(survivorIn, survivorLine); }
-  if (!survivorLine.empty() && survivorLine.back() == '\r') { survivorLine.pop_back(); }
-  REQUIRE_FALSE(survivorLine.empty());
+  // The input recorded before cancellation is the cached survivor; bump its
+  // mtime so the resume run must re-compress it as well.
+  auto const completedInputs =
+    testutils::readTextFile(temp.path / "completed-inputs.log");
+  REQUIRE_FALSE(completedInputs.empty());
+  auto const survivorLine = completedInputs.substr(0, completedInputs.find('\n'));
   touchFile(fs::path{survivorLine});
 
-  auto const countingScript = temp.path / "fake_ffmpeg_count.cmd";
-  auto const countFile = temp.path / "count.txt";
-  writeFakeFfmpegCountingScript(countingScript, countFile);
+  auto const countFile = temp.path / "resume-count.txt";
+  auto const cntEnv2 =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
+  auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
+  auto const emptyOut2 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";
@@ -741,7 +663,7 @@ TEST_CASE(
   ctx2.config.imageQuality = 5;
   ctx2.config.maxParallelJobs = 1;
   ctx2.config.inputPath = inputDir;
-  ctx2.toolchain.ffmpegPath = makeCmdScriptCommand(countingScript);
+  ctx2.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const resumeRes = pipeline::run(ctx2);
   REQUIRE(resumeRes);
@@ -762,14 +684,16 @@ TEST_CASE(
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const slowScript = temp.path / "fake_ffmpeg_slow.cmd";
-  auto const slowCounter = temp.path / "slow-count.txt";
-  auto const survivorMarker = temp.path / "survivor.txt";
   fs::create_directories(inputDir);
   touchFile(inputDir / "a.png");
   touchFile(inputDir / "b.png");
-  writeFakeFfmpegSecondCallSlowScript(slowScript, slowCounter, survivorMarker);
 
+  auto const cntEnv1 = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    (temp.path / "slow-count.txt").string()
+  };
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -778,7 +702,7 @@ TEST_CASE(
   ctx.config.imageQuality = 5;
   ctx.config.maxParallelJobs = 1;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(slowScript);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto requester = std::jthread([](std::stop_token token) {
     std::this_thread::sleep_for(1200ms);
@@ -792,11 +716,14 @@ TEST_CASE(
   auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config).value();
   CHECK(fs::exists(stateFilePath));
   CHECK(fs::exists(workdirs::compressCacheDir(inputDir, 5)));
-  fs::remove(stateFilePath);
 
-  auto const countingScript = temp.path / "fake_ffmpeg_count.cmd";
-  auto const countFile = temp.path / "count.txt";
-  writeFakeFfmpegCountingScript(countingScript, countFile);
+  // State gone → cache invalidated: both sources re-compress.
+  fs::remove(stateFilePath);
+  auto const countFile = temp.path / "rerun-count.txt";
+  auto const cntEnv2 =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
+  auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
+  auto const emptyOut2 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";
@@ -806,7 +733,7 @@ TEST_CASE(
   ctx2.config.imageQuality = 5;
   ctx2.config.maxParallelJobs = 1;
   ctx2.config.inputPath = inputDir;
-  ctx2.toolchain.ffmpegPath = makeCmdScriptCommand(countingScript);
+  ctx2.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const rerunRes = pipeline::run(ctx2);
   REQUIRE(rerunRes);
@@ -823,14 +750,16 @@ TEST_CASE(
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const slowScript = temp.path / "fake_ffmpeg_slow.cmd";
-  auto const slowCounter = temp.path / "slow-count.txt";
-  auto const survivorMarker = temp.path / "survivor.txt";
   fs::create_directories(inputDir);
   touchFile(inputDir / "a.png");
   touchFile(inputDir / "b.png");
-  writeFakeFfmpegSecondCallSlowScript(slowScript, slowCounter, survivorMarker);
 
+  auto const cntEnv1 = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    (temp.path / "slow-count.txt").string()
+  };
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -839,7 +768,7 @@ TEST_CASE(
   ctx.config.imageQuality = 5;
   ctx.config.maxParallelJobs = 1;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(slowScript);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto requester = std::jthread([](std::stop_token token) {
     std::this_thread::sleep_for(1200ms);
@@ -852,9 +781,12 @@ TEST_CASE(
   stopsignal::reset();
   CHECK(fs::exists(workdirs::compressCacheDir(inputDir, 5)));
 
-  auto const countingScript = temp.path / "fake_ffmpeg_count.cmd";
-  auto const countFile = temp.path / "count.txt";
-  writeFakeFfmpegCountingScript(countingScript, countFile);
+  // Quality change → previous cache not reused: both sources re-compress.
+  auto const countFile = temp.path / "rerun-count.txt";
+  auto const cntEnv2 =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
+  auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
+  auto const emptyOut2 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";
@@ -864,7 +796,7 @@ TEST_CASE(
   ctx2.config.imageQuality = 2;
   ctx2.config.maxParallelJobs = 1;
   ctx2.config.inputPath = inputDir;
-  ctx2.toolchain.ffmpegPath = makeCmdScriptCommand(countingScript);
+  ctx2.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const rerunRes = pipeline::run(ctx2);
   REQUIRE(rerunRes);
@@ -882,14 +814,16 @@ TEST_CASE(
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
-  auto const slowScript = temp.path / "fake_ffmpeg_slow.cmd";
-  auto const slowCounter = temp.path / "slow-count.txt";
-  auto const survivorMarker = temp.path / "survivor.txt";
   fs::create_directories(inputDir);
   touchFile(inputDir / "a.png");
   touchFile(inputDir / "b.png");
-  writeFakeFfmpegSecondCallSlowScript(slowScript, slowCounter, survivorMarker);
 
+  auto const cntEnv1 = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    (temp.path / "slow-count.txt").string()
+  };
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
@@ -898,7 +832,7 @@ TEST_CASE(
   ctx.config.imageQuality = 5;
   ctx.config.maxParallelJobs = 1;
   ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = makeCmdScriptCommand(slowScript);
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto requester = std::jthread([](std::stop_token token) {
     std::this_thread::sleep_for(1200ms);
@@ -911,9 +845,12 @@ TEST_CASE(
   stopsignal::reset();
   CHECK(fs::exists(workdirs::compressCacheDir(inputDir, 5)));
 
-  auto const countingScript = temp.path / "fake_ffmpeg_count.cmd";
-  auto const countFile = temp.path / "count.txt";
-  writeFakeFfmpegCountingScript(countingScript, countFile);
+  // --restart clears the stale caches: everything re-compresses.
+  auto const countFile = temp.path / "rerun-count.txt";
+  auto const cntEnv2 =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
+  auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
+  auto const emptyOut2 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";
@@ -924,7 +861,7 @@ TEST_CASE(
   ctx2.config.imageQuality = 2;
   ctx2.config.maxParallelJobs = 1;
   ctx2.config.inputPath = inputDir;
-  ctx2.toolchain.ffmpegPath = makeCmdScriptCommand(countingScript);
+  ctx2.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto const rerunRes = pipeline::run(ctx2);
   REQUIRE(rerunRes);
@@ -932,4 +869,3 @@ TEST_CASE(
   CHECK(readInvocationCount(countFile) == 2);
   CHECK_FALSE(fs::exists(workdirs::compressCacheDir(inputDir, 5)));
 }
-#endif
