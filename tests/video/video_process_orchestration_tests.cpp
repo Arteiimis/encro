@@ -14,6 +14,7 @@
 
 namespace fs = std::filesystem;
 
+using testutils::copyFakeProbe;
 using testutils::copyFakeTool;
 using testutils::listRegularFiles;
 using testutils::readTextFile;
@@ -202,13 +203,7 @@ TEST_CASE(
 
   // ffprobe is never reached (stop fires before encoding starts), but the
   // toolchain must still resolve for configuration.
-  auto const probeJsonPath = temp.path / "probe.json";
-  testutils::writeTextFile(
-    probeJsonPath,
-    R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]})"
-  );
-  auto const probeJsonEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
+  auto const probeEnv = copyFakeProbe(temp.path);
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "video";
@@ -340,13 +335,7 @@ TEST_CASE(
   // Suppress out_time_us= so parseSegmentEndUs fails and must fall back
   // with a warning.
   auto const noEndTimeEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_PROGRESS_NO_END_TIME", "1"};
-  auto const probeJsonPath = temp.path / "probe.json";
-  testutils::writeTextFile(
-    probeJsonPath,
-    R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]})"
-  );
-  auto const probeJsonEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
+  auto const probeEnv = copyFakeProbe(temp.path);
 
   auto config = logging::LogConfig{
     .colorsEnabled = false,
