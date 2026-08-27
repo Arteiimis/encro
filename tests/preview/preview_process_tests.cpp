@@ -1,7 +1,6 @@
 #include "preview/preview_process.h"
 
 #include "core/work_dirs.h"
-#include "infra/env.h"
 
 #include "test_utils.h"
 
@@ -16,6 +15,8 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+using testutils::copyFakeTool;
+using testutils::ScopedEnvVar;
 
 TEST_CASE(
   "pickPreviewWindows samples 5 uniform 10s windows on long videos",
@@ -65,51 +66,12 @@ TEST_CASE(
   CHECK(res.error().find("--start") != std::string::npos);
 }
 
-#if defined(_WIN32)
-
-  #include <cstdlib>
-  #include <fstream>
-
 namespace {
 
-class ScopedEnvVar {
-public:
-  ScopedEnvVar(std::string name, std::string value)
-    : name_(std::move(name)), hadOriginal_(false) {
-    auto const original = processenv::readEnvVar(name_);
-    if (original.has_value()) {
-      originalValue_ = *original;
-      hadOriginal_ = true;
-    }
-    _putenv_s(name_.c_str(), value.c_str());
-  }
-
-  ScopedEnvVar(ScopedEnvVar const&) = delete;
-  auto operator=(ScopedEnvVar const&) -> ScopedEnvVar& = delete;
-
-  ~ScopedEnvVar() {
-    if (hadOriginal_) {
-      _putenv_s(name_.c_str(), originalValue_.c_str());
-    } else {
-      _putenv_s(name_.c_str(), "");
-    }
-  }
-
-private:
-  std::string name_;
-  std::string originalValue_;
-  bool hadOriginal_;
-};
-
-auto copyFakeTool(fs::path const& dir, std::string const& name) -> fs::path {
-  auto const dst = dir / (name + ".exe");
-  fs::copy_file(fs::path{FAKE_TOOL_EXE_PATH}, dst, fs::copy_options::overwrite_existing);
-  return dst;
-}
-
-// Fake ffmpeg/ffprobe = the e2e fake_media_tool.exe (FAKE_TOOL_EXE_PATH), copied
-// per role so argv[0] selects ffprobe vs ffmpeg. The ffmpeg side writes a fake
-// libvmaf JSON log for scoring invocations when ENCRO_FAKE_FFMPEG_WRITE_VMAF=1.
+// Fake ffmpeg/ffprobe = the shared e2e fake_media_tool binary, copied per role
+// so argv[0] selects ffprobe vs ffmpeg (testutils::copyFakeTool). The ffmpeg
+// side writes a fake libvmaf JSON log for scoring invocations when
+// ENCRO_FAKE_FFMPEG_WRITE_VMAF=1.
 void fillPreviewContext(
   appctx::AppContext& ctx,
   fs::path const& toolDir,
@@ -341,5 +303,3 @@ TEST_CASE("preview single-input falls back to default CQ for short videos", "[pr
   auto const outputPath = temp.path / "sample.preview.mp4";
   CHECK(fs::exists(outputPath));
 }
-
-#endif

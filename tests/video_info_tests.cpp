@@ -5,27 +5,15 @@
 #include <cstdint>
 #include <fstream>
 
-#if defined(_WIN32)
-auto makeCmdScriptCommand(fs::path const& scriptPath) -> fs::path {
-  return fs::path{std::format("cmd.exe /d /c call \"{}\"", scriptPath.string())};
-}
-
-void writeFakeFfprobeScript(fs::path const& scriptPath) {
-  auto const script = R"(
-@echo off
-setlocal EnableExtensions
-echo {"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]}
-exit /b 0
-)";
-  auto out = std::ofstream{scriptPath, std::ios::binary};
-  REQUIRE(out.is_open());
-  out << script;
-}
-#endif
+using testutils::copyFakeTool;
+using testutils::ScopedEnvVar;
 
 namespace fs = std::filesystem;
 
 namespace {
+
+constexpr auto kFakeProbeJson =
+  R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]})";
 
 void createFileWithSize(fs::path const& filePath, std::uintmax_t sizeInBytes) {
   auto file = std::ofstream{filePath, std::ios::binary};
@@ -89,11 +77,11 @@ TEST_CASE("readAllVids for webp prewarms video info cache", "[video-info]") {
   auto toolchain = appctx::ToolchainPaths{};
   auto runtime = appctx::RuntimeContext{};
 
-#if defined(_WIN32)
-  auto const ffprobeScriptPath = temp.path / "fake_ffprobe.cmd";
-  writeFakeFfprobeScript(ffprobeScriptPath);
-  toolchain.ffprobePath = makeCmdScriptCommand(ffprobeScriptPath);
-#endif
+  auto const probeJsonPath = temp.path / "probe.json";
+  testutils::writeTextFile(probeJsonPath, kFakeProbeJson);
+  toolchain.ffprobePath = copyFakeTool(temp.path, "ffprobe");
+  auto const probeJsonEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
 
   auto const vids = readAllVids(config, toolchain, runtime, temp.path);
 
@@ -122,11 +110,11 @@ TEST_CASE(
   auto toolchain = appctx::ToolchainPaths{};
   auto runtime = appctx::RuntimeContext{};
 
-#if defined(_WIN32)
-  auto const ffprobeScriptPath = temp.path / "fake_ffprobe.cmd";
-  writeFakeFfprobeScript(ffprobeScriptPath);
-  toolchain.ffprobePath = makeCmdScriptCommand(ffprobeScriptPath);
-#endif
+  auto const probeJsonPath = temp.path / "probe.json";
+  testutils::writeTextFile(probeJsonPath, kFakeProbeJson);
+  toolchain.ffprobePath = copyFakeTool(temp.path, "ffprobe");
+  auto const probeJsonEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
 
   auto const inputFiles = std::array{firstVideo, secondVideo, thirdVideo};
   auto const vids = readAllVidsFromFiles(config, toolchain, runtime, inputFiles);
