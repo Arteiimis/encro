@@ -20,28 +20,6 @@
 
 // ponytail: duplicate of the helper in tests/logging_infra_test.cpp; hoist to
 // test_utils.h when a fifth copy appears.
-namespace {
-
-auto registerCapturingLogger(char const* name)
-  -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
-  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
-  auto oss = std::make_unique<std::ostringstream>();
-  auto* ossPtr = oss.get();
-  sstreams.push_back(std::move(oss));
-
-  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
-  auto logger = std::make_shared<spdlog::logger>(name, sink);
-  logger->set_pattern("%v");
-  logger->set_level(spdlog::level::trace);
-  logger->flush_on(spdlog::level::trace);
-
-  spdlog::drop(name);
-  spdlog::register_logger(logger);
-  return {logger, ossPtr};
-}
-
-}  // namespace
-
 namespace fs = std::filesystem;
 using testutils::writeFile;
 
@@ -681,7 +659,7 @@ TEST_CASE("job state mark operations report persistence failures", "[job-state]"
   writeFile(statePath / "keep.txt");
 
   // Best-effort mutators report persistence failures through the log.
-  auto const [logger, log] = registerCapturingLogger(logtags::CORE_JOB);
+  auto const [logger, log] = testutils::registerCapturingLogger(logtags::CORE_JOB);
   store.markRunning(task.id);
   store.flush();
   auto const content = log->str();

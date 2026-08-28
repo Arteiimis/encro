@@ -10,24 +10,6 @@ namespace fs = std::filesystem;
 using testutils::collisionGroupPrefix;
 using testutils::hasCollisionSafePrefix;
 
-namespace {
-
-void createSizedSparseFile(fs::path const& filePath, std::uintmax_t sizeInBytes) {
-  auto out = std::ofstream{filePath, std::ios::binary};
-  REQUIRE(out.is_open());
-
-  if (sizeInBytes == 0) {
-    out.flush();
-    return;
-  }
-
-  out.seekp(static_cast<std::streamoff>(sizeInBytes - 1));
-  out.put('\0');
-  out.flush();
-}
-
-}  // namespace
-
 TEST_CASE(
   "resolveVideoOutputPath returns webp subfolder when output path is not provided",
   "[video-process][resolve-output-path]"

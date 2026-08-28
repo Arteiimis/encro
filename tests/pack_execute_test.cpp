@@ -31,15 +31,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-// Helper: create a file with given size (binary content)
-void createBinaryFile(fs::path const& filePath, std::size_t sizeBytes = 100) {
-  fs::create_directories(filePath.parent_path());
-  auto out = std::ofstream{filePath, std::ios::binary};
-  auto const data = std::string(sizeBytes, 'X');
-  out.write(data.data(), static_cast<std::streamsize>(data.size()));
-  out.close();
-}
-
 // Helper: create a minimal AppConfig for Store initialization
 auto makeStoreConfig(fs::path const& statePath) -> appctx::AppConfig {
   auto config = appctx::AppConfig{};
@@ -77,9 +68,9 @@ TEST_CASE("execute() with Media mode groups entries by parent dir", "[pack][exec
   auto const subdirB = tmp.path / "video_b";
   fs::create_directories(subdirA);
   fs::create_directories(subdirB);
-  createBinaryFile(subdirA / "stream.mp4", 1024);
-  createBinaryFile(subdirA / "subtitle.srt", 512);
-  createBinaryFile(subdirB / "output.mp4", 2048);
+  testutils::writeSizedFile(subdirA / "stream.mp4", 1024);
+  testutils::writeSizedFile(subdirA / "subtitle.srt", 512);
+  testutils::writeSizedFile(subdirB / "output.mp4", 2048);
 
   auto const outputDir = tmp.path / "packed";
   fs::create_directories(outputDir);
@@ -106,7 +97,7 @@ TEST_CASE(
   TempDir tmp;
   auto const sourceDir = tmp.path / "album" / "a";
   auto const sourceFile = sourceDir / "alpha.jpg";
-  createBinaryFile(sourceFile, 256);
+  testutils::writeSizedFile(sourceFile, 256);
 
   auto const outputDir = tmp.path / "packed_explicit";
   fs::create_directories(outputDir);
@@ -154,9 +145,9 @@ TEST_CASE(
 
 TEST_CASE("execute() with Directory mode packs directory tree", "[pack][execute]") {
   TempDir tmp;
-  createBinaryFile(tmp.path / "docs/readme.txt", 200);
-  createBinaryFile(tmp.path / "docs/guide.pdf", 300);
-  createBinaryFile(tmp.path / "docs/nested/deep.txt", 100);
+  testutils::writeSizedFile(tmp.path / "docs/readme.txt", 200);
+  testutils::writeSizedFile(tmp.path / "docs/guide.pdf", 300);
+  testutils::writeSizedFile(tmp.path / "docs/nested/deep.txt", 100);
 
   auto const outputDir = tmp.path / "packed_dir";
   fs::create_directories(outputDir);
@@ -178,8 +169,8 @@ TEST_CASE("execute() with Directory mode packs directory tree", "[pack][execute]
 
 TEST_CASE("execute() with compact=false uses full-progress path", "[pack][execute]") {
   TempDir tmp;
-  createBinaryFile(tmp.path / "media_a/clip.mp4", 2048);
-  createBinaryFile(tmp.path / "media_b/clip.mp4", 2048);
+  testutils::writeSizedFile(tmp.path / "media_a/clip.mp4", 2048);
+  testutils::writeSizedFile(tmp.path / "media_b/clip.mp4", 2048);
 
   auto const outputDir = tmp.path / "packed_full";
   fs::create_directories(outputDir);
@@ -207,8 +198,8 @@ TEST_CASE(
   "[pack][execute][resumable]"
 ) {
   TempDir tmp;
-  createBinaryFile(tmp.path / "media_a/clip.mp4", 500);
-  createBinaryFile(tmp.path / "media_b/clip.mp4", 500);
+  testutils::writeSizedFile(tmp.path / "media_a/clip.mp4", 500);
+  testutils::writeSizedFile(tmp.path / "media_b/clip.mp4", 500);
   auto const outputDir = tmp.path / "packed_resumable";
   fs::create_directories(outputDir);
   auto const statePath = tmp.path / "encro.job-state.json";
@@ -250,7 +241,7 @@ TEST_CASE(
   "[pack][execute][resumable]"
 ) {
   TempDir tmp;
-  createBinaryFile(tmp.path / "media_a/clip.mp4", 500);
+  testutils::writeSizedFile(tmp.path / "media_a/clip.mp4", 500);
   auto const outputDir = tmp.path / "packed_done";
   fs::create_directories(outputDir);
   auto const statePath = tmp.path / "encro.job-state.json";
@@ -301,7 +292,7 @@ TEST_CASE(
   "[pack][execute][resumable]"
 ) {
   TempDir tmp;
-  createBinaryFile(tmp.path / "media_a/clip.mp4", 500);
+  testutils::writeSizedFile(tmp.path / "media_a/clip.mp4", 500);
   auto const outputDir = tmp.path / "packed_cancel";
   fs::create_directories(outputDir);
   auto const statePath = tmp.path / "encro.job-state.json";
@@ -353,12 +344,12 @@ TEST_CASE(
   auto entries = std::vector<fs::path>{};
   for (auto i = 0; i < 10; ++i) {
     auto const filePath = dirA / std::format("file_{:03d}.txt", i);
-    createBinaryFile(filePath, 100);
+    testutils::writeSizedFile(filePath, 100);
     entries.push_back(filePath);
   }
   for (auto i = 0; i < 5; ++i) {
     auto const filePath = dirB / std::format("file_{:03d}.txt", i);
-    createBinaryFile(filePath, 100);
+    testutils::writeSizedFile(filePath, 100);
     entries.push_back(filePath);
   }
 
@@ -384,7 +375,7 @@ TEST_CASE(
   fs::create_directories(outputDir);
 
   auto const filePath = temp.path / "test.txt";
-  createBinaryFile(filePath, 100);
+  testutils::writeSizedFile(filePath, 100);
 
   pack::PackRequest request{
     .entries = {filePath},
@@ -408,10 +399,10 @@ TEST_CASE(
   fs::create_directories(outputDir);
 
   auto const regularFile = temp.path / "regular.txt";
-  createBinaryFile(regularFile, 100);
+  testutils::writeSizedFile(regularFile, 100);
 
   auto const summaryFile = temp.path / "cover.jpg";
-  createBinaryFile(summaryFile, 200);
+  testutils::writeSizedFile(summaryFile, 200);
 
   pack::PackRequest request{
     .entries = {regularFile},
@@ -454,9 +445,9 @@ TEST_CASE(
   auto const fileA = temp.path / "a.txt";
   auto const fileB = temp.path / "b.txt";
   auto const coverFile = temp.path / "cover.jpg";
-  createBinaryFile(fileA, 100);
-  createBinaryFile(fileB, 100);
-  createBinaryFile(coverFile, 200);
+  testutils::writeSizedFile(fileA, 100);
+  testutils::writeSizedFile(fileB, 100);
+  testutils::writeSizedFile(coverFile, 200);
 
   pack::PackRequest request{
     .entries = {fileA, fileB},
@@ -494,10 +485,10 @@ TEST_CASE(
   fs::create_directories(outputDir);
 
   auto const regularFile = temp.path / "regular.txt";
-  createBinaryFile(regularFile, 100);
+  testutils::writeSizedFile(regularFile, 100);
 
   auto const summaryFile = temp.path / "cover.jpg";
-  createBinaryFile(summaryFile, 200);
+  testutils::writeSizedFile(summaryFile, 200);
 
   pack::PackRequest request{
     .entries = {regularFile},

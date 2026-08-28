@@ -1,5 +1,6 @@
 #include "logging/log_tags.h"
 #include "logging/setup.h"
+#include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
 
@@ -22,20 +23,6 @@
 namespace fs = std::filesystem;
 
 namespace {
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-auto makeTestDir(std::string const& name) -> fs::path {
-  auto const dir = fs::temp_directory_path() / "encro_test_fmgmt" / name;
-  auto ec = std::error_code{};
-  fs::create_directories(dir, ec);
-  return dir;
-}
-
-void removeDir(fs::path const& dir) {
-  auto ec = std::error_code{};
-  fs::remove_all(dir, ec);
-}
 
 void createFakeLogFile(fs::path const& dir, std::string const& filename) {
   auto ofs = std::ofstream{dir / filename};
@@ -93,7 +80,8 @@ auto const kTimestampedPidPattern = std::regex{R"(encro_\d{8}_\d{6}_\d+\.log)"};
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("setup creates timestamped log file", "[logging][file_mgmt]") {
-  auto const testDir = makeTestDir("test1_timestamped_naming");
+  TempDir const temp;
+  auto const& testDir = temp.path;
 
   auto const config = logging::LogConfig{
     .colorsEnabled = false,
@@ -148,7 +136,6 @@ TEST_CASE("setup creates timestamped log file", "[logging][file_mgmt]") {
 
   // Cleanup
   logging::shutdown();
-  removeDir(testDir);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -156,7 +143,8 @@ TEST_CASE("setup creates timestamped log file", "[logging][file_mgmt]") {
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("setup returns valid timestamped log file path", "[logging][file_mgmt]") {
-  auto const testDir = makeTestDir("test2_valid_path");
+  TempDir const temp;
+  auto const& testDir = temp.path;
 
   auto const config = logging::LogConfig{
     .colorsEnabled = false,
@@ -188,7 +176,6 @@ TEST_CASE("setup returns valid timestamped log file path", "[logging][file_mgmt]
   CHECK(fileSize > 0);
 
   // Cleanup
-  removeDir(testDir);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -196,7 +183,8 @@ TEST_CASE("setup returns valid timestamped log file path", "[logging][file_mgmt]
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
-  auto const testDir = makeTestDir("test3_retention");
+  TempDir const temp;
+  auto const& testDir = temp.path;
 
   // Create 15 fake encro_*.log files with different timestamps.
   // Lexicographically unique timestamps ensure deterministic sort order.
@@ -252,7 +240,6 @@ TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
   CHECK(fs::exists(logFilePath));
 
   // Cleanup
-  removeDir(testDir);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -260,7 +247,8 @@ TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("cleanup matches rotation files", "[logging][file_mgmt]") {
-  auto const testDir = makeTestDir("test4_rotation");
+  TempDir const temp;
+  auto const& testDir = temp.path;
 
   // Create 8 regular log files and 7 rotation files (.log.1, .log.2, .log.3)
   for (auto i = 0; i < 8; ++i) {
@@ -305,7 +293,6 @@ TEST_CASE("cleanup matches rotation files", "[logging][file_mgmt]") {
   CHECK(postCount <= 11);
 
   // Cleanup
-  removeDir(testDir);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -313,7 +300,8 @@ TEST_CASE("cleanup matches rotation files", "[logging][file_mgmt]") {
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("setup falls back when primary log dir is unwritable", "[logging][file_mgmt]") {
-  auto const testDir = makeTestDir("test6_unwritable");
+  TempDir const temp;
+  auto const& testDir = temp.path;
 
   // Create a FILE at the path where setup() would try to create directories.
   // This causes fs::create_directories() to fail because the parent path
@@ -346,7 +334,6 @@ TEST_CASE("setup falls back when primary log dir is unwritable", "[logging][file
 
   // Cleanup
   logging::shutdown();
-  removeDir(testDir);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -354,7 +341,8 @@ TEST_CASE("setup falls back when primary log dir is unwritable", "[logging][file
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgmt]") {
-  auto const testDir = makeTestDir("test8_rotating_sink");
+  TempDir const temp;
+  auto const& testDir = temp.path;
 
   auto const config = logging::LogConfig{
     .colorsEnabled = false,
@@ -395,7 +383,6 @@ TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgm
   CHECK(content.find(testMsg) != std::string::npos);
 
   // Cleanup
-  removeDir(testDir);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -403,7 +390,8 @@ TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgm
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("json-only setup writes both .log and .ndjson files", "[logging][file_mgmt]") {
-  auto const testDir = makeTestDir("test10_json_companion");
+  TempDir const temp;
+  auto const& testDir = temp.path;
 
   auto const config = logging::LogConfig{
     .jsonEnabled = true,
@@ -424,14 +412,14 @@ TEST_CASE("json-only setup writes both .log and .ndjson files", "[logging][file_
   CHECK(fs::exists(ndjsonPath));
 
   logging::shutdown();
-  removeDir(testDir);
 }
 
 TEST_CASE(
   "periodic flush lands non-error lines before shutdown",
   "[logging][file_mgmt]"
 ) {
-  auto const testDir = makeTestDir("test9_periodic_flush");
+  TempDir const temp;
+  auto const& testDir = temp.path;
   auto const config = logging::LogConfig{
     .colorsEnabled = false,
     .customLogDir = testDir,
@@ -466,5 +454,4 @@ TEST_CASE(
   CHECK(found);
 
   logging::shutdown();
-  removeDir(testDir);
 }

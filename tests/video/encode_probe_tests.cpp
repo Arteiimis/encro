@@ -416,6 +416,48 @@ void fillProbeContext(
   testutils::touchFile(inputPath);
 }
 
+// Shared scaffold for the runEncodingTasks tests: fake tools wired via
+// fillProbeContext, a single input with its planned output, invocation-log
+// capture, and the batch job for that input. Tests customize via ctx.config
+// and envs before calling run().
+struct EncodingTasksScaffold {
+  TempDir temp;
+  appctx::AppContext ctx;
+  std::vector<std::unique_ptr<ScopedEnvVar>> envs;
+  fs::path inputPath;
+  fs::path outputFile;
+  fs::path logPath;
+
+  explicit EncodingTasksScaffold(
+    std::string const& duration = "100.0",
+    std::string const& vmafScores = "96.0"
+  ) {
+    inputPath = temp.path / "sample.mp4";
+    outputFile = temp.path / "encoded" / "sample.mp4";
+    fillProbeContext(ctx, temp.path, inputPath, duration, vmafScores, envs);
+    ctx.config.yesToAll = true;
+    ctx.config.verbose = true;  // no progress bars in tests
+    logPath = temp.path / "ffmpeg_invocations.log";
+    envs.push_back(
+      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+    );
+  }
+
+  auto run() {
+    auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
+    return videobatch::runEncodingTasks(
+      ctx,
+      videobatch::EncodingBatchJob{
+        .vids = {inputPath},
+        .plannedOutputFiles = plannedOutputFiles,
+        .actionIds = videobatch::ActionIdMap{},
+      },
+      1,
+      0
+    );
+  }
+};
+
 auto leftoverProbeDirs() -> std::vector<fs::path> {
   auto dirs = std::vector<fs::path>{};
   auto const scratchRoot = workdirs::scratchDir();
@@ -513,17 +555,6 @@ TEST_CASE("runProbePhase skips short videos with the default cq", "[encode-probe
   CHECK_FALSE(plan.p5.has_value());
 }
 
-namespace {
-
-// Writes a file of the given byte size without allocating a huge buffer.
-void writeSizedFile(fs::path const& path, std::uintmax_t size) {
-  auto out = std::ofstream{path, std::ios::binary};
-  out.seekp(static_cast<std::streamoff>(size) - 1);
-  out.put('\0');
-}
-
-}  // namespace
-
 TEST_CASE(
   "runProbePhase flags plans whose estimate exceeds the source",
   "[encode-probe]"
@@ -532,8 +563,8 @@ TEST_CASE(
   auto const kMegabyte = std::uintmax_t{1'048'576};
   auto const small = temp.path / "small.mp4";  // est. ~10 MB > 2 MB source
   auto const big = temp.path / "big.mp4";      // est. ~10 MB < 20 MB source
-  writeSizedFile(small, 2 * kMegabyte);
-  writeSizedFile(big, 20 * kMegabyte);
+  testutils::writeSizedFile(small, 2 * kMegabyte);
+  testutils::writeSizedFile(big, 20 * kMegabyte);
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   fillProbeContext(ctx, temp.path, small, "100.0", "96.0", envs);
@@ -564,9 +595,9 @@ TEST_CASE(
   auto const normalA = temp.path / "beta.mp4";
   auto const normalB = temp.path / "alpha.mp4";
   auto const bad = temp.path / "gamma.mp4";
-  writeSizedFile(normalA, kMegabyte);
-  writeSizedFile(normalB, kMegabyte);
-  writeSizedFile(bad, kMegabyte);
+  testutils::writeSizedFile(normalA, kMegabyte);
+  testutils::writeSizedFile(normalB, kMegabyte);
+  testutils::writeSizedFile(bad, kMegabyte);
 
   auto plans = std::vector<encodeprobe::ProbePlan>{
     {.inputPath = bad,
@@ -672,7 +703,7 @@ TEST_CASE(
   TempDir temp;
   auto const kMegabyte = std::uintmax_t{1'048'576};
   auto const input = temp.path / "clip.mp4";
-  writeSizedFile(input, kMegabyte);
+  testutils::writeSizedFile(input, kMegabyte);
   auto plans = std::vector<encodeprobe::ProbePlan>{
     {.inputPath = input,
      .chosenCq = 28,
@@ -705,8 +736,8 @@ TEST_CASE("printProbePlan caps the name column on wide terminals", "[encode-prob
   auto const kMegabyte = std::uintmax_t{1'048'576};
   auto const first = temp.path / "alpha.mp4";
   auto const second = temp.path / "beta.mp4";
-  writeSizedFile(first, kMegabyte);
-  writeSizedFile(second, kMegabyte);
+  testutils::writeSizedFile(first, kMegabyte);
+  testutils::writeSizedFile(second, kMegabyte);
   auto plans = std::vector<encodeprobe::ProbePlan>{
     {.inputPath = first,
      .chosenCq = 26,
@@ -740,43 +771,24 @@ TEST_CASE(
   "runEncodingTasks probes, prints the plan, and encodes with the chosen CQ",
   "[encode-probe][video-batch-execution]"
 ) {
-  TempDir temp;
-  auto const inputPath = temp.path / "sample.mp4";
-  testutils::touchFile(inputPath);
-  auto const outputFile = temp.path / "encoded" / "sample.mp4";
+  EncodingTasksScaffold s;
+  testutils::writeSizedFile(
+    s.inputPath,
+    1'048'576
+  );  // sized source: the probe estimate fits
 
-  auto ctx = appctx::AppContext{};
-  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
-  fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
-  writeSizedFile(inputPath, 1'048'576);  // sized source: the probe estimate fits
-  ctx.config.yesToAll = true;
-  ctx.config.verbose = true;             // no progress bars in tests
-
-  auto const logPath = temp.path / "fake_tool.log";
-  ScopedEnvVar logEnv{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
-
-  auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
-  auto const outcome = videobatch::runEncodingTasks(
-    ctx,
-    videobatch::EncodingBatchJob{
-      .vids = {inputPath},
-      .plannedOutputFiles = plannedOutputFiles,
-      .actionIds = videobatch::ActionIdMap{},
-    },
-    1,
-    0
-  );
+  auto const outcome = s.run();
 
   REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results.value().at(inputPath));
+  CHECK(outcome.results.value().at(s.inputPath));
   CHECK_FALSE(outcome.dryRun);
   CHECK(outcome.attentionWarnings.empty());
-  CHECK(fs::exists(outputFile));
+  CHECK(fs::exists(s.outputFile));
 
   // The probe chose CQ 40 (all probed cqs met the floor) and the real encode
   // must use it: the probe alone only produces 2 `-cq 40` segment encodes,
   // the 10s×10 production segments add more.
-  auto const log = testutils::readTextFile(logPath);
+  auto const log = testutils::readTextFile(s.logPath);
   // The fake tool logs tab-separated argv tokens, so '-cq 40' appears as
   // "-cq\t40"; accept both separators.
   auto const cq40Count = static_cast<std::size_t>(
@@ -793,35 +805,16 @@ TEST_CASE(
   "runEncodingTasks surfaces unreachable floors as attention warnings",
   "[encode-probe][video-batch-execution]"
 ) {
-  TempDir temp;
-  auto const inputPath = temp.path / "sample.mp4";
-  testutils::touchFile(inputPath);
-  auto const outputFile = temp.path / "encoded" / "sample.mp4";
+  EncodingTasksScaffold s{"100.0", "93.0"};
+  testutils::writeSizedFile(
+    s.inputPath,
+    1'048'576
+  );  // sized source: the probe estimate fits
 
-  auto ctx = appctx::AppContext{};
-  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
-  fillProbeContext(ctx, temp.path, inputPath, "100.0", "93.0", envs);
-  writeSizedFile(inputPath, 1'048'576);  // sized source: the probe estimate fits
-  ctx.config.yesToAll = true;
-  ctx.config.verbose = true;
-
-  auto const logPath = temp.path / "ffmpeg_invocations.log";
-  ScopedEnvVar logEnv{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
-
-  auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
-  auto const outcome = videobatch::runEncodingTasks(
-    ctx,
-    videobatch::EncodingBatchJob{
-      .vids = {inputPath},
-      .plannedOutputFiles = plannedOutputFiles,
-      .actionIds = videobatch::ActionIdMap{},
-    },
-    1,
-    0
-  );
+  auto const outcome = s.run();
 
   REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results.value().at(inputPath));
+  CHECK(outcome.results.value().at(s.inputPath));
   REQUIRE(outcome.attentionWarnings.size() == 1);
   CHECK(
     outcome.attentionWarnings.front().find("quality floor unreachable")
@@ -833,34 +826,15 @@ TEST_CASE(
   "runEncodingTasks dry-run prints the plan and encodes nothing",
   "[encode-probe]"
 ) {
-  TempDir temp;
-  auto const inputPath = temp.path / "sample.mp4";
-  testutils::touchFile(inputPath);
-  auto const outputFile = temp.path / "encoded" / "sample.mp4";
+  EncodingTasksScaffold s;
+  s.ctx.config.dryRun = true;
 
-  auto ctx = appctx::AppContext{};
-  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
-  fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
-  ctx.config.yesToAll = true;
-  ctx.config.verbose = true;
-  ctx.config.dryRun = true;
-
-  auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
-  auto const outcome = videobatch::runEncodingTasks(
-    ctx,
-    videobatch::EncodingBatchJob{
-      .vids = {inputPath},
-      .plannedOutputFiles = plannedOutputFiles,
-      .actionIds = videobatch::ActionIdMap{},
-    },
-    1,
-    0
-  );
+  auto const outcome = s.run();
 
   CHECK(outcome.dryRun);
   REQUIRE(outcome.results.has_value());
   CHECK(outcome.results.value().empty());
-  CHECK_FALSE(fs::exists(outputFile));
+  CHECK_FALSE(fs::exists(s.outputFile));
   CHECK(leftoverProbeDirs().empty());
 }
 
@@ -868,80 +842,36 @@ TEST_CASE(
   "runEncodingTasks skips videos whose probe estimate exceeds the source",
   "[encode-probe][video-batch-execution]"
 ) {
-  TempDir temp;
-  auto const inputPath = temp.path / "sample.mp4";
-  testutils::touchFile(inputPath);
-  auto const outputFile = temp.path / "encoded" / "sample.mp4";
-
-  auto ctx = appctx::AppContext{};
-  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
-  fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
+  EncodingTasksScaffold s;
   // Tiny source + large fake segments: the estimate exceeds the source, so
   // probing drops the file from the encode stage.
-  envs.push_back(
+  s.envs.push_back(
     std::make_unique<
       ScopedEnvVar
     >("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", std::to_string(1'048'576))
   );
-  ctx.config.yesToAll = true;
-  ctx.config.verbose = true;
 
-  auto const logPath = temp.path / "ffmpeg_invocations.log";
-  ScopedEnvVar logEnv{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
-
-  auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
-  auto const outcome = videobatch::runEncodingTasks(
-    ctx,
-    videobatch::EncodingBatchJob{
-      .vids = {inputPath},
-      .plannedOutputFiles = plannedOutputFiles,
-      .actionIds = videobatch::ActionIdMap{},
-    },
-    1,
-    0
-  );
+  auto const outcome = s.run();
 
   REQUIRE(outcome.results.has_value());
   CHECK(outcome.results.value().empty());
-  CHECK_FALSE(fs::exists(outputFile));
+  CHECK_FALSE(fs::exists(s.outputFile));
   // Probe segment encodes ran, but no production segment encodes.
-  auto const log = testutils::readTextFile(logPath);
+  auto const log = testutils::readTextFile(s.logPath);
   CHECK(log.find("seg_0.ts") == std::string::npos);
 }
 
 TEST_CASE("runEncodingTasks skips probing entirely with --crf", "[encode-probe]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "sample.mp4";
-  testutils::touchFile(inputPath);
-  auto const outputFile = temp.path / "encoded" / "sample.mp4";
+  EncodingTasksScaffold s;
+  s.ctx.config.crf = 28;
 
-  auto ctx = appctx::AppContext{};
-  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
-  fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
-  ctx.config.yesToAll = true;
-  ctx.config.verbose = true;
-  ctx.config.crf = 28;
-
-  auto const logPath = temp.path / "ffmpeg_invocations.log";
-  ScopedEnvVar logEnv{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
-
-  auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
-  auto const outcome = videobatch::runEncodingTasks(
-    ctx,
-    videobatch::EncodingBatchJob{
-      .vids = {inputPath},
-      .plannedOutputFiles = plannedOutputFiles,
-      .actionIds = videobatch::ActionIdMap{},
-    },
-    1,
-    0
-  );
+  auto const outcome = s.run();
 
   REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results.value().at(inputPath));
-  CHECK(fs::exists(outputFile));
+  CHECK(outcome.results.value().at(s.inputPath));
+  CHECK(fs::exists(s.outputFile));
 
-  auto const log = testutils::readTextFile(logPath);
+  auto const log = testutils::readTextFile(s.logPath);
   // No probe segment encodes (probe dirs now live under the scratch dir) and
   // no scoring invocations (log_path=).
   CHECK(leftoverProbeDirs().empty());
@@ -1043,8 +973,8 @@ TEST_CASE(
   auto const kMegabyte = std::uintmax_t{1'048'576};
   auto const first = temp.path / "alpha.mp4";
   auto const second = temp.path / "beta.mp4";
-  writeSizedFile(first, kMegabyte);
-  writeSizedFile(second, kMegabyte);
+  testutils::writeSizedFile(first, kMegabyte);
+  testutils::writeSizedFile(second, kMegabyte);
   auto plans = std::vector<encodeprobe::ProbePlan>{
     {.inputPath = first,
      .chosenCq = 26,

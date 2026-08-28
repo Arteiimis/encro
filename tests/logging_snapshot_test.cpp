@@ -2,6 +2,7 @@
 #include "logging/logging.h"
 #include "logging/setup.h"
 #include "core/app_context.h"
+#include "test_utils.h"
 
 #include <spdlog/logger.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -15,28 +16,6 @@
 #include <vector>
 
 namespace {
-
-// ── Helper: register a test logger with an ostream sink for output capture ──
-
-auto registerCapturingLoggerForSnapshot(char const* name)
-  -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
-  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
-  auto oss = std::make_unique<std::ostringstream>();
-  auto* ossPtr = oss.get();
-  sstreams.push_back(std::move(oss));
-
-  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
-  auto logger = std::make_shared<spdlog::logger>(name, sink);
-  logger->set_pattern("%v");
-  logger->set_level(spdlog::level::trace);
-  logger->flush_on(spdlog::level::trace);
-
-  auto existing = spdlog::get(name);
-  if (existing != nullptr) { spdlog::drop(name); }
-
-  spdlog::register_logger(logger);
-  return {logger, ossPtr};
-}
 
 // ── Helper: RAII guard that clears forensic state before and after test ──
 
@@ -159,7 +138,7 @@ TEST_CASE("Snapshot is safe with null encoding context", "[logging][snapshot]") 
 
 TEST_CASE("Snapshot emitted after LOG_ERROR", "[logging][snapshot]") {
   ScopedForensicReset reset;
-  auto [logger, oss] = registerCapturingLoggerForSnapshot(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   appctx::AppContext mockCtx{};
   mockCtx.config.processType = "video";

@@ -1,5 +1,6 @@
 #include "e2e_test_utils.h"
 #include "../test_utils.h"
+#include "test_utils.h"
 
 #include <boost/json.hpp>
 #include <catch2/catch_all.hpp>
@@ -23,12 +24,6 @@ bool containsStemMarker(std::string const& name, std::string_view stem) {
   return name.find(std::format("__{}__", stem)) != std::string::npos;
 }
 
-auto readTextFile(fs::path const& path) -> std::string {
-  auto input = std::ifstream{path, std::ios::binary};
-  REQUIRE(input.is_open());
-  return std::string{std::istreambuf_iterator<char>{input}, {}};
-}
-
 auto listRegularFiles(fs::path const& dir) -> std::vector<fs::path> {
   auto files = std::vector<fs::path>{};
   if (!fs::exists(dir)) { return files; }
@@ -42,7 +37,7 @@ auto listRegularFiles(fs::path const& dir) -> std::vector<fs::path> {
 }
 
 std::size_t countActualFfmpegEncodes(fs::path const& logPath) {
-  auto const content = readTextFile(logPath);
+  auto const content = testutils::readTextFile(logPath);
   auto stream = std::istringstream{content};
   auto line = std::string{};
   auto count = std::size_t{0};
@@ -63,7 +58,7 @@ auto findSingleOutputFile(fs::path const& outputDir) -> fs::path {
 }
 
 auto loadJsonObject(fs::path const& path) -> json::object {
-  auto const content = readTextFile(path);
+  auto const content = testutils::readTextFile(path);
   auto const value = json::parse(content);
   REQUIRE(value.is_object());
   return value.as_object();
@@ -227,7 +222,7 @@ bool allFilesUseCodec(
 }
 
 std::size_t countLogLines(fs::path const& logPath, std::string_view needle) {
-  auto const content = readTextFile(logPath);
+  auto const content = testutils::readTextFile(logPath);
   auto stream = std::istringstream{content};
   auto line = std::string{};
   auto count = std::size_t{0};
@@ -253,7 +248,7 @@ auto findOutputMp4(fs::path const& searchRoot, fs::path const& excluded = {})
 }
 
 auto segmentDirFromLog(fs::path const& logPath) -> fs::path {
-  auto const content = readTextFile(logPath);
+  auto const content = testutils::readTextFile(logPath);
   auto stream = std::istringstream{content};
   auto line = std::string{};
   while (std::getline(stream, line)) {
@@ -1737,7 +1732,7 @@ TEST_CASE(
   CHECK(countLogLines(logPath, "-map\t1:a") == 1);
   CHECK(countLogLines(logPath, "-an") == 4);
 
-  auto const content = readTextFile(logPath);
+  auto const content = testutils::readTextFile(logPath);
   auto stream = std::istringstream{content};
   auto line = std::string{};
   auto segmentLinesWithAudio = std::size_t{0};
@@ -1768,7 +1763,7 @@ auto latestNdjsonLines(fs::path const& logRoot) -> std::vector<std::string> {
   REQUIRE_FALSE(ndjsonFiles.empty());
   std::sort(ndjsonFiles.begin(), ndjsonFiles.end());
 
-  auto const content = readTextFile(ndjsonFiles.back());
+  auto const content = testutils::readTextFile(ndjsonFiles.back());
   auto stream = std::istringstream{content};
   auto lines = std::vector<std::string>{};
   auto line = std::string{};
@@ -2242,7 +2237,7 @@ TEST_CASE(
 
   // One 10s segment encode + one concat assembly; no scoring (-f null) calls.
   CHECK(countActualFfmpegEncodes(logPath) == 2);
-  auto const log = readTextFile(logPath);
+  auto const log = testutils::readTextFile(logPath);
   CHECK(log.find("-f null") == std::string::npos);
 }
 
