@@ -309,47 +309,6 @@ TEST_CASE("cleanup matches rotation files", "[logging][file_mgmt]") {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Test 5 — cleanup does NOT delete the file being created (D-04)
-// ══════════════════════════════════════════════════════════════════════════════
-
-TEST_CASE("cleanup does not delete current log file", "[logging][file_mgmt]") {
-  auto const testDir = makeTestDir("test5_no_delete_current");
-
-  // Create 15 old log files that precede the current timestamp
-  for (auto i = 0; i < 15; ++i) {
-    createFakeLogFile(
-      testDir,
-      fmt::format("encro_{:08d}_{:06d}.log", 20250101, 100000 + i)
-    );
-  }
-
-  auto const config = logging::LogConfig{
-    .colorsEnabled = false,
-    .customLogDir = testDir,
-  };
-
-  auto const result = logging::setup(config);
-  REQUIRE(result.has_value());
-
-  auto const logFilePath = result.value();
-  CAPTURE(logFilePath.string());
-
-  // D-01: The returned file path must have a timestamped name
-  CHECK(isTimestampedName(logFilePath));
-
-  // The file created by this setup() call must exist on disk after shutdown
-  logging::shutdown();
-
-  CHECK(fs::exists(logFilePath));
-
-  // Verify the file has the expected timestamped format
-  CHECK(isTimestampedName(logFilePath.filename()));
-
-  // Cleanup
-  removeDir(testDir);
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
 // Test 6 — setup continues when primary log dir is unwritable (D-21, D-22)
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -436,31 +395,6 @@ TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgm
   CHECK(content.find(testMsg) != std::string::npos);
 
   // Cleanup
-  removeDir(testDir);
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Test 9 — default run (no flags) still creates the log file
-// ══════════════════════════════════════════════════════════════════════════════
-
-TEST_CASE("setup with default config still creates a log file", "[logging][file_mgmt]") {
-  auto const testDir = makeTestDir("test9_default_run");
-
-  auto const config = logging::LogConfig{
-    .colorsEnabled = false,
-    .customLogDir = testDir,
-  };
-
-  auto const result = logging::setup(config);
-  REQUIRE(result.has_value());
-
-  auto const logFilePath = result.value();
-  CAPTURE(logFilePath.string());
-
-  CHECK(isTimestampedName(logFilePath));
-  CHECK(fs::exists(logFilePath));
-
-  logging::shutdown();
   removeDir(testDir);
 }
 

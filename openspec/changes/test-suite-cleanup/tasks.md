@@ -2,13 +2,13 @@
 
 ## 1. Redundant TEST_CASE deletions
 
-- [ ] 1.1 Delete the duplicate timestamp test in `tests/app/app_entry_tests.cpp` (survivor: the first test in the same file).
-- [ ] 1.2 Delete 3 of the 4 empty-shell tests in `tests/video/video_batch_execution_tests.cpp`, keeping one compile-smoke case (survivor: the remaining smoke test).
-- [ ] 1.3 Delete the XPSNR round-trip and metric-differentiation duplicates in `tests/video/probe_cache_tests.cpp` (survivors: round-trip test at :90 and key test at :10; fold the deleted test's comment value into the survivor if non-trivial).
-- [ ] 1.4 Delete the default-config setup test and the "cleanup does not delete current log file" test in `tests/logging_file_mgmt_test.cpp` (survivors: :158 timestamped-path test, :198 retention test).
-- [ ] 1.5 Delete the "named spinner function" and "delegates packSourceEntries" tests in `tests/packer_tests.cpp` (survivors: :193 archive-and-progress test, :41 groupPackFiles test).
-- [ ] 1.6 Delete the non-recursive `packAllFilesInDirectory` test in `tests/pack_service_mock_tests.cpp` (survivor: `packer_tests.cpp:446`).
-- [ ] 1.7 Run `xmake test-report`; confirm green and note the new TEST_CASE count (11 fewer).
+- [x] 1.1 Delete the duplicate timestamp test in `tests/app/app_entry_tests.cpp` (survivor: the first test in the same file).
+- [x] 1.2 Delete 3 of the 4 empty-shell tests in `tests/video/video_batch_execution_tests.cpp`, keeping one compile-smoke case (survivor: the remaining smoke test).
+- [x] 1.3 Delete the XPSNR round-trip and metric-differentiation duplicates in `tests/video/probe_cache_tests.cpp` (survivors: round-trip test at :90 and key test at :10; fold the deleted test's comment value into the survivor if non-trivial).
+- [x] 1.4 Delete the default-config setup test and the "cleanup does not delete current log file" test in `tests/logging_file_mgmt_test.cpp` (survivors: :158 timestamped-path test, :198 retention test).
+- [x] 1.5 Delete the "named spinner function" and "delegates packSourceEntries" tests in `tests/packer_tests.cpp` (survivors: :193 archive-and-progress test, :41 groupPackFiles test).
+- [x] 1.6 Delete the non-recursive `packAllFilesInDirectory` test in `tests/pack_service_mock_tests.cpp` (survivor: `packer_tests.cpp:446`).
+- [x] 1.7 Run `xmake test-report`; confirm green and note the new TEST_CASE count (11 fewer). (632 cases, 5055 assertions, green)
 
 ## 2. Helper hoisting into tests/test_utils.h
 
