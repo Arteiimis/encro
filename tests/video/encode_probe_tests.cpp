@@ -443,7 +443,7 @@ struct EncodingTasksScaffold {
     );
   }
 
-  auto run() {
+  auto run() -> videobatch::EncodingBatchOutcome {
     auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
     return videobatch::runEncodingTasks(
       ctx,

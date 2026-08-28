@@ -1,4 +1,4 @@
-// naming_strategy_test.cpp — Unit + integration tests for NamingStrategy enum and
+// naming_strategy_tests.cpp — Unit + integration tests for NamingStrategy enum and
 // NamingConfig.
 //
 // Covers all three NamingStrategy values (Flat, FlatWithForce, Keep) and
