@@ -68,11 +68,6 @@ bool isTimestampedName(fs::path const& p) {
   return std::regex_match(p.filename().string(), pattern);
 }
 
-// ── Constants ────────────────────────────────────────────────────────────────
-
-auto const kTimestampedPattern = std::regex{R"(encro_\d{8}_\d{6}\.log)"};
-auto const kTimestampedPidPattern = std::regex{R"(encro_\d{8}_\d{6}_\d+\.log)"};
-
 }  // namespace
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -134,7 +129,6 @@ TEST_CASE("setup creates timestamped log file", "[logging][file_mgmt]") {
   // The newly created file should not be the same as the collision file
   CHECK(logFilePath2 != (testDir / collisionName));
 
-  // Cleanup
   logging::shutdown();
 }
 
@@ -174,8 +168,6 @@ TEST_CASE("setup returns valid timestamped log file path", "[logging][file_mgmt]
   auto const fileSize = fs::file_size(logFilePath, ec);
   CHECK(!ec);
   CHECK(fileSize > 0);
-
-  // Cleanup
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -238,8 +230,6 @@ TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
 
   // The file created by setup() must also exist
   CHECK(fs::exists(logFilePath));
-
-  // Cleanup
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -291,12 +281,10 @@ TEST_CASE("cleanup matches rotation files", "[logging][file_mgmt]") {
   auto const postCount = countEncroFiles(testDir);
   CAPTURE(postCount);
   CHECK(postCount <= 11);
-
-  // Cleanup
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Test 6 — setup continues when primary log dir is unwritable (D-21, D-22)
+// Test 5 — setup continues when primary log dir is unwritable (D-21, D-22)
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("setup falls back when primary log dir is unwritable", "[logging][file_mgmt]") {
@@ -332,12 +320,11 @@ TEST_CASE("setup falls back when primary log dir is unwritable", "[logging][file
   CHECK(fs::exists(logFilePath));
   CHECK(isTimestampedName(logFilePath));
 
-  // Cleanup
   logging::shutdown();
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Test 8 — rotating file sink is configured and functional (D-17, D-18)
+// Test 6 — rotating file sink is configured and functional (D-17, D-18)
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgmt]") {
@@ -381,12 +368,10 @@ TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgm
     std::string{std::istreambuf_iterator<char>{ifs}, std::istreambuf_iterator<char>{}};
   CAPTURE(content);
   CHECK(content.find(testMsg) != std::string::npos);
-
-  // Cleanup
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Test 10 — --log-json produces both .log and .ndjson companions
+// Test 7 — --log-json produces both .log and .ndjson companions
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("json-only setup writes both .log and .ndjson files", "[logging][file_mgmt]") {

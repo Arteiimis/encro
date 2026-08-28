@@ -386,7 +386,7 @@ inline auto registerCapturingLogger(char const* name)
   return {logger, ossPtr};
 }
 
-// Counts non-overlapping occurrences of "needle" in "text".
+// Counts (possibly overlapping) occurrences of "needle" in "text".
 inline auto countOccurrences(std::string_view text, std::string_view needle)
   -> std::size_t {
   auto count = std::size_t{0};
