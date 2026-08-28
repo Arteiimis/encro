@@ -19,13 +19,6 @@ namespace {
 
 pack::PackService testService;
 
-auto createFile(fs::path const& dir, std::string_view name) -> fs::path {
-  auto const filePath = dir / name;
-  std::ofstream out{filePath, std::ios::binary};
-  out << "data";
-  return filePath;
-}
-
 }  // namespace
 
 TEST_CASE("packGroups returns empty for empty plan", "[pack-service]") {
@@ -42,9 +35,9 @@ TEST_CASE("packGroups packs grouped files", "[pack-service]") {
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
-  auto const f2 = createFile(srcDir, "b.txt");
-  auto const f3 = createFile(srcDir, "c.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
+  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
+  auto const f3 = testutils::writeTextFile(srcDir / "c.txt");
 
   auto const groups = std::vector{
     std::vector<pack::PackFileEntry>{
@@ -169,9 +162,9 @@ TEST_CASE("packGroups compact mode reports per-file progress updates", "[pack-se
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
-  auto const f2 = createFile(srcDir, "b.txt");
-  auto const f3 = createFile(srcDir, "c.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
+  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
+  auto const f3 = testutils::writeTextFile(srcDir / "c.txt");
 
   auto progressUpdates = std::vector<std::string>{};
   auto const plan = pack::PackPlan{
@@ -210,9 +203,9 @@ TEST_CASE(
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
-  auto const f2 = createFile(srcDir, "b.txt");
-  auto const f3 = createFile(srcDir, "c.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
+  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
+  auto const f3 = testutils::writeTextFile(srcDir / "c.txt");
 
   auto statusTexts = std::vector<std::string>{};
   auto const plan = pack::PackPlan{
@@ -268,8 +261,8 @@ TEST_CASE(
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
-  auto const f2 = createFile(srcDir, "b.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
+  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
 
   auto progressUpdates = std::vector<std::string>{};
   auto const plan = pack::PackPlan{
@@ -345,7 +338,7 @@ TEST_CASE("packGroups notifies group success callbacks in both modes", "[pack-se
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
 
   auto runCase = [&](bool compact) {
     auto callbackEvents = std::vector<std::string>{};
@@ -398,8 +391,8 @@ TEST_CASE(
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
-  auto const f2 = createFile(srcDir, "b.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
+  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
 
   auto runCase = [&](bool compact) {
     auto callbackEvents = std::vector<std::string>{};
@@ -458,8 +451,8 @@ TEST_CASE(
   auto const statePath = temp.path / "state.json";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
-  auto const f2 = createFile(srcDir, "b.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
+  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
   auto const zipPath = outDir / "group1.zip";
 
   auto ctx = appctx::AppContext{};

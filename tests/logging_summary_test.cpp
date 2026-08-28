@@ -1,4 +1,5 @@
 #include "logging/setup.h"
+#include "test_utils.h"
 
 #include <spdlog/spdlog.h>
 
@@ -14,13 +15,6 @@
 namespace fs = std::filesystem;
 
 namespace {
-
-auto makeTestDir(std::string const& name) -> fs::path {
-  auto const dir = fs::temp_directory_path() / "encro_test_summary" / name;
-  auto ec = std::error_code{};
-  fs::create_directories(dir, ec);
-  return dir;
-}
 
 auto lastLineOf(fs::path const& file) -> std::string {
   auto stream = std::ifstream{file};
@@ -41,7 +35,8 @@ auto parseLine(std::string const& line) -> boost::json::object {
 // ── RED 5.1 — pass-through counting sink ────────────────────────────────────
 
 TEST_CASE("counting sink counts per level and forwards records", "[logging][summary]") {
-  auto const testDir = makeTestDir("counting");
+  TempDir const temp;
+  auto const& testDir = temp.path;
 
   auto const config = logging::LogConfig{
     .echoEnabled = false,
@@ -78,7 +73,8 @@ TEST_CASE(
   "logRunSummary emits NDJSON summary record with all fields",
   "[logging][summary]"
 ) {
-  auto const testDir = makeTestDir("summary");
+  TempDir const temp;
+  auto const& testDir = temp.path;
 
   auto const config = logging::LogConfig{
     .echoEnabled = false,

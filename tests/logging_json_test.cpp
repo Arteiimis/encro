@@ -1,5 +1,6 @@
 #include "logging/json_formatter.h"
 #include "logging/log_tags.h"
+#include "test_utils.h"
 
 #include <spdlog/logger.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -17,25 +18,20 @@
 namespace {
 
 // Helper: register a test logger with an ostream sink + JsonFormatter for output capture.
-// Mirrors registerCapturingLoggerForTimer() from logging_scoped_timer_test.cpp.
-
+// Thin wrapper around testutils::registerCapturingLogger's shared core:
+// same capture-stream registry and re-registration, but the sink carries the
+// JsonFormatter instead of the "%v" text pattern.
 auto registerCapturingLoggerForJson(char const* name)
   -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
-  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
   auto oss = std::make_unique<std::ostringstream>();
   auto* ossPtr = oss.get();
-  sstreams.push_back(std::move(oss));
-
   auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
   sink->set_formatter(std::make_unique<logging::JsonFormatter>());
   auto logger = std::make_shared<spdlog::logger>(name, sink);
   logger->set_level(spdlog::level::trace);
   logger->flush_on(spdlog::level::trace);
-
-  auto existing = spdlog::get(name);
-  if (existing != nullptr) { spdlog::drop(name); }
-
-  spdlog::register_logger(logger);
+  testutils::reregisterLogger(logger);
+  testutils::keepCaptureStreamAlive(std::move(oss));
   return {logger, ossPtr};
 }
 

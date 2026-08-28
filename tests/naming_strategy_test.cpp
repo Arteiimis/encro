@@ -17,19 +17,6 @@
 
 namespace fs = std::filesystem;
 
-namespace {
-
-// Helper: create a file with given size (binary content)
-void createBinaryFile(fs::path const& filePath, std::size_t sizeBytes = 100) {
-  fs::create_directories(filePath.parent_path());
-  auto out = std::ofstream{filePath, std::ios::binary};
-  auto const data = std::string(sizeBytes, 'X');
-  out.write(data.data(), static_cast<std::streamsize>(data.size()));
-  out.close();
-}
-
-}  // namespace
-
 // ============================================================
 // NamingStrategy enum value tests
 // ============================================================
@@ -74,9 +61,9 @@ TEST_CASE(
   fs::create_directories(outputDir);
 
   // Create files in different subdirectories
-  createBinaryFile(tmp.path / "subA" / "alpha.txt");
-  createBinaryFile(tmp.path / "subA" / "beta.txt");
-  createBinaryFile(tmp.path / "subB" / "gamma.txt");
+  testutils::writeSizedFile(tmp.path / "subA" / "alpha.txt", 100);
+  testutils::writeSizedFile(tmp.path / "subA" / "beta.txt", 100);
+  testutils::writeSizedFile(tmp.path / "subB" / "gamma.txt", 100);
 
   pack::PackRequest req{
     .entries =
@@ -127,8 +114,8 @@ TEST_CASE(
 
   // Create files with SAME basename in DIFFERENT subdirectories (collision
   // scenario)
-  createBinaryFile(tmp.path / "dirA" / "file.txt");
-  createBinaryFile(tmp.path / "dirB" / "file.txt");
+  testutils::writeSizedFile(tmp.path / "dirA" / "file.txt", 100);
+  testutils::writeSizedFile(tmp.path / "dirB" / "file.txt", 100);
 
   pack::PackRequest req{
     .entries =
@@ -179,8 +166,8 @@ TEST_CASE(
   fs::create_directories(outputDir);
 
   // Create files in a common root with different subdirectories
-  createBinaryFile(tmp.path / "root" / "subA" / "a.txt");
-  createBinaryFile(tmp.path / "root" / "subB" / "b.txt");
+  testutils::writeSizedFile(tmp.path / "root" / "subA" / "a.txt", 100);
+  testutils::writeSizedFile(tmp.path / "root" / "subB" / "b.txt", 100);
 
   pack::PackRequest req{
     .entries =

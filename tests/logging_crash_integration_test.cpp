@@ -20,12 +20,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-auto readFileContent(fs::path const& filePath) -> std::string {
-  auto ifs = std::ifstream{filePath};
-  REQUIRE(ifs.is_open());
-  return std::string{std::istreambuf_iterator<char>{ifs}, {}};
-}
-
 }  // namespace
 
 TEST_CASE(
@@ -58,7 +52,7 @@ TEST_CASE(
   }
 
   // Verify the message was written to the log file
-  auto const content = readFileContent(logPath.value());
+  auto const content = testutils::readTextFile(logPath.value());
   CHECK(content.find(testMessage) != std::string::npos);
 
   logging::shutdown();
@@ -150,7 +144,7 @@ TEST_CASE(
   }
 
   // Verify the crash message appears in the file
-  auto const content = readFileContent(logPath);
+  auto const content = testutils::readTextFile(logPath);
   CHECK(content.find(crashMessage) != std::string::npos);
 }
 
@@ -174,7 +168,7 @@ TEST_CASE(
   // Shutdown first to flush spdlog async queue, then verify spdlog wrote lines
   logging::shutdown();
 
-  auto const spdlogContent = readFileContent(logPath);
+  auto const spdlogContent = testutils::readTextFile(logPath);
   // After shutdown (which flushes), spdlog should have written at least one line
   CHECK(!spdlogContent.empty());
   CHECK(spdlogContent.find('[') != std::string::npos);
@@ -202,7 +196,7 @@ TEST_CASE(
     ofs.close();
   }
 
-  auto const content = readFileContent(logPath);
+  auto const content = testutils::readTextFile(logPath);
 
   // Message body must be present
   CHECK(content.find(testBody) != std::string::npos);
@@ -238,7 +232,7 @@ TEST_CASE(
 
   logging::shutdown();
 
-  auto const content = readFileContent(logPath);
+  auto const content = testutils::readTextFile(logPath);
   auto const bodyPos = content.find("] [critical] [infra.crash] " + testBody);
   REQUIRE(bodyPos != std::string::npos);
 
@@ -311,7 +305,7 @@ TEST_CASE(
 
   logging::shutdown();
 
-  auto const content = readFileContent(logPath);
+  auto const content = testutils::readTextFile(logPath);
   CHECK(content.find("lands after restore") != std::string::npos);
   CHECK(content.find("must not land") == std::string::npos);
 }
@@ -347,13 +341,13 @@ TEST_CASE(
 
   // .log line carries the run id
   auto const logPath = setupResult.value();
-  auto const logContent = readFileContent(logPath);
+  auto const logContent = testutils::readTextFile(logPath);
   CHECK(logContent.find("boom run_id=crash-test-run-42") != std::string::npos);
 
   // .ndjson holds a parseable crash record with the same run id
   auto ndjsonWithExt = logPath;
   ndjsonWithExt.replace_extension(".ndjson");
-  auto const ndjsonContent = readFileContent(ndjsonWithExt);
+  auto const ndjsonContent = testutils::readTextFile(ndjsonWithExt);
 
   auto found = false;
   auto start = std::size_t{0};
@@ -397,7 +391,7 @@ TEST_CASE(
   logging::shutdown();
 
   auto const logPath = setupResult.value();
-  auto const logContent = readFileContent(logPath);
+  auto const logContent = testutils::readTextFile(logPath);
   CHECK(logContent.find("boom-no-json run_id=crash-test-nojson") != std::string::npos);
 
   auto ndjsonWithExt = logPath;

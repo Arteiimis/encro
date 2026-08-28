@@ -1,10 +1,13 @@
 #pragma once
 
+#include "cmd/cmd.h"
 #include "infra/env.h"
 #include "infra/stop_signal.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <libzippp/libzippp.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <chrono>
@@ -14,9 +17,12 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 #if defined(_WIN32)
   #include <io.h>
@@ -126,13 +132,33 @@ inline auto copyFakeTool(fs::path const& dir, std::string const& name) -> fs::pa
   return dst;
 }
 
-inline void writeTextFile(fs::path const& filePath, std::string_view content = "x") {
+inline auto writeTextFile(fs::path const& filePath, std::string_view content = "x")
+  -> fs::path {
   auto const parentPath = filePath.parent_path();
   if (!parentPath.empty()) { fs::create_directories(parentPath); }
 
   auto out = std::ofstream{filePath, std::ios::binary};
   REQUIRE(out.is_open());
   out << content;
+  return filePath;
+}
+
+// Creates a file of the given byte size without allocating a big buffer
+// (seek-past-end trick: sparse on filesystems that support it). The value of
+// the interior bytes is unspecified; tests only depend on the file size.
+// Returns the file path so call sites can chain like the old helpers did.
+inline auto writeSizedFile(fs::path const& filePath, std::uintmax_t sizeBytes)
+  -> fs::path {
+  auto const parentPath = filePath.parent_path();
+  if (!parentPath.empty()) { fs::create_directories(parentPath); }
+
+  auto out = std::ofstream{filePath, std::ios::binary};
+  REQUIRE(out.is_open());
+  if (sizeBytes > 0) {
+    out.seekp(static_cast<std::streamoff>(sizeBytes - 1));
+    out.put('\0');
+  }
+  return filePath;
 }
 
 // Canonical ffprobe metadata fixture: writes the JSON next to the tool copies
@@ -146,12 +172,13 @@ inline auto copyFakeProbe(fs::path const& dir) -> ScopedEnvVar {
   return ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
 }
 
-inline void writeFile(fs::path const& filePath, std::string_view content = "x") {
-  writeTextFile(filePath, content);
+inline auto writeFile(fs::path const& filePath, std::string_view content = "x")
+  -> fs::path {
+  return writeTextFile(filePath, content);
 }
 
-inline void touchFile(fs::path const& filePath) {
-  writeTextFile(filePath);
+inline auto touchFile(fs::path const& filePath) -> fs::path {
+  return writeTextFile(filePath);
 }
 
 inline auto stripCollisionSafePrefix(std::string_view entryName) -> std::string_view {
@@ -320,5 +347,86 @@ struct StderrCapture {
     }
   }
 };
+
+}  // namespace testutils
+
+// ── Capturing logger helpers ─────────────────────────────────────────────
+
+namespace testutils {
+
+// Keeps captured ostringstreams alive for the whole process so logger sinks
+// can safely hold references into them.
+inline auto keepCaptureStreamAlive(std::unique_ptr<std::ostringstream> oss)
+  -> std::ostringstream* {
+  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
+  auto* ossPtr = oss.get();
+  sstreams.push_back(std::move(oss));
+  return ossPtr;
+}
+
+// Drops any previous registration under the same name, then registers.
+inline void reregisterLogger(std::shared_ptr<spdlog::logger> logger) {
+  if (spdlog::get(logger->name()) != nullptr) { spdlog::drop(logger->name()); }
+  spdlog::register_logger(logger);
+}
+
+// Registers a capturing test logger ("%v" pattern, trace level, always
+// flush). Returns the logger and a stream that receives everything logged.
+inline auto registerCapturingLogger(char const* name)
+  -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
+  auto oss = std::make_unique<std::ostringstream>();
+  auto* ossPtr = oss.get();
+  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
+  auto logger = std::make_shared<spdlog::logger>(name, sink);
+  logger->set_pattern("%v");
+  logger->set_level(spdlog::level::trace);
+  logger->flush_on(spdlog::level::trace);
+  reregisterLogger(logger);
+  keepCaptureStreamAlive(std::move(oss));
+  return {logger, ossPtr};
+}
+
+// Counts non-overlapping occurrences of "needle" in "text".
+inline auto countOccurrences(std::string_view text, std::string_view needle)
+  -> std::size_t {
+  auto count = std::size_t{0};
+  auto pos = text.find(needle);
+  while (pos != std::string_view::npos) {
+    ++count;
+    pos = text.find(needle, pos + 1);
+  }
+  return count;
+}
+
+// Finds the first line in "text" containing "needle" (help-text assertions).
+inline auto findHelpLine(std::string_view text, std::string_view needle)
+  -> std::optional<std::string> {
+  auto start = std::size_t{0};
+
+  while (start <= text.size()) {
+    auto const end = text.find('\n', start);
+    auto const line = end == std::string_view::npos ? text.substr(start)
+                                                    : text.substr(start, end - start);
+
+    if (line.find(needle) != std::string_view::npos) { return std::string{line}; }
+    if (end == std::string_view::npos) { break; }
+    start = end + 1;
+  }
+
+  return std::nullopt;
+}
+
+// Parses the given argument vector through the real commandLineInit entry
+// point (CLI11 owns argv[] storage, so the strings are kept alive here).
+inline auto parseArgs(std::vector<std::string> const& args) -> CmdParseResult {
+  static thread_local std::vector<std::string> storage;
+  storage = args;
+  auto argv = std::vector<char*>{};
+  argv.reserve(storage.size());
+  for (auto& arg: storage) { argv.push_back(arg.data()); }
+  argv.push_back(nullptr);
+
+  return commandLineInit(static_cast<int>(argv.size() - 1), argv.data(), "");
+}
 
 }  // namespace testutils

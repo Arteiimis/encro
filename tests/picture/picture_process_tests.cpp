@@ -17,28 +17,6 @@ namespace fs = std::filesystem;
 using testutils::copyFakeTool;
 using testutils::ScopedEnvVar;
 
-namespace {
-
-auto createSparseSizedFile(
-  fs::path const& dir,
-  std::string_view name,
-  std::uintmax_t sizeBytes
-) -> fs::path {
-  auto const filePath = dir / name;
-  auto out = std::ofstream{filePath, std::ios::binary};
-  REQUIRE(out.is_open());
-
-  if (sizeBytes > 0) {
-    out.seekp(static_cast<std::streamoff>(sizeBytes - 1));
-    out.put('\0');
-  }
-
-  out.close();
-  return filePath;
-}
-
-}  // namespace
-
 TEST_CASE(
   "execute() Media mode produces subPart split for size overflow",
   "[picture-process][pack]"
@@ -49,9 +27,9 @@ TEST_CASE(
   fs::create_directories(inputDir);
 
   constexpr auto kSize = std::uintmax_t{240ULL * 1024ULL * 1024ULL};
-  auto const f1 = createSparseSizedFile(inputDir, "a.jpg", kSize);
-  auto const f2 = createSparseSizedFile(inputDir, "b.jpg", kSize);
-  auto const f3 = createSparseSizedFile(inputDir, "c.jpg", kSize);
+  auto const f1 = testutils::writeSizedFile(inputDir / "a.jpg", kSize);
+  auto const f2 = testutils::writeSizedFile(inputDir / "b.jpg", kSize);
+  auto const f3 = testutils::writeSizedFile(inputDir / "c.jpg", kSize);
 
   auto const result = pack::execute({
     .entries = {f1, f2, f3},
@@ -85,10 +63,10 @@ TEST_CASE(
   fs::create_directories(dirA);
   fs::create_directories(dirB);
 
-  auto const a1 = createSparseSizedFile(dirA, "alpha.jpg", 32);
-  auto const a2 = createSparseSizedFile(dirA, "beta.jpg", 32);
-  auto const b1 = createSparseSizedFile(dirB, "alpha.jpg", 32);
-  auto const b2 = createSparseSizedFile(dirB, "beta.jpg", 32);
+  auto const a1 = testutils::writeSizedFile(dirA / "alpha.jpg", 32);
+  auto const a2 = testutils::writeSizedFile(dirA / "beta.jpg", 32);
+  auto const b1 = testutils::writeSizedFile(dirB / "alpha.jpg", 32);
+  auto const b2 = testutils::writeSizedFile(dirB / "beta.jpg", 32);
 
   auto const result = pack::execute({
     .entries = {a1, a2, b1, b2},
@@ -118,7 +96,7 @@ TEST_CASE("runPicturePackWorkflow packs directory", "[picture-process]") {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  createSparseSizedFile(inputDir, "a.jpg", 32);
+  testutils::writeSizedFile(inputDir / "a.jpg", 32);
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -142,10 +120,10 @@ TEST_CASE(
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  createSparseSizedFile(dirA, "alpha.jpg", 32);
-  createSparseSizedFile(dirA, "beta.jpg", 32);
-  createSparseSizedFile(dirB, "alpha.jpg", 32);
-  createSparseSizedFile(dirB, "beta.jpg", 32);
+  testutils::writeSizedFile(dirA / "alpha.jpg", 32);
+  testutils::writeSizedFile(dirA / "beta.jpg", 32);
+  testutils::writeSizedFile(dirB / "alpha.jpg", 32);
+  testutils::writeSizedFile(dirB / "beta.jpg", 32);
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -191,9 +169,9 @@ TEST_CASE(
   fs::create_directories(dirB);
 
   for (auto index = 0; index < 1999; ++index) {
-    createSparseSizedFile(dirA, std::format("a_{:04d}.jpg", index), 1);
+    testutils::writeSizedFile(dirA / std::format("a_{:04d}.jpg", index), 1);
   }
-  createSparseSizedFile(dirB, "b_0000.jpg", 1);
+  testutils::writeSizedFile(dirB / "b_0000.jpg", 1);
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -238,10 +216,10 @@ TEST_CASE(
   fs::create_directories(dirA);
   fs::create_directories(dirB);
 
-  createSparseSizedFile(dirA, "0001.jpg", 1);
-  createSparseSizedFile(dirA, "9999.jpg", 260ULL * 1024ULL * 1024ULL);
-  createSparseSizedFile(dirB, "0001.jpg", 1);
-  createSparseSizedFile(dirB, "9999.jpg", 260ULL * 1024ULL * 1024ULL);
+  testutils::writeSizedFile(dirA / "0001.jpg", 1);
+  testutils::writeSizedFile(dirA / "9999.jpg", 260ULL * 1024ULL * 1024ULL);
+  testutils::writeSizedFile(dirB / "0001.jpg", 1);
+  testutils::writeSizedFile(dirB / "9999.jpg", 260ULL * 1024ULL * 1024ULL);
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -282,8 +260,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  createSparseSizedFile(inputDir, "a.png", 32);
-  createSparseSizedFile(inputDir, "b.png", 32);
+  testutils::writeSizedFile(inputDir / "a.png", 32);
+  testutils::writeSizedFile(inputDir / "b.png", 32);
 
   // Fake outputs stay smaller than sources so conversion beats size fallback.
   auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
@@ -315,7 +293,7 @@ TEST_CASE(
   auto const inputDir = temp.path / "pics";
   auto const logPath = temp.path / "ffmpeg-invocations.log";
   fs::create_directories(inputDir);
-  createSparseSizedFile(inputDir, "a.png", 32);
+  testutils::writeSizedFile(inputDir / "a.png", 32);
 
   auto const logEnv = ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
   auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
@@ -343,7 +321,7 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  createSparseSizedFile(inputDir, "a.png", 8);
+  testutils::writeSizedFile(inputDir / "a.png", 8);
 
   auto const largeOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "512"};
   auto ctx = appctx::AppContext{};
@@ -376,8 +354,8 @@ TEST_CASE(
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  createSparseSizedFile(dirA, "same.png", 32);
-  createSparseSizedFile(dirB, "same.png", 32);
+  testutils::writeSizedFile(dirA / "same.png", 32);
+  testutils::writeSizedFile(dirB / "same.png", 32);
 
   auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
   auto ctx = appctx::AppContext{};
@@ -422,10 +400,10 @@ TEST_CASE(
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  createSparseSizedFile(dirA, "alpha.png", 32);
-  createSparseSizedFile(dirA, "beta.png", 32);
-  createSparseSizedFile(dirB, "alpha.png", 32);
-  createSparseSizedFile(dirB, "beta.png", 32);
+  testutils::writeSizedFile(dirA / "alpha.png", 32);
+  testutils::writeSizedFile(dirA / "beta.png", 32);
+  testutils::writeSizedFile(dirB / "alpha.png", 32);
+  testutils::writeSizedFile(dirB / "beta.png", 32);
 
   auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
   auto ctx = appctx::AppContext{};
@@ -463,7 +441,7 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  createSparseSizedFile(inputDir, "a.png", 32);
+  testutils::writeSizedFile(inputDir / "a.png", 32);
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -489,7 +467,7 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  createSparseSizedFile(inputDir, "a.png", 32);
+  testutils::writeSizedFile(inputDir / "a.png", 32);
 
   auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "1"};
   auto ctx = appctx::AppContext{};
@@ -513,8 +491,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  createSparseSizedFile(inputDir, "good.png", 32);
-  createSparseSizedFile(inputDir, "bad.png", 32);
+  testutils::writeSizedFile(inputDir / "good.png", 32);
+  testutils::writeSizedFile(inputDir / "bad.png", 32);
 
   // Call 1 succeeds (writes a small jpg); every later call fails without output.
   auto const cntEnv = ScopedEnvVar{
@@ -553,8 +531,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  createSparseSizedFile(inputDir, "fast.png", 32);
-  createSparseSizedFile(inputDir, "slow.png", 32);
+  testutils::writeSizedFile(inputDir / "fast.png", 32);
+  testutils::writeSizedFile(inputDir / "slow.png", 32);
 
   // Call 2 blocks in-flight yet would ultimately succeed - cancellation must
   // cut through it regardless.
@@ -592,8 +570,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  createSparseSizedFile(inputDir, "photo.png", 32);
-  createSparseSizedFile(inputDir, "other.png", 32);
+  testutils::writeSizedFile(inputDir / "photo.png", 32);
+  testutils::writeSizedFile(inputDir / "other.png", 32);
 
   auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
   auto ctx = appctx::AppContext{};

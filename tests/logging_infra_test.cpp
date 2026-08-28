@@ -1,6 +1,7 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 #include "logging/setup.h"
+#include "test_utils.h"
 
 #include <spdlog/logger.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -20,29 +21,6 @@
 namespace fs = std::filesystem;
 
 namespace {
-
-// ── Helper: register a test logger with an ostream sink for output capture ──
-
-auto registerCapturingLogger(char const* name)
-  -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
-  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
-  auto oss = std::make_unique<std::ostringstream>();
-  auto* ossPtr = oss.get();
-  sstreams.push_back(std::move(oss));
-
-  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
-  auto logger = std::make_shared<spdlog::logger>(name, sink);
-  logger->set_pattern("%v");
-  logger->set_level(spdlog::level::trace);
-  logger->flush_on(spdlog::level::trace);
-
-  // drop if already registered (from a previous test case)
-  auto existing = spdlog::get(name);
-  if (existing != nullptr) { spdlog::drop(name); }
-
-  spdlog::register_logger(logger);
-  return {logger, ossPtr};
-}
 
 // ── Helper: remove temp directory ──
 
@@ -98,7 +76,7 @@ TEST_CASE(
 ) {
   // Lazy init (C++11 magic statics): loggerPtr() initializes on first call,
   // after the logger has been registered via registerCapturingLogger
-  auto [logger, oss] = registerCapturingLogger(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   // Verify loggerPtr() returns non-null after registration
   REQUIRE(loggerPtr() != nullptr);
@@ -118,7 +96,7 @@ TEST_CASE(
 TEST_CASE("LOG_INFO: source location injected in message body", "[logging][infra]") {
   // Use spdlog::get() directly for a fresh capture setup — the gLoggerPtr
   // static from Test 2 may have been invalidated by the drop.
-  auto [logger, oss] = registerCapturingLogger(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   // Verify source location format by checking the message pattern that
   // the LOG_* macros produce: "[file.cpp:line] message"

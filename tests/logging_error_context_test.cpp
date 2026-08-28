@@ -1,5 +1,6 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
+#include "test_utils.h"
 
 #include <boost/json.hpp>
 
@@ -18,28 +19,6 @@
 #include <vector>
 
 namespace {
-
-// ── Helper: register a test logger with an ostream sink for output capture ──
-
-auto registerCapturingLoggerForContext(char const* name)
-  -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
-  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
-  auto oss = std::make_unique<std::ostringstream>();
-  auto* ossPtr = oss.get();
-  sstreams.push_back(std::move(oss));
-
-  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
-  auto logger = std::make_shared<spdlog::logger>(name, sink);
-  logger->set_pattern("%v");
-  logger->set_level(spdlog::level::trace);
-  logger->flush_on(spdlog::level::trace);
-
-  auto existing = spdlog::get(name);
-  if (existing != nullptr) { spdlog::drop(name); }
-
-  spdlog::register_logger(logger);
-  return {logger, ossPtr};
-}
 
 // ── Helper: RAII guard that clears the TLS context stack before and after test ──
 
@@ -353,7 +332,7 @@ TEST_CASE(
 
 TEST_CASE("LOG_ERROR appends context chain", "[logging][error_context]") {
   ScopedContextReset reset;
-  auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   logging::ScopedErrorContext ctx("encode", "input.mkv");
   LOG_ERROR("ffmpeg failed");
@@ -371,7 +350,7 @@ TEST_CASE("LOG_ERROR appends context chain", "[logging][error_context]") {
 
 TEST_CASE("LOG_ERROR without context has no suffix", "[logging][error_context]") {
   ScopedContextReset reset;
-  auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   LOG_ERROR("plain error");
   logger->flush();
@@ -391,7 +370,7 @@ TEST_CASE(
   "[logging][error_context]"
 ) {
   ScopedContextReset reset;
-  auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   {
     logging::ScopedErrorContext ctx1("outer", "");
@@ -414,7 +393,7 @@ TEST_CASE(
 
 TEST_CASE("LOG_CRITICAL appends context chain", "[logging][error_context]") {
   ScopedContextReset reset;
-  auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   logging::ScopedErrorContext ctx("critical_stage", "details");
   LOG_CRITICAL("catastrophic failure");
@@ -432,7 +411,7 @@ TEST_CASE("LOG_CRITICAL appends context chain", "[logging][error_context]") {
 
 TEST_CASE("LOG_INFO does not append context chain", "[logging][error_context]") {
   ScopedContextReset reset;
-  auto [logger, oss] = registerCapturingLoggerForContext(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   logging::ScopedErrorContext ctx("encode", "test.mkv");
   LOG_INFO("info message");

@@ -12,26 +12,15 @@
 
 namespace fs = std::filesystem;
 
-namespace {
-
-auto createFile(fs::path const& dir, std::string_view name) -> fs::path {
-  auto const filePath = dir / name;
-  std::ofstream out{filePath, std::ios::binary};
-  out << "test data " << name;
-  return filePath;
-}
-
-}  // namespace
-
 TEST_CASE("packAllFilesInDirectory packs files from a real directory", "[pack-service]") {
   TempDir temp;
   auto const srcDir = temp.path / "src";
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  createFile(srcDir, "a.txt");
-  createFile(srcDir, "b.txt");
-  createFile(srcDir, "c.txt");
+  testutils::writeTextFile(srcDir / "a.txt");
+  testutils::writeTextFile(srcDir / "b.txt");
+  testutils::writeTextFile(srcDir / "c.txt");
 
   pack::PackService service;
 
@@ -86,8 +75,8 @@ TEST_CASE("packAllFilesInDirectory with forceNameConflictHandling", "[pack-servi
   auto const outDir = temp.path / "out";
   fs::create_directories(subDir);
 
-  createFile(srcDir, "same.txt");
-  createFile(subDir, "same.txt");
+  testutils::writeTextFile(srcDir / "same.txt");
+  testutils::writeTextFile(subDir / "same.txt");
 
   pack::PackService service;
 
@@ -144,7 +133,7 @@ TEST_CASE("packGroups reports failure when a group task throws", "[pack-service]
   auto const srcDir = temp.path / "src";
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
-  auto const f1 = createFile(srcDir, "a.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
 
   pack::PackService service;
 
@@ -176,7 +165,7 @@ TEST_CASE("packGroups creates zip at correct output path", "[pack-service]") {
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
 
   pack::PackService service;
 
@@ -206,8 +195,8 @@ TEST_CASE("packGroups returns correct zipped file paths", "[pack-service]") {
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
-  auto const f2 = createFile(srcDir, "b.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
+  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
 
   pack::PackService service;
 
@@ -237,8 +226,8 @@ TEST_CASE("packGroups compact mode writes correct zip content", "[pack-service]"
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
-  auto const f2 = createFile(srcDir, "b.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
+  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
 
   pack::PackService service;
 
@@ -270,7 +259,7 @@ TEST_CASE("packGroups full-progress mode writes correct zip content", "[pack-ser
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = createFile(srcDir, "a.txt");
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
 
   pack::PackService service;
 

@@ -12,13 +12,13 @@
 
 ## 2. Helper hoisting into tests/test_utils.h
 
-- [ ] 2.1 Add shared `registerCapturingLogger` to `tests/test_utils.h`; replace the 7 verbatim copies (logging infra/error-context/scoped-timer/snapshot, stop_signal, task_executor, job_state) and reduce the json variant to a thin wrapper.
-- [ ] 2.2 Add `writeSizedFile` to `tests/test_utils.h`; delete the 11 local file-creation helpers (4 sparse variants, 2 `createBinaryFile`, 2 `createFile`, `createSizedFile`, `createTempFile` ×2) and switch callers.
-- [ ] 2.3 Delete the 3 duplicate file-read helpers (`logging_crash_integration_test.cpp`, `infra/stop_signal_tests.cpp`, local `readTextFile` in `encro_e2e_tests.cpp`) in favor of `testutils::readTextFile`.
-- [ ] 2.4 Delete `cmd_cmd_tests.cpp`'s local `ScopedEnvVar` (use `testutils::ScopedEnvVar`) and hoist the `parseArgs`/`findHelpLine` pair shared with `cmd_help_tiering_tests.cpp`.
-- [ ] 2.5 Add `countOccurrences` and replace the 8 hand-rolled counting loops in `logging_scoped_timer_test.cpp`; extract a local scaffold factory for the 5 `runEncodingTasks` setups in `tests/video/encode_probe_tests.cpp` (tests unchanged, scaffolding shared).
-- [ ] 2.6 Replace the hand-rolled `makeTestDir` copies in `logging_summary_test.cpp` / `logging_file_mgmt_test.cpp` with `TempDir`.
-- [ ] 2.7 Run `xmake test-report`; confirm green.
+- [x] 2.1 Add shared `registerCapturingLogger` to `tests/test_utils.h`; replace the 7 verbatim copies (logging infra/error-context/scoped-timer/snapshot, stop_signal, task_executor, job_state) and reduce the json variant to a thin wrapper.
+- [x] 2.2 Add `writeSizedFile` to `tests/test_utils.h`; delete the 11 local file-creation helpers (4 sparse variants, 2 `createBinaryFile`, 2 `createFile`, `createSizedFile`, `createTempFile` ×2) and switch callers.
+- [x] 2.3 Delete the 3 duplicate file-read helpers (`logging_crash_integration_test.cpp`, `infra/stop_signal_tests.cpp`, local `readTextFile` in `encro_e2e_tests.cpp`) in favor of `testutils::readTextFile`.
+- [x] 2.4 Delete `cmd_cmd_tests.cpp`'s local `ScopedEnvVar` (use `testutils::ScopedEnvVar`) and hoist the `parseArgs`/`findHelpLine` pair shared with `cmd_help_tiering_tests.cpp`.
+- [x] 2.5 Add `countOccurrences` and replace the 8 hand-rolled counting loops in `logging_scoped_timer_test.cpp`; extract a local scaffold factory for the 5 `runEncodingTasks` setups in `tests/video/encode_probe_tests.cpp` (tests unchanged, scaffolding shared).
+- [x] 2.6 Replace the hand-rolled `makeTestDir` copies in `logging_summary_test.cpp` / `logging_file_mgmt_test.cpp` with `TempDir`.
+- [x] 2.7 Run `xmake test-report`; confirm green. (632 cases, 5211 assertions, green)
 
 ## 3. e2e harness overlap + dead code
 

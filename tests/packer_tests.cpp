@@ -15,21 +15,12 @@ using namespace indicators;
 
 using namespace pack::detail;
 
-static auto
-createSizedFile(fs::path const& dir, std::string_view name, std::size_t sizeBytes) {
-  auto const filePath = dir / name;
-  std::ofstream out{filePath, std::ios::binary};
-  std::string content(sizeBytes, 'x');
-  out.write(content.data(), static_cast<std::streamsize>(content.size()));
-  return filePath;
-}
-
 TEST_CASE("groupFilesBySize splits sequentially by limit", "[packer][groupFilesBySize]") {
   TempDir temp;
-  auto const f1 = createSizedFile(temp.path, "a.bin", 100);
-  auto const f2 = createSizedFile(temp.path, "b.bin", 150);
-  auto const f3 = createSizedFile(temp.path, "c.bin", 250);
-  auto const f4 = createSizedFile(temp.path, "d.bin", 50);
+  auto const f1 = testutils::writeSizedFile(temp.path / "a.bin", 100);
+  auto const f2 = testutils::writeSizedFile(temp.path / "b.bin", 150);
+  auto const f3 = testutils::writeSizedFile(temp.path / "c.bin", 250);
+  auto const f4 = testutils::writeSizedFile(temp.path / "d.bin", 50);
 
   auto const grouped = pack::Packer{}.groupFilesBySize({f1, f2, f3, f4}, 300);
 
@@ -48,10 +39,10 @@ TEST_CASE(
   fs::create_directories(dirA);
   fs::create_directories(dirB);
 
-  auto const a1 = createSizedFile(dirA, "a1.bin", 100);
-  auto const a2 = createSizedFile(dirA, "a2.bin", 100);
-  auto const b1 = createSizedFile(dirB, "b1.bin", 90);
-  auto const b2 = createSizedFile(dirB, "b2.bin", 90);
+  auto const a1 = testutils::writeSizedFile(dirA / "a1.bin", 100);
+  auto const a2 = testutils::writeSizedFile(dirA / "a2.bin", 100);
+  auto const b1 = testutils::writeSizedFile(dirB / "b1.bin", 90);
+  auto const b2 = testutils::writeSizedFile(dirB / "b2.bin", 90);
 
   auto const grouped = pack::Packer{}.groupPackFiles(
     {
@@ -80,10 +71,10 @@ TEST_CASE(
   fs::create_directories(dirA);
   fs::create_directories(dirB);
 
-  auto const a1 = createSizedFile(dirA, "a1.bin", 100);
-  auto const a2 = createSizedFile(dirA, "a2.bin", 100);
-  auto const b1 = createSizedFile(dirB, "b1.bin", 90);
-  auto const b2 = createSizedFile(dirB, "b2.bin", 90);
+  auto const a1 = testutils::writeSizedFile(dirA / "a1.bin", 100);
+  auto const a2 = testutils::writeSizedFile(dirA / "a2.bin", 100);
+  auto const b1 = testutils::writeSizedFile(dirB / "b1.bin", 90);
+  auto const b2 = testutils::writeSizedFile(dirB / "b2.bin", 90);
 
   auto const grouped = pack::Packer{}.groupPackFiles(
     {
@@ -108,11 +99,11 @@ TEST_CASE(
 ) {
   TempDir temp;
 
-  auto const f1 = createSizedFile(temp.path, "a.bin", 8);
-  auto const f2 = createSizedFile(temp.path, "b.bin", 8);
-  auto const f3 = createSizedFile(temp.path, "c.bin", 8);
-  auto const f4 = createSizedFile(temp.path, "d.bin", 8);
-  auto const f5 = createSizedFile(temp.path, "e.bin", 8);
+  auto const f1 = testutils::writeSizedFile(temp.path / "a.bin", 8);
+  auto const f2 = testutils::writeSizedFile(temp.path / "b.bin", 8);
+  auto const f3 = testutils::writeSizedFile(temp.path / "c.bin", 8);
+  auto const f4 = testutils::writeSizedFile(temp.path / "d.bin", 8);
+  auto const f5 = testutils::writeSizedFile(temp.path / "e.bin", 8);
 
   auto const grouped = pack::Packer{}.groupFilesBySize({f1, f2, f3, f4, f5}, 300, 2);
 
@@ -128,11 +119,11 @@ TEST_CASE(
 ) {
   TempDir temp;
 
-  auto const f1 = createSizedFile(temp.path, "a.bin", 2);
-  auto const f2 = createSizedFile(temp.path, "b.bin", 2);
-  auto const f3 = createSizedFile(temp.path, "c.bin", 2);
-  auto const f4 = createSizedFile(temp.path, "d.bin", 2);
-  auto const f5 = createSizedFile(temp.path, "e.bin", 2);
+  auto const f1 = testutils::writeSizedFile(temp.path / "a.bin", 2);
+  auto const f2 = testutils::writeSizedFile(temp.path / "b.bin", 2);
+  auto const f3 = testutils::writeSizedFile(temp.path / "c.bin", 2);
+  auto const f4 = testutils::writeSizedFile(temp.path / "d.bin", 2);
+  auto const f5 = testutils::writeSizedFile(temp.path / "e.bin", 2);
 
   auto const grouped = pack::Packer{}.groupPackFilesWithSubparts(
     {
@@ -170,8 +161,8 @@ TEST_CASE(
   fs::create_directories(srcDir);
   fs::create_directories(outDir);
 
-  auto const f1 = createSizedFile(srcDir, "a.txt", 64);
-  auto const f2 = createSizedFile(srcDir, "b.txt", 128);
+  auto const f1 = testutils::writeSizedFile(srcDir / "a.txt", 64);
+  auto const f2 = testutils::writeSizedFile(srcDir / "b.txt", 128);
   auto const zipPath = outDir / "bundle.zip";
 
   progress::ProgressContext progressCtx;
@@ -212,8 +203,8 @@ TEST_CASE(
   fs::create_directories(dirB);
   fs::create_directories(outDir);
 
-  auto const f1 = createSizedFile(dirA, "same.txt", 64);
-  auto const f2 = createSizedFile(dirB, "same.txt", 128);
+  auto const f1 = testutils::writeSizedFile(dirA / "same.txt", 64);
+  auto const f2 = testutils::writeSizedFile(dirB / "same.txt", 128);
   auto const zipPath = outDir / "bundle.zip";
 
   progress::ProgressContext progressCtx;
@@ -257,8 +248,8 @@ TEST_CASE(
   fs::create_directories(dirB);
   fs::create_directories(outDir);
 
-  auto const f1 = createSizedFile(dirA, "same.txt", 64);
-  auto const f2 = createSizedFile(dirB, "same.txt", 128);
+  auto const f1 = testutils::writeSizedFile(dirA / "same.txt", 64);
+  auto const f2 = testutils::writeSizedFile(dirB / "same.txt", 128);
   auto const zipPath = outDir / "bundle.zip";
 
   progress::ProgressContext progressCtx;
@@ -301,7 +292,7 @@ TEST_CASE(
   fs::create_directories(srcDir);
   fs::create_directories(outDir);
 
-  auto const source = createSizedFile(srcDir, "same.txt", 64);
+  auto const source = testutils::writeSizedFile(srcDir / "same.txt", 64);
   auto const zipPath = outDir / "bundle.zip";
 
   progress::ProgressContext progressCtx;
@@ -340,7 +331,7 @@ TEST_CASE("runDirectoryPackWorkflow packs directory", "[packer][workflow]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";
   fs::create_directories(inputDir);
-  createSizedFile(inputDir, "a.bin", 32);
+  testutils::writeSizedFile(inputDir / "a.bin", 32);
 
   auto ctx = appctx::AppContext{};
   ctx.config.inputPath = inputDir;
@@ -361,9 +352,9 @@ TEST_CASE(
   auto const outputDir = temp.path / "packed";
   fs::create_directories(inputDir);
 
-  auto const f1 = createSizedFile(inputDir, "a.bin", 150);
-  auto const f2 = createSizedFile(inputDir, "b.bin", 150);
-  auto const f3 = createSizedFile(inputDir, "c.bin", 60);
+  auto const f1 = testutils::writeSizedFile(inputDir / "a.bin", 150);
+  auto const f2 = testutils::writeSizedFile(inputDir / "b.bin", 150);
+  auto const f3 = testutils::writeSizedFile(inputDir / "c.bin", 60);
 
   pack::PackService s;
   auto const packRes =
@@ -394,8 +385,8 @@ TEST_CASE(
   auto const outputDir = temp.path / "packed";
   fs::create_directories(nestedDir);
 
-  auto const topFile = createSizedFile(inputDir, "top.bin", 64);
-  auto const nestedFile = createSizedFile(nestedDir, "nested.bin", 64);
+  auto const topFile = testutils::writeSizedFile(inputDir / "top.bin", 64);
+  auto const nestedFile = testutils::writeSizedFile(nestedDir / "nested.bin", 64);
 
   pack::PackService s;
   auto const packRes =
@@ -432,9 +423,9 @@ TEST_CASE(
 
 TEST_CASE("pack stores media entries and deflates non-media", "[packer][store]") {
   TempDir temp;
-  auto const mediaFile = createSizedFile(temp.path, "clip.mp4", 128);
-  auto const audioFile = createSizedFile(temp.path, "audio.m4a", 128);
-  auto const textFile = createSizedFile(temp.path, "note.txt", 256);
+  auto const mediaFile = testutils::writeSizedFile(temp.path / "clip.mp4", 128);
+  auto const audioFile = testutils::writeSizedFile(temp.path / "audio.m4a", 128);
+  auto const textFile = testutils::writeSizedFile(temp.path / "note.txt", 256);
   auto const zipPath = temp.path / "out.zip";
 
   auto progressCtx = progress::ProgressContext{};
