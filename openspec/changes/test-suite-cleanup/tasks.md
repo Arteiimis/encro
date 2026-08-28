@@ -29,6 +29,6 @@
 
 ## 4. Renames + final verification
 
-- [ ] 4.1 `git mv` the 14 `*_test.cpp` files to `*_tests.cpp`; reconfigure and rebuild both test targets.
-- [ ] 4.2 Run `xmake test-parallel` (full unit + e2e, sharded); confirm green.
-- [ ] 4.3 Run `xmake tidy`; confirm no new findings attributable to moved/hoisted helpers.
+- [x] 4.1 `git mv` the 14 `*_test.cpp` files to `*_tests.cpp`; reconfigure and rebuild both test targets.
+- [x] 4.2 Run `xmake test-parallel` (full unit + e2e, sharded); confirm green. (690 cases / 7708 assertions across 12 shards)
+- [x] 4.3 Run `xmake tidy`; confirm no new findings attributable to moved/hoisted helpers. (one performance-unnecessary-value-param on the new reregisterLogger fixed; all other warnings pre-existing baseline)
