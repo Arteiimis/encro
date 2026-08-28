@@ -6,7 +6,7 @@
 // - execute() with mode=Media groups entries by parent dir, packs to outputDir, returns zippedFiles
 // - execute() with compact=false produces full-progress packing (packGroupsFull path called)
 //
-// Resumable tests (Task 2 — RED phase):
+// Resumable tests (Task 2 — resumable):
 // - execute() with jobState=nullptr behaves identically to non-resumable (already covered above)
 // - execute() with jobState!=nullptr calls mergeTasks, filters needsExecution, sets up callbacks
 // - execute() with jobState!=nullptr and all tasks already complete → returns exitCode 0, no packing
@@ -190,7 +190,7 @@ TEST_CASE("execute() with compact=false uses full-progress path", "[pack][execut
 }
 
 // ============================================================
-// Task 2: Resumable execution tests (RED phase — should fail)
+// Task 2: Resumable execution tests
 // ============================================================
 
 TEST_CASE(
