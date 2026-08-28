@@ -1,5 +1,4 @@
 #include "e2e_test_utils.h"
-#include "../test_utils.h"
 #include "test_utils.h"
 
 #include <boost/json.hpp>
@@ -24,18 +23,6 @@ bool containsStemMarker(std::string const& name, std::string_view stem) {
   return name.find(std::format("__{}__", stem)) != std::string::npos;
 }
 
-auto listRegularFiles(fs::path const& dir) -> std::vector<fs::path> {
-  auto files = std::vector<fs::path>{};
-  if (!fs::exists(dir)) { return files; }
-
-  for (auto const& entry: fs::directory_iterator{dir}) {
-    if (entry.is_regular_file()) { files.push_back(entry.path()); }
-  }
-
-  std::ranges::sort(files);
-  return files;
-}
-
 std::size_t countActualFfmpegEncodes(fs::path const& logPath) {
   auto const content = testutils::readTextFile(logPath);
   auto stream = std::istringstream{content};
@@ -52,7 +39,7 @@ std::size_t countActualFfmpegEncodes(fs::path const& logPath) {
 }
 
 auto findSingleOutputFile(fs::path const& outputDir) -> fs::path {
-  auto const outputFiles = listRegularFiles(outputDir);
+  auto const outputFiles = testutils::listRegularFiles(outputDir);
   REQUIRE(outputFiles.size() == 1);
   return outputFiles.front();
 }
@@ -206,7 +193,7 @@ auto probeFormatComment(fs::path const& mediaPath) -> std::string {
 auto listFilesWithExtension(fs::path const& dir, std::string_view extension)
   -> std::vector<fs::path> {
   auto filtered = std::vector<fs::path>{};
-  for (auto const& filePath: listRegularFiles(dir)) {
+  for (auto const& filePath: testutils::listRegularFiles(dir)) {
     if (filePath.extension() == extension) { filtered.push_back(filePath); }
   }
   return filtered;
@@ -310,8 +297,8 @@ TEST_CASE("encro pack-only CLI packs a directory", "[e2e][pack-only]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";
   fs::create_directories(inputDir);
-  e2e::writeTextFile(inputDir / "a.bin", "a");
-  e2e::writeTextFile(inputDir / "b.bin", "b");
+  testutils::writeTextFile(inputDir / "a.bin", "a");
+  testutils::writeTextFile(inputDir / "b.bin", "b");
 
   auto const result = e2e::runEncro({"-y", "-z", "-i", inputDir.string()});
 
@@ -319,7 +306,7 @@ TEST_CASE("encro pack-only CLI packs a directory", "[e2e][pack-only]") {
   CAPTURE(result.stderrText, result.stdoutText);
   REQUIRE(result.exitCode == 0);
   REQUIRE(fs::exists(zipPath));
-  auto const entries = e2e::listZipEntries(zipPath);
+  auto const entries = testutils::listZipRegularEntryNames(zipPath);
   REQUIRE(entries.size() == 2);
   CHECK(containsStemMarker(entries[0], "a"));
   CHECK(containsStemMarker(entries[1], "b"));
@@ -329,10 +316,10 @@ TEST_CASE("encro pack stores media entries without deflate", "[e2e][pack-only]")
   TempDir temp;
   auto const inputDir = temp.path / "input";
   fs::create_directories(inputDir);
-  e2e::writeTextFile(inputDir / "clip.mp4", "fake-video");
-  e2e::writeTextFile(inputDir / "photo.JPG", "fake-image");
-  e2e::writeTextFile(inputDir / "note.txt", "a");
-  e2e::writeTextFile(inputDir / "raw.wav", "b");
+  testutils::writeTextFile(inputDir / "clip.mp4", "fake-video");
+  testutils::writeTextFile(inputDir / "photo.JPG", "fake-image");
+  testutils::writeTextFile(inputDir / "note.txt", "a");
+  testutils::writeTextFile(inputDir / "raw.wav", "b");
 
   auto const result = e2e::runEncro({"-y", "-z", "-i", inputDir.string()});
 
@@ -362,7 +349,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   REQUIRE(fs::exists(toolchain.ffmpegPath));
@@ -402,7 +389,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
 
   // Quoting round-trip parity: paths with spaces must survive the
   // command-line parse/re-join chain on every platform.
@@ -552,8 +539,8 @@ TEST_CASE(
   auto const inputDir = temp.path / "pics";
   auto const outputDir = temp.path / "out";
   fs::create_directories(inputDir);
-  e2e::writeTextFile(inputDir / "a.jpg", "img1");
-  e2e::writeTextFile(inputDir / "b.jpg", "img2");
+  testutils::writeTextFile(inputDir / "a.jpg", "img1");
+  testutils::writeTextFile(inputDir / "b.jpg", "img2");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const result = e2e::runEncro({
@@ -572,7 +559,7 @@ TEST_CASE(
   REQUIRE_SUCCESS(result);
   auto const zipFiles = listFilesWithExtension(outputDir / "packed", ".zip");
   REQUIRE(zipFiles.size() == 1);
-  auto const entries = e2e::listZipEntries(zipFiles.front());
+  auto const entries = testutils::listZipRegularEntryNames(zipFiles.front());
   REQUIRE(entries.size() == 2);
   CHECK(entries[0].ends_with(".jpg"));
   CHECK(entries[1].ends_with(".jpg"));
@@ -587,8 +574,8 @@ TEST_CASE(
   auto const outputDir = temp.path / "out";
   auto const statePath = temp.path / "encro.job-state.json";
   fs::create_directories(inputDir);
-  e2e::writeTextFile(inputDir / "a.jpg", "img1");
-  e2e::writeTextFile(inputDir / "b.jpg", "img2");
+  testutils::writeTextFile(inputDir / "a.jpg", "img1");
+  testutils::writeTextFile(inputDir / "b.jpg", "img2");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const baseArgs = std::vector<std::string>{
@@ -612,7 +599,7 @@ TEST_CASE(
   REQUIRE(partial.exitCode == 0);
   auto const partialZips = listFilesWithExtension(outputDir / "packed", ".zip");
   REQUIRE(partialZips.size() == 1);
-  auto const partialEntries = e2e::listZipEntries(partialZips.front());
+  auto const partialEntries = testutils::listZipRegularEntryNames(partialZips.front());
   REQUIRE(partialEntries.size() == 1);
   CHECK(partialEntries.front().find("__a__") != std::string::npos);
 
@@ -643,8 +630,8 @@ TEST_CASE(
   auto const inputDir = temp.path / "pics";
   auto const outputDir = temp.path / "out";
   fs::create_directories(inputDir / "sub");
-  e2e::writeTextFile(inputDir / "a.jpg", "img1");
-  e2e::writeTextFile(inputDir / "sub" / "c.jpg", "img3");
+  testutils::writeTextFile(inputDir / "a.jpg", "img1");
+  testutils::writeTextFile(inputDir / "sub" / "c.jpg", "img3");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const result = e2e::runEncro({
@@ -664,7 +651,7 @@ TEST_CASE(
   REQUIRE_SUCCESS(result);
   auto const zipFiles = listFilesWithExtension(outputDir / "packed", ".zip");
   REQUIRE(zipFiles.size() == 1);
-  auto const entries = e2e::listZipEntries(zipFiles.front());
+  auto const entries = testutils::listZipRegularEntryNames(zipFiles.front());
   auto const summaryIt = std::ranges::find_if(entries, [](std::string const& name) {
     return name.find("__summary__") != std::string::npos;
   });
@@ -682,8 +669,8 @@ TEST_CASE(
   auto const inputDir = temp.path / "inputs";
   auto const outputDir = temp.path / "out";
   fs::create_directories(inputDir);
-  e2e::writeTextFile(inputDir / "alpha.avi", "fake-video");
-  e2e::writeTextFile(inputDir / "beta.avi", "fake-video");
+  testutils::writeTextFile(inputDir / "alpha.avi", "fake-video");
+  testutils::writeTextFile(inputDir / "beta.avi", "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const concurrencyDir = temp.path / "concurrency";
@@ -758,8 +745,8 @@ TEST_CASE(
   auto const inputA = temp.path / "inputs" / "alpha.avi";
   auto const inputB = temp.path / "inputs" / "beta.avi";
   auto const statePath = temp.path / "encro.job-state.json";
-  e2e::writeTextFile(inputA, "fake-video");
-  e2e::writeTextFile(inputB, "fake-video");
+  testutils::writeTextFile(inputA, "fake-video");
+  testutils::writeTextFile(inputB, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const result = e2e::runEncro(
@@ -807,7 +794,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const baseArgs = std::vector<std::string>{
@@ -849,7 +836,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const baseArgs = std::vector<std::string>{
@@ -944,7 +931,7 @@ TEST_CASE(
   auto const zipFiles = listFilesWithExtension(inputDir / "packed", ".zip");
   REQUIRE(zipFiles.size() == 1);
 
-  auto const zipEntries = e2e::listZipEntries(zipFiles.front());
+  auto const zipEntries = testutils::listZipRegularEntryNames(zipFiles.front());
   REQUIRE(zipEntries.size() == 2);
   CHECK(std::ranges::all_of(zipEntries, [](std::string const& entry) {
     return entry.ends_with(".webp");
@@ -958,7 +945,7 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "input";
   fs::create_directories(inputDir);
-  e2e::writeTextFile(inputDir / "sample.avi", "fake-video");
+  testutils::writeTextFile(inputDir / "sample.avi", "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const outputDir = temp.path / "out";
@@ -992,8 +979,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputA = temp.path / "inputs" / "alpha.avi";
   auto const inputB = temp.path / "inputs" / "beta.avi";
-  e2e::writeTextFile(inputA, "fake-video");
-  e2e::writeTextFile(inputB, "fake-video");
+  testutils::writeTextFile(inputA, "fake-video");
+  testutils::writeTextFile(inputB, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const outputDir = temp.path / "out";
@@ -1034,7 +1021,7 @@ TEST_CASE("encro fails when custom ffmpeg directory has no tools", "[e2e][toolch
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
   auto const emptyToolDir = temp.path / "empty-tools";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
   fs::create_directories(emptyToolDir);
 
   auto const result = e2e::runEncro({
@@ -1057,7 +1044,7 @@ TEST_CASE("encro resume requires an existing state file", "[e2e][resume]") {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
   auto const statePath = temp.path / "missing.job-state.json";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
 
   auto const result = e2e::runEncro({
     "-y",
@@ -1083,7 +1070,7 @@ TEST_CASE(
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
   auto const statePath = temp.path / "encro.job-state.json";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const result = e2e::runEncro(
@@ -1116,7 +1103,7 @@ TEST_CASE(
   auto const& tasks = state.at("tasks").as_array();
   REQUIRE(tasks.size() == 1);
   CHECK(tasks.front().as_object().at("status").as_string() == "failed");
-  CHECK(listRegularFiles(temp.path / "encoded_webp").empty());
+  CHECK(testutils::listRegularFiles(temp.path / "encoded_webp").empty());
 }
 
 TEST_CASE(
@@ -1127,7 +1114,7 @@ TEST_CASE(
   auto const inputPath = temp.path / "sample.avi";
   auto const statePath = temp.path / "encro.job-state.json";
   auto const logPath = temp.path / "fake-tool.log";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const env = std::map<std::string, std::string>{{
@@ -1177,7 +1164,7 @@ TEST_CASE(
   auto const inputPath = temp.path / "sample.avi";
   auto const statePath = temp.path / "encro.job-state.json";
   auto const logPath = temp.path / "fake-tool.log";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const env = std::map<std::string, std::string>{{
@@ -1221,8 +1208,8 @@ TEST_CASE(
   auto const statePath = temp.path / "encro.job-state.json";
   auto const logPath = temp.path / "fake-tool.log";
   auto const probeJson = temp.path / "probe.json";
-  e2e::writeTextFile(inputPath, "fake-video");
-  e2e::writeTextFile(
+  testutils::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(
     probeJson,
     R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
   );
@@ -1289,8 +1276,8 @@ TEST_CASE(
   auto const statePath = temp.path / "encro.job-state.json";
   auto const logPath = temp.path / "fake-tool.log";
   auto const probeJson = temp.path / "probe.json";
-  e2e::writeTextFile(inputPath, "fake-video");
-  e2e::writeTextFile(
+  testutils::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(
     probeJson,
     R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
   );
@@ -1338,8 +1325,8 @@ TEST_CASE(
   auto const statePath = temp.path / "encro.job-state.json";
   auto const logPath = temp.path / "fake-tool.log";
   auto const probeJson = temp.path / "probe.json";
-  e2e::writeTextFile(inputPath, "fake-video");
-  e2e::writeTextFile(
+  testutils::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(
     probeJson,
     R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
   );
@@ -1386,8 +1373,8 @@ TEST_CASE(
   auto const statePath = temp.path / "encro.job-state.json";
   auto const logPath = temp.path / "fake-tool.log";
   auto const probeJson = temp.path / "probe.json";
-  e2e::writeTextFile(inputPath, "fake-video");
-  e2e::writeTextFile(
+  testutils::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(
     probeJson,
     R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
   );
@@ -1463,8 +1450,8 @@ TEST_CASE(
   auto const statePath = temp.path / "encro.job-state.json";
   auto const logPath = temp.path / "fake-tool.log";
   auto const probeJson = temp.path / "probe.json";
-  e2e::writeTextFile(inputPath, "fake-video");
-  e2e::writeTextFile(
+  testutils::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(
     probeJson,
     R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
   );
@@ -1511,7 +1498,7 @@ TEST_CASE(
   auto const inputPath = temp.path / "sample.avi";
   auto const statePath = temp.path / "encro.job-state.json";
   auto const logPath = temp.path / "fake-tool.log";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const slowEnv = std::map<std::string, std::string>{
@@ -1559,8 +1546,8 @@ TEST_CASE(
   auto const inputB = temp.path / "inputs" / "beta.avi";
   auto const statePath = temp.path / "encro.job-state.json";
   auto const logPath = temp.path / "fake-tool.log";
-  e2e::writeTextFile(inputA, "fake-video");
-  e2e::writeTextFile(inputB, "fake-video");
+  testutils::writeTextFile(inputA, "fake-video");
+  testutils::writeTextFile(inputB, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const slowEnv = std::map<std::string, std::string>{
@@ -1624,7 +1611,7 @@ TEST_CASE(
   TempDir temp;
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const existing = temp.path / "existing.avi";
-  e2e::writeTextFile(existing, "fake-video");
+  testutils::writeTextFile(existing, "fake-video");
   auto const missing = temp.path / "missing.avi";
 
   auto const checkEnv =
@@ -1652,7 +1639,7 @@ TEST_CASE(
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
   auto const statePath = temp.path / "encro.job-state.json";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const result = e2e::runEncro(
@@ -1682,7 +1669,7 @@ TEST_CASE(
   auto const& tasks = state.at("tasks").as_array();
   REQUIRE(tasks.size() == 1);
   CHECK(tasks.front().as_object().at("status").as_string() == "failed");
-  CHECK(listRegularFiles(temp.path / "encoded_mp4").empty());
+  CHECK(testutils::listRegularFiles(temp.path / "encoded_mp4").empty());
 }
 
 TEST_CASE(
@@ -1694,8 +1681,8 @@ TEST_CASE(
   auto const statePath = temp.path / "encro.job-state.json";
   auto const logPath = temp.path / "fake-tool.log";
   auto const probeJson = temp.path / "probe.json";
-  e2e::writeTextFile(inputPath, "fake-video");
-  e2e::writeTextFile(
+  testutils::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(
     probeJson,
     R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"},{"codec_type":"audio","codec_name":"aac"}]})"
   );
@@ -1781,7 +1768,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const logRoot = temp.path / "logroot";
 
@@ -1828,8 +1815,8 @@ TEST_CASE(
   auto const inputDir = temp.path / "pics";
   auto const outputDir = temp.path / "out";
   fs::create_directories(inputDir);
-  e2e::writeTextFile(inputDir / "a.jpg", "img1");
-  e2e::writeTextFile(inputDir / "b.jpg", "img2");
+  testutils::writeTextFile(inputDir / "a.jpg", "img1");
+  testutils::writeTextFile(inputDir / "b.jpg", "img2");
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const logRoot = temp.path / "logroot";
 
@@ -1880,8 +1867,8 @@ TEST_CASE(
   auto const statePath = temp.path / "encro.job-state.json";
   auto const toolLog = temp.path / "fake-tool.log";
   auto const probeJson = temp.path / "probe.json";
-  e2e::writeTextFile(inputPath, "fake-video");
-  e2e::writeTextFile(
+  testutils::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(
     probeJson,
     R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
   );
@@ -1961,8 +1948,8 @@ TEST_CASE(
   TempDir temp;
   auto const firstInput = temp.path / "sample.avi";
   auto const secondInput = temp.path / "another.avi";
-  e2e::writeTextFile(firstInput, "fake-video");
-  e2e::writeTextFile(secondInput, "fake-video");
+  testutils::writeTextFile(firstInput, "fake-video");
+  testutils::writeTextFile(secondInput, "fake-video");
   auto const outputDir = temp.path / "out";
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
@@ -2002,7 +1989,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
   auto const cachePath = temp.path / "probe-cache.json";
   auto const log1 = temp.path / "tool1.log";
   auto const log2 = temp.path / "tool2.log";
@@ -2073,7 +2060,7 @@ TEST_CASE(
     {"ENCRO_PROBE_CACHE", cachePath.string()},
   };
 
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
   auto env1 = env;
   env1["ENCRO_FAKE_TOOL_LOG_FILE"] = log1.string();
   REQUIRE_SUCCESS(
@@ -2094,7 +2081,7 @@ TEST_CASE(
 
   // Change the input (size + mtime): the cached key no longer matches.
   std::this_thread::sleep_for(std::chrono::milliseconds{20});
-  e2e::writeTextFile(inputPath, "fake-video-CHANGED");
+  testutils::writeTextFile(inputPath, "fake-video-CHANGED");
 
   auto env2 = env;
   env2["ENCRO_FAKE_TOOL_LOG_FILE"] = log2.string();
@@ -2122,7 +2109,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
   auto const outputDir = temp.path / "out";
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
@@ -2160,7 +2147,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
   auto const outputDir = temp.path / "out";
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
@@ -2206,7 +2193,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
   auto const outputDir = temp.path / "out";
   auto const logPath = temp.path / "tool.log";
 
@@ -2247,7 +2234,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "sample.avi";
-  e2e::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(inputPath, "fake-video");
   auto const outputDir = temp.path / "out";
   auto const logPath = temp.path / "tool.log";
 
@@ -2306,8 +2293,8 @@ TEST_CASE(
   TempDir temp;
   auto const original = temp.path / "sample.mp4";
   auto const encoded = temp.path / "sample.hevc.mp4";
-  e2e::writeTextFile(original, "fake-video");
-  e2e::writeTextFile(encoded, "fake-video");
+  testutils::writeTextFile(original, "fake-video");
+  testutils::writeTextFile(encoded, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   // Parent options must precede the subcommand token (CLI11).
@@ -2333,8 +2320,8 @@ TEST_CASE(
   TempDir temp;
   auto const original = temp.path / "sample.mp4";
   auto const encoded = temp.path / "sample.hevc.mp4";
-  e2e::writeTextFile(original, "fake-video");
-  e2e::writeTextFile(encoded, "fake-video");
+  testutils::writeTextFile(original, "fake-video");
+  testutils::writeTextFile(encoded, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const custom = temp.path / "custom.mp4";
@@ -2357,7 +2344,7 @@ TEST_CASE("encro preview rejects a missing input", "[e2e][preview][fake-toolchai
   TempDir temp;
   auto const original = temp.path / "missing.mp4";
   auto const encoded = temp.path / "sample.hevc.mp4";
-  e2e::writeTextFile(encoded, "fake-video");
+  testutils::writeTextFile(encoded, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const result = e2e::runEncro({
@@ -2379,7 +2366,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const original = temp.path / "sample.mp4";
-  e2e::writeTextFile(original, "fake-video");
+  testutils::writeTextFile(original, "fake-video");
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const result = e2e::runEncro(

@@ -22,10 +22,10 @@
 
 ## 3. e2e harness overlap + dead code
 
-- [ ] 3.1 Merge `e2e::writeTextFile`, `e2e::listZipEntries`, and the local `listRegularFiles` in `encro_e2e_tests.cpp` onto the `test_utils.h` equivalents; keep `e2e::ScopedEnvironmentOverrides` semantics untouched.
-- [ ] 3.2 Delete `RunningProcess::id()` from `tests/e2e/e2e_test_utils.{h,cpp}`; sink the `fakeMediaToolBinaryPath` declaration into the .cpp.
-- [ ] 3.3 Delete the `ENCRO_FAKE_FFMPEG_PROGRESS_FRAMES` knob in `tests/e2e/fake_media_tool.cpp` (hardcode frame=10).
-- [ ] 3.4 Run `xmake build e2e_tests && xmake run e2e_tests`; confirm green.
+- [x] 3.1 Merge `e2e::writeTextFile`, `e2e::listZipEntries`, and the local `listRegularFiles` in `encro_e2e_tests.cpp` onto the `test_utils.h` equivalents; keep `e2e::ScopedEnvironmentOverrides` semantics untouched.
+- [x] 3.2 Delete `RunningProcess::id()` from `tests/e2e/e2e_test_utils.{h,cpp}`; sink the `fakeMediaToolBinaryPath` declaration into the .cpp.
+- [x] 3.3 Delete the `ENCRO_FAKE_FFMPEG_PROGRESS_FRAMES` knob in `tests/e2e/fake_media_tool.cpp` (hardcode frame=10).
+- [x] 3.4 Run `xmake build e2e_tests && xmake run e2e_tests`; confirm green. (58 cases, 570 assertions, green)
 
 ## 4. Renames + final verification
 
