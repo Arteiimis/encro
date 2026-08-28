@@ -74,11 +74,12 @@ TEST_CASE(
 ) {
   auto stopGuard = testutils::ScopedStopSignalReset{};
   auto s = WebpScaffold{};
-  // Uniformly oversized output: every ladder attempt overshoots the 20 MiB
-  // target, so the ladder runs q=80..20 (7 attempts) and the fallback keeps
-  // the min-quality (q=20) file.
+  // Uniformly oversized output (24 MiB: 4 MiB over the 20 MiB target) so every
+  // ladder attempt overshoots; the gap must exceed the 3 MiB small-gap
+  // threshold so the coarse q-step-10 ladder runs q=80..20 (7 attempts) and
+  // the fallback keeps the min-quality (q=20) file.
   s.envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "22020096")
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "25165824")
   );
 
   CHECK(s.run());
@@ -102,7 +103,7 @@ TEST_CASE(
   // Oversized output forces retries; the slow first attempt gives the stop
   // request time to land inside the retry window.
   s.envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "22020096")
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "25165824")
   );
   s.envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_DELAY_MS", "400"));
 
