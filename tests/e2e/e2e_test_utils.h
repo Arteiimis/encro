@@ -64,8 +64,6 @@ public:
 
   void terminate();
 
-  std::size_t id();
-
 private:
   // Order matters: the context must outlive the pipes; streams must outlive
   // the child; the child must be terminated before the readers join (they
@@ -87,8 +85,6 @@ struct FakeToolchain {
 };
 
 auto encroBinaryPath() -> fs::path;
-
-auto fakeMediaToolBinaryPath() -> fs::path;
 
 auto resolveToolOnPath(std::string_view executable) -> std::optional<fs::path>;
 
@@ -123,10 +119,6 @@ auto runEncroAsync(
 bool consoleCtrlEventsAvailable();
 
 auto installFakeToolchain(fs::path const& root) -> FakeToolchain;
-
-void writeTextFile(fs::path const& path, std::string_view content = "x");
-
-auto listZipEntries(fs::path const& zipPath) -> std::vector<std::string>;
 
 auto mapZipEntryCompression(fs::path const& zipPath)
   -> std::map<std::string, libzippp::CompressionMethod>;

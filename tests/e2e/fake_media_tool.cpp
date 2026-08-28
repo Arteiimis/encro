@@ -367,7 +367,6 @@ auto runScoringInvocation(int argc, char* argv[]) -> int {
 
 // Emulates -progress output so the parser paths are exercised end to end.
 void writeFakeProgressFile(FfmpegInvocation const& invocation) {
-  auto const frameCount = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_FRAMES", 10);
   auto const padBytes = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_PAD", 0);
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access): caller checks has_value
   auto const progressPath = invocation.progressFile.value();
@@ -385,7 +384,7 @@ void writeFakeProgressFile(FfmpegInvocation const& invocation) {
       out << filler.substr(offset, 100) << "\n";
     }
   }
-  out << "frame=" << frameCount << "\n";
+  out << "frame=10\n";
   if (
     readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_NO_END_TIME", 0) == 0
     && invocation.seekSeconds.has_value()
