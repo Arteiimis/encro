@@ -26,4 +26,4 @@
 
 ## 5. CI confirmation
 
-- [ ] 5.1 Push branch; dispatch CI limited to the coverage mode (`modes: ["coverage"]`); confirm the uploaded artifact exists and its Totals reflect the merged, filtered scope.
+- [x] 5.1 Push branch; dispatch CI limited to the coverage mode (`modes: ["coverage"]`); confirm the uploaded artifact exists and its Totals reflect the merged, filtered scope. (run 33174893969 success in 15m; coverage-report artifact 518KB; CI TOTAL line 82.26% on Linux, matching local 82.55% modulo platform)
