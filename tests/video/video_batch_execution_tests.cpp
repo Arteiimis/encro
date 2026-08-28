@@ -3,7 +3,6 @@
 #include "core/job_state.h"
 #include "infra/stop_signal.h"
 #include "test_utils.h"
-#include "video/video_batch_execution.h"
 
 #include <catch2/catch_all.hpp>
 
@@ -335,6 +334,15 @@ TEST_CASE(
   REQUIRE(outcome.results->size() == 2);
   CHECK(outcome.results->at(s.inputPath));
   CHECK(outcome.results->at(b));
+
+  // The verbose path encodes per-file in order: file a's encode precedes
+  // file b's.
+  auto const log = testutils::readTextFile(s.logPath);
+  auto const aEncode = log.find((s.temp.path / "encoded" / "sample.mp4").string());
+  auto const bEncode = log.find((s.temp.path / "encoded" / "b.mp4").string());
+  CHECK(aEncode != std::string::npos);
+  CHECK(bEncode != std::string::npos);
+  CHECK(aEncode < bEncode);
 
   store->flush();
   auto reread = jobstate::Store{statePath};
