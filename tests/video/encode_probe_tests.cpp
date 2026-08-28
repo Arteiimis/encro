@@ -1105,6 +1105,33 @@ TEST_CASE("fake tool tail schedules persist across later calls", "[fake-tool]") 
   CHECK(runFakeTool(args).exitCode == 3);
 }
 
+TEST_CASE("fake ffprobe check-input opt-in fails on missing input", "[fake-tool]") {
+  TempDir temp;
+  auto const ffprobePath = testutils::copyFakeTool(temp.path, "ffprobe");
+  auto const existing = temp.path / "existing.avi";
+  testutils::writeTextFile(existing, "fake-video");
+  auto const missing = temp.path / "missing.avi";
+
+  auto const checkEnv = ScopedEnvVar{"ENCRO_FAKE_FFPROBE_CHECK_INPUT", "1"};
+  auto const probeArgs = std::format(
+    "\"{}\" -v quiet -print_format json \"{}\"",
+    ffprobePath.string(),
+    existing.string()
+  );
+
+  auto const okProbe = exec2(probeArgs, true);
+  CHECK(okProbe.exitCode == 0);
+
+  auto const badArgs = std::format(
+    "\"{}\" -v quiet -print_format json \"{}\"",
+    ffprobePath.string(),
+    missing.string()
+  );
+  auto const badProbe = exec2(badArgs, true);
+  CHECK(badProbe.exitCode == 2);
+  CHECK(badProbe.output.find("probe input not found") != std::string::npos);
+}
+
 TEST_CASE("fake tool records completed inputs", "[fake-tool]") {
   TempDir temp;
   auto const logPath = temp.path / "inputs.log";
