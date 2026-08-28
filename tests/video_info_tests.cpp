@@ -294,6 +294,23 @@ TEST_CASE(
     CHECK(frames.value() == 2'000'000'000);
   }
 
+  SECTION("non-numeric nb_frames falls back to the rate estimate") {
+    seed(
+      R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","nb_frames":"abc","avg_frame_rate":"25/1"}]})"
+    );
+    auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
+    REQUIRE(frames);
+    CHECK(frames.value() == 50);
+  }
+
+  SECTION("non-numeric nb_frames without fallback data errors cleanly") {
+    seed(
+      R"({"format":{"duration":"N/A"},"streams":[{"codec_type":"video","nb_frames":"abc","avg_frame_rate":"0/0"}]})"
+    );
+    auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
+    REQUIRE_FALSE(frames);
+  }
+
   SECTION("empty streams array errors") {
     seed(R"({"format":{"duration":"2.0"},"streams":[]})");
     auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);

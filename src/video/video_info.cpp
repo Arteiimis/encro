@@ -85,7 +85,11 @@ auto tryParseNbFrames(boost::json::value const& val) -> std::optional<int64_t> {
   if (val.is_uint64()) { return static_cast<int64_t>(val.as_uint64()); }
   if (val.is_string()) {
     auto const text = std::string{val.as_string()};
-    if (!text.empty() && text != "N/A") { return std::stoll(text); }
+    if (!text.empty() && text != "N/A") {
+      try {
+        return std::stoll(text);
+      } catch (...) { return std::nullopt; }
+    }
   }
   return std::nullopt;
 }
