@@ -226,3 +226,112 @@ TEST_CASE("getVidHasAudio false without audio stream", "[video-info]") {
   REQUIRE(hasAudio);
   CHECK_FALSE(hasAudio.value());
 }
+
+TEST_CASE(
+  "getVidTotalFrames fallback chain handles guarded parse corners",
+  "[video-info]"
+) {
+  auto runtime = appctx::RuntimeContext{};
+  auto toolchain = appctx::ToolchainPaths{};
+  auto const videoPath = fs::path{"cached-sample.mp4"};
+
+  auto seed = [&](std::string_view json) {
+    runtime.videoInfoCache.set(videoPath, boost::json::parse(json));
+  };
+
+  SECTION("string nb_frames N/A falls through to the rate fallback") {
+    seed(
+      R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","nb_frames":"N/A","avg_frame_rate":"25/1"}]})"
+    );
+    auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
+    REQUIRE(frames);
+    CHECK(frames.value() == 50);
+  }
+
+  SECTION("empty nb_frames falls through to the rate fallback") {
+    seed(
+      R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","nb_frames":"","avg_frame_rate":"25/1"}]})"
+    );
+    auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
+    REQUIRE(frames);
+    CHECK(frames.value() == 50);
+  }
+
+  SECTION("missing nb_frames uses the avg_frame_rate fraction") {
+    seed(
+      R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","avg_frame_rate":"25/1"}]})"
+    );
+    auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
+    REQUIRE(frames);
+    CHECK(frames.value() == 50);
+  }
+
+  SECTION("zero-denominator avg_frame_rate is rejected, not thrown") {
+    seed(
+      R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","nb_frames":"N/A","avg_frame_rate":"0/0","r_frame_rate":"25/1"}]})"
+    );
+    auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
+    REQUIRE(frames);
+    CHECK(frames.value() == 50);
+  }
+
+  SECTION("empty streams array errors") {
+    seed(R"({"format":{"duration":"2.0"},"streams":[]})");
+    auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
+    REQUIRE_FALSE(frames);
+  }
+
+  SECTION("unparseable rates with no fallback error out") {
+    seed(
+      R"({"format":{"duration":"N/A"},"streams":[{"codec_type":"video","nb_frames":"N/A","avg_frame_rate":"0/0"}]})"
+    );
+    auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
+    REQUIRE_FALSE(frames);
+  }
+}
+
+TEST_CASE("getVidTotalDurationUs rejects guarded non-numeric corners", "[video-info]") {
+  auto runtime = appctx::RuntimeContext{};
+  auto toolchain = appctx::ToolchainPaths{};
+  auto const videoPath = fs::path{"cached-sample.mp4"};
+
+  auto seed = [&](std::string_view json) {
+    runtime.videoInfoCache.set(videoPath, boost::json::parse(json));
+  };
+
+  SECTION("N/A duration errors") {
+    seed(R"({"format":{"duration":"N/A"}})");
+    auto const durationUs = getVidTotalDurationUs(toolchain, runtime, videoPath);
+    REQUIRE_FALSE(durationUs);
+  }
+
+  SECTION("empty duration errors") {
+    seed(R"({"format":{"duration":""}})");
+    auto const durationUs = getVidTotalDurationUs(toolchain, runtime, videoPath);
+    REQUIRE_FALSE(durationUs);
+  }
+
+  SECTION("non-object cache entry errors") {
+    runtime.videoInfoCache.set(videoPath, boost::json::parse(R"(42)"));
+    auto const durationUs = getVidTotalDurationUs(toolchain, runtime, videoPath);
+    REQUIRE_FALSE(durationUs);
+  }
+}
+
+TEST_CASE("readAllVidsFromFiles filters unknown extensions", "[video-info]") {
+  TempDir temp;
+  auto const video = temp.path / "a.mkv";
+  auto const notAVideo = temp.path / "notes.txt";
+  testutils::writeSizedFile(video, 1024ULL);
+  testutils::writeTextFile(notAVideo, "text");
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "mp4";
+  auto toolchain = appctx::ToolchainPaths{};
+  auto runtime = appctx::RuntimeContext{};
+
+  auto const inputFiles = std::array{video, notAVideo};
+  auto const vids = readAllVidsFromFiles(config, toolchain, runtime, inputFiles);
+
+  CHECK(vids == std::vector<fs::path>{video});
+}
