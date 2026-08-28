@@ -146,9 +146,13 @@ auto encroBinaryPath() -> fs::path {
   return executableDir() / platformBinaryName("encro");
 }
 
+namespace {
+
 auto fakeMediaToolBinaryPath() -> fs::path {
   return executableDir() / platformBinaryName("encro_e2e_tool");
 }
+
+}  // namespace
 
 auto resolveToolOnPath(std::string_view executable) -> std::optional<fs::path> {
   auto const resolved = bp::environment::find_executable(std::string{executable});
@@ -303,10 +307,6 @@ void RunningProcess::terminate() {
   child_.terminate();
 }
 
-std::size_t RunningProcess::id() {
-  return static_cast<std::size_t>(child_.id());
-}
-
 auto runEncroAsync(
   std::vector<std::string> const& args,
   std::optional<fs::path> const& workingDir,
@@ -340,27 +340,6 @@ auto installFakeToolchain(fs::path const& root) -> FakeToolchain {
     .ffmpegPath = ffmpegPath,
     .ffprobePath = ffprobePath,
   };
-}
-
-void writeTextFile(fs::path const& path, std::string_view content) {
-  fs::create_directories(path.parent_path());
-  auto out = std::ofstream{path, std::ios::binary};
-  out << content;
-}
-
-auto listZipEntries(fs::path const& zipPath) -> std::vector<std::string> {
-  auto zip = libzippp::ZipArchive{zipPath.string()};
-  zip.open(libzippp::ZipArchive::ReadOnly);
-
-  auto entries = std::vector<std::string>{};
-  for (auto const& entry: zip.getEntries()) {
-    if (entry.getName().ends_with('/')) { continue; }
-    entries.emplace_back(entry.getName());
-  }
-
-  std::ranges::sort(entries);
-  zip.close();
-  return entries;
 }
 
 auto mapZipEntryCompression(fs::path const& zipPath)
