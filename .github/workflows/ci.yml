@@ -25,6 +25,11 @@ jobs:
   linux:
     name: ${{ matrix.mode }}
     runs-on: ubuntu-latest
+    # xmake 检测到 CI 环境会默认禁用 ccache（见 xmake modules/private/cache/build_cache.lua
+    # 的 is_enabled：CI=true 时除非 XMAKE_ACTION_BUILD_CACHE 非空）。置 1 恢复
+    # 内置内容寻址编译缓存，否则 build/.build_cache 永远零写入、缓存形同虚设。
+    env:
+      XMAKE_ACTION_BUILD_CACHE: '1'
     strategy:
       fail-fast: false
       matrix:
