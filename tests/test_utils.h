@@ -365,7 +365,7 @@ inline auto keepCaptureStreamAlive(std::unique_ptr<std::ostringstream> oss)
 }
 
 // Drops any previous registration under the same name, then registers.
-inline void reregisterLogger(std::shared_ptr<spdlog::logger> logger) {
+inline void reregisterLogger(std::shared_ptr<spdlog::logger> const& logger) {
   if (spdlog::get(logger->name()) != nullptr) { spdlog::drop(logger->name()); }
   spdlog::register_logger(logger);
 }
