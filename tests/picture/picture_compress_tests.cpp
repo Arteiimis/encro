@@ -12,13 +12,6 @@ using testutils::ScopedEnvVar;
 
 namespace {
 
-auto createTempFile(fs::path const& dir, std::string_view name) -> fs::path {
-  auto const filePath = dir / name;
-  auto out = std::ofstream{filePath, std::ios::binary};
-  out << "dummy";
-  return filePath;
-}
-
 void configureCompressContext(
   appctx::AppContext& ctx,
   fs::path const& toolDir,
@@ -39,7 +32,7 @@ TEST_CASE(
   "[picture-compress]"
 ) {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
 
   auto const cfg = ImageCompressConfig{
@@ -59,7 +52,7 @@ TEST_CASE(
 
 TEST_CASE("ImageCompressConfig::buildCMD uses custom ffmpeg path", "[picture-compress]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
 
   auto const cfg = ImageCompressConfig{
@@ -81,7 +74,7 @@ TEST_CASE("ImageCompressConfig::buildCMD uses custom ffmpeg path", "[picture-com
 
 TEST_CASE("ImageCompressConfig::buildCMD uses minimum quality", "[picture-compress]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
 
   auto const cfg = ImageCompressConfig{
@@ -96,7 +89,7 @@ TEST_CASE("ImageCompressConfig::buildCMD uses minimum quality", "[picture-compre
 
 TEST_CASE("ImageCompressConfig::buildCMD uses maximum quality", "[picture-compress]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
 
   auto const cfg = ImageCompressConfig{
@@ -111,7 +104,7 @@ TEST_CASE("ImageCompressConfig::buildCMD uses maximum quality", "[picture-compre
 
 TEST_CASE("compressImage returns true on success", "[picture-compress]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
 
   auto ctx = appctx::AppContext{};
@@ -124,7 +117,7 @@ TEST_CASE("compressImage returns true on success", "[picture-compress]") {
 
 TEST_CASE("compressImage returns false on ffmpeg failure", "[picture-compress]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
 
   auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "1"};
@@ -140,7 +133,7 @@ TEST_CASE(
   "[picture-compress]"
 ) {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
 
   auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "1"};
@@ -159,7 +152,7 @@ TEST_CASE(
   "[picture-compress]"
 ) {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
   auto const outputPath = temp.path / "photo.jpg";
 
   auto ctx = appctx::AppContext{};
@@ -183,7 +176,7 @@ TEST_CASE("compressImageBatch returns empty for empty input", "[picture-compress
 
 TEST_CASE("compressImageBatch compresses single image", "[picture-compress]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
 
   auto ctx = appctx::AppContext{};
   configureCompressContext(ctx, temp.path, temp.path);
@@ -207,9 +200,9 @@ TEST_CASE(
   "[picture-compress]"
 ) {
   TempDir temp;
-  auto const inputA = createTempFile(temp.path, "a.png");
-  auto const inputB = createTempFile(temp.path, "b.png");
-  auto const inputC = createTempFile(temp.path, "c.png");
+  auto const inputA = testutils::writeTextFile(temp.path / "a.png");
+  auto const inputB = testutils::writeTextFile(temp.path / "b.png");
+  auto const inputC = testutils::writeTextFile(temp.path / "c.png");
 
   auto ctx = appctx::AppContext{};
   configureCompressContext(ctx, temp.path, temp.path);
@@ -232,7 +225,7 @@ TEST_CASE(
   "[picture-compress]"
 ) {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "photo.png");
+  auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
 
   auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "1"};
   auto ctx = appctx::AppContext{};
@@ -253,8 +246,8 @@ TEST_CASE(
   "[picture-compress]"
 ) {
   TempDir temp;
-  auto const inputOk = createTempFile(temp.path, "ok.png");
-  auto const inputFail = createTempFile(temp.path, "fail.png");
+  auto const inputOk = testutils::writeTextFile(temp.path / "ok.png");
+  auto const inputFail = testutils::writeTextFile(temp.path / "fail.png");
   auto ctx = appctx::AppContext{};
   ctx.config.yesToAll = true;
   ctx.config.verbose = true;

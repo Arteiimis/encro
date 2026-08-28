@@ -2,6 +2,7 @@
 #include "infra/stop_signal.h"
 #include "logging/log_tags.h"
 #include "logging/logging.h"
+#include "test_utils.h"
 
 #include <spdlog/logger.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -24,33 +25,6 @@
 using namespace std::chrono_literals;
 
 DEFINE_LOGGER(logtags::TEST_INFRA);
-
-namespace {
-
-// ── Helper: register a test logger with an ostream sink for output capture ──
-// (mirrors tests/logging_infra_test.cpp)
-
-auto registerCapturingLogger(char const* name)
-  -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
-  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
-  auto oss = std::make_unique<std::ostringstream>();
-  auto* ossPtr = oss.get();
-  sstreams.push_back(std::move(oss));
-
-  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
-  auto logger = std::make_shared<spdlog::logger>(name, sink);
-  logger->set_pattern("%v");
-  logger->set_level(spdlog::level::trace);
-  logger->flush_on(spdlog::level::trace);
-
-  auto existing = spdlog::get(name);
-  if (existing != nullptr) { spdlog::drop(name); }
-
-  spdlog::register_logger(logger);
-  return {logger, ossPtr};
-}
-
-}  // namespace
 
 TEST_CASE("resolveWorkerCount clamps concurrency to task count", "[task-executor]") {
   CHECK(taskexec::resolveWorkerCount(0, 4) == 0);
@@ -160,7 +134,7 @@ TEST_CASE(
 ) {
   stopsignal::reset();
 
-  auto [logger, oss] = registerCapturingLogger(logtags::CORE_TASK);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::CORE_TASK);
 
   auto tasks = std::vector<taskexec::TaskSpec>{
     taskexec::TaskSpec{
@@ -209,7 +183,7 @@ TEST_CASE(
   "runTasks logs task_id/input attributes for tasks with an input",
   "[task-executor][run_id]"
 ) {
-  auto [logger, oss] = registerCapturingLogger(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
   logging::detail::resetAttributeStack();
 
   auto const plan = taskexec::TaskPlan{
@@ -243,7 +217,7 @@ TEST_CASE(
   "runTasks does not stamp attributes for tasks without an input",
   "[task-executor][run_id]"
 ) {
-  auto [logger, oss] = registerCapturingLogger(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
   logging::detail::resetAttributeStack();
 
   auto const plan = taskexec::TaskPlan{
@@ -275,7 +249,7 @@ TEST_CASE(
   "task attributes do not leak between tasks in one run",
   "[task-executor][run_id]"
 ) {
-  auto [logger, oss] = registerCapturingLogger(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
   logging::detail::resetAttributeStack();
 
   // Task 1 carries an input; task 2 (probe-style) runs after it on the same

@@ -25,40 +25,11 @@ namespace {
 
 auto gExitCalled = std::atomic<bool>{false};
 
-// ── Helper: register a test logger with an ostream sink for output capture ──
-// (mirrors tests/logging_infra_test.cpp)
-
-auto registerCapturingLogger(char const* name)
-  -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
-  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
-  auto oss = std::make_unique<std::ostringstream>();
-  auto* ossPtr = oss.get();
-  sstreams.push_back(std::move(oss));
-
-  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
-  auto logger = std::make_shared<spdlog::logger>(name, sink);
-  logger->set_pattern("%v");
-  logger->set_level(spdlog::level::trace);
-  logger->flush_on(spdlog::level::trace);
-
-  auto existing = spdlog::get(name);
-  if (existing != nullptr) { spdlog::drop(name); }
-
-  spdlog::register_logger(logger);
-  return {logger, ossPtr};
-}
-
-auto readFileContent(fs::path const& filePath) -> std::string {
-  auto ifs = std::ifstream{filePath};
-  REQUIRE(ifs.is_open());
-  return std::string{std::istreambuf_iterator<char>{ifs}, {}};
-}
-
 }  // namespace
 
 TEST_CASE("requestStop produces an info log record", "[stop-signal][logging]") {
   auto resetGuard = testutils::ScopedStopSignalReset{};
-  auto [logger, oss] = registerCapturingLogger(logtags::INFRA_SIGNAL);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::INFRA_SIGNAL);
 
   stopsignal::requestStop();
   logger->flush();
@@ -158,7 +129,7 @@ TEST_CASE(
   stopsignal::setForceExitGracePeriodForTest(std::chrono::seconds{3});
   stopsignal::setForceExitHandlerForTest(nullptr);
 
-  auto const content = readFileContent(logPath);
+  auto const content = testutils::readTextFile(logPath);
   CHECK(content.find("force exit") != std::string::npos);
 #else
   SKIP("force-exit watchdog is Windows-only");

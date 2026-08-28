@@ -1,5 +1,6 @@
 #include "cmd/cmd.h"
 #include "infra/terminal.h"
+#include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
 
@@ -9,17 +10,6 @@
 #include <vector>
 
 namespace {
-
-auto parseArgs(std::vector<std::string> const& args) -> CmdParseResult {
-  static thread_local std::vector<std::string> storage;
-  storage = args;
-  auto argv = std::vector<char*>{};
-  argv.reserve(storage.size());
-  for (auto& arg: storage) { argv.push_back(arg.data()); }
-  argv.push_back(nullptr);
-
-  return commandLineInit(static_cast<int>(argv.size() - 1), argv.data(), "");
-}
 
 struct ScopedColorNever {
   ScopedColorNever() { terminal::configure(terminal::ColorMode::Never); }
@@ -36,23 +26,6 @@ bool isLastNonEmptyLine(std::string_view text, std::string_view needle) {
   return trailing.find_first_not_of(" \n\t\r") == std::string_view::npos;
 }
 
-auto findHelpLine(std::string_view text, std::string_view needle)
-  -> std::optional<std::string> {
-  auto start = std::size_t{0};
-
-  while (start <= text.size()) {
-    auto const end = text.find('\n', start);
-    auto const line = end == std::string_view::npos ? text.substr(start)
-                                                    : text.substr(start, end - start);
-
-    if (line.find(needle) != std::string_view::npos) { return std::string{line}; }
-    if (end == std::string_view::npos) { break; }
-    start = end + 1;
-  }
-
-  return std::nullopt;
-}
-
 }  // namespace
 
 TEST_CASE(
@@ -60,7 +33,7 @@ TEST_CASE(
   "[cmd][tiering]"
 ) {
   auto const colorGuard = ScopedColorNever{};
-  auto const result = parseArgs({"encro", "-h"});
+  auto const result = testutils::parseArgs({"encro", "-h"});
   REQUIRE_FALSE(result.error.has_value());
 
   auto const& help = result.helpText;
@@ -82,7 +55,7 @@ TEST_CASE(
 
 TEST_CASE("full help via -hh shows advanced options and no hint", "[cmd][tiering]") {
   auto const colorGuard = ScopedColorNever{};
-  auto const result = parseArgs({"encro", "-hh"});
+  auto const result = testutils::parseArgs({"encro", "-hh"});
   REQUIRE_FALSE(result.error.has_value());
 
   auto const& help = result.helpText;
@@ -100,8 +73,8 @@ TEST_CASE("full help via -hh shows advanced options and no hint", "[cmd][tiering
 
 TEST_CASE("full help via -h -h matches -hh", "[cmd][tiering]") {
   auto const colorGuard = ScopedColorNever{};
-  auto const repeated = parseArgs({"encro", "-h", "-h"});
-  auto const combined = parseArgs({"encro", "-hh"});
+  auto const repeated = testutils::parseArgs({"encro", "-h", "-h"});
+  auto const combined = testutils::parseArgs({"encro", "-hh"});
 
   REQUIRE_FALSE(repeated.error.has_value());
   REQUIRE_FALSE(combined.error.has_value());
@@ -110,7 +83,7 @@ TEST_CASE("full help via -h -h matches -hh", "[cmd][tiering]") {
 
 TEST_CASE("parse-error help renders the brief tier", "[cmd][tiering]") {
   auto const colorGuard = ScopedColorNever{};
-  auto const result = parseArgs({"encro", "--nope"});
+  auto const result = testutils::parseArgs({"encro", "--nope"});
 
   REQUIRE(result.error.has_value());
   auto const& help = result.helpText;
@@ -120,7 +93,7 @@ TEST_CASE("parse-error help renders the brief tier", "[cmd][tiering]") {
 
 TEST_CASE("help advertises the tiers in usage and -h description", "[cmd][tiering]") {
   auto const colorGuard = ScopedColorNever{};
-  auto const result = parseArgs({"encro", "-hh"});
+  auto const result = testutils::parseArgs({"encro", "-hh"});
   REQUIRE_FALSE(result.error.has_value());
 
   auto const& help = result.helpText;
@@ -130,7 +103,7 @@ TEST_CASE("help advertises the tiers in usage and -h description", "[cmd][tierin
 
 TEST_CASE("brief help keeps the usage section and all group headers", "[cmd][tiering]") {
   auto const colorGuard = ScopedColorNever{};
-  auto const result = parseArgs({"encro", "-h"});
+  auto const result = testutils::parseArgs({"encro", "-h"});
   REQUIRE_FALSE(result.error.has_value());
 
   auto const& help = result.helpText;
@@ -151,31 +124,32 @@ TEST_CASE("brief help keeps the usage section and all group headers", "[cmd][tie
 
 TEST_CASE("full help shows accurate option descriptions and defaults", "[cmd][tiering]") {
   auto const colorGuard = ScopedColorNever{};
-  auto const result = parseArgs({"encro", "-hh"});
+  auto const result = testutils::parseArgs({"encro", "-hh"});
   REQUIRE_FALSE(result.error.has_value());
 
   auto const& help = result.helpText;
 
-  auto const resumeLine = findHelpLine(help, "require matching previous job state");
+  auto const resumeLine =
+    testutils::findHelpLine(help, "require matching previous job state");
   REQUIRE(resumeLine.has_value());
   CHECK(resumeLine->find("--resume") != std::string::npos);
   CHECK(resumeLine->find("error if missing or mismatched") != std::string::npos);
 
-  auto const conflictLine = findHelpLine(help, "--force-conflict-handling");
+  auto const conflictLine = testutils::findHelpLine(help, "--force-conflict-handling");
   REQUIRE(conflictLine.has_value());
   CHECK(conflictLine->find("y=auto-rename, n=allow duplicates") != std::string::npos);
   CHECK(conflictLine->find("(=y)") != std::string::npos);
 
-  auto const keepLine = findHelpLine(help, "--keep");
+  auto const keepLine = testutils::findHelpLine(help, "--keep");
   REQUIRE(keepLine.has_value());
   CHECK(keepLine->find("preserve relative input subdirectories") != std::string::npos);
   CHECK(keepLine->find("(default:") != std::string::npos);
   CHECK(help.find("flatten)") != std::string::npos);
 
-  auto const qualityLine = findHelpLine(help, "--image-quality");
-  auto const crfLine = findHelpLine(help, "--crf");
-  auto const presetLine = findHelpLine(help, "--preset");
-  auto const jobsLine = findHelpLine(help, "--jobs");
+  auto const qualityLine = testutils::findHelpLine(help, "--image-quality");
+  auto const crfLine = testutils::findHelpLine(help, "--crf");
+  auto const presetLine = testutils::findHelpLine(help, "--preset");
+  auto const jobsLine = testutils::findHelpLine(help, "--jobs");
   REQUIRE(qualityLine.has_value());
   REQUIRE(crfLine.has_value());
   REQUIRE(presetLine.has_value());
@@ -196,10 +170,10 @@ TEST_CASE("full help shows accurate option descriptions and defaults", "[cmd][ti
 
 TEST_CASE("brief help shows the crf default", "[cmd][tiering]") {
   auto const colorGuard = ScopedColorNever{};
-  auto const result = parseArgs({"encro", "-h"});
+  auto const result = testutils::parseArgs({"encro", "-h"});
   REQUIRE_FALSE(result.error.has_value());
 
-  auto const crfLine = findHelpLine(result.helpText, "--crf");
+  auto const crfLine = testutils::findHelpLine(result.helpText, "--crf");
   REQUIRE(crfLine.has_value());
   CHECK(crfLine->find("(=28)") != std::string::npos);
 }

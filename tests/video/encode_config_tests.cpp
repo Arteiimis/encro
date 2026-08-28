@@ -8,16 +8,9 @@
 
 namespace fs = std::filesystem;
 
-static auto createTempFile(fs::path const& dir, std::string_view name) {
-  auto const filePath = dir / name;
-  std::ofstream file{filePath};
-  file << "dummy";
-  return filePath;
-}
-
 TEST_CASE("EncodeConfig validates required fields", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -53,7 +46,7 @@ TEST_CASE("EncodeConfig rejects missing input", "[encode-config]") {
 
 TEST_CASE("EncodeConfig adds -threads for CPU codecs", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -67,7 +60,7 @@ TEST_CASE("EncodeConfig adds -threads for CPU codecs", "[encode-config]") {
 
 TEST_CASE("EncodeConfig omits -threads for nvenc codecs", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -82,7 +75,7 @@ TEST_CASE("EncodeConfig omits -threads for nvenc codecs", "[encode-config]") {
 
 TEST_CASE("EncodeConfig omits -threads for CPU codecs when unset", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -95,7 +88,7 @@ TEST_CASE("EncodeConfig omits -threads for CPU codecs when unset", "[encode-conf
 
 TEST_CASE("EncodeConfig rejects invalid CRF", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -111,7 +104,7 @@ TEST_CASE("EncodeConfig rejects invalid CRF", "[encode-config]") {
 
 TEST_CASE("EncodeConfig rejects empty output format", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -128,7 +121,7 @@ TEST_CASE("EncodeConfig rejects empty output format", "[encode-config]") {
 
 TEST_CASE("EncodeConfig builds webp command", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -156,7 +149,7 @@ TEST_CASE("EncodeConfig builds webp command", "[encode-config]") {
 
 TEST_CASE("EncodeConfig rejects unsupported output format", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -176,7 +169,7 @@ TEST_CASE(
   "[encode-config]"
 ) {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mov");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mov");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -200,7 +193,7 @@ TEST_CASE(
   "[encode-config]"
 ) {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mov");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mov");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -219,7 +212,7 @@ TEST_CASE(
 
 TEST_CASE("EncodeConfig respects custom output directory", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
   auto const outputDir = temp.path / "encoded";
   fs::create_directory(outputDir);
 
@@ -240,7 +233,7 @@ TEST_CASE("EncodeConfig respects custom output directory", "[encode-config]") {
 
 TEST_CASE("EncodeConfig respects explicit output file path", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
   auto const outputFile = temp.path / "nested" / "sample.custom.webp";
 
   EncodeConfig cfg;
@@ -260,7 +253,7 @@ TEST_CASE(
   "[encode-config]"
 ) {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -281,7 +274,7 @@ TEST_CASE(
 
 TEST_CASE("EncodeConfig uses custom webp quality", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -298,7 +291,7 @@ TEST_CASE("EncodeConfig uses custom webp quality", "[encode-config]") {
 
 TEST_CASE("EncodeConfig suppresses ffmpeg banner and info output", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -314,7 +307,7 @@ TEST_CASE("EncodeConfig suppresses ffmpeg banner and info output", "[encode-conf
 
 TEST_CASE("EncodeConfig builds segmented mp4 command", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
   auto const segOutput = temp.path / "segs" / "seg_3.ts";
 
   EncodeConfig cfg;
@@ -349,7 +342,7 @@ TEST_CASE("EncodeConfig builds segmented mp4 command", "[encode-config]") {
 
 TEST_CASE("EncodeConfig keeps -crf for non-NVENC codec", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -377,7 +370,7 @@ TEST_CASE("EncodeConfig picks preset by pixel count", "[encode-config]") {
 
 TEST_CASE("EncodeConfig uses custom nvenc preset", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -395,7 +388,7 @@ TEST_CASE("EncodeConfig uses custom nvenc preset", "[encode-config]") {
 
 TEST_CASE("EncodeConfig defaults to cq 28 for NVENC", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -411,7 +404,7 @@ TEST_CASE("EncodeConfig defaults to cq 28 for NVENC", "[encode-config]") {
 
 TEST_CASE("EncodeConfig adds maxrate and bufsize when set", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -437,7 +430,7 @@ TEST_CASE("EncodeConfig picks maxrate by pixel count", "[encode-config]") {
 
 TEST_CASE("EncodeConfig NVENC h264 has no hvc1 tag", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
 
   EncodeConfig cfg;
   cfg.inputPath = inputPath;
@@ -459,7 +452,7 @@ TEST_CASE("EncodeConfig NVENC h264 has no hvc1 tag", "[encode-config]") {
 
 TEST_CASE("EncodeConfig builds audio extraction command", "[encode-config]") {
   TempDir temp;
-  auto const inputPath = createTempFile(temp.path, "sample.mp4");
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
   auto const audioPath = temp.path / "audio.mp4";
 
   auto const copyCmd =

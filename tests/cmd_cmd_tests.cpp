@@ -1,6 +1,7 @@
 #include "cmd/cmd.h"
 #include "infra/env.h"
 #include "infra/terminal.h"
+#include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
 
@@ -11,60 +12,6 @@
 #include <vector>
 
 namespace {
-
-class ScopedEnvVar {
-public:
-  ScopedEnvVar(std::string name, std::string value)
-    : name_(std::move(name)), hadOriginal_(false) {
-    if (auto const current = processenv::readEnvVar(name_); current.has_value()) {
-      originalValue_ = current.value();
-      hadOriginal_ = true;
-    }
-    set(value);
-  }
-
-  ScopedEnvVar(ScopedEnvVar const&) = delete;
-  auto operator=(ScopedEnvVar const&) -> ScopedEnvVar& = delete;
-
-  ~ScopedEnvVar() {
-    if (hadOriginal_) {
-      set(originalValue_);
-    } else {
-      unset();
-    }
-  }
-
-private:
-  void set(std::string const& value) {
-#if defined(_WIN32) || defined(_WIN64)
-    _putenv_s(name_.c_str(), value.c_str());
-#else
-    setenv(name_.c_str(), value.c_str(), 1);
-#endif
-  }
-  void unset() {
-#if defined(_WIN32) || defined(_WIN64)
-    _putenv_s(name_.c_str(), "");
-#else
-    unsetenv(name_.c_str());
-#endif
-  }
-
-  std::string name_;
-  std::string originalValue_;
-  bool hadOriginal_;
-};
-
-auto parseArgs(std::vector<std::string> const& args) -> CmdParseResult {
-  static thread_local std::vector<std::string> storage;
-  storage = args;
-  auto argv = std::vector<char*>{};
-  argv.reserve(storage.size());
-  for (auto& arg: storage) { argv.push_back(arg.data()); }
-  argv.push_back(nullptr);
-
-  return commandLineInit(static_cast<int>(argv.size() - 1), argv.data(), "");
-}
 
 std::size_t longestHelpLine(std::string_view text) {
   auto longest = std::size_t{0};
@@ -107,27 +54,10 @@ auto stripAnsi(std::string_view text) -> std::string {
   return result;
 }
 
-auto findHelpLine(std::string_view text, std::string_view needle)
-  -> std::optional<std::string> {
-  auto start = std::size_t{0};
-
-  while (start <= text.size()) {
-    auto const end = text.find('\n', start);
-    auto const line = end == std::string_view::npos ? text.substr(start)
-                                                    : text.substr(start, end - start);
-
-    if (line.find(needle) != std::string_view::npos) { return std::string{line}; }
-    if (end == std::string_view::npos) { break; }
-    start = end + 1;
-  }
-
-  return std::nullopt;
-}
-
 }  // namespace
 
 TEST_CASE("commandLineInit exposes defaults", "[cmd]") {
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
 
   CHECK(result.processType == "video");
   CHECK(result.outputFormat == "mp4");
@@ -141,7 +71,7 @@ TEST_CASE("commandLineInit exposes defaults", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit --version flag sets version=true", "[cmd]") {
-  auto const result = parseArgs({"encro", "--version"});
+  auto const result = testutils::parseArgs({"encro", "--version"});
 
   CHECK(result.version == true);
   CHECK(result.help == false);
@@ -149,13 +79,13 @@ TEST_CASE("commandLineInit --version flag sets version=true", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit --version is not set by default", "[cmd]") {
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
 
   CHECK(result.version == false);
 }
 
 TEST_CASE("commandLineInit parses non-conflicting flags and option values", "[cmd]") {
-  auto const result = parseArgs(
+  auto const result = testutils::parseArgs(
     {"encro",
      "--yes",
      "--recursive",
@@ -181,14 +111,14 @@ TEST_CASE("commandLineInit parses non-conflicting flags and option values", "[cm
 
 TEST_CASE("commandLineInit parses state-file option", "[cmd]") {
   auto const result =
-    parseArgs({"encro", "--state-file", "job-state.json", "-i", "input.mp4"});
+    testutils::parseArgs({"encro", "--state-file", "job-state.json", "-i", "input.mp4"});
 
   REQUIRE(result.stateFile.has_value());
   CHECK(result.stateFile.value() == "job-state.json");
 }
 
 TEST_CASE("commandLineInit parses multi-input values", "[cmd]") {
-  auto const result = parseArgs({"encro", "-I", "a.mp4", "b.mkv", "c.mov"});
+  auto const result = testutils::parseArgs({"encro", "-I", "a.mp4", "b.mkv", "c.mov"});
 
   REQUIRE(result.inputs.has_value());
   auto const& inputs = result.inputs.value();
@@ -199,7 +129,7 @@ TEST_CASE("commandLineInit parses multi-input values", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit parses a single positional input", "[cmd]") {
-  auto const result = parseArgs({"encro", "videos"});
+  auto const result = testutils::parseArgs({"encro", "videos"});
 
   REQUIRE(result.positionalInputs.has_value());
   auto const& inputs = result.positionalInputs.value();
@@ -209,7 +139,7 @@ TEST_CASE("commandLineInit parses a single positional input", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit parses multiple positional inputs", "[cmd]") {
-  auto const result = parseArgs({"encro", "a.mp4", "b.mkv", "c.mov"});
+  auto const result = testutils::parseArgs({"encro", "a.mp4", "b.mkv", "c.mov"});
 
   REQUIRE(result.positionalInputs.has_value());
   auto const& inputs = result.positionalInputs.value();
@@ -221,7 +151,7 @@ TEST_CASE("commandLineInit parses multiple positional inputs", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit parses positional inputs mixed with flags", "[cmd]") {
-  auto const result = parseArgs({"encro", "a.mp4", "-o", "out", "b.mkv"});
+  auto const result = testutils::parseArgs({"encro", "a.mp4", "-o", "out", "b.mkv"});
 
   REQUIRE(result.positionalInputs.has_value());
   auto const& inputs = result.positionalInputs.value();
@@ -234,7 +164,7 @@ TEST_CASE("commandLineInit parses positional inputs mixed with flags", "[cmd]") 
 }
 
 TEST_CASE("commandLineInit parses positional input after -- separator", "[cmd]") {
-  auto const result = parseArgs({"encro", "--", "-weird.mp4"});
+  auto const result = testutils::parseArgs({"encro", "--", "-weird.mp4"});
 
   REQUIRE(result.positionalInputs.has_value());
   auto const& inputs = result.positionalInputs.value();
@@ -244,14 +174,14 @@ TEST_CASE("commandLineInit parses positional input after -- separator", "[cmd]")
 }
 
 TEST_CASE("commandLineInit parses jobs option", "[cmd]") {
-  auto const result = parseArgs({"encro", "--jobs", "4"});
+  auto const result = testutils::parseArgs({"encro", "--jobs", "4"});
 
   REQUIRE(result.maxJobs.has_value());
   CHECK(result.maxJobs.value() == 4);
 }
 
 TEST_CASE("commandLineInit reports unknown options", "[cmd]") {
-  auto const result = parseArgs({"encro", "--nope"});
+  auto const result = testutils::parseArgs({"encro", "--nope"});
 
   REQUIRE(result.error.has_value());
   // CLI11 error messages differ from boost::po — accept any error string (per D-06)
@@ -259,21 +189,22 @@ TEST_CASE("commandLineInit reports unknown options", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit rejects removed --flat flag", "[cmd]") {
-  auto const result = parseArgs({"encro", "--flat", "-i", "input.mp4"});
+  auto const result = testutils::parseArgs({"encro", "--flat", "-i", "input.mp4"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--flat") != std::string::npos);
 }
 
 TEST_CASE("commandLineInit rejects removed -e flag", "[cmd]") {
-  auto const result = parseArgs({"encro", "-e", "-i", "input.mp4"});
+  auto const result = testutils::parseArgs({"encro", "-e", "-i", "input.mp4"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("-e") != std::string::npos);
 }
 
 TEST_CASE("commandLineInit rejects --resume with --restart", "[cmd]") {
-  auto const result = parseArgs({"encro", "--resume", "--restart", "-i", "input.mp4"});
+  auto const result =
+    testutils::parseArgs({"encro", "--resume", "--restart", "-i", "input.mp4"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--resume") != std::string::npos);
@@ -281,7 +212,7 @@ TEST_CASE("commandLineInit rejects --resume with --restart", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit rejects -i with -I", "[cmd]") {
-  auto const result = parseArgs({"encro", "-i", "a.mp4", "-I", "b.mp4"});
+  auto const result = testutils::parseArgs({"encro", "-i", "a.mp4", "-I", "b.mp4"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--input") != std::string::npos);
@@ -289,71 +220,73 @@ TEST_CASE("commandLineInit rejects -i with -I", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit rejects --pack with --pack-only", "[cmd]") {
-  auto const result = parseArgs({"encro", "--pack", "--pack-only", "-i", "input.mp4"});
+  auto const result =
+    testutils::parseArgs({"encro", "--pack", "--pack-only", "-i", "input.mp4"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--pack") != std::string::npos);
 }
 
 TEST_CASE("commandLineInit caps help output to configured maximum width", "[cmd]") {
-  auto const columnsVar = ScopedEnvVar{"COLUMNS", "200"};
+  auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "200"};
 
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
   auto const& help = result.helpText;
 
   CHECK(longestHelpLine(help) <= 120);
 }
 
 TEST_CASE("commandLineInit adapts help output to narrower terminal width", "[cmd]") {
-  auto const columnsVar = ScopedEnvVar{"COLUMNS", "72"};
+  auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "72"};
 
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
   auto const& help = result.helpText;
 
   CHECK(longestHelpLine(help) <= 72);
 }
 
 TEST_CASE("commandLineInit parses --compress flag", "[cmd]") {
-  auto const result = parseArgs({"encro", "--compress"});
+  auto const result = testutils::parseArgs({"encro", "--compress"});
 
   CHECK(result.compress == true);
 }
 
 TEST_CASE("commandLineInit does not set --compress by default", "[cmd]") {
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
 
   CHECK(result.compress == false);
 }
 
 TEST_CASE("commandLineInit parses --image-quality as integer", "[cmd]") {
-  auto const result = parseArgs({"encro", "--compress", "--image-quality", "15"});
+  auto const result =
+    testutils::parseArgs({"encro", "--compress", "--image-quality", "15"});
 
   REQUIRE(result.imageQuality.has_value());
   CHECK(result.imageQuality.value() == 15);
 }
 
 TEST_CASE("commandLineInit parses -q short option for quality", "[cmd]") {
-  auto const result = parseArgs({"encro", "-c", "-q", "15"});
+  auto const result = testutils::parseArgs({"encro", "-c", "-q", "15"});
 
   REQUIRE(result.imageQuality.has_value());
   CHECK(result.imageQuality.value() == 15);
 }
 
 TEST_CASE("commandLineInit does not set image-quality by default", "[cmd]") {
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
 
   CHECK(result.imageQuality.has_value() == false);
 }
 
 TEST_CASE("commandLineInit parses --crf as integer", "[cmd]") {
-  auto const result = parseArgs({"encro", "--crf", "26"});
+  auto const result = testutils::parseArgs({"encro", "--crf", "26"});
 
   REQUIRE(result.crf.has_value());
   CHECK(result.crf.value() == 26);
 }
 
 TEST_CASE("app-level flags apply before the preview subcommand", "[cmd]") {
-  auto const result = parseArgs({"encro", "--crf", "15", "preview", "a.mp4"});
+  auto const result = testutils::parseArgs({"encro", "--crf", "15", "preview", "a.mp4"});
 
   REQUIRE(result.preview);
   REQUIRE(result.crf.has_value());
@@ -361,8 +294,9 @@ TEST_CASE("app-level flags apply before the preview subcommand", "[cmd]") {
 }
 
 TEST_CASE("preview subcommand does not swallow app-level flags", "[cmd]") {
-  auto const result =
-    parseArgs({"encro", "--video-codec", "libx264", "preview", "a.mp4", "--no-open"});
+  auto const result = testutils::parseArgs(
+    {"encro", "--video-codec", "libx264", "preview", "a.mp4", "--no-open"}
+  );
 
   REQUIRE(result.preview);
   REQUIRE(result.videoCodec.has_value());
@@ -370,47 +304,47 @@ TEST_CASE("preview subcommand does not swallow app-level flags", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit does not set crf by default", "[cmd]") {
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
 
   CHECK(result.crf.has_value() == false);
 }
 
 TEST_CASE("commandLineInit parses --preset option", "[cmd]") {
-  auto const result = parseArgs({"encro", "--preset", "p7"});
+  auto const result = testutils::parseArgs({"encro", "--preset", "p7"});
 
   REQUIRE(result.nvencPreset.has_value());
   CHECK(result.nvencPreset.value() == "p7");
 }
 
 TEST_CASE("commandLineInit does not set preset by default", "[cmd]") {
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
 
   CHECK(result.nvencPreset.has_value() == false);
 }
 
 TEST_CASE("commandLineInit rejects -q without a value", "[cmd]") {
-  auto const result = parseArgs({"encro", "-q"});
+  auto const result = testutils::parseArgs({"encro", "-q"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--image-quality") != std::string::npos);
 }
 
 TEST_CASE("commandLineInit rejects --crf without a value", "[cmd]") {
-  auto const result = parseArgs({"encro", "--crf"});
+  auto const result = testutils::parseArgs({"encro", "--crf"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--crf") != std::string::npos);
 }
 
 TEST_CASE("commandLineInit rejects --preset without a value", "[cmd]") {
-  auto const result = parseArgs({"encro", "--preset"});
+  auto const result = testutils::parseArgs({"encro", "--preset"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--preset") != std::string::npos);
 }
 
 TEST_CASE("commandLineInit default jobs is not set", "[cmd]") {
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
   // jobs has a default_str of "10" but no default_value — so it should NOT be in result
   // Verify: maxJobs is not set when --jobs is not explicitly passed
   // Note: CLI11 with default_str does populate count(), so this depends on implementation
@@ -425,7 +359,7 @@ TEST_CASE("commandLineInit default jobs is not set", "[cmd]") {
 TEST_CASE("help text contains ANSI escape codes when color is always", "[cmd][color]") {
   terminal::configure(terminal::ColorMode::Always);
 
-  auto const result = parseArgs({"encro", "--help"});
+  auto const result = testutils::parseArgs({"encro", "--help"});
   auto const& help = result.helpText;
 
   // After Phase 20 color injection, help text SHOULD contain ANSI escape codes
@@ -437,7 +371,7 @@ TEST_CASE("help text contains ANSI escape codes when color is always", "[cmd][co
 TEST_CASE("help text contains NO ANSI codes when color is never", "[cmd][color]") {
   terminal::configure(terminal::ColorMode::Never);
 
-  auto const result = parseArgs({"encro", "--help"});
+  auto const result = testutils::parseArgs({"encro", "--help"});
   auto const& help = result.helpText;
 
   // When color is disabled, no ANSI escape codes should be present
@@ -452,12 +386,13 @@ TEST_CASE(
 ) {
   terminal::configure(terminal::ColorMode::Always);
 
-  auto const result = parseArgs({"encro", "-hh"});
+  auto const result = testutils::parseArgs({"encro", "-hh"});
   auto const plainHelp = stripAnsi(result.helpText);
 
-  auto const keepLine = findHelpLine(plainHelp, "--keep");
-  auto const outputFormatLine = findHelpLine(plainHelp, "--output-format");
-  auto const forceConflictLine = findHelpLine(plainHelp, "--force-conflict-handling");
+  auto const keepLine = testutils::findHelpLine(plainHelp, "--keep");
+  auto const outputFormatLine = testutils::findHelpLine(plainHelp, "--output-format");
+  auto const forceConflictLine =
+    testutils::findHelpLine(plainHelp, "--force-conflict-handling");
 
   REQUIRE(keepLine.has_value());
   REQUIRE(outputFormatLine.has_value());
@@ -480,9 +415,9 @@ TEST_CASE(
 }
 
 TEST_CASE("help text contains NO ANSI codes when NO_COLOR is set", "[cmd][color]") {
-  auto const noColorGuard = ScopedEnvVar{"NO_COLOR", "1"};
+  auto const noColorGuard = testutils::ScopedEnvVar{"NO_COLOR", "1"};
 
-  auto const result = parseArgs({"encro", "--help"});
+  auto const result = testutils::parseArgs({"encro", "--help"});
   auto const& help = result.helpText;
 
   CHECK(help.find("\x1b[") == std::string::npos);
@@ -492,7 +427,7 @@ TEST_CASE(
   "help text contains expected option names after color injection",
   "[cmd][color]"
 ) {
-  auto const result = parseArgs({"encro", "-hh"});
+  auto const result = testutils::parseArgs({"encro", "-hh"});
   auto const& help = result.helpText;
 
   // Content must survive color injection — plain text substrings still embedded
@@ -507,7 +442,7 @@ TEST_CASE(
   "help text contains expected group headers after color injection",
   "[cmd][color]"
 ) {
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
   auto const& help = result.helpText;
 
   // Group descriptions (used by formatGroupHeader via get_description())
@@ -518,7 +453,7 @@ TEST_CASE(
 }
 
 TEST_CASE("help text non-empty after color injection", "[cmd][color]") {
-  auto const result = parseArgs({"encro"});
+  auto const result = testutils::parseArgs({"encro"});
   auto const& help = result.helpText;
 
   CHECK_FALSE(help.empty());
@@ -527,7 +462,7 @@ TEST_CASE("help text non-empty after color injection", "[cmd][color]") {
 }
 
 TEST_CASE("help text includes usage synopsis before option groups", "[cmd]") {
-  auto const result = parseArgs({"encro", "--help"});
+  auto const result = testutils::parseArgs({"encro", "--help"});
   auto const help = stripAnsi(result.helpText);
 
   auto const usagePos = help.find("Usage:");
@@ -542,16 +477,16 @@ TEST_CASE("help text includes usage synopsis before option groups", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit parses --min-vmaf with default 95", "[cmd]") {
-  auto const defaults = parseArgs({"encro"});
+  auto const defaults = testutils::parseArgs({"encro"});
   CHECK(defaults.minVmaf == 95);
 
-  auto const custom = parseArgs({"encro", "--min-vmaf", "90"});
+  auto const custom = testutils::parseArgs({"encro", "--min-vmaf", "90"});
   CHECK(custom.minVmaf == 90);
   CHECK_FALSE(custom.error.has_value());
 }
 
 TEST_CASE("commandLineInit parses --dry-run", "[cmd]") {
-  auto const result = parseArgs({"encro", "-i", "a.mp4", "--dry-run"});
+  auto const result = testutils::parseArgs({"encro", "-i", "a.mp4", "--dry-run"});
   CHECK(result.dryRun);
   CHECK_FALSE(result.error.has_value());
 }
@@ -560,7 +495,7 @@ TEST_CASE(
   "preview subcommand wins over positional input interpretation",
   "[cmd][cli-positional]"
 ) {
-  auto const result = parseArgs({"encro", "preview", "a.mp4", "b.mp4"});
+  auto const result = testutils::parseArgs({"encro", "preview", "a.mp4", "b.mp4"});
   CHECK(result.preview);
   CHECK_FALSE(result.positionalInputs.has_value());
   REQUIRE(result.previewOriginal.has_value());
@@ -571,7 +506,7 @@ TEST_CASE(
 }
 
 TEST_CASE("preview accepts a single input (single-input mode)", "[cmd][cli-positional]") {
-  auto const result = parseArgs({"encro", "preview", "a.mp4"});
+  auto const result = testutils::parseArgs({"encro", "preview", "a.mp4"});
   CHECK(result.preview);
   REQUIRE(result.previewOriginal.has_value());
   CHECK(result.previewOriginal.value() == "a.mp4");
@@ -580,7 +515,7 @@ TEST_CASE("preview accepts a single input (single-input mode)", "[cmd][cli-posit
 }
 
 TEST_CASE("preview parses output start duration and no-open", "[cmd][cli-positional]") {
-  auto const result = parseArgs({
+  auto const result = testutils::parseArgs({
     "encro",
     "preview",
     "a.mp4",
@@ -605,7 +540,7 @@ TEST_CASE("preview parses output start duration and no-open", "[cmd][cli-positio
 }
 
 TEST_CASE("preview without positionals reports a clear error", "[cmd][cli-positional]") {
-  auto const result = parseArgs({"encro", "preview"});
+  auto const result = testutils::parseArgs({"encro", "preview"});
   // Native RequiredError; parse never completes, so preview is not flagged
   CHECK_FALSE(result.preview);
   REQUIRE(result.error.has_value());
@@ -613,7 +548,7 @@ TEST_CASE("preview without positionals reports a clear error", "[cmd][cli-positi
 }
 
 TEST_CASE("preview -h renders preview help text", "[cmd][cli-positional]") {
-  auto const result = parseArgs({"encro", "preview", "-h"});
+  auto const result = testutils::parseArgs({"encro", "preview", "-h"});
   // CallForHelp path: parse never completes, so preview is not flagged
   CHECK_FALSE(result.preview);
   CHECK(result.help);
@@ -628,7 +563,7 @@ TEST_CASE(
   "bare invocation falls through to the encode workflow",
   "[cmd][cli-positional]"
 ) {
-  auto const result = parseArgs({"encro", "videos"});
+  auto const result = testutils::parseArgs({"encro", "videos"});
   CHECK_FALSE(result.preview);
   REQUIRE(result.positionalInputs.has_value());
   CHECK(result.positionalInputs.value() == std::vector<std::string>{"videos"});
@@ -636,7 +571,7 @@ TEST_CASE(
 }
 
 TEST_CASE("bare invocation with flags still falls through", "[cmd][cli-positional]") {
-  auto const result = parseArgs({"encro", "-i", "videos", "-y"});
+  auto const result = testutils::parseArgs({"encro", "-i", "videos", "-y"});
   CHECK_FALSE(result.preview);
   REQUIRE(result.input.has_value());
   CHECK_FALSE(result.error.has_value());
@@ -645,7 +580,7 @@ TEST_CASE("bare invocation with flags still falls through", "[cmd][cli-positiona
 // ── CLI11-native parse-time validation (spec: cli11-native-validation) ──
 
 TEST_CASE("cli11 rejects invalid output format values", "[cmd][cli11-native]") {
-  auto const result = parseArgs({"encro", "-f", "avi"});
+  auto const result = testutils::parseArgs({"encro", "-f", "avi"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--output-format") != std::string::npos);
@@ -656,17 +591,17 @@ TEST_CASE(
   "cli11 rejects invalid conflict-handling value and accepts case variants",
   "[cmd][cli11-native]"
 ) {
-  auto const bad = parseArgs({"encro", "--force-conflict-handling", "x"});
+  auto const bad = testutils::parseArgs({"encro", "--force-conflict-handling", "x"});
   REQUIRE(bad.error.has_value());
   CHECK(bad.error.value().find("--force-conflict-handling") != std::string::npos);
 
-  auto const upper = parseArgs({"encro", "--force-conflict-handling", "Y"});
+  auto const upper = testutils::parseArgs({"encro", "--force-conflict-handling", "Y"});
   CHECK_FALSE(upper.error.has_value());
   CHECK(upper.forceConflictHandling == "y");  // CheckedTransformer maps Y->y
 }
 
 TEST_CASE("cli11 rejects invalid color modes", "[cmd][cli11-native]") {
-  auto const result = parseArgs({"encro", "--color", "pink"});
+  auto const result = testutils::parseArgs({"encro", "--color", "pink"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--color") != std::string::npos);
@@ -674,7 +609,7 @@ TEST_CASE("cli11 rejects invalid color modes", "[cmd][cli11-native]") {
 }
 
 TEST_CASE("cli11 rejects invalid presets", "[cmd][cli11-native]") {
-  auto const result = parseArgs({"encro", "--preset", "p9"});
+  auto const result = testutils::parseArgs({"encro", "--preset", "p9"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--preset") != std::string::npos);
@@ -683,7 +618,7 @@ TEST_CASE("cli11 rejects invalid presets", "[cmd][cli11-native]") {
 
 TEST_CASE("cli11 accepts all preset values", "[cmd][cli11-native]") {
   for (auto const value: {"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}) {
-    auto const result = parseArgs({"encro", "--preset", value});
+    auto const result = testutils::parseArgs({"encro", "--preset", value});
     CAPTURE(value);
     CHECK_FALSE(result.error.has_value());
   }
@@ -693,29 +628,29 @@ TEST_CASE(
   "cli11 accepts case variants and bare default for --color",
   "[cmd][cli11-native]"
 ) {
-  auto const always = parseArgs({"encro", "--color", "ALWAYS"});
+  auto const always = testutils::parseArgs({"encro", "--color", "ALWAYS"});
   CHECK_FALSE(always.error.has_value());
   CHECK(always.color == "always");  // IsMember writes the canonical member
 
-  auto const bare = parseArgs({"encro", "--color"});
+  auto const bare = testutils::parseArgs({"encro", "--color"});
   CHECK_FALSE(bare.error.has_value());
   CHECK(bare.color == "auto");  // default_str fills the bare flag
 }
 
 TEST_CASE("cli11 maps -t aliases to canonical values", "[cmd][cli11-native]") {
-  auto const vid = parseArgs({"encro", "-t", "vid"});
+  auto const vid = testutils::parseArgs({"encro", "-t", "vid"});
   CHECK_FALSE(vid.error.has_value());
   CHECK(vid.processType == "video");
 
-  auto const pic = parseArgs({"encro", "-t", "pic"});
+  auto const pic = testutils::parseArgs({"encro", "-t", "pic"});
   CHECK_FALSE(pic.error.has_value());
   CHECK(pic.processType == "picture");
 
-  auto const canonical = parseArgs({"encro", "-t", "picture"});
+  auto const canonical = testutils::parseArgs({"encro", "-t", "picture"});
   CHECK_FALSE(canonical.error.has_value());
   CHECK(canonical.processType == "picture");
 
-  auto const bad = parseArgs({"encro", "-t", "film"});
+  auto const bad = testutils::parseArgs({"encro", "-t", "film"});
   REQUIRE(bad.error.has_value());
   CHECK(bad.error.value().find("film") != std::string::npos);
 }
@@ -724,31 +659,31 @@ TEST_CASE(
   "cli11 rejects out-of-range -q/--crf/--min-vmaf and accepts boundaries",
   "[cmd][cli11-native]"
 ) {
-  auto const qHigh = parseArgs({"encro", "-c", "-q", "99"});
+  auto const qHigh = testutils::parseArgs({"encro", "-c", "-q", "99"});
   REQUIRE(qHigh.error.has_value());
 
-  auto const qTooLow = parseArgs({"encro", "-c", "-q", "1"});
+  auto const qTooLow = testutils::parseArgs({"encro", "-c", "-q", "1"});
   REQUIRE(qTooLow.error.has_value());
 
-  auto const qMin = parseArgs({"encro", "-c", "-q", "2"});
+  auto const qMin = testutils::parseArgs({"encro", "-c", "-q", "2"});
   CHECK_FALSE(qMin.error.has_value());
   REQUIRE(qMin.imageQuality.has_value());
   CHECK(qMin.imageQuality.value() == 2);
 
-  auto const qMax = parseArgs({"encro", "-c", "-q", "31"});
+  auto const qMax = testutils::parseArgs({"encro", "-c", "-q", "31"});
   CHECK_FALSE(qMax.error.has_value());
   REQUIRE(qMax.imageQuality.has_value());
   CHECK(qMax.imageQuality.value() == 31);
 
-  auto const crfHigh = parseArgs({"encro", "--crf", "52"});
+  auto const crfHigh = testutils::parseArgs({"encro", "--crf", "52"});
   REQUIRE(crfHigh.error.has_value());
 
-  auto const crfMin = parseArgs({"encro", "--crf", "0"});
+  auto const crfMin = testutils::parseArgs({"encro", "--crf", "0"});
   CHECK_FALSE(crfMin.error.has_value());
   REQUIRE(crfMin.crf.has_value());
   CHECK(crfMin.crf.value() == 0);
 
-  auto const crfMax = parseArgs({"encro", "--crf", "51"});
+  auto const crfMax = testutils::parseArgs({"encro", "--crf", "51"});
   CHECK_FALSE(crfMax.error.has_value());
   REQUIRE(crfMax.crf.has_value());
   CHECK(crfMax.crf.value() == 51);
@@ -758,34 +693,34 @@ TEST_CASE(
   "cli11 rejects --min-vmaf out of range and accepts boundaries",
   "[cmd][cli11-native]"
 ) {
-  auto const high = parseArgs({"encro", "--min-vmaf", "101"});
+  auto const high = testutils::parseArgs({"encro", "--min-vmaf", "101"});
   REQUIRE(high.error.has_value());
 
-  auto const low = parseArgs({"encro", "--min-vmaf", "-1"});
+  auto const low = testutils::parseArgs({"encro", "--min-vmaf", "-1"});
   REQUIRE(low.error.has_value());
 
-  auto const min = parseArgs({"encro", "--min-vmaf", "0"});
+  auto const min = testutils::parseArgs({"encro", "--min-vmaf", "0"});
   CHECK_FALSE(min.error.has_value());
   CHECK(min.minVmaf == 0);
 
-  auto const max = parseArgs({"encro", "--min-vmaf", "100"});
+  auto const max = testutils::parseArgs({"encro", "--min-vmaf", "100"});
   CHECK_FALSE(max.error.has_value());
   CHECK(max.minVmaf == 100);
 }
 
 TEST_CASE("cli11 rejects zero jobs and accepts one", "[cmd][cli11-native]") {
-  auto const zero = parseArgs({"encro", "-j", "0"});
+  auto const zero = testutils::parseArgs({"encro", "-j", "0"});
   REQUIRE(zero.error.has_value());
   CHECK(zero.error.value().find("--jobs") != std::string::npos);
 
-  auto const one = parseArgs({"encro", "-j", "1"});
+  auto const one = testutils::parseArgs({"encro", "-j", "1"});
   CHECK_FALSE(one.error.has_value());
   REQUIRE(one.maxJobs.has_value());
   CHECK(one.maxJobs.value() == 1);
 }
 
 TEST_CASE("cli11 rejects --dry-run combined with --crf", "[cmd][cli11-native]") {
-  auto const result = parseArgs({"encro", "--dry-run", "--crf", "20"});
+  auto const result = testutils::parseArgs({"encro", "--dry-run", "--crf", "20"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--dry-run") != std::string::npos);
@@ -793,19 +728,20 @@ TEST_CASE("cli11 rejects --dry-run combined with --crf", "[cmd][cli11-native]") 
 }
 
 TEST_CASE("cli11 rejects positional inputs mixed with -i or -I", "[cmd][cli11-native]") {
-  auto const withInput = parseArgs({"encro", "a.mp4", "-i", "b.mp4"});
+  auto const withInput = testutils::parseArgs({"encro", "a.mp4", "-i", "b.mp4"});
   REQUIRE(withInput.error.has_value());
   CHECK(withInput.error.value().find("input-paths") != std::string::npos);
   CHECK(withInput.error.value().find("--input") != std::string::npos);
 
-  auto const withInputs = parseArgs({"encro", "a.mp4", "-I", "b.mp4", "c.mp4"});
+  auto const withInputs =
+    testutils::parseArgs({"encro", "a.mp4", "-I", "b.mp4", "c.mp4"});
   REQUIRE(withInputs.error.has_value());
   CHECK(withInputs.error.value().find("input-paths") != std::string::npos);
   CHECK(withInputs.error.value().find("--inputs") != std::string::npos);
 }
 
 TEST_CASE("cli11 rejects --image-quality without --compress", "[cmd][cli11-native]") {
-  auto const result = parseArgs({"encro", "-q", "15"});
+  auto const result = testutils::parseArgs({"encro", "-q", "15"});
 
   REQUIRE(result.error.has_value());
   CHECK(
@@ -814,7 +750,8 @@ TEST_CASE("cli11 rejects --image-quality without --compress", "[cmd][cli11-nativ
 }
 
 TEST_CASE("cli11 rejects negative preview --start", "[cmd][cli11-native]") {
-  auto const result = parseArgs({"encro", "preview", "a.mp4", "--start", "-5"});
+  auto const result =
+    testutils::parseArgs({"encro", "preview", "a.mp4", "--start", "-5"});
 
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--start") != std::string::npos);

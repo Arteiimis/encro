@@ -1,5 +1,6 @@
 #include "logging/log_tags.h"
 #include "logging/logging.h"
+#include "test_utils.h"
 
 #include <spdlog/logger.h>
 #include <spdlog/sinks/ostream_sink.h>
@@ -14,33 +15,6 @@
 #include <string_view>
 #include <type_traits>
 
-namespace {
-
-// ── Helper: register a test logger with an ostream sink for output capture ──
-
-auto registerCapturingLoggerForTimer(char const* name)
-  -> std::pair<std::shared_ptr<spdlog::logger>, std::ostringstream*> {
-  static auto sstreams = std::vector<std::unique_ptr<std::ostringstream>>{};
-  auto oss = std::make_unique<std::ostringstream>();
-  auto* ossPtr = oss.get();
-  sstreams.push_back(std::move(oss));
-
-  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*ossPtr);
-  auto logger = std::make_shared<spdlog::logger>(name, sink);
-  logger->set_pattern("%v");
-  logger->set_level(spdlog::level::trace);
-  logger->flush_on(spdlog::level::trace);
-
-  // drop if already registered (from a previous test case)
-  auto existing = spdlog::get(name);
-  if (existing != nullptr) { spdlog::drop(name); }
-
-  spdlog::register_logger(logger);
-  return {logger, ossPtr};
-}
-
-}  // namespace
-
 // ── File-scoped DEFINE_LOGGER — ScopedTimer's LOG_INFO calls resolve through this ──
 DEFINE_LOGGER(logtags::TEST_INFRA);
 
@@ -49,7 +23,7 @@ DEFINE_LOGGER(logtags::TEST_INFRA);
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("ScopedTimer logs begin on construction", "[logging][scoped_timer]") {
-  auto [logger, oss] = registerCapturingLoggerForTimer(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
   REQUIRE(loggerPtr() != nullptr);
 
   logging::ScopedTimer timer("test_stage");
@@ -65,7 +39,7 @@ TEST_CASE("ScopedTimer logs begin on construction", "[logging][scoped_timer]") {
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("ScopedTimer logs elapsed time on destruction", "[logging][scoped_timer]") {
-  auto [logger, oss] = registerCapturingLoggerForTimer(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   {
     logging::ScopedTimer timer("elapsed_stage");
@@ -94,7 +68,7 @@ TEST_CASE("ScopedTimer logs elapsed time on destruction", "[logging][scoped_time
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("ScopedTimer move transfers ownership", "[logging][scoped_timer]") {
-  auto [logger, oss] = registerCapturingLoggerForTimer(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   {
     std::optional<logging::ScopedTimer> original(std::in_place, "move_stage");
@@ -120,20 +94,15 @@ TEST_CASE("ScopedTimer move transfers ownership", "[logging][scoped_timer]") {
     CHECK(afterOriginalReset.find("move_stage completed") == std::string::npos);
 
     // After moved reset, exactly one "completed" message should appear
-    auto completeCount = std::size_t{0};
-    auto pos = afterMovedReset.find("move_stage completed");
-    while (pos != std::string::npos) {
-      ++completeCount;
-      pos = afterMovedReset.find("move_stage completed", pos + 1);
-    }
-    CHECK(completeCount == 1);
+    CHECK(testutils::countOccurrences(afterMovedReset, "move_stage completed") == 1);
   }
 
   // Move-from also ensured that the moved-from internal state was updated.
   // Verify: create one, move it, then let both the original (moved-from) and
   // moved-to destruct. The stream should show exactly one begin and one complete.
-  auto [logger2, oss2] =
-    registerCapturingLoggerForTimer(logtags::TEST_INFRA);  // re-register for clean slate
+  auto [logger2, oss2] = testutils::registerCapturingLogger(
+    logtags::TEST_INFRA
+  );  // re-register for clean slate
 
   {
     logging::ScopedTimer t1("ownership_test");
@@ -145,21 +114,9 @@ TEST_CASE("ScopedTimer move transfers ownership", "[logging][scoped_timer]") {
   auto const finalOutput = oss2->str();
   CAPTURE(finalOutput);
 
-  auto beginCount = std::size_t{0};
-  auto bpos = finalOutput.find("ownership_test begin");
-  while (bpos != std::string::npos) {
-    ++beginCount;
-    bpos = finalOutput.find("ownership_test begin", bpos + 1);
-  }
-  CHECK(beginCount == 1);
+  CHECK(testutils::countOccurrences(finalOutput, "ownership_test begin") == 1);
 
-  auto endCount = std::size_t{0};
-  auto epos = finalOutput.find("ownership_test completed");
-  while (epos != std::string::npos) {
-    ++endCount;
-    epos = finalOutput.find("ownership_test completed", epos + 1);
-  }
-  CHECK(endCount == 1);
+  CHECK(testutils::countOccurrences(finalOutput, "ownership_test completed") == 1);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,7 +133,7 @@ TEST_CASE("ScopedTimer is not copyable", "[logging][scoped_timer]") {
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("Nested ScopedTimer produces correct ordering", "[logging][scoped_timer]") {
-  auto [logger, oss] = registerCapturingLoggerForTimer(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   {
     logging::ScopedTimer outer("outer");
@@ -226,7 +183,7 @@ TEST_CASE("ScopedTimer destructor is noexcept", "[logging][scoped_timer]") {
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("ScopedTimer with empty stage name logs correctly", "[logging][scoped_timer]") {
-  auto [logger, oss] = registerCapturingLoggerForTimer(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   {
     logging::ScopedTimer timer("");
@@ -250,7 +207,7 @@ TEST_CASE("ScopedTimer with empty stage name logs correctly", "[logging][scoped_
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("ScopedTimer move assignment works", "[logging][scoped_timer]") {
-  auto [logger, oss] = registerCapturingLoggerForTimer(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   {
     logging::ScopedTimer t1("first");
@@ -274,31 +231,13 @@ TEST_CASE("ScopedTimer move assignment works", "[logging][scoped_timer]") {
   CAPTURE(output);
 
   // There should be exactly one "first begin" (from t1's original constructor)
-  auto firstBeginCount = std::size_t{0};
-  auto fbpos = output.find("first begin");
-  while (fbpos != std::string::npos) {
-    ++firstBeginCount;
-    fbpos = output.find("first begin", fbpos + 1);
-  }
-  CHECK(firstBeginCount == 1);
+  CHECK(testutils::countOccurrences(output, "first begin") == 1);
 
   // There should be exactly one "second begin" (from t2's constructor)
-  auto secondBeginCount = std::size_t{0};
-  auto sbpos = output.find("second begin");
-  while (sbpos != std::string::npos) {
-    ++secondBeginCount;
-    sbpos = output.find("second begin", sbpos + 1);
-  }
-  CHECK(secondBeginCount == 1);
+  CHECK(testutils::countOccurrences(output, "second begin") == 1);
 
   // There should be exactly one "second completed" (from t1 after move-assign)
-  auto secondCompleteCount = std::size_t{0};
-  auto scpos = output.find("second completed");
-  while (scpos != std::string::npos) {
-    ++secondCompleteCount;
-    scpos = output.find("second completed", scpos + 1);
-  }
-  CHECK(secondCompleteCount == 1);
+  CHECK(testutils::countOccurrences(output, "second completed") == 1);
 
   // "first completed" should NOT appear (t1 was overwritten by move-assign
   // before it destructed, so it logs "second completed", not "first completed")
@@ -310,7 +249,7 @@ TEST_CASE("ScopedTimer move assignment works", "[logging][scoped_timer]") {
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("self-move-assignment is safe", "[logging][scoped_timer]") {
-  auto [logger, oss] = registerCapturingLoggerForTimer(logtags::TEST_INFRA);
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
   {
     logging::ScopedTimer t("self");
@@ -326,19 +265,7 @@ TEST_CASE("self-move-assignment is safe", "[logging][scoped_timer]") {
   CAPTURE(output);
 
   // Should have exactly one "self begin" and one "self completed"
-  auto beginCount = std::size_t{0};
-  auto bpos = output.find("self begin");
-  while (bpos != std::string::npos) {
-    ++beginCount;
-    bpos = output.find("self begin", bpos + 1);
-  }
-  CHECK(beginCount == 1);
+  CHECK(testutils::countOccurrences(output, "self begin") == 1);
 
-  auto completeCount = std::size_t{0};
-  auto cpos = output.find("self completed");
-  while (cpos != std::string::npos) {
-    ++completeCount;
-    cpos = output.find("self completed", cpos + 1);
-  }
-  CHECK(completeCount == 1);
+  CHECK(testutils::countOccurrences(output, "self completed") == 1);
 }

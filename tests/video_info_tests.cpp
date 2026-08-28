@@ -10,28 +10,10 @@ using testutils::copyFakeTool;
 
 namespace fs = std::filesystem;
 
-namespace {
-
-void createFileWithSize(fs::path const& filePath, std::uintmax_t sizeInBytes) {
-  auto file = std::ofstream{filePath, std::ios::binary};
-  REQUIRE(file.is_open());
-
-  if (sizeInBytes == 0) {
-    file.flush();
-    return;
-  }
-
-  file.seekp(static_cast<std::streamoff>(sizeInBytes - 1));
-  file.put('\0');
-  file.flush();
-}
-
-}  // namespace
-
 TEST_CASE("readAllVids skips files at or above 32MB for webp", "[video-info]") {
   TempDir temp;
   auto const largeVideo = temp.path / "large.mp4";
-  createFileWithSize(largeVideo, 32ULL * 1024ULL * 1024ULL);
+  testutils::writeSizedFile(largeVideo, 32ULL * 1024ULL * 1024ULL);
 
   auto config = appctx::AppConfig{};
   config.outputFormat = "webp";
@@ -48,7 +30,7 @@ TEST_CASE("readAllVids skips files at or above 32MB for webp", "[video-info]") {
 TEST_CASE("readAllVids allows files just below 32MB for webp", "[video-info]") {
   TempDir temp;
   auto const boundaryVideo = temp.path / "boundary.mp4";
-  createFileWithSize(boundaryVideo, 32ULL * 1024ULL * 1024ULL - 1ULL);
+  testutils::writeSizedFile(boundaryVideo, 32ULL * 1024ULL * 1024ULL - 1ULL);
 
   auto config = appctx::AppConfig{};
   config.outputFormat = "webp";
@@ -66,7 +48,7 @@ TEST_CASE("readAllVids allows files just below 32MB for webp", "[video-info]") {
 TEST_CASE("readAllVids for webp prewarms video info cache", "[video-info]") {
   TempDir temp;
   auto const boundaryVideo = temp.path / "boundary.mp4";
-  createFileWithSize(boundaryVideo, 1024ULL);
+  testutils::writeSizedFile(boundaryVideo, 1024ULL);
 
   auto config = appctx::AppConfig{};
   config.outputFormat = "webp";
@@ -94,9 +76,9 @@ TEST_CASE(
   auto const firstVideo = temp.path / "a.mp4";
   auto const secondVideo = temp.path / "b.mp4";
   auto const thirdVideo = temp.path / "c.mp4";
-  createFileWithSize(firstVideo, 1024ULL);
-  createFileWithSize(secondVideo, 1024ULL);
-  createFileWithSize(thirdVideo, 1024ULL);
+  testutils::writeSizedFile(firstVideo, 1024ULL);
+  testutils::writeSizedFile(secondVideo, 1024ULL);
+  testutils::writeSizedFile(thirdVideo, 1024ULL);
 
   auto config = appctx::AppConfig{};
   config.outputFormat = "webp";
@@ -121,8 +103,8 @@ TEST_CASE("readAllVids keeps only <32MB videos for webp in directory", "[video-i
   TempDir temp;
   auto const smallVideo = temp.path / "small.mp4";
   auto const largeVideo = temp.path / "large.mp4";
-  createFileWithSize(smallVideo, 1024ULL);
-  createFileWithSize(largeVideo, 32ULL * 1024ULL * 1024ULL);
+  testutils::writeSizedFile(smallVideo, 1024ULL);
+  testutils::writeSizedFile(largeVideo, 32ULL * 1024ULL * 1024ULL);
 
   auto config = appctx::AppConfig{};
   config.outputFormat = "webp";
