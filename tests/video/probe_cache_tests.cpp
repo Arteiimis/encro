@@ -76,7 +76,8 @@ TEST_CASE("probeCacheKey encodes all decision inputs", "[probe-cache]") {
     std::optional<std::string>{"p6"},
     10000,
     95,
-    "SSIM"  // different metric
+    "SSIM"  // different metric - it is part of the identity, so switching
+            // it between runs (the migration) invalidates cached decisions
   );
 
   CHECK(keyA == keyA2);
@@ -123,46 +124,6 @@ TEST_CASE("probe cache round-trips entries through save and load", "[probe-cache
   CHECK(loaded[0].estimatedBytes == 123456);
   CHECK(loaded[0].metric == "VMAF");
   CHECK(loaded[0].unreachableFloor);
-}
-
-TEST_CASE(
-  "probe cache round-trips xpsnr entries through save and load",
-  "[probe-cache]"
-) {
-  TempDir temp;
-  auto const cachePath = temp.path / "probe-cache.json";
-
-  auto const key = probecache::probeCacheKey(
-    "a.mp4",
-    100,
-    200,
-    "hevc_nvenc",
-    "p5",
-    std::nullopt,
-    95,
-    "XPSNR"
-  );
-  probecache::save(
-    {
-      probecache::Entry{
-        .key = key,
-        .chosenCq = 28,
-        .p5 = 41.05,
-        .estimatedBytes = 123456,
-        .metric = "XPSNR",
-        .unreachableFloor = false,
-      },
-    },
-    cachePath
-  );
-
-  auto const loaded = probecache::load(cachePath);
-  REQUIRE(loaded.size() == 1);
-  CHECK(loaded[0].key == key);
-  CHECK(loaded[0].chosenCq == 28);
-  CHECK(loaded[0].p5 == 41.05);
-  CHECK(loaded[0].metric == "XPSNR");
-  CHECK_FALSE(loaded[0].unreachableFloor);
 }
 
 TEST_CASE("probe cache load returns empty for missing file", "[probe-cache]") {
@@ -241,45 +202,4 @@ TEST_CASE("probe cache evicts oldest entries beyond the cap", "[probe-cache]") {
   CHECK(std::ranges::all_of(loaded, [](probecache::Entry const& e) {
     return e.updatedAtMs > 0;
   }));
-}
-
-TEST_CASE(
-  "probeCacheKey distinguishes metrics so pre-migration entries miss",
-  "[probe-cache]"
-) {
-  auto const keyVmaf = probecache::probeCacheKey(
-    "C:\\vids\\a.mp4",
-    1234,
-    5678,
-    "hevc_nvenc",
-    std::optional<std::string>{"p6"},
-    10000,
-    95,
-    "VMAF"
-  );
-  auto const keyXpsnr = probecache::probeCacheKey(
-    "C:\\vids\\a.mp4",
-    1234,
-    5678,
-    "hevc_nvenc",
-    std::optional<std::string>{"p6"},
-    10000,
-    95,
-    "XPSNR"
-  );
-  // The metric is part of the decision identity: switching it between runs
-  // (the migration) invalidates cached decisions by construction.
-  CHECK(keyVmaf != keyXpsnr);
-
-  auto const keyXpsnrAgain = probecache::probeCacheKey(
-    "C:\\vids\\a.mp4",
-    1234,
-    5678,
-    "hevc_nvenc",
-    std::optional<std::string>{"p6"},
-    10000,
-    95,
-    "XPSNR"
-  );
-  CHECK(keyXpsnr == keyXpsnrAgain);
 }

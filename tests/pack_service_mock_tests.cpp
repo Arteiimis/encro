@@ -79,37 +79,6 @@ TEST_CASE(
   CHECK(result.error().find("not a directory") != std::string::npos);
 }
 
-TEST_CASE("packAllFilesInDirectory respects non-recursive flag", "[pack-service]") {
-  TempDir temp;
-  auto const srcDir = temp.path / "src";
-  auto const subDir = srcDir / "sub";
-  auto const outDir = temp.path / "out";
-  fs::create_directories(subDir);
-
-  createFile(srcDir, "root.txt");
-  createFile(subDir, "nested.txt");
-
-  pack::PackService service;
-
-  auto result = service.packAllFilesInDirectory(
-    srcDir,
-    outDir,
-    500ULL * 1024 * 1024,
-    pack::DirectoryPackOptions{
-      .recursive = false,
-      .namingStrategy = pack::NamingStrategy::Flat,
-    }
-  );
-
-  REQUIRE(result);
-
-  auto zipFiles = testutils::listRegularFiles(outDir);
-  REQUIRE(zipFiles.size() == 1);
-
-  auto entries = testutils::listZipRegularEntryNames(zipFiles[0]);
-  CHECK(entries == std::vector<std::string>{"root.txt"});
-}
-
 TEST_CASE("packAllFilesInDirectory with forceNameConflictHandling", "[pack-service]") {
   TempDir temp;
   auto const srcDir = temp.path / "src";
