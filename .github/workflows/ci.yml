@@ -136,8 +136,9 @@ jobs:
       - name: Run coverage (configures and builds itself)
         if: matrix.mode == 'coverage'
         # --keep: 跳过插件末尾的 release restore（xmake 3 的 execv bug；CI 用完即弃）
+        # --e2e: e2e 套件纳入覆盖统计（合并 e2e-%p.profraw；coverage-include-e2e change）
         # --html: 生成 build/coverage/html，由下方步骤上传为 artifact
-        run: xmake coverage --summary --keep --html
+        run: xmake coverage --e2e --summary --keep --html
 
       - name: Upload coverage report
         # always(): 测试失败也留报告；插件早期失败时 html 不存在 → warn 不报错
