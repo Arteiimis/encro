@@ -53,6 +53,20 @@ jobs:
         timeout-minutes: 10
         run: bash scripts/setup-linux-env.sh
 
+      - uses: actions/cache/restore@v5
+        id: xmake-ccache
+        # coverage 模式幂等性要求禁用 ccache（xmake.lua），不缓存它
+        if: matrix.mode != 'coverage'
+        with:
+          # xmake 内置内容寻址编译缓存（build/.build_cache）：源码哈希/编译器
+          # 身份/flag 作 key，不受 checkin mtime 影响，fresh runner 上也能命中。
+          # 按 mode 分 key 避免平行矩阵 job 并发写同一缓存条目。
+          path: build/.build_cache
+          key: xmake-ccache-${{ matrix.mode }}-${{ hashFiles('xmake.lua', 'scripts/setup-linux-env.sh') }}
+          # xmake.lua/工具链脚本小改动时退回上一个缓存代际
+          restore-keys: |
+            xmake-ccache-${{ matrix.mode }}-
+
       - name: Configure
         # 包构建（boost）在 4 核 runner 上开 LTO 会跑到 6h 超时；timeout 兜底快速失败
         timeout-minutes: 40
@@ -95,10 +109,11 @@ jobs:
         run: xmake run e2e_tests
 
       - name: Upload test reports
-        # 失败时把完整 JUnit 报告 + console 日志 + encro 运行日志（含 ffmpeg stderr）留为
-        # artifact，本地可直接下载分析。必须放在所有测试步骤之后：failure() 在此处
-        # 指“上一步失败”，提前放置会在 e2e 失败时错过上传。
-        if: failure() && matrix.mode != 'coverage'
+        # 每次 run（含成功）都把 JUnit 报告 + console 日志 + encro 运行日志（含
+        # ffmpeg stderr）+ 保留的 e2e 失败现场目录留为 artifact，由 debug-collect
+        # 汇总成统一的 ci-run-* 包。必须放在所有测试步骤之后：原 failure() 在此处
+        # 指“上一步失败”，提前放置会在 e2e 失败时错过上传；改为 always() 后始终执行。
+        if: always() && matrix.mode != 'coverage'
         uses: actions/upload-artifact@v5
         with:
           name: test-reports-${{ matrix.mode }}
@@ -106,29 +121,30 @@ jobs:
             /tmp/ut.xml
             /tmp/ut.log
             ~/.local/state/encro/logs/
+            /tmp/video_encoder_tests_*
           if-no-files-found: warn
 
       - name: Print debug info locations
         # 失败时在 job log 末尾打印自包含的 debug 指引：agent/人类展开本步骤即可
-        # 知道去哪里拿完整日志（artifact 名、下载命令、文件清单、已知盲区）。
+        # 知道去哪里拿完整日志（统一 artifact 名、下载命令、文件清单、已知盲区）。
         if: failure()
         run: |
           echo "=== Debug info ==="
           echo "run=${{ github.run_id }} job=${{ matrix.mode }} (fetch job logs after the run finishes)"
-          if [ "${{ matrix.mode }}" != "coverage" ]; then
-            echo "1. This step's own log: REQUIRE_SUCCESS failures dump child stdout/stderr"
-            echo "   plus the tail of the encro log named by 'Log file:' in stdout."
-            echo "2. Full report artifact (download from the run page or CLI):"
-            echo "   gh run download ${{ github.run_id }} -n test-reports-${{ matrix.mode }}"
-            echo "   contains: /tmp/ut.xml (JUnit: failing test name + file:line)"
-            echo "             /tmp/ut.log (unit-test console)"
-            echo "             ~/.local/state/encro/logs/ (per-task logs incl. ffmpeg stderr)"
-            echo "3. Failed unit tests: grep -oE '<testcase[^>]*>[^<]*<failure[^>]*>[^<]*' /tmp/ut.xml"
-            echo "4. Caveat: spdlog rotation (keep=10) may drop the failing test's"
-            echo "   encro log from the artifact; its tail is always in the step-log dump."
-            else
+          echo "1. This step's own log: REQUIRE_SUCCESS failures dump child stdout/stderr"
+          echo "   plus the tail of the encro log named by 'Log file:' in stdout."
+          echo "2. Unified run artifact (all reports + logs + e2e scratch, one zip):"
+          echo "   gh run download ${{ github.run_id }} -n ci-run-*"
+          echo "   contains: test-reports-<mode>/ (ut.xml JUnit + ut.log console +"
+          echo "             ~/.local/state/encro/logs/ + preserved e2e scratch dirs)"
+          echo "             coverage-report/ (when the coverage job ran)"
+          echo "3. Failed unit tests: grep -oE '<testcase[^>]*>[^<]*<failure[^>]*>[^<]*' /tmp/ut.xml"
+          echo "4. Caveat: spdlog rotation (keep=10) may drop the failing test's"
+          echo "   encro log from the artifact; its tail is always in the step-log dump."
+          if [ "${{ matrix.mode }}" = "coverage" ]; then
             echo "Coverage job: 'Run coverage' step log shows the summary; per-file HTML"
-            echo "report artifact: gh run download ${{ github.run_id }} -n coverage-report"
+            echo "report is inside the unified artifact under coverage-report/ (also"
+            echo "available standalone: gh run download ${{ github.run_id }} -n coverage-report)"
             echo "contains build/coverage/html/ + all.profdata (local re-report without rerun)."
           fi
           echo "===================="
@@ -158,3 +174,38 @@ jobs:
         with:
           path: ~/.xmake/packages
           key: xmake-packages-${{ hashFiles('xmake.lua') }}
+
+      - name: Save xmake ccache
+        # 同 packages：失败也保存；命中时跳过（内容寻址缓存无跨代漂移，无需
+        # 更新缓存条目）。coverage 模式无缓存可存。
+        if: always() && matrix.mode != 'coverage' && steps.xmake-ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: build/.build_cache
+          key: xmake-ccache-${{ matrix.mode }}-${{ hashFiles('xmake.lua', 'scripts/setup-linux-env.sh') }}
+
+  collect:
+    # 统一 run artifact：无论成功失败，把各矩阵 job 的 test-reports-* 与
+    # coverage-report 下载后打包为单个 ci-run-<ts>-r<run_id>（下载即单 zip，
+    # 子目录按来源区分，ut.xml 等同名文件不冲突）。
+    needs: linux
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Timestamp
+        id: ts
+        run: echo "ts=$(date -u +%Y%m%dT%H%M%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v5
+        with:
+          path: collect
+          # 不带 merge-multiple：保留下载物各自子目录（test-reports-debug/ 等）
+          pattern: '*'
+
+      - uses: actions/upload-artifact@v5
+        with:
+          # run_id 尾缀保证同秒多次 run 的名字唯一（同名 artifact 会被 GitHub 合并）
+          name: ci-run-${{ steps.ts.outputs.ts }}-r${{ github.run_id }}
+          path: collect/
+          retention-days: 90
+          if-no-files-found: warn
