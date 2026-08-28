@@ -275,6 +275,25 @@ TEST_CASE(
     CHECK(frames.value() == 50);
   }
 
+  SECTION("negative avg_frame_rate propagates a negative count") {
+    // parseFraction accepts a leading sign; the caller does not reject it.
+    seed(
+      R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","avg_frame_rate":"-25/1"}]})"
+    );
+    auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
+    REQUIRE(frames);
+    CHECK(frames.value() == -50);
+  }
+
+  SECTION("oversized numerator stays representable") {
+    seed(
+      R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","avg_frame_rate":"1000000000/1"}]})"
+    );
+    auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
+    REQUIRE(frames);
+    CHECK(frames.value() == 2'000'000'000);
+  }
+
   SECTION("empty streams array errors") {
     seed(R"({"format":{"duration":"2.0"},"streams":[]})");
     auto const frames = getVidTotalFrames(toolchain, runtime, videoPath);
