@@ -11,10 +11,12 @@
 #include <catch2/catch_all.hpp>
 
 #include <array>
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -271,6 +273,71 @@ TEST_CASE("job state markSegmentProgress persists segment fields", "[job-state]"
   CHECK(resumed.front().segmentIndex.value() == 4);
   REQUIRE(resumed.front().resumeTimeUs.has_value());
   CHECK(resumed.front().resumeTimeUs.value() == 40'000'000);
+}
+
+TEST_CASE("settleEncodedMs folds the running attempt into encodedMs", "[job-state]") {
+  auto task = jobstate::makeEncodeTask("in.mp4", "out.mp4");
+  task.encodedMs = 500;
+  task.startedAtMs = 1000;
+
+  jobstate::settleEncodedMs(task, 3500);
+  CHECK(task.encodedMs.value() == 3000);    // 500 + (3500 - 1000)
+  CHECK(task.startedAtMs.value() == 3500);  // re-based so repeats add only the delta
+
+  jobstate::settleEncodedMs(task, 4000);
+  CHECK(task.encodedMs.value() == 3500);
+
+  // Never-started tasks stay untouched.
+  auto fresh = jobstate::makeEncodeTask("in.mp4", "out.mp4");
+  jobstate::settleEncodedMs(fresh, 9000);
+  CHECK_FALSE(fresh.encodedMs.has_value());
+
+  // A non-monotonic clock never winds accumulated time backwards.
+  auto odd = jobstate::makeEncodeTask("in.mp4", "out.mp4");
+  odd.encodedMs = 100;
+  odd.startedAtMs = 5000;
+  jobstate::settleEncodedMs(odd, 4000);
+  CHECK(odd.encodedMs.value() == 100);
+}
+
+TEST_CASE("job state persists accumulated encoding time across restarts", "[job-state]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const outputPath = temp.path / "input.hevc.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
+
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(config, false);
+  REQUIRE(initRes);
+  store.mergeTasks(std::array{task});
+  store.markRunning(task.id);
+  std::this_thread::sleep_for(std::chrono::milliseconds{30});
+  store.markProgress(task.id, 50.0f);
+  store.markInterrupted(task.id);
+  store.flush();
+
+  auto resumedStore = jobstate::Store{statePath};
+  auto const resumeRes = resumedStore.initialize(config, false);
+  REQUIRE(resumeRes);
+  resumedStore.mergeTasks(std::array{task});
+  auto const resumed = resumedStore.findTask(task.id);
+  REQUIRE(resumed.has_value());
+  REQUIRE(resumed->encodedMs.has_value());
+  CHECK(*resumed->encodedMs >= 20);
+  CHECK(*resumed->encodedMs < 60000);
+
+  // A second attempt keeps accumulating on top of the persisted value.
+  resumedStore.markRunning(task.id);
+  std::this_thread::sleep_for(std::chrono::milliseconds{20});
+  resumedStore.markInterrupted(task.id);
+  auto const afterRetry = resumedStore.findTask(task.id);
+  REQUIRE(afterRetry.has_value());
+  REQUIRE(afterRetry->encodedMs.has_value());
+  CHECK(*afterRetry->encodedMs > *resumed->encodedMs);
 }
 
 TEST_CASE(

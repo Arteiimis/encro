@@ -62,6 +62,9 @@ struct TaskRecord {
   std::optional<std::int64_t> finishedAtMs;
   std::optional<std::uint64_t> segmentIndex;
   std::optional<std::uint64_t> resumeTimeUs;
+  // Cumulative wall time spent encoding this task across attempts (idle gaps
+  // between attempts excluded); settled periodically and at run end.
+  std::optional<std::int64_t> encodedMs;
 };
 
 struct Snapshot {
@@ -179,6 +182,11 @@ auto makeArchiveTask(
 auto makeCompressPhaseTask() -> TaskRecord;
 
 auto primarySourcePath(TaskRecord const& task) -> std::optional<fs::path>;
+
+// Folds the running attempt's wall time (nowMs - startedAtMs) into encodedMs
+// and re-bases startedAtMs at nowMs, so repeated settles only add the delta.
+// No-op when the task has never started running.
+void settleEncodedMs(TaskRecord& task, std::int64_t nowMs);
 
 auto primaryTargetPath(TaskRecord const& task) -> std::optional<fs::path>;
 

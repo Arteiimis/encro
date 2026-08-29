@@ -216,6 +216,25 @@ TEST_CASE("EtaEstimator does not fabricate an eta from a burst jump", "[progress
   CHECK(*eta < 5.0f);
 }
 
+TEST_CASE("EtaEstimator tracks elapsed time from the encoding anchor", "[progress]") {
+  progress::EtaEstimator est;
+  auto t = std::chrono::steady_clock::now();
+  CHECK_FALSE(est.elapsedSeconds(t).has_value());
+  est.sample(t, 0.0f);  // the explicit 0 does not anchor the elapsed clock
+  CHECK_FALSE(est.elapsedSeconds(t).has_value());
+  est.sample(t + 5s, 10.0f);
+  REQUIRE(est.elapsedSeconds(t + 5s).has_value());
+  CHECK(*est.elapsedSeconds(t + 5s) == 0.0f);
+  CHECK(*est.elapsedSeconds(t + 9s) == 4.0f);
+
+  est.reset(90.0f);  // resumed attempt: elapsed continues from the base
+  CHECK_FALSE(est.elapsedSeconds(t + 9s).has_value());
+  est.sample(t + 10s, 11.0f);
+  REQUIRE(est.elapsedSeconds(t + 10s).has_value());
+  CHECK(*est.elapsedSeconds(t + 10s) == 90.0f);
+  CHECK(*est.elapsedSeconds(t + 12s) == 92.0f);
+}
+
 TEST_CASE("EtaEstimator recovers rate after a progress dip", "[progress]") {
   progress::EtaEstimator est;
   auto t = std::chrono::steady_clock::now();
@@ -326,6 +345,24 @@ TEST_CASE("EtaEstimator tracks a sustained speed slowdown", "[progress]") {
   CHECK(eta.value() < trueRemainingSec * 1.1);
 }
 
+TEST_CASE("formatEtaBadge renders elapsed over estimate", "[progress]") {
+  CHECK(
+    progress::formatEtaBadge(754.0f, 5020.0f)
+    == std::optional<std::string>{"[12m:34s/1h:23m]"}
+  );
+  CHECK(
+    progress::formatEtaBadge(754.0f, std::nullopt)
+    == std::optional<std::string>{"[12m:34s/--:--]"}
+  );
+  CHECK(
+    progress::formatEtaBadge(11100.0f, 2410.0f)
+    == std::optional<std::string>{"[3h:05m/40m:10s]"}
+  );
+  CHECK_FALSE(progress::formatEtaBadge(std::nullopt, 5020.0f).has_value());
+  // Ceiling rounding: a running encode never shows 0m:00s while work remains.
+  CHECK(progress::formatEtaBadge(90.4f, 0.2f).value().starts_with("[01m:31s/"));
+}
+
 TEST_CASE("fitPostfixText returns fitting text verbatim", "[progress]") {
   auto const text = std::string{"Encoding: short.mp4 | 33%"};
 
@@ -413,6 +450,21 @@ TEST_CASE("fitPostfixWithEta keeps tail fixed while label scrolls", "[progress]"
   CHECK(fitted.ends_with("| segment 1/1"));
   CHECK(displaytext::displayWidth(fitted) <= 40);
   CHECK(fitted.find("...") == std::string::npos);
+}
+
+TEST_CASE(
+  "fitPostfixWithEta pins the elapsed/estimate badge while label scrolls",
+  "[progress]"
+) {
+  auto const badge = std::string{"[12m:34s/1h:23m]"};
+  auto const postfix =
+    std::string{"Encoding: a_very_long_filename_that_overflows_the_budget.mp4 | 33%"};
+
+  auto const fitted = progress::fitPostfixWithEta(badge, postfix, 40);
+
+  CHECK(fitted.starts_with(badge + " | "));
+  CHECK(fitted.ends_with("| 33%"));
+  CHECK(displaytext::displayWidth(fitted) <= 40);
 }
 
 TEST_CASE(

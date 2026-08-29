@@ -18,7 +18,7 @@ below one hour, `h:mm` at or above one hour (seconds dropped at hour granularity
 
 - **WHEN** an encoding bar has an elapsed time of 754 seconds and a seeded estimate of
   5020 seconds
-- **THEN** the badge renders as `[12m:34s/1h:24m]`
+- **THEN** the badge renders as `[12m:34s/1h:23m]`
 
 #### Scenario: Granularity switches at one hour independently per part
 
