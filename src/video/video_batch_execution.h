@@ -193,11 +193,18 @@ struct EncodingExecutionContext {
     return activeStates;
   }
 
-  void barEncodingStart(appctx::EncodingState& vidState, std::string_view fileLabel) {
+  void barEncodingStart(
+    appctx::EncodingState& vidState,
+    std::string_view fileLabel,
+    std::chrono::milliseconds elapsedBase = std::chrono::milliseconds{0}
+  ) {
     if (!vidState.barIndex.has_value()) { return; }
     auto const index = vidState.barIndex.value();
     progress().setTone(index, progress::Tone::Active);
-    progress().resetEta(index);
+    progress().resetEta(
+      index,
+      std::chrono::duration_cast<std::chrono::duration<float>>(elapsedBase).count()
+    );
     progress().setPostfixText(index, std::format("Encoding: {}", fileLabel));
     progress().setProgress(index, 0.0f);
   }
@@ -303,6 +310,13 @@ struct EncodingExecutionContext {
 };
 
 auto startEncodingMonitor(EncodingExecutionContext& executionCtx) -> std::jthread;
+
+// Accumulated encoding time persisted for the task; 0 when the action is
+// unknown or has never been settled.
+auto persistedElapsedMs(
+  jobstate::Store& store,
+  std::optional<std::string> const& actionId
+) -> std::chrono::milliseconds;
 
 }  // namespace detail
 

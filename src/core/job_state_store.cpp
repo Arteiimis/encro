@@ -197,6 +197,7 @@ void Store::markRunning(std::string_view id) {
   if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
+  settleEncodedMs(task, detail::nowMs());
   task.status = TaskStatus::Running;
   task.attemptCount += 1;
   task.startedAtMs = detail::nowMs();
@@ -217,6 +218,7 @@ void Store::markProgress(
   if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
+  settleEncodedMs(task, detail::nowMs());
   if (progress.has_value()) { task.lastProgress = progress; }
   if (frameCount.has_value()) { task.lastFrameCount = frameCount; }
   if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
@@ -248,6 +250,7 @@ void Store::markSucceeded(std::string_view id, std::optional<std::string_view> s
   if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
+  settleEncodedMs(task, detail::nowMs());
   task.status = TaskStatus::Succeeded;
   task.lastProgress = 100.0f;
   if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
@@ -264,6 +267,7 @@ void Store::markFailed(std::string_view id, std::string_view error) {
   if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
+  settleEncodedMs(task, detail::nowMs());
   task.status = TaskStatus::Failed;
   task.lastError = std::string{error};
   task.finishedAtMs = detail::nowMs();
@@ -278,6 +282,7 @@ void Store::markInterrupted(std::string_view id, std::string_view reason) {
   if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
+  settleEncodedMs(task, detail::nowMs());
   if (task.status == TaskStatus::Succeeded || task.status == TaskStatus::Failed) {
     return;
   }

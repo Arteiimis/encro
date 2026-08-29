@@ -52,8 +52,13 @@ public:
   static constexpr auto kSeedMaxElapsed = std::chrono::milliseconds{30000};
 
   void sample(std::chrono::steady_clock::time_point now, float progress);
-  void reset();
+  void reset(float elapsedBaseSec = 0.0f);
   auto etaSeconds(float progress) const -> std::optional<float>;
+  // Real seconds since the encoding anchor (first positive-progress sample),
+  // plus the base injected at reset for resumed attempts; nullopt before the
+  // anchor (no elapsed clock yet).
+  auto elapsedSeconds(std::chrono::steady_clock::time_point now) const
+    -> std::optional<float>;
   float lastProgress() const;
 
 private:
@@ -61,6 +66,7 @@ private:
   std::chrono::steady_clock::time_point lastFoldAt_{};
   float baseProgress_ = 0.0f;
   float lastProgress_ = 0.0f;
+  float elapsedBaseSec_ = 0.0f;
   float projectedTotalSec_ = 0.0f;
   float lastFoldedProgress_ = 0.0f;
   bool hasSample_ = false;
@@ -73,7 +79,14 @@ public:
   void setPostfixText(std::size_t barIndex, std::string_view promptText);
   void setProgress(std::size_t barIndex, float progress);
   void setTone(std::size_t barIndex, Tone tone);
-  void resetEta(std::size_t barIndex);
+  void resetEta(std::size_t barIndex, float elapsedBaseSec = 0.0f);
+  // Real seconds spent on the bar's current task (base + time since the
+  // encoding anchor); nullopt before the anchor. Read-only view for
+  // diagnostics and tests.
+  auto elapsedSeconds(
+    std::size_t barIndex,
+    std::chrono::steady_clock::time_point now
+  ) const -> std::optional<float>;
 
   // Repaints all bars with their current scroll state without touching
   // progress values or ETA sampling; lets the postfix scroll animation
@@ -92,7 +105,7 @@ private:
   void applyBarText(std::size_t barIndex, float progress);
   void render();
 
-  std::mutex mtx_;
+  mutable std::mutex mtx_;
   Manager manager_;
   BarCollection bars_;
   std::vector<Tone> tones_;
@@ -106,6 +119,14 @@ private:
 auto makeBar(std::string_view promptText, Tone tone = Tone::Default) -> BarPtr;
 
 auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string;
+
+// Renders the "[<elapsed>/<estimate>]" badge: nullopt elapsed means no badge
+// at all (no progress sample yet); nullopt estimate renders the "--:--"
+// placeholder while the estimator is still seeding.
+auto formatEtaBadge(
+  std::optional<float> const& elapsedSec,
+  std::optional<float> const& etaSec
+) -> std::optional<std::string>;
 
 auto fitPostfixWithEta(
   std::optional<std::string> const& etaText,
