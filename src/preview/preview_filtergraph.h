@@ -31,9 +31,10 @@ struct FiltergraphSpec {
   VideoProbe original;
   VideoProbe encoded;
   std::vector<Window> windows;
-  // Single-input mode: the encoded side is one segment file per window with
-  // segment-local PTS (trim [0, duration] on [1+i:v]); two-input mode trims
-  // the single encoded file at source timestamps ([1:v]).
+  // Encoded-side inputs for buildPreviewCommand: true = one pre-cut segment
+  // file per window; false = the single encoded file, seeked per window.
+  // The filtergraph itself is input-layout agnostic: original window i is
+  // input i, encoded window i is input windowCount + i, all pre-cut.
   bool encodedWindowsAreSegments = false;
 };
 
@@ -55,8 +56,9 @@ inline auto formatTimeRange(std::uint64_t startUs, std::uint64_t durationUs)
 }
 
 // Single ffmpeg filtergraph building the side-by-side comparison: per-window
-// trim/fps-normalize/scale-to-min with ORIGINAL/ENCODED/segment labels,
-// hstack pairs and concat; windowed audio follows the same segments when the
+// fps-normalize/scale-to-min with ORIGINAL/ENCODED/segment labels, hstack
+// pairs and concat. Every input is pre-cut to its window with -ss/-t, so the
+// graph has no trims; windowed audio follows the same inputs when the
 // original has an audio stream.
 auto buildPreviewFiltergraph(FiltergraphSpec const& spec) -> std::string;
 
