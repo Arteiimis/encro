@@ -33,6 +33,22 @@ using videoworkflow::lookupPlannedOutputFile;
 using videoworkflow::maybeJobState;
 using videoworkflow::withJobState;
 
+namespace videobatch::detail {
+
+auto persistedElapsedMs(
+  jobstate::Store& store,
+  std::optional<std::string> const& actionId
+) -> std::chrono::milliseconds {
+  if (!actionId.has_value()) { return std::chrono::milliseconds{0}; }
+  auto const record = store.findTask(actionId.value());
+  if (!record.has_value() || !record->encodedMs.has_value()) {
+    return std::chrono::milliseconds{0};
+  }
+  return std::chrono::milliseconds{record->encodedMs.value()};
+}
+
+}  // namespace videobatch::detail
+
 namespace {
 
 void noteStopRequest(appctx::AppContext& ctx) {
@@ -203,7 +219,11 @@ auto runEncodingTask(
       store->markRunning(vidState->actionId.value());
     }
   }
-  executionCtx.barEncodingStart(*vidState, fileLabel);
+  auto elapsedBase = std::chrono::milliseconds{0};
+  if (auto* store = maybeJobState(executionCtx.app); store != nullptr) {
+    elapsedBase = videobatch::detail::persistedElapsedMs(*store, vidState->actionId);
+  }
+  executionCtx.barEncodingStart(*vidState, fileLabel, elapsedBase);
   auto const result = encodeVideo(
     executionCtx.app,
     *vidState,

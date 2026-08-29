@@ -20,6 +20,65 @@ namespace fs = std::filesystem;
 
 using testutils::ScopedEnvVar;
 
+TEST_CASE(
+  "persistedElapsedMs reads accumulated time from the job store",
+  "[video-batch-execution]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const outputPath = temp.path / "input.hevc.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  testutils::writeFile(inputPath);
+
+  auto config = appctx::AppConfig{};
+  config.processType = "video";
+  config.outputFormat = "mp4";
+  config.inputPath = inputPath;
+  config.stateFilePath = statePath;
+
+  auto store = jobstate::Store{statePath};
+  REQUIRE(store.initialize(config, false));
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
+  store.mergeTasks(std::array{task});
+  CHECK(videobatch::detail::persistedElapsedMs(store, task.id).count() == 0);
+
+  store.markRunning(task.id);
+  std::this_thread::sleep_for(std::chrono::milliseconds{25});
+  store.markInterrupted(task.id);
+  CHECK(videobatch::detail::persistedElapsedMs(store, task.id).count() >= 15);
+  CHECK(videobatch::detail::persistedElapsedMs(store, std::nullopt).count() == 0);
+}
+
+TEST_CASE(
+  "barEncodingStart seeds the elapsed clock with the persisted base",
+  "[video-batch-execution]"
+) {
+  auto appCtx = appctx::AppContext{};
+  auto progressState = videobatch::detail::EncodingProgressState{1, 1};
+  auto plannedOutputFiles = appctx::path_map<fs::path>{};
+  auto actionIds = videobatch::ActionIdMap{};
+  auto execCtx = videobatch::detail::EncodingExecutionContext{
+    appCtx,
+    progressState,
+    plannedOutputFiles,
+    actionIds
+  };
+
+  auto state = appctx::EncodingState{};
+  state.barIndex = progressState.slots.barIndexes.at(0);
+  execCtx.barEncodingStart(state, "clip.mp4", std::chrono::milliseconds{90'000});
+
+  // A progress sample anchors the clock; the elapsed view shows the 90 s
+  // base (plus sub-second epsilon) while the estimate is still seeding.
+  execCtx.progress().setProgress(state.barIndex.value(), 20.0f);
+  auto const elapsed =
+    execCtx.progress()
+      .elapsedSeconds(state.barIndex.value(), std::chrono::steady_clock::now());
+  REQUIRE(elapsed.has_value());
+  CHECK(*elapsed >= 90.0f);
+  CHECK(*elapsed < 95.0f);
+}
+
 TEST_CASE("videobatch types compile and are usable", "[video-batch-execution]") {
   // GREEN phase: extraction complete — public API types verified
   auto actionIds = videobatch::ActionIdMap{};

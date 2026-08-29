@@ -106,15 +106,25 @@ void applyTone(indicators::ProgressBar& bar, Tone tone) {
   );
 }
 
-auto formatEtaPart(float etaSeconds) -> std::string {
-  auto const etaInt = static_cast<std::int64_t>(std::ceil(etaSeconds));
-  if (etaInt >= 3600) {
-    return std::format("ETA {:d}h:{:02d}m", etaInt / 3600, (etaInt % 3600) / 60);
+auto formatDurationPart(float seconds) -> std::string {
+  auto const whole = static_cast<std::int64_t>(std::ceil(seconds));
+  if (whole >= 3600) {
+    return std::format("{:d}h:{:02d}m", whole / 3600, (whole % 3600) / 60);
   }
-  return std::format("ETA {:02d}m:{:02d}s", etaInt / 60, etaInt % 60);
+  return std::format("{:02d}m:{:02d}s", whole / 60, whole % 60);
 }
 
 }  // namespace
+
+auto formatEtaBadge(
+  std::optional<float> const& elapsedSec,
+  std::optional<float> const& etaSec
+) -> std::optional<std::string> {
+  if (!elapsedSec.has_value()) { return std::nullopt; }
+  auto const estimateText =
+    etaSec.has_value() ? formatDurationPart(etaSec.value()) : std::string{"--:--"};
+  return std::format("[{}/{}]", formatDurationPart(elapsedSec.value()), estimateText);
+}
 
 auto scrollWindow(std::string_view text, std::size_t budget, std::size_t startCol)
   -> std::string {
@@ -253,11 +263,12 @@ void EtaEstimator::sample(std::chrono::steady_clock::time_point now, float progr
   lastFoldedProgress_ = progress;
 }
 
-void EtaEstimator::reset() {
+void EtaEstimator::reset(float elapsedBaseSec) {
   startAt_ = {};
   lastFoldAt_ = {};
   baseProgress_ = 0.0f;
   lastProgress_ = 0.0f;
+  elapsedBaseSec_ = elapsedBaseSec;
   projectedTotalSec_ = 0.0f;
   lastFoldedProgress_ = 0.0f;
   hasSample_ = false;
@@ -267,6 +278,12 @@ void EtaEstimator::reset() {
 auto EtaEstimator::etaSeconds(float progress) const -> std::optional<float> {
   if (!hasProjection_ || progress <= 0.0f || progress >= 100.0f) { return std::nullopt; }
   return projectedTotalSec_ * (100.0f - progress) / 100.0f;
+}
+
+auto EtaEstimator::elapsedSeconds(std::chrono::steady_clock::time_point now) const
+  -> std::optional<float> {
+  if (!hasSample_) { return std::nullopt; }
+  return elapsedBaseSec_ + std::chrono::duration<float>(now - startAt_).count();
 }
 
 float EtaEstimator::lastProgress() const {
@@ -283,8 +300,11 @@ std::size_t ProgressContext::addBar(std::string_view promptText, Tone tone) {
 
 void ProgressContext::applyBarText(std::size_t barIndex, float progress) {
   auto etaText = std::optional<std::string>{};
-  if (auto const eta = etas_[barIndex].etaSeconds(progress); eta.has_value()) {
-    etaText = std::format("[{}]", formatEtaPart(eta.value()));
+  if (progress < 100.0f) {
+    etaText = formatEtaBadge(
+      etas_[barIndex].elapsedSeconds(std::chrono::steady_clock::now()),
+      etas_[barIndex].etaSeconds(progress)
+    );
   }
 
   auto const layout = resolveLayout(
@@ -316,9 +336,17 @@ void ProgressContext::setProgress(std::size_t barIndex, float progress) {
   render();
 }
 
-void ProgressContext::resetEta(std::size_t barIndex) {
+void ProgressContext::resetEta(std::size_t barIndex, float elapsedBaseSec) {
   auto lock = std::scoped_lock{mtx_};
-  etas_[barIndex].reset();
+  etas_[barIndex].reset(elapsedBaseSec);
+}
+
+auto ProgressContext::elapsedSeconds(
+  std::size_t barIndex,
+  std::chrono::steady_clock::time_point now
+) const -> std::optional<float> {
+  auto lock = std::scoped_lock{mtx_};
+  return etas_[barIndex].elapsedSeconds(now);
 }
 
 void ProgressContext::tick() {

@@ -285,6 +285,7 @@ auto toJson(TaskRecord const& task) -> json::object {
   object["finishedAtMs"] = jsonOrNull(task.finishedAtMs);
   object["segmentIndex"] = jsonOrNull(task.segmentIndex);
   object["resumeTimeUs"] = jsonOrNull(task.resumeTimeUs);
+  object["encodedMs"] = jsonOrNull(task.encodedMs);
   return object;
 }
 
@@ -320,6 +321,7 @@ auto fromJsonTask(json::object const& object) -> TaskRecord {
     .finishedAtMs = optionalNumberFrom<std::int64_t>(object, "finishedAtMs"),
     .segmentIndex = optionalNumberFrom<std::uint64_t>(object, "segmentIndex"),
     .resumeTimeUs = optionalNumberFrom<std::uint64_t>(object, "resumeTimeUs"),
+    .encodedMs = optionalNumberFrom<std::int64_t>(object, "encodedMs"),
   };
 }
 
@@ -400,6 +402,7 @@ void clearExecutionState(TaskRecord& task) {
   task.finishedAtMs.reset();
   task.segmentIndex.reset();
   task.resumeTimeUs.reset();
+  task.encodedMs.reset();
 }
 
 void markRestoredSucceeded(
@@ -499,6 +502,13 @@ auto flushSnapshot(
 }
 
 }  // namespace detail
+
+void settleEncodedMs(TaskRecord& task, std::int64_t nowMs) {
+  if (!task.startedAtMs.has_value()) { return; }
+  auto const delta = std::max<std::int64_t>(0, nowMs - task.startedAtMs.value());
+  task.encodedMs = task.encodedMs.value_or(0) + delta;
+  task.startedAtMs = nowMs;
+}
 
 auto buildDefaultStateFilePath(appctx::AppConfig const& config) -> eh::Result<fs::path> {
   if (config.stateFilePath.has_value()) { return config.stateFilePath.value(); }
