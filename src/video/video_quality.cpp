@@ -440,28 +440,28 @@ auto measureSegmentQuality(QualityRequest const& request) -> eh::Result<SegmentS
   };
 
   if (!isHdrVideo(request.originalVideoInfo)) {
-    auto xpsnrRes = runXpsnr(request, xpsnrStats);
-    if (xpsnrRes.has_value()) {
-      removeLogs();
-      return SegmentScores{QualityMetric::Xpsnr, std::move(*xpsnrRes)};
-    }
-    LOG_WARN(
-      "XPSNR unavailable for segment (original={} start={}us); falling back to VMAF: {}",
-      request.originalPath.string(),
-      request.startUs,
-      xpsnrRes.error()
-    );
-
     auto vmafRes = runVmaf(request, vmafLog);
     if (vmafRes.has_value()) {
       removeLogs();
       return SegmentScores{QualityMetric::Vmaf, std::move(*vmafRes)};
     }
     LOG_WARN(
-      "VMAF unavailable for segment (original={} start={}us); falling back to SSIM: {}",
+      "VMAF unavailable for segment (original={} start={}us); falling back to XPSNR: {}",
       request.originalPath.string(),
       request.startUs,
       vmafRes.error()
+    );
+
+    auto xpsnrRes = runXpsnr(request, xpsnrStats);
+    if (xpsnrRes.has_value()) {
+      removeLogs();
+      return SegmentScores{QualityMetric::Xpsnr, std::move(*xpsnrRes)};
+    }
+    LOG_WARN(
+      "XPSNR unavailable for segment (original={} start={}us); falling back to SSIM: {}",
+      request.originalPath.string(),
+      request.startUs,
+      xpsnrRes.error()
     );
   }
 
