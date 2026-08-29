@@ -763,27 +763,14 @@ auto resolvePreviewOutputPath(PreviewOptions const& options) -> eh::Result<fs::p
   return outputPath;
 }
 
-// Shorter of original and encoded durations; encoded is probed lazily only
-// when present (its cache entry is written by the probe below).
-std::uint64_t resolveShorterDurationUs(
-  appctx::AppContext& ctx,
-  PreviewOptions const& options,
-  VideoProbe const& original
-) {
-  if (!options.encoded.has_value()) { return original.durationUs; }
-  auto const encodedDurationUs =
-    probeVideo(ctx.toolchain, ctx.runtime, options.encoded.value())
-      .value_or(VideoProbe{})
-      .durationUs;
-  return std::min(original.durationUs, encodedDurationUs);
-}
-
 // Scores every window of the comparison and returns the index of the worst.
+// bars (optional) spans the scoring phase: windowBase→85% by scored count.
 auto scoreComparisonWindows(
   appctx::AppContext& ctx,
   PreviewOptions const& options,
   VideoProbe const& original,
-  std::vector<Window>& windows
+  std::vector<Window>& windows,
+  BarSlot const* bars
 ) -> std::optional<std::size_t> {
   auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
   auto const info =
@@ -813,6 +800,20 @@ auto scoreComparisonWindows(
         scores.error()
       );
     }
+    if (bars) {
+      auto const done = index + 1;
+      bars->progressCtx.setProgress(
+        bars->bar,
+        bars->windowBase
+          + (85.0f - bars->windowBase)
+            * static_cast<float>(done)
+            / static_cast<float>(windows.size())
+      );
+      bars->progressCtx.setPostfixText(
+        bars->bar,
+        std::format("Scoring windows: {}/{}", done, windows.size())
+      );
+    }
     if (
       window.score.has_value()
       && (!worstScore.has_value() || window.score.value() < worstScore.value())
@@ -825,6 +826,84 @@ auto scoreComparisonWindows(
 }
 
 }  // namespace
+
+// Two-input comparison mode: one bar spans probe (0-10%), window scoring
+// (10-85%), render (85-100%). Scoring is sequential, so per-window updates
+// are exact; the render jumps to completion like the single-input mode.
+auto runTwoInput(
+  appctx::AppContext& ctx,
+  PreviewOptions const& options,
+  fs::path const& outputPath
+) -> eh::Result<int> {
+  auto progressCtx = progress::ProgressContext{};
+  auto cursorGuard = progress::CursorGuard{};
+  auto const fileName = options.original.filename().string();
+  auto const bar =
+    progressCtx.addBar(std::format("Previewing: {}", fileName), progress::Tone::Active);
+
+  // run() dispatched here only after validating both inputs exist.
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+  auto const& encodedPath = options.encoded.value();
+
+  progressCtx.setPostfixText(bar, std::format("Probing: {}", fileName));
+  auto const originalRes = probeVideo(ctx.toolchain, ctx.runtime, options.original);
+  if (!originalRes) { return eh::makeError("{}", originalRes.error()); }
+  auto const& original = originalRes.value();
+  if (original.durationUs == 0) {
+    return eh::makeError(
+      "Cannot preview a video with zero duration: {}",
+      options.original.string()
+    );
+  }
+
+  auto const encodedName = encodedPath.filename().string();
+  progressCtx.setProgress(bar, 5.0f);
+  progressCtx.setPostfixText(bar, std::format("Probing: {}", encodedName));
+  auto const encodedRes = probeVideo(ctx.toolchain, ctx.runtime, encodedPath);
+  if (!encodedRes) { return eh::makeError("{}", encodedRes.error()); }
+  auto const& encoded = encodedRes.value();
+  if (encoded.durationUs == 0) {
+    return eh::makeError(
+      "Cannot preview a video with zero duration: {}",
+      encodedPath.string()
+    );
+  }
+
+  progressCtx.setProgress(bar, 10.0f);
+  auto const manualRange = resolveManualRange(options);
+  auto windowsRes =
+    pickPreviewWindows(std::min(original.durationUs, encoded.durationUs), manualRange);
+  if (!windowsRes) { return eh::makeError("{}", windowsRes.error()); }
+  auto windows = std::move(windowsRes.value());
+
+  auto worstIndex = std::optional<std::size_t>{};
+  if (!manualRange.has_value()) {
+    auto const scoringBars = BarSlot{progressCtx, bar, 10.0f};
+    worstIndex = scoreComparisonWindows(ctx, options, original, windows, &scoringBars);
+  }
+
+  progressCtx.setProgress(bar, 85.0f);
+  progressCtx.setPostfixText(bar, "Rendering comparison video...");
+  auto const spec = FiltergraphSpec{
+    .original = original,
+    .encoded = encoded,
+    .windows = windows,  // copy: the window list is part of the post-render summary
+  };
+  auto const renderResult =
+    renderPreview(ctx, options, options.original, {encodedPath}, spec, outputPath);
+  if (!renderResult) {
+    progressCtx.setTone(bar, progress::Tone::Failure);
+    progressCtx.setPostfixText(bar, "Preview generation failed");
+    return renderResult;
+  }
+  progressCtx.setProgress(bar, 100.0f);
+  progressCtx.setTone(bar, progress::Tone::Success);
+  progressCtx.setPostfixText(bar, "Preview complete");
+
+  printWindows(windows, worstIndex);
+  reportAndOpen(options, outputPath);
+  return 0;
+}
 
 auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<int> {
   if (!fs::is_regular_file(options.original)) {
@@ -842,6 +921,10 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
   );  // NOLINT(performance-no-automatic-move): read multiple times; const is intentional
   if (!outputPath) { return eh::makeError("{}", outputPath.error()); }
 
+  if (options.encoded.has_value()) {
+    return runTwoInput(ctx, options, outputPath.value());
+  }
+
   auto const originalRes = probeVideo(ctx.toolchain, ctx.runtime, options.original);
   if (!originalRes) { return eh::makeError("{}", originalRes.error()); }
   auto const& original = originalRes.value();
@@ -852,51 +935,15 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
     );
   }
 
-  auto const manualRange = resolveManualRange(options);
-
-  auto const shorterDurationUs = resolveShorterDurationUs(ctx, options, original);
-
-  auto windowsRes = pickPreviewWindows(shorterDurationUs, manualRange);
+  auto windowsRes = pickPreviewWindows(original.durationUs, resolveManualRange(options));
   if (!windowsRes) { return eh::makeError("{}", windowsRes.error()); }
-  auto windows = std::move(windowsRes.value());
-
-  if (!options.encoded.has_value()) {
-    return runSingleInput(ctx, options, original, std::move(windows), outputPath.value());
-  }
-
-  auto const encodedRes = probeVideo(ctx.toolchain, ctx.runtime, options.encoded.value());
-  if (!encodedRes) { return eh::makeError("{}", encodedRes.error()); }
-  auto const& encoded = encodedRes.value();
-  if (std::min(original.durationUs, encoded.durationUs) == 0) {
-    return eh::makeError(
-      "Cannot preview a video with zero duration: {}",
-      options.original.string()
-    );
-  }
-
-  auto worstIndex = std::optional<std::size_t>{};
-  if (!manualRange.has_value()) {
-    worstIndex = scoreComparisonWindows(ctx, options, original, windows);
-    printWindows(windows, worstIndex);
-  }
-
-  auto const spec = FiltergraphSpec{
-    .original = original,
-    .encoded = encoded,
-    .windows = windows,  // copy: the window list is part of the post-render summary
-  };
-  auto const renderResult = renderPreview(
+  return runSingleInput(
     ctx,
     options,
-    options.original,
-    {options.encoded.value()},
-    spec,
+    original,
+    std::move(windowsRes.value()),
     outputPath.value()
   );
-  if (!renderResult) { return renderResult; }
-  printWindows(windows, worstIndex);
-  reportAndOpen(options, outputPath.value());
-  return renderResult;
 }
 
 }  // namespace preview

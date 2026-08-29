@@ -1825,6 +1825,50 @@ TEST_CASE("encro preview rejects a missing input", "[e2e][preview][fake-toolchai
   CHECK(result.stdoutText.find("does not exist") != std::string::npos);
 }
 
+TEST_CASE(
+  "encro two-input preview prints the score list once",
+  "[e2e][preview][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const original = temp.path / "listed.mp4";
+  auto const encoded = temp.path / "listed.hevc.mp4";
+  testutils::writeTextFile(original, "fake-video");
+  testutils::writeTextFile(encoded, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_FFPROBE_DURATION_SECS", "120"},  // 5 sampled windows
+    {"ENCRO_FAKE_FFMPEG_WRITE_VMAF", "1"},
+  };
+  auto const result = e2e::runEncro(
+    {"--ffmpeg-path",
+     toolchain.root.string(),
+     "preview",
+     original.string(),
+     encoded.string(),
+     "--no-open"},
+    std::nullopt,
+    env
+  );
+  REQUIRE_SUCCESS(result);
+
+  // The summary prints exactly once, after the render completes — the
+  // pre-render list print would make this two.
+  auto listCount = std::size_t{0};
+  for (
+    auto pos = result.stdoutText.find("Preview windows"); pos != std::string::npos;
+    pos = result.stdoutText.find("Preview windows", pos + 1)
+  ) {
+    ++listCount;
+  }
+  CHECK(listCount == 1);
+  auto const listPos = result.stdoutText.find("Preview windows");
+  auto const writtenPos = result.stdoutText.find("Preview written to:");
+  REQUIRE(listPos != std::string::npos);
+  REQUIRE(writtenPos != std::string::npos);
+  CHECK(listPos < writtenPos);
+}
+
 // ── Real-ffmpeg smoke tests ───────────────────────────────────────────────
 
 TEST_CASE(
