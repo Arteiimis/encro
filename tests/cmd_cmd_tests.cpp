@@ -293,6 +293,33 @@ TEST_CASE("app-level flags apply before the preview subcommand", "[cmd]") {
   CHECK(result.crf.value() == 15);
 }
 
+TEST_CASE("preview subcommand accepts encode flags in subcommand position", "[cmd]") {
+  auto const result = testutils::parseArgs({
+    "encro",
+    "preview",
+    "a.mp4",
+    "--min-vmaf",
+    "92",
+    "--crf",
+    "20",
+    "--preset",
+    "p7",
+    "--video-codec",
+    "libx265",
+    "--no-open",
+  });
+
+  REQUIRE(result.preview);
+  CHECK(result.minVmaf == 92);
+  REQUIRE(result.crf.has_value());
+  CHECK(result.crf.value() == 20);
+  REQUIRE(result.nvencPreset.has_value());
+  CHECK(result.nvencPreset.value() == "p7");
+  REQUIRE(result.videoCodec.has_value());
+  CHECK(result.videoCodec.value() == "libx265");
+  CHECK_FALSE(result.error.has_value());
+}
+
 TEST_CASE("preview subcommand does not swallow app-level flags", "[cmd]") {
   auto const result = testutils::parseArgs(
     {"encro", "--video-codec", "libx264", "preview", "a.mp4", "--no-open"}
