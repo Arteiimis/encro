@@ -197,7 +197,9 @@ void Store::markRunning(std::string_view id) {
   if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
-  settleEncodedMs(task, detail::nowMs());
+  // No settle here: the previous attempt already settled at its terminal
+  // transition, so anything between then and now is idle time that the
+  // accumulated total must not count.
   task.status = TaskStatus::Running;
   task.attemptCount += 1;
   task.startedAtMs = detail::nowMs();
@@ -218,7 +220,6 @@ void Store::markProgress(
   if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
-  settleEncodedMs(task, detail::nowMs());
   if (progress.has_value()) { task.lastProgress = progress; }
   if (frameCount.has_value()) { task.lastFrameCount = frameCount; }
   if (status.has_value()) { task.lastStatus = std::string{status.value()}; }
@@ -282,10 +283,10 @@ void Store::markInterrupted(std::string_view id, std::string_view reason) {
   if (!index.has_value()) { return; }
 
   auto& task = snapshot_.tasks[index.value()];
-  settleEncodedMs(task, detail::nowMs());
   if (task.status == TaskStatus::Succeeded || task.status == TaskStatus::Failed) {
     return;
   }
+  settleEncodedMs(task, detail::nowMs());
 
   task.status = TaskStatus::Interrupted;
   if (!reason.empty()) { task.lastError = std::string{reason}; }
@@ -308,6 +309,7 @@ void Store::markIncompleteInterrupted(
 
     auto& task = snapshot_.tasks[index.value()];
     if (task.status == TaskStatus::Pending || task.status == TaskStatus::Running) {
+      settleEncodedMs(task, now);
       task.status = TaskStatus::Interrupted;
       task.lastError = std::string{reason};
       task.finishedAtMs = now;

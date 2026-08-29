@@ -330,14 +330,58 @@ TEST_CASE("job state persists accumulated encoding time across restarts", "[job-
   CHECK(*resumed->encodedMs >= 20);
   CHECK(*resumed->encodedMs < 60000);
 
-  // A second attempt keeps accumulating on top of the persisted value.
+  // A second attempt keeps accumulating on top of the persisted value, and
+  // the idle gap between the two attempts is not counted.
+  auto const beforeRetry = resumedStore.findTask(task.id)->encodedMs;
+  std::this_thread::sleep_for(std::chrono::milliseconds{30});  // idle gap
   resumedStore.markRunning(task.id);
+  CHECK(resumedStore.findTask(task.id)->encodedMs == beforeRetry);
   std::this_thread::sleep_for(std::chrono::milliseconds{20});
   resumedStore.markInterrupted(task.id);
   auto const afterRetry = resumedStore.findTask(task.id);
   REQUIRE(afterRetry.has_value());
   REQUIRE(afterRetry->encodedMs.has_value());
   CHECK(*afterRetry->encodedMs > *resumed->encodedMs);
+}
+
+TEST_CASE("job state loads a legacy file without encodedMs as zero", "[job-state]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const outputPath = temp.path / "input.hevc.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeFile(inputPath);
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
+
+  auto store = jobstate::Store{statePath};
+  auto const initRes = store.initialize(config, false);
+  REQUIRE(initRes);
+  store.mergeTasks(std::array{task});
+  store.markRunning(task.id);
+  std::this_thread::sleep_for(std::chrono::milliseconds{25});
+  store.markInterrupted(task.id);
+  store.flush();
+
+  // Rewrite the state file as a pre-encodedMs legacy writer would have.
+  auto text = testutils::readTextFile(statePath);
+  auto const encodedStart = text.find("\"encodedMs\":");
+  REQUIRE(encodedStart != std::string::npos);
+  auto const encodedEnd = text.find_first_of(",}", encodedStart);
+  REQUIRE(encodedEnd != std::string::npos);
+  // encodedMs is the task object's last member: drop the comma that precedes
+  // it together with the member, keeping the closing brace valid.
+  auto const precedingComma = text.rfind(',', encodedStart);
+  REQUIRE(precedingComma != std::string::npos);
+  text.erase(precedingComma, encodedEnd - precedingComma);
+  testutils::writeFile(statePath, text);
+
+  auto legacyStore = jobstate::Store{statePath};
+  auto const legacyRes = legacyStore.initialize(config, false);
+  REQUIRE(legacyRes);
+  auto const legacy = legacyStore.findTask(task.id);
+  REQUIRE(legacy.has_value());
+  CHECK_FALSE(legacy->encodedMs.has_value());
 }
 
 TEST_CASE(
