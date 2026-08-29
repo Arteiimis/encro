@@ -83,22 +83,12 @@ auto joinWithCommas(std::vector<std::string> const& parts) -> std::string {
 
 auto videoChainParts(
   FiltergraphSpec const& spec,
-  Window const& window,
-  std::uint64_t startUs,
-  std::uint64_t endUs,
   int inputIndex,
   std::string_view sideLabel,
   std::optional<std::string> const& extraLabel
 ) -> std::vector<std::string> {
-  auto parts = std::vector<std::string>{
-    std::format(
-      "[{}:v]trim=start={:.6f}:end={:.6f}",
-      inputIndex,
-      seconds(startUs),
-      seconds(endUs)
-    ),
-    "setpts=PTS-STARTPTS",
-  };
+  auto parts =
+    std::vector<std::string>{std::format("[{}:v]setpts=PTS-STARTPTS", inputIndex)};
   if (spec.original.fps > 0.0) {
     parts.push_back(std::format("fps={:.6f}", spec.original.fps));
   }
@@ -130,20 +120,15 @@ auto buildPreviewFiltergraph(FiltergraphSpec const& spec) -> std::string {
 
   for (auto index = std::size_t{}; index < windowCount; ++index) {
     auto const& window = spec.windows[index];
-    auto const startUs = window.startUs;
-    auto const endUs = window.startUs + window.durationUs;
 
     auto const originalParts =
-      videoChainParts(spec, window, startUs, endUs, 0, "ORIGINAL", segmentLabel(window));
+      videoChainParts(spec, static_cast<int>(index), "ORIGINAL", segmentLabel(window));
     graph += joinWithCommas(originalParts);
     graph += std::format("[o{}];", index);
 
     auto const encodedParts = videoChainParts(
       spec,
-      window,
-      spec.encodedWindowsAreSegments ? 0 : startUs,
-      spec.encodedWindowsAreSegments ? window.durationUs : endUs,
-      spec.encodedWindowsAreSegments ? static_cast<int>(1 + index) : 1,
+      static_cast<int>(windowCount + index),
       "ENCODED",
       std::nullopt
     );
@@ -161,13 +146,7 @@ auto buildPreviewFiltergraph(FiltergraphSpec const& spec) -> std::string {
   if (spec.original.hasAudio && windowCount > 0) {
     graph += ";";
     for (auto index = std::size_t{}; index < windowCount; ++index) {
-      auto const& window = spec.windows[index];
-      graph += std::format(
-        "[0:a]atrim=start={:.6f}:end={:.6f},asetpts=PTS-STARTPTS[a{}];",
-        seconds(window.startUs),
-        seconds(window.startUs + window.durationUs),
-        index
-      );
+      graph += std::format("[{}:a]asetpts=PTS-STARTPTS[a{}];", index, index);
     }
     for (auto index = std::size_t{}; index < windowCount; ++index) {
       graph += std::format("[a{}]", index);
@@ -188,9 +167,29 @@ auto buildPreviewCommand(
 ) -> std::string {
   auto cmd = quoteToolPath(ffmpegPath);
   cmd += " -hide_banner -nostats -loglevel error -y";
-  cmd += std::format(" -i \"{}\"", originalPath.string());
-  for (auto const& encodedPath: encodedPaths) {
-    cmd += std::format(" -i \"{}\"", encodedPath.string());
+  // One seeked input per window: only the shown seconds get decoded. The old
+  // single-input + trim graph streamed the whole timeline through the decoder
+  // to pick out 50s of windows.
+  auto const seekInput =
+    [&](std::uint64_t startUs, std::uint64_t durationUs, fs::path const& path) {
+      cmd += std::format(
+        " -ss {:.6f} -t {:.6f} -i \"{}\"",
+        seconds(startUs),
+        seconds(durationUs),
+        path.string()
+      );
+    };
+  for (auto const& window: spec.windows) {
+    seekInput(window.startUs, window.durationUs, originalPath);
+  }
+  if (spec.encodedWindowsAreSegments) {
+    for (auto const& encodedPath: encodedPaths) {
+      cmd += std::format(" -i \"{}\"", encodedPath.string());
+    }
+  } else {
+    for (auto const& window: spec.windows) {
+      seekInput(window.startUs, window.durationUs, encodedPaths.front());
+    }
   }
   cmd += std::format(" -filter_complex \"{}\"", buildPreviewFiltergraph(spec));
   cmd += " -map \"[vout]\"";

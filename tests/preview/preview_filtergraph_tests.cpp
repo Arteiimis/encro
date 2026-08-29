@@ -43,7 +43,7 @@ auto makeWindow(std::uint64_t startUs, std::optional<double> score = std::nullop
 
 }  // namespace
 
-TEST_CASE("filtergraph trims fps-normalizes scales and labels both panes", "[preview]") {
+TEST_CASE("filtergraph fps-normalizes scales and labels both panes", "[preview]") {
   auto spec = preview::FiltergraphSpec{};
   spec.original = makeProbe(1280, 720);
   spec.encoded = makeProbe(1920, 1080);
@@ -51,9 +51,11 @@ TEST_CASE("filtergraph trims fps-normalizes scales and labels both panes", "[pre
 
   auto const graph = preview::buildPreviewFiltergraph(spec);
 
+  // Inputs are pre-cut windows: original window i is input i, encoded
+  // window i is input windowCount + i. No trims anywhere.
   CHECK(
     graph.find(
-      "[0:v]trim=start=0.000000:end=10.000000,setpts=PTS-STARTPTS,"
+      "[0:v]setpts=PTS-STARTPTS,"
       "fps=30.000000,scale=1280:720:force_original_aspect_ratio=decrease,"
       "pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p,"
       "drawtext=text='ORIGINAL':fontfile='"
@@ -72,7 +74,7 @@ TEST_CASE("filtergraph trims fps-normalizes scales and labels both panes", "[pre
   // Encoded pane has no segment label, only ENCODED.
   CHECK(
     graph.find(
-      "[1:v]trim=start=50.000000:end=60.000000,setpts=PTS-STARTPTS,"
+      "[3:v]setpts=PTS-STARTPTS,"
       "fps=30.000000,scale=1280:720:force_original_aspect_ratio=decrease,"
       "pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p,"
       "drawtext=text='ENCODED':fontfile='"
@@ -82,6 +84,7 @@ TEST_CASE("filtergraph trims fps-normalizes scales and labels both panes", "[pre
     )
     != std::string::npos
   );
+  CHECK(graph.find("trim=") == std::string::npos);
 
   CHECK(graph.find("[o0][e0]hstack[h0];") != std::string::npos);
   CHECK(graph.find("[o1][e1]hstack[h1];") != std::string::npos);
@@ -98,8 +101,8 @@ TEST_CASE("filtergraph carries windowed audio when the original has audio", "[pr
 
   CHECK(
     graph.find(
-      "[0:a]atrim=start=0.000000:end=10.000000,asetpts=PTS-STARTPTS[a0];"
-      "[0:a]atrim=start=40.000000:end=50.000000,asetpts=PTS-STARTPTS[a1];"
+      "[0:a]asetpts=PTS-STARTPTS[a0];"
+      "[1:a]asetpts=PTS-STARTPTS[a1];"
       "[a0][a1]concat=n=2:v=0:a=1[aout]"
     )
     != std::string::npos
@@ -182,7 +185,13 @@ TEST_CASE(
   auto const cmd =
     preview::buildPreviewCommand("ffmpeg", "a.mp4", {"b.mp4"}, spec, "out.mp4");
 
-  CHECK(cmd.find("-i \"a.mp4\" -i \"b.mp4\"") != std::string::npos);
+  CHECK(
+    cmd.find(
+      "-ss 0.000000 -t 10.000000 -i \"a.mp4\""
+      " -ss 0.000000 -t 10.000000 -i \"b.mp4\""
+    )
+    != std::string::npos
+  );
   CHECK(cmd.find("-filter_complex \"") != std::string::npos);
   CHECK(cmd.find("-map \"[vout]\"") != std::string::npos);
   CHECK(cmd.find("-map \"[aout]\" -c:a aac -b:a 192k") != std::string::npos);
@@ -251,7 +260,7 @@ TEST_CASE("preview command is silent without audio", "[preview]") {
   CHECK(cmd.find("-c:a") == std::string::npos);
 }
 
-TEST_CASE("segment mode trims each encoded segment at local timestamps", "[preview]") {
+TEST_CASE("segment mode maps each segment to its own input", "[preview]") {
   auto spec = preview::FiltergraphSpec{};
   spec.original = makeProbe(1280, 720);
   spec.encoded = makeProbe(1280, 720);
@@ -260,14 +269,14 @@ TEST_CASE("segment mode trims each encoded segment at local timestamps", "[previ
 
   auto const graph = preview::buildPreviewFiltergraph(spec);
 
-  // Window 0 uses input [1:v] trimmed at segment-local [0,10].
-  CHECK(graph.find("[1:v]trim=start=0.000000:end=10.000000") != std::string::npos);
-  // Window 1 uses input [2:v], still trimmed at [0,10] - no source timestamps.
-  CHECK(graph.find("[2:v]trim=start=0.000000:end=10.000000") != std::string::npos);
-  // No encoded-side trim at source timestamps in segment mode.
-  CHECK(graph.find("[2:v]trim=start=50.000000") == std::string::npos);
-  // Original side keeps source timestamps on [0:v].
-  CHECK(graph.find("[0:v]trim=start=50.000000:end=60.000000") != std::string::npos);
+  // Window 0 uses original input [0:v] and segment input [2:v].
+  CHECK(graph.find("[0:v]setpts=PTS-STARTPTS") != std::string::npos);
+  CHECK(graph.find("[2:v]setpts=PTS-STARTPTS") != std::string::npos);
+  // Window 1 uses original input [1:v] and segment input [3:v].
+  CHECK(graph.find("[1:v]setpts=PTS-STARTPTS") != std::string::npos);
+  CHECK(graph.find("[3:v]setpts=PTS-STARTPTS") != std::string::npos);
+  // No trims: every input is pre-cut to its window.
+  CHECK(graph.find("trim=") == std::string::npos);
   CHECK(graph.find("[o0][e0]hstack[h0];") != std::string::npos);
   CHECK(graph.find("[o1][e1]hstack[h1];") != std::string::npos);
 }
@@ -286,7 +295,15 @@ TEST_CASE("segment mode command lists every segment input", "[preview]") {
     spec,
     "out.mp4"
   );
-  CHECK(cmd.find("-i \"a.mp4\" -i \"seg0.ts\" -i \"seg1.ts\"") != std::string::npos);
+  // Two seeked inputs for the original's two windows, then the segments.
+  CHECK(
+    cmd.find(
+      "-ss 0.000000 -t 10.000000 -i \"a.mp4\""
+      " -ss 50.000000 -t 10.000000 -i \"a.mp4\""
+      " -i \"seg0.ts\" -i \"seg1.ts\""
+    )
+    != std::string::npos
+  );
   CHECK(cmd.find("-map \"[vout]\"") != std::string::npos);
 }
 
