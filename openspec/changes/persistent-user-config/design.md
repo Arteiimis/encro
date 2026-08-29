@@ -45,7 +45,7 @@ Key table: one `ConfigKeyDef` array (`key`, bound CLI long name, JSON kind) shar
 
 ### D3: Validation reuse through the declarative option registry
 
-`option_specs.h` is already declarative, so instead of duplicating members/range rules for `config set`, a static registry `key → validators` is populated during `commandLineInit` registration (a new optional `cfg::ConfigKey{"crf"}` token on the relevant `opt(...)` specs). The registry stores `std::shared_ptr<Validator>` copies captured at registration (via `Option::get_validator(i)`) — NOT `CLI::Option*` pointers, which dangle once `commandLineInit` returns because the `CLI::App` and its options are function-local. Validators (including `CheckedTransformer`/`Transform`, which are stored as validators) are standalone-applicable shared pointers, so `config set` validates a candidate value against exactly the rules the CLI enforces, with transformers canonicalizing the stored value. `Needs`/`Excludes` are App-level relations, not validators, and are naturally excluded — `config set image-quality 10` validates the value without requiring `--compress`.
+`option_specs.h` is already declarative, so instead of duplicating members/range rules for `config set`, a static registry `key → CLI::Option*` is populated during `commandLineInit` registration (a new optional `cfg::ConfigKey{"crf"}` token on the relevant `opt(...)` specs). The registered `CLI::App` is intentionally leaked (never freed, one small allocation per parse) so the option pointers stay valid for the process lifetime — capturing `shared_ptr<Validator>` copies proved impossible because `validators_` is private and `get_validator()` returns raw pointers. `config set` validates a candidate value by running the registered option's validators against it (`get_validator(i)` until out of range); transformers (e.g. `--force-conflict-handling` case folding) run during validation so the canonical value is stored, and built-in defaults are read from the option's `default_str` on the probe parse, which never injects config values. `Needs`/`Excludes` are App-level relations, not validators, and are naturally excluded — `config set image-quality 10` validates the value without requiring `--compress`.
 
 Alternatives rejected:
 - Re-parsing `encro --crf <value>` against a scratch app: dependency checks (`-q` needs `-c`) fail for reasons unrelated to the value.
@@ -69,7 +69,7 @@ Config load errors (malformed JSON) are reported through `CmdParseResult::error`
 
 ## Risks / Trade-offs
 
-- [Config-injected defaults change parse semantics] → Spike test (task 3.1) pins flag `default_str` + `force_callback` behavior, the `--no-x{false}` syntax, and that needs/excludes keep evaluating on command-line occurrences only; documented fallback in D1/D3 keeps scope if they misbehave.
+- [Static registry outlives commandLineInit] → Registered options are kept alive by intentionally leaking the CLI app (one small allocation per parse); validated in review, confirmed harmless for process-lifetime tooling.
 - [Config value injected as default changes help bytes per machine] → Accepted and spec'd: goldens run with `ENCRO_CONFIG` isolated, so checked-in expectations stay deterministic.
 - [Concurrent encro processes writing config simultaneously] → Last-write-wins whole-file rewrite; acceptable for a single-user preference file (documented ceiling).
 

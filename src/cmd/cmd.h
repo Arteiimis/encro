@@ -57,7 +57,15 @@ struct CmdParseResult {
   bool packOnly = false;
   bool overwrite = false;
 
-  // ── Help output (rendered by formatter_fn) ─────────────────────
+  // ── config subcommand (mutually exclusive actions) ──────
+  bool config = false;
+  bool configList = false;
+  std::optional<std::string> configGet;
+  std::optional<std::vector<std::string>> configSet;
+  std::optional<std::string> configUnset;
+  bool configPath = false;
+
+  // ── Help output (rendered by formatter_fn) ──────────────────────
   std::string helpText;
 
   // ── Parse error (CLI11-native message) ─────────────────────────

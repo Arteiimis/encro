@@ -1,6 +1,7 @@
 #include "app/app_entry.h"
 
 #include "cmd/config_builder.h"
+#include "cmd/config_command.h"
 #include "core/app_context.h"
 #include "core/job_state.h"
 #include "app/pipeline.h"
@@ -301,6 +302,7 @@ int run(int argc, char* argv[]) {
   }
 
   if (startup.cmd.preview) { return runPreview(startup); }
+  if (startup.cmd.config) { return cmd::runConfigCommand(startup.cmd); }
 
   auto config = buildAppConfig(startup);
   if (!config.has_value()) { return 1; }
