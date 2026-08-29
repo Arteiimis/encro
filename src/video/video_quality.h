@@ -68,8 +68,8 @@ auto parseSsimStats(std::filesystem::path const& statsPath)
 auto parseXpsnrStats(std::filesystem::path const& statsPath)
   -> eh::Result<std::vector<double>>;
 
-// Decodes the aligned segment pair (original vs encoded) and runs XPSNR for
-// non-HDR inputs, falling back to libvmaf and then ssim (HDR skips straight
+// Decodes the aligned segment pair (original vs encoded) and runs VMAF for
+// non-HDR inputs, falling back to XPSNR and then ssim (HDR skips straight
 // to ssim). Returns the per-frame scores in the metric actually used.
 auto measureSegmentQuality(QualityRequest const& request) -> eh::Result<SegmentScores>;
 
