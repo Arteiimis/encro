@@ -540,6 +540,35 @@ auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::Ap
       &result.previewNoOpen,
       "do not open the result in the default player"
     ),
+    // Encode flags that shape the single-input probe/window encodes; also
+    // registered on the parent app so either position parses.
+    opt(
+      "--crf",
+      &result.crf,
+      "video encode quality (0-51, lower=better)",
+      cfg::RequiredDefault{"28"},
+      cfg::Range{0, 51}
+    ),
+    opt(
+      "--min-vmaf",
+      &result.minVmaf,
+      "minimum p5-VMAF quality floor for probing (0-100)",
+      cfg::OptionalDefault{"95"},
+      cfg::Range{0, 100}
+    ),
+    opt(
+      "--preset",
+      &result.nvencPreset,
+      "NVENC preset (p1-p7; auto picks by resolution)",
+      cfg::RequiredDefault{"auto"},
+      cfg::Members{"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}
+    ),
+    opt(
+      "--video-codec",
+      &result.videoCodec,
+      "video encoder (default hevc_nvenc; libx265/libx264 on cpu)",
+      cfg::DefaultValue{"hevc_nvenc"}
+    ),
   };
   registerAll(sub, options);
   sub->formatter_fn(makePreviewHelpFormatter(sub));
