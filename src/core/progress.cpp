@@ -217,6 +217,7 @@ void EtaEstimator::sample(std::chrono::steady_clock::time_point now, float progr
   if (!hasSample_) {
     startAt_ = now;
     lastFoldAt_ = now;
+    baseProgress_ = progress;
     hasSample_ = true;
   }
   lastProgress_ = progress;
@@ -232,10 +233,12 @@ void EtaEstimator::sample(std::chrono::steady_clock::time_point now, float progr
     return;
   }
 
-  if (now - startAt_ < kSeedMinElapsed) { return; }
+  auto const gained = progress - baseProgress_;
+  if (gained <= 0.0f) { return; }
+  if (gained < kSeedMinProgress && now - startAt_ < kSeedMaxElapsed) { return; }
 
   auto const elapsedSec = std::chrono::duration<float>(now - startAt_).count();
-  auto const projectedTotalSec = elapsedSec * 100.0f / progress;
+  auto const projectedTotalSec = elapsedSec * 100.0f / gained;
   auto const weight = hasProjection_ ? 1.0f - std::exp(-dtSec / kProjectionTauSec) : 1.0f;
   projectedTotalSec_ += weight * (projectedTotalSec - projectedTotalSec_);
   hasProjection_ = true;
@@ -245,6 +248,7 @@ void EtaEstimator::sample(std::chrono::steady_clock::time_point now, float progr
 void EtaEstimator::reset() {
   startAt_ = {};
   lastFoldAt_ = {};
+  baseProgress_ = 0.0f;
   lastProgress_ = 0.0f;
   projectedTotalSec_ = 0.0f;
   lastFoldedProgress_ = 0.0f;
