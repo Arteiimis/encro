@@ -2007,3 +2007,151 @@ TEST_CASE(
   auto const seconds = std::stod(std::string{duration.c_str()});
   CHECK(seconds == Catch::Approx(50.0).margin(1.0));
 }
+
+// ── persistent-user-config (tasks 6.1/6.2) ─────────────────────────────────
+
+TEST_CASE("encro config set feeds persisted values into encode runs", "[e2e][config]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const configPath = temp.path / "user-config.json";
+  testutils::writeTextFile(inputPath, "fake-video");
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_CONFIG", configPath.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", (temp.path / "probe.json").string()},
+  };
+  testutils::writeTextFile(
+    temp.path / "probe.json",
+    R"({"format":{"duration":"2.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"10","avg_frame_rate":"5/1"}]})"
+  );
+
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto const setRun = e2e::runEncro({"config", "--set", "crf", "23"}, std::nullopt, env);
+  REQUIRE_SUCCESS(setRun);
+  REQUIRE(fs::exists(configPath));
+
+  // Persisted crf reaches the encoder without a CLI flag.
+  auto const encodeRun = e2e::runEncro(baseArgs, std::nullopt, env);
+  REQUIRE_SUCCESS(encodeRun);
+  CHECK(countLogLines(logPath, "-cq\t23") == 1);
+
+  // An explicit CLI value still wins.
+  auto overrideArgs = baseArgs;
+  overrideArgs.push_back("--restart");
+  overrideArgs.push_back("--crf");
+  overrideArgs.push_back("30");
+  auto const overrideRun = e2e::runEncro(overrideArgs, std::nullopt, env);
+  REQUIRE_SUCCESS(overrideRun);
+  CHECK(countLogLines(logPath, "-cq\t30") == 1);
+  CHECK(countLogLines(logPath, "-cq\t23") == 1);
+
+  // unsetting the key falls back to the built-in default (28).
+  auto const unsetRun = e2e::runEncro({"config", "--unset", "crf"}, std::nullopt, env);
+  REQUIRE_SUCCESS(unsetRun);
+  auto restartArgs = baseArgs;
+  restartArgs.push_back("--restart");
+  auto const defaultRun = e2e::runEncro(restartArgs, std::nullopt, env);
+  REQUIRE_SUCCESS(defaultRun);
+  CHECK(countLogLines(logPath, "-cq\t28") >= 1);
+}
+
+TEST_CASE("encro config runs standalone and reports store errors", "[e2e][config]") {
+  TempDir temp;
+  auto const configPath = temp.path / "user-config.json";
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_CONFIG", configPath.string()},
+  };
+
+  SECTION("actions run without inputs or toolchain") {
+    auto const listRun = e2e::runEncro({"config", "--list"}, std::nullopt, env);
+    REQUIRE_SUCCESS(listRun);
+    CHECK(listRun.stdoutText.find("crf") != std::string::npos);
+    CHECK(listRun.stdoutText.find("(default)") != std::string::npos);
+
+    auto const getPath = e2e::runEncro({"config", "--get", "jobs"}, std::nullopt, env);
+    REQUIRE_SUCCESS(getPath);
+    CHECK(getPath.stdoutText.find("10") != std::string::npos);
+
+    auto const pathRun = e2e::runEncro({"config", "--path"}, std::nullopt, env);
+    REQUIRE_SUCCESS(pathRun);
+    CHECK(pathRun.stdoutText.find(configPath.string()) != std::string::npos);
+  }
+
+  SECTION("bare config prints the config help") {
+    auto const bareRun = e2e::runEncro({"config"}, std::nullopt, env);
+    REQUIRE(bareRun.exitCode == 0);
+    CHECK(bareRun.stdoutText.find("--unset") != std::string::npos);
+    CHECK(bareRun.stdoutText.find("--verbose") == std::string::npos);
+  }
+
+  SECTION("--no-pack overrides a persisted pack=true") {
+    auto const setRun =
+      e2e::runEncro({"config", "--set", "pack", "true"}, std::nullopt, env);
+    REQUIRE_SUCCESS(setRun);
+
+    auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+
+    auto const makeInputDir = [&](std::string_view name) {
+      auto const dir = temp.path / name;
+      fs::create_directories(dir);
+      testutils::writeTextFile(dir / "sample.avi", "fake-video");
+      return dir;
+    };
+
+    auto const packedArgs = std::vector<std::string>{
+      "-y",
+      "-i",
+      makeInputDir("packed-run").string(),
+      "-f",
+      "webp",
+      "-j",
+      "1",
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    };
+    auto const packedRun = e2e::runEncro(packedArgs, std::nullopt, env);
+    REQUIRE_SUCCESS(packedRun);
+    CHECK(
+      listFilesWithExtension(temp.path / "packed-run" / "packed", ".zip").size() == 1
+    );
+
+    auto noPackArgs = packedArgs;
+    noPackArgs[2] = makeInputDir("no-pack-run").string();
+    noPackArgs.push_back("--no-pack");
+    auto const noPackRun = e2e::runEncro(noPackArgs, std::nullopt, env);
+    REQUIRE_SUCCESS(noPackRun);
+    CHECK(listFilesWithExtension(temp.path / "no-pack-run" / "packed", ".zip").empty());
+  }
+
+  SECTION("malformed store fails runs but path still works") {
+    testutils::writeTextFile(configPath, "{ broken");
+
+    auto const inputPath = temp.path / "sample.avi";
+    testutils::writeTextFile(inputPath, "fake-video");
+    auto const badRun =
+      e2e::runEncro({"-y", "-i", inputPath.string()}, std::nullopt, env);
+    CHECK(badRun.exitCode != 0);
+    CHECK(
+      (badRun.stdoutText + badRun.stderrText).find(configPath.string())
+      != std::string::npos
+    );
+
+    auto const pathRun = e2e::runEncro({"config", "--path"}, std::nullopt, env);
+    REQUIRE_SUCCESS(pathRun);
+  }
+}

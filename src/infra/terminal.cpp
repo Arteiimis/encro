@@ -64,13 +64,13 @@ bool enableVirtualTerminal(Stream stream) {
 
 auto defaultBadgeLabel(MessageKind kind) -> std::string_view {
   switch (kind) {
-    case MessageKind::Plain:
-    case MessageKind::Heading:
-    case MessageKind::Usage:
-    case MessageKind::OptionGroup:
-    case MessageKind::OptionName:
+    case MessageKind::Plain        :
+    case MessageKind::Heading      :
+    case MessageKind::Usage        :
+    case MessageKind::OptionGroup  :
+    case MessageKind::OptionName   :
     case MessageKind::OptionDefault:
-    case MessageKind::OptionDesc:
+    case MessageKind::OptionDesc   :
     case MessageKind::Version      : return {};
     case MessageKind::Error        : return "error";
     case MessageKind::Warning      : return "warn";

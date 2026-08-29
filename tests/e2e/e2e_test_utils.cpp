@@ -12,6 +12,9 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <filesystem>
+#include <format>
 #include <fstream>
 #include <thread>
 
@@ -166,7 +169,18 @@ auto runProcess(
   std::optional<fs::path> const& workingDir,
   std::map<std::string, std::string> const& environment
 ) -> ProcessResult {
-  auto guard = ScopedEnvironmentOverrides{environment};
+  // Default config isolation: point every child at a unique missing temp path
+  // unless the test explicitly sets ENCRO_CONFIG.
+  auto effectiveEnv = environment;
+  if (!effectiveEnv.contains("ENCRO_CONFIG")) {
+    static auto sConfigCounter = std::atomic<int>{0};
+    effectiveEnv["ENCRO_CONFIG"] =
+      (fs::temp_directory_path()
+       / "encro-e2e-configs"
+       / std::format("config-{}.json", sConfigCounter.fetch_add(1)))
+        .string();
+  }
+  auto guard = ScopedEnvironmentOverrides{effectiveEnv};
   return runChild(executable, args, workingDir);
 }
 

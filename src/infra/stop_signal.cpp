@@ -139,10 +139,10 @@ void armForceExitDeadline() {
 
 BOOL WINAPI handleConsoleCtrl(DWORD ctrlType) {
   switch (ctrlType) {
-    case CTRL_C_EVENT:
-    case CTRL_BREAK_EVENT:
-    case CTRL_CLOSE_EVENT:
-    case CTRL_LOGOFF_EVENT:
+    case CTRL_C_EVENT       :
+    case CTRL_BREAK_EVENT   :
+    case CTRL_CLOSE_EVENT   :
+    case CTRL_LOGOFF_EVENT  :
     case CTRL_SHUTDOWN_EVENT: {
       gStopRequested.store(true, std::memory_order_release);
       LOG_INFO("Stop signal received (type {}); cancellation requested", ctrlType);

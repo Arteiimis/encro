@@ -416,7 +416,7 @@ TEST_CASE(
   auto const result = testutils::parseArgs({"encro", "-hh"});
   auto const plainHelp = stripAnsi(result.helpText);
 
-  auto const keepLine = testutils::findHelpLine(plainHelp, "--keep");
+  auto const keepLine = testutils::findHelpLine(plainHelp, "--[no-]keep");
   auto const outputFormatLine = testutils::findHelpLine(plainHelp, "--output-format");
   auto const forceConflictLine =
     testutils::findHelpLine(plainHelp, "--force-conflict-handling");

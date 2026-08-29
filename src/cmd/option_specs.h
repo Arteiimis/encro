@@ -5,6 +5,8 @@
 // (option names like "-p,--pack" are not resolvable via get_option).
 #pragma once
 
+#include "cmd/config_store.h"
+
 #include <CLI/CLI.hpp>
 
 #include <array>
@@ -92,6 +94,16 @@ struct Excludes {
 struct Needs {
   std::string other;  // long name of the required option, resolved in phase 2
   void operator()(CLI::Option*) const { }  // handled declaratively in applyDeps
+};
+
+// Marks the option as the CLI surface of a config key: the option pointer is
+// captured into the config-key registry (validators + built-in default) so
+// `encro config set` validates candidate values with the exact CLI rules.
+struct ConfigKey {
+  std::string_view name;
+  void operator()(CLI::Option* option) const {
+    configstore::captureConfigKey(name, option);
+  }
 };
 
 }  // namespace cfg
