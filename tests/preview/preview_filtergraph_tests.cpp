@@ -170,7 +170,10 @@ TEST_CASE("filtergraph renders xpsnr scores as signed dB", "[preview]") {
   CHECK(graph.find("text='00\\:00-00\\:10, XPSNR 41.05 dB'") != std::string::npos);
 }
 
-TEST_CASE("preview command encodes with x264 crf 14 and aac audio", "[preview]") {
+TEST_CASE(
+  "preview command encodes with hevc_nvenc by default and aac audio",
+  "[preview]"
+) {
   auto spec = preview::FiltergraphSpec{};
   spec.original = makeProbe(640, 360, 30.0, true);
   spec.encoded = makeProbe(640, 360, 30.0, true);
@@ -184,10 +187,56 @@ TEST_CASE("preview command encodes with x264 crf 14 and aac audio", "[preview]")
   CHECK(cmd.find("-map \"[vout]\"") != std::string::npos);
   CHECK(cmd.find("-map \"[aout]\" -c:a aac -b:a 192k") != std::string::npos);
   CHECK(
-    cmd.find("-c:v libx264 -crf 14 -preset veryfast -pix_fmt yuv420p")
+    cmd.find(
+      "-c:v hevc_nvenc -preset p5 -rc vbr -cq 14 -b:v 0 -pix_fmt yuv420p -tag:v hvc1"
+    )
     != std::string::npos
   );
   CHECK(cmd.find("\"out.mp4\"") != std::string::npos);
+}
+
+TEST_CASE("preview command honors the configured codec", "[preview]") {
+  auto spec = preview::FiltergraphSpec{};
+  spec.original = makeProbe(640, 360);
+  spec.encoded = makeProbe(640, 360);
+  spec.windows = {makeWindow(0)};
+
+  auto const x264 = preview::buildPreviewCommand(
+    "ffmpeg",
+    "a.mp4",
+    {"b.mp4"},
+    spec,
+    "out.mp4",
+    preview::PreviewEncoderSettings{.codec = "libx264"}
+  );
+  CHECK(
+    x264.find("-c:v libx264 -crf 14 -preset veryfast -pix_fmt yuv420p")
+    != std::string::npos
+  );
+
+  auto const x265 = preview::buildPreviewCommand(
+    "ffmpeg",
+    "a.mp4",
+    {"b.mp4"},
+    spec,
+    "out.mp4",
+    preview::PreviewEncoderSettings{.codec = "libx265"}
+  );
+  CHECK(x265.find("-c:v libx265 -crf 14 -preset veryfast") != std::string::npos);
+
+  auto const nvenc = preview::buildPreviewCommand(
+    "ffmpeg",
+    "a.mp4",
+    {"b.mp4"},
+    spec,
+    "out.mp4",
+    preview::PreviewEncoderSettings{.codec = "h264_nvenc", .nvencPreset = "p6"}
+  );
+  CHECK(
+    nvenc.find("-c:v h264_nvenc -preset p6 -rc vbr -cq 14 -b:v 0") != std::string::npos
+  );
+  // Only hevc_nvenc output carries the hvc1 tag.
+  CHECK(nvenc.find("-tag:v hvc1") == std::string::npos);
 }
 
 TEST_CASE("preview command is silent without audio", "[preview]") {

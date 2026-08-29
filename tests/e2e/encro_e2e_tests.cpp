@@ -1911,6 +1911,8 @@ TEST_CASE(
   REQUIRE_SUCCESS(e2e::runProcess(systemToolPath("ffmpeg"), makeEncoded));
 
   auto const result = e2e::runEncro({
+    "--video-codec",
+    "libx264",
     "preview",
     original.string(),
     encoded.string(),
