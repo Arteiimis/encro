@@ -57,6 +57,18 @@ The generated video SHALL show both streams side by side, labeled `ORIGINAL` and
 - **WHEN** the comparison video is generated
 - **THEN** the left half is labeled ORIGINAL, the right half ENCODED, and each segment shows its time range and score
 
+### Requirement: Comparison video renders with the production codec
+
+The comparison video SHALL be rendered with the configured production video codec (default `hevc_nvenc`) and the configured NVENC preset, so the render runs on the hardware encoder wherever the production encode would. When a CPU codec is configured, the render SHALL use that codec at a visually transparent quality. The render quality SHALL stay visually transparent regardless of the configured production CQ.
+
+#### Scenario: Default render uses the hardware encoder
+- **WHEN** the comparison video is rendered with the default configuration
+- **THEN** the render is encoded with `hevc_nvenc` at the configured NVENC preset
+
+#### Scenario: Configured CPU codec is honored
+- **WHEN** the user configures `--video-codec libx264`
+- **THEN** the comparison render is encoded with `libx264`
+
 ### Requirement: Output defaults next to the original
 
 When `--output` is omitted, the comparison video SHALL be written to the original video's directory as `<original-stem>.preview.mp4`, overwriting any existing file. `--output <path>` SHALL override the location.
