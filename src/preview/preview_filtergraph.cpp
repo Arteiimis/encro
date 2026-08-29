@@ -183,7 +183,8 @@ auto buildPreviewCommand(
   fs::path const& originalPath,
   std::vector<fs::path> const& encodedPaths,
   FiltergraphSpec const& spec,
-  fs::path const& outputPath
+  fs::path const& outputPath,
+  PreviewEncoderSettings const& encoder
 ) -> std::string {
   auto cmd = quoteToolPath(ffmpegPath);
   cmd += " -hide_banner -nostats -loglevel error -y";
@@ -198,7 +199,21 @@ auto buildPreviewCommand(
   } else {
     cmd += " -an";
   }
-  cmd += " -c:v libx264 -crf 14 -preset veryfast -pix_fmt yuv420p";
+  // Same codec family as the production encode (encode_config.h): NVENC by
+  // default so the render is not a CPU-bound step; visually transparent
+  // quality regardless of the production CQ.
+  if (encoder.codec.ends_with("_nvenc")) {
+    cmd += std::format(
+      " -c:v {} -preset {} -rc vbr -cq 14 -b:v 0 -pix_fmt yuv420p",
+      encoder.codec,
+      encoder.nvencPreset.value_or("p5")
+    );
+    if (encoder.codec == "hevc_nvenc") { cmd += " -tag:v hvc1"; }
+  } else {
+    // libvpx-vp9 has no -preset; x264-family presets are safe.
+    auto const preset = encoder.codec.starts_with("libx") ? " -preset veryfast" : "";
+    cmd += std::format(" -c:v {} -crf 14{} -pix_fmt yuv420p", encoder.codec, preset);
+  }
   cmd += std::format(" \"{}\"", outputPath.string());
   return cmd;
 }

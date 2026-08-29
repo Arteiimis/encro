@@ -334,7 +334,11 @@ auto renderPreview(
     originalPath,
     encodedPaths,
     spec,
-    outputPath
+    outputPath,
+    PreviewEncoderSettings{
+      .codec = ctx.config.videoCodec.value_or("hevc_nvenc"),
+      .nvencPreset = ctx.config.nvencPreset,
+    }
   );
 
   ExecResult result{};
