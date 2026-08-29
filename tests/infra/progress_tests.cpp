@@ -151,23 +151,30 @@ TEST_CASE(
   "EtaEstimator resumes correctly when progress starts above zero",
   "[progress]"
 ) {
-  // Job-store resume: the overall bar opens at the already-completed percent
-  // (here 80%). The projection must key off progress gained since the
-  // baseline, not absolute percent; otherwise the ETA opens near zero and
-  // crawls toward the truth for tens of minutes.
+  // Segment-resume: barEncodingStart writes an explicit 0, then the monitor's
+  // first sample sits at the resume percent (baseFrameOffset, here 80%). The
+  // baseline must be that resume point, not the zero -- otherwise the seed
+  // treats 80% as done in the first 250 ms and the ETA opens near 0 s.
   progress::EtaEstimator est;
   auto const t = std::chrono::steady_clock::now();
-  est.sample(t, 80.0f);             // baseline: 80% done before the resume
+  est.sample(t, 0.0f);              // barEncodingStart's explicit zero
+  est.sample(t + 250ms, 80.0f);     // first monitor sample: the resume point
 
   auto const rate = 20.0 / 3600.0;  // remaining 20% takes ~1 h
   auto progress = 80.0;
-  for (auto i = 1; i < 30; ++i) {
+  for (auto i = 1; i < 60; ++i) {
     progress += rate * 0.5;
-    est.sample(t + std::chrono::milliseconds{500} * i, static_cast<float>(progress));
+    est.sample(
+      t + 250ms + std::chrono::milliseconds{500} * i,
+      static_cast<float>(progress)
+    );
     CHECK_FALSE(est.etaSeconds(static_cast<float>(progress)).has_value());
   }
   progress += rate * 0.5;
-  est.sample(t + std::chrono::milliseconds{500} * 30, static_cast<float>(progress));
+  est.sample(
+    t + 250ms + std::chrono::milliseconds{500} * 60,
+    static_cast<float>(progress)
+  );
 
   auto const eta = est.etaSeconds(static_cast<float>(progress));
   REQUIRE(eta.has_value());
@@ -180,7 +187,7 @@ TEST_CASE(
 TEST_CASE("EtaEstimator seeds only from meaningful progress", "[progress]") {
   // ffmpeg's startup ramp crawls: extrapolating elapsed*100/p from it
   // produces hours-scale ETAs. Nothing may be seeded before progress is
-  // meaningful (1 point gained since the baseline) or 15 s have elapsed
+  // meaningful (0.5 points gained since the baseline) or 30 s have elapsed
   // (percent-crawling batch-overall bars).
   progress::EtaEstimator est;
   auto const t = std::chrono::steady_clock::now();
@@ -190,18 +197,16 @@ TEST_CASE("EtaEstimator seeds only from meaningful progress", "[progress]") {
   }
   CHECK_FALSE(est.etaSeconds(0.2f).has_value());
 
-  est.sample(t + 16s, 0.3f);  // elapsed fallback seeds a rough estimate
+  est.sample(t + 31s, 0.3f);  // percent-crawling bars: elapsed fallback seeds
   CHECK(est.etaSeconds(0.3f).has_value());
 }
 
-TEST_CASE("EtaEstimator keeps a burst jump bounded", "[progress]") {
+TEST_CASE("EtaEstimator does not fabricate an eta from a burst jump", "[progress]") {
   progress::EtaEstimator est;
   auto t = std::chrono::steady_clock::now();
   est.sample(t, 0.0f);
-  est.sample(t + 250ms, 60.0f);  // absurd 240%/s jump
-  auto const etaAfterJump = est.etaSeconds(60.0f);
-  REQUIRE(etaAfterJump.has_value());
-  CHECK(etaAfterJump.value() < 5.0f);
+  est.sample(t + 250ms, 60.0f);  // absurd 240%/s jump: anchors only, no fold
+  CHECK_FALSE(est.etaSeconds(60.0f).has_value());
   for (auto i = 2; i <= 20; ++i) {
     est.sample(t + std::chrono::milliseconds{250} * i, 60.0f + static_cast<float>(i));
   }
