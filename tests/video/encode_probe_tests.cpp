@@ -496,8 +496,7 @@ TEST_CASE("runProbePhase probes and decides with fake tools", "[encode-probe]") 
   CHECK(plan.p5.value() == Catch::Approx(96.0));
   CHECK(plan.estimatedBytes.has_value());
   CHECK_FALSE(plan.unreachableFloor);
-  // The fake provides no xpsnr stats (WRITE_XPSNR unset), so the primary
-  // attempt fails and scoring degrades to VMAF, recorded as such.
+  // VMAF is the primary metric and the fake provides VMAF scores directly.
   CHECK(plan.metric == videoquality::QualityMetric::Vmaf);
   CHECK(result->attentionWarnings.empty());
   CHECK(leftoverProbeDirs().empty());
@@ -879,7 +878,7 @@ TEST_CASE("runEncodingTasks skips probing entirely with --crf", "[encode-probe]"
 }
 
 TEST_CASE(
-  "runProbePhase scores with the fake xpsnr provider end to end",
+  "runProbePhase falls back to the fake xpsnr provider when libvmaf fails",
   "[encode-probe]"
 ) {
   TempDir temp;
@@ -887,9 +886,14 @@ TEST_CASE(
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
+  // VMAF (primary) invocations fail via their log_path= marker; the XPSNR
+  // fallback (stats_file=, no log_path=) still produces usable output.
   envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_WRITE_XPSNR", "1"));
   envs
     .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_XPSNR_SCORES", "40.5"));
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SCORING_FAIL_MATCH", "log_path=")
+  );
 
   auto const inputs = std::vector<fs::path>{inputPath};
   auto const result = encodeprobe::runProbePhase(ctx, inputs);
@@ -916,15 +920,15 @@ TEST_CASE(
   envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_WRITE_XPSNR", "1"));
   envs
     .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_XPSNR_SCORES", "40.5"));
-  // The second window's XPSNR scoring fails ("_1.ts" match) while its VMAF
-  // retry is exempted via the log_path= marker: window A scores XPSNR,
-  // window B scores VMAF. Pooling would mix scales, so each point must be
-  // discarded by the metric-consistency guard.
+  // Window A's VMAF (primary) attempt fails ("_0.ts" without stats_file=),
+  // so its XPSNR retry scores the window while window B keeps VMAF: window
+  // A scores XPSNR, window B scores VMAF. Pooling would mix scales, so each
+  // point must be discarded by the metric-consistency guard.
   envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SCORING_FAIL_MATCH", "_1.ts")
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SCORING_FAIL_MATCH", "_0.ts")
   );
   envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SCORING_FAIL_UNLESS", "log_path=")
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SCORING_FAIL_UNLESS", "stats_file=")
   );
 
   auto const inputs = std::vector<fs::path>{inputPath};
@@ -945,8 +949,8 @@ TEST_CASE(
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
-  // No XPSNR stats are provided (primary attempt fails), and the VMAF
-  // invocations fail via their log_path= marker; only the SSIM attempts
+  // The VMAF (primary) invocations fail via their log_path= marker, and the
+  // XPSNR fallback also fails (no stats written); only the SSIM attempts
   // produce usable output, so the terminal fallback scores the file.
   envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_WRITE_SSIM", "1"));
   envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SSIM_SCORES", "0.98"));
