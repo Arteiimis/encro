@@ -31,9 +31,11 @@ using Manager = indicators::DynamicProgress<indicators::ProgressBar>;
 using BarPtr = std::unique_ptr<indicators::ProgressBar>;
 using BarCollection = std::vector<BarPtr>;
 
-// ETA from an EMA-smoothed projected total time (elapsed * 100 / progress),
-// not from instantaneous rate: per-update encode speed wobbles +-30% and a
-// short-window rate estimate turns that into tens of minutes of ETA swing.
+// ETA from an EMA-smoothed projected total time (elapsed * 100 / progress
+// gained since the baseline), not from instantaneous rate: per-update encode
+// speed wobbles +-30% and a short-window rate estimate turns that into tens
+// of minutes of ETA swing. Baseline-relative progress keeps resumed jobs
+// (overall bar opening at, say, 80%) from extrapolating to ~zero remaining.
 // ponytail: the since-start average biases the ETA toward the early phase for
 // ~tau after a sustained speed change; a decayed-window rate would remove that.
 class EtaEstimator {
@@ -42,9 +44,12 @@ public:
   // Projection fold time constant: long enough to swallow bursty speed noise,
   // short enough to track real slowdowns when parallel jobs start/stop.
   static constexpr auto kProjectionTauSec = 15.0f;
-  // Samples younger than this only advance the clock; the encode's startup
-  // ramp makes the first seconds' projection worthless as a seed.
-  static constexpr auto kSeedMinElapsed = std::chrono::milliseconds{2000};
+  // Seed the projection only once >= kSeedMinProgress percent has been gained
+  // since the baseline (ffmpeg's startup ramp would otherwise extrapolate to
+  // hours), or after kSeedMaxElapsed for batch-overall bars whose percent
+  // crawls.
+  static constexpr auto kSeedMinProgress = 1.0f;
+  static constexpr auto kSeedMaxElapsed = std::chrono::milliseconds{15000};
 
   void sample(std::chrono::steady_clock::time_point now, float progress);
   void reset();
@@ -54,6 +59,7 @@ public:
 private:
   std::chrono::steady_clock::time_point startAt_{};
   std::chrono::steady_clock::time_point lastFoldAt_{};
+  float baseProgress_ = 0.0f;
   float lastProgress_ = 0.0f;
   float projectedTotalSec_ = 0.0f;
   float lastFoldedProgress_ = 0.0f;
