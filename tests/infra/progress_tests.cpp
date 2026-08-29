@@ -5,7 +5,9 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <string>
 
 using namespace std::chrono_literals;
@@ -145,17 +147,19 @@ TEST_CASE("EtaEstimator keeps eta stable during short stalls", "[progress]") {
   CHECK(after < before * 1.3f);
 }
 
-TEST_CASE("EtaEstimator ignores artificial progress jumps", "[progress]") {
+TEST_CASE("EtaEstimator does not fabricate an eta from a burst jump", "[progress]") {
   progress::EtaEstimator est;
   auto t = std::chrono::steady_clock::now();
   est.sample(t, 0.0f);
   est.sample(t + 250ms, 60.0f);
   CHECK_FALSE(est.etaSeconds(60.0f).has_value());
-  est.sample(t + 500ms, 61.0f);
-  auto const eta = est.etaSeconds(61.0f);
+  for (auto i = 2; i <= 20; ++i) {
+    est.sample(t + std::chrono::milliseconds{250} * i, 60.0f + static_cast<float>(i));
+  }
+  auto const eta = est.etaSeconds(80.0f);
   REQUIRE(eta.has_value());
-  CHECK(*eta > 8.0f);
-  CHECK(*eta < 12.0f);
+  CHECK(*eta > 0.0f);
+  CHECK(*eta < 5.0f);
 }
 
 TEST_CASE("EtaEstimator recovers rate after a progress dip", "[progress]") {
@@ -172,6 +176,50 @@ TEST_CASE("EtaEstimator recovers rate after a progress dip", "[progress]") {
   CHECK(*eta < 8.0f);
 }
 
+TEST_CASE(
+  "EtaEstimator stays near true remaining time under bursty speed noise",
+  "[progress]"
+) {
+  // A 40-minute encode whose instantaneous speed wobbles +-30% in a
+  // deterministic 4-second cycle (keyframe cadence, disk flushes, sibling
+  // workers), sampled at ffmpeg's 0.5 s stats cadence. The displayed ETA
+  // must track the true remaining time within a few minutes instead of
+  // swinging back and forth by tens of minutes.
+  progress::EtaEstimator est;
+  auto const t = std::chrono::steady_clock::now();
+
+  constexpr double trueTotalSec = 2400.0;
+  constexpr double sampleSec = 0.5;
+  constexpr double baseRate = 100.0 / trueTotalSec;  // percent per second
+  constexpr double noiseCycle[] = {1.3, 1.3, 1.3, 1.3, 0.7, 0.7, 0.7, 0.7};
+
+  est.sample(t, 0.0f);
+  auto progress = 0.0;
+  auto maxAbsErrorSec = 0.0;
+  for (auto i = 1;; ++i) {
+    progress += baseRate * noiseCycle[i % 8] * sampleSec;
+    auto const now = t
+      + std::chrono::duration_cast<std::chrono::milliseconds>(
+                       std::chrono::duration<double>(i * sampleSec)
+      );
+    est.sample(now, static_cast<float>(progress));
+
+    auto const elapsedSec = static_cast<double>(i) * sampleSec;
+    if (elapsedSec < 120.0) { continue; }  // warm-up: early wobble is expected
+    if (progress >= 99.0) { break; }
+
+    auto const trueRemainingSec = trueTotalSec - elapsedSec;
+    auto const eta = est.etaSeconds(static_cast<float>(progress));
+    REQUIRE(eta.has_value());
+    maxAbsErrorSec = std::max(
+      maxAbsErrorSec,
+      std::abs(static_cast<double>(eta.value()) - trueRemainingSec)
+    );
+  }
+  INFO("max ETA error (s): " << maxAbsErrorSec);
+  CHECK(maxAbsErrorSec <= 180.0);
+}
+
 TEST_CASE("EtaEstimator reset clears stale rate for bar reuse", "[progress]") {
   progress::EtaEstimator est;
   auto t = std::chrono::steady_clock::now();
@@ -186,12 +234,41 @@ TEST_CASE("EtaEstimator reset clears stale rate for bar reuse", "[progress]") {
   est.reset();
   CHECK_FALSE(est.etaSeconds(90.0f).has_value());
 
-  est.sample(t + std::chrono::milliseconds{250} * 22, 90.0f);
-  est.sample(t + std::chrono::milliseconds{250} * 23, 90.5f);
-  auto const eta = est.etaSeconds(90.5f);
+  // Fresh steady feed at 4%/s: eta must reflect only the new samples
+  // (true remaining ~22 s at p=12), not the pre-reset rate.
+  for (auto i = 1; i <= 12; ++i) {
+    est.sample(t + 5s + std::chrono::milliseconds{250} * i, static_cast<float>(i));
+  }
+  auto const eta = est.etaSeconds(12.0f);
   REQUIRE(eta.has_value());
-  CHECK(*eta > 3.0f);
-  CHECK(*eta < 6.0f);
+  CHECK(*eta > 15.0f);
+  CHECK(*eta < 30.0f);
+}
+
+TEST_CASE("EtaEstimator tracks a sustained speed slowdown", "[progress]") {
+  // Steady 1%/s for 30 s, then the true rate halves (a sibling worker
+  // started). The projection is a since-start average, so it re-locks with a
+  // bias toward the fast early phase (see EtaEstimator's ponytail note);
+  // within ~60 s (4 tau) the displayed ETA must still land within 40% of
+  // the true remaining time.
+  progress::EtaEstimator est;
+  auto const t = std::chrono::steady_clock::now();
+  est.sample(t, 0.0f);
+  auto progress = 0.0;
+  for (auto i = 1; i <= 60; ++i) {  // 30 s at 1%/s
+    progress += 0.5;
+    est.sample(t + std::chrono::milliseconds{500} * i, static_cast<float>(progress));
+  }
+  for (auto i = 61; i <= 180; ++i) {  // 60 s more at 0.5%/s
+    progress += 0.25;
+    est.sample(t + std::chrono::milliseconds{500} * i, static_cast<float>(progress));
+  }
+  auto const eta = est.etaSeconds(static_cast<float>(progress));
+  REQUIRE(eta.has_value());
+  auto const trueRemainingSec = (100.0 - progress) / 0.5;  // 80 s
+  INFO("eta: " << eta.value() << " true remaining: " << trueRemainingSec);
+  CHECK(eta.value() > trueRemainingSec * 0.6);
+  CHECK(eta.value() < trueRemainingSec * 1.1);
 }
 
 TEST_CASE("fitPostfixText returns fitting text verbatim", "[progress]") {
