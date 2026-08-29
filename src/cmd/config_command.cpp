@@ -33,7 +33,7 @@ auto effectiveValue(configstore::LoadResult const& loaded, std::string_view key)
   return {builtinDefault(key), false};
 }
 
-auto reportUnknownKey(std::string_view key) -> int {
+int reportUnknownKey(std::string_view key) {
   terminal::eprintln(
     Error,
     "unknown config key: {} (run 'encro config list' for the configurable keys)",
@@ -42,27 +42,13 @@ auto reportUnknownKey(std::string_view key) -> int {
   return 1;
 }
 
-auto reportSaveError(std::optional<std::string> const& error) -> int {
+int reportSaveError(std::optional<std::string> const& error) {
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access): all callers guard with has_value()
   terminal::eprintln(Error, "{}", *error);
   return 1;
 }
 
-void warnUnknownKeys(
-  configstore::LoadResult const& loaded,
-  std::filesystem::path const& path
-) {
-  for (auto const& key: loaded.unknownKeys) {
-    terminal::eprintln(
-      Warning,
-      "ignoring unknown config key \"{}\" in {}",
-      key,
-      path.string()
-    );
-  }
-}
-
-auto listAction(configstore::LoadResult const& loaded) -> int {
+int listAction(configstore::LoadResult const& loaded) {
   for (auto const& def: configstore::keys()) {
     auto const [value, fromConfig] = effectiveValue(loaded, def.key);
     terminal::println(
@@ -76,17 +62,17 @@ auto listAction(configstore::LoadResult const& loaded) -> int {
   return 0;
 }
 
-auto getAction(configstore::LoadResult const& loaded, std::string const& key) -> int {
+int getAction(configstore::LoadResult const& loaded, std::string const& key) {
   if (!configstore::isKnownKey(key)) { return reportUnknownKey(key); }
   terminal::println(Plain, "{}", effectiveValue(loaded, key).first);
   return 0;
 }
 
-auto setAction(
+int setAction(
   configstore::LoadResult& loaded,
   std::filesystem::path const& configPath,
   std::vector<std::string> const& parts
-) -> int {
+) {
   auto const& key = parts[0];
   if (!configstore::isKnownKey(key)) { return reportUnknownKey(key); }
 
@@ -106,11 +92,11 @@ auto setAction(
   return 0;
 }
 
-auto unsetAction(
+int unsetAction(
   configstore::LoadResult& loaded,
   std::filesystem::path const& configPath,
   std::string const& key
-) -> int {
+) {
   if (!configstore::isKnownKey(key)) { return reportUnknownKey(key); }
   if (loaded.values.erase(key) == 0) { return 0; }
   if (
@@ -124,7 +110,7 @@ auto unsetAction(
 
 }  // namespace
 
-auto runConfigCommand(CmdParseResult const& cmd) -> int {
+int runConfigCommand(CmdParseResult const& cmd) {
   auto const configPath = configstore::resolveConfigPath();
 
   // `path` only resolves the location; it never reads the file content.

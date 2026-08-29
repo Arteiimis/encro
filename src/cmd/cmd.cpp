@@ -888,14 +888,7 @@ auto injectConfigDefaults(CLI::App& app) -> std::optional<std::string> {
   auto const loaded = configstore::load(configPath);
   if (loaded.error) { return loaded.error; }
 
-  for (auto const& key: loaded.unknownKeys) {
-    terminal::eprintln(
-      Warning,
-      "ignoring unknown config key \"{}\" in {}",
-      key,
-      configPath.string()
-    );
-  }
+  configstore::warnUnknownKeys(loaded, configPath);
   for (auto const& [key, value]: loaded.values) {
     if (auto* opt = app.get_option_no_throw("--" + key)) {
       opt->default_str(value);
