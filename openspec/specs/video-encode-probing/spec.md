@@ -67,7 +67,7 @@ Before the confirmation prompt, the system SHALL print a per-file plan containin
 - **THEN** the plan line shows the estimated output size and the compression ratio against the source
 
 #### Scenario: Mixed-metric batch renders each row in its own units
-- **WHEN** a batch contains files scored with different metrics (e.g. one HDR file scored with SSIM and non-HDR files scored with XPSNR)
+- **WHEN** a batch contains files scored with different metrics (e.g. one HDR file scored with SSIM and non-HDR files scored with VMAF)
 - **THEN** each plan row renders its p5 value formatted for that file's metric instead of forcing one unit onto all rows, and the plan header describes the floor in its stable VMAF-scale meaning rather than deriving its metric name from any single file's metric
 
 ### Requirement: Unreachable floor degrades to lowest-CQ with warning
@@ -122,20 +122,20 @@ After a successful encode (with probing or without), the final summary SHALL pri
 - **WHEN** the user runs `--dry-run`
 - **THEN** no preview hint is printed
 
-### Requirement: Quality metric chain falls back through VMAF and SSIM
+### Requirement: Quality metric chain falls back through XPSNR and SSIM
 
-Probe scoring SHALL use XPSNR as the primary quality metric for non-HDR inputs. When XPSNR cannot be computed (e.g. an ffmpeg build without the filter) the system SHALL fall back to VMAF, and when VMAF also cannot be computed it SHALL fall back to SSIM, emitting a warning naming the degraded metric on each fallback. HDR inputs keep using SSIM directly. Every fallback decision SHALL be recorded so plan output labels the score with the metric actually used.
+Probe scoring SHALL use VMAF as the primary quality metric for non-HDR inputs: the `--min-vmaf` floor is defined on the VMAF scale, so decisions compare natively without cross-metric mapping. When VMAF cannot be computed (e.g. an ffmpeg build without libvmaf) the system SHALL fall back to XPSNR, comparing against the VMAF-equivalent XPSNR floor, and when XPSNR also cannot be computed it SHALL fall back to SSIM, emitting a warning naming the degraded metric on each fallback. HDR inputs keep using SSIM directly. Every fallback decision SHALL be recorded so plan output labels the score with the metric actually used.
 
-#### Scenario: Primary scoring path uses XPSNR
-- **WHEN** a non-HDR video is probed with an ffmpeg build providing the xpsnr filter
-- **THEN** every probe point is scored with XPSNR and the plan shows p5 in XPSNR dB labeled as such
+#### Scenario: Primary scoring path uses VMAF
+- **WHEN** a non-HDR video is probed with an ffmpeg build providing libvmaf
+- **THEN** every probe point is scored with VMAF and the plan shows p5 on the VMAF scale labeled as such
 
-#### Scenario: XPSNR unavailable degrades to VMAF
-- **WHEN** probe scoring runs against an ffmpeg build without the xpsnr filter
-- **THEN** a warning names XPSNR as unavailable, scoring proceeds with VMAF, and the plan labels the scores as VMAF
+#### Scenario: VMAF unavailable degrades to XPSNR
+- **WHEN** probe scoring runs against an ffmpeg build without libvmaf but with the xpsnr filter
+- **THEN** a warning names VMAF as unavailable, scoring proceeds with XPSNR against the VMAF-equivalent XPSNR floor, and the plan labels the scores as XPSNR
 
 #### Scenario: VMAF and XPSNR both unavailable degrade to SSIM
-- **WHEN** neither XPSNR nor VMAF can be computed for a segment
+- **WHEN** neither VMAF nor XPSNR can be computed for a segment
 - **THEN** a warning names the failing metrics and scoring falls back to SSIM exactly as the pre-existing SSIM fallback did
 
 ### Requirement: Probing shows progress feedback
