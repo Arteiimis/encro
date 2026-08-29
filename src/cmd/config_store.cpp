@@ -1,6 +1,7 @@
 #include "cmd/config_store.h"
 
 #include "infra/env.h"
+#include "infra/terminal.h"
 
 #include <boost/json.hpp>
 
@@ -14,6 +15,8 @@
 #include <utility>
 
 namespace fs = std::filesystem;
+
+using enum terminal::MessageKind;
 
 namespace configstore {
 
@@ -44,7 +47,7 @@ auto keys() -> std::span<KeyDef const> {
   return kKeys;
 }
 
-auto isKnownKey(std::string_view key) -> bool {
+bool isKnownKey(std::string_view key) {
   return std::ranges::any_of(kKeys, [key](KeyDef const& def) { return def.key == key; });
 }
 
@@ -71,8 +74,12 @@ void captureConfigKey(std::string_view key, CLI::Option* option) {
 
 // Applies the registered validators to `value` in place (transformers may
 // canonicalize it); returns the first validation error, or empty when valid.
+// After the option's own validators, boolean/number keys get a type check on
+// the final value: flag options carry no validators, and the CLI would reject
+// a non-integer at conversion time.
 auto validateValue(std::string_view key, std::string& value)
   -> std::optional<std::string> {
+  auto const kind = jsonKindOf(key);
   auto const& registry = configKeyRegistry();
   auto const it = registry.find(std::string{key});
   if (it == registry.end()) { return std::nullopt; }
@@ -86,6 +93,19 @@ auto validateValue(std::string_view key, std::string& value)
     if (validator == nullptr) { break; }
 
     if (auto error = (*validator)(value); !error.empty()) { return error; }
+  }
+
+  if (kind == JsonKind::Boolean) {
+    if (value != "true" && value != "false") {
+      return std::format("expected true or false, got '{}'", value);
+    }
+  } else if (kind == JsonKind::Number) {
+    long long parsed = 0;
+    auto const [ptr, ec] =
+      std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (ec != std::errc{} || ptr != value.data() + value.size()) {
+      return std::format("expected an integer, got '{}'", value);
+    }
   }
   return std::nullopt;
 }
@@ -147,6 +167,17 @@ auto scalarJson(std::string const& raw, JsonKind kind) -> std::string {
 }
 
 }  // namespace
+
+void warnUnknownKeys(LoadResult const& loaded, fs::path const& path) {
+  for (auto const& key: loaded.unknownKeys) {
+    terminal::eprintln(
+      Warning,
+      "ignoring unknown config key \"{}\" in {}",
+      key,
+      path.string()
+    );
+  }
+}
 
 auto load(fs::path const& path) -> LoadResult {
   auto result = LoadResult{};
