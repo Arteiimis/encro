@@ -1854,14 +1854,7 @@ TEST_CASE(
 
   // The summary prints exactly once, after the render completes — the
   // pre-render list print would make this two.
-  auto listCount = std::size_t{0};
-  for (
-    auto pos = result.stdoutText.find("Preview windows"); pos != std::string::npos;
-    pos = result.stdoutText.find("Preview windows", pos + 1)
-  ) {
-    ++listCount;
-  }
-  CHECK(listCount == 1);
+  CHECK(testutils::countOccurrences(result.stdoutText, "Preview windows") == 1);
   auto const listPos = result.stdoutText.find("Preview windows");
   auto const writtenPos = result.stdoutText.find("Preview written to:");
   REQUIRE(listPos != std::string::npos);
