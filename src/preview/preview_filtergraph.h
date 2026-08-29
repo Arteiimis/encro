@@ -60,7 +60,16 @@ inline auto formatTimeRange(std::uint64_t startUs, std::uint64_t durationUs)
 // original has an audio stream.
 auto buildPreviewFiltergraph(FiltergraphSpec const& spec) -> std::string;
 
-// The full preview generation command: x264 crf 14 veryfast, yuv420p, audio
+// Encoder for the comparison render: mirrors the production video codec
+// (default hevc_nvenc) so the render runs on the hardware encoder whenever
+// the real encode would; CPU codecs keep fast high-quality settings.
+struct PreviewEncoderSettings {
+  std::string codec = "hevc_nvenc";
+  std::optional<std::string> nvencPreset;
+};
+
+// The full preview generation command: production codec (see
+// PreviewEncoderSettings) at visually transparent quality, yuv420p, audio
 // re-encoded to AAC (filtered audio is decoded, so copy is not possible),
 // -y overwrite.
 auto buildPreviewCommand(
@@ -68,7 +77,8 @@ auto buildPreviewCommand(
   std::filesystem::path const& originalPath,
   std::vector<std::filesystem::path> const& encodedPaths,
   FiltergraphSpec const& spec,
-  std::filesystem::path const& outputPath
+  std::filesystem::path const& outputPath,
+  PreviewEncoderSettings const& encoder = {}
 ) -> std::string;
 
 }  // namespace preview
