@@ -45,11 +45,11 @@ public:
   // short enough to track real slowdowns when parallel jobs start/stop.
   static constexpr auto kProjectionTauSec = 15.0f;
   // Seed the projection only once >= kSeedMinProgress percent has been gained
-  // since the baseline (ffmpeg's startup ramp would otherwise extrapolate to
-  // hours), or after kSeedMaxElapsed for batch-overall bars whose percent
-  // crawls.
-  static constexpr auto kSeedMinProgress = 1.0f;
-  static constexpr auto kSeedMaxElapsed = std::chrono::milliseconds{15000};
+  // since the baseline (seeding during ffmpeg's startup/warmup ramp would
+  // extrapolate to hours), or after kSeedMaxElapsed for batch-overall bars
+  // whose percent crawls.
+  static constexpr auto kSeedMinProgress = 0.5f;
+  static constexpr auto kSeedMaxElapsed = std::chrono::milliseconds{30000};
 
   void sample(std::chrono::steady_clock::time_point now, float progress);
   void reset();

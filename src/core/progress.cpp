@@ -214,13 +214,22 @@ auto fitPostfixWithEta(
 }
 
 void EtaEstimator::sample(std::chrono::steady_clock::time_point now, float progress) {
+  lastProgress_ = progress;
+
   if (!hasSample_) {
+    // Anchor at the first real progress sample. The explicit 0 from
+    // barEncodingStart must not start the clock, and on segment-resume the
+    // first monitor samples sit at the resume percent (baseFrameOffset) --
+    // the baseline has to be that point, not 0, or the seed extrapolates the
+    // whole pre-resume work into the first sample interval.
+    if (progress <= 0.0f) { return; }
     startAt_ = now;
     lastFoldAt_ = now;
     baseProgress_ = progress;
+    lastFoldedProgress_ = progress;
     hasSample_ = true;
+    return;
   }
-  lastProgress_ = progress;
 
   if (now - lastFoldAt_ < kSampleInterval) { return; }
   auto const dtSec = std::chrono::duration<float>(now - lastFoldAt_).count();
@@ -234,7 +243,6 @@ void EtaEstimator::sample(std::chrono::steady_clock::time_point now, float progr
   }
 
   auto const gained = progress - baseProgress_;
-  if (gained <= 0.0f) { return; }
   if (gained < kSeedMinProgress && now - startAt_ < kSeedMaxElapsed) { return; }
 
   auto const elapsedSec = std::chrono::duration<float>(now - startAt_).count();
