@@ -20,7 +20,7 @@ auto resolveColor(Tone tone, bool colorsEnabled) -> indicators::Color {
   if (!colorsEnabled) { return Color::white; }
 
   switch (tone) {
-    case Tone::Default:
+    case Tone::Default   :
     case Tone::Active    : return Color::cyan;
     case Tone::Overall   : return Color::blue;
     case Tone::Idle      : return Color::white;
@@ -215,37 +215,46 @@ auto fitPostfixWithEta(
 
 void EtaEstimator::sample(std::chrono::steady_clock::time_point now, float progress) {
   if (!hasSample_) {
-    lastSampleAt_ = now;
-    lastProgress_ = progress;
+    startAt_ = now;
+    lastFoldAt_ = now;
     hasSample_ = true;
+  }
+  lastProgress_ = progress;
+
+  if (now - lastFoldAt_ < kSampleInterval) { return; }
+  auto const dtSec = std::chrono::duration<float>(now - lastFoldAt_).count();
+  lastFoldAt_ = now;
+
+  // Fold only real forward movement into the projection: stalls produce no
+  // samples in production (the monitor skips unchanged progress files) and
+  // regressions (bar reset to 0, overall-bar race) are not real slowdowns.
+  if (progress <= 0.0f || progress >= 100.0f || progress <= lastFoldedProgress_) {
     return;
   }
 
-  auto const dtSec = std::chrono::duration<double>(now - lastSampleAt_).count();
-  if (dtSec * 1000.0 >= static_cast<double>(kSampleInterval.count())) {
-    auto const inst = (progress - lastProgress_) / static_cast<float>(dtSec);
-    if (inst > 0.0f && inst <= kMaxRatePerSec) {
-      ratePerSec_ = hasRate_ ? kEmaAlpha * inst + (1.0f - kEmaAlpha) * ratePerSec_ : inst;
-      hasRate_ = true;
-    } else if (inst <= 0.0f && hasRate_) {
-      ratePerSec_ *= kStallDecayPerSample;
-    }
-    lastSampleAt_ = now;
-    lastProgress_ = progress;
-  }
+  if (now - startAt_ < kSeedMinElapsed) { return; }
+
+  auto const elapsedSec = std::chrono::duration<float>(now - startAt_).count();
+  auto const projectedTotalSec = elapsedSec * 100.0f / progress;
+  auto const weight = hasProjection_ ? 1.0f - std::exp(-dtSec / kProjectionTauSec) : 1.0f;
+  projectedTotalSec_ += weight * (projectedTotalSec - projectedTotalSec_);
+  hasProjection_ = true;
+  lastFoldedProgress_ = progress;
 }
 
 void EtaEstimator::reset() {
-  lastSampleAt_ = {};
+  startAt_ = {};
+  lastFoldAt_ = {};
   lastProgress_ = 0.0f;
-  ratePerSec_ = 0.0f;
+  projectedTotalSec_ = 0.0f;
+  lastFoldedProgress_ = 0.0f;
   hasSample_ = false;
-  hasRate_ = false;
+  hasProjection_ = false;
 }
 
 auto EtaEstimator::etaSeconds(float progress) const -> std::optional<float> {
-  if (!hasRate_ || progress <= 0.0f || progress >= 100.0f) { return std::nullopt; }
-  return (100.0f - progress) / std::max(ratePerSec_, 0.01f);
+  if (!hasProjection_ || progress <= 0.0f || progress >= 100.0f) { return std::nullopt; }
+  return projectedTotalSec_ * (100.0f - progress) / 100.0f;
 }
 
 float EtaEstimator::lastProgress() const {
