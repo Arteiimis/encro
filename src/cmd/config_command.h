@@ -8,6 +8,6 @@ namespace cmd {
 
 // Returns the process exit code; output goes through terminal (stdout for
 // results, stderr for errors/warnings).
-auto runConfigCommand(CmdParseResult const& cmd) -> int;
+int runConfigCommand(CmdParseResult const& cmd);
 
 }  // namespace cmd

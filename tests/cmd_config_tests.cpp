@@ -266,6 +266,33 @@ TEST_CASE(
     CHECK_FALSE(std::filesystem::exists(configPath));
   }
 
+  SECTION("set rejects non-boolean values for flag keys") {
+    auto notBoolean =
+      testutils::parseArgs({"encro", "config", "--set", "pack", "banana"});
+    CHECK(cmd::runConfigCommand(notBoolean) == 1);
+    CHECK_FALSE(std::filesystem::exists(configPath));
+  }
+
+  SECTION("set rejects non-integer values for number keys") {
+    auto notInteger = testutils::parseArgs({"encro", "config", "--set", "crf", "4.5"});
+    CHECK(cmd::runConfigCommand(notInteger) == 1);
+
+    auto inRange = testutils::parseArgs({"encro", "config", "--set", "jobs", "4.5"});
+    CHECK(cmd::runConfigCommand(inRange) == 1);
+
+    CHECK_FALSE(std::filesystem::exists(configPath));
+  }
+
+  SECTION("set accepts boolean true and false for flag keys") {
+    auto on = testutils::parseArgs({"encro", "config", "--set", "pack", "true"});
+    CHECK(cmd::runConfigCommand(on) == 0);
+    auto off = testutils::parseArgs({"encro", "config", "--set", "pack", "false"});
+    CHECK(cmd::runConfigCommand(off) == 0);
+    CHECK(
+      testutils::readTextFile(configPath).find("\"pack\": false") != std::string::npos
+    );
+  }
+
   SECTION("set canonicalizes transformed values") {
     auto setResult =
       testutils::parseArgs({"encro", "config", "--set", "force-conflict-handling", "N"});

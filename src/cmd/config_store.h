@@ -31,7 +31,7 @@ struct KeyDef {
 // help groups.
 auto keys() -> std::span<KeyDef const>;
 
-auto isKnownKey(std::string_view key) -> bool;
+bool isKnownKey(std::string_view key);
 auto jsonKindOf(std::string_view key) -> std::optional<JsonKind>;
 
 // Registry tying config keys to their registered CLI options. Pointers are
@@ -43,7 +43,9 @@ void captureConfigKey(std::string_view key, CLI::Option* option);
 
 // Applies the registered validators to `value` in place (transformers may
 // canonicalize it); returns the first validation error, or nullopt when valid
-// (or when the key has no registered option).
+// (or when the key has no registered option). Boolean/number keys get a type
+// check first: flag options carry no validators, and the CLI would reject a
+// non-integer at conversion time.
 auto validateValue(std::string_view key, std::string& value)
   -> std::optional<std::string>;
 
@@ -60,6 +62,9 @@ struct
 };
 
 auto load(std::filesystem::path const& path) -> LoadResult;
+
+// Prints one warning line per unknown key found by load().
+void warnUnknownKeys(LoadResult const& loaded, std::filesystem::path const& path);
 
 // Rewrites the whole file in canonical pretty form (creates parent dirs).
 auto save(
