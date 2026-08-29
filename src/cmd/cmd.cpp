@@ -1,5 +1,6 @@
 #include "cmd/cmd.h"
 
+#include "cmd/config_store.h"
 #include "cmd/option_specs.h"
 
 #include "infra/env.h"
@@ -64,15 +65,21 @@ auto resolveHelpTextLayout() -> HelpTextLayout {
 auto formatOptionName(CLI::Option const* opt) -> std::string {
   if (opt->get_positional()) { return opt->get_name(true); }
 
+  auto const hasLongName = [&lnames = opt->get_lnames()](std::string const& name) {
+    return std::ranges::find(lnames, name) != lnames.end();
+  };
+
   auto names = std::string{};
   auto const& lnames = opt->get_lnames();
   auto const& snames = opt->get_snames();
   if (!lnames.empty()) {
     auto first = true;
     for (auto const& ln: lnames) {
+      // collapse a registered negation pair (--pack, --no-pack) into --[no-]pack
+      if (ln.starts_with("no-") && hasLongName(ln.substr(3))) { continue; }
       if (!first) names += ',';
       first = false;
-      names += "--" + ln;
+      names += hasLongName("no-" + ln) ? "--[no-]" + ln : "--" + ln;
     }
     if (!snames.empty()) {
       names += ',';
@@ -380,6 +387,7 @@ auto makeHelpFormatter(
         "encro -t picture <input> [-c [-q <n>]] [-s] [-p]"sv,
         "encro -z <input> [-o <output>]"sv,
         "encro preview <original> [<encoded>] [--start <s>] [--duration <s>] [--output <path>] [--no-open]"sv,
+        "encro config <list|get <key>|set <key> <value>|unset <key>|path>"sv,
         "encro -h | -hh | --version"sv,
       };
       auto const fullTier = helpOpt->count() >= 2;
@@ -445,21 +453,21 @@ auto makeHelpFormatter(
     };
 }
 
-// Preview subcommand help: rendered from the subcommand's own option
-// definitions with the same style helpers as the main help. It deliberately
-// does not reuse makeHelpFormatter, which renders the whole main option
-// table (captured parent group pointers).
-auto makePreviewHelpFormatter(CLI::App const* previewApp) -> auto {
+// Subcommand help: rendered from the subcommand's own option definitions with
+// the same style helpers as the main help. It deliberately does not reuse
+// makeHelpFormatter, which renders the whole main option table (captured
+// parent group pointers).
+auto makeSubcommandHelpFormatter(
+  CLI::App const* subApp,
+  std::span<std::string_view const> usageLines
+) -> auto {
   return  //
-    [previewApp](
+    [subApp, usageLines](
       CLI::App const* appPtr,
       std::string /*prev*/
       ,  // NOLINT(performance-unnecessary-value-param): CLI11 formatter callback signature is fixed
       CLI::AppFormatMode /*mode*/
     ) -> std::string {
-      constexpr auto usageLines = std::array{
-        "encro preview <original> [<encoded>] [--start <s>] [--duration <s>] [--output <path>] [--no-open]"sv,
-      };
       auto result = std::string{};
       auto const layout = resolveHelpTextLayout();
       auto const desc = appPtr->get_description();
@@ -471,14 +479,14 @@ auto makePreviewHelpFormatter(CLI::App const* previewApp) -> auto {
         );
         result += "\n\n";
       }
-      result += formatHelpSection("Usage", std::span{usageLines}, layout.lineLength);
+      result += formatHelpSection("Usage", usageLines, layout.lineLength);
       result += "\n";
 
       // Same column-width logic as the main formatter, over the subcommand's
       // own options only (general=nullptr keeps visibleOptionsOf from
       // double-adding the app-level options).
       auto const maxColumnLen =
-        computeMaxColumnLen(nullptr, std::span{&previewApp, 1}, previewApp, {}, true);
+        computeMaxColumnLen(nullptr, std::span{&subApp, 1}, appPtr, {}, true);
       auto const maxColWidthFromLayout =
         layout.lineLength > layout.minDescriptionLength + 2
         ? layout.lineLength - layout.minDescriptionLength - 2
@@ -489,7 +497,7 @@ auto makePreviewHelpFormatter(CLI::App const* previewApp) -> auto {
         std::min(48u, maxColWidthFromLayout)
       );
 
-      for (auto const* opt: previewApp->get_options()) {
+      for (auto const* opt: subApp->get_options()) {
         if (!hasOptionNames(opt)) continue;
         result += formatOptionHelp(
           opt,
@@ -507,6 +515,14 @@ auto makePreviewHelpFormatter(CLI::App const* previewApp) -> auto {
 
 // Subcommand names take precedence over positional input interpretation;
 // bare invocations fall through to the encode workflow unchanged.
+constexpr auto kPreviewUsageLines = std::array{
+  "encro preview <original> [<encoded>] [--start <s>] [--duration <s>] [--output <path>] [--no-open]"sv,
+};
+
+constexpr auto kConfigUsageLines = std::array{
+  "encro config <list|get <key>|set <key> <value>|unset <key>|path>"sv,
+};
+
 auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
   auto* sub = app.add_subcommand(
     "preview",
@@ -571,7 +587,66 @@ auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::Ap
     ),
   };
   registerAll(sub, options);
-  sub->formatter_fn(makePreviewHelpFormatter(sub));
+  sub->formatter_fn(makeSubcommandHelpFormatter(sub, kPreviewUsageLines));
+  return sub;
+}
+
+// Persistent user-level configuration (spec: user-config). Actions are
+// mutually exclusive; bare `encro config` shows the subcommand help.
+auto registerConfigSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
+  auto* sub =
+    app.add_subcommand("config", "inspect and persist user-level configuration defaults");
+  sub->set_help_flag("-h,--help", "show config help");
+  auto const options = std::tuple{
+    opt(
+      "--list",
+      &result.configList,
+      "show every configurable key with its value and source",
+      cfg::Excludes{"--get"},
+      cfg::Excludes{"--set"},
+      cfg::Excludes{"--unset"},
+      cfg::Excludes{"--path"}
+    ),
+    opt(
+      "--get",
+      &result.configGet,
+      "print the effective value of one key",
+      cfg::Excludes{"--list"},
+      cfg::Excludes{"--set"},
+      cfg::Excludes{"--unset"},
+      cfg::Excludes{"--path"}
+    ),
+    opt(
+      "--set",
+      &result.configSet,
+      "validate and persist a value: --set <key> <value>",
+      cfg::Expected{2, 2},
+      cfg::Excludes{"--list"},
+      cfg::Excludes{"--get"},
+      cfg::Excludes{"--unset"},
+      cfg::Excludes{"--path"}
+    ),
+    opt(
+      "--unset",
+      &result.configUnset,
+      "remove a persisted key (falls back to the built-in default)",
+      cfg::Excludes{"--list"},
+      cfg::Excludes{"--get"},
+      cfg::Excludes{"--set"},
+      cfg::Excludes{"--path"}
+    ),
+    opt(
+      "--path",
+      &result.configPath,
+      "print the resolved config file location",
+      cfg::Excludes{"--list"},
+      cfg::Excludes{"--get"},
+      cfg::Excludes{"--set"},
+      cfg::Excludes{"--unset"}
+    ),
+  };
+  registerAll(sub, options);
+  sub->formatter_fn(makeSubcommandHelpFormatter(sub, kConfigUsageLines));
   return sub;
 }
 
@@ -604,6 +679,7 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
       &result.color,
       "terminal colors: auto, always, never",
       cfg::OptionalDefault{"auto"},
+      cfg::ConfigKey{"color"},
       cfg::Transform{[](std::string value) {
         std::ranges::transform(value, value.begin(), [](unsigned char ch) {
           return static_cast<char>(std::tolower(ch));
@@ -612,7 +688,12 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
       }},
       cfg::Members{"auto", "always", "never"}
     ),
-    opt("-y,--yes", &result.yesToAll, "automatic yes to prompts"),
+    opt(
+      "-y,--yes,--no-yes{false}",
+      &result.yesToAll,
+      "automatic yes to prompts",
+      cfg::ConfigKey{"yes"}
+    ),
   };
   registerAll(general, options);
   return helpOpt;
@@ -645,13 +726,15 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
       &result.outputFormat,
       "target format: mp4 or webp",
       cfg::OptionalDefault{"mp4"},
+      cfg::ConfigKey{"output-format"},
       cfg::Members{"mp4", "webp"}
     ),
     opt(
-      "--keep",
+      "--keep,--no-keep{false}",
       &result.keep,
       "preserve relative input subdirectories inside the output directory "
-      "(default: flatten)"
+      "(default: flatten)",
+      cfg::ConfigKey{"keep"}
     ),
     opt(
       "--force-conflict-handling",
@@ -659,14 +742,21 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
       "same-name collisions in flat output: y=auto-rename, n=allow "
       "duplicates",
       cfg::OptionalDefault{"y"},
+      cfg::ConfigKey{"force-conflict-handling"},
       cfg::CheckedTransformer{{{"y", "y"}, {"Y", "y"}, {"n", "n"}, {"N", "n"}}}
     ),
     opt(
-      "-s,--folder-summary",
+      "-s,--folder-summary,--no-folder-summary{false}",
       &result.folderSummary,
-      "enable picture-mode folder summary images in flat packs"
+      "enable picture-mode folder summary images in flat packs",
+      cfg::ConfigKey{"folder-summary"}
     ),
-    opt("-r,--recursive", &result.recursive, "enable recursively search"),
+    opt(
+      "-r,--recursive,--no-recursive{false}",
+      &result.recursive,
+      "enable recursively search",
+      cfg::ConfigKey{"recursive"}
+    ),
   };
   registerAll(io, options);
   auto const positional = std::tuple{
@@ -682,7 +772,11 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
   registerAll(io, positional);
 }
 
-void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
+void registerProcessingFlags(
+  CLI::App* processing,
+  CmdParseResult& result
+)  // NOLINT(readability-function-size): declarative option table
+{
   auto const options = std::tuple{
     opt(
       "-t,--type",
@@ -696,6 +790,7 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       &result.maxJobs,
       "max parallel jobs (>=1)",
       cfg::OptionalDefault{"10"},
+      cfg::ConfigKey{"jobs"},
       cfg::PositiveNumber{}
     ),
     opt(
@@ -705,17 +800,24 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       cfg::Excludes{"--restart"}
     ),
     opt("--restart", &result.restart, "ignore previous job state and start a fresh run"),
-    opt("-x,--ffmpeg-path", &result.ffmpegPath, "custom ffmpeg install path"),
     opt(
-      "-c,--compress",
+      "-x,--ffmpeg-path",
+      &result.ffmpegPath,
+      "custom ffmpeg install path",
+      cfg::ConfigKey{"ffmpeg-path"}
+    ),
+    opt(
+      "-c,--compress,--no-compress{false}",
       &result.compress,
-      "enable JPEG compression during picture processing"
+      "enable JPEG compression during picture processing",
+      cfg::ConfigKey{"compress"}
     ),
     opt(
       "-q,--image-quality",
       &result.imageQuality,
       "JPEG compression quality (2-31, lower=better)",
       cfg::RequiredDefault{"2"},
+      cfg::ConfigKey{"image-quality"},
       cfg::Range{2, 31},
       cfg::Needs{"--compress"}
     ),
@@ -724,6 +826,7 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       &result.crf,
       "video encode quality (0-51, lower=better)",
       cfg::RequiredDefault{"28"},
+      cfg::ConfigKey{"crf"},
       cfg::Range{0, 51}
     ),
     opt(
@@ -731,6 +834,7 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       &result.minVmaf,
       "minimum p5-VMAF quality floor for probing (0-100)",
       cfg::OptionalDefault{"95"},
+      cfg::ConfigKey{"min-vmaf"},
       cfg::Range{0, 100}
     ),
     opt(
@@ -744,13 +848,15 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       &result.nvencPreset,
       "NVENC preset (p1-p7; auto picks by resolution)",
       cfg::RequiredDefault{"auto"},
+      cfg::ConfigKey{"preset"},
       cfg::Members{"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}
     ),
     opt(
       "--video-codec",
       &result.videoCodec,
       "video encoder (default hevc_nvenc; libx265/libx264 on cpu)",
-      cfg::DefaultValue{"hevc_nvenc"}
+      cfg::DefaultValue{"hevc_nvenc"},
+      cfg::ConfigKey{"video-codec"}
     ),
   };
   registerAll(processing, options);
@@ -759,9 +865,10 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
 void registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) {
   auto const options = std::tuple{
     opt(
-      "-p,--pack",
+      "-p,--pack,--no-pack{false}",
       &result.pack,
       "pack encoded video outputs into zip files",
+      cfg::ConfigKey{"pack"},
       cfg::Excludes{"--pack-only"}
     ),
     opt(
@@ -774,27 +881,100 @@ void registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) {
   registerAll(fileop, options);
 }
 
-auto parseAndPopulate(
-  CLI::App& app,
+// Loads the user config and applies each stored value as a forced option
+// default (design D1). Returns a load-error message, or nullopt.
+auto injectConfigDefaults(CLI::App& app) -> std::optional<std::string> {
+  auto const configPath = configstore::resolveConfigPath();
+  auto const loaded = configstore::load(configPath);
+  if (loaded.error) { return loaded.error; }
+
+  for (auto const& key: loaded.unknownKeys) {
+    terminal::eprintln(
+      Warning,
+      "ignoring unknown config key \"{}\" in {}",
+      key,
+      configPath.string()
+    );
+  }
+  for (auto const& [key, value]: loaded.values) {
+    if (auto* opt = app.get_option_no_throw("--" + key)) {
+      opt->default_str(value);
+      opt->force_callback();
+    }
+  }
+  return std::nullopt;
+}
+
+auto buildAndParse(
   int argc,
   char* argv[],
-  CLI::App* previewSub,
-  CmdParseResult& result
-) -> CmdParseResult& {
+  std::string const& introLine,
+  bool injectConfig
+) -> CmdParseResult {
+  auto result = CmdParseResult{};
+  // Leaked on purpose (never freed): the config-command registry keeps
+  // pointers to the registered options (design D3), so the app must outlive
+  // this call. One small allocation per parse keeps them process-lifetime.
+  auto* app = new CLI::App{"Allowed options"};
+  app->description(introLine);
+  app->set_help_flag("");
+
+  // Create option groups
+  auto* general = app->add_option_group("General", "General options");
+  auto* io = app->add_option_group("IO", "Input/Output options");
+  auto* processing = app->add_option_group("Processing", "Processing options");
+  auto* fileop = app->add_option_group("FileOp", "File operation options");
+
+  // Register help and version on app (not in any group), then the rest on
+  // the general group
+  auto const helpOpt = registerGeneralFlags(*app, general, result);
+
+  registerIoFlags(io, result);
+
+  // Value options must be registered before the preview subcommand's
+  // encode-shaping twins (same CmdParseResult bindings): callbacks run in
+  // registration order, so a config-injected main default is applied first
+  // and an explicit preview --crf then overwrites it.
+  registerProcessingFlags(processing, result);
+  registerFileOpFlags(fileop, result);
+
+  auto const previewSub = registerPreviewSubcommand(*app, result);
+  auto const configSub = registerConfigSubcommand(*app, result);
+
+  // Configure formatter (static storage: kAdvancedLongNames outlives the lambda)
+  app->formatter_fn(
+    makeHelpFormatter(general, io, processing, fileop, helpOpt, kAdvancedLongNames)
+  );
+
+  // ── Config injection (design D1): config values become forced option
+  // defaults, so CLI values win, validators run on applied defaults, and the
+  // help (=default) display shows effective defaults.
+  if (injectConfig) {
+    if (auto const error = injectConfigDefaults(*app); error.has_value()) {
+      result.error = *error;
+      return result;
+    }
+  }
+
   // result is the SAME object the options were bound to at registration time
   // (bound callbacks write into it during parse).
   try {
-    app.parse(argc, argv);
-    result.helpText = app.help();
-    if (app.got_subcommand(previewSub)) { result.preview = true; }
+    app->parse(argc, argv);
+    result.helpText = app->help();
+    if (app->got_subcommand(previewSub)) { result.preview = true; }
+    if (app->got_subcommand(configSub)) {
+      result.config = true;
+      result.helpText = configSub->help();
+    }
   } catch (CLI::CallForHelp const&) {
-    // Only the preview subcommand has a native help flag (the parent app
-    // cleared its own), so the help text always comes from the subcommand.
+    // The preview/config subcommands carry the native help flags (the parent
+    // app cleared its own), so the help text comes from whichever matched.
     result.help = true;
-    result.helpText = previewSub->help();
+    result.helpText =
+      app->got_subcommand(configSub) ? configSub->help() : previewSub->help();
   } catch (CLI::ParseError const& ex) {
     result.error = ex.what();
-    result.helpText = app.help();
+    result.helpText = app->help();
   }
   return result;
 }
@@ -803,33 +983,12 @@ auto parseAndPopulate(
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   -> CmdParseResult {
-  auto result = CmdParseResult{};
-  auto app = CLI::App{"Allowed options"};
-  app.description(introLine);
-  app.set_help_flag("");
-
-  // Create option groups
-  auto* general = app.add_option_group("General", "General options");
-  auto* io = app.add_option_group("IO", "Input/Output options");
-  auto* processing = app.add_option_group("Processing", "Processing options");
-  auto* fileop = app.add_option_group("FileOp", "File operation options");
-
-  // Register help and version on app (not in any group), then the rest on
-  // the general group
-  auto const helpOpt = registerGeneralFlags(app, general, result);
-
-  registerIoFlags(io, result);
-
-  auto const previewSub = registerPreviewSubcommand(app, result);
-
-  registerProcessingFlags(processing, result);
-  registerFileOpFlags(fileop, result);
-
-  // Configure formatter (static storage: kAdvancedLongNames outlives the lambda)
-  app.formatter_fn(
-    makeHelpFormatter(general, io, processing, fileop, helpOpt, kAdvancedLongNames)
-  );
-
-  // ── Parse and populate ──
-  return parseAndPopulate(app, argc, argv, previewSub, result);
+  // Probe parse without config injection: config-subcommand actions must
+  // operate on stores holding invalid values (e.g. `config unset` of a bad
+  // key), and pure CLI errors surface unchanged. Every other path re-parses
+  // with injection so option defaults and the help (=default) display reflect
+  // the config.
+  auto probe = buildAndParse(argc, argv, introLine, false);
+  if (probe.error.has_value() || probe.config) { return probe; }
+  return buildAndParse(argc, argv, introLine, true);
 }

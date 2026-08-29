@@ -49,7 +49,8 @@ During a run, encro writes intermediates to three places:
 - `%TEMP%\encro\scratch\` — per-run transient files (probe segments,
   VMAF/SSIM logs, progress files). Entries untouched for over 24 hours are
   swept at startup.
-- `%LOCALAPPDATA%\encro\` — rotating logs and the probe cache.
+- `%LOCALAPPDATA%\encro\` — rotating logs, the probe cache, and the user
+  config file (`config.json`, written by `encro config set`).
 
 > **Breaking change:** the default job-state path moved to
 > `<work-root>\.encro\job-state.json`. Pass `--state-file` for a custom
@@ -79,6 +80,28 @@ During a run, encro writes intermediates to three places:
 | `--keep` | preserve relative subdirectories in output (default: flatten) |
 
 Run `encro -hh` for the full option list, `encro -h` for the brief view.
+
+### Persisting defaults (`encro config`)
+
+Preference options can be stored in a user-level config so they do not have
+to be repeated on every command line. Precedence is always
+command line > config file > built-in default.
+
+```sh
+encro config set crf 23      # store (validated like the CLI option)
+encro config set jobs 4
+encro config list            # all keys, values, and sources
+encro config get crf         # effective value of one key
+encro config unset crf       # back to the built-in default
+encro config path            # where the file lives
+```
+
+The file is pretty-printed JSON at
+`%LOCALAPPDATA%\encro\config.json` (Windows) or
+`~/.config/encro/config.json` (POSIX); point `ENCRO_CONFIG` at another path
+to override. Persisted boolean flags (`pack`, `yes`, `keep`, `compress`,
+`recursive`, `folder-summary`) can be turned off for a single run with their
+negation form, e.g. `--no-pack`.
 
 ### Quality probing (MP4 encodes)
 

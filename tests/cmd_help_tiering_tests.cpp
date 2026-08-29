@@ -140,7 +140,7 @@ TEST_CASE("full help shows accurate option descriptions and defaults", "[cmd][ti
   CHECK(conflictLine->find("y=auto-rename, n=allow duplicates") != std::string::npos);
   CHECK(conflictLine->find("(=y)") != std::string::npos);
 
-  auto const keepLine = testutils::findHelpLine(help, "--keep");
+  auto const keepLine = testutils::findHelpLine(help, "--[no-]keep");
   REQUIRE(keepLine.has_value());
   CHECK(keepLine->find("preserve relative input subdirectories") != std::string::npos);
   CHECK(keepLine->find("(default:") != std::string::npos);
