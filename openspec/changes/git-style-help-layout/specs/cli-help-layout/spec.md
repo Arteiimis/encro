@@ -31,7 +31,8 @@ The help output SHALL place every option description in a column that starts aft
 #### Scenario: Narrow terminal still caps the column
 
 - **WHEN** the user runs `encro -h` with `COLUMNS=72`
-- **THEN** no help line exceeds 72 characters
+- **THEN** the usage, commands, and option sections contain no line longer than 72 characters
+- **AND** the auto-fitted description column is capped so wrapping remains
 
 ### Requirement: Main help lists subcommands in a commands section
 
