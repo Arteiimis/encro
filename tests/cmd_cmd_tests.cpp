@@ -489,6 +489,22 @@ TEST_CASE("full help auto-fits the description column across all groups", "[cmd]
   CHECK(fileopLine->find("pack encoded video outputs into zip files") == descCol);
 }
 
+TEST_CASE("capped column keeps a minimum 2-space gap on the widest line", "[cmd]") {
+  // COLUMNS=40 caps the column below widest + 3, so the widest line falls
+  // back to the minimum gap.
+  auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "40"};
+
+  auto const result = testutils::parseArgs({"encro", "-hh"});
+  auto const plainHelp = stripAnsi(result.helpText);
+
+  auto const widest =
+    testutils::findHelpLine(plainHelp, "--force-conflict-handling (=y)");
+  REQUIRE(widest.has_value());
+  auto const nameEnd = widest->find("(=y)") + std::string_view{"(=y)"}.size();
+  CHECK(widest->substr(nameEnd, 2) == "  ");
+  CHECK(widest->substr(nameEnd + 2, 1) != " ");
+}
+
 TEST_CASE("subcommand help auto-fits its description column", "[cmd]") {
   SECTION("preview aligns to its own widest option") {
     auto const result = testutils::parseArgs({"encro", "preview", "-h"});
