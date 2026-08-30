@@ -27,7 +27,6 @@ namespace {
 struct HelpTextLayout {
   unsigned lineLength;
   unsigned minDescriptionLength;
-  bool explicitWidthConstraint;
 };
 
 auto readHelpColumnsOverride() -> std::optional<unsigned> {
@@ -47,16 +46,13 @@ auto readHelpColumnsOverride() -> std::optional<unsigned> {
 
 auto resolveHelpTextLayout() -> HelpTextLayout {
   auto lineLength = 120u;
-  auto explicitWidthConstraint = false;
   if (auto const override = readHelpColumnsOverride(); override.has_value()) {
     lineLength = std::clamp(override.value(), 40u, 120u);
-    explicitWidthConstraint = true;
   }
 
   return {
     .lineLength = lineLength,
     .minDescriptionLength = lineLength / 2,
-    .explicitWidthConstraint = explicitWidthConstraint,
   };
 }
 
@@ -182,12 +178,8 @@ auto wrapDescription(
   return wrapped;
 }
 
-auto formatOptionHelp(
-  CLI::Option const* opt,
-  unsigned colWidth,
-  unsigned lineLength,
-  bool explicitWidthConstraint
-) -> std::string {
+auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth, unsigned lineLength)
+  -> std::string {
   auto const nameStr = formatOptionName(opt);
 
   // Column 1 = name + (=default); a type column is intentionally never
@@ -209,24 +201,19 @@ auto formatOptionHelp(
     nameStr
   );
 
-  // Pad the full first column (name + default) to colWidth for alignment
+  // Pad the full first column (name + default) to colWidth for alignment.
+  // Layout math uses plain-text widths only, so wrapping is identical across
+  // color modes (ANSI styling never influences line breaks).
   auto const firstCol = nameStr + defaultText;
   auto const gap = firstCol.size() < colWidth ? colWidth - firstCol.size() : 2u;
-  auto const displayDescriptionColumn = static_cast<unsigned>(2 + firstCol.size() + gap);
-  auto const renderedDescriptionColumn =
-    static_cast<unsigned>(2 + coloredName.size() + styledDefaultText.size() + gap);
-  auto const indent = std::string(displayDescriptionColumn, ' ');
-  auto const firstLineDescriptionColumn =
-    explicitWidthConstraint ? renderedDescriptionColumn : displayDescriptionColumn;
-  auto const firstLineWidth = firstLineDescriptionColumn < lineLength
-    ? lineLength - firstLineDescriptionColumn
-    : 1u;
-  auto const continuationWidth =
-    displayDescriptionColumn < lineLength ? lineLength - displayDescriptionColumn : 1u;
+  auto const descriptionColumn = static_cast<unsigned>(2 + firstCol.size() + gap);
+  auto const indent = std::string(descriptionColumn, ' ');
+  auto const descriptionWidth =
+    descriptionColumn < lineLength ? lineLength - descriptionColumn : 1u;
 
   auto const& description = opt->get_description();
   auto const wrappedDescription =
-    wrapDescription(description, firstLineWidth, continuationWidth);
+    wrapDescription(description, descriptionWidth, descriptionWidth);
   auto result = std::string{};
   for (auto lineNum = 0u; lineNum < wrappedDescription.size(); ++lineNum) {
     auto const& line = wrappedDescription[lineNum];
@@ -367,27 +354,102 @@ unsigned computeMaxColumnLen(
   return maxLen;
 }
 
+// Git-style auto-fit: descriptions start right after the widest first column
+// plus a fixed 3-space gap; the COLUMNS-derived cap still bounds narrow
+// terminals so lines never overflow the configured width.
+auto computeColumnWidth(unsigned widestFirstColumn, HelpTextLayout const& layout)
+  -> unsigned {
+  auto const maxColWidthFromLayout = layout.lineLength > layout.minDescriptionLength + 2
+    ? layout.lineLength - layout.minDescriptionLength - 2
+    : 1u;
+  return std::min(widestFirstColumn + 3u, maxColWidthFromLayout);
+}
+
+// Git-style commands section: one row per real subcommand, description
+// aligned by the same auto-fit rule as the option tables. Callers pass the
+// registered subcommand apps explicitly: CLI11's get_subcommands() mixes in
+// the option groups (they are App subcommands too) and its no-arg overload
+// returns only the subcommands parsed from the current command line.
+auto formatCommandsSection(
+  std::span<CLI::App const* const> subcommands,
+  unsigned lineLength
+) -> std::string {
+  if (subcommands.empty()) { return {}; }
+
+  auto widest = 0u;
+  for (auto const* sub: subcommands) {
+    widest = std::max(widest, static_cast<unsigned>(sub->get_name().size()));
+  }
+  auto const descriptionColumn = 2u + widest + 3u;
+  auto const descriptionWidth =
+    descriptionColumn < lineLength ? lineLength - descriptionColumn : 1u;
+
+  auto result = terminal::styledText(
+    terminal::Stream::Stdout,
+    terminal::MessageKind::OptionGroup,
+    "encro commands"
+  );
+  result += ":\n";
+  for (auto const* sub: subcommands) {
+    auto const name = sub->get_name();
+    auto const gap = descriptionColumn - 2u - static_cast<unsigned>(name.size());
+    auto const wrappedDescription =
+      wrapDescription(sub->get_description(), descriptionWidth, descriptionWidth);
+    for (auto lineNum = 0u; lineNum < wrappedDescription.size(); ++lineNum) {
+      if (lineNum == 0) {
+        result += std::format(
+          "  {}{:{}}{}\n",
+          terminal::styledText(
+            terminal::Stream::Stdout,
+            terminal::MessageKind::OptionName,
+            name
+          ),
+          "",
+          gap,
+          terminal::styledText(
+            terminal::Stream::Stdout,
+            terminal::MessageKind::OptionDesc,
+            wrappedDescription[lineNum]
+          )
+        );
+      } else {
+        result += std::format(
+          "{}{}\n",
+          std::string(descriptionColumn, ' '),
+          terminal::styledText(
+            terminal::Stream::Stdout,
+            terminal::MessageKind::OptionDesc,
+            wrappedDescription[lineNum]
+          )
+        );
+      }
+    }
+  }
+  return result;
+}
+
 auto makeHelpFormatter(
   CLI::App const* general,
   CLI::App const* io,
   CLI::App const* processing,
   CLI::App const* fileop,
   CLI::Option const* helpOpt,
-  std::span<std::string_view const> advancedLongNames
+  std::span<std::string_view const> advancedLongNames,
+  std::span<CLI::App const* const> subcommands
 ) -> auto {
   return  //
-    [general, io, processing, fileop, helpOpt, advancedLongNames](
+    [general, io, processing, fileop, helpOpt, advancedLongNames, subcommands](
       CLI::App const* app_ptr,
       std::string /*prev*/
       ,  // NOLINT(performance-unnecessary-value-param): CLI11 formatter callback signature is fixed
       CLI::AppFormatMode /*mode*/
     ) -> std::string {
+      // Subcommand synopsis lines stay out of the usage block: the commands
+      // section below carries them with one-line descriptions.
       constexpr auto usageLines = std::array{
         "encro [<input>... | -i <input> | -I <file>...] [-o <output>] [-f mp4|webp] [-r] [-j <n>] [-p] [--resume|--restart]"sv,
         "encro -t picture <input> [-c [-q <n>]] [-s] [-p]"sv,
         "encro -z <input> [-o <output>]"sv,
-        "encro preview <original> [<encoded>] [--start <s>] [--duration <s>] [--output <path>] [--no-open]"sv,
-        "encro config <list|get <key>|set <key> <value>|unset <key>|path>"sv,
         "encro -h | -hh | --version"sv,
       };
       auto const fullTier = helpOpt->count() >= 2;
@@ -405,7 +467,8 @@ auto makeHelpFormatter(
         result += "\n\n";
       }
       result += formatHelpSection("Usage", std::span{usageLines}, layout.lineLength);
-      result += "\n";
+      result += '\n';
+      result += formatCommandsSection(subcommands, layout.lineLength);
       auto const groupIter = std::array{general, io, processing, fileop};
       auto const maxColumnLen = computeMaxColumnLen(
         general,
@@ -414,28 +477,14 @@ auto makeHelpFormatter(
         advancedLongNames,
         fullTier
       );
-
-      auto const maxColWidthFromLayout =
-        layout.lineLength > layout.minDescriptionLength + 2
-        ? layout.lineLength - layout.minDescriptionLength - 2
-        : 1u;
-      auto const colWidth = std::clamp(
-        maxColumnLen,
-        std::min(34u, maxColWidthFromLayout),
-        std::min(48u, maxColWidthFromLayout)
-      );
+      auto const colWidth = computeColumnWidth(maxColumnLen, layout);
 
       for (auto const* group: groupIter) {
         result += formatGroupHeader(group->get_description());
         for (auto const* opt: visibleOptionsOf(group, general, app_ptr)) {
           if (!hasOptionNames(opt)) continue;
           if (!fullTier && isAdvancedOption(opt, advancedLongNames)) continue;
-          result += formatOptionHelp(
-            opt,
-            colWidth,
-            layout.lineLength,
-            layout.explicitWidthConstraint
-          );
+          result += formatOptionHelp(opt, colWidth, layout.lineLength);
           result += '\n';
         }
       }
@@ -487,24 +536,11 @@ auto makeSubcommandHelpFormatter(
       // double-adding the app-level options).
       auto const maxColumnLen =
         computeMaxColumnLen(nullptr, std::span{&subApp, 1}, appPtr, {}, true);
-      auto const maxColWidthFromLayout =
-        layout.lineLength > layout.minDescriptionLength + 2
-        ? layout.lineLength - layout.minDescriptionLength - 2
-        : 1u;
-      auto const colWidth = std::clamp(
-        maxColumnLen,
-        std::min(34u, maxColWidthFromLayout),
-        std::min(48u, maxColWidthFromLayout)
-      );
+      auto const colWidth = computeColumnWidth(maxColumnLen, layout);
 
       for (auto const* opt: subApp->get_options()) {
         if (!hasOptionNames(opt)) continue;
-        result += formatOptionHelp(
-          opt,
-          colWidth,
-          layout.lineLength,
-          layout.explicitWidthConstraint
-        );
+        result += formatOptionHelp(opt, colWidth, layout.lineLength);
         result += '\n';
       }
 
@@ -933,11 +969,20 @@ auto buildAndParse(
 
   auto const previewSub = registerPreviewSubcommand(*app, result);
   auto const configSub = registerConfigSubcommand(*app, result);
+  // Option groups are CLI11 subcommands too, so the commands section is given
+  // the real subcommand apps explicitly.
+  auto const commandSubs = std::array<CLI::App const*, 2>{previewSub, configSub};
 
   // Configure formatter (static storage: kAdvancedLongNames outlives the lambda)
-  app->formatter_fn(
-    makeHelpFormatter(general, io, processing, fileop, helpOpt, kAdvancedLongNames)
-  );
+  app->formatter_fn(makeHelpFormatter(
+    general,
+    io,
+    processing,
+    fileop,
+    helpOpt,
+    kAdvancedLongNames,
+    std::span{commandSubs}
+  ));
 
   // ── Config injection (design D1): config values become forced option
   // defaults, so CLI values win, validators run on applied defaults, and the
