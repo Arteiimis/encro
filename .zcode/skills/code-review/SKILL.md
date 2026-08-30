@@ -55,13 +55,9 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 
 ### 4. Spawn both sub-agents in parallel
 
-Send a single `subagent` tool call in parallel mode, two tasks, both with the `worker` agent:
+Send a single message with two Agent tool calls, one per brief, both with `subagent_type: general-purpose` so they run concurrently.
 
-```json
-{"tasks": [{"agent": "worker", "task": "<Standards brief below>"}, {"agent": "worker", "task": "<Spec brief below>"}]}
-```
-
-Each brief must tell its sub-agent to run the diff command itself (it runs in an isolated process and has bash).
+Each brief must tell its sub-agent to run the diff command itself (it runs in an isolated context and can run shell commands).
 
 **Standards sub-agent prompt** — include:
 
