@@ -143,15 +143,16 @@ TEST_CASE("negation without config equals the absent form", "[cmd][config]") {
 // ── Help rendering (tasks 4.2/4.3) ────────────────────────────────────────
 
 TEST_CASE(
-  "brief help shows the config usage line and collapsed negation names",
+  "brief help shows the config commands row and collapsed negation names",
   "[cmd][config]"
 ) {
   auto const result = testutils::parseArgs({"encro", "-h"});
   REQUIRE_FALSE(result.error.has_value());
 
   auto const& help = result.helpText;
+  // The config synopsis left the usage block for the commands section.
   CHECK(
-    help.find("encro config <list|get <key>|set <key> <value>|unset <key>|path>")
+    help.find("  config    inspect and persist user-level configuration defaults")
     != std::string::npos
   );
   CHECK(help.find("--[no-]pack,-p") != std::string::npos);

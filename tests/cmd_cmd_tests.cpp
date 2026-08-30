@@ -441,6 +441,163 @@ TEST_CASE(
   terminal::reset();
 }
 
+TEST_CASE("brief help auto-fits the description column to the widest option", "[cmd]") {
+  auto const result = testutils::parseArgs({"encro", "-h"});
+  auto const plainHelp = stripAnsi(result.helpText);
+
+  // Widest brief-tier first column: "--output-format,-f (=mp4)" (25 chars).
+  auto const widest = testutils::findHelpLine(plainHelp, "--output-format,-f (=mp4)");
+  REQUIRE(widest.has_value());
+  auto const nameEnd = widest->find("(=mp4)") + std::string_view{"(=mp4)"}.size();
+  auto const descCol = widest->find("target format: mp4 or webp");
+  REQUIRE(descCol != std::string::npos);
+  CHECK(descCol == nameEnd + 3);  // exactly 3-space gap on the widest line
+  CHECK(descCol == 30);           // 2 indent + 25 widest + 3 gap
+
+  auto const helpLine = testutils::findHelpLine(plainHelp, "--help,-h");
+  REQUIRE(helpLine.has_value());
+  CHECK(helpLine->find("show help; use -hh to show all options") == descCol);
+
+  auto const recursiveLine = testutils::findHelpLine(plainHelp, "--[no-]recursive,-r");
+  REQUIRE(recursiveLine.has_value());
+  CHECK(recursiveLine->find("enable recursively search") == descCol);
+}
+
+TEST_CASE("full help auto-fits the description column across all groups", "[cmd]") {
+  auto const result = testutils::parseArgs({"encro", "-hh"});
+  auto const plainHelp = stripAnsi(result.helpText);
+
+  // Widest full-tier first column: "--force-conflict-handling (=y)" (30 chars).
+  auto const widest =
+    testutils::findHelpLine(plainHelp, "--force-conflict-handling (=y)");
+  REQUIRE(widest.has_value());
+  auto const nameEnd = widest->find("(=y)") + std::string_view{"(=y)"}.size();
+  auto const descCol = widest->find("same-name collisions in flat output");
+  REQUIRE(descCol != std::string::npos);
+  CHECK(descCol == nameEnd + 3);
+  CHECK(descCol == 35);  // 2 indent + 30 widest + 3 gap
+
+  auto const generalLine = testutils::findHelpLine(plainHelp, "--help,-h");
+  auto const processingLine =
+    testutils::findHelpLine(plainHelp, "--video-codec (=hevc_nvenc)");
+  auto const fileopLine = testutils::findHelpLine(plainHelp, "--[no-]pack,-p");
+  REQUIRE(generalLine.has_value());
+  REQUIRE(processingLine.has_value());
+  REQUIRE(fileopLine.has_value());
+  CHECK(generalLine->find("show help; use -hh to show all options") == descCol);
+  CHECK(processingLine->find("video encoder (default hevc_nvenc") == descCol);
+  CHECK(fileopLine->find("pack encoded video outputs into zip files") == descCol);
+}
+
+TEST_CASE("subcommand help auto-fits its description column", "[cmd]") {
+  SECTION("preview aligns to its own widest option") {
+    auto const result = testutils::parseArgs({"encro", "preview", "-h"});
+    auto const plainHelp = stripAnsi(result.helpText);
+
+    // Widest preview first column: "--video-codec (=hevc_nvenc)" (27 chars).
+    auto const widest = testutils::findHelpLine(plainHelp, "--video-codec (=hevc_nvenc)");
+    REQUIRE(widest.has_value());
+    auto const nameEnd =
+      widest->find("(=hevc_nvenc)") + std::string_view{"(=hevc_nvenc)"}.size();
+    auto const descCol = widest->find("video encoder (default hevc_nvenc");
+    REQUIRE(descCol != std::string::npos);
+    CHECK(descCol == nameEnd + 3);
+    CHECK(descCol == 32);  // 2 indent + 27 widest + 3 gap
+
+    // The description needle keeps findHelpLine off the usage line, which
+    // also contains "[--output <path>]".
+    auto const outputLine = testutils::findHelpLine(plainHelp, "output video path");
+    REQUIRE(outputLine.has_value());
+    CHECK(outputLine->find("output video path") == descCol);
+  }
+
+  SECTION("config aligns to its own widest option") {
+    auto const result = testutils::parseArgs({"encro", "config", "-h"});
+    auto const plainHelp = stripAnsi(result.helpText);
+
+    // Widest config first column: "--help,-h" (9 chars).
+    auto const widest = testutils::findHelpLine(plainHelp, "--help,-h");
+    REQUIRE(widest.has_value());
+    auto const nameEnd = widest->find("--help,-h") + std::string_view{"--help,-h"}.size();
+    auto const descCol = widest->find("show config help");
+    REQUIRE(descCol != std::string::npos);
+    CHECK(descCol == nameEnd + 3);
+    CHECK(descCol == 14);  // 2 indent + 9 widest + 3 gap
+
+    auto const listLine = testutils::findHelpLine(plainHelp, "--list");
+    REQUIRE(listLine.has_value());
+    CHECK(listLine->find("show every configurable key") == descCol);
+  }
+}
+
+TEST_CASE("main help lists subcommands in a git-style commands section", "[cmd]") {
+  constexpr auto commandsBlock =
+    "encro commands:\n"
+    "  preview   compare an original video with its encoded output side by side\n"
+    "  config    inspect and persist user-level configuration defaults\n";
+
+  SECTION("brief tier") {
+    auto const result = testutils::parseArgs({"encro", "-h"});
+    auto const plainHelp = stripAnsi(result.helpText);
+    // The whole section is pinned: exactly two subcommand rows, no option
+    // group leakage (CLI11 option groups are subcommands internally).
+    CHECK(plainHelp.find(commandsBlock) != std::string::npos);
+  }
+
+  SECTION("full tier") {
+    auto const result = testutils::parseArgs({"encro", "-hh"});
+    auto const plainHelp = stripAnsi(result.helpText);
+    CHECK(plainHelp.find(commandsBlock) != std::string::npos);
+  }
+}
+
+TEST_CASE("main help usage section omits subcommand synopses", "[cmd]") {
+  auto const result = testutils::parseArgs({"encro", "-h"});
+  auto const plainHelp = stripAnsi(result.helpText);
+
+  CHECK(plainHelp.find("encro preview") == std::string::npos);
+  CHECK(plainHelp.find("encro config") == std::string::npos);
+
+  // The flag-driven mode lines and the tier-advertising line stay.
+  CHECK(plainHelp.find("encro -h | -hh | --version") != std::string::npos);
+  CHECK(
+    plainHelp.find("encro [<input>... | -i <input> | -I <file>...]") != std::string::npos
+  );
+  CHECK(plainHelp.find("encro -t picture") != std::string::npos);
+  CHECK(plainHelp.find("encro -z") != std::string::npos);
+}
+
+TEST_CASE("commands section sits between usage and option groups", "[cmd]") {
+  auto const result = testutils::parseArgs({"encro", "-h"});
+  auto const plainHelp = stripAnsi(result.helpText);
+
+  auto const tierLine = plainHelp.find("encro -h | -hh | --version");
+  auto const commandsPos = plainHelp.find("encro commands:");
+  auto const generalPos = plainHelp.find("General options:");
+  REQUIRE(tierLine != std::string::npos);
+  REQUIRE(commandsPos != std::string::npos);
+  REQUIRE(generalPos != std::string::npos);
+  CHECK(tierLine < commandsPos);
+  CHECK(commandsPos < generalPos);
+}
+
+TEST_CASE(
+  "help layout is identical across color modes under a width constraint",
+  "[cmd][color]"
+) {
+  auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "120"};
+
+  terminal::configure(terminal::ColorMode::Always);
+  auto const colored = testutils::parseArgs({"encro", "-hh"});
+  terminal::reset();
+
+  terminal::configure(terminal::ColorMode::Never);
+  auto const plain = testutils::parseArgs({"encro", "-hh"});
+  terminal::reset();
+
+  CHECK(stripAnsi(colored.helpText) == plain.helpText);
+}
+
 TEST_CASE("help text contains NO ANSI codes when NO_COLOR is set", "[cmd][color]") {
   auto const noColorGuard = testutils::ScopedEnvVar{"NO_COLOR", "1"};
 
