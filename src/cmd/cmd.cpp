@@ -178,6 +178,10 @@ auto wrapDescription(
   return wrapped;
 }
 
+unsigned descriptionWrapWidth(unsigned descriptionColumn, unsigned lineLength) {
+  return descriptionColumn < lineLength ? lineLength - descriptionColumn : 1u;
+}
+
 auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth, unsigned lineLength)
   -> std::string {
   auto const nameStr = formatOptionName(opt);
@@ -208,8 +212,7 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth, unsigned lineLe
   auto const gap = firstCol.size() < colWidth ? colWidth - firstCol.size() : 2u;
   auto const descriptionColumn = static_cast<unsigned>(2 + firstCol.size() + gap);
   auto const indent = std::string(descriptionColumn, ' ');
-  auto const descriptionWidth =
-    descriptionColumn < lineLength ? lineLength - descriptionColumn : 1u;
+  auto const descriptionWidth = descriptionWrapWidth(descriptionColumn, lineLength);
 
   auto const& description = opt->get_description();
   auto const wrappedDescription =
@@ -357,8 +360,7 @@ unsigned computeMaxColumnLen(
 // Git-style auto-fit: descriptions start right after the widest first column
 // plus a fixed 3-space gap; the COLUMNS-derived cap still bounds narrow
 // terminals so lines never overflow the configured width.
-auto computeColumnWidth(unsigned widestFirstColumn, HelpTextLayout const& layout)
-  -> unsigned {
+unsigned computeColumnWidth(unsigned widestFirstColumn, HelpTextLayout const& layout) {
   auto const maxColWidthFromLayout = layout.lineLength > layout.minDescriptionLength + 2
     ? layout.lineLength - layout.minDescriptionLength - 2
     : 1u;
@@ -366,13 +368,14 @@ auto computeColumnWidth(unsigned widestFirstColumn, HelpTextLayout const& layout
 }
 
 // Git-style commands section: one row per real subcommand, description
-// aligned by the same auto-fit rule as the option tables. Callers pass the
-// registered subcommand apps explicitly: CLI11's get_subcommands() mixes in
-// the option groups (they are App subcommands too) and its no-arg overload
-// returns only the subcommands parsed from the current command line.
+// aligned by the same auto-fit rule (column helper, cap, gap fallback) as the
+// option tables. Callers pass the registered subcommand apps explicitly:
+// CLI11's get_subcommands() mixes in the option groups (they are App
+// subcommands too) and its no-arg overload returns only the subcommands
+// parsed from the current command line.
 auto formatCommandsSection(
   std::span<CLI::App const* const> subcommands,
-  unsigned lineLength
+  HelpTextLayout const& layout
 ) -> std::string {
   if (subcommands.empty()) { return {}; }
 
@@ -380,9 +383,7 @@ auto formatCommandsSection(
   for (auto const* sub: subcommands) {
     widest = std::max(widest, static_cast<unsigned>(sub->get_name().size()));
   }
-  auto const descriptionColumn = 2u + widest + 3u;
-  auto const descriptionWidth =
-    descriptionColumn < lineLength ? lineLength - descriptionColumn : 1u;
+  auto const colWidth = computeColumnWidth(widest, layout);
 
   auto result = terminal::styledText(
     terminal::Stream::Stdout,
@@ -392,9 +393,14 @@ auto formatCommandsSection(
   result += ":\n";
   for (auto const* sub: subcommands) {
     auto const name = sub->get_name();
-    auto const gap = descriptionColumn - 2u - static_cast<unsigned>(name.size());
+    auto const nameWidth = static_cast<unsigned>(name.size());
+    auto const gap = nameWidth < colWidth ? colWidth - nameWidth : 2u;
+    auto const descriptionColumn = 2u + nameWidth + gap;
+    auto const descriptionWidth =
+      descriptionWrapWidth(descriptionColumn, layout.lineLength);
     auto const wrappedDescription =
       wrapDescription(sub->get_description(), descriptionWidth, descriptionWidth);
+    auto const indent = std::string(descriptionColumn, ' ');
     for (auto lineNum = 0u; lineNum < wrappedDescription.size(); ++lineNum) {
       if (lineNum == 0) {
         result += std::format(
@@ -415,7 +421,7 @@ auto formatCommandsSection(
       } else {
         result += std::format(
           "{}{}\n",
-          std::string(descriptionColumn, ' '),
+          indent,
           terminal::styledText(
             terminal::Stream::Stdout,
             terminal::MessageKind::OptionDesc,
@@ -468,7 +474,7 @@ auto makeHelpFormatter(
       }
       result += formatHelpSection("Usage", std::span{usageLines}, layout.lineLength);
       result += '\n';
-      result += formatCommandsSection(subcommands, layout.lineLength);
+      result += formatCommandsSection(subcommands, layout);
       auto const groupIter = std::array{general, io, processing, fileop};
       auto const maxColumnLen = computeMaxColumnLen(
         general,
