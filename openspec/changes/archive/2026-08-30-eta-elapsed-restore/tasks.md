@@ -23,4 +23,4 @@
 
 - [x] 5.1 Run the full unit suite (`xmake test-report`) and the e2e suite; fix any regressions
 - [x] 5.2 Run `xmake fmt` and the pre-commit hook; commit implementation + tests + checked tasks in one commit
-- [ ] 5.3 Manual smoke on a real file: badge shows `[elapsed/--:--]` during the seeding window and `[elapsed/estimate]` after; interrupt + resume shows accumulated elapsed
+- [x] 5.3 Manual smoke on a real file: badge shows `[elapsed/--:--]` during the seeding window and `[elapsed/estimate]` after; interrupt + resume shows accumulated elapsed
