@@ -7,7 +7,7 @@ description: Diagnosis loop for hard bugs and performance regressions. Use when 
 
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
-When exploring the codebase, read `CLAUDE.md` for the architecture map, and check `openspec/changes/` for any in-flight change touching the area you're debugging.
+When exploring the codebase, read `AGENTS.md` for the architecture map, and check `openspec/changes/` for any in-flight change touching the area you're debugging.
 
 ## Phase 1 — Build a feedback loop
 
