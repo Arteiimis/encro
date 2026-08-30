@@ -926,8 +926,13 @@ auto collectPlanStats(std::span<ProbePlan const> plans) -> PlanStats {
   stats.normal.reserve(plans.size());
   for (auto const& plan: plans) {
     auto ec = std::error_code{};
-    stats.totalSource += fs::file_size(plan.inputPath, ec);
-    if (plan.estimatedBytes.has_value()) {
+    auto const sourceBytes = fs::file_size(plan.inputPath, ec);
+    stats.totalSource += sourceBytes;
+    if (plan.skipEncode) {
+      // Skipped files are not encoded: on disk they keep their source size.
+      stats.totalEst += sourceBytes;
+      ++stats.estCount;
+    } else if (plan.estimatedBytes.has_value()) {
       stats.totalEst += plan.estimatedBytes.value();
       ++stats.estCount;
     }
