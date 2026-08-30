@@ -690,9 +690,12 @@ TEST_CASE(
       == displaytext::displayWidth(headerLine.substr(0, cqCol))
     );
   }
-  // Total line with signed percentage (4.5 MB est / 3 MB source = +50%).
-  CHECK(text.find("Total: 3 file(s)") != std::string::npos);
-  CHECK(text.find("+50% \xE2\x86\x91") != std::string::npos);
+  // Total counts skipped files at their source size (alpha is not encoded):
+  // 2 MB + 0.5 MB + 1 MB = 3.5 MB est over 3 MB source = +17%.
+  CHECK(
+    text.find("Total: 3 file(s), est. 3.5 MB, source 3.0 MB (+17% \xE2\x86\x91)")
+    != std::string::npos
+  );
 }
 
 TEST_CASE(
