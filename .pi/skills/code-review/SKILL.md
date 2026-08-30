@@ -31,12 +31,12 @@ Look for the originating spec, in this order:
 
 ### 3. Identify the standards sources
 
-`CLAUDE.md` documents how code should be written in this repo (naming, conventions, error handling, testing, commits). Feed its conventions section to the Standards sub-agent.
+`AGENTS.md` documents how code should be written in this repo (naming, conventions, error handling, testing, commits). Feed its conventions section to the Standards sub-agent.
 
 On top of whatever the repo documents, the Standards axis always carries the **smell baseline** below — a fixed set of Fowler code smells (_Refactoring_, ch.3) that applies even when a repo documents nothing. Two rules bind it:
 
 - **The repo overrides.** A documented repo standard always wins; where it endorses something the baseline would flag, suppress the smell.
-- **Always a judgement call.** Each smell is a labelled heuristic ("possible Feature Envy"), never a hard violation — and, like any standard here, skip anything tooling already enforces (clang-format via `xmake format -k check`).
+- **Always a judgement call.** Each smell is a labelled heuristic ("possible Feature Envy"), never a hard violation — and, like any standard here, skip anything tooling already enforces (clang-format via `xmake fmt -k`).
 
 Each smell reads *what it is* → *how to fix*; match it against the diff:
 

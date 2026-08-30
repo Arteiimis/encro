@@ -55,10 +55,10 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 
 ## Development Workflows
 
-- **OpenSpec:** features follow proposal → specs → design → tasks → implementation via `.pi/skills/openspec-*` (explore → propose → apply/update → sync → archive; artifacts in `openspec/changes/`). **Before starting any OpenSpec step (explore, propose, apply, update, sync, archive), read the corresponding skill first (`.pi/skills/openspec-<step>/SKILL.md`) and follow its workflow exactly** — never run an OpenSpec step from memory. Every feature needs ≥1 test. **All OpenSpec/spec documents (proposal, specs, design, tasks) must be written in English.**
+- **OpenSpec:** features follow proposal → specs → design → tasks → implementation via the `openspec-*` skills (explore → propose → apply/update → sync → archive; artifacts in `openspec/changes/`). The workflow is mirrored per harness — read the copy under the current harness's skills directory (`.pi/skills/`, `.opencode/skills/`, `.zcode/skills/`); copies may differ slightly to match each harness's command syntax. **Before starting any OpenSpec step (explore, propose, apply, update, sync, archive), read the corresponding skill first (`<harness-dir>/skills/openspec-<step>/SKILL.md`) and follow its workflow exactly** — never run an OpenSpec step from memory. Every feature needs ≥1 test. **All OpenSpec/spec documents (proposal, specs, design, tasks) must be written in English.**
 - **OpenSpec review timing:** write ALL planning artifacts (proposal → specs → design → tasks) before reviewing the proposal against the complete set — a proposal review without its specs/design/tasks cannot validate the contract between them.
 - **TDD:** never write implementation before tests; test + implementation go in the same commit.
-- **Post-Change Review:** after self-verification, unless trivial (typos, docs-only, one-liner or mechanical refactor), run the `code-review` skill (spec from `openspec/changes/`); for large multi-area changes add ≤1 sub-agent per functional area for edge cases only; report severity + file:line findings, triage, fix, re-verify.
+- **Post-Change Review:** after self-verification, unless trivial (typos, docs-only, one-liner or mechanical refactor), run the `code-review` skill (spec from `openspec/changes/`; if the current harness has no copy, use another harness's, e.g. `.pi/skills/code-review/`); for large multi-area changes add ≤1 sub-agent per functional area for edge cases only; report severity + file:line findings, triage, fix, re-verify.
 
 ## Platform & Git
 
