@@ -65,7 +65,8 @@ inline bool withJobState(appctx::AppContext& ctx, Fn&& fn) {
 
 // Records an active stop request into job state, if any, so a later resume
 // sees the interruption instead of pretending nothing happened. Template so
-// jobstate::Store stays incomplete here (callers instantiate).
+// the requestCancel call is instantiated only in TUs that include the
+// complete jobstate::Store (video_batch_execution/video_encoding_state).
 template<class StoreT = jobstate::Store>
 inline void noteStopRequest(appctx::AppContext& ctx) {
   if (!stopsignal::isStopRequested()) { return; }
