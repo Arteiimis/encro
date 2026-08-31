@@ -55,7 +55,7 @@ TEST_CASE("groupFilesBySize splits sequentially by limit", "[packer][groupFilesB
 
 TEST_CASE(
   "groupPackEntries keeps source directories intact after threshold is exceeded",
-  "[packer][groupPackFiles]"
+  "[packer][groupPackEntries]"
 ) {
   TempDir temp;
   auto const dirA = temp.path / "a";
@@ -87,7 +87,7 @@ TEST_CASE(
 
 TEST_CASE(
   "groupPackEntries stays sequential before folder carry-over threshold",
-  "[packer][groupPackFiles]"
+  "[packer][groupPackEntries]"
 ) {
   TempDir temp;
   auto const dirA = temp.path / "a";
@@ -139,7 +139,7 @@ TEST_CASE(
 
 TEST_CASE(
   "groupPackEntriesWithSubparts keeps size overflow in the same logical part",
-  "[packer][groupPackFilesWithSubparts]"
+  "[packer][groupPackEntriesWithSubparts]"
 ) {
   TempDir temp;
 
@@ -372,7 +372,7 @@ TEST_CASE("execute() in Directory mode packs directory", "[packer][workflow]") {
 
 TEST_CASE(
   "directory plan packs all files with size grouping",
-  "[packer][packAllFilesInDirectory]"
+  "[packer][directory-plan]"
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "input";
@@ -405,10 +405,7 @@ TEST_CASE(
   zip2.close();
 }
 
-TEST_CASE(
-  "directory plan respects non-recursive option",
-  "[packer][packAllFilesInDirectory]"
-) {
+TEST_CASE("directory plan respects non-recursive option", "[packer][directory-plan]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";
   auto const nestedDir = inputDir / "nested";
