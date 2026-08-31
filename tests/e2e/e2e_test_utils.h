@@ -120,7 +120,4 @@ bool consoleCtrlEventsAvailable();
 
 auto installFakeToolchain(fs::path const& root) -> FakeToolchain;
 
-auto mapZipEntryCompression(fs::path const& zipPath)
-  -> std::map<std::string, libzippp::CompressionMethod>;
-
 }  // namespace e2e

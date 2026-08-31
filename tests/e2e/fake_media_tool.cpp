@@ -367,7 +367,6 @@ auto runScoringInvocation(int argc, char* argv[]) -> int {
 
 // Emulates -progress output so the parser paths are exercised end to end.
 void writeFakeProgressFile(FfmpegInvocation const& invocation) {
-  auto const padBytes = readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_PAD", 0);
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access): caller checks has_value
   auto const progressPath = invocation.progressFile.value();
   if (auto const parentPath = progressPath.parent_path(); !parentPath.empty()) {
@@ -376,14 +375,6 @@ void writeFakeProgressFile(FfmpegInvocation const& invocation) {
   }
   auto out = std::ofstream{progressPath};
   if (!out.is_open()) { return; }
-  if (padBytes > 0) {
-    // Emulates an old/oversized -progress file so the tail-read path is
-    // exercised end to end.
-    auto filler = std::string(padBytes, 'x');
-    for (auto offset = std::size_t{0}; offset < filler.size(); offset += 101) {
-      out << filler.substr(offset, 100) << "\n";
-    }
-  }
   out << "frame=10\n";
   if (
     readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_NO_END_TIME", 0) == 0

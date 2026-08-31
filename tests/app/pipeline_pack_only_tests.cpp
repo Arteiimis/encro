@@ -13,7 +13,7 @@ using testutils::listZipRegularEntryNames;
 using testutils::readTextFile;
 using testutils::ScopedStopSignalReset;
 using testutils::StdoutCapture;
-using testutils::touchFile;
+using testutils::writeTextFile;
 
 TEST_CASE("pack-only pipeline rejects non-video type", "[pipeline]") {
   TempDir temp;
@@ -31,7 +31,7 @@ TEST_CASE("pack-only pipeline packs directory", "[pipeline]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.bin");
+  writeTextFile(inputDir / "a.bin");
 
   auto ctx = appctx::AppContext{};
   ctx.config.packOnly = true;
@@ -48,7 +48,7 @@ TEST_CASE("pack-only pipeline skips job state by default", "[pipeline]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.bin");
+  writeTextFile(inputDir / "a.bin");
 
   auto ctx = appctx::AppContext{};
   ctx.config.packOnly = true;
@@ -72,7 +72,7 @@ TEST_CASE(
   auto const inputDir = temp.path / "input";
   auto const stateFilePath = temp.path / "state.json";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.bin");
+  writeTextFile(inputDir / "a.bin");
 
   auto ctx = appctx::AppContext{};
   ctx.config.packOnly = true;
@@ -104,8 +104,8 @@ TEST_CASE("pack-only pipeline defaults to collision-safe file names", "[pipeline
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "alpha.bin");
-  touchFile(dirB / "beta.bin");
+  writeTextFile(dirA / "alpha.bin");
+  writeTextFile(dirB / "beta.bin");
 
   auto ctx = appctx::AppContext{};
   ctx.config.packOnly = true;
@@ -131,8 +131,8 @@ TEST_CASE("pack-only pipeline can disable collision-safe file names", "[pipeline
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "alpha.bin");
-  touchFile(dirB / "beta.bin");
+  writeTextFile(dirA / "alpha.bin");
+  writeTextFile(dirB / "beta.bin");
 
   auto ctx = appctx::AppContext{};
   ctx.config.packOnly = true;
@@ -161,10 +161,10 @@ TEST_CASE(
   auto const dirB = inputDir / "天川そら(110p + 音声あり動画)";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "alpha.bin");
-  touchFile(dirA / "beta.bin");
-  touchFile(dirB / "alpha.bin");
-  touchFile(dirB / "beta.bin");
+  writeTextFile(dirA / "alpha.bin");
+  writeTextFile(dirA / "beta.bin");
+  writeTextFile(dirB / "alpha.bin");
+  writeTextFile(dirB / "beta.bin");
 
   auto ctx = appctx::AppContext{};
   ctx.config.packOnly = true;
@@ -198,8 +198,8 @@ TEST_CASE(
   auto const stateFilePath = temp.path / "state.json";
   fs::create_directories(inputDirA);
   fs::create_directories(inputDirB);
-  touchFile(inputDirA / "a.bin");
-  touchFile(inputDirB / "b.bin");
+  writeTextFile(inputDirA / "a.bin");
+  writeTextFile(inputDirB / "b.bin");
 
   auto ctxA = appctx::AppContext{};
   ctxA.config.packOnly = true;

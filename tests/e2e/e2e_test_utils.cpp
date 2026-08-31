@@ -356,18 +356,4 @@ auto installFakeToolchain(fs::path const& root) -> FakeToolchain {
   };
 }
 
-auto mapZipEntryCompression(fs::path const& zipPath)
-  -> std::map<std::string, libzippp::CompressionMethod> {
-  auto zip = libzippp::ZipArchive{zipPath.string()};
-  zip.open(libzippp::ZipArchive::ReadOnly);
-
-  auto methods = std::map<std::string, libzippp::CompressionMethod>{};
-  for (auto const& entry: zip.getEntries()) {
-    if (entry.getName().ends_with('/')) { continue; }
-    methods.emplace(entry.getName(), entry.getCompressionMethod());
-  }
-  zip.close();
-  return methods;
-}
-
 }  // namespace e2e

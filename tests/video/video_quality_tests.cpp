@@ -233,8 +233,8 @@ TEST_CASE(
   TempDir temp;
   auto const original = temp.path / "original.mp4";
   auto const encoded = temp.path / "encoded.mp4";
-  testutils::touchFile(original);
-  testutils::touchFile(encoded);
+  testutils::writeTextFile(original);
+  testutils::writeTextFile(encoded);
 
   // A nonexistent ffmpeg path fails the scoring command (and both the VMAF
   // and SSIM attempts), yielding the "scores unparsable" error path.

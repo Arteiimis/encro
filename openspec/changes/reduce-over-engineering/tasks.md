@@ -17,24 +17,24 @@
 
 ## 3. D3 — Stdlib replacements + equivalent restructuring
 
-- [ ] 3.1 logging: replace `readWindowsEnvPath` with `processenv::readEnvVar`; cmd: replace `readHelpColumnsOverride` with `consolewidth::parsePositiveColumnCount`
-- [ ] 3.2 Share one `microsToSeconds` for the 4 duplicate definitions (encode_config.h, video_quality.cpp, preview_filtergraph.cpp, preview_process.cpp)
-- [ ] 3.3 Hoist `parseDouble`/`parseFraction` duplicates (video_info.cpp, preview_process.cpp) into `video_workflow_utils.h`
-- [ ] 3.4 Fold `parallel` module (`runIndexedTasks`) into `task_executor.cpp` as an internal function; delete parallel.h/parallel.cpp
-- [ ] 3.5 Merge `ProbeRootGuard`/`createProbeRoot` with `PreviewProbeRootGuard`/`createPreviewProbeRoot` (preserving each site's retry constants: 6×/500ms+LOG_WARN vs 3×/200ms silent); merge `probeLowSide`/`probeHighSide` into one parametrized `probeSide`
-- [ ] 3.6 Replace the 4 `buildGroupOrdinalRanges` overloads with one template over `vector<vector<T>>`
-- [ ] 3.7 Parameterize `makeHelpFormatter` over the option source; delete `makeSubcommandHelpFormatter`; share `formatDefaultStr`
-- [ ] 3.8 Dedup small items: `noteStopRequest` (video_encoding_state.cpp/video_batch_execution.cpp), score-text formatting (inline block at preview_process.cpp:243-254), `runEncodingWithoutProgress` field fill vs `createEncodingState`, `executeDirectPackWorkflow` scan block vs `scanPictures`, `readAllVids`/`readAllVidsFromFiles` common tail, duplicate constants (3× `10'000'000` µs, 2× 20 MB, three identical `490*1024*1024` default args in packer.h vs the divergent 500 MB twin in pack_types.h)
+- [x] 3.1 logging: replace `readWindowsEnvPath` with `processenv::readEnvVar`; cmd: replace `readHelpColumnsOverride` with `consolewidth::parsePositiveColumnCount`
+- [x] 3.2 Share one `microsToSeconds` for the 4 duplicate definitions (encode_config.h, video_quality.cpp, preview_filtergraph.cpp, preview_process.cpp)
+- [x] 3.3 Hoist `parseDouble`/`parseFraction` duplicates (video_info.cpp, preview_process.cpp) into `video_workflow_utils.h`
+- [x] 3.4 Fold `parallel` module (`runIndexedTasks`) into `task_executor.cpp` as an internal function; delete parallel.h/parallel.cpp
+- [x] 3.5 Merge `ProbeRootGuard`/`createProbeRoot` with `PreviewProbeRootGuard`/`createPreviewProbeRoot` (preserving each site's retry constants: 6×/500ms+LOG_WARN vs 3×/200ms silent); merge `probeLowSide`/`probeHighSide` into one parametrized `probeSide`
+- [x] 3.6 Replace the 4 `buildGroupOrdinalRanges` overloads with one template over `vector<vector<T>>`
+- [x] 3.7 Share `formatDefaultStr` and extract the shared help preamble (full parametrization rejected: the subcommand formatter differs in option-source loop and tier semantics, so a shared preamble beats an 8-param formatter)
+- [x] 3.8 Dedup small items: `noteStopRequest` (moved to video_workflow_utils.h), score-text formatting (shared `formatScoreText`), `runEncodingWithoutProgress` field fill vs `createEncodingState` (shared `applyEncodingStateCommonFields`), `executeDirectPackWorkflow` scan block vs `scanPictures`, `readAllVids`/`readAllVidsFromFiles` common tail (`finalizeScannedVids`). Rejected: duplicate constants (3× `10'000'000` µs and 2× 20 MB are semantically distinct domain constants, coincidentally equal; `490*1024*1024` vs 500 MB are genuinely different defaults — merging would silently change behavior)
 
 ## 4. D4 — Test infrastructure cleanup
 
 - [x] 4.1 Merge `pack_service_mock_tests.cpp` into `pack_service_tests.cpp`: keep the failure-path cases (2, 4, 5), port case 1 (happy path of a deleted API) onto its surviving replacement (`pack::execute`), delete the rest (6–9 are zip-creation duplicates)
-- [ ] 4.2 Merge `StdoutCapture`/`StderrCapture` into one `FileCapture` parameterized on `FILE*`; keep the two names as thin aliases; fix `test_utils_tests.cpp` if needed
-- [ ] 4.3 Delete `writeFile`/`touchFile` aliases; whitelist-check all ~164 call sites with `rg`, sed to `writeTextFile`, `xmake fmt` before committing (pre-commit clang-format hook), review the diff
-- [ ] 4.4 Delete `mapZipEntryCompression()` (e2e_test_utils.{h,cpp}, zero callers) and the `ENCRO_FAKE_FFMPEG_PROGRESS_PAD` pad-filler block in fake_media_tool.cpp (drop the knob; hardcoded `frame=10` output is byte-identical)
+- [x] 4.2 Merge `StdoutCapture`/`StderrCapture` into one `FileCapture` parameterized on `FILE*`; keep the two names as thin aliases
+- [x] 4.3 Delete `writeFile`/`touchFile` aliases; whitelist-checked all call sites with `rg`, sed to `writeTextFile`, `xmake fmt` before committing (pre-commit clang-format hook), reviewed the diff
+- [x] 4.4 Delete `mapZipEntryCompression()` (e2e_test_utils.{h,cpp}, zero callers) and the `ENCRO_FAKE_FFMPEG_PROGRESS_PAD` pad-filler block in fake_media_tool.cpp (drop the knob; hardcoded `frame=10` output is byte-identical)
 
 ## 5. Verification & commits
 
-- [ ] 5.1 Run `xmake test-report` after each batch (D1–D4) before committing; nothing but the batch's own deletions may fail
-- [ ] 5.2 Run `xmake test-parallel` after D2 and D4
-- [ ] 5.3 Commit per batch (English, conventional: `refactor:`; `test:` where test files dominate), ticking the change's `tasks.md` checkboxes in the same commit (planning `docs:` commit already landed as aece451)
+- [x] 5.1 Run `xmake test-report` after each batch (D1–D4) before committing; nothing but the batch's own deletions may fail
+- [x] 5.2 Run `xmake test-parallel` after D2 and D4
+- [x] 5.3 Commit per batch (English, conventional: `refactor:`; `test:` where test files dominate), ticking the change's `tasks.md` checkboxes in the same commit (planning `docs:` commit already landed as f4004b4)

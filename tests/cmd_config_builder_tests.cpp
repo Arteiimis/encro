@@ -7,7 +7,7 @@
 #include <vector>
 
 namespace fs = std::filesystem;
-using testutils::writeFile;
+using testutils::writeTextFile;
 
 namespace {
 
@@ -65,7 +65,7 @@ auto makeResult(
 TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(inputPath.string());
   auto const configRes = cmd::buildConfig(result);
@@ -91,7 +91,7 @@ TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config
 TEST_CASE("buildConfig reads keep output layout", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(
     inputPath.string(),
@@ -114,7 +114,7 @@ TEST_CASE("buildConfig reads keep output layout", "[cmd][config]") {
 TEST_CASE("buildConfig reads forced conflict handling flag", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(inputPath.string());
   auto const configRes = cmd::buildConfig(result);
@@ -126,7 +126,7 @@ TEST_CASE("buildConfig reads forced conflict handling flag", "[cmd][config]") {
 TEST_CASE("buildConfig reads disabled conflict handling flag", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(
     inputPath.string(),
@@ -146,7 +146,7 @@ TEST_CASE("buildConfig reads disabled conflict handling flag", "[cmd][config]") 
 TEST_CASE("buildConfig treats preset auto as unset", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto result = makeResult(inputPath.string());
   result.nvencPreset = "auto";
@@ -159,7 +159,7 @@ TEST_CASE("buildConfig treats preset auto as unset", "[cmd][config]") {
 TEST_CASE("buildConfig reads enabled folder summary flag", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(
     inputPath.string(),
@@ -183,7 +183,7 @@ TEST_CASE("buildConfig reads resume restart and state-file options", "[cmd][conf
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(
     inputPath.string(),
@@ -210,8 +210,8 @@ TEST_CASE("buildConfig supports multiple inputs", "[cmd][config]") {
   TempDir temp;
   auto const inputA = temp.path / "a.mp4";
   auto const inputB = temp.path / "b.mp4";
-  writeFile(inputA);
-  writeFile(inputB);
+  writeTextFile(inputA);
+  writeTextFile(inputB);
 
   auto const result =
     makeResult(std::nullopt, std::vector<std::string>{inputA.string(), inputB.string()});
@@ -229,7 +229,7 @@ TEST_CASE("buildConfig supports multiple inputs", "[cmd][config]") {
 TEST_CASE("buildConfig rejects multi-input for picture type", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(
     std::nullopt,
@@ -247,7 +247,7 @@ TEST_CASE("buildConfig rejects multi-input for picture type", "[cmd][config]") {
 TEST_CASE("buildConfig rejects multi-input with pack-only", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(
     std::nullopt,
@@ -289,7 +289,7 @@ TEST_CASE("buildConfig requires input path", "[cmd][config]") {
 TEST_CASE("buildConfig maps a single positional file to inputPath", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(
     std::nullopt,
@@ -371,8 +371,8 @@ TEST_CASE("buildConfig maps multiple positionals to inputPaths", "[cmd][config]"
   TempDir temp;
   auto const inputA = temp.path / "a.mp4";
   auto const inputB = temp.path / "b.mp4";
-  writeFile(inputA);
-  writeFile(inputB);
+  writeTextFile(inputA);
+  writeTextFile(inputB);
 
   auto const result = makeResult(
     std::nullopt,
@@ -403,8 +403,8 @@ TEST_CASE("buildConfig rejects multiple positionals for picture type", "[cmd][co
   TempDir temp;
   auto const inputA = temp.path / "a.mp4";
   auto const inputB = temp.path / "b.mp4";
-  writeFile(inputA);
-  writeFile(inputB);
+  writeTextFile(inputA);
+  writeTextFile(inputB);
 
   auto const result = makeResult(
     std::nullopt,
@@ -430,8 +430,8 @@ TEST_CASE("buildConfig rejects multiple positionals with pack-only", "[cmd][conf
   TempDir temp;
   auto const inputA = temp.path / "a.mp4";
   auto const inputB = temp.path / "b.mp4";
-  writeFile(inputA);
-  writeFile(inputB);
+  writeTextFile(inputA);
+  writeTextFile(inputB);
 
   auto const result = makeResult(
     std::nullopt,
@@ -459,7 +459,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(
     std::nullopt,
@@ -493,8 +493,8 @@ TEST_CASE("buildConfig rejects output path that is not a directory", "[cmd][conf
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const outputFile = temp.path / "output.txt";
-  writeFile(inputPath);
-  writeFile(outputFile);
+  writeTextFile(inputPath);
+  writeTextFile(outputFile);
 
   auto const result = makeResult(inputPath.string(), std::nullopt, outputFile.string());
   auto const configRes = cmd::buildConfig(result);
@@ -507,7 +507,7 @@ TEST_CASE("buildConfig accepts output path that does not exist yet", "[cmd][conf
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const outputDir = temp.path / "new_output";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(inputPath.string(), std::nullopt, outputDir.string());
   auto const configRes = cmd::buildConfig(result);
@@ -523,7 +523,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(inputPath.string(), std::nullopt, "+");
   auto const configRes = cmd::buildConfig(result);
@@ -536,7 +536,7 @@ TEST_CASE(
 TEST_CASE("buildConfig resolves input alias with relative suffix", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result =
     makeResult(inputPath.string(), std::nullopt, "input://encoded/webp");
@@ -556,8 +556,8 @@ TEST_CASE(
   auto const inputB = temp.path / "group_b" / "clip_b.mp4";
   fs::create_directories(inputA.parent_path());
   fs::create_directories(inputB.parent_path());
-  writeFile(inputA);
-  writeFile(inputB);
+  writeTextFile(inputA);
+  writeTextFile(inputB);
 
   auto const result = makeResult(
     std::nullopt,
@@ -580,8 +580,8 @@ TEST_CASE(
   auto const inputB = temp.path / "group_b" / "clip_b.mp4";
   fs::create_directories(inputA.parent_path());
   fs::create_directories(inputB.parent_path());
-  writeFile(inputA);
-  writeFile(inputB);
+  writeTextFile(inputA);
+  writeTextFile(inputB);
 
   auto const result = makeResult(
     std::nullopt,
@@ -603,8 +603,8 @@ TEST_CASE(
   auto const inputA = sharedDir / "clip_a.mp4";
   auto const inputB = sharedDir / "clip_b.mp4";
   fs::create_directories(sharedDir);
-  writeFile(inputA);
-  writeFile(inputB);
+  writeTextFile(inputA);
+  writeTextFile(inputB);
 
   auto const result = makeResult(
     std::nullopt,
@@ -622,8 +622,8 @@ TEST_CASE("buildConfig rejects ffmpeg path that is not a directory", "[cmd][conf
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const ffmpegFile = temp.path / "ffmpeg";
-  writeFile(inputPath);
-  writeFile(ffmpegFile);
+  writeTextFile(inputPath);
+  writeTextFile(ffmpegFile);
 
   auto const result = makeResult(
     inputPath.string(),
@@ -651,7 +651,7 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const outputDir = temp.path / "out";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
   fs::create_directories(outputDir);
 
   auto const result = makeResult(
@@ -685,7 +685,7 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
 TEST_CASE("buildConfig reads custom max parallel jobs", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(
     inputPath.string(),
@@ -732,7 +732,7 @@ TEST_CASE("buildConfig enables compressImages with --compress", "[cmd][config]")
 TEST_CASE("buildConfig rejects --compress without picture type", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const result = makeResult(
     inputPath.string(),
@@ -861,7 +861,7 @@ TEST_CASE(
 TEST_CASE("buildConfig reads min-vmaf default and dry-run flag", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "in.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const defaults = cmd::buildConfig(makeResult(inputPath.string()));
   REQUIRE(defaults);
