@@ -1,12 +1,10 @@
 #include "cmd/config_store.h"
-#include "infra/env.h"
 #include "test_utils.h"
 
-#include <boost/json.hpp>
+#include <boost/json.hpp>        // IWYU pragma: keep
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
-#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <string_view>

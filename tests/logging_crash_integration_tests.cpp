@@ -2,13 +2,13 @@
 #include "logging/setup.h"
 #include "test_utils.h"
 
-#include <boost/json.hpp>
+#include <boost/json.hpp>  // IWYU pragma: keep
 
 #include <algorithm>
 #include <array>
 
 #if defined(_WIN32)
-  #include <io.h>
+  #include <io.h>  // IWYU pragma: keep -- Windows-only (guarded by _WIN32)
 #endif
 #include <chrono>
 #include <ctime>

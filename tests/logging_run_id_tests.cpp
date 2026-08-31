@@ -1,6 +1,6 @@
 #include "logging/setup.h"
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <string>
 

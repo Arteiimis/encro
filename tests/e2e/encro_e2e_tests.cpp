@@ -1,14 +1,13 @@
 #include "e2e_test_utils.h"
 #include "test_utils.h"
 
-#include <boost/json.hpp>
-#include <catch2/catch_all.hpp>
+#include <boost/json.hpp>        // IWYU pragma: keep
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <algorithm>
 #include <fstream>
 #include <format>
 #include <filesystem>
-#include <iterator>
 #include <optional>
 #include <sstream>
 #include <string>

@@ -3,7 +3,6 @@
 #include "cmd/config_store.h"
 #include "infra/terminal.h"
 
-#include <format>
 #include <iostream>
 #include <optional>
 #include <string>

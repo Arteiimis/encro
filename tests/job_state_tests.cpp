@@ -4,20 +4,16 @@
 #include "logging/setup.h"
 #include "test_utils.h"
 
-#include <spdlog/logger.h>
-#include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <array>
 #include <chrono>
 #include <filesystem>
-#include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
-#include <utility>
 #include <vector>
 
 // ponytail: duplicate of the helper in tests/logging_infra_test.cpp; hoist to

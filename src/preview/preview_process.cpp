@@ -5,7 +5,6 @@
 #include "infra/terminal.h"
 #include "core/progress.h"
 #include "core/task_executor.h"
-#include "core/work_dirs.h"
 #include "utils/utils.h"
 #include "video/encode_probe.h"
 #include "video/video_info.h"
@@ -25,7 +24,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 

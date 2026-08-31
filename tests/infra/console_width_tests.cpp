@@ -1,7 +1,7 @@
 #include "infra/console_width.h"
 #include "infra/env.h"
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <string>
 

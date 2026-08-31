@@ -6,9 +6,9 @@
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
 
-#include <boost/json.hpp>
+#include <boost/json.hpp>        // IWYU pragma: keep
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <memory>
 #include <sstream>

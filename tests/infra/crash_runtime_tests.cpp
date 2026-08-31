@@ -5,7 +5,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/readable_pipe.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
-#include <boost/json.hpp>
+#include <boost/json.hpp>  // IWYU pragma: keep
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/stdio.hpp>
 #include <spdlog/logger.h>

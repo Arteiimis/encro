@@ -2,9 +2,7 @@
 
 #include "core/path_roots.h"
 
-#include <algorithm>
 #include <span>
-#include <string>
 
 namespace workdirs {
 

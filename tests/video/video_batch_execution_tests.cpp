@@ -4,7 +4,7 @@
 #include "infra/stop_signal.h"
 #include "test_utils.h"
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <chrono>
 #include <filesystem>

@@ -5,17 +5,15 @@
 #include "test_utils.h"
 
 #include <spdlog/logger.h>
-#include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <format>
 #include <memory>
-#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>

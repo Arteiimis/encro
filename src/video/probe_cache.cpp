@@ -5,11 +5,11 @@
 #include "logging/logging.h"
 #include "logging/setup.h"
 
-#include <boost/json.hpp>
+#include <boost/json.hpp>  // IWYU pragma: keep
 
 #include <algorithm>
 #include <chrono>
-#include <cstdlib>
+#include <cstdlib>  // IWYU pragma: keep -- needed with MSVC STL; Linux libstdc++ pulls it transitively
 #include <fstream>
 #include <string_view>
 #if defined(_WIN32)

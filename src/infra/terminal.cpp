@@ -9,7 +9,7 @@
 #include <format>
 
 #if defined(_WIN32) || defined(_WIN64)
-  #include <windows.h>
+  #include <windows.h>  // IWYU pragma: keep -- Windows-only (guarded by _WIN32)
 #else
   #include <unistd.h>
 #endif
