@@ -31,6 +31,7 @@ using videobatch::detail::EncodingExecutionContext;
 using videobatch::detail::EncodingProgressState;
 using videoworkflow::lookupPlannedOutputFile;
 using videoworkflow::maybeJobState;
+using videoworkflow::noteStopRequest;
 using videoworkflow::withJobState;
 
 namespace videobatch::detail {
@@ -50,11 +51,6 @@ auto persistedElapsedMs(
 }  // namespace videobatch::detail
 
 namespace {
-
-void noteStopRequest(appctx::AppContext& ctx) {
-  if (!stopsignal::isStopRequested()) { return; }
-  withJobState(ctx, [](jobstate::Store& store) { store.requestCancel(); });
-}
 
 void markRunningNoProgress(
   appctx::AppContext& ctx,
@@ -100,6 +96,24 @@ void reportEncodingStatus(
   }
 }
 
+// Fills the fields shared by the executor and the no-progress path: task
+// correlation, the planned output file, and the probed CQ.
+void applyEncodingStateCommonFields(
+  appctx::EncodingState& state,
+  videobatch::ActionIdMap const& actionIds,
+  appctx::path_map<fs::path> const& plannedOutputFiles,
+  appctx::path_map<int> const& probeCqByInput,
+  fs::path const& vidPath
+) {
+  if (auto const it = actionIds.find(vidPath); it != actionIds.end()) {
+    state.actionId = it->second;
+  }
+  state.plannedOutputFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
+  if (auto const it = probeCqByInput.find(vidPath); it != probeCqByInput.end()) {
+    state.chosenCq = it->second;
+  }
+}
+
 auto createEncodingState(
   EncodingExecutionContext& executionCtx,
   fs::path const& vidPath,
@@ -108,21 +122,14 @@ auto createEncodingState(
   auto vidState = std::make_shared<appctx::EncodingState>();
   vidState->inputPath = vidPath;
   vidState->barIndex = barIndex;
-  if (
-    auto const it = executionCtx.actionIds.find(vidPath);
-    it != executionCtx.actionIds.end()
-  ) {
-    vidState->actionId = it->second;
-  }
+  applyEncodingStateCommonFields(
+    *vidState,
+    executionCtx.actionIds,
+    executionCtx.plannedOutputFiles,
+    executionCtx.probeCqByInput,
+    vidPath
+  );
   vidState->startTime = std::chrono::steady_clock::now();
-  vidState->plannedOutputFile =
-    lookupPlannedOutputFile(executionCtx.plannedOutputFiles, vidPath);
-  if (
-    auto const it = executionCtx.probeCqByInput.find(vidPath);
-    it != executionCtx.probeCqByInput.end()
-  ) {
-    vidState->chosenCq = it->second;
-  }
   return vidState;
 }
 
@@ -286,13 +293,13 @@ auto runEncodingWithoutProgress(
 
     auto state = appctx::EncodingState{};
     state.inputPath = vidPath;
-    if (auto const it = job.actionIds.find(vidPath); it != job.actionIds.end()) {
-      state.actionId = it->second;
-    }
-    state.plannedOutputFile = lookupPlannedOutputFile(job.plannedOutputFiles, vidPath);
-    if (auto const it = probeCqByInput.find(vidPath); it != probeCqByInput.end()) {
-      state.chosenCq = it->second;
-    }
+    applyEncodingStateCommonFields(
+      state,
+      job.actionIds,
+      job.plannedOutputFiles,
+      probeCqByInput,
+      vidPath
+    );
 
     LOG_DEBUG("Start encoding (no-progress): {}", vidPath.string());
     auto const taskId =

@@ -104,11 +104,15 @@ auto resolveWorkRoot(appctx::AppConfig const& config) -> eh::Result<fs::path> {
     }
   }
 
+  if (isWebpVideo) {
+    return eh::makeError(
+      "Failed to resolve work root for webp encoding: inputs have no common "
+      "ancestor directory. Pass --output/-o."
+    );
+  }
   return eh::makeError(
-    isWebpVideo ? "Failed to resolve work root for webp encoding: inputs have no common "
-                  "ancestor directory. Pass --output/-o."
-                : "Failed to resolve work root: inputs have no common ancestor directory "
-                  "(e.g. inputs on different drives). Pass --output/-o."
+    "Failed to resolve work root: inputs have no common ancestor directory "
+    "(e.g. inputs on different drives). Pass --output/-o."
   );
 }
 

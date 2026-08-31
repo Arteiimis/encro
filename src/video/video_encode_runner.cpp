@@ -182,7 +182,7 @@ auto runWebpEncodingStep(
     return {-1, std::nullopt};
   }
 
-  auto const [exitCode, outputSize] = exec2(cfg.buildCMD(), [&](std::string_view line) {
+  auto const [exitCode, _, pid] = exec2(cfg.buildCMD(), [&](std::string_view line) {
     reportEncodingDiagnostic(encodeCtx.statusUpdater, line);
   });
   if (exitCode != 0) {

@@ -10,6 +10,7 @@
 #include "video/encode_probe.h"
 #include "video/video_info.h"
 #include "video/video_quality.h"
+#include "video/video_workflow_utils.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -41,25 +42,6 @@ namespace {
 constexpr auto kWindowCount = std::size_t{5};
 constexpr auto kWindowDurationUs = std::uint64_t{10'000'000};
 constexpr auto kFullComparisonBudgetUs = std::uint64_t{50'000'000};
-
-double seconds(std::uint64_t micros) {
-  return static_cast<double>(micros) / 1'000'000.0;
-}
-
-auto parseDouble(std::string_view text) -> std::optional<double> {
-  try {
-    return std::stod(std::string{text});
-  } catch (...) { return std::nullopt; }
-}
-
-auto parseFraction(std::string_view text) -> std::optional<double> {
-  auto const slashPos = text.find('/');
-  if (slashPos == std::string_view::npos) { return parseDouble(text); }
-  auto const num = parseDouble(text.substr(0, slashPos));
-  auto const den = parseDouble(text.substr(slashPos + 1));
-  if (!num.has_value() || !den.has_value() || den.value() == 0.0) { return std::nullopt; }
-  return num.value() / den.value();
-}
 
 namespace {
 
@@ -97,7 +79,8 @@ auto applyVideoStreamFields(
     rateIt != stream.end() && rateIt->value().is_string()
   ) {
     probe.fps =
-      parseFraction(std::string_view{rateIt->value().as_string()}).value_or(0.0);
+      videoworkflow::parseFraction(std::string_view{rateIt->value().as_string()})
+        .value_or(0.0);
   }
   return {};
 }
@@ -153,7 +136,7 @@ std::uint64_t probeVideoStreamDurationUs(boost::json::value const& info) {
     ) {
       if (
         auto const duration =
-          parseDouble(std::string_view{streamDurIt->value().as_string()})
+          videoworkflow::parseDouble(std::string_view{streamDurIt->value().as_string()})
       ) {
         return static_cast<std::uint64_t>(std::llround(duration.value() * 1'000'000.0));
       }
@@ -172,7 +155,8 @@ std::uint64_t probeFormatDurationUs(boost::json::value const& info) {
     durationIt != formatIt->value().as_object().end() && durationIt->value().is_string()
   ) {
     if (
-      auto const duration = parseDouble(std::string_view{durationIt->value().as_string()})
+      auto const duration =
+        videoworkflow::parseDouble(std::string_view{durationIt->value().as_string()})
     ) {
       return static_cast<std::uint64_t>(std::llround(duration.value() * 1'000'000.0));
     }
@@ -231,25 +215,7 @@ void printWindows(
     auto const& window = windows[index];
     auto scoreText = std::string{"-"};
     if (window.score.has_value()) {
-      if (window.metric == videoquality::QualityMetric::Xpsnr) {
-        scoreText = std::format(
-          "{} {:.2f} dB",
-          videoquality::metricName(window.metric),
-          window.score.value()
-        );
-      } else if (window.metric == videoquality::QualityMetric::Vmaf) {
-        scoreText = std::format(
-          "{} {:.1f}",
-          videoquality::metricName(window.metric),
-          window.score.value()
-        );
-      } else {
-        scoreText = std::format(
-          "{} {:.3f}",
-          videoquality::metricName(window.metric),
-          window.score.value()
-        );
-      }
+      scoreText = formatScoreText(window.metric, window.score.value());
     }
     auto suffix =
       worstIndex.has_value() && worstIndex.value() == index ? "  (worst)" : "";
@@ -273,7 +239,7 @@ auto pickPreviewWindows(
   if (manualRange.has_value()) {
     auto const startSec = manualRange->first;
     auto const durationSec = manualRange->second;
-    auto const totalSec = seconds(shorterDurationUs);
+    auto const totalSec = microsToSeconds(shorterDurationUs);
     if (startSec < 0.0 || std::isnan(startSec)) {
       return eh::makeError("--start must be a non-negative number.");
     }
@@ -536,32 +502,8 @@ auto findWorstWindow(
   return worstIndex;
 }
 
-// Removes the per-run probe dir; retries briefly because a just-exited child
-// (scoring/encode) may still hold a transient handle on Windows.
-struct PreviewProbeRootGuard {
-  fs::path root;
-  ~PreviewProbeRootGuard() {  // NOLINT(bugprone-exception-escape): error_code overloads never throw
-    for (auto attempt = 0; attempt < 3; ++attempt) {
-      auto ec = std::error_code{};
-      fs::remove_all(root, ec);
-      if (!ec) { return; }
-      std::this_thread::sleep_for(std::chrono::milliseconds{200});
-    }
-  }
-};
-
 auto createPreviewProbeRoot() -> eh::Result<fs::path> {
-  auto probeRoot = workdirs::scratchDir() / std::format("preview_{}", getUUID());
-  auto ec = std::error_code{};
-  fs::create_directories(probeRoot, ec);
-  if (ec) {
-    return eh::makeError(
-      "Failed to create preview temp directory: {} ({})",
-      probeRoot.string(),
-      ec.message()
-    );
-  }
-  return probeRoot;
+  return videoworkflow::createScratchProbeRoot("preview", "preview temp");
 }
 
 // Renders the comparison, drives the bar to completion, then prints the
@@ -668,7 +610,8 @@ auto runSingleInput(
 ) -> eh::Result<int> {
   auto const probeRoot = createPreviewProbeRoot();
   if (!probeRoot) { return eh::makeError("{}", probeRoot.error()); }
-  PreviewProbeRootGuard rootGuard{probeRoot.value()};
+  videoworkflow::ProbeRootCleanupGuard
+    rootGuard{probeRoot.value(), 3, std::chrono::milliseconds{200}, false};
 
   auto progressCtx = progress::ProgressContext{};
   auto cursorGuard = progress::CursorGuard{};

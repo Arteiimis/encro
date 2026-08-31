@@ -26,7 +26,7 @@ int evenRoundDown(int value) {
   return value & ~1;
 }
 
-double seconds(std::uint64_t micros) {
+double microsToSeconds(std::uint64_t micros) {
   return static_cast<double>(micros) / 1'000'000.0;
 }
 
@@ -61,18 +61,9 @@ auto drawtext(std::string const& text, int fontSize, int y) -> std::string {
 auto segmentLabel(Window const& window) -> std::string {
   auto label = formatTimeRange(window.startUs, window.durationUs);
   if (window.score.has_value()) {
-    auto const isVmaf = window.metric == videoquality::QualityMetric::Vmaf;
-    auto const isXpsnr = window.metric == videoquality::QualityMetric::Xpsnr;
-    auto const metric = videoquality::metricName(window.metric);
     // Comma separator: '|' is a cmd metacharacter that would break batch
     // invocations (unit-test fakes) even inside quoted arguments.
-    if (isVmaf) {
-      label += std::format(", {} {:.1f}", metric, window.score.value());
-    } else if (isXpsnr) {
-      label += std::format(", {} {:.2f} dB", metric, window.score.value());
-    } else {
-      label += std::format(", {} {:.3f}", metric, window.score.value());
-    }
+    label += std::format(", {}", formatScoreText(window.metric, window.score.value()));
   }
   return label;
 }
@@ -174,8 +165,8 @@ auto buildPreviewCommand(
     [&](std::uint64_t startUs, std::uint64_t durationUs, fs::path const& path) {
       cmd += std::format(
         " -ss {:.6f} -t {:.6f} -i \"{}\"",
-        seconds(startUs),
-        seconds(durationUs),
+        microsToSeconds(startUs),
+        microsToSeconds(durationUs),
         path.string()
       );
     };

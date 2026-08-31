@@ -37,6 +37,22 @@ struct FiltergraphSpec {
   bool encodedWindowsAreSegments = false;
 };
 
+// Metric-dependent score text: "VMAF 97.3" | "XPSNR 41.2 dB" | "SSIM 0.982".
+inline auto formatScoreText(videoquality::QualityMetric metric, double score)
+  -> std::string {
+  switch (metric) {
+    case videoquality::QualityMetric::Xpsnr: {
+      return std::format("{} {:.2f} dB", videoquality::metricName(metric), score);
+    }
+    case videoquality::QualityMetric::Vmaf: {
+      return std::format("{} {:.1f}", videoquality::metricName(metric), score);
+    }
+    case videoquality::QualityMetric::Ssim: {
+      return std::format("{} {:.3f}", videoquality::metricName(metric), score);
+    }
+  }
+}
+
 // "MM:SS-MM:SS" (or "H:MM:SS-H:MM:SS" for >= 1h inputs) segment label text.
 inline auto formatTimeRange(std::uint64_t startUs, std::uint64_t durationUs)
   -> std::string {
