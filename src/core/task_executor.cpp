@@ -1,10 +1,11 @@
 #include "core/task_executor.h"
 
-#include "core/parallel.h"
 #include "infra/stop_signal.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
+
+#include <BS_thread_pool.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -89,19 +90,25 @@ auto runTasks(TaskPlan const& plan) -> TaskRunResult {
   auto cursorGuard = std::optional<progress::CursorGuard>{};
   if (plan.hideCursor) { cursorGuard.emplace(); }
 
-  parallel::runIndexedTasks(workerCount, workerCount, [&](std::size_t slot) {
-    while (true) {
-      if (stopsignal::isStopRequested()) { break; }
+  auto pool = BS::pause_thread_pool{workerCount};
+  pool.pause();
+  for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
+    pool.detach_task([&, slot] {
+      while (true) {
+        if (stopsignal::isStopRequested()) { break; }
 
-      auto const taskIndex = nextIndex.fetch_add(1, std::memory_order_acq_rel);
-      if (taskIndex >= plan.tasks.size()) { break; }
+        auto const taskIndex = nextIndex.fetch_add(1, std::memory_order_acq_rel);
+        if (taskIndex >= plan.tasks.size()) { break; }
 
-      attempted[taskIndex] = 1;
-      attemptedCount.fetch_add(1, std::memory_order_release);
+        attempted[taskIndex] = 1;
+        attemptedCount.fetch_add(1, std::memory_order_release);
 
-      results[taskIndex] = runOneTask(plan.tasks[taskIndex], slot, progressCtx);
-    }
-  });
+        results[taskIndex] = runOneTask(plan.tasks[taskIndex], slot, progressCtx);
+      }
+    });
+  }
+  pool.unpause();
+  pool.wait();
 
   return TaskRunResult{
     .results = std::move(results),

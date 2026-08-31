@@ -20,17 +20,13 @@ DEFINE_LOGGER(logtags::VIDEO_STATE);
 
 namespace fs = std::filesystem;
 using videoworkflow::maybeJobState;
+using videoworkflow::noteStopRequest;
 using videoworkflow::withJobState;
 
 namespace {
 
 constexpr auto kProgressParseInterval = std::chrono::milliseconds{250};
 constexpr auto kScrollTickInterval = std::chrono::milliseconds{100};
-
-void noteStopRequest(appctx::AppContext& ctx) {
-  if (!stopsignal::isStopRequested()) { return; }
-  withJobState(ctx, [](jobstate::Store& store) { store.requestCancel(); });
-}
 
 // Stat-skip: reports whether the progress file changed since the last parse
 // pass, so the monitor does not re-read an untouched file. Keyed by path:

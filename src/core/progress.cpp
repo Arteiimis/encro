@@ -410,6 +410,8 @@ auto ProgressContext::manager() const -> Manager const& {
   return manager_;
 }
 
+namespace {
+
 auto makeBar(std::string_view promptText, Tone tone) -> BarPtr {
   using namespace indicators;
 
@@ -443,6 +445,8 @@ std::size_t addBar(
   tones.push_back(tone);
   return manager.push_back(*bars.back());
 }
+
+}  // namespace
 
 // Cursor control is terminal UI: never emit escape sequences when stdout
 // is not a TTY (pipes, test runs, CI) -- they pollute captured output.

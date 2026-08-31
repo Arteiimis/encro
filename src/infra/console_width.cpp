@@ -16,8 +16,6 @@
 
 namespace consolewidth {
 
-namespace {
-
 auto parsePositiveColumnCount(char const* text) -> std::optional<std::size_t> {
   if (text == nullptr || *text == '\0') { return std::nullopt; }
 
@@ -31,6 +29,8 @@ auto parsePositiveColumnCount(char const* text) -> std::optional<std::size_t> {
 
   return value;
 }
+
+namespace {
 
 auto detectRawColumns() -> std::optional<std::size_t> {
   if (auto const env = processenv::readNonEmptyEnvVar("COLUMNS"); env.has_value()) {

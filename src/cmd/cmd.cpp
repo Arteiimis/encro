@@ -3,6 +3,7 @@
 #include "cmd/config_store.h"
 #include "cmd/option_specs.h"
 
+#include "infra/console_width.h"
 #include "infra/env.h"
 #include "infra/terminal.h"
 
@@ -32,16 +33,7 @@ struct HelpTextLayout {
 auto readHelpColumnsOverride() -> std::optional<unsigned> {
   auto const columns = processenv::readNonEmptyEnvVar("COLUMNS");
   if (!columns.has_value()) { return std::nullopt; }
-
-  auto value = unsigned{0};
-  auto const view = std::string_view{columns.value()};
-  auto const [end, error] =
-    std::from_chars(view.data(), view.data() + view.size(), value);
-  if (error != std::errc{} || end != view.data() + view.size() || value == 0) {
-    return std::nullopt;
-  }
-
-  return value;
+  return consolewidth::parsePositiveColumnCount(columns->c_str());
 }
 
 auto resolveHelpTextLayout() -> HelpTextLayout {
@@ -182,16 +174,20 @@ unsigned descriptionWrapWidth(unsigned descriptionColumn, unsigned lineLength) {
   return descriptionColumn < lineLength ? lineLength - descriptionColumn : 1u;
 }
 
+auto formatDefaultStr(CLI::Option const* opt) -> std::string {
+  auto const defaultStr = opt->get_default_str();
+  return defaultStr.empty() ? std::string{} : " (=" + defaultStr + ")";
+}
+
 auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth, unsigned lineLength)
   -> std::string {
   auto const nameStr = formatOptionName(opt);
 
   // Column 1 = name + (=default); a type column is intentionally never
   // rendered, so binding/validator type names cannot leak into help.
-  auto defaultText = std::string{};
+  auto const defaultText = formatDefaultStr(opt);
   auto styledDefaultText = std::string{};
-  if (!opt->get_default_str().empty()) {
-    defaultText = " (=" + opt->get_default_str() + ")";
+  if (!defaultText.empty()) {
     styledDefaultText = terminal::styledText(
       terminal::Stream::Stdout,
       terminal::MessageKind::OptionDefault,
@@ -329,11 +325,6 @@ constexpr auto kAdvancedLongNames = std::array{
   "video-codec"sv,
 };
 
-auto formatDefaultStr(CLI::Option const* opt) -> std::string {
-  auto const defaultStr = opt->get_default_str();
-  return defaultStr.empty() ? std::string{} : " (=" + defaultStr + ")";
-}
-
 // Max column width across visible options (name + default).
 unsigned computeMaxColumnLen(
   CLI::App const* general,
@@ -434,6 +425,25 @@ auto formatCommandsSection(
   return result;
 }
 
+// Description line + the "Usage" section shared by the main and subcommand
+// help formatters.
+auto formatHelpPreamble(
+  CLI::App const* app,
+  std::span<std::string_view const> usageLines,
+  HelpTextLayout const& layout
+) -> std::string {
+  auto result = std::string{};
+  auto const desc = app->get_description();
+  if (!desc.empty()) {
+    result +=
+      terminal::styledText(terminal::Stream::Stdout, terminal::MessageKind::Usage, desc);
+    result += "\n\n";
+  }
+  result += formatHelpSection("Usage", usageLines, layout.lineLength);
+  result += '\n';
+  return result;
+}
+
 auto makeHelpFormatter(
   CLI::App const* general,
   CLI::App const* io,
@@ -461,19 +471,8 @@ auto makeHelpFormatter(
       auto const fullTier = helpOpt->count() >= 2;
       constexpr auto hintLine = "Run 'encro -hh' to view all options."sv;
 
-      auto result = std::string{};
       auto const layout = resolveHelpTextLayout();
-      auto const desc = app_ptr->get_description();
-      if (!desc.empty()) {
-        result += terminal::styledText(
-          terminal::Stream::Stdout,
-          terminal::MessageKind::Usage,
-          desc
-        );
-        result += "\n\n";
-      }
-      result += formatHelpSection("Usage", std::span{usageLines}, layout.lineLength);
-      result += '\n';
+      auto result = formatHelpPreamble(app_ptr, usageLines, layout);
       result += formatCommandsSection(subcommands, layout);
       auto const groupIter = std::array{general, io, processing, fileop};
       auto const maxColumnLen = computeMaxColumnLen(
@@ -523,19 +522,8 @@ auto makeSubcommandHelpFormatter(
       ,  // NOLINT(performance-unnecessary-value-param): CLI11 formatter callback signature is fixed
       CLI::AppFormatMode /*mode*/
     ) -> std::string {
-      auto result = std::string{};
       auto const layout = resolveHelpTextLayout();
-      auto const desc = appPtr->get_description();
-      if (!desc.empty()) {
-        result += terminal::styledText(
-          terminal::Stream::Stdout,
-          terminal::MessageKind::Usage,
-          desc
-        );
-        result += "\n\n";
-      }
-      result += formatHelpSection("Usage", usageLines, layout.lineLength);
-      result += "\n";
+      auto result = formatHelpPreamble(appPtr, usageLines, layout);
 
       // Same column-width logic as the main formatter, over the subcommand's
       // own options only (general=nullptr keeps visibleOptionsOf from

@@ -12,6 +12,7 @@
 #include "video/probe_cache.h"
 #include "video/video_info.h"
 #include "video/video_quality.h"
+#include "video/video_workflow_utils.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -411,41 +412,23 @@ bool probeBaseCqs(
   return true;
 }
 
-// Floor unmet at 24: step down until it is met or the floor is proven
-// unreachable (p5@16 still below).
-bool probeLowSide(
+// Probes one edge of the CQ range: the given first point, then the bound
+// itself when the floor status there matches stopWhenMet (low side: probe
+// down while the floor is unmet; high side: probe up while it is met).
+bool probeSide(
   ProbeMeasure const& measure,
   std::vector<ProbePoint>& points,
   ProbePointCallback const& onPoint,
-  int vmafFloor
+  int vmafFloor,
+  int firstCq,
+  int edgeCq,
+  bool stopWhenMet
 ) {
-  if (auto const point = measure(kMinCq + kCqStep); point.has_value()) {
+  if (auto const point = measure(firstCq); point.has_value()) {
     recordProbePoint(points, onPoint, point.value());
-    if (!meetsFloor(points.back(), vmafFloor)) {
-      if (auto const low = measure(kMinCq); low.has_value()) {
-        recordProbePoint(points, onPoint, low.value());
-      } else {
-        return false;
-      }
-    }
-  } else {
-    return false;
-  }
-  return true;
-}
-
-// Floor still met at 32: step up until it is missed or 40 is reached.
-bool probeHighSide(
-  ProbeMeasure const& measure,
-  std::vector<ProbePoint>& points,
-  ProbePointCallback const& onPoint,
-  int vmafFloor
-) {
-  if (auto const point = measure(kMaxCq - kCqStep); point.has_value()) {
-    recordProbePoint(points, onPoint, point.value());
-    if (meetsFloor(points.back(), vmafFloor)) {
-      if (auto const high = measure(kMaxCq); high.has_value()) {
-        recordProbePoint(points, onPoint, high.value());
+    if (meetsFloor(points.back(), vmafFloor) == stopWhenMet) {
+      if (auto const edge = measure(edgeCq); edge.has_value()) {
+        recordProbePoint(points, onPoint, edge.value());
       } else {
         return false;
       }
@@ -467,9 +450,15 @@ auto probeCqSequence(
   if (!probeBaseCqs(measure, points, onPoint)) { return std::nullopt; }
 
   if (!meetsFloor(points.front(), vmafFloor)) {
-    if (!probeLowSide(measure, points, onPoint, vmafFloor)) { return std::nullopt; }
+    if (
+      !probeSide(measure, points, onPoint, vmafFloor, kMinCq + kCqStep, kMinCq, false)
+    ) {
+      return std::nullopt;
+    }
   } else if (meetsFloor(points.back(), vmafFloor)) {
-    if (!probeHighSide(measure, points, onPoint, vmafFloor)) { return std::nullopt; }
+    if (!probeSide(measure, points, onPoint, vmafFloor, kMaxCq - kCqStep, kMaxCq, true)) {
+      return std::nullopt;
+    }
   }
 
   return points;
@@ -490,31 +479,8 @@ auto buildProbeSegmentConfig(
 // callbacks to the overall bar, and stores the resulting plan.
 // Removes the per-run probe dir; retries because a just-exited child
 // (scoring/encode) may still hold a transient handle on Windows.
-struct ProbeRootGuard {
-  fs::path root;
-  ~ProbeRootGuard() {  // NOLINT(bugprone-exception-escape): error_code overloads never throw
-    for (auto attempt = 0; attempt < 6; ++attempt) {
-      auto ec = std::error_code{};
-      fs::remove_all(root, ec);
-      if (!ec) { return; }
-      std::this_thread::sleep_for(std::chrono::milliseconds{500});
-    }
-    LOG_WARN("Probe temp dir cleanup failed: {}", root.string());
-  }
-};
-
 auto createProbeRoot() -> eh::Result<fs::path> {
-  auto probeRoot = workdirs::scratchDir() / std::format("probe_{}", getUUID());
-  auto ec = std::error_code{};
-  fs::create_directories(probeRoot, ec);
-  if (ec) {
-    return eh::makeError(
-      "Failed to create probe directory: {} ({})",
-      probeRoot.string(),
-      ec.message()
-    );
-  }
-  return probeRoot;
+  return videoworkflow::createScratchProbeRoot("probe", "probe");
 }
 
 // Progress plumbing shared by probe tasks: bar registry, per-slot bars and
@@ -821,7 +787,8 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   auto const probeRoot =
     createProbeRoot();  // NOLINT(performance-no-automatic-move): read multiple times; const is intentional
   if (!probeRoot) { return eh::makeError("{}", probeRoot.error()); }
-  ProbeRootGuard rootGuard{probeRoot.value()};
+  videoworkflow::ProbeRootCleanupGuard
+    rootGuard{probeRoot.value(), 6, std::chrono::milliseconds{500}, true};
 
   auto const cached = probecache::load();
 

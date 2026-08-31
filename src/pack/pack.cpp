@@ -339,7 +339,7 @@ auto buildArchiveTaskRecords(PackPlan const& plan) -> std::vector<jobstate::Task
   archiveTasks.reserve(plan.groups.size());
   for (auto const index: allIndexes) {
     auto const zipName = pack::internal::resolveZipNameForIndex(plan, index);
-    auto const label = pack::internal::resolveProgressLabelForIndex(plan, index);
+    auto const label = pack::internal::defaultProgressLabelForZipName(zipName);
     auto members = std::vector<fs::path>{};
     members.reserve(plan.groups[index].size());
     for (auto const& entry: plan.groups[index]) { members.push_back(entry.sourcePath); }

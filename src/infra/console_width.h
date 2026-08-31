@@ -13,4 +13,7 @@ struct Config {
 
 std::size_t resolveColumns(Config const& config = {});
 
+// Parses a non-negative column count from text (rejects empty/zero/garbage).
+auto parsePositiveColumnCount(char const* text) -> std::optional<std::size_t>;
+
 }  // namespace consolewidth

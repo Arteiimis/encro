@@ -121,36 +121,21 @@ std::size_t retainRecentLogs(fs::path const& logDir, int const maxKeep) {
 }
 
 }  // namespace
-// ── Env var reading (Windows) ───────────────────────────────────────────────
-
-#if defined(_WIN32) || defined(_WIN64)
-auto readWindowsEnvPath(char const* name) -> std::optional<fs::path> {
-  auto value = std::unique_ptr<char>{};
-  auto size = std::size_t{0};
-  // Note: the out_ptr write-back happens when the temporary is destroyed, so
-  // `value` must not be inspected inside the same full-expression.
-  auto const rc = _dupenv_s(std::out_ptr(value), &size, name);
-  if (rc != 0 || value == nullptr || size == 0) { return std::nullopt; }
-
-  auto result = fs::path{value.get()};
-  if (result.empty()) { return std::nullopt; }
-
-  return result;
-}
-#endif
-
 // ── Log directory resolution (migrated from prelude.cpp, logic unchanged) ──
 
 auto resolveCommonLogDir() -> fs::path {
 #if defined(_WIN32) || defined(_WIN64)
   if (
-    auto const localAppData = readWindowsEnvPath("LOCALAPPDATA"); localAppData.has_value()
+    auto const localAppData = processenv::readNonEmptyEnvVar("LOCALAPPDATA");
+    localAppData.has_value()
   ) {
-    return localAppData.value() / "encro" / "logs";
+    return fs::path{localAppData.value()} / "encro" / "logs";
   }
 
-  if (auto const appData = readWindowsEnvPath("APPDATA"); appData.has_value()) {
-    return appData.value() / "encro" / "logs";
+  if (
+    auto const appData = processenv::readNonEmptyEnvVar("APPDATA"); appData.has_value()
+  ) {
+    return fs::path{appData.value()} / "encro" / "logs";
   }
 #else
   if (auto const xdgState = processenv::readNonEmptyEnvVar("XDG_STATE_HOME")) {
