@@ -172,15 +172,6 @@ inline auto copyFakeProbe(fs::path const& dir) -> ScopedEnvVar {
   return ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
 }
 
-inline auto writeFile(fs::path const& filePath, std::string_view content = "x")
-  -> fs::path {
-  return writeTextFile(filePath, content);
-}
-
-inline auto touchFile(fs::path const& filePath) -> fs::path {
-  return writeTextFile(filePath);
-}
-
 inline auto stripCollisionSafePrefix(std::string_view entryName) -> std::string_view {
   constexpr auto kFlatEntryPrefix = std::string_view{"1000__"};
   return entryName.starts_with(kFlatEntryPrefix)
@@ -241,76 +232,22 @@ inline auto listZipRegularEntryNames(fs::path const& zipPath)
   return entryNames;
 }
 
-// Redirects stdout to a file until destroyed (used to assert console output).
-struct StdoutCapture {
-  fs::path file;
-  int oldFd = -1;
-
-  explicit StdoutCapture(fs::path const& capturePath): file(capturePath) {
-    std::fflush(stdout);
-#if defined(_WIN32)
-    oldFd = _dup(_fileno(stdout));
-    auto* cap = static_cast<std::FILE*>(nullptr);
-    fopen_s(&cap, file.string().c_str(), "w");
-#else
-    oldFd = dup(fileno(stdout));
-    auto* cap = std::fopen(file.string().c_str(), "w");
-#endif
-    REQUIRE(oldFd >= 0);
-    if (cap == nullptr) {
-#if defined(_WIN32)
-      _close(oldFd);
-#else
-      close(oldFd);
-#endif
-      oldFd = -1;
-    }
-    REQUIRE(cap != nullptr);
-#if defined(_WIN32)
-    _dup2(_fileno(cap), _fileno(stdout));
-#else
-    dup2(fileno(cap), fileno(stdout));
-#endif
-    std::fclose(cap);
-  }
-
-  StdoutCapture(StdoutCapture const&) = delete;
-  auto operator=(StdoutCapture const&) -> StdoutCapture& = delete;
-
-  ~StdoutCapture() {
-    std::fflush(stdout);
-    if (oldFd >= 0) {
-#if defined(_WIN32)
-      _dup2(oldFd, _fileno(stdout));
-      _close(oldFd);
-#else
-      dup2(oldFd, fileno(stdout));
-      close(oldFd);
-#endif
-    }
-  }
-};
-
-inline auto readTextFile(fs::path const& filePath) -> std::string {
-  auto ifs = std::ifstream{filePath};
-  REQUIRE(ifs.is_open());
-  return {std::istreambuf_iterator<char>{ifs}, std::istreambuf_iterator<char>{}};
-}
-
-// Redirects stderr to a file until destroyed (used to assert the failure
-// path hint printed by TempDir; mirror of StdoutCapture).
-struct StderrCapture {
+// Redirects a stdio stream to a file until destroyed (used to assert
+// console output). StdoutCapture/StderrCapture specialize the target stream.
+struct FileCapture {
+  std::FILE* stream_ = nullptr;
   fs::path file_;
   int oldFd_ = -1;
 
-  explicit StderrCapture(fs::path const& capturePath): file_(capturePath) {
-    std::fflush(stderr);
+  FileCapture(std::FILE* stream, fs::path const& capturePath)
+    : stream_(stream), file_(capturePath) {
+    std::fflush(stream_);
 #if defined(_WIN32)
-    oldFd_ = _dup(_fileno(stderr));
+    oldFd_ = _dup(_fileno(stream_));
     auto* cap = static_cast<std::FILE*>(nullptr);
     fopen_s(&cap, file_.string().c_str(), "w");
 #else
-    oldFd_ = dup(fileno(stderr));
+    oldFd_ = dup(fileno(stream_));
     auto* cap = std::fopen(file_.string().c_str(), "w");
 #endif
     REQUIRE(oldFd_ >= 0);
@@ -324,29 +261,45 @@ struct StderrCapture {
     }
     REQUIRE(cap != nullptr);
 #if defined(_WIN32)
-    _dup2(_fileno(cap), _fileno(stderr));
+    _dup2(_fileno(cap), _fileno(stream_));
 #else
-    dup2(fileno(cap), fileno(stderr));
+    dup2(fileno(cap), fileno(stream_));
 #endif
     std::fclose(cap);
   }
 
-  StderrCapture(StderrCapture const&) = delete;
-  auto operator=(StderrCapture const&) -> StderrCapture& = delete;
+  FileCapture(FileCapture const&) = delete;
+  auto operator=(FileCapture const&) -> FileCapture& = delete;
 
-  ~StderrCapture() {
-    std::fflush(stderr);
+  ~FileCapture() {
+    std::fflush(stream_);
     if (oldFd_ >= 0) {
 #if defined(_WIN32)
-      _dup2(oldFd_, _fileno(stderr));
+      _dup2(oldFd_, _fileno(stream_));
       _close(oldFd_);
 #else
-      dup2(oldFd_, fileno(stderr));
+      dup2(oldFd_, fileno(stream_));
       close(oldFd_);
 #endif
     }
   }
 };
+
+struct StdoutCapture: FileCapture {
+  explicit StdoutCapture(fs::path const& capturePath)
+    : FileCapture(stdout, capturePath) { }
+};
+
+struct StderrCapture: FileCapture {
+  explicit StderrCapture(fs::path const& capturePath)
+    : FileCapture(stderr, capturePath) { }
+};
+
+inline auto readTextFile(fs::path const& filePath) -> std::string {
+  auto ifs = std::ifstream{filePath};
+  REQUIRE(ifs.is_open());
+  return {std::istreambuf_iterator<char>{ifs}, std::istreambuf_iterator<char>{}};
+}
 
 }  // namespace testutils
 

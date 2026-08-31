@@ -28,7 +28,7 @@ TEST_CASE(
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  testutils::writeFile(inputPath);
+  testutils::writeTextFile(inputPath);
 
   auto config = appctx::AppConfig{};
   config.processType = "video";

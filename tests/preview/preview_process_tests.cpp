@@ -99,8 +99,8 @@ TEST_CASE("preview generates the comparison video with fake tools", "[preview]")
   TempDir temp;
   auto const original = temp.path / "sample.mp4";
   auto const encoded = temp.path / "sample.hevc.mp4";
-  testutils::touchFile(original);
-  testutils::touchFile(encoded);
+  testutils::writeTextFile(original);
+  testutils::writeTextFile(encoded);
 
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
@@ -127,8 +127,8 @@ TEST_CASE("preview --output overrides the default location", "[preview]") {
   TempDir temp;
   auto const original = temp.path / "sample.mp4";
   auto const encoded = temp.path / "sample.hevc.mp4";
-  testutils::touchFile(original);
-  testutils::touchFile(encoded);
+  testutils::writeTextFile(original);
+  testutils::writeTextFile(encoded);
 
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
@@ -152,8 +152,8 @@ TEST_CASE("preview rejects webp inputs with a video-comparison-only error", "[pr
   TempDir temp;
   auto const original = temp.path / "anim.webp";
   auto const encoded = temp.path / "sample.hevc.mp4";
-  testutils::touchFile(original);
-  testutils::touchFile(encoded);
+  testutils::writeTextFile(original);
+  testutils::writeTextFile(encoded);
 
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
@@ -175,7 +175,7 @@ TEST_CASE("preview fails when an input does not exist", "[preview]") {
   TempDir temp;
   auto const original = temp.path / "missing.mp4";
   auto const encoded = temp.path / "sample.hevc.mp4";
-  testutils::touchFile(encoded);
+  testutils::writeTextFile(encoded);
 
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
@@ -197,8 +197,8 @@ TEST_CASE("preview manual mode with --start beyond the duration fails", "[previe
   TempDir temp;
   auto const original = temp.path / "sample.mp4";
   auto const encoded = temp.path / "sample.hevc.mp4";
-  testutils::touchFile(original);
-  testutils::touchFile(encoded);
+  testutils::writeTextFile(original);
+  testutils::writeTextFile(encoded);
 
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
@@ -224,7 +224,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const original = temp.path / "sample.mp4";
-  testutils::touchFile(original);
+  testutils::writeTextFile(original);
 
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
@@ -257,7 +257,7 @@ TEST_CASE(
 TEST_CASE("preview single-input manual mode encodes one window", "[preview]") {
   TempDir temp;
   auto const original = temp.path / "sample.mp4";
-  testutils::touchFile(original);
+  testutils::writeTextFile(original);
 
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
@@ -280,7 +280,7 @@ TEST_CASE("preview single-input manual mode encodes one window", "[preview]") {
 TEST_CASE("preview single-input falls back to default CQ for short videos", "[preview]") {
   TempDir temp;
   auto const original = temp.path / "sample.mp4";
-  testutils::touchFile(original);
+  testutils::writeTextFile(original);
 
   auto ctx = appctx::AppContext{};
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};

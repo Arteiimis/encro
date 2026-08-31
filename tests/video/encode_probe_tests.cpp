@@ -413,7 +413,7 @@ void fillProbeContext(
   ctx.config.outputFormat = "mp4";
   ctx.config.minVmaf = 95;
   ctx.config.inputPath = inputPath;
-  testutils::touchFile(inputPath);
+  testutils::writeTextFile(inputPath);
 }
 
 // Shared scaffold for the runEncodingTasks tests: fake tools wired via
