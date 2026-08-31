@@ -10,8 +10,8 @@
 ## 3. Verification
 
 - [x] 3.1 Windows: `xmake build` + `xmake test-report` (all green) + `xmake include-cleaner` reports `=== unused includes: 0 ===`
-- [ ] 3.2 Linux: sync `~/encro` to the apply branch, `xmake build` (regenerates compile_commands.json), `xmake include-cleaner` reports `=== unused includes: 0 ===`
-- [ ] 3.3 Commit as one `refactor:` commit (English, conventional), ticking this tasks.md in the same commit
+- [x] 3.2 Linux: sync `~/encro` to the apply branch, `xmake build` (regenerates compile_commands.json), `xmake include-cleaner` reports `=== unused includes: 0 ===`
+- [x] 3.3 Commit as one `refactor:` commit (English, conventional), ticking this tasks.md in the same commit
 
 ## 4. Follow-up (out of scope, noted)
 

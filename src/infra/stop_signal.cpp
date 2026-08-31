@@ -1,6 +1,6 @@
 #include "infra/stop_signal.h"
 
-#include "infra/crash_runtime.h"
+#include "infra/crash_runtime.h"  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 

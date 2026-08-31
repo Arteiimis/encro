@@ -2,11 +2,11 @@
 #include "logging/logging.h"
 #include "test_utils.h"
 
-#include <spdlog/logger.h>
+#include <spdlog/logger.h>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
-#include <memory>
+#include <memory>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include <optional>
 #include <sstream>
 #include <string>

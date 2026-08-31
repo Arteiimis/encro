@@ -1,17 +1,17 @@
 #include "infra/stop_signal.h"
 #include "logging/log_tags.h"
-#include "logging/setup.h"
+#include "logging/setup.h"  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include "test_utils.h"
 
-#include <spdlog/logger.h>
+#include <spdlog/logger.h>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include <spdlog/spdlog.h>
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <atomic>
 #include <chrono>
-#include <filesystem>
-#include <memory>
+#include <filesystem>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
+#include <memory>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include <sstream>
 #include <string>
 #include <thread>
