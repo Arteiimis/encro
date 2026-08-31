@@ -10,10 +10,10 @@
 
 ## 2. D2 — Pack API shrink (public headers, zero production callers)
 
-- [ ] 2.1 Delete `Packer::groupPackFiles`/`groupPackFilesWithSubparts` + `PackGroupInput`/`PackGroupPartition`; port `packer_tests.cpp` callers to `groupPackEntries*`/`buildDirectoryPackPlan`
-- [ ] 2.2 Delete `PackService::runPackPlan` (dead `store == nullptr` branch), `runDirectoryPackWorkflow`, `packAllFilesInDirectory`; port `pack_service_tests.cpp` callers to `pack::execute(PackRequest)`
-- [ ] 2.3 Delete `NamingConfig::zipNameStrategy` + its branch in `resolveZipNameStrategy`; delete the "stays unset" assertion in `naming_strategy_tests.cpp`
-- [ ] 2.4 Delete `PackPlan::progressLabelForIndex` + `resolveProgressLabelForIndex`/`makeSubsetProgressLabelResolver` default branch
+- [x] 2.1 Delete `Packer::groupPackFiles`/`groupPackFilesWithSubparts` + `PackGroupInput`/`PackGroupPartition`; port `packer_tests.cpp` callers to `groupPackEntries*`/`buildDirectoryPackPlan`
+- [x] 2.2 Delete `PackService::runPackPlan` (dead `store == nullptr` branch), `runDirectoryPackWorkflow`, `packAllFilesInDirectory`; port `pack_service_tests.cpp` callers to `pack::execute(PackRequest)`
+- [x] 2.3 Delete `NamingConfig::zipNameStrategy` + its branch in `resolveZipNameStrategy`; delete the "stays unset" assertion in `naming_strategy_tests.cpp`
+- [x] 2.4 Delete `PackPlan::progressLabelForIndex` + `resolveProgressLabelForIndex`/`makeSubsetProgressLabelResolver` default branch
 
 ## 3. D3 — Stdlib replacements + equivalent restructuring
 
@@ -28,7 +28,7 @@
 
 ## 4. D4 — Test infrastructure cleanup
 
-- [ ] 4.1 Merge `pack_service_mock_tests.cpp` into `pack_service_tests.cpp`: keep the failure-path cases (2, 4, 5), port case 1 (happy path of a deleted API) onto its surviving replacement (`pack::execute`), delete the rest (6–9 are zip-creation duplicates)
+- [x] 4.1 Merge `pack_service_mock_tests.cpp` into `pack_service_tests.cpp`: keep the failure-path cases (2, 4, 5), port case 1 (happy path of a deleted API) onto its surviving replacement (`pack::execute`), delete the rest (6–9 are zip-creation duplicates)
 - [ ] 4.2 Merge `StdoutCapture`/`StderrCapture` into one `FileCapture` parameterized on `FILE*`; keep the two names as thin aliases; fix `test_utils_tests.cpp` if needed
 - [ ] 4.3 Delete `writeFile`/`touchFile` aliases; whitelist-check all ~164 call sites with `rg`, sed to `writeTextFile`, `xmake fmt` before committing (pre-commit clang-format hook), review the diff
 - [ ] 4.4 Delete `mapZipEntryCompression()` (e2e_test_utils.{h,cpp}, zero callers) and the `ENCRO_FAKE_FFMPEG_PROGRESS_PAD` pad-filler block in fake_media_tool.cpp (drop the knob; hardcoded `frame=10` output is byte-identical)

@@ -1,3 +1,4 @@
+#include "core/collision_naming.h"
 #include "pack/packer.h"
 #include "pack/pack_service.h"
 #include "test_utils.h"
@@ -15,6 +16,27 @@ using namespace indicators;
 
 using namespace pack::detail;
 
+namespace {
+
+PackEntryInput makeEntry(fs::path const& filePath, fs::path const& sourceDir) {
+  return PackEntryInput{
+    .entry = pack::PackFileEntry{.sourcePath = filePath, .zipEntryName = {}},
+    .sourceDir = sourceDir,
+    .sourceKey = naming::stablePathString(sourceDir),
+    .fileKey = naming::stablePathString(filePath),
+  };
+}
+
+auto sourcePaths(std::vector<pack::PackFileEntry> const& entries)
+  -> std::vector<fs::path> {
+  auto paths = std::vector<fs::path>{};
+  paths.reserve(entries.size());
+  for (auto const& entry: entries) { paths.push_back(entry.sourcePath); }
+  return paths;
+}
+
+}  // namespace
+
 TEST_CASE("groupFilesBySize splits sequentially by limit", "[packer][groupFilesBySize]") {
   TempDir temp;
   auto const f1 = testutils::writeSizedFile(temp.path / "a.bin", 100);
@@ -30,7 +52,7 @@ TEST_CASE("groupFilesBySize splits sequentially by limit", "[packer][groupFilesB
 }
 
 TEST_CASE(
-  "groupPackFiles keeps source directories intact after threshold is exceeded",
+  "groupPackEntries keeps source directories intact after threshold is exceeded",
   "[packer][groupPackFiles]"
 ) {
   TempDir temp;
@@ -44,12 +66,12 @@ TEST_CASE(
   auto const b1 = testutils::writeSizedFile(dirB / "b1.bin", 90);
   auto const b2 = testutils::writeSizedFile(dirB / "b2.bin", 90);
 
-  auto const grouped = pack::Packer{}.groupPackFiles(
+  auto const grouped = pack::Packer{}.groupPackEntries(
     {
-      PackGroupInput{a1, dirA},
-      PackGroupInput{a2, dirA},
-      PackGroupInput{b1, dirB},
-      PackGroupInput{b2, dirB},
+      makeEntry(a1, dirA),
+      makeEntry(a2, dirA),
+      makeEntry(b1, dirB),
+      makeEntry(b2, dirB),
     },
     300,
     std::nullopt,
@@ -57,12 +79,12 @@ TEST_CASE(
   );
 
   REQUIRE(grouped.size() == 2);
-  CHECK(grouped[0] == std::vector{a1, a2});
-  CHECK(grouped[1] == std::vector{b1, b2});
+  CHECK(sourcePaths(grouped[0]) == std::vector{a1, a2});
+  CHECK(sourcePaths(grouped[1]) == std::vector{b1, b2});
 }
 
 TEST_CASE(
-  "groupPackFiles stays sequential before folder carry-over threshold",
+  "groupPackEntries stays sequential before folder carry-over threshold",
   "[packer][groupPackFiles]"
 ) {
   TempDir temp;
@@ -76,12 +98,12 @@ TEST_CASE(
   auto const b1 = testutils::writeSizedFile(dirB / "b1.bin", 90);
   auto const b2 = testutils::writeSizedFile(dirB / "b2.bin", 90);
 
-  auto const grouped = pack::Packer{}.groupPackFiles(
+  auto const grouped = pack::Packer{}.groupPackEntries(
     {
-      PackGroupInput{a1, dirA},
-      PackGroupInput{a2, dirA},
-      PackGroupInput{b1, dirB},
-      PackGroupInput{b2, dirB},
+      makeEntry(a1, dirA),
+      makeEntry(a2, dirA),
+      makeEntry(b1, dirB),
+      makeEntry(b2, dirB),
     },
     300,
     std::nullopt,
@@ -89,8 +111,8 @@ TEST_CASE(
   );
 
   REQUIRE(grouped.size() == 2);
-  CHECK(grouped[0] == std::vector{a1, a2, b1});
-  CHECK(grouped[1] == std::vector{b2});
+  CHECK(sourcePaths(grouped[0]) == std::vector{a1, a2, b1});
+  CHECK(sourcePaths(grouped[1]) == std::vector{b2});
 }
 
 TEST_CASE(
@@ -114,7 +136,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "groupPackFilesWithSubparts keeps size overflow in the same logical part",
+  "groupPackEntriesWithSubparts keeps size overflow in the same logical part",
   "[packer][groupPackFilesWithSubparts]"
 ) {
   TempDir temp;
@@ -125,28 +147,28 @@ TEST_CASE(
   auto const f4 = testutils::writeSizedFile(temp.path / "d.bin", 2);
   auto const f5 = testutils::writeSizedFile(temp.path / "e.bin", 2);
 
-  auto const grouped = pack::Packer{}.groupPackFilesWithSubparts(
+  auto const grouped = pack::Packer{}.groupPackEntriesWithSubparts(
     {
-      PackGroupInput{f1, temp.path},
-      PackGroupInput{f2, temp.path},
-      PackGroupInput{f3, temp.path},
-      PackGroupInput{f4, temp.path},
-      PackGroupInput{f5, temp.path},
+      makeEntry(f1, temp.path),
+      makeEntry(f2, temp.path),
+      makeEntry(f3, temp.path),
+      makeEntry(f4, temp.path),
+      makeEntry(f5, temp.path),
     },
     5,
     4
   );
 
   REQUIRE(grouped.size() == 3);
-  CHECK(grouped[0].filePaths == std::vector{f1, f2});
+  CHECK(sourcePaths(grouped[0].entries) == std::vector{f1, f2});
   CHECK(grouped[0].partIndex == 1);
   CHECK(grouped[0].subPartIndex == 0);
 
-  CHECK(grouped[1].filePaths == std::vector{f3, f4});
+  CHECK(sourcePaths(grouped[1].entries) == std::vector{f3, f4});
   CHECK(grouped[1].partIndex == 1);
   CHECK(grouped[1].subPartIndex == 1);
 
-  CHECK(grouped[2].filePaths == std::vector{f5});
+  CHECK(sourcePaths(grouped[2].entries) == std::vector{f5});
   CHECK(grouped[2].partIndex == 2);
   CHECK(grouped[2].subPartIndex == 0);
 }
@@ -327,24 +349,27 @@ TEST_CASE(
   zip.close();
 }
 
-TEST_CASE("runDirectoryPackWorkflow packs directory", "[packer][workflow]") {
+TEST_CASE("execute() in Directory mode packs directory", "[packer][workflow]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";
   fs::create_directories(inputDir);
   testutils::writeSizedFile(inputDir / "a.bin", 32);
 
-  auto ctx = appctx::AppContext{};
-  ctx.config.inputPath = inputDir;
+  pack::PackRequest req{
+    .entries = {inputDir},
+    .mode = pack::PackMode::Directory,
+    .outputDir = inputDir / "packed",
+    .compact = true,
+    .recursive = true,
+  };
 
-  pack::PackService s;
-  auto const runRes = s.runDirectoryPackWorkflow(ctx, inputDir);
+  auto const runRes = pack::execute(req);
   REQUIRE(runRes);
-  CHECK(runRes.value() == 0);
   CHECK(fs::exists(inputDir / "packed" / "input_part1[1~1#1p].zip"));
 }
 
 TEST_CASE(
-  "packAllFilesInDirectory packs all files with size grouping",
+  "directory plan packs all files with size grouping",
   "[packer][packAllFilesInDirectory]"
 ) {
   TempDir temp;
@@ -356,10 +381,13 @@ TEST_CASE(
   auto const f2 = testutils::writeSizedFile(inputDir / "b.bin", 150);
   auto const f3 = testutils::writeSizedFile(inputDir / "c.bin", 60);
 
-  pack::PackService s;
-  auto const packRes =
-    s.packAllFilesInDirectory(inputDir, outputDir, 300, {.recursive = true});
+  pack::Packer packer;
+  auto const planRes =
+    packer.buildDirectoryPackPlan(inputDir, outputDir, 300, {.recursive = true});
+  REQUIRE(planRes);
 
+  pack::PackService s;
+  auto const packRes = s.packGroups(planRes.value());
   REQUIRE(packRes);
   REQUIRE(fs::exists(outputDir / "input_part1[1~2#2p].zip"));
   REQUIRE(fs::exists(outputDir / "input_part2[3~3#1p].zip"));

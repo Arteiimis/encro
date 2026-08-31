@@ -52,10 +52,9 @@ TEST_CASE("packGroups packs grouped files", "[pack-service]") {
   auto const plan = pack::PackPlan{
     .groups = groups,
     .outputDir = outDir,
-    .zipNameForIndex =
-      [](std::size_t index) { return std::format("group{}.zip", index + 1); },
-    .progressLabelForIndex =
-      [](std::size_t index) { return std::format("Packing: group{}.zip", index + 1); }
+    .zipNameForIndex = [](std::size_t index) {
+      return std::format("group{}.zip", index + 1);
+    },
   };
 
   auto const result = testService.packGroups(plan);
@@ -143,8 +142,6 @@ TEST_CASE(
     .groups = groups,
     .outputDir = fs::path{},
     .zipNameForIndex = [](std::size_t i) { return std::format("arch{}.zip", i); },
-    .progressLabelForIndex =
-      [](std::size_t i) { return std::format("Zipping archive {}", i); },
   };
 
   auto const selected = std::vector<std::size_t>{1, 0};
@@ -152,8 +149,6 @@ TEST_CASE(
 
   // Verify zipNameForIndex remaps correctly: selected[0]=1 maps to original index 1
   CHECK(result.zipNameForIndex(0) == "arch1.zip");
-  // Verify progressLabelForIndex remaps correctly
-  CHECK(result.progressLabelForIndex(0) == "Zipping archive 1");
 }
 
 TEST_CASE("packGroups compact mode reports per-file progress updates", "[pack-service]") {
@@ -442,58 +437,108 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "runPackPlan skips already completed archive tasks from job state",
+  "execute() in Directory mode rejects a non-existent input directory",
+  "[pack-service]"
+) {
+  TempDir temp;
+  auto const nonExistentDir = temp.path / "does_not_exist";
+  auto const outDir = temp.path / "out";
+
+  pack::PackRequest req{
+    .entries = {nonExistentDir},
+    .mode = pack::PackMode::Directory,
+    .outputDir = outDir,
+  };
+
+  auto const result = pack::execute(req);
+  REQUIRE_FALSE(result);
+  CHECK(result.error().find("not a directory") != std::string::npos);
+}
+
+TEST_CASE(
+  "execute() in Directory mode disambiguates same-named entries when forced",
   "[pack-service]"
 ) {
   TempDir temp;
   auto const srcDir = temp.path / "src";
+  auto const subDir = srcDir / "sub";
   auto const outDir = temp.path / "out";
-  auto const statePath = temp.path / "state.json";
+  fs::create_directories(subDir);
+
+  testutils::writeTextFile(srcDir / "same.txt");
+  testutils::writeTextFile(subDir / "same.txt");
+
+  pack::PackRequest req{
+    .entries = {srcDir},
+    .mode = pack::PackMode::Directory,
+    .outputDir = outDir,
+    .naming = pack::NamingConfig{
+      .namingStrategy = pack::NamingStrategy::FlatWithForce,
+    },
+  };
+
+  auto const result = pack::execute(req);
+  REQUIRE(result);
+
+  auto zipFiles = testutils::listRegularFiles(outDir);
+  REQUIRE(zipFiles.size() == 1);
+
+  auto entries = testutils::listZipRegularEntryNames(zipFiles[0]);
+  CHECK(entries.size() == 2);
+  CHECK(entries[0] != entries[1]);
+}
+
+TEST_CASE("packGroups handles non-existent source files gracefully", "[pack-service]") {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
-  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
-  auto const zipPath = outDir / "group1.zip";
-
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "video";
-  ctx.config.inputPath = srcDir;
-  ctx.config.stateFilePath = statePath;
-  ctx.runtime.jobState = std::make_shared<jobstate::Store>(statePath);
-
-  auto const initRes = ctx.runtime.jobState->initialize(ctx.config, false);
-  REQUIRE(initRes);
-
-  auto const plan = pack::PackPlan{
+  pack::PackPlan plan{
     .groups =
       {
-        std::vector<pack::PackFileEntry>{
-          pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
-          pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
+        {
+          pack::PackFileEntry{
+            .sourcePath = srcDir / "missing.txt",
+            .zipEntryName = "missing.txt",
+          },
         },
       },
     .outputDir = outDir,
-    .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
-    .progressLabelForIndex =
-      [](std::size_t) { return std::string{"Packing: group1.zip"}; }
+    .zipNameForIndex = [](std::size_t) { return std::string{"pack.zip"}; },
   };
 
-  auto const firstRun = testService.runPackPlan(ctx, plan);
+  auto const result = testService.packGroups(plan);
 
-  REQUIRE(firstRun);
-  REQUIRE(firstRun->exitCode == 0);
-  CHECK(firstRun->zippedFiles == std::vector<fs::path>{zipPath});
-  CHECK(fs::exists(zipPath));
+  REQUIRE(result);
+  CHECK(result.value().size() == 1);
+}
 
-  // runPackPlan now does simple non-resumable execution.
-  // Resumable logic (archive_plan) has moved to pack::execute().
-  // Second run re-packs all items.
-  auto const secondRun = testService.runPackPlan(ctx, plan);
+TEST_CASE("packGroups reports failure when a group task throws", "[pack-service]") {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
 
-  REQUIRE(secondRun);
-  CHECK(secondRun->exitCode == 0);
-  CHECK(secondRun->zippedFiles == std::vector<fs::path>{zipPath});
+  pack::PackPlan plan{
+    .groups =
+      {
+        {pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"}},
+      },
+    .outputDir = outDir,
+    .zipNameForIndex = [](std::size_t) { return std::string{"p.zip"}; },
+    .progressCallbacks = {
+      .onGroupStart = [](std::size_t) {
+        throw std::runtime_error{"boom from onGroupStart"};
+      },
+    },
+  };
 
-  auto const tasks = ctx.runtime.jobState->tasks();
-  CHECK(tasks.empty());
+  auto const result = testService.packGroups(plan);
+
+  // The run must be reported as failed with the exception message, never as a
+  // silent success (error-visibility: pack task failures are never success).
+  REQUIRE_FALSE(result);
+  CHECK(result.error().find("boom from onGroupStart") != std::string::npos);
 }
