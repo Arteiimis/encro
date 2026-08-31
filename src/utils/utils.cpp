@@ -310,14 +310,6 @@ auto exec2(std::string_view cmd, bool mergeStdErr) -> ExecResult {
   return exec2Impl(cmd, nullptr, mergeStdErr);
 }
 
-auto exec2(
-  std::string_view cmd,
-  std::function<void(std::string_view)> const& onLine,
-  bool mergeStdErr
-) -> ExecResult {
-  return exec2Impl(cmd, &onLine, mergeStdErr);
-}
-
 bool readUserIpt(bool yesToAll, std::string_view prompt) {
   if (stopsignal::isStopRequested()) { return false; }
   if (yesToAll) { return true; }

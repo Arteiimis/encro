@@ -159,16 +159,6 @@ auto planVideoOutputFiles(
   return plannedOutputFiles;
 }
 
-auto resolveVideoOutputPath(appctx::AppConfig const& config, fs::path const& inputPath)
-  -> std::optional<fs::path> {
-  if (config.outputPath.has_value()) { return config.outputPath; }
-
-  if (config.outputFormat != "webp") { return std::nullopt; }
-
-  auto const basePath = fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();
-  return basePath / "encoded_webp";
-}
-
 auto resolveVideoPackOutputPath(
   appctx::AppConfig const& config,
   fs::path const& inputPath

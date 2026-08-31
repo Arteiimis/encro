@@ -77,19 +77,6 @@ namespace logging::detail {
 //   %n → named logger name → module tag (e.g. "video.encode")
 //   %v → message body (already contains "[file:line] actual message")
 
-#define LOG_TRACE(...)                                       \
-  loggerPtr()->log(                                          \
-    spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, \
-    spdlog::level::trace,                                    \
-    fmt::format(                                             \
-      "[{}:{}] {}{}",                                        \
-      logging::detail::shortFile(__FILE__),                  \
-      __LINE__,                                              \
-      fmt::format(__VA_ARGS__),                              \
-      logging::detail::formatAttributeChain()                \
-    )                                                        \
-  )
-
 #define LOG_DEBUG(...)                                       \
   loggerPtr()->log(                                          \
     spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, \

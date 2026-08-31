@@ -114,10 +114,9 @@ TEST_CASE(
 
   auto const result = parseProgressFile(filePath);
   REQUIRE(result.has_value());
-  auto const [frameCount, status] = *result;
+  auto const frameCount = result->frameCount;
 
   CHECK(frameCount == 4242);
-  CHECK(status == "end");
 }
 
 TEST_CASE(
@@ -160,10 +159,9 @@ TEST_CASE(
 
   auto const result = parseProgressFile(filePath);
   REQUIRE(result.has_value());
-  auto const [frameCount, status] = *result;
+  auto const frameCount = result->frameCount;
 
   CHECK(frameCount == 25);
-  CHECK(status == "end");
 }
 
 TEST_CASE(
@@ -214,10 +212,9 @@ TEST_CASE(
 
   auto const result = parseProgressFile(filePath);
   REQUIRE(result.has_value());
-  auto const [frameCount, status] = *result;
+  auto const frameCount = result->frameCount;
 
   CHECK(frameCount == 25);
-  CHECK(status == "end");
 }
 
 TEST_CASE(

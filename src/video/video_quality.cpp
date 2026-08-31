@@ -74,13 +74,6 @@ auto quoteFilterPath(fs::path const& path) -> std::string {
   return std::format("'{}'", escaped);
 }
 
-bool isVmafLogEmpty(boost::json::value const& log) {
-  if (!log.is_object()) { return true; }
-  auto const framesIt = log.as_object().find("frames");
-  if (framesIt == log.as_object().end() || !framesIt->value().is_array()) { return true; }
-  return framesIt->value().as_array().empty();
-}
-
 auto parseVmafFrameScores(boost::json::value const& log) -> std::vector<double> {
   auto scores = std::vector<double>{};
   if (!log.is_object()) { return scores; }
@@ -108,8 +101,7 @@ auto parseVmafFrameScores(boost::json::value const& log) -> std::vector<double> 
   return scores;
 }
 
-auto runScoringCommand(fs::path const& ffmpegPath, std::string const& cmd)
-  -> eh::Result<void> {
+auto runScoringCommand(std::string const& cmd) -> eh::Result<void> {
   ExecResult result{};
   try {
     result = exec2(cmd, false);
@@ -208,7 +200,7 @@ auto runScoringFilter(
     linkLabel
   );
 
-  auto const runRes = runScoringCommand(request.ffmpegPath, cmd);
+  auto const runRes = runScoringCommand(cmd);
   if (!runRes) { return eh::makeError("{}", runRes.error()); }
 
   return parse(artifactPath);
@@ -290,13 +282,6 @@ auto metricName(QualityMetric metric) -> std::string_view {
   return "VMAF";
 }
 
-auto mean(std::span<double const> scores) -> std::optional<double> {
-  if (scores.empty()) { return std::nullopt; }
-  auto sum = 0.0;
-  for (auto const score: scores) { sum += score; }
-  return sum / static_cast<double>(scores.size());
-}
-
 double ssimFloorForVmafFloor(int vmafFloor) {
   return floorFromAnchors(kSsimFloorAnchors, vmafFloor);
 }
@@ -366,7 +351,7 @@ auto parseVmafLog(fs::path const& logPath) -> eh::Result<std::vector<double>> {
   }
 
   auto scores = parseVmafFrameScores(log);
-  if (scores.empty() || isVmafLogEmpty(log)) {
+  if (scores.empty()) {
     return eh::makeError("VMAF log contains no frame scores: {}", logPath.string());
   }
   return scores;

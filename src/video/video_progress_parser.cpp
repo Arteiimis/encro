@@ -152,25 +152,19 @@ auto parseProgressFile(fs::path const& progressFilePath) -> std::optional<Progre
   if (lines.empty()) { return std::nullopt; }
 
   auto frameCount = std::optional<uint64_t>{};
-  auto progressStatus = std::string{};
 
   auto const frameParser = bp::string("frame=") >> bp::uint_;
-  auto const progressParser = bp::string("progress=") >> *bp::char_;
 
   for (auto const& line: lines) {
     if (auto const& res = parse(line, frameParser); res.has_value()) {
       auto [_, parsedFrameCount] = res.value();
       frameCount = parsedFrameCount;
     }
-    if (auto const& res = parse(line, progressParser); res.has_value()) {
-      auto [_, parsedStatus] = res.value();
-      progressStatus = parsedStatus;
-    }
   }
 
   if (!frameCount.has_value()) { return std::nullopt; }
 
-  return ProgressData{frameCount.value(), progressStatus};
+  return ProgressData{frameCount.value()};
 }
 
 auto parseSegmentEndUs(fs::path const& progressFilePath) -> std::optional<std::uint64_t> {

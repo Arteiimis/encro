@@ -17,7 +17,6 @@ struct VideoProbe {
   double fps = 0.0;
   std::uint64_t durationUs = 0;
   bool hasAudio = false;
-  std::string audioCodec;
 };
 
 struct Window {

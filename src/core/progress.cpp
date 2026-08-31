@@ -116,6 +116,21 @@ auto formatDurationPart(float seconds) -> std::string {
 
 }  // namespace
 
+// Internal bar plumbing; ProgressContext::addBar is the public entry point.
+namespace {
+
+auto makeBar(std::string_view promptText, Tone tone) -> BarPtr;
+
+std::size_t addBar(
+  Manager& manager,
+  BarCollection& bars,
+  std::vector<Tone>& tones,
+  std::string_view promptText,
+  Tone tone
+);
+
+}  // namespace
+
 auto formatEtaBadge(
   std::optional<float> const& elapsedSec,
   std::optional<float> const& etaSec
@@ -429,9 +444,11 @@ std::size_t addBar(
   return manager.push_back(*bars.back());
 }
 
+// Cursor control is terminal UI: never emit escape sequences when stdout
+// is not a TTY (pipes, test runs, CI) -- they pollute captured output.
+namespace {
+
 void setCursorVisible(bool visible) {
-  // Cursor control is terminal UI: never emit escape sequences when stdout
-  // is not a TTY (pipes, test runs, CI) -- they pollute captured output.
   if (!terminal::streamIsTerminal(terminal::Stream::Stdout)) { return; }
 #if defined(_WIN32) || defined(_WIN64)
   HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -448,6 +465,8 @@ void setCursorVisible(bool visible) {
   }
 #endif
 }
+
+}  // namespace
 
 CursorGuard::CursorGuard(bool hideOnConstruct): active_(hideOnConstruct) {
   if (active_) { setCursorVisible(false); }

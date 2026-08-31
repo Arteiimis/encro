@@ -106,10 +106,6 @@ auto compileTimestamp() -> std::string {
   return std::format("{:04d}-{:02d}-{:02d} {}", year, month, day, buildTime);
 }
 
-void printHelp(CmdParseResult const& cmd) {
-  std::cout << cmd.helpText;
-}
-
 void printHelpHint() {
   terminal::println(Hint, "Run encro -h for help (or -hh for all options).");
 }
@@ -147,7 +143,7 @@ auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional
   }
 
   if (cmd.help) {
-    printHelp(cmd);
+    std::cout << cmd.helpText;
     return 0;
   }
 

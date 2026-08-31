@@ -62,13 +62,6 @@ TEST_CASE("percentile returns nullopt for empty scores", "[video-quality]") {
   CHECK_FALSE(videoquality::percentile(scores, 5.0).has_value());
 }
 
-TEST_CASE("mean aggregates frame scores", "[video-quality]") {
-  auto const scores = std::array{1.0, 2.0, 3.0};
-  auto const avg = videoquality::mean(scores);
-  REQUIRE(avg.has_value());
-  CHECK(*avg == Catch::Approx(2.0));
-}
-
 TEST_CASE("ssim floor maps the documented vmaf anchors", "[video-quality]") {
   CHECK(videoquality::ssimFloorForVmafFloor(97) == Catch::Approx(0.985));
   CHECK(videoquality::ssimFloorForVmafFloor(95) == Catch::Approx(0.980));

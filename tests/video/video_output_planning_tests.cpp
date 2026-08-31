@@ -11,89 +11,6 @@ using testutils::collisionGroupPrefix;
 using testutils::hasCollisionSafePrefix;
 
 TEST_CASE(
-  "resolveVideoOutputPath returns webp subfolder when output path is not provided",
-  "[video-process][resolve-output-path]"
-) {
-  TempDir temp;
-
-  auto config = appctx::AppConfig{};
-  config.outputPath.reset();
-  config.outputFormat = "webp";
-
-  auto const outputPath = resolveVideoOutputPath(config, temp.path);
-
-  REQUIRE(outputPath.has_value());
-  CHECK(outputPath.value() == temp.path / "encoded_webp");
-}
-
-TEST_CASE(
-  "resolveVideoOutputPath uses file parent when input is file and format is webp",
-  "[video-process][resolve-output-path]"
-) {
-  TempDir temp;
-  auto const filePath = temp.path / "sample.mp4";
-
-  {
-    std::ofstream out{filePath};
-    out << "x";
-  }
-
-  auto config = appctx::AppConfig{};
-  config.outputPath.reset();
-  config.outputFormat = "webp";
-
-  auto const outputPath = resolveVideoOutputPath(config, filePath);
-
-  REQUIRE(outputPath.has_value());
-  CHECK(outputPath.value() == temp.path / "encoded_webp");
-}
-
-TEST_CASE(
-  "recursive webp scans must use the requested root directory as output base",
-  "[video-process][resolve-output-path]"
-) {
-  TempDir temp;
-  auto const nestedDir = temp.path / "level1" / "level2";
-  auto const nestedFile = nestedDir / "sample.mp4";
-  fs::create_directories(nestedDir);
-
-  {
-    std::ofstream out{nestedFile};
-    out << "x";
-  }
-
-  auto config = appctx::AppConfig{};
-  config.outputPath.reset();
-  config.outputFormat = "webp";
-
-  auto const rootOutputPath = resolveVideoOutputPath(config, temp.path);
-  auto const nestedFileOutputPath = resolveVideoOutputPath(config, nestedFile);
-
-  REQUIRE(rootOutputPath.has_value());
-  REQUIRE(nestedFileOutputPath.has_value());
-  CHECK(rootOutputPath.value() == temp.path / "encoded_webp");
-  CHECK(nestedFileOutputPath.value() == nestedDir / "encoded_webp");
-}
-
-TEST_CASE(
-  "resolveVideoOutputPath returns user output path when provided",
-  "[video-process][resolve-output-path]"
-) {
-  TempDir temp;
-  auto const customOutput = temp.path / "custom_output";
-  fs::create_directory(customOutput);
-
-  auto config = appctx::AppConfig{};
-  config.outputPath = customOutput;
-  config.outputFormat = "webp";
-
-  auto const outputPath = resolveVideoOutputPath(config, temp.path);
-
-  REQUIRE(outputPath.has_value());
-  CHECK(outputPath.value() == customOutput);
-}
-
-TEST_CASE(
   "planVideoOutputFiles keeps default flat layout and disambiguates duplicate names",
   "[video-process][plan-output]"
 ) {
@@ -429,21 +346,6 @@ TEST_CASE(
   CHECK(plannedRes->at(fileA).parent_path() == temp.path / "encoded_webp");
   CHECK(plannedRes->at(fileB).parent_path() == temp.path / "encoded_webp");
   CHECK(plannedRes->at(fileA).filename() != plannedRes->at(fileB).filename());
-}
-
-TEST_CASE(
-  "resolveVideoOutputPath returns no value for non-webp without custom output",
-  "[video-process][resolve-output-path]"
-) {
-  TempDir temp;
-
-  auto config = appctx::AppConfig{};
-  config.outputPath.reset();
-  config.outputFormat = "mp4";
-
-  auto const outputPath = resolveVideoOutputPath(config, temp.path);
-
-  CHECK_FALSE(outputPath.has_value());
 }
 
 TEST_CASE(

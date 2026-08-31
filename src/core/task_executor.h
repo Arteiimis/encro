@@ -14,8 +14,6 @@ namespace taskexec {
 struct TaskContext {
   std::size_t slot = 0;
   progress::ProgressContext& progress;
-
-  bool stopRequested() const;
 };
 
 struct TaskSpec {

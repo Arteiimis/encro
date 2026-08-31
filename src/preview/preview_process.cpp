@@ -102,14 +102,8 @@ auto applyVideoStreamFields(
   return {};
 }
 
-void applyAudioStreamFields(boost::json::object const& stream, VideoProbe& probe) {
+void applyAudioStreamFields(boost::json::object const&, VideoProbe& probe) {
   probe.hasAudio = true;
-  if (
-    auto const codecIt = stream.find("codec_name");
-    codecIt != stream.end() && codecIt->value().is_string()
-  ) {
-    probe.audioCodec = std::string{codecIt->value().as_string()};
-  }
 }
 
 auto probeStreamMetadata(
@@ -224,10 +218,6 @@ auto probeVideo(
   return probe;
 }
 
-auto metricText(videoquality::QualityMetric metric) -> std::string_view {
-  return videoquality::metricName(metric);
-}
-
 void printWindows(
   std::span<Window const> windows,
   std::optional<std::size_t> worstIndex
@@ -242,14 +232,23 @@ void printWindows(
     auto scoreText = std::string{"-"};
     if (window.score.has_value()) {
       if (window.metric == videoquality::QualityMetric::Xpsnr) {
-        scoreText =
-          std::format("{} {:.2f} dB", metricText(window.metric), window.score.value());
+        scoreText = std::format(
+          "{} {:.2f} dB",
+          videoquality::metricName(window.metric),
+          window.score.value()
+        );
       } else if (window.metric == videoquality::QualityMetric::Vmaf) {
-        scoreText =
-          std::format("{} {:.1f}", metricText(window.metric), window.score.value());
+        scoreText = std::format(
+          "{} {:.1f}",
+          videoquality::metricName(window.metric),
+          window.score.value()
+        );
       } else {
-        scoreText =
-          std::format("{} {:.3f}", metricText(window.metric), window.score.value());
+        scoreText = std::format(
+          "{} {:.3f}",
+          videoquality::metricName(window.metric),
+          window.score.value()
+        );
       }
     }
     auto suffix =

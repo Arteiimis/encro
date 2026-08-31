@@ -59,15 +59,6 @@ auto requireRegularFile(fs::path const& path, std::string_view label)
   return {};
 }
 
-auto readOutputLayout(CmdParseResult const& result) -> eh::Result<appctx::OutputLayout> {
-  if (result.keep) { return appctx::OutputLayout::Keep; }
-  return appctx::OutputLayout::Flat;
-}
-
-auto readPictureFolderSummary(CmdParseResult const& result) -> eh::Result<bool> {
-  return result.folderSummary;
-}
-
 enum class OutputPathAliasKind {
   Input,
   Common,
@@ -325,17 +316,12 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
   config.outputFormat = result.outputFormat;
   config.maxParallelJobs = result.maxJobs;
 
-  auto layoutRes = readOutputLayout(result);
-  if (!layoutRes) { return eh::makeError("{}", layoutRes.error()); }
-  config.outputLayout = layoutRes.value();
+  config.outputLayout =
+    result.keep ? appctx::OutputLayout::Keep : appctx::OutputLayout::Flat;
 
   config.forceNameConflictHandling = result.forceConflictHandling == "y";
 
-  auto pictureFolderSummaryRes = readPictureFolderSummary(result);
-  if (!pictureFolderSummaryRes) {
-    return eh::makeError("{}", pictureFolderSummaryRes.error());
-  }
-  config.pictureFolderSummary = pictureFolderSummaryRes.value();
+  config.pictureFolderSummary = result.folderSummary;
 
   config.compressImages = result.compress;
   if (auto const applied = applyMediaOptionValidations(config, result); !applied) {

@@ -19,7 +19,6 @@ namespace fs = std::filesystem;
 struct EncodeConfig {
   std::optional<fs::path> ffmpegPath = "ffmpeg";
   std::optional<fs::path> inputPath;
-  std::optional<fs::path> outputPath;
   std::optional<fs::path> outputFilePath;
   std::optional<std::string> outputFormat;
   std::optional<std::string> videoCodec;
@@ -89,9 +88,7 @@ struct EncodeConfig {
 
     if (outputFilePath.has_value()) { return outputFilePath.value(); }
 
-    auto const outputVidDir = outputPath.value_or(inputPath->parent_path());
-
-    return outputVidDir / buildOutputFileName();
+    return inputPath->parent_path() / buildOutputFileName();
   }
 
   std::string buildCMD() const {

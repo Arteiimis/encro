@@ -76,7 +76,6 @@ struct DirectoryPackOptions {
 
 struct SummaryConfig {
   std::vector<PackFileEntry> entries;
-  std::string prefix = "";
   bool enabled = false;
 };
 

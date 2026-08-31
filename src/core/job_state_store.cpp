@@ -326,11 +326,6 @@ void Store::markIncompleteInterrupted(
   persistLocked("markIncompleteInterrupted", true);
 }
 
-void Store::flush() {
-  auto lock = std::scoped_lock{mtx_};
-  persistLocked("flush", true);
-}
-
 auto Store::indexFor(std::string_view id) const -> std::optional<std::size_t> {
   if (auto const it = taskIndex_.find(std::string{id}); it != taskIndex_.end()) {
     return it->second;

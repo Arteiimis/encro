@@ -49,12 +49,10 @@ struct WebpEncodeContext {
 struct WebpEncodeStep {
   int exitCode;
   std::optional<std::uintmax_t> outputSize;
-  std::optional<int> pid;
 };
 
 struct EncodeExecutionPlan {
   fs::path progressFilePath;
-  std::optional<fs::path> outputPath;
   fs::path outputFilePath;
 };
 
@@ -86,7 +84,6 @@ auto prepareEncodeExecution(appctx::EncodingState& state)
   -> eh::Result<EncodeExecutionPlan> {
   workdirs::ensureScratchDir();
   auto progressFilePath = fs::path{};
-  auto outputPath = std::optional<fs::path>{};
   auto plannedOutputFile = std::optional<fs::path>{};
   {
     auto lock = std::scoped_lock{state.mtx};
@@ -95,7 +92,6 @@ auto prepareEncodeExecution(appctx::EncodingState& state)
         workdirs::scratchDir() / std::format("progress_{}.txt", getUUID());
     }
     progressFilePath = state.progressFilePath.value();
-    outputPath = state.outputPath;
     plannedOutputFile = state.plannedOutputFile;
   }
 
@@ -115,7 +111,6 @@ auto prepareEncodeExecution(appctx::EncodingState& state)
 
   return EncodeExecutionPlan{
     .progressFilePath = progressFilePath,
-    .outputPath = outputPath,
     .outputFilePath = plannedOutputFile.value(),
   };
 }
@@ -135,7 +130,6 @@ auto buildEncodeConfig(
   return EncodeConfig{
     .ffmpegPath = ctx.toolchain.ffmpegPath,
     .inputPath = state.inputPath,
-    .outputPath = plan.outputPath,
     .outputFilePath = plan.outputFilePath,
     .outputFormat = ctx.config.outputFormat,
     .videoCodec = ctx.config.videoCodec,
@@ -185,10 +179,10 @@ auto runWebpEncodingStep(
 
   if (auto const res = cfg.validate(); !res) {
     LOG_ERROR("{}", res.error());
-    return {-1, std::nullopt, std::nullopt};
+    return {-1, std::nullopt};
   }
 
-  auto const [exitCode, _, pid] = exec2(cfg.buildCMD(), [&](std::string_view line) {
+  auto const [exitCode, outputSize] = exec2(cfg.buildCMD(), [&](std::string_view line) {
     reportEncodingDiagnostic(encodeCtx.statusUpdater, line);
   });
   if (exitCode != 0) {
@@ -198,9 +192,9 @@ auto runWebpEncodingStep(
       quality,
       exitCode
     );
-    return {exitCode, std::nullopt, pid};
+    return {exitCode, std::nullopt};
   }
-  if (!fs::exists(outputFile)) { return {exitCode, std::nullopt, pid}; }
+  if (!fs::exists(outputFile)) { return {exitCode, std::nullopt}; }
 
   LOG_DEBUG(
     "WebP encoding step output size: input={} quality={} bytes={}",
@@ -209,7 +203,7 @@ auto runWebpEncodingStep(
     fs::file_size(outputFile)
   );
 
-  return {exitCode, fs::file_size(outputFile), pid};
+  return {exitCode, fs::file_size(outputFile)};
 }
 
 enum class WebpAttemptResult {
