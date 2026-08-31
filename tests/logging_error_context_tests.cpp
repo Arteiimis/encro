@@ -4,7 +4,7 @@
 
 #include <boost/json.hpp>  // IWYU pragma: keep
 
-#include <spdlog/logger.h>
+#include <spdlog/logger.h>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 

@@ -3,7 +3,7 @@
 #include "pack/pack.h"
 #include "test_utils.h"
 
-#include <chrono>
+#include <chrono>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include <cstdint>
 #include <filesystem>
 #include <format>
