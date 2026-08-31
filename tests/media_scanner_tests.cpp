@@ -8,12 +8,12 @@
 
 namespace fs = std::filesystem;
 using namespace std::literals;
-using testutils::touchFile;
+using testutils::writeTextFile;
 
 TEST_CASE("scanByExtensions matches single file", "[media-scanner]") {
   TempDir temp;
   auto const filePath = temp.path / "sample.mp4";
-  touchFile(filePath);
+  writeTextFile(filePath);
 
   auto const scanRes = media::scanByExtensions(filePath, std::array{".mp4"sv}, false);
   REQUIRE(scanRes);
@@ -26,7 +26,7 @@ TEST_CASE("scanByExtensions matches single file", "[media-scanner]") {
 TEST_CASE("scanByExtensions ignores non-matching file", "[media-scanner]") {
   TempDir temp;
   auto const filePath = temp.path / "sample.mov";
-  touchFile(filePath);
+  writeTextFile(filePath);
 
   auto const scanRes = media::scanByExtensions(filePath, std::array{".mp4"sv}, false);
   REQUIRE(scanRes);
@@ -39,8 +39,8 @@ TEST_CASE("scanByExtensions respects non-recursive", "[media-scanner]") {
   auto const nestedDir = temp.path / "nested";
   auto const nestedFile = nestedDir / "b.mp4";
   fs::create_directories(nestedDir);
-  touchFile(topFile);
-  touchFile(nestedFile);
+  writeTextFile(topFile);
+  writeTextFile(nestedFile);
 
   auto const scanRes = media::scanByExtensions(temp.path, std::array{".mp4"sv}, false);
   REQUIRE(scanRes);
@@ -56,8 +56,8 @@ TEST_CASE("scanByExtensions includes recursive matches", "[media-scanner]") {
   auto const nestedDir = temp.path / "nested";
   auto const nestedFile = nestedDir / "b.mp4";
   fs::create_directories(nestedDir);
-  touchFile(topFile);
-  touchFile(nestedFile);
+  writeTextFile(topFile);
+  writeTextFile(nestedFile);
 
   auto const scanRes = media::scanByExtensions(temp.path, std::array{".mp4"sv}, true);
   REQUIRE(scanRes);
@@ -107,10 +107,10 @@ TEST_CASE(
   fs::create_directories(hiddenDir / "segments");
   fs::create_directories(legacyDir);
   fs::create_directories(nestedDir);
-  touchFile(topFile);
-  touchFile(hiddenFile);
-  touchFile(legacyFile);
-  touchFile(nestedFile);
+  writeTextFile(topFile);
+  writeTextFile(hiddenFile);
+  writeTextFile(legacyFile);
+  writeTextFile(nestedFile);
 
   auto const scanRes = media::scanByExtensions(temp.path, std::array{".mp4"sv}, true);
   REQUIRE(scanRes);
@@ -131,8 +131,8 @@ TEST_CASE(
   TempDir temp;
   auto const regular = temp.path / "a.mp4";
   auto const hidden = temp.path / ".hidden.mp4";
-  touchFile(regular);
-  touchFile(hidden);
+  writeTextFile(regular);
+  writeTextFile(hidden);
 
   auto const scanRes = media::scanByExtensions(temp.path, std::array{".mp4"sv}, false);
   REQUIRE(scanRes);

@@ -15,7 +15,7 @@ using testutils::copyFakeTool;
 using testutils::listZipRegularEntryNames;
 using testutils::ScopedEnvVar;
 using testutils::ScopedStopSignalReset;
-using testutils::touchFile;
+using testutils::writeTextFile;
 
 namespace {
 
@@ -32,7 +32,7 @@ TEST_CASE("picture pipeline packs directory", "[pipeline]") {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.jpg");
+  writeTextFile(inputDir / "a.jpg");
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -49,7 +49,7 @@ TEST_CASE("picture pipeline skips job state by default", "[pipeline]") {
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.jpg");
+  writeTextFile(inputDir / "a.jpg");
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -72,7 +72,7 @@ TEST_CASE(
   auto const inputDir = temp.path / "pics";
   auto const stateFilePath = temp.path / "encro.job-state.json";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.jpg");
+  writeTextFile(inputDir / "a.jpg");
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -96,10 +96,10 @@ TEST_CASE("picture pipeline keeps same-folder files grouped in flat mode", "[pip
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "alpha.jpg");
-  touchFile(dirA / "beta.jpg");
-  touchFile(dirB / "alpha.jpg");
-  touchFile(dirB / "beta.jpg");
+  writeTextFile(dirA / "alpha.jpg");
+  writeTextFile(dirA / "beta.jpg");
+  writeTextFile(dirB / "alpha.jpg");
+  writeTextFile(dirB / "beta.jpg");
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -141,10 +141,10 @@ TEST_CASE(
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "alpha.jpg");
-  touchFile(dirA / "beta.jpg");
-  touchFile(dirB / "alpha.jpg");
-  touchFile(dirB / "beta.jpg");
+  writeTextFile(dirA / "alpha.jpg");
+  writeTextFile(dirA / "beta.jpg");
+  writeTextFile(dirB / "alpha.jpg");
+  writeTextFile(dirB / "beta.jpg");
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -186,8 +186,8 @@ TEST_CASE(
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "alpha.jpg");
-  touchFile(dirB / "beta.jpg");
+  writeTextFile(dirA / "alpha.jpg");
+  writeTextFile(dirB / "beta.jpg");
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -228,10 +228,10 @@ TEST_CASE(
   auto const dirB = inputDir / "天川そら(110p + 音声あり動画)";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "alpha.jpg");
-  touchFile(dirA / "beta.jpg");
-  touchFile(dirB / "alpha.jpg");
-  touchFile(dirB / "beta.jpg");
+  writeTextFile(dirA / "alpha.jpg");
+  writeTextFile(dirA / "beta.jpg");
+  writeTextFile(dirB / "alpha.jpg");
+  writeTextFile(dirB / "beta.jpg");
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -272,8 +272,8 @@ TEST_CASE(
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "alpha.jpg");
-  touchFile(dirB / "beta.jpg");
+  writeTextFile(dirA / "alpha.jpg");
+  writeTextFile(dirB / "beta.jpg");
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -312,8 +312,8 @@ TEST_CASE("picture pipeline keeps relative paths in keep mode", "[pipeline]") {
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "same.jpg");
-  touchFile(dirB / "same.jpg");
+  writeTextFile(dirA / "same.jpg");
+  writeTextFile(dirB / "same.jpg");
 
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -352,8 +352,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.png");
-  touchFile(inputDir / "b.png");
+  writeTextFile(inputDir / "a.png");
+  writeTextFile(inputDir / "b.png");
 
   auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
@@ -386,8 +386,8 @@ TEST_CASE(
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "same.png");
-  touchFile(dirB / "same.png");
+  writeTextFile(dirA / "same.png");
+  writeTextFile(dirB / "same.png");
 
   auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
@@ -422,10 +422,10 @@ TEST_CASE(
   auto const dirB = inputDir / "b";
   fs::create_directories(dirA);
   fs::create_directories(dirB);
-  touchFile(dirA / "alpha.png");
-  touchFile(dirA / "beta.png");
-  touchFile(dirB / "alpha.png");
-  touchFile(dirB / "beta.png");
+  writeTextFile(dirA / "alpha.png");
+  writeTextFile(dirA / "beta.png");
+  writeTextFile(dirB / "alpha.png");
+  writeTextFile(dirB / "beta.png");
 
   auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
@@ -463,7 +463,7 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.png");
+  writeTextFile(inputDir / "a.png");
 
   auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
@@ -492,8 +492,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "fast.png");
-  touchFile(inputDir / "slow.png");
+  writeTextFile(inputDir / "fast.png");
+  writeTextFile(inputDir / "slow.png");
 
   // Call 1 completes and caches; later calls block then would exit 130.
   auto const cntEnv = ScopedEnvVar{
@@ -541,8 +541,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "fast.png");
-  touchFile(inputDir / "slow.png");
+  writeTextFile(inputDir / "fast.png");
+  writeTextFile(inputDir / "slow.png");
 
   auto const cntEnv1 = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
@@ -607,8 +607,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.png");
-  touchFile(inputDir / "b.png");
+  writeTextFile(inputDir / "a.png");
+  writeTextFile(inputDir / "b.png");
 
   auto const cntEnv1 = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
@@ -646,7 +646,7 @@ TEST_CASE(
     testutils::readTextFile(temp.path / "completed-inputs.log");
   REQUIRE_FALSE(completedInputs.empty());
   auto const survivorLine = completedInputs.substr(0, completedInputs.find('\n'));
-  touchFile(fs::path{survivorLine});
+  writeTextFile(fs::path{survivorLine});
 
   auto const countFile = temp.path / "resume-count.txt";
   auto const cntEnv2 =
@@ -683,8 +683,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.png");
-  touchFile(inputDir / "b.png");
+  writeTextFile(inputDir / "a.png");
+  writeTextFile(inputDir / "b.png");
 
   auto const cntEnv1 = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
@@ -748,8 +748,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.png");
-  touchFile(inputDir / "b.png");
+  writeTextFile(inputDir / "a.png");
+  writeTextFile(inputDir / "b.png");
 
   auto const cntEnv1 = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
@@ -811,8 +811,8 @@ TEST_CASE(
   TempDir temp;
   auto const inputDir = temp.path / "pics";
   fs::create_directories(inputDir);
-  touchFile(inputDir / "a.png");
-  touchFile(inputDir / "b.png");
+  writeTextFile(inputDir / "a.png");
+  writeTextFile(inputDir / "b.png");
 
   auto const cntEnv1 = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",

@@ -23,7 +23,7 @@
 // ponytail: duplicate of the helper in tests/logging_infra_test.cpp; hoist to
 // test_utils.h when a fifth copy appears.
 namespace fs = std::filesystem;
-using testutils::writeFile;
+using testutils::writeTextFile;
 
 namespace {
 
@@ -51,8 +51,8 @@ TEST_CASE("job state keeps succeeded encode action when output exists", "[job-st
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
-  writeFile(outputPath);
+  writeTextFile(inputPath);
+  writeTextFile(outputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -83,8 +83,8 @@ TEST_CASE(
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
-  writeFile(outputPath);
+  writeTextFile(inputPath);
+  writeTextFile(outputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -111,7 +111,7 @@ TEST_CASE("job state turns running actions into interrupted on resume", "[job-st
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -138,8 +138,8 @@ TEST_CASE(
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
-  writeFile(outputPath);
+  writeTextFile(inputPath);
+  writeTextFile(outputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -166,8 +166,8 @@ TEST_CASE("job state resets encode action when planned target changes", "[job-st
   auto const oldOutputPath = temp.path / "old.hevc.mp4";
   auto const newOutputPath = temp.path / "new.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
-  writeFile(oldOutputPath);
+  writeTextFile(inputPath);
+  writeTextFile(oldOutputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const oldTask = jobstate::makeEncodeTask(inputPath, oldOutputPath);
@@ -194,7 +194,7 @@ TEST_CASE("job state round-trips segment fields through JSON", "[job-state]") {
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -222,7 +222,7 @@ TEST_CASE("job state keeps absent segment fields as nullopt", "[job-state]") {
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -246,7 +246,7 @@ TEST_CASE("job state markSegmentProgress persists segment fields", "[job-state]"
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -297,7 +297,7 @@ TEST_CASE("job state persists accumulated encoding time across restarts", "[job-
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -340,7 +340,7 @@ TEST_CASE("job state loads a legacy file without encodedMs as zero", "[job-state
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -364,7 +364,7 @@ TEST_CASE("job state loads a legacy file without encodedMs as zero", "[job-state
   auto const precedingComma = text.rfind(',', encodedStart);
   REQUIRE(precedingComma != std::string::npos);
   text.erase(precedingComma, encodedEnd - precedingComma);
-  testutils::writeFile(statePath, text);
+  testutils::writeTextFile(statePath, text);
 
   auto legacyStore = jobstate::Store{statePath};
   auto const legacyRes = legacyStore.initialize(config, false);
@@ -382,8 +382,8 @@ TEST_CASE(
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
-  writeFile(outputPath);
+  writeTextFile(inputPath);
+  writeTextFile(outputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -413,7 +413,7 @@ TEST_CASE(
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -440,8 +440,8 @@ TEST_CASE("job state keeps segmented succeeded task when output exists", "[job-s
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
-  writeFile(outputPath);
+  writeTextFile(inputPath);
+  writeTextFile(outputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -469,8 +469,8 @@ TEST_CASE("job state clears segment fields when planned target changes", "[job-s
   auto const oldOutputPath = temp.path / "old.hevc.mp4";
   auto const newOutputPath = temp.path / "new.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
-  writeFile(oldOutputPath);
+  writeTextFile(inputPath);
+  writeTextFile(oldOutputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto oldTask = jobstate::makeEncodeTask(inputPath, oldOutputPath);
@@ -503,10 +503,10 @@ TEST_CASE("job state resets archive action when member set changes", "[job-state
   auto const memberB = temp.path / "b.bin";
   auto const memberC = temp.path / "c.bin";
   fs::create_directories(inputPath);
-  writeFile(memberA);
-  writeFile(memberB);
-  writeFile(memberC);
-  writeFile(zipPath);
+  writeTextFile(memberA);
+  writeTextFile(memberB);
+  writeTextFile(memberC);
+  writeTextFile(zipPath);
 
   auto config = makeConfig(inputPath, statePath);
   config.processType = "picture";
@@ -541,8 +541,8 @@ TEST_CASE(
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
-  writeFile(outputPath);
+  writeTextFile(inputPath);
+  writeTextFile(outputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -575,8 +575,8 @@ TEST_CASE(
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
-  writeFile(outputPath);
+  writeTextFile(inputPath);
+  writeTextFile(outputPath);
 
   auto packConfig = makeConfig(inputPath, statePath);
   packConfig.packOutput = true;
@@ -609,8 +609,8 @@ TEST_CASE(
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
-  writeFile(outputPath);
+  writeTextFile(inputPath);
+  writeTextFile(outputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
@@ -643,7 +643,7 @@ TEST_CASE(
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto store = jobstate::Store{statePath};
@@ -668,7 +668,7 @@ TEST_CASE(
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto store = jobstate::Store{statePath};
@@ -686,7 +686,7 @@ TEST_CASE(
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   auto const config = makeConfig(inputPath, statePath);
   auto store = jobstate::Store{statePath};
@@ -712,11 +712,11 @@ TEST_CASE(
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
 
   // Make the parent path a regular file so the state temp file cannot be created.
   auto const blockerFile = temp.path / "blocker";
-  writeFile(blockerFile);
+  writeTextFile(blockerFile);
   auto const statePath = blockerFile / "encro.job-state.json";
 
   auto const config = makeConfig(inputPath, statePath);
@@ -731,7 +731,7 @@ TEST_CASE("job state mark operations report persistence failures", "[job-state]"
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const outputPath = temp.path / "input.hevc.mp4";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
   auto const statePath = temp.path / "encro.job-state.json";
 
   auto const config = makeConfig(inputPath, statePath);
@@ -747,7 +747,7 @@ TEST_CASE("job state mark operations report persistence failures", "[job-state]"
   // directory fails, so both fallback attempts fail).
   fs::remove(statePath);
   fs::create_directory(statePath);
-  writeFile(statePath / "keep.txt");
+  writeTextFile(statePath / "keep.txt");
 
   // Best-effort mutators report persistence failures through the log.
   auto const [logger, log] = testutils::registerCapturingLogger(logtags::CORE_JOB);
@@ -765,7 +765,7 @@ TEST_CASE("fresh job state adopts logging run id as jobId", "[job-state][run_id]
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
   auto const config = makeConfig(inputPath, statePath);
 
   logging::setRunId("expected-run-id-123");
@@ -781,7 +781,7 @@ TEST_CASE("resume adopts persisted jobId as logging run id", "[job-state][run_id
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
   auto const statePath = temp.path / "encro.job-state.json";
-  writeFile(inputPath);
+  writeTextFile(inputPath);
   auto const config = makeConfig(inputPath, statePath);
 
   logging::setRunId("first-run-id");

@@ -29,10 +29,10 @@ TEST_CASE("Segment dir is created on demand and removed recursively", "[segment-
 
   videoseg::createSegmentDir(dir);
   REQUIRE(fs::exists(dir));
-  testutils::writeFile(dir / "seg_0.ts");
-  testutils::writeFile(dir / "seg_1.ts");
+  testutils::writeTextFile(dir / "seg_0.ts");
+  testutils::writeTextFile(dir / "seg_1.ts");
   fs::create_directories(dir / "subdir");
-  testutils::writeFile(dir / "subdir" / "audio.m4a");
+  testutils::writeTextFile(dir / "subdir" / "audio.m4a");
 
   videoseg::removeSegmentDir(dir);
   CHECK_FALSE(fs::exists(dir));
