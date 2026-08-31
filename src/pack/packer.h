@@ -50,20 +50,6 @@ public:
     std::optional<std::size_t> maxFilesPerGroup = std::nullopt
   ) -> std::vector<std::vector<std::filesystem::path>>;
 
-  auto groupPackFiles(
-    std::vector<pack::detail::PackGroupInput> const& filePaths,
-    std::uintmax_t maxGroupSize = std::uintmax_t{490} * 1024 * 1024,
-    std::optional<std::size_t> maxFilesPerGroup = std::nullopt,
-    std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed = std::nullopt
-  ) -> std::vector<std::vector<std::filesystem::path>>;
-
-  auto groupPackFilesWithSubparts(
-    std::vector<pack::detail::PackGroupInput> const& filePaths,
-    std::uintmax_t maxGroupSize,
-    std::size_t maxFilesPerPart,
-    std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed = std::nullopt
-  ) -> std::vector<pack::detail::PackGroupPartition>;
-
   auto groupPackEntries(
     std::vector<pack::detail::PackEntryInput> const& entries,
     std::uintmax_t maxGroupSize = std::uintmax_t{490} * 1024 * 1024,
