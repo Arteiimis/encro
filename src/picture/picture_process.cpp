@@ -270,11 +270,8 @@ auto buildPackEntryInputs(
   return packInputs;
 }
 
-auto executeDirectPackWorkflow(
-  appctx::AppContext& ctx,
-  fs::path const& dirPath,
-  fs::path const& outputDir
-) -> eh::Result<int> {
+auto scanPictures(appctx::AppContext& ctx, fs::path const& dirPath)
+  -> eh::Result<std::vector<fs::path>> {
   auto const scannedPics = [&]() {
     logging::ScopedTimer timer("picture.scan");
     auto const scanPathStr = dirPath.string();
@@ -285,6 +282,16 @@ auto executeDirectPackWorkflow(
   if (scannedPics->empty()) {
     return eh::makeError("No pictures found in directory: {}", dirPath.string());
   }
+  return scannedPics.value();
+}
+
+auto executeDirectPackWorkflow(
+  appctx::AppContext& ctx,
+  fs::path const& dirPath,
+  fs::path const& outputDir
+) -> eh::Result<int> {
+  auto const scannedPics = scanPictures(ctx, dirPath);
+  if (!scannedPics) { return eh::makeError("{}", scannedPics.error()); }
   auto const& pics = scannedPics.value();
 
   terminal::println(
@@ -330,21 +337,6 @@ auto executeDirectPackWorkflow(
     terminal::path(outputDir)
   );
   return 0;
-}
-
-auto scanPictures(appctx::AppContext& ctx, fs::path const& dirPath)
-  -> eh::Result<std::vector<fs::path>> {
-  auto const scannedPics = [&]() {
-    logging::ScopedTimer timer("picture.scan");
-    auto const scanPathStr = dirPath.string();
-    logging::ScopedErrorContext scopedCtx("picture.scan", scanPathStr);
-    return readAllPics(ctx.config, dirPath);
-  }();
-  if (!scannedPics) { return eh::makeError("{}", scannedPics.error()); }
-  if (scannedPics->empty()) {
-    return eh::makeError("No pictures found in directory: {}", dirPath.string());
-  }
-  return scannedPics.value();
 }
 
 // Preps the cache directory: clears stale compress_* siblings (other

@@ -1,10 +1,16 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
 
 namespace fs = std::filesystem;
+
+// Microseconds to seconds as double (ffmpeg timing math).
+inline double microsToSeconds(std::uint64_t micros) {
+  return static_cast<double>(micros) / 1'000'000.0;
+}
 
 // Windows ffmpegPath may be a compound command (cmd.exe /d /c call "...")
 // that must not be quoted as a single executable; posix needs quotes for

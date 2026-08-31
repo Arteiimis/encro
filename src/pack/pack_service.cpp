@@ -380,58 +380,6 @@ auto PackService::packGroupsFull(PackPlan const& plan)
 
 namespace internal {
 
-auto buildGroupOrdinalRangesImpl(std::vector<std::vector<fs::path>> const& groups)
-  -> std::vector<FileOrdinalRange> {
-  auto ranges = std::vector<FileOrdinalRange>{};
-  ranges.reserve(groups.size());
-
-  auto nextOrdinal = std::size_t{1};
-  for (auto const& group: groups) {
-    if (group.empty()) {
-      ranges.push_back({});
-      continue;
-    }
-
-    auto const first = nextOrdinal;
-    auto const last = first + group.size() - 1;
-    ranges.push_back({first, last, group.size()});
-    nextOrdinal = last + 1;
-  }
-
-  return ranges;
-}
-
-auto buildGroupOrdinalRangesImpl(std::vector<std::vector<PackFileEntry>> const& groups)
-  -> std::vector<FileOrdinalRange> {
-  auto ranges = std::vector<FileOrdinalRange>{};
-  ranges.reserve(groups.size());
-
-  auto nextOrdinal = std::size_t{1};
-  for (auto const& group: groups) {
-    if (group.empty()) {
-      ranges.push_back({});
-      continue;
-    }
-
-    auto const first = nextOrdinal;
-    auto const last = first + group.size() - 1;
-    ranges.push_back({first, last, group.size()});
-    nextOrdinal = last + 1;
-  }
-
-  return ranges;
-}
-
-auto buildGroupOrdinalRanges(std::vector<std::vector<fs::path>> const& groups)
-  -> std::vector<FileOrdinalRange> {
-  return buildGroupOrdinalRangesImpl(groups);
-}
-
-auto buildGroupOrdinalRanges(std::vector<std::vector<PackFileEntry>> const& groups)
-  -> std::vector<FileOrdinalRange> {
-  return buildGroupOrdinalRangesImpl(groups);
-}
-
 auto appendOrdinalRangeSuffix(std::string_view fileName, FileOrdinalRange const& range)
   -> std::string {
   if (range.first == 0 || range.last == 0 || range.count == 0) {

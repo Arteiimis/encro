@@ -52,7 +52,7 @@ constexpr auto kHdrTransfers = std::array{
   "smpte428"sv,
 };
 
-double seconds(std::uint64_t micros) {
+double microsToSeconds(std::uint64_t micros) {
   return static_cast<double>(micros) / 1'000'000.0;
 }
 
@@ -127,7 +127,7 @@ auto runScoringCommand(std::string const& cmd) -> eh::Result<void> {
 // which PTS restarts near zero (offset by the GOP boundary the seek landed
 // on), so both sides trim at local timestamps.
 auto buildTrimmedPairChain(std::uint64_t durationUs) -> std::string {
-  auto const durSec = seconds(durationUs);
+  auto const durSec = microsToSeconds(durationUs);
   return std::format(
     "[0:v]trim=start=0.000000:end={:.6f},setpts=PTS-STARTPTS[v0];"
     "[1:v]trim=start=0.000000:end={:.6f},setpts=PTS-STARTPTS[v1];"
@@ -181,7 +181,7 @@ auto runScoringFilter(
   std::function<eh::Result<std::vector<double>>(fs::path const&)> const& parse
 ) -> eh::Result<std::vector<double>> {
   auto const chain = buildTrimmedPairChain(request.durationUs);
-  auto const startSec = seconds(request.startUs);
+  auto const startSec = microsToSeconds(request.startUs);
   auto const encodedInput = !request.encodedHasLocalPts
     ? std::format("-ss {:.6f} -i \"{}\"", startSec, request.encodedPath.string())
     : std::format("-i \"{}\"", request.encodedPath.string());

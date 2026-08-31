@@ -3,6 +3,7 @@
 #include "core/media_scanner.h"
 #include "core/task_executor.h"
 #include "utils/utils.h"
+#include "video/video_workflow_utils.h"
 
 #include <algorithm>
 #include <array>
@@ -43,22 +44,6 @@ auto jsonValToString(boost::json::value const& val) -> std::string {
   return "<object>";
 }
 
-auto parseDouble(std::string_view text) -> std::optional<double> try {
-  return std::stod(std::string{text});
-} catch (...) { return std::nullopt; }
-
-auto parseFraction(std::string_view text) -> std::optional<double> {
-  auto const slashPos = text.find('/');
-  if (slashPos == std::string_view::npos) { return parseDouble(text); }
-
-  auto const num = text.substr(0, slashPos);
-  auto const den = text.substr(slashPos + 1);
-  auto const n = parseDouble(num);
-  auto const d = parseDouble(den);
-  if (!n.has_value() || !d.has_value() || d.value() == 0.0) { return std::nullopt; }
-  return n.value() / d.value();
-}
-
 auto getFormatDurationValue(boost::json::object const& obj, std::string& formatDuration)
   -> std::optional<double> {
   auto const formatIt = obj.find("format");
@@ -69,7 +54,7 @@ auto getFormatDurationValue(boost::json::object const& obj, std::string& formatD
   if (durationIt == formatObj.end()) { return std::nullopt; }
 
   formatDuration = jsonValToString(durationIt->value());
-  return parseDouble(formatDuration);
+  return videoworkflow::parseDouble(formatDuration);
 }
 
 auto readStreamValue(boost::json::object const& stream, std::string_view key)
@@ -387,12 +372,12 @@ auto getVidTotalFrames(
   );
 
   if (formatDurationValue.has_value()) {
-    if (auto const rate = parseFraction(debug.avgRate); rate.has_value()) {
+    if (auto const rate = videoworkflow::parseFraction(debug.avgRate); rate.has_value()) {
       return static_cast<int64_t>(
         std::llround(formatDurationValue.value() * rate.value())
       );
     }
-    if (auto const rate = parseFraction(debug.rRate); rate.has_value()) {
+    if (auto const rate = videoworkflow::parseFraction(debug.rRate); rate.has_value()) {
       return static_cast<int64_t>(
         std::llround(formatDurationValue.value() * rate.value())
       );
@@ -504,6 +489,27 @@ bool isHevcEncoded(appctx::ToolchainPaths const& toolchain, fs::path const& vide
   return isHevcEncodedInfo(vidInfo);
 }
 
+// Applies the per-format post-scan step: mp4 finalizes through the
+// video-info pipeline (dedup plus survival checks); webp prewarms the cache.
+std::vector<fs::path> finalizeScannedVids(
+  appctx::AppConfig const& config,
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  std::vector<fs::path> vids
+) {
+  if (vids.empty()) { return vids; }
+
+  if (config.outputFormat == "mp4") {
+    return finalizeVideoList(config, toolchain, runtime, vids);
+  }
+
+  if (config.outputFormat == "webp") {
+    prewarmWebpVideoInfoCache(config, toolchain, runtime, vids);
+  }
+
+  return vids;
+}
+
 auto readAllVids(
   appctx::AppConfig const& config,
   appctx::ToolchainPaths const& toolchain,
@@ -535,16 +541,7 @@ auto readAllVids(
 
   if (vids.empty()) { return vids; }
 
-  if (config.outputFormat == "mp4") {
-    return finalizeVideoList(config, toolchain, runtime, vids);
-  }
-
-  if (config.outputFormat == "webp") {
-    prewarmWebpVideoInfoCache(config, toolchain, runtime, vids);
-    return vids;
-  }
-
-  return vids;
+  return finalizeScannedVids(config, toolchain, runtime, std::move(vids));
 }
 
 auto readAllVidsFromFiles(
@@ -564,14 +561,5 @@ auto readAllVidsFromFiles(
 
   if (vids.empty()) { return vids; }
 
-  if (config.outputFormat == "mp4") {
-    return finalizeVideoList(config, toolchain, runtime, vids);
-  }
-
-  if (config.outputFormat == "webp") {
-    prewarmWebpVideoInfoCache(config, toolchain, runtime, vids);
-    return vids;
-  }
-
-  return vids;
+  return finalizeScannedVids(config, toolchain, runtime, std::move(vids));
 }

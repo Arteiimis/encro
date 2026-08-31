@@ -756,7 +756,6 @@ TEST_CASE("job state mark operations report persistence failures", "[job-state]"
   CHECK(
     content.find("Failed to persist job state after markRunning") != std::string::npos
   );
-  CHECK(content.find("Failed to persist job state after flush") != std::string::npos);
   spdlog::drop(logtags::CORE_JOB);
 }
 

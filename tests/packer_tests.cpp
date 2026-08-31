@@ -18,12 +18,14 @@ using namespace pack::detail;
 
 namespace {
 
+using pack::detail::PackEntryInput;
+
 PackEntryInput makeEntry(fs::path const& filePath, fs::path const& sourceDir) {
   return PackEntryInput{
     .entry = pack::PackFileEntry{.sourcePath = filePath, .zipEntryName = {}},
     .sourceDir = sourceDir,
-    .sourceKey = naming::stablePathString(sourceDir),
-    .fileKey = naming::stablePathString(filePath),
+    .sourceKey = collisionnaming::stablePathString(sourceDir),
+    .fileKey = collisionnaming::stablePathString(filePath),
   };
 }
 
@@ -404,7 +406,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "packAllFilesInDirectory respects non-recursive option",
+  "directory plan respects non-recursive option",
   "[packer][packAllFilesInDirectory]"
 ) {
   TempDir temp;
@@ -416,10 +418,13 @@ TEST_CASE(
   auto const topFile = testutils::writeSizedFile(inputDir / "top.bin", 64);
   auto const nestedFile = testutils::writeSizedFile(nestedDir / "nested.bin", 64);
 
-  pack::PackService s;
-  auto const packRes =
-    s.packAllFilesInDirectory(inputDir, outputDir, 300, {.recursive = false});
+  pack::Packer packer;
+  auto const planRes =
+    packer.buildDirectoryPackPlan(inputDir, outputDir, 300, {.recursive = false});
+  REQUIRE(planRes);
 
+  pack::PackService s;
+  auto const packRes = s.packGroups(planRes.value());
   REQUIRE(packRes);
   libzippp::ZipArchive zip{(outputDir / "input_part1[1~1#1p].zip").string()};
   zip.open(libzippp::ZipArchive::ReadOnly);
