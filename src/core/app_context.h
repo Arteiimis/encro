@@ -71,7 +71,6 @@ struct ToolchainPaths {
 struct EncodingState {
   fs::path inputPath;
   std::optional<std::string> actionId;
-  std::optional<fs::path> outputPath;
   std::optional<fs::path> plannedOutputFile;
   std::optional<fs::path> outputFile;
   std::optional<fs::path> progressFilePath;

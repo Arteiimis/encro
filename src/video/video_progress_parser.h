@@ -13,7 +13,6 @@ namespace fs = std::filesystem;
 
 struct ProgressData {
   uint64_t frameCount;
-  std::string status;
 };
 
 bool isLikelyFfmpegErrorLine(std::string_view line);

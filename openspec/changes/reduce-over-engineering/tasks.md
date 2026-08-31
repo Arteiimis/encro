@@ -1,12 +1,12 @@
 ## 1. D1 — Dead code deletion (src)
 
-- [ ] 1.1 core: delete `jobstate::primaryTargetPath`, `Store::flush()`, `TaskContext::stopRequested()`, `job_state_detail.h` orphan decls (`buildFallbackStateFilePath`, `commonParent`); remove `progress::makeBar`/`addBar`/`setCursorVisible` from the public header
-- [ ] 1.2 core: collapse `resolveWorkRoot` webp/generic duplicate branches in `work_dirs.cpp` into one root computation + suffix
-- [ ] 1.3 video: delete `resolveVideoOutputPath()` (fn + decl); delete its test case in `video_output_planning_tests.cpp`
-- [ ] 1.4 video: delete `EncodeConfig.outputPath` chain (`state.outputPath` → `EncodeExecutionPlan.outputPath` → `EncodeConfig.outputPath` → `buildOutputPath()` fallback); delete the fallback test in `encode_config_tests.cpp:221-247`
-- [ ] 1.5 video: delete `ProgressData.status` (+ its parser test assertions), `videoquality::mean()`, `isVmafLogEmpty()`, `VideoProbe.audioCodec`, `WebpEncodeStep.pid`, `EncodedVideoPackFile.sourcePath`, `runScoringCommand`'s unused `ffmpegPath` param (single call site at video_quality.cpp:211)
-- [ ] 1.6 picture/preview: delete `entryNameTransform` param of `buildPackEntryInputs`, `metricText()` wrapper, `makeSlotLabel`/`getStateLabel` duplicate one-liners, `addCompressTask`'s unread `std::error_code&` out-param
-- [ ] 1.7 cmd/logging/infra/utils: delete `LOG_TRACE` macro, 3-arg `exec2` overload (`mergeStdErr`), `SummaryConfig::prefix` + its test-only writer, `readOutputLayout`/`readPictureFolderSummary` wrappers, `printHelp` wrapper; drop `Store::flush()`'s 24 test call sites in job_state_tests/pack_execute_tests/video_batch_execution_tests (or migrate to `tasks()`)
+- [x] 1.1 core: delete `jobstate::primaryTargetPath`, `Store::flush()`, `TaskContext::stopRequested()`, `job_state_detail.h` orphan decls (`buildFallbackStateFilePath`, `commonParent`); remove `progress::makeBar`/`addBar`/`setCursorVisible` from the public header
+- [x] 1.2 core: collapse `resolveWorkRoot` webp/generic duplicate branches in `work_dirs.cpp` into one root computation + suffix
+- [x] 1.3 video: delete `resolveVideoOutputPath()` (fn + decl); delete its test case in `video_output_planning_tests.cpp`
+- [x] 1.4 video: delete `EncodeConfig.outputPath` chain (`state.outputPath` → `EncodeExecutionPlan.outputPath` → `EncodeConfig.outputPath` → `buildOutputPath()` fallback); delete the fallback test in `encode_config_tests.cpp:221-247`
+- [x] 1.5 video: delete `ProgressData.status` (+ its parser test assertions), `videoquality::mean()`, `isVmafLogEmpty()`, `VideoProbe.audioCodec`, `WebpEncodeStep.pid`, `EncodedVideoPackFile.sourcePath`, `runScoringCommand`'s unused `ffmpegPath` param (single call site at video_quality.cpp:211)
+- [x] 1.6 picture/preview: delete `entryNameTransform` param of `buildPackEntryInputs`, `metricText()` wrapper, `makeSlotLabel`/`getStateLabel` duplicate one-liners, `addCompressTask`'s unread `std::error_code&` out-param
+- [x] 1.7 cmd/logging/infra/utils: delete `LOG_TRACE` macro, 3-arg `exec2` overload (`mergeStdErr`), `SummaryConfig::prefix` + its test-only writer, `readOutputLayout`/`readPictureFolderSummary` wrappers, `printHelp` wrapper; drop `Store::flush()`'s 24 test call sites in job_state_tests/pack_execute_tests/video_batch_execution_tests (or migrate to `tasks()`)
 
 ## 2. D2 — Pack API shrink (public headers, zero production callers)
 

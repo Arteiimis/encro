@@ -63,10 +63,6 @@ auto runOneTask(
 
 }  // namespace
 
-bool TaskContext::stopRequested() const {
-  return stopsignal::isStopRequested();
-}
-
 std::size_t resolveWorkerCount(std::size_t taskCount, std::size_t maxConcurrency) {
   if (taskCount == 0) { return 0; }
   return std::max<std::size_t>(1, std::min(taskCount, maxConcurrency));

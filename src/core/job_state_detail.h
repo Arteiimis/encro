@@ -23,8 +23,4 @@ auto flushSnapshot(
   bool force
 ) -> eh::Result<void>;
 
-auto buildFallbackStateFilePath(appctx::AppConfig const& config) -> fs::path;
-
-auto commonParent(std::span<fs::path const> paths) -> std::optional<fs::path>;
-
 }  // namespace jobstate::detail

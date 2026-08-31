@@ -85,24 +85,12 @@ auto lowestCommonAncestor(std::span<fs::path const> paths) -> std::optional<fs::
 auto resolveWorkRoot(appctx::AppConfig const& config) -> eh::Result<fs::path> {
   if (config.outputPath.has_value()) { return *config.outputPath; }
 
-  if (config.processType == "video" && config.outputFormat == "webp") {
-    if (!config.inputPath.empty()) {
-      return pathroots::normalizeInputRootDir(config.inputPath) / "encoded_webp";
-    }
-    if (
-      auto const ancestor = lowestCommonAncestor(config.inputPaths); ancestor.has_value()
-    ) {
-      if (*ancestor != ancestor->root_path()) { return *ancestor / "encoded_webp"; }
-    }
-    return eh::makeError(
-      "Failed to resolve work root for webp encoding: inputs have no common "
-      "ancestor directory. Pass --output/-o."
-    );
-  }
+  auto const isWebpVideo = config.processType == "video" && config.outputFormat == "webp";
 
   if (!config.inputPath.empty()) {
-    return fs::is_directory(config.inputPath) ? config.inputPath
-                                              : config.inputPath.parent_path();
+    auto root = pathroots::normalizeInputRootDir(config.inputPath);
+    if (isWebpVideo) { root /= "encoded_webp"; }
+    return root;
   }
 
   if (
@@ -111,12 +99,16 @@ auto resolveWorkRoot(appctx::AppConfig const& config) -> eh::Result<fs::path> {
     // A lowest common ancestor that is a filesystem root (e.g. "/" on POSIX,
     // a drive root on Windows) is not a usable work root: nothing meaningful
     // lives there and it is usually not writable.
-    if (*ancestor != ancestor->root_path()) { return *ancestor; }
+    if (*ancestor != ancestor->root_path()) {
+      return isWebpVideo ? *ancestor / "encoded_webp" : *ancestor;
+    }
   }
 
   return eh::makeError(
-    "Failed to resolve work root: inputs have no common ancestor directory "
-    "(e.g. inputs on different drives). Pass --output/-o."
+    isWebpVideo ? "Failed to resolve work root for webp encoding: inputs have no common "
+                  "ancestor directory. Pass --output/-o."
+                : "Failed to resolve work root: inputs have no common ancestor directory "
+                  "(e.g. inputs on different drives). Pass --output/-o."
   );
 }
 

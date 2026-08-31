@@ -391,7 +391,6 @@ auto collectEncodedOutputFiles(
     }
 
     encodedOutputFiles.push_back({
-      .sourcePath = vidPath,
       .outputPath = outFile.value(),
     });
   }

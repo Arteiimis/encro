@@ -64,7 +64,6 @@ TEST_CASE("job state keeps succeeded encode action when output exists", "[job-st
   REQUIRE(merged.size() == 1);
   store.markRunning(task.id);
   store.markSucceeded(task.id);
-  store.flush();
 
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
@@ -96,7 +95,6 @@ TEST_CASE(
   store.mergeTasks(std::array{task});
   store.markRunning(task.id);
   store.markSucceeded(task.id);
-  store.flush();
 
   fs::remove(outputPath);
 
@@ -123,7 +121,6 @@ TEST_CASE("job state turns running actions into interrupted on resume", "[job-st
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
   store.markRunning(task.id);
-  store.flush();
 
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
@@ -152,7 +149,6 @@ TEST_CASE(
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
   store.markInterrupted(task.id, "canceled by user");
-  store.flush();
 
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
@@ -183,7 +179,6 @@ TEST_CASE("job state resets encode action when planned target changes", "[job-st
   store.mergeTasks(std::array{oldTask});
   store.markRunning(oldTask.id);
   store.markSucceeded(oldTask.id);
-  store.flush();
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -211,7 +206,6 @@ TEST_CASE("job state round-trips segment fields through JSON", "[job-state]") {
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
   store.markInterrupted(task.id);
-  store.flush();
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -238,7 +232,6 @@ TEST_CASE("job state keeps absent segment fields as nullopt", "[job-state]") {
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
   store.markInterrupted(task.id);
-  store.flush();
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -263,7 +256,6 @@ TEST_CASE("job state markSegmentProgress persists segment fields", "[job-state]"
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
   store.markSegmentProgress(task.id, 4, 40'000'000);
-  store.flush();
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -318,7 +310,6 @@ TEST_CASE("job state persists accumulated encoding time across restarts", "[job-
   std::this_thread::sleep_for(std::chrono::milliseconds{30});
   store.markProgress(task.id, 50.0f);
   store.markInterrupted(task.id);
-  store.flush();
 
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
@@ -361,7 +352,6 @@ TEST_CASE("job state loads a legacy file without encodedMs as zero", "[job-state
   store.markRunning(task.id);
   std::this_thread::sleep_for(std::chrono::milliseconds{25});
   store.markInterrupted(task.id);
-  store.flush();
 
   // Rewrite the state file as a pre-encodedMs legacy writer would have.
   auto text = testutils::readTextFile(statePath);
@@ -405,7 +395,6 @@ TEST_CASE(
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
   store.markInterrupted(task.id);
-  store.flush();
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -436,7 +425,6 @@ TEST_CASE(
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
   store.markInterrupted(task.id);
-  store.flush();
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -466,7 +454,6 @@ TEST_CASE("job state keeps segmented succeeded task when output exists", "[job-s
   store.mergeTasks(std::array{task});
   store.markRunning(task.id);
   store.markSucceeded(task.id);
-  store.flush();
 
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
@@ -497,7 +484,6 @@ TEST_CASE("job state clears segment fields when planned target changes", "[job-s
   store.mergeTasks(std::array{oldTask});
   store.markRunning(oldTask.id);
   store.markSucceeded(oldTask.id);
-  store.flush();
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -536,7 +522,6 @@ TEST_CASE("job state resets archive action when member set changes", "[job-state
   store.mergeTasks(std::array{oldTask});
   store.markRunning(oldTask.id);
   store.markSucceeded(oldTask.id);
-  store.flush();
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
   REQUIRE(resumeRes);
@@ -568,7 +553,6 @@ TEST_CASE(
   store.mergeTasks(std::array{task});
   store.markRunning(task.id);
   store.markSucceeded(task.id);
-  store.flush();
 
   auto packConfig = makeConfig(inputPath, statePath);
   packConfig.packOutput = true;
@@ -604,7 +588,6 @@ TEST_CASE(
   store.mergeTasks(std::array{task});
   store.markRunning(task.id);
   store.markSucceeded(task.id);
-  store.flush();
 
   auto const config = makeConfig(inputPath, statePath);
 
@@ -638,7 +621,6 @@ TEST_CASE(
   store.mergeTasks(std::array{task});
   store.markRunning(task.id);
   store.markSucceeded(task.id);
-  store.flush();
 
   auto changedConfig = makeConfig(inputPath, statePath);
   changedConfig.packOutput = true;
@@ -667,7 +649,6 @@ TEST_CASE(
   auto store = jobstate::Store{statePath};
   auto const initRes = store.initialize(config, false);
   REQUIRE(initRes);
-  store.flush();
   auto changedConfig = makeConfig(inputPath, statePath);
   changedConfig.outputFormat = "webp";
 
@@ -711,7 +692,6 @@ TEST_CASE(
   auto store = jobstate::Store{statePath};
   auto const initRes = store.initialize(config, false);
   REQUIRE(initRes);
-  store.flush();
   auto changedConfig = makeConfig(inputPath, statePath);
   changedConfig.outputFormat = "webp";
   changedConfig.resumeState = true;
@@ -772,7 +752,6 @@ TEST_CASE("job state mark operations report persistence failures", "[job-state]"
   // Best-effort mutators report persistence failures through the log.
   auto const [logger, log] = testutils::registerCapturingLogger(logtags::CORE_JOB);
   store.markRunning(task.id);
-  store.flush();
   auto const content = log->str();
   CHECK(
     content.find("Failed to persist job state after markRunning") != std::string::npos

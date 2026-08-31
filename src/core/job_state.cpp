@@ -622,11 +622,6 @@ auto primarySourcePath(TaskRecord const& task) -> std::optional<fs::path> {
   return task.sourcePaths.front();
 }
 
-auto primaryTargetPath(TaskRecord const& task) -> std::optional<fs::path> {
-  if (task.targetPaths.empty()) { return std::nullopt; }
-  return task.targetPaths.front();
-}
-
 bool needsExecution(TaskRecord const& task) {
   return task.status != TaskStatus::Succeeded;
 }

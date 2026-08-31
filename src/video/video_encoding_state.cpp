@@ -67,10 +67,6 @@ bool progressFileChanged(appctx::EncodingState& state) {
   return true;
 }
 
-auto getStateLabel(appctx::EncodingState const& state) -> std::string {
-  return displaytext::pathToUtf8String(state.inputPath.filename());
-}
-
 auto tryReadProgressData(fs::path const& progressFilePath)
   -> std::optional<ProgressData> {
   auto const data = parseProgressFile(progressFilePath);
@@ -148,7 +144,8 @@ void renderStalled(
   }
 
   if (barIndex.has_value()) {
-    auto const fileLabel = getStateLabel(activeState);
+    auto const fileLabel =
+      displaytext::pathToUtf8String(activeState.inputPath.filename());
     if (lastError.has_value()) {
       executionCtx.progress().setTone(barIndex.value(), progress::Tone::Failure);
       executionCtx.progress().setPostfixText(

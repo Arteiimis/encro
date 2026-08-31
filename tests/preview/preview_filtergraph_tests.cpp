@@ -28,7 +28,6 @@ auto makeProbe(int width, int height, double fps = 30.0, bool hasAudio = false)
   probe.fps = fps;
   probe.durationUs = 100'000'000;
   probe.hasAudio = hasAudio;
-  probe.audioCodec = hasAudio ? "aac" : "";
   return probe;
 }
 

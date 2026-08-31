@@ -306,7 +306,6 @@ TEST_CASE(
   auto state = appctx::EncodingState{};
   state.inputPath = inputPath;
   state.plannedOutputFile = temp.path / "out" / "sample.webp";
-  state.outputPath = temp.path / "out";
 
   // q=80 succeeds but overshoots the 20MB target; the retry tier (q=75) fails.
   auto const success = encodeVideo(ctx, state, {});
@@ -355,7 +354,6 @@ TEST_CASE(
   auto state = appctx::EncodingState{};
   state.inputPath = inputPath;
   state.plannedOutputFile = temp.path / "out" / "sample.mp4";
-  state.outputPath = temp.path / "out";
 
   auto const success = encodeVideo(ctx, state, {});
   CHECK(success);

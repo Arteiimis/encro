@@ -116,8 +116,6 @@ private:
   std::size_t renderedBarCount_ = 0;
 };
 
-auto makeBar(std::string_view promptText, Tone tone = Tone::Default) -> BarPtr;
-
 auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string;
 
 // Renders the "[<elapsed>/<estimate>]" badge: nullopt elapsed means no badge
@@ -138,16 +136,6 @@ auto scrollWindow(std::string_view text, std::size_t budget, std::size_t startCo
   -> std::string;
 
 std::size_t bounceOffset(std::uint64_t elapsedMs, std::size_t travel);
-
-std::size_t addBar(
-  Manager& manager,
-  BarCollection& bars,
-  std::vector<Tone>& tones,
-  std::string_view promptText,
-  Tone tone = Tone::Default
-);
-
-void setCursorVisible(bool visible);
 
 class CursorGuard {
 public:

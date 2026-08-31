@@ -403,7 +403,6 @@ TEST_CASE(
   CHECK(bEncode != std::string::npos);
   CHECK(aEncode < bEncode);
 
-  store->flush();
   auto reread = jobstate::Store{statePath};
   REQUIRE(reread.initialize(s.ctx.config, false));
   auto const rereadA = reread.findTask(taskA.id);
@@ -459,7 +458,6 @@ TEST_CASE(
   CHECK_FALSE(outcome.results->at(s.inputPath));
   CHECK(outcome.results->at(b));
 
-  store->flush();
   auto reread = jobstate::Store{statePath};
   REQUIRE(reread.initialize(s.ctx.config, false));
   auto const rereadA = reread.findTask(taskA.id);

@@ -155,7 +155,6 @@ auto collectFolderSummaryPictures(
 
 void addCompressTask(
   fs::path const& tempDir,
-  std::error_code& ec,
   std::vector<CompressTask>& compressTasks,
   fs::path const& picPath,
   std::string const& entryName
@@ -169,6 +168,7 @@ void addCompressTask(
   auto const sourceTime = fs::last_write_time(picPath, srcEc);
   if (!outEc && !srcEc && outputTime >= sourceTime) { return; }
 
+  auto ec = std::error_code{};
   fs::create_directories(outputPath.parent_path(), ec);
 
   compressTasks.push_back(
@@ -221,15 +221,13 @@ auto buildPackEntryInputs(
   std::vector<fs::path> const& scannedPics,
   PictureEntryPlan const& plannedEntryNames,
   fs::path const& dirPath,
-  SourceResolver const& resolveSource,
-  std::function<std::string(std::string const&)> const& entryNameTransform
+  SourceResolver const& resolveSource
 ) -> std::vector<pack::PackEntryInput> {
   auto packInputs = std::vector<pack::PackEntryInput>{};
   packInputs.reserve(scannedPics.size() + summaryPics.size());
 
   for (auto const& summaryPic: summaryPics) {
-    auto const rawEntryName = buildSummaryPictureEntryName(dirPath, summaryPic);
-    auto const entryName = entryNameTransform(rawEntryName);
+    auto const entryName = buildSummaryPictureEntryName(dirPath, summaryPic);
     auto const resolved = resolveSource(summaryPic, entryName);
     if (!resolved) { continue; }
     packInputs.emplace_back(
@@ -250,10 +248,9 @@ auto buildPackEntryInputs(
 
   for (auto const& picPath: scannedPics) {
     auto const plannedIt = plannedEntryNames.find(picPath);
-    auto const rawEntryName = plannedIt != plannedEntryNames.end()
+    auto const entryName = plannedIt != plannedEntryNames.end()
       ? plannedIt->second
       : picPath.filename().generic_string();
-    auto const entryName = entryNameTransform(rawEntryName);
     auto const resolved = resolveSource(picPath, entryName);
     if (!resolved) { continue; }
     packInputs.emplace_back(
@@ -312,16 +309,9 @@ auto executeDirectPackWorkflow(
     -> std::optional<std::pair<fs::path, std::string>> {
     return std::pair{picPath, entryName};
   };
-  auto const identityTransform = [](std::string const& s) -> std::string { return s; };
 
-  auto packInputs = buildPackEntryInputs(
-    summaryPics,
-    pics,
-    plannedEntryNames,
-    dirPath,
-    resolveSource,
-    identityTransform
-  );
+  auto packInputs =
+    buildPackEntryInputs(summaryPics, pics, plannedEntryNames, dirPath, resolveSource);
 
   auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
@@ -405,7 +395,7 @@ auto buildCompressTaskList(
 
   for (auto const& summaryPic: summaryPics) {
     auto const entryName = buildSummaryPictureEntryName(dirPath, summaryPic);
-    addCompressTask(tempDir, ec, compressTasks, summaryPic, entryName);
+    addCompressTask(tempDir, compressTasks, summaryPic, entryName);
   }
 
   for (auto const& picPath: pics) {
@@ -413,7 +403,7 @@ auto buildCompressTaskList(
     auto const entryName = plannedIt != plannedEntryNames.end()
       ? plannedIt->second
       : picPath.filename().generic_string();
-    addCompressTask(tempDir, ec, compressTasks, picPath, entryName);
+    addCompressTask(tempDir, compressTasks, picPath, entryName);
   }
   return compressTasks;
 }
@@ -620,8 +610,7 @@ auto executeCompressPackWorkflow(
     // NOLINTNEXTLINE(bugprone-exception-escape): path ops may throw bad_alloc; nullopt on failure
     [tempDir](fs::path const& picPath, std::string const& entryName) {
       return resolveCompressedSource(picPath, entryName, tempDir);
-    },
-    [](std::string const& name) -> std::string { return name; }
+    }
   );
 
   if (packInputs.empty()) {
