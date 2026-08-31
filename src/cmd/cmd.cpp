@@ -30,16 +30,19 @@ struct HelpTextLayout {
   unsigned minDescriptionLength;
 };
 
-auto readHelpColumnsOverride() -> std::optional<unsigned> {
-  auto const columns = processenv::readNonEmptyEnvVar("COLUMNS");
-  if (!columns.has_value()) { return std::nullopt; }
-  return consolewidth::parsePositiveColumnCount(columns->c_str());
-}
-
 auto resolveHelpTextLayout() -> HelpTextLayout {
   auto lineLength = 120u;
-  if (auto const override = readHelpColumnsOverride(); override.has_value()) {
-    lineLength = std::clamp(override.value(), 40u, 120u);
+  if (
+    auto const columns = processenv::readNonEmptyEnvVar("COLUMNS"); columns.has_value()
+  ) {
+    if (
+      auto const override = consolewidth::parsePositiveColumnCount(columns->c_str());
+      override.has_value()
+    ) {
+      lineLength = static_cast<unsigned>(
+        std::clamp(override.value(), std::size_t{40}, std::size_t{120})
+      );
+    }
   }
 
   return {

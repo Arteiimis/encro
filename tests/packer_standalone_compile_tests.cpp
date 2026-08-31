@@ -6,5 +6,5 @@
 
 // packer.h must NOT transitively include pack_service.h.
 // Types PackFileEntry, PackRunResult, FileOrdinalRange must be reachable via pack_types.h.
-// Types PackGroupInput, PackEntryInput etc. must be reachable via pack::detail:: in packer_types.h.
+// Types PackEntryInput, PackEntryPartition etc. must be reachable via pack::detail:: in packer_types.h.
 // All packer.h free function declarations must compile without pack_service.h visibility.
