@@ -1,6 +1,6 @@
 #include "app/app_entry.h"
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <string_view>
 

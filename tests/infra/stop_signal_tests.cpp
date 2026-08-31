@@ -1,19 +1,16 @@
 #include "infra/stop_signal.h"
 #include "logging/log_tags.h"
-#include "logging/logging.h"
 #include "logging/setup.h"
 #include "test_utils.h"
 
 #include <spdlog/logger.h>
-#include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <atomic>
 #include <chrono>
 #include <filesystem>
-#include <fstream>
 #include <memory>
 #include <sstream>
 #include <string>

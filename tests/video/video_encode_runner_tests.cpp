@@ -3,7 +3,7 @@
 #include "test_utils.h"
 #include "video/video_encode_runner.h"
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <chrono>
 #include <filesystem>

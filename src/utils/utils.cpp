@@ -7,7 +7,7 @@
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/buffer.hpp>
-#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/co_spawn.hpp>  // IWYU pragma: keep
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/post.hpp>
@@ -22,7 +22,7 @@
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/shell.hpp>
 #include <boost/process/v2/stdio.hpp>
-#include <boost/uuid.hpp>
+#include <boost/uuid.hpp>  // IWYU pragma: keep
 
 #include <array>
 #include <atomic>

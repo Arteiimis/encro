@@ -2,9 +2,8 @@
 #include "infra/terminal.h"
 #include "test_utils.h"
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
-#include <cstddef>
 #include <string>
 #include <string_view>
 #include <vector>

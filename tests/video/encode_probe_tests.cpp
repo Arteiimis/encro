@@ -1,6 +1,5 @@
 #include "core/display_text.h"
 #include "core/work_dirs.h"
-#include "infra/env.h"
 #include "utils/utils.h"
 #include "video/encode_probe.h"
 #include "video/encode_config.h"
@@ -9,7 +8,7 @@
 
 #include "test_utils.h"
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <algorithm>
 #include <array>
@@ -17,7 +16,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <memory>
 #include <optional>
 #include <ranges>

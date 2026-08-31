@@ -4,7 +4,6 @@
 #include "core/display_text.h"
 #include "core/progress.h"
 #include "core/task_executor.h"
-#include "core/work_dirs.h"
 #include "infra/console_width.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
@@ -27,7 +26,6 @@
 #include <ranges>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 

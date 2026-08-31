@@ -2,9 +2,6 @@
 #include "test_utils.h"
 #include "video/video_info.h"
 
-#include <cstdint>
-#include <fstream>
-
 using testutils::copyFakeProbe;
 using testutils::copyFakeTool;
 

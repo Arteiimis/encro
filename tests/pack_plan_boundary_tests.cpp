@@ -1,8 +1,6 @@
 #include "pack/pack.h"
 
-#include <catch2/catch_all.hpp>
-
-#include <type_traits>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 // Compile-time boundary check: pack_plan_internal.h must NOT be reachable
 // from the public header pack.h.
