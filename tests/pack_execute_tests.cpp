@@ -262,7 +262,6 @@ TEST_CASE(
     auto const result = pack::execute(req);
     REQUIRE(result.has_value());
     CHECK(result->exitCode == 0);
-    store.flush();
   }
 
   // Second pass: simulate resume — all tasks are already complete
@@ -417,7 +416,6 @@ TEST_CASE(
             .isSummary = true,
           },
         },
-      .prefix = "00_",
       .enabled = true,
     },
   };
@@ -462,7 +460,6 @@ TEST_CASE(
             .isSummary = true,
           },
         },
-      .prefix = "00_",
       .enabled = true,
     },
   };
@@ -504,7 +501,6 @@ TEST_CASE(
               .isSummary = true,
             },
           },
-        .prefix = "00_",
         .enabled = true,
       },
     .entryNameForFile = [](fs::path const&) { return std::string{"overridden.txt"}; },

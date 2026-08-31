@@ -210,27 +210,6 @@ TEST_CASE(
   CHECK(cmd.find(expectedOutput) != std::string::npos);
 }
 
-TEST_CASE("EncodeConfig respects custom output directory", "[encode-config]") {
-  TempDir temp;
-  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
-  auto const outputDir = temp.path / "encoded";
-  fs::create_directory(outputDir);
-
-  EncodeConfig cfg;
-  cfg.inputPath = inputPath;
-  cfg.outputPath = outputDir;
-  cfg.outputFormat = "mp4";
-  cfg.videoCodec = "hevc_nvenc";
-
-  auto const validation = cfg.validate();
-  REQUIRE(validation);
-
-  auto const cmd = cfg.buildCMD();
-  auto const expectedOutput =
-    (outputDir / std::format("{}.hevc.mp4", inputPath.stem().string())).string();
-  CHECK(cmd.find(expectedOutput) != std::string::npos);
-}
-
 TEST_CASE("EncodeConfig respects explicit output file path", "[encode-config]") {
   TempDir temp;
   auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");

@@ -138,8 +138,6 @@ public:
     std::string_view reason = "canceled by user"
   );
 
-  void flush();
-
 private:
   auto indexFor(std::string_view id) const -> std::optional<std::size_t>;
 
@@ -187,8 +185,6 @@ auto primarySourcePath(TaskRecord const& task) -> std::optional<fs::path>;
 // and re-bases startedAtMs at nowMs, so repeated settles only add the delta.
 // No-op when the task has never started running.
 void settleEncodedMs(TaskRecord& task, std::int64_t nowMs);
-
-auto primaryTargetPath(TaskRecord const& task) -> std::optional<fs::path>;
 
 bool needsExecution(TaskRecord const& task);
 

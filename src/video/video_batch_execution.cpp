@@ -117,9 +117,6 @@ auto createEncodingState(
   vidState->startTime = std::chrono::steady_clock::now();
   vidState->plannedOutputFile =
     lookupPlannedOutputFile(executionCtx.plannedOutputFiles, vidPath);
-  if (vidState->plannedOutputFile.has_value()) {
-    vidState->outputPath = vidState->plannedOutputFile->parent_path();
-  }
   if (
     auto const it = executionCtx.probeCqByInput.find(vidPath);
     it != executionCtx.probeCqByInput.end()
@@ -293,9 +290,6 @@ auto runEncodingWithoutProgress(
       state.actionId = it->second;
     }
     state.plannedOutputFile = lookupPlannedOutputFile(job.plannedOutputFiles, vidPath);
-    if (state.plannedOutputFile.has_value()) {
-      state.outputPath = state.plannedOutputFile->parent_path();
-    }
     if (auto const it = probeCqByInput.find(vidPath); it != probeCqByInput.end()) {
       state.chosenCq = it->second;
     }

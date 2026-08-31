@@ -39,8 +39,6 @@ struct QualityRequest {
 auto percentile(std::span<double const> scores, double percentile)
   -> std::optional<double>;
 
-auto mean(std::span<double const> scores) -> std::optional<double>;
-
 // Display name for a quality metric ("VMAF" | "SSIM" | "XPSNR").
 auto metricName(QualityMetric metric) -> std::string_view;
 

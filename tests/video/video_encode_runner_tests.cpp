@@ -33,7 +33,6 @@ struct WebpScaffold {
     state.inputPath = temp.path / "sample.mp4";
     testutils::writeTextFile(state.inputPath, "fake-video");
     state.plannedOutputFile = temp.path / "out" / "sample.webp";
-    state.outputPath = temp.path / "out";
 
     ctx.config.outputFormat = "webp";
     ctx.toolchain.ffmpegPath = testutils::copyFakeTool(temp.path, "ffmpeg");
@@ -164,7 +163,6 @@ struct SegmentScaffold {
     state.inputPath = temp.path / "sample.mp4";
     testutils::writeTextFile(state.inputPath, "fake-video");
     state.plannedOutputFile = temp.path / "out" / "sample.mp4";
-    state.outputPath = temp.path / "out";
 
     ctx.config.outputFormat = "mp4";
     ctx.config.outputPath = temp.path / "work";
