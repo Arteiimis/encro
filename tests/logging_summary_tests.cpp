@@ -3,13 +3,12 @@
 
 #include <spdlog/spdlog.h>
 
-#include <boost/json.hpp>
+#include <boost/json.hpp>        // IWYU pragma: keep
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <string>
 
 namespace fs = std::filesystem;

@@ -1,6 +1,6 @@
 #include "core/display_text.h"
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 namespace {
 

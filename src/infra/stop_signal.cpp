@@ -5,13 +5,13 @@
 #include "logging/logging.h"
 
 #include <algorithm>
-#include <array>
+#include <array>  // IWYU pragma: keep -- needed with MSVC STL; Linux libstdc++ pulls it transitively
 #include <atomic>
 #include <chrono>
 
 #if defined(_WIN32)
   #include <thread>
-  #include <windows.h>
+  #include <windows.h>  // IWYU pragma: keep -- Windows-only (guarded by _WIN32)
 #endif
 
 #if defined(_WIN32)

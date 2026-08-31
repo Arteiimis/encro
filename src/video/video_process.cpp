@@ -16,7 +16,7 @@
 #include "utils/utils.h"
 
 #include <algorithm>
-#include <boost/lambda2.hpp>
+#include <boost/lambda2.hpp>  // IWYU pragma: keep
 #include <cstdint>
 #include <map>
 

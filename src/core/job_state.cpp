@@ -11,7 +11,6 @@
 #include <chrono>
 #include <fstream>
 #include <format>
-#include <numeric>
 #include <utility>
 
 namespace jobstate {

@@ -5,7 +5,6 @@
 #include "test_utils.h"
 
 #include <filesystem>
-#include <format>
 #include <fstream>
 #include <thread>
 

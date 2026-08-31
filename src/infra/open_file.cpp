@@ -1,7 +1,7 @@
 #include "infra/open_file.h"
 
 #if defined(_WIN32)
-  #include <windows.h>
+  #include <windows.h>  // IWYU pragma: keep -- Windows-only (guarded by _WIN32)
   #include <shellapi.h>
 
   #include <cstdint>

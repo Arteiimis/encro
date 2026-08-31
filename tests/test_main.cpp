@@ -2,14 +2,14 @@
 
 #include "infra/crash_runtime.h"
 
-#include <catch2/catch_all.hpp>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <cstdlib>
 #include <filesystem>
 #include <string_view>
 
 #if defined(_WIN32)
-  #include <windows.h>
+  #include <windows.h>  // IWYU pragma: keep -- Windows-only (guarded by _WIN32)
 #else
   #include <csignal>
 #endif

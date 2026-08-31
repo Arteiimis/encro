@@ -3,7 +3,7 @@
 #include "infra/env.h"
 #include "infra/terminal.h"
 
-#include <boost/json.hpp>
+#include <boost/json.hpp>  // IWYU pragma: keep
 
 #include <algorithm>
 #include <array>
@@ -12,7 +12,7 @@
 #include <fstream>
 #include <iterator>
 #include <system_error>
-#include <utility>
+#include <utility>  // IWYU pragma: keep -- needed with MSVC STL; Linux libstdc++ pulls it transitively
 
 namespace fs = std::filesystem;
 

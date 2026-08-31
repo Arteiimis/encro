@@ -8,9 +8,7 @@
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/start_dir.hpp>
 #include <boost/process/v2/stdio.hpp>
-#include <libzippp/libzippp.h>
 
-#include <algorithm>
 #include <array>
 #include <atomic>
 #include <filesystem>

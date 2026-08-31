@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
-#include <print>
+#include <print>  // IWYU pragma: keep -- needed with MSVC STL; Linux libstdc++ pulls it transitively
 #include <string>
 #include <string_view>
 #include <vector>
