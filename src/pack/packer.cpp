@@ -582,34 +582,6 @@ auto pack::Packer::groupPackEntries(
   );
 }
 
-auto pack::Packer::groupPackFiles(
-  std::vector<PackGroupInput> const& filePaths,
-  std::uintmax_t maxGroupSize,
-  std::optional<std::size_t> maxFilesPerGroup,
-  std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed
-) -> std::vector<std::vector<fs::path>> {
-  auto packEntries = std::vector<PackEntryInput>{};
-  packEntries.reserve(filePaths.size());
-  for (auto const& file: filePaths) {
-    packEntries.emplace_back(
-      PackEntryInput{
-        .entry = PackFileEntry{.sourcePath = file.filePath, .zipEntryName = {}},
-        .sourceDir = file.sourceDir,
-        .sourceKey = naming::stablePathString(file.sourceDir),
-        .fileKey = naming::stablePathString(file.filePath),
-      }
-    );
-  }
-
-  return sourcePathGroups(groupPackEntries(
-    packEntries,
-    maxGroupSize,
-    maxFilesPerGroup,
-    keepSourceDirsTogetherWhenTotalFilesExceed
-  ));
-}
-
-// NOLINTNEXTLINE(readability-function-size): two-level grouping algorithm core
 auto pack::Packer::groupPackEntriesWithSubparts(
   std::vector<PackEntryInput> const& entries,
   std::uintmax_t maxGroupSize,
@@ -695,47 +667,6 @@ auto pack::Packer::groupPackEntriesWithSubparts(
         }
       );
     }
-  }
-
-  return groupedPartitions;
-}
-
-auto pack::Packer::groupPackFilesWithSubparts(
-  std::vector<PackGroupInput> const& filePaths,
-  std::uintmax_t maxGroupSize,
-  std::size_t maxFilesPerPart,
-  std::optional<std::size_t> keepSourceDirsTogetherWhenTotalFilesExceed
-) -> std::vector<PackGroupPartition> {
-  auto packEntries = std::vector<PackEntryInput>{};
-  packEntries.reserve(filePaths.size());
-  for (auto const& file: filePaths) {
-    packEntries.emplace_back(
-      PackEntryInput{
-        .entry = PackFileEntry{.sourcePath = file.filePath, .zipEntryName = {}},
-        .sourceDir = file.sourceDir,
-        .sourceKey = naming::stablePathString(file.sourceDir),
-        .fileKey = naming::stablePathString(file.filePath),
-      }
-    );
-  }
-
-  auto const groupedEntryPartitions = groupPackEntriesWithSubparts(
-    packEntries,
-    maxGroupSize,
-    maxFilesPerPart,
-    keepSourceDirsTogetherWhenTotalFilesExceed
-  );
-
-  auto groupedPartitions = std::vector<PackGroupPartition>{};
-  groupedPartitions.reserve(groupedEntryPartitions.size());
-  for (auto const& partition: groupedEntryPartitions) {
-    groupedPartitions.emplace_back(
-      PackGroupPartition{
-        .filePaths = sourcePathsForGroup(partition.entries),
-        .partIndex = partition.partIndex,
-        .subPartIndex = partition.subPartIndex,
-      }
-    );
   }
 
   return groupedPartitions;

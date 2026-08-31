@@ -20,20 +20,7 @@ class PackService final {
 public:
   PackService() = default;
 
-  auto runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
-    -> eh::Result<PackRunResult>;
   auto packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>>;
-
-  auto packAllFilesInDirectory(
-    std::filesystem::path const& dirPath,
-    std::filesystem::path const& zipFileDir,
-    std::uintmax_t maxGroupSize = kDefaultMaxArchiveGroupSize,
-    DirectoryPackOptions options = {}
-  ) -> eh::Result<void>;
-  auto runDirectoryPackWorkflow(
-    appctx::AppContext& ctx,
-    std::filesystem::path const& dirPath
-  ) -> eh::Result<int>;
 
 private:
   Packer packer_;

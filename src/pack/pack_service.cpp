@@ -255,7 +255,7 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
   for (auto index = std::size_t{0}; index < plan.groups.size(); ++index) {
     auto const zipName = internal::resolveZipNameForIndex(plan, index);
     auto const zipPath = plan.outputDir / zipName;
-    auto const label = internal::resolveProgressLabelForIndex(plan, index);
+    auto const label = internal::defaultProgressLabelForZipName(zipName);
 
     tasks.push_back({
       .id = std::format("archive:{}", collisionnaming::stablePathString(zipPath)),
@@ -461,13 +461,6 @@ auto resolveZipNameForIndex(PackPlan const& plan, std::size_t index) -> std::str
                               : defaultZipNameForIndex(index);
 }
 
-auto resolveProgressLabelForIndex(PackPlan const& plan, std::size_t index)
-  -> std::string {
-  if (plan.progressLabelForIndex) { return plan.progressLabelForIndex(index); }
-
-  return defaultProgressLabelForZipName(resolveZipNameForIndex(plan, index));
-}
-
 auto makeSubsetZipNameResolver(
   std::function<std::string(std::size_t)> const& originalResolver,
   std::shared_ptr<std::vector<std::size_t>> const& selectedIndexes
@@ -476,16 +469,6 @@ auto makeSubsetZipNameResolver(
     auto const actualIndex = selectedIndexes->at(subsetIndex);
     return originalResolver ? originalResolver(actualIndex)
                             : defaultZipNameForIndex(actualIndex);
-  };
-}
-
-auto makeSubsetProgressLabelResolver(
-  std::function<std::string(std::size_t)> const& originalResolver,
-  std::shared_ptr<std::vector<std::size_t>> const& selectedIndexes
-) -> std::function<std::string(std::size_t)> {
-  if (!originalResolver) { return {}; }
-  return [originalResolver, selectedIndexes](std::size_t subsetIndex) -> std::string {
-    return originalResolver(selectedIndexes->at(subsetIndex));
   };
 }
 
@@ -502,8 +485,6 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
     .groups = std::move(filteredGroups),
     .outputDir = plan.outputDir,
     .zipNameForIndex = makeSubsetZipNameResolver(plan.zipNameForIndex, selectedIndexes),
-    .progressLabelForIndex =
-      makeSubsetProgressLabelResolver(plan.progressLabelForIndex, selectedIndexes),
     .progressCallbacks =
       {
         .onCompactProgress = plan.progressCallbacks.onCompactProgress,
@@ -517,80 +498,12 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
 
 }  // namespace internal
 
-auto PackService::runPackPlan(appctx::AppContext& ctx, PackPlan const& plan)
-  -> eh::Result<PackRunResult> {
-  // Resumable execution is now handled by pack::execute().
-  // This method provides simple non-resumable execution for internal use.
-  auto* store = ctx.runtime.jobState.get();
-  if (store == nullptr) {
-    auto const packRes = packGroups(plan);
-    if (!packRes) { return eh::makeError("{}", packRes.error()); }
-    return PackRunResult{.exitCode = 0, .zippedFiles = packRes.value()};
-  }
-
-  // Fall back to non-resumable if jobState is present but caller
-  // wants simple execution (only execute() handles resumable now).
-  auto const packRes = packGroups(plan);
-  if (!packRes) { return eh::makeError("{}", packRes.error()); }
-  return PackRunResult{.exitCode = 0, .zippedFiles = packRes.value()};
-}
-
 auto PackService::packGroups(PackPlan const& plan) -> eh::Result<std::vector<fs::path>> {
   logging::ScopedTimer timer("pack.execute");
   auto const packLabel = std::format("{} group(s)", plan.groups.size());
   logging::ScopedErrorContext ctx("pack.execute", packLabel);
   if (plan.compact) { return packGroupsCompact(plan); }
   return packGroupsFull(plan);
-}
-
-auto PackService::packAllFilesInDirectory(
-  fs::path const& dirPath,
-  fs::path const& zipFileDir,
-  std::uintmax_t maxGroupSize,
-  DirectoryPackOptions options
-) -> eh::Result<void> {
-  auto const planRes =
-    packer_.buildDirectoryPackPlan(dirPath, zipFileDir, maxGroupSize, options);
-  if (!planRes) { return eh::makeError("{}", planRes.error()); }
-
-  auto const packRes = packGroups(planRes.value());
-  if (!packRes) { return eh::makeError("{}", packRes.error()); }
-
-  return {};
-}
-
-auto PackService::runDirectoryPackWorkflow(
-  appctx::AppContext& ctx,
-  fs::path const& dirPath
-) -> eh::Result<int> {
-  auto const zipOutputDir = ctx.config.outputPath.value_or(dirPath / "packed");
-  auto const planRes = packer_.buildDirectoryPackPlan(
-    dirPath,
-    zipOutputDir,
-    kDefaultMaxArchiveGroupSize,
-    DirectoryPackOptions{
-      .recursive = true,
-      .namingStrategy = ctx.config.forceNameConflictHandling
-        ? NamingStrategy::FlatWithForce
-        : NamingStrategy::Flat,
-      .maxParallelJobs = ctx.config.maxParallelJobs,
-      .excludedPath = ctx.runtime.jobState
-        ? std::optional<fs::path>{ctx.runtime.jobState->stateFilePath()}
-        : std::nullopt,
-    }
-  );
-  if (!planRes) { return eh::makeError("Failed to pack files: {}", planRes.error()); }
-
-  auto const packRes = runPackPlan(ctx, planRes.value());
-  if (!packRes) { return eh::makeError("Failed to pack files: {}", packRes.error()); }
-  if (packRes->exitCode != 0) { return packRes->exitCode; }
-
-  terminal::println(
-    Success,
-    "All files packed successfully to: {}",
-    terminal::path(zipOutputDir)
-  );
-  return 0;
 }
 
 }  // namespace pack

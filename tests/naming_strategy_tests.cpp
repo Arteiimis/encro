@@ -35,8 +35,6 @@ TEST_CASE("NamingConfig default constructs with Flat strategy", "[pack][naming]"
   pack::NamingConfig cfg{};
   CHECK(cfg.namingStrategy == pack::NamingStrategy::Flat);
   CHECK_FALSE(cfg.baseName.has_value());
-  // Default-constructed std::function should be falsy
-  CHECK_FALSE(cfg.zipNameStrategy);
 }
 
 TEST_CASE("NamingConfig designated initializer sets namingStrategy", "[pack][naming]") {

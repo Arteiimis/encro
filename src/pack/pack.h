@@ -53,14 +53,6 @@ enum class NamingStrategy {
 struct NamingConfig {
   NamingStrategy namingStrategy = NamingStrategy::Flat;
   std::optional<std::string> baseName;
-  std::function<std::string(
-    std::size_t partIndex,
-    std::size_t subPartIndex,
-    std::size_t totalSubParts,
-    std::string_view baseName,
-    FileOrdinalRange ordinalRange
-  )>
-    zipNameStrategy;
 };
 
 // How a directory pack walks the tree and names the entries: recursion,

@@ -277,28 +277,13 @@ void applyEntryNameOverrides(
 }
 
 // --- resolveZipNameStrategy ---
-// Returns a zipNameForIndex lambda. Uses the consumer-provided
-// zipNameStrategy if present; otherwise falls back to the default mode-based
-// naming via makeDefaultZipNameStrategy.
+// Returns a zipNameForIndex lambda: the default mode-based naming.
 auto resolveZipNameStrategy(
-  NamingConfig const* naming,
   std::string baseName,
   std::vector<FileOrdinalRange> const& ordinalRanges,
   std::vector<std::pair<std::size_t, std::size_t>> groupNameParts,
   std::vector<std::size_t> subPartCountsByPart
 ) -> std::function<std::string(std::size_t)> {
-  if (naming && naming->zipNameStrategy) {
-    return [strategy = naming->zipNameStrategy,
-            ordRanges = ordinalRanges,
-            nameParts = groupNameParts,
-            subPartCounts = subPartCountsByPart,
-            bName = baseName](std::size_t index) {
-      auto const [partIndex, subPartIndex] = nameParts.at(index);
-      auto const totalSubParts = subPartCounts.at(partIndex - 1);
-      return strategy(partIndex, subPartIndex, totalSubParts, bName, ordRanges.at(index));
-    };
-  }
-
   return makeDefaultZipNameStrategy(
     std::move(baseName),
     ordinalRanges,
@@ -327,7 +312,6 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
   if (naming && naming->baseName.has_value()) { baseName = naming->baseName.value(); }
   auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groups);
   auto zipNameFn = resolveZipNameStrategy(
-    naming,
     baseName,
     ordinalRanges,
     std::move(nameParts),
