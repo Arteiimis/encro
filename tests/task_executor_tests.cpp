@@ -4,16 +4,16 @@
 #include "logging/logging.h"
 #include "test_utils.h"
 
-#include <spdlog/logger.h>
+#include <spdlog/logger.h>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include <spdlog/spdlog.h>
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
+#include <chrono>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include <format>
-#include <memory>
+#include <memory>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include <sstream>
 #include <stdexcept>
 #include <string>

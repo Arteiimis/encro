@@ -10,7 +10,7 @@
 #endif
 
 #if !defined(ENCRO_HAS_STD_STACKTRACE)
-  #include <boost/stacktrace.hpp>
+  #include <boost/stacktrace.hpp>  // IWYU pragma: keep -- Linux-only (guarded by !_WIN32)
 #endif
 
 namespace crash {

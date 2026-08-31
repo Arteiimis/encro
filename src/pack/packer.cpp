@@ -13,7 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <chrono>
+#include <chrono>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
