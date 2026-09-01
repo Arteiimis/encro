@@ -174,6 +174,43 @@ TEST_CASE(
   CHECK(crfLine->find("(=23)") != std::string::npos);
 }
 
+TEST_CASE(
+  "preview help default display shows config-adjusted effective defaults too",
+  "[cmd][config]"
+) {
+  auto const config = ScopedConfigFile{"{\"crf\": 23, \"preset\": \"p5\"}"};
+
+  auto const result = testutils::parseArgs({"encro", "preview", "-h"});
+  REQUIRE_FALSE(result.error.has_value());
+  auto const crfLine = testutils::findHelpLine(result.helpText, "--crf");
+  REQUIRE(crfLine.has_value());
+  CHECK(crfLine->find("(=23)") != std::string::npos);
+  auto const presetLine = testutils::findHelpLine(result.helpText, "--preset");
+  REQUIRE(presetLine.has_value());
+  CHECK(presetLine->find("(=p5)") != std::string::npos);
+}
+
+TEST_CASE(
+  "preview twin display sync never overrides an explicit cli crf",
+  "[cmd][config]"
+) {
+  auto const config = ScopedConfigFile{"{\"crf\": 23}"};
+
+  SECTION("explicit value before the subcommand") {
+    auto const result =
+      testutils::parseArgs({"encro", "--crf", "20", "preview", "clip.mp4"});
+    REQUIRE_FALSE(result.error.has_value());
+    CHECK(result.crf == 20);
+  }
+
+  SECTION("explicit value inside the subcommand") {
+    auto const result =
+      testutils::parseArgs({"encro", "preview", "--crf", "20", "clip.mp4"});
+    REQUIRE_FALSE(result.error.has_value());
+    CHECK(result.crf == 20);
+  }
+}
+
 // ── Config subcommand parsing (task 5.1) ─────────────────────────────────
 
 TEST_CASE("config subcommand actions parse and exclude each other", "[cmd][config]") {
