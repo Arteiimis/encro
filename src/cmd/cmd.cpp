@@ -926,6 +926,20 @@ auto injectConfigDefaults(CLI::App& app) -> std::optional<std::string> {
       opt->default_str(value);
       opt->force_callback();
     }
+    // Named subcommands may register their own copy of a config-key option
+    // (preview's encode twins); get_option lookup only descends into nameless
+    // groups, so sync the twins here. Display only, never force_callback: the
+    // main option's forced callback already writes the binding (registration
+    // order), and a forced subcommand callback would run after an explicit
+    // main value and clobber it. Note: the no-arg get_subcommands() returns
+    // parsed subcommands only (empty pre-parse); the filter overload returns
+    // every registered subcommand.
+    for (auto* subc: app.get_subcommands([](CLI::App*) { return true; })) {
+      if (subc->get_name().empty()) { continue; }  // option groups: handled above
+      if (auto* subOpt = subc->get_option_no_throw("--" + key)) {
+        subOpt->default_str(value);
+      }
+    }
   }
   return std::nullopt;
 }
