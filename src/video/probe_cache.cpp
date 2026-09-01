@@ -146,11 +146,10 @@ void save(std::vector<Entry> const& updates, fs::path const& filePath) {
   auto const resolvedPath = filePath.empty() ? defaultCacheFilePath() : filePath;
   auto entries = load(resolvedPath);
 
-  auto const nowMs =
-    static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::system_clock::now().time_since_epoch()
-    )
-                                 .count());
+  auto const epoch = std::chrono::system_clock::now().time_since_epoch();
+  auto const nowMs = static_cast<std::uint64_t>(
+    std::chrono::duration_cast<std::chrono::milliseconds>(epoch).count()
+  );
   for (auto const& update: updates) {
     auto it = std::ranges::find_if(entries, [&update](Entry const& e) {
       return e.key == update.key;
