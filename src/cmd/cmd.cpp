@@ -555,6 +555,10 @@ constexpr auto kConfigUsageLines = std::array{
   "encro config <list|get <key>|set <key> <value>|unset <key>|path>"sv,
 };
 
+constexpr auto kCompletionUsageLines = std::array{
+  "encro completion <powershell|bash> [--install | --uninstall]"sv,
+};
+
 auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
   auto* sub = app.add_subcommand(
     "preview",
@@ -679,6 +683,39 @@ auto registerConfigSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App
   };
   registerAll(sub, options);
   sub->formatter_fn(makeSubcommandHelpFormatter(sub, kConfigUsageLines));
+  return sub;
+}
+
+// Completion scripts for supported shells; install/uninstall are mutually
+// exclusive; bare `encro completion` shows the subcommand help.
+auto registerCompletionSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
+  auto* sub = app.add_subcommand(
+    "completion",
+    "print, install, or uninstall shell completion scripts"
+  );
+  sub->set_help_flag("-h,--help", "show completion help");
+  auto const options = std::tuple{
+    opt(
+      "shell",
+      &result.completionShell,
+      "target shell: powershell or bash",
+      cfg::Members{"bash", "powershell"}
+    ),
+    opt(
+      "--install",
+      &result.completionInstall,
+      "install the completion script for the shell",
+      cfg::Excludes{"--uninstall"}
+    ),
+    opt(
+      "--uninstall",
+      &result.completionUninstall,
+      "remove the installed completion script",
+      cfg::Excludes{"--install"}
+    ),
+  };
+  registerAll(sub, options);
+  sub->formatter_fn(makeSubcommandHelpFormatter(sub, kCompletionUsageLines));
   return sub;
 }
 
@@ -964,12 +1001,22 @@ auto buildAndParse(
       result.config = true;
       result.helpText = tree.configSub->help();
     }
+    if (tree.app->got_subcommand(tree.completionSub)) {
+      result.completion = true;
+      result.helpText = tree.completionSub->help();
+    }
   } catch (CLI::CallForHelp const&) {
-    // The preview/config subcommands carry the native help flags (the parent
-    // app cleared its own), so the help text comes from whichever matched.
+    // The preview/config/completion subcommands carry the native help flags
+    // (the parent app cleared its own), so the help text comes from whichever
+    // matched.
     result.help = true;
-    result.helpText = tree.app->got_subcommand(tree.configSub) ? tree.configSub->help()
-                                                               : tree.previewSub->help();
+    if (tree.app->got_subcommand(tree.completionSub)) {
+      result.helpText = tree.completionSub->help();
+    } else if (tree.app->got_subcommand(tree.configSub)) {
+      result.helpText = tree.configSub->help();
+    } else {
+      result.helpText = tree.previewSub->help();
+    }
   } catch (CLI::ParseError const& ex) {
     result.error = ex.what();
     result.helpText = tree.app->help();
@@ -1009,11 +1056,13 @@ auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool inj
 
   auto* previewSub = registerPreviewSubcommand(*app, result);
   auto* configSub = registerConfigSubcommand(*app, result);
+  auto* completionSub = registerCompletionSubcommand(*app, result);
   // Option groups are CLI11 subcommands too, so the commands section is given
   // the real subcommand apps explicitly. The array is leaked with the app:
   // the formatter lambda captures the span by value, while parse and help
   // rendering happen after this call returns.
-  auto* const commandSubs = new std::array<CLI::App const*, 2>{previewSub, configSub};
+  auto* const commandSubs =
+    new std::array<CLI::App const*, 3>{previewSub, configSub, completionSub};
 
   // Configure formatter (static storage: kAdvancedLongNames outlives the lambda)
   app->formatter_fn(makeHelpFormatter(
@@ -1034,7 +1083,7 @@ auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool inj
       result.error = *error;
     }
   }
-  return AppTree{app, previewSub, configSub};
+  return AppTree{app, previewSub, configSub, completionSub};
 }
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)

@@ -23,13 +23,13 @@
 
 ## 5. Subcommand wiring
 
-- [ ] 5.1 Register the visible `completion` subcommand (positional `shell` limited to `powershell|bash`, `--install`/`--uninstall` mutually exclusive, bare invocation shows help, own help formatter) and update the main-help commands-section test. Verify: `[cmd]` parse tests cover shell validation, bare-help behavior, and `encro -h` listing `completion` with its description.
+- [x] 5.1 Register the visible `completion` subcommand (positional `shell` limited to `powershell|bash`, `--install`/`--uninstall` mutually exclusive, bare invocation shows help, own help formatter) and update the main-help commands-section test. Verify: `[cmd]` parse tests cover shell validation, bare-help behavior, and `encro -h` listing `completion` with its description.
 
 ## 6. Install and uninstall
 
-- [ ] 6.1 PowerShell install: write script to the encro user dir, wire marker-guarded dot-source blocks into existing profiles (known-folder Documents resolution; create the PowerShell 7+ profile when none exists). Verify: unit tests with `TempDir` + redirected environment cover first install, no-op re-run, and in-place refresh with a single activation entry.
-- [ ] 6.2 Bash install: lazy-load completions directory when bash-completion is detected, otherwise guarded `.bashrc` source block, all writes LF. Verify: unit tests cover both branches and that pre-existing startup-file content is preserved byte-for-byte.
-- [ ] 6.3 Uninstall and usage errors: remove marker blocks and installed files, no-op when absent, `--install --uninstall` rejected without side effects. Verify: unit tests cover full install→uninstall round-trip, no-op uninstall, and the both-flags error.
+- [x] 6.1 PowerShell install: write script to the encro user dir, wire marker-guarded dot-source blocks into existing profiles (known-folder Documents resolution; create the PowerShell 7+ profile when none exists). Verify: unit tests with `TempDir` + redirected environment cover first install, no-op re-run, and in-place refresh with a single activation entry.
+- [x] 6.2 Bash install: lazy-load completions directory when bash-completion is detected, otherwise guarded `.bashrc` source block, all writes LF. Verify: unit tests cover both branches and that pre-existing startup-file content is preserved byte-for-byte.
+- [x] 6.3 Uninstall and usage errors: remove marker blocks and installed files, no-op when absent, `--install --uninstall` rejected without side effects. Verify: unit tests cover full install→uninstall round-trip, no-op uninstall, and the both-flags error.
 
 ## 7. Real-shell smoke tests
 

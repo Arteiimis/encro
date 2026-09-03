@@ -1,5 +1,6 @@
 #include "app/app_entry.h"
 
+#include "cmd/completion_command.h"
 #include "cmd/config_builder.h"
 #include "cmd/config_command.h"
 #include "core/app_context.h"
@@ -299,6 +300,7 @@ int run(int argc, char* argv[]) {
 
   if (startup.cmd.preview) { return runPreview(startup); }
   if (startup.cmd.config) { return cmd::runConfigCommand(startup.cmd); }
+  if (startup.cmd.completion) { return cmd::runCompletionCommand(startup.cmd); }
 
   auto config = buildAppConfig(startup);
   if (!config.has_value()) { return 1; }

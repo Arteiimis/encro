@@ -496,4 +496,11 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
   return out.str();
 }
 
+auto scriptFor(std::string const& shell) -> std::optional<std::string> {
+  auto const model = buildCompletionModel();
+  if (shell == "bash") { return emitBashScript(model); }
+  if (shell == "powershell") { return emitPowerShellScript(model); }
+  return std::nullopt;
+}
+
 }  // namespace completion
