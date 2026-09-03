@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -326,6 +327,24 @@ struct BatchScaffold {
   }
 };
 
+// Polls until the fake-tool invocation log contains the needle, giving
+// load-independent proof that an invocation started; false after the
+// deadline (the REQUIRE surfaces it, no silent pass). Reads with a plain
+// stream: the log does not exist until the first invocation, and
+// testutils::readTextFile asserts on unopenable files.
+auto waitUntilLogContains(fs::path const& logPath, std::string_view needle) -> bool {
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  while (std::chrono::steady_clock::now() < deadline) {
+    auto log = std::ifstream{logPath, std::ios::binary};
+    if (log.is_open()) {
+      auto const content = std::string{std::istreambuf_iterator<char>{log}, {}};
+      if (content.find(needle) != std::string::npos) { return true; }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  return false;
+}
+
 }  // namespace
 
 TEST_CASE(
@@ -498,13 +517,18 @@ TEST_CASE(
     s.ctx.config.verbose = true;
     s.ctx.config.yesToAll = true;
     // Bypass probing (--crf) so the stop lands inside the verbose encode loop
-    // rather than in the probe stage's scoring calls (which share DELAY_MS).
+    // rather than in the probe stage's scoring calls.
     s.ctx.config.crf = 28;
 
     auto const b = s.temp.path / "b.mp4";
     testutils::writeSizedFile(b, 1'048'576);
-    // Slow the first production encode so the stop lands inside it.
-    s.envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_DELAY_MS", "400"));
+    // Hold each encode start on a gate file: the fake tool logs the
+    // invocation and then blocks, so the first "ffmpeg" log line is proof
+    // the encode is in flight and the stop request cannot race ahead of it.
+    auto const gateFile = s.temp.path / "encode-gate";
+    s.envs.push_back(
+      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+    );
 
     auto stopGuard = testutils::ScopedStopSignalReset{};
     auto job = videobatch::EncodingBatchJob{
@@ -521,8 +545,13 @@ TEST_CASE(
     std::jthread runner([&] {
       outcome = videobatch::runEncodingTasks(s.ctx, job, 2, 0);
     });
-    std::this_thread::sleep_for(std::chrono::milliseconds{150});
+    REQUIRE(waitUntilLogContains(s.logPath, "ffmpeg\t"));
     stopsignal::requestStop();
+    {
+      auto gate = std::ofstream{gateFile, std::ios::binary | std::ios::trunc};
+      REQUIRE(gate.is_open());
+      gate << "go";
+    }
     runner.join();
 
     REQUIRE(outcome.has_value());
