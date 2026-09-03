@@ -106,20 +106,6 @@ jobs:
             grep -oE '<testcase[^>]*>[^<]*<failure[^>]*>[^<]*' /tmp/ut.xml | head -10
             grep -oE 'message="[^"]*"' /tmp/ut.xml | head -10
           fi
-          # 崩溃(如 SIGSEGV)时 JUnit 报告没有 failure 条目且日志被缓冲丢失:
-          # 用逐测试驱动器重跑定位崩溃点(诊断辅助,定位根因后可移除)。
-          if [ $ec -ne 0 ] && ! grep -q '<failure' /tmp/ut.xml 2>/dev/null; then
-            echo "=== junit has no failures: likely a crash; locating per test"
-            ./build/linux/x86_64/${{ matrix.mode }}/tests --list-tests --reporter XML 2>/dev/null \
-              | grep -oP '(?<=<Name>)[^<]+' \
-              | while IFS= read -r t; do
-                  printf 'RUN [%s]\n' "$t"
-                  if ! ./build/linux/x86_64/${{ matrix.mode }}/tests "$t" > /dev/null 2>&1; then
-                    printf 'DIED [%s] exit=%s\n' "$t" "$?"
-                    exit 42
-                  fi
-                done
-          fi
           exit $ec
 
       - name: Run e2e tests
