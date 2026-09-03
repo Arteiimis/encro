@@ -1094,6 +1094,8 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   // with injection so option defaults and the help (=default) display reflect
   // the config.
   auto probe = buildAndParse(argc, argv, introLine, false);
-  if (probe.error.has_value() || probe.config) { return probe; }
+  // completion joins config here: emission never reads the stored config, so
+  // a corrupt config file must not fail it (add-shell-completion spec).
+  if (probe.error.has_value() || probe.config || probe.completion) { return probe; }
   return buildAndParse(argc, argv, introLine, true);
 }

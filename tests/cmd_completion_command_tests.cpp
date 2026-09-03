@@ -1,10 +1,29 @@
 #include "cmd/cmd.h"
 
+#include "infra/env.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
 
+#include <fstream>
 #include <string>
+
+TEST_CASE("completion parse survives a corrupt config file", "[completion]") {
+  TempDir temp;
+  auto const configPath = temp.path / "broken.json";
+  {
+    auto stream = std::ofstream{configPath, std::ios::binary | std::ios::trunc};
+    stream << "{not json";
+  }
+  auto const previous = processenv::readEnvVar("ENCRO_CONFIG");
+  _putenv(("ENCRO_CONFIG=" + configPath.string()).c_str());
+  auto const result = testutils::parseArgs({"encro", "completion", "bash"});
+  _putenv(previous.has_value() ? ("ENCRO_CONFIG=" + *previous).c_str() : "ENCRO_CONFIG=");
+
+  REQUIRE_FALSE(result.error.has_value());
+  CHECK(result.completion);
+  CHECK(result.completionShell == "bash");
+}
 
 TEST_CASE("completion subcommand parses shell and actions", "[completion]") {
   auto const print = testutils::parseArgs({"encro", "completion", "bash"});
