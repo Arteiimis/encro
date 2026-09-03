@@ -951,6 +951,36 @@ auto buildAndParse(
   bool injectConfig
 ) -> CmdParseResult {
   auto result = CmdParseResult{};
+  auto tree = buildAppTree(result, introLine, injectConfig);
+  if (result.error.has_value()) { return result; }
+
+  // result is the SAME object the options were bound to at registration time
+  // (bound callbacks write into it during parse).
+  try {
+    tree.app->parse(argc, argv);
+    result.helpText = tree.app->help();
+    if (tree.app->got_subcommand(tree.previewSub)) { result.preview = true; }
+    if (tree.app->got_subcommand(tree.configSub)) {
+      result.config = true;
+      result.helpText = tree.configSub->help();
+    }
+  } catch (CLI::CallForHelp const&) {
+    // The preview/config subcommands carry the native help flags (the parent
+    // app cleared its own), so the help text comes from whichever matched.
+    result.help = true;
+    result.helpText = tree.app->got_subcommand(tree.configSub) ? tree.configSub->help()
+                                                               : tree.previewSub->help();
+  } catch (CLI::ParseError const& ex) {
+    result.error = ex.what();
+    result.helpText = tree.app->help();
+  }
+  return result;
+}
+
+}  // namespace
+
+auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool injectConfig)
+  -> AppTree {
   // Leaked on purpose (never freed): the config-command registry keeps
   // pointers to the registered options (design D3), so the app must outlive
   // this call. One small allocation per parse keeps them process-lifetime.
@@ -977,11 +1007,13 @@ auto buildAndParse(
   registerProcessingFlags(processing, result);
   registerFileOpFlags(fileop, result);
 
-  auto const previewSub = registerPreviewSubcommand(*app, result);
-  auto const configSub = registerConfigSubcommand(*app, result);
+  auto* previewSub = registerPreviewSubcommand(*app, result);
+  auto* configSub = registerConfigSubcommand(*app, result);
   // Option groups are CLI11 subcommands too, so the commands section is given
-  // the real subcommand apps explicitly.
-  auto const commandSubs = std::array<CLI::App const*, 2>{previewSub, configSub};
+  // the real subcommand apps explicitly. The array is leaked with the app:
+  // the formatter lambda captures the span by value, while parse and help
+  // rendering happen after this call returns.
+  auto* const commandSubs = new std::array<CLI::App const*, 2>{previewSub, configSub};
 
   // Configure formatter (static storage: kAdvancedLongNames outlives the lambda)
   app->formatter_fn(makeHelpFormatter(
@@ -991,7 +1023,7 @@ auto buildAndParse(
     fileop,
     helpOpt,
     kAdvancedLongNames,
-    std::span{commandSubs}
+    std::span{*commandSubs}
   ));
 
   // ── Config injection (design D1): config values become forced option
@@ -1000,34 +1032,10 @@ auto buildAndParse(
   if (injectConfig) {
     if (auto const error = injectConfigDefaults(*app); error.has_value()) {
       result.error = *error;
-      return result;
     }
   }
-
-  // result is the SAME object the options were bound to at registration time
-  // (bound callbacks write into it during parse).
-  try {
-    app->parse(argc, argv);
-    result.helpText = app->help();
-    if (app->got_subcommand(previewSub)) { result.preview = true; }
-    if (app->got_subcommand(configSub)) {
-      result.config = true;
-      result.helpText = configSub->help();
-    }
-  } catch (CLI::CallForHelp const&) {
-    // The preview/config subcommands carry the native help flags (the parent
-    // app cleared its own), so the help text comes from whichever matched.
-    result.help = true;
-    result.helpText =
-      app->got_subcommand(configSub) ? configSub->help() : previewSub->help();
-  } catch (CLI::ParseError const& ex) {
-    result.error = ex.what();
-    result.helpText = app->help();
-  }
-  return result;
+  return AppTree{app, previewSub, configSub};
 }
-
-}  // namespace
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   -> CmdParseResult {
