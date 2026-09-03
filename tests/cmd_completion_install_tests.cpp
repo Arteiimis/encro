@@ -106,12 +106,10 @@ auto pwshProfile(EnvGuard const& env) -> fs::path {
 
 // Install/uninstall coverage writes shell startup files and is exercised
 // rarely, so it stays out of default runs; opt in when touching the install
-// engine:   ENCRO_TEST_COMPLETION_INSTALL=1 xmake test-report --tag="[install]"
+// engine:   ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[install]"
 void requireInstallTestingOrSkip() {
-  if (processenv::readNonEmptyEnvVar("ENCRO_TEST_COMPLETION_INSTALL").has_value()) {
-    return;
-  }
-  SKIP("Install coverage is opt-in; set ENCRO_TEST_COMPLETION_INSTALL=1 to run it.");
+  if (processenv::readNonEmptyEnvVar("ENCRO_TEST_COMPLETION").has_value()) { return; }
+  SKIP("Install coverage is opt-in; set ENCRO_TEST_COMPLETION=1 to run it.");
 }
 
 }  // namespace

@@ -1,6 +1,8 @@
 // Real-shell smoke tests: source the generated scripts under actual
-// bash/powershell and drive candidate output end to end. Skipped when the
-// shell is not on PATH (same pattern as the real-ffmpeg tests).
+// bash/powershell and drive candidate output end to end. Opt-in via
+// ENCRO_TEST_COMPLETION (see requireCompletionSmokeOrSkip); also skipped when
+// the shell is not on PATH.
+#include "infra/env.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
@@ -96,9 +98,18 @@ auto emitScriptTo(TempDir const& temp, std::string const& shell, std::string con
   return path;
 }
 
+// Real-shell coverage spawns bash/PowerShell processes per probe and is
+// exercised rarely, so it stays out of default runs; opt in when touching the
+// completion scripts:   ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[smoke]"
+void requireCompletionSmokeOrSkip() {
+  if (processenv::readNonEmptyEnvVar("ENCRO_TEST_COMPLETION").has_value()) { return; }
+  SKIP("Completion smoke coverage is opt-in; set ENCRO_TEST_COMPLETION=1 to run it.");
+}
+
 }  // namespace
 
 TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke]") {
+  requireCompletionSmokeOrSkip();
   if (!shellAvailable("bash -c exit")) { SKIP("bash not available on PATH."); }
 
   TempDir temp;
@@ -108,6 +119,7 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
   auto const driver = temp.path / "drive.sh";
   {
     auto stream = std::ofstream{driver, std::ios::binary | std::ios::trunc};
+    REQUIRE(stream.is_open());
     stream
       << "set -e\n"
       << "source \""
@@ -143,6 +155,7 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
 }
 
 TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][smoke]") {
+  requireCompletionSmokeOrSkip();
   auto shell = std::optional<std::string>{};
   for (auto const* candidate: {"pwsh", "powershell"}) {
     if (shellAvailable(std::string{candidate} + " -NoProfile -Command exit")) {
@@ -159,6 +172,7 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
   auto const driver = temp.path / "drive-ps.ps1";
   {
     auto stream = std::ofstream{driver, std::ios::binary | std::ios::trunc};
+    REQUIRE(stream.is_open());
     stream
       << ". "
       << scriptRef

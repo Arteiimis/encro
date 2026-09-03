@@ -1,6 +1,5 @@
 #include "cmd/cmd.h"
 
-#include "infra/env.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
@@ -15,10 +14,10 @@ TEST_CASE("completion parse survives a corrupt config file", "[completion]") {
     auto stream = std::ofstream{configPath, std::ios::binary | std::ios::trunc};
     stream << "{not json";
   }
-  auto const previous = processenv::readEnvVar("ENCRO_CONFIG");
-  _putenv(("ENCRO_CONFIG=" + configPath.string()).c_str());
+  // ScopedEnvVar restores the runner's pinned isolation path afterwards.
+  testutils::ScopedEnvVar const envOverride{"ENCRO_CONFIG", configPath.string()};
+
   auto const result = testutils::parseArgs({"encro", "completion", "bash"});
-  _putenv(previous.has_value() ? ("ENCRO_CONFIG=" + *previous).c_str() : "ENCRO_CONFIG=");
 
   REQUIRE_FALSE(result.error.has_value());
   CHECK(result.completion);
