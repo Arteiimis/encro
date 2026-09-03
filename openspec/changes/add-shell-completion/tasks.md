@@ -38,5 +38,5 @@
 
 ## 8. Docs and full verification
 
-- [ ] 8.1 README: add an "enable completion" section with the per-shell install command and the re-run-after-upgrade note. Verify: README section renders and commands match the implemented CLI.
-- [ ] 8.2 Full-suite run and change validation. Verify: `xmake test-parallel` is green and `openspec validate add-shell-completion` passes.
+- [x] 8.1 README: add an "enable completion" section with the per-shell install command and the re-run-after-upgrade note. Verify: README section renders and commands match the implemented CLI.
+- [x] 8.2 Full-suite run and change validation. Verify: `xmake test-parallel` is green and `openspec validate add-shell-completion` passes.
