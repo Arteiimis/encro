@@ -5,10 +5,12 @@
 // (option names like "-p,--pack" are not resolvable via get_option).
 #pragma once
 
+#include "cmd/completion_registry.h"
 #include "cmd/config_store.h"
 
 #include <CLI/CLI.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <functional>
@@ -20,6 +22,13 @@
 #include <vector>
 
 namespace cfg {
+
+// Canonical long name with dashes ("--x"), used as the completion-registry
+// key; mirrors how CLI11 name lookups are spelled.
+inline auto captureLongName(CLI::Option const* option) -> std::string {
+  return option->get_lnames().empty() ? std::string{}
+                                      : "--" + option->get_lnames().front();
+}
 
 struct OptionalDefault {
   std::string value;
@@ -47,15 +56,24 @@ struct Expected {
 struct Range {
   int lo;
   int hi;
-  void operator()(CLI::Option* option) const { option->check(CLI::Range(lo, hi)); }
+  void operator()(CLI::Option* option) const {
+    option->check(CLI::Range(lo, hi));
+    completion::recordNumeric(captureLongName(option));
+  }
 };
 
 struct PositiveNumber {
-  void operator()(CLI::Option* option) const { option->check(CLI::PositiveNumber); }
+  void operator()(CLI::Option* option) const {
+    option->check(CLI::PositiveNumber);
+    completion::recordNumeric(captureLongName(option));
+  }
 };
 
 struct NonNegativeNumber {
-  void operator()(CLI::Option* option) const { option->check(CLI::NonNegativeNumber); }
+  void operator()(CLI::Option* option) const {
+    option->check(CLI::NonNegativeNumber);
+    completion::recordNumeric(captureLongName(option));
+  }
 };
 
 struct Required {
@@ -67,7 +85,10 @@ struct Members {
   // non-aggregate on purpose: lets the legal values be written as a flat
   // initializer list {"a", "b"} instead of nested vector braces
   Members(std::initializer_list<std::string> values): legal(values) { }
-  void operator()(CLI::Option* option) const { option->check(CLI::IsMember(legal)); }
+  void operator()(CLI::Option* option) const {
+    option->check(CLI::IsMember(legal));
+    completion::recordCandidates(captureLongName(option), legal);
+  }
 };
 
 struct CheckedTransformer {
@@ -78,6 +99,14 @@ struct CheckedTransformer {
     : mapping(values) { }
   void operator()(CLI::Option* option) const {
     option->transform(CLI::CheckedTransformer(mapping));
+    // completion offers the canonical (target) values, first occurrence wins
+    auto canonical = std::vector<std::string>{};
+    for (auto const& [from, to]: mapping) {
+      if (std::ranges::find(canonical, to) == canonical.end()) {
+        canonical.push_back(to);
+      }
+    }
+    completion::recordCandidates(captureLongName(option), std::move(canonical));
   }
 };
 
@@ -103,6 +132,7 @@ struct ConfigKey {
   std::string_view name;
   void operator()(CLI::Option* option) const {
     configstore::captureConfigKey(name, option);
+    completion::recordConfigKey(name, captureLongName(option));
   }
 };
 
