@@ -35,6 +35,27 @@ xmake run encro -t video -i ./videos -o ./out --resume
 > Note: `xmake run encro` passes extra arguments directly to the program;
 > do not use `--` before them.
 
+## Shell completion
+
+Tab completion for options, enum values, and config keys is generated from the
+CLI itself, so it always matches your build.
+
+```sh
+# PowerShell — install (adds one guarded block to your profile)
+xmake run encro completion powershell --install
+
+# Git Bash / Linux bash — install (bash-completion lazy-load dir, or .bashrc)
+xmake run encro completion bash --install
+```
+
+`--uninstall` removes everything `--install` created; re-run `--install` after
+upgrading encro to refresh the embedded candidates. `encro completion bash`
+and `encro completion powershell` print the script to stdout without
+installing anything.
+
+> Note: install targets `%USERPROFILE%` (the Git-for-Windows default `HOME`).
+> If you run a custom MSYS `HOME`, wire the printed script manually.
+
 ## Where encro keeps its working files
 
 During a run, encro writes intermediates to three places:
