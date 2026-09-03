@@ -517,8 +517,10 @@ auto buildProbeTaskSpec(
     .id = std::format("probe:{}", collisionnaming::stablePathString(vids[index])),
     .label = fileName,
     .input = vids[index].string(),
-.run = [&, index, fileName, vids, progress](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
-  // vids captured by value: a cheap POD copy that would dangle otherwise
+.run = [&, index, fileName, vids, progress, probeRoot, workerCount](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
+  // probeRoot/workerCount captured by value: this frame returns before the
+  // pool runs the task, so by-reference captures would dangle (same hazard
+  // as vids below; workerCount is a value parameter living in this frame)
   taskexec::TaskContext& taskCtx) -> eh::Result<void> {
   auto const slot = taskCtx.slot;
   auto const barIndex = progress.slotBars[slot];
