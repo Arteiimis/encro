@@ -7,8 +7,8 @@
 
 ## 2. Candidate registry
 
-- [ ] 2.1 Add the completion registry module (long-name → candidates / numeric marker / file-delegation default; config-key → long-name map) with unit tests. Verify: new registry unit tests pass (`xmake test --tag="[cmd]"`).
-- [ ] 2.2 Capture candidates in `option_specs.h` tokens (`Members`, `CheckedTransformer`, `Range`, `PositiveNumber`, `NonNegativeNumber`, `ConfigKey`). Verify: cross-check unit test passes — every captured long-name resolves against the live app tree.
+- [x] 2.1 Add the completion registry module (long-name → candidates / numeric marker / file-delegation default; config-key → long-name map) with unit tests. Verify: new registry unit tests pass (`xmake test --tag="[cmd]"`).
+- [x] 2.2 Capture candidates in `option_specs.h` tokens (`Members`, `CheckedTransformer`, `Range`, `PositiveNumber`, `NonNegativeNumber`, `ConfigKey`). Verify: cross-check unit test passes — every captured long-name resolves against the live app tree.
 
 ## 3. Emitter core
 
