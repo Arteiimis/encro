@@ -12,14 +12,14 @@
 
 ## 3. Emitter core
 
-- [ ] 3.1 Implement the tree walk: per-context option names (short/long/negation, `{...}` stripped), empty-name group filtering, subcommand scoping. Verify: unit tests assert main vs `preview` vs `config` candidate sets.
-- [ ] 3.2 Convert the exclusion graph via `get_excludes()` into trigger/candidate name sets. Verify: unit test proves one-sided declarations (`--resume`/`--restart`, `-i`/`--inputs`) yield symmetric name sets.
-- [ ] 3.3 Assemble the deterministic per-shell data model and wire the `injectConfig=false` emission path. Verify: unit tests show two emissions byte-identical and identical output with/without a stored or corrupt config file.
+- [x] 3.1 Implement the tree walk: per-context option names (short/long/negation, `{...}` stripped), empty-name group filtering, subcommand scoping. Verify: unit tests assert main vs `preview` vs `config` candidate sets.
+- [x] 3.2 Convert the exclusion graph via `get_excludes()` into trigger/candidate name sets. Verify: unit test proves one-sided declarations (`--resume`/`--restart`, `-i`/`--inputs`) yield symmetric name sets.
+- [x] 3.3 Assemble the deterministic per-shell data model and wire the `injectConfig=false` emission path. Verify: unit tests show two emissions byte-identical and identical output with/without a stored or corrupt config file.
 
 ## 4. Shell script templates
 
-- [ ] 4.1 Bash glue template: completion function over `COMP_WORDS`/`COMP_CWORD`, exclusion filtering, `compgen -A file` delegation, LF output. Verify: unit tests assert emitted content covers all registered names, path delegation list, and exclusion table.
-- [ ] 4.2 PowerShell glue template: `Register-ArgumentCompleter` block with `CompletionResult` emission, exclusion filtering, path strategy per spike 1.1. Verify: unit tests assert emitted content mirrors the bash assertions for the PowerShell dialect.
+- [x] 4.1 Bash glue template: completion function over `COMP_WORDS`/`COMP_CWORD`, exclusion filtering, `compgen -A file` delegation, LF output. Verify: unit tests assert emitted content covers all registered names, path delegation list, and exclusion table.
+- [x] 4.2 PowerShell glue template: `Register-ArgumentCompleter` block with `CompletionResult` emission, exclusion filtering, path strategy per spike 1.1. Verify: unit tests assert emitted content mirrors the bash assertions for the PowerShell dialect.
 
 ## 5. Subcommand wiring
 
