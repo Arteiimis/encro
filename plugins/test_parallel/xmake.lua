@@ -109,9 +109,10 @@ task("test-parallel")
       )
       if not assertions then
         -- Skipped real-ffmpeg tests switch Catch2 to the "test cases: N | X
-        -- passed" summary; the assertions row still reports the pass count.
-        assertions = content:match("assertions: (%d+) | (%d+) passed")
-        cases = content:match("test cases: (%d+) |")
+        -- passed" summary; count the passed columns so skipped cases are not
+        -- reported as run. Columns are space-padded, so %s+ everywhere.
+        assertions = content:match("assertions:%s+%d+%s*|%s+(%d+)%s+passed")
+        cases = content:match("test cases:%s+%d+%s*|%s+(%d+)%s+passed")
       end
       return passed(), assertions and tonumber(assertions), cases and tonumber(cases)
     end
