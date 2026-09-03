@@ -475,9 +475,24 @@ void recordCompletedInput(int argc, char* argv[]) {
   out << inputPath.value() << '\n';
 }
 
+// Optional start gate (ENCRO_FAKE_FFMPEG_GATE_FILE): after logging the
+// invocation, block until the file exists, letting tests hold an invocation
+// in flight while they flip other state (e.g. raise a stop request). The
+// deadline keeps a miswired test from hanging the suite.
+void waitForGateFile() {
+  auto const gate = readEnv("ENCRO_FAKE_FFMPEG_GATE_FILE");
+  if (!gate.has_value()) { return; }
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+  while (!fs::exists(fs::path{gate.value()})) {
+    if (std::chrono::steady_clock::now() >= deadline) { return; }
+    std::this_thread::sleep_for(std::chrono::milliseconds{25});
+  }
+}
+
 int runFakeFfmpeg(int argc, char* argv[]) {
   appendInvocationLog("ffmpeg", argc, argv);
   if (hasArg(argc, argv, "-version")) { return emitVersion("ffmpeg"); }
+  waitForGateFile();
 
   auto const invocation = parseFfmpegInvocation(argc, argv);
 
