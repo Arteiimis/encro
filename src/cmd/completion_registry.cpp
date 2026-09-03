@@ -33,7 +33,7 @@ auto valueInfoOf(std::string const& longName) -> ValueInfo const* {
 auto configKeys() -> std::vector<std::string> {
   auto names = std::vector<std::string>{};
   names.reserve(configKeyOptions().size());
-  for (auto const& [key, longName]: configKeyOptions()) { names.push_back(key); }
+  for (auto const& entry: configKeyOptions()) { names.push_back(entry.first); }
   return names;
 }
 

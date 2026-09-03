@@ -40,7 +40,7 @@ auto readText(fs::path const& path) -> std::optional<std::string> {
 }
 
 // Binary mode: bash targets must keep LF endings regardless of host platform.
-auto writeText(fs::path const& path, std::string const& text) -> bool {
+bool writeText(fs::path const& path, std::string const& text) {
   std::error_code ec;
   fs::create_directories(path.parent_path(), ec);
   auto stream = std::ofstream{path, std::ios::binary | std::ios::trunc};
@@ -172,7 +172,7 @@ auto powerShellProfiles() -> std::array<fs::path, 2> {
   };
 }
 
-auto installPowerShell(std::string const& scriptText) -> int {
+int installPowerShell(std::string const& scriptText) {
   auto const scriptPath = userDataRoot() / "completion" / "encro.ps1";
   auto const refreshed = refreshScript(scriptPath, scriptText);
   if (!refreshed.has_value()) {
@@ -251,7 +251,7 @@ auto installPowerShell(std::string const& scriptText) -> int {
   return 0;
 }
 
-auto uninstallPowerShell() -> int {
+int uninstallPowerShell() {
   auto anything = false;
   for (auto const& profile: powerShellProfiles()) {
     auto const content = readText(profile);
@@ -290,7 +290,7 @@ auto uninstallPowerShell() -> int {
 
 // ── Bash ────────────────────────────────────────────────────────────────────
 
-auto installBash(std::string const& scriptText) -> int {
+int installBash(std::string const& scriptText) {
   auto const home = homeDir();
   if (!home.has_value()) {
     terminal::eprintln(
@@ -392,7 +392,7 @@ auto installBash(std::string const& scriptText) -> int {
   return 0;
 }
 
-auto uninstallBash() -> int {
+int uninstallBash() {
   auto const home = homeDir();
   if (!home.has_value()) {
     terminal::eprintln(
@@ -452,7 +452,7 @@ auto uninstallBash() -> int {
 
 }  // namespace
 
-auto installScript(std::string const& shell) -> int {
+int installScript(std::string const& shell) {
   auto const script = scriptFor(shell);
   if (!script.has_value()) {
     terminal::eprintln(
@@ -466,7 +466,7 @@ auto installScript(std::string const& shell) -> int {
   return installBash(*script);
 }
 
-auto uninstallScript(std::string const& shell) -> int {
+int uninstallScript(std::string const& shell) {
   if (shell != "bash" && shell != "powershell") {
     terminal::eprintln(
       terminal::MessageKind::Error,

@@ -10,7 +10,7 @@ namespace completion {
 
 // Both return the process exit code; human-readable reports go through
 // terminal output. `shell` is "powershell" or "bash".
-auto installScript(std::string const& shell) -> int;
-auto uninstallScript(std::string const& shell) -> int;
+int installScript(std::string const& shell);
+int uninstallScript(std::string const& shell);
 
 }  // namespace completion

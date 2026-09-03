@@ -22,14 +22,14 @@
 auto popenText(char const* commandLine) -> FILE* {
   return _popen(commandLine, "r");
 }
-auto pcloseText(FILE* stream) -> int {
+int pcloseText(FILE* stream) {
   return _pclose(stream);
 }
 #else
 auto popenText(char const* commandLine) -> FILE* {
   return popen(commandLine, "r");
 }
-auto pcloseText(FILE* stream) -> int {
+int pcloseText(FILE* stream) {
   return pclose(stream);
 }
 #endif
@@ -123,7 +123,8 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
       << "echo \"ENUM: $(probe encro --output-format '')\"\n"
       << "echo \"HIDDEN: $(probe encro --resume --re)\"\n"
       << "echo \"SUB: $(probe encro pre)\"\n"
-      << "echo \"CFGVAL: $(probe encro config --set output-format '')\"\n";
+      << "echo \"CFGVAL: $(probe encro config --set output-format '')\"\n"
+      << "echo \"SETDONE: $(probe encro config --set jobs 4 --)\"\n";
   }
 
   auto const [exitCode, output] =
@@ -135,6 +136,10 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
   CHECK(output.find("HIDDEN: --restart") == std::string::npos);
   CHECK(output.find("SUB: preview") != std::string::npos);
   CHECK(output.find("CFGVAL: mp4 webp") != std::string::npos);
+  // after a completed --set pair, remaining config options are offered and
+  // the four other actions are excluded
+  CHECK(output.find("SETDONE: --help --set") != std::string::npos);
+  CHECK(output.find("--get") == std::string::npos);
 }
 
 TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][smoke]") {
@@ -166,7 +171,8 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
       << "echo \"HIDDEN: $(Probe 'encro --resume --re')\"\n"
       << "echo \"SUB: $(Probe 'encro pre')\"\n"
       << "echo \"CFGVAL: $(Probe 'encro config --set output-format ')\"\n"
-      << "echo \"SCOPE: $(Probe 'encro preview --')\"\n";
+      << "echo \"SCOPE: $(Probe 'encro preview --')\"\n"
+      << "echo \"SETDONE: $(Probe 'encro config --set jobs 4 --')\"\n";
   }
 
   auto const [exitCode, output] = runCapture(
@@ -184,4 +190,5 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
   // preview scope: its own options only, no main-command --pack
   CHECK(output.find("--pack") == std::string::npos);
   CHECK(output.find("--start") != std::string::npos);
+  CHECK(output.find("SETDONE: --help,--set") != std::string::npos);
 }

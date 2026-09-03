@@ -2,6 +2,7 @@
 
 #include "cmd/cmd.h"
 #include "cmd/completion_registry.h"
+#include "cmd/option_specs.h"
 
 #include <CLI/CLI.hpp>
 
@@ -57,7 +58,7 @@ auto buildScope(CLI::App const& app, std::string name) -> ScopeInfo {
   for (auto const* option: ptrs) {
     auto const found = namesOf.find(option);
     if (found == namesOf.end()) { continue; }  // positional: shell-native files
-    auto const longName = "--" + option->get_lnames().front();
+    auto const longName = *cfg::captureLongName(option);
     auto info = OptionInfo{};
     info.names = found->second;
     info.id = normalizedId(longName);
@@ -290,7 +291,7 @@ _encro_complete() {
     for ((i=1; i<COMP_CWORD; i++)); do
       [ "${COMP_WORDS[i]}" = "--set" ] && set_idx=$i
     done
-    if [ "$set_idx" -ge 0 ] && [ $((COMP_CWORD - set_idx - 1)) -ge 1 ]; then
+    if [ "$set_idx" -ge 0 ] && [ $((COMP_CWORD - set_idx - 1)) -ge 1 ] && [[ "$cur" != -* ]]; then
       local key="${COMP_WORDS[set_idx+1]}"
       local key_id="${_ENCRO_KEY_IDS[$key]-}"
       local kv_var="_ENCRO_KEY_VALUES_${key_id}"
@@ -372,9 +373,6 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
   }
   out << "\n";
 
-  auto const emitScope = [&out, &psList](std::string const& key, ScopeInfo const& scope) {
-    out << "  '" << key << "' = " << psList(scopeNames(scope)) << "\n";
-  };
   out << "$__encroOpts = @{\n";
   out << "  'main' = " << psList(scopeNames(model.main)) << "\n";
   for (auto const& scope: model.subcommands) {
@@ -466,7 +464,7 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
       for ($i = 0; $i -lt $typed.Count; $i++) {
         if ($typed[$i] -eq '--set') { $setIdx = $i }
       }
-      if ($setIdx -ge 0 -and ($typed.Count - $setIdx - 1) -ge 1) {
+      if ($setIdx -ge 0 -and ($typed.Count - $setIdx - 1) -ge 1 -and -not $cur.StartsWith('-')) {
         $key = $typed[$setIdx + 1]
         if ($__encroKeyIds.ContainsKey($key)) {
           $keyId = $__encroKeyIds[$key]
