@@ -26,7 +26,7 @@
       << (result).stdoutText                    \
       << "\nchild stderr:\n"                    \
       << (result).stderrText                    \
-      << e2e::encroLogTail((result).stdoutText) \
+      << e2e::encroLogTail((result).stderrText) \
     );                                          \
     REQUIRE((result).exitCode == 0);            \
   } while (false)

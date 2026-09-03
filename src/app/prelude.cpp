@@ -24,7 +24,8 @@ auto setupLogging(CmdParseResult const& cmd) -> std::optional<fs::path> {
   auto const logFilePath = logging::setup(logConfig);
 
   if (logFilePath.has_value()) {
-    terminal::println(Hint, "Log file: {}", terminal::path(logFilePath.value()));
+    // stderr: stdout carries product output (e.g. `encro completion bash` scripts).
+    terminal::eprintln(Hint, "Log file: {}", terminal::path(logFilePath.value()));
   }
 
   return logFilePath;

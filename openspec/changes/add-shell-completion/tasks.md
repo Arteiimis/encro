@@ -33,8 +33,8 @@
 
 ## 7. Real-shell smoke tests
 
-- [ ] 7.1 `[smoke]` bash: source the installed/wired script in real bash, drive the completion function with synthetic `COMP_WORDS`, assert candidates (e.g. `--output-format` → `mp4 webp`, `--resume` hides `--restart`). Verify: test passes when bash is on PATH, auto-skips otherwise.
-- [ ] 7.2 `[smoke]` powershell: call `TabExpansion2` on synthetic input lines and assert results (option names, enum values, path fallback per spike 1.1). Verify: test passes when PowerShell is on PATH, auto-skips otherwise.
+- [x] 7.1 `[smoke]` bash: source the installed/wired script in real bash, drive the completion function with synthetic `COMP_WORDS`, assert candidates (e.g. `--output-format` → `mp4 webp`, `--resume` hides `--restart`). Verify: test passes when bash is on PATH, auto-skips otherwise.
+- [x] 7.2 `[smoke]` powershell: call `TabExpansion2` on synthetic input lines and assert results (option names, enum values, path fallback per spike 1.1). Verify: test passes when PowerShell is on PATH, auto-skips otherwise.
 
 ## 8. Docs and full verification
 
