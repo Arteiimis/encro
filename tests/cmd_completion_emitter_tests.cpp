@@ -185,11 +185,11 @@ TEST_CASE("emission is independent of stored config", "[completion]") {
 
   TempDir temp;
   auto const configPath = (temp.path / "broken.json").string();
-  auto const withEnv = "ENCRO_CONFIG=" + configPath;
-  _putenv(withEnv.c_str());
+  // ScopedEnvVar restores the runner's pinned isolation path afterwards; a
+  // bare empty-string unset would unmask the real user config for later tests.
+  testutils::ScopedEnvVar const envOverride{"ENCRO_CONFIG", configPath};
 
   auto const underEnv = completion::emitBashScript(completion::buildCompletionModel());
-  _putenv("ENCRO_CONFIG=");
 
   REQUIRE(underEnv == baseline);
 }
