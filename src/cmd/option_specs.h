@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <functional>
 #include <initializer_list>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -24,10 +25,10 @@
 namespace cfg {
 
 // Canonical long name with dashes ("--x"), used as the completion-registry
-// key; mirrors how CLI11 name lookups are spelled.
-inline auto captureLongName(CLI::Option const* option) -> std::string {
-  return option->get_lnames().empty() ? std::string{}
-                                      : "--" + option->get_lnames().front();
+// key; nullopt for positionals (they have no long name to complete).
+inline auto captureLongName(CLI::Option const* option) -> std::optional<std::string> {
+  if (option->get_lnames().empty()) { return std::nullopt; }
+  return "--" + option->get_lnames().front();
 }
 
 struct OptionalDefault {
@@ -58,21 +59,21 @@ struct Range {
   int hi;
   void operator()(CLI::Option* option) const {
     option->check(CLI::Range(lo, hi));
-    completion::recordNumeric(captureLongName(option));
+    if (auto const name = captureLongName(option)) { completion::recordNumeric(*name); }
   }
 };
 
 struct PositiveNumber {
   void operator()(CLI::Option* option) const {
     option->check(CLI::PositiveNumber);
-    completion::recordNumeric(captureLongName(option));
+    if (auto const name = captureLongName(option)) { completion::recordNumeric(*name); }
   }
 };
 
 struct NonNegativeNumber {
   void operator()(CLI::Option* option) const {
     option->check(CLI::NonNegativeNumber);
-    completion::recordNumeric(captureLongName(option));
+    if (auto const name = captureLongName(option)) { completion::recordNumeric(*name); }
   }
 };
 
@@ -87,7 +88,9 @@ struct Members {
   Members(std::initializer_list<std::string> values): legal(values) { }
   void operator()(CLI::Option* option) const {
     option->check(CLI::IsMember(legal));
-    completion::recordCandidates(captureLongName(option), legal);
+    if (auto const name = captureLongName(option)) {
+      completion::recordCandidates(*name, legal);
+    }
   }
 };
 
@@ -106,7 +109,9 @@ struct CheckedTransformer {
         canonical.push_back(to);
       }
     }
-    completion::recordCandidates(captureLongName(option), std::move(canonical));
+    if (auto const name = captureLongName(option)) {
+      completion::recordCandidates(*name, std::move(canonical));
+    }
   }
 };
 
@@ -132,7 +137,9 @@ struct ConfigKey {
   std::string_view name;
   void operator()(CLI::Option* option) const {
     configstore::captureConfigKey(name, option);
-    completion::recordConfigKey(name, captureLongName(option));
+    if (auto const longName = captureLongName(option)) {
+      completion::recordConfigKey(name, *longName);
+    }
   }
 };
 
