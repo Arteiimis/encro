@@ -72,5 +72,21 @@ struct CmdParseResult {
   std::optional<std::string> error;
 };
 
+// Registered CLI tree shared by the parse path and the completion emitter.
+// The app is intentionally leaked: the config-key registry keeps option
+// pointers for the process lifetime (see buildAppTree).
+struct AppTree {
+  CLI::App* app = nullptr;
+  CLI::App* previewSub = nullptr;
+  CLI::App* configSub = nullptr;
+};
+
+// Registers the whole command surface onto a fresh CLI11 app. With
+// injectConfig set, stored user config is applied as forced option defaults;
+// the completion emitter passes false so emission never reads the stored
+// config (add-shell-completion design D1).
+auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool injectConfig)
+  -> AppTree;
+
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   -> CmdParseResult;

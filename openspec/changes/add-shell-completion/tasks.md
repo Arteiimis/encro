@@ -2,8 +2,8 @@
 
 ## 1. Spike and tree refactor
 
-- [ ] 1.1 PowerShell `TabExpansion2` spike: verify whether a registered completer returning nothing falls back to native file completion; record the outcome and the chosen path-option strategy in design D5/D7. Verify: spike script runs under `powershell` and its conclusion is noted in this change's design.md.
-- [ ] 1.2 Extract `buildAppTree` from `buildAndParse` so registration is callable without config injection; no behavior change. Verify: existing `[cmd]` unit tests pass (`xmake test --tag="[cmd]"`).
+- [x] 1.1 PowerShell `TabExpansion2` spike: verify whether a registered completer returning nothing falls back to native file completion; record the outcome and the chosen path-option strategy in design D5/D7. Verify: spike script runs under `powershell` and its conclusion is noted in this change's design.md.
+- [x] 1.2 Extract `buildAppTree` from `buildAndParse` so registration is callable without config injection; no behavior change. Verify: existing `[cmd]` unit tests pass (`xmake test --tag="[cmd]"`).
 
 ## 2. Candidate registry
 

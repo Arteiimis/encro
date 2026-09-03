@@ -61,7 +61,7 @@ Install: if the installed script file already exists with identical content → 
 
 ## Risks / Trade-offs
 
-- [PowerShell may not fall back to native file completion when a registered completer returns nothing] → First implementation task is a `TabExpansion2` spike; if fallback is absent, path options enumerate directory entries into `CompletionResult`s in the glue (still static template logic, spec contract unchanged).
+- [PowerShell may not fall back to native file completion when a registered completer returns nothing] → Resolved by the task-1.1 spike: under both Windows PowerShell 5.1 (5.1.26100) and PowerShell 7.6.3, `TabExpansion2` falls back to native file completion when a registered native completer returns an empty result set, and suppresses the fallback when the completer returns any candidate. Path options therefore return no candidates; no directory enumeration is needed in the glue.
 - [Custom MSYS HOME makes Git Bash look somewhere other than `%USERPROFILE%`] → Document the limitation in install output hints; install targets `%USERPROFILE%`, which is Git-for-Windows' default HOME. A future `--bash-home` override can be added without spec changes.
 - [CRLF endings corrupt the appended `.bashrc` block] → Bash-target writes force LF explicitly; the smoke test sources the wired file and would fail on carriage-return artifacts.
 - [Script snapshots go stale after an encro upgrade] → Emission path is always current; install overwrites on re-run and its output reminds about re-running after upgrades.
