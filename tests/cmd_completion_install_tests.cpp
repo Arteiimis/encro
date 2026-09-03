@@ -6,12 +6,11 @@
 #include <catch2/catch_all.hpp>
 
 #include <algorithm>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -23,8 +22,7 @@ namespace {
 class EnvGuard {
 public:
   explicit EnvGuard(fs::path const& root)
-    : root_{root},
-      localAppData_{root / "AppData" / "Local"},
+    : localAppData_{root / "AppData" / "Local"},
       userProfile_{root},
       documents_{root / "Docs"},
       encroConfig_{encroConfigPath(root)} {
@@ -36,13 +34,6 @@ public:
     fs::create_directories(encroConfig_, ec);
   }
 
-  ~EnvGuard() {
-    for (auto const& [name, previous]: saved_) { restore(name, previous); }
-  }
-
-  EnvGuard(EnvGuard const&) = delete;
-  auto operator=(EnvGuard const&) -> EnvGuard& = delete;
-
   [[nodiscard]] auto encroRoot() const -> fs::path { return localAppData_ / "encro"; }
   [[nodiscard]] auto home() const -> fs::path { return userProfile_; }
   [[nodiscard]] auto documents() const -> fs::path { return documents_; }
@@ -53,25 +44,15 @@ private:
   }
 
   void setAndSave(char const* name, fs::path const& value) {
-    saved_.emplace_back(name, processenv::readEnvVar(name));
-    _putenv((std::string{name} + "=" + value.string()).c_str());
+    envs_.push_back(std::make_unique<testutils::ScopedEnvVar>(name, value.string()));
   }
 
-  static void
-  restore(std::string const& name, std::optional<std::string> const& previous) {
-    if (previous.has_value()) {
-      _putenv((name + "=").append(*previous).c_str());
-    } else {
-      _putenv((name + "=").c_str());  // deletes the variable
-    }
-  }
-
-  fs::path root_;
   fs::path localAppData_;
   fs::path userProfile_;
   fs::path documents_;
   fs::path encroConfig_;
-  std::vector<std::pair<std::string, std::optional<std::string>>> saved_;
+  // Declared last: destroyed (and thus restored) first.
+  std::vector<std::unique_ptr<testutils::ScopedEnvVar>> envs_;
 };
 
 auto countOccurrences(std::string const& text, std::string const& needle) -> std::size_t {
