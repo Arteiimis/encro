@@ -46,6 +46,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 - Fixtures/helpers in `tests/test_utils.h`. `TempDir` keeps its directory (and prints the path to stderr) when a test fails, so state files / fake-tool logs survive for inspection. E2E subprocess failures dump child stdout/stderr via `REQUIRE_SUCCESS` (in `tests/e2e/e2e_test_utils.h`).
 - E2E: `fake_media_tool.cpp` impersonates ffmpeg/ffprobe, controlled via env vars (`ENCRO_FAKE_FFMPEG_EXIT_CODE`, ...).
 - `[real-ffmpeg]`/`[smoke]` tests auto-skip via `SKIP()` when ffmpeg not on PATH.
+- `[install]` tests (completion install/uninstall, writes shell startup files) are opt-in: skipped unless `ENCRO_TEST_COMPLETION_INSTALL=1`; run manually with `ENCRO_TEST_COMPLETION_INSTALL=1 xmake test-report --tag="[install]"`.
 - Compile-only tests (`pack_api_standalone_compile_test.cpp`, `packer_standalone_compile_test.cpp`): `static_assert` verifies API boundaries.
 - Tags: `[job-state]`, `[cmd]`, `[pack-service]`, `[packer]`, `[video-info]`, `[e2e]`, ...
 
