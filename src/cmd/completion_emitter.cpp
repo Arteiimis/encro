@@ -202,7 +202,9 @@ auto emitBashScript(CompletionModel const& model) -> std::string {
   out << ")\n\n";
 
   auto const emitScope = [&out](std::string const& key, ScopeInfo const& scope) {
-    out << "_ENCRO_OPTS_" << key << "=( " << join(scopeNames(scope)) << " )\n";
+    // Plain string (not an array): the glue reads it via ${!opts_var}, which
+    // only word-splits simple variables.
+    out << "_ENCRO_OPTS_" << key << "=\"" << join(scopeNames(scope)) << "\"\n";
   };
   emitScope("main", model.main);
   for (auto const& scope: model.subcommands) { emitScope(scope.name, scope); }
@@ -360,11 +362,15 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
     return joined.str();
   };
 
-  out << "$__encroNameId = @{\n";
+  // Case-sensitive dictionary: PowerShell hash literals are case-insensitive
+  // and short names collide (-F vs -f).
+  out
+    << "$__encroNameId = [System.Collections.Generic.Dictionary[string,string]]::new(\n"
+    << "  [System.StringComparer]::Ordinal)\n";
   for (auto const& [optionName, id]: nameId) {
-    out << "  '" << optionName << "' = '" << id << "'\n";
+    out << "$__encroNameId['" << optionName << "'] = '" << id << "'\n";
   }
-  out << "}\n\n";
+  out << "\n";
 
   auto const emitScope = [&out, &psList](std::string const& key, ScopeInfo const& scope) {
     out << "  '" << key << "' = " << psList(scopeNames(scope)) << "\n";
@@ -405,7 +411,7 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
 
   out << R"GLUE($__encroResults = {
     param([string[]] $matches, [string] $prefix)
-    ,@($matches | Where-Object { $_ -like "$prefix*" } | ForEach-Object {
+    @($matches | Where-Object { $_ -like "$prefix*" } | ForEach-Object {
       [System.Management.Automation.CompletionResult]::new($_, $_, 'Text', $_)
     })
   }
@@ -414,20 +420,23 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
   # file completion (spike-verified), so echo the typed word back instead.
   $__encroSelf = {
     param([string] $prefix)
-    ,@([System.Management.Automation.CompletionResult]::new($prefix, $prefix, 'Text', $prefix))
+    # Empty text would be dropped by the engine (re-exposing file fallback),
+    # so an empty prefix echoes a single space instead.
+    $text = if ($prefix -eq '') { ' ' } else { $prefix }
+    [System.Management.Automation.CompletionResult]::new($text, $text, 'Text', $text)
   }
 
   Register-ArgumentCompleter -CommandName encro -Native -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
-    $text = $commandAst.ToString()
-    $words = @($text -split '\s+' | Where-Object { $_ -ne '' })
-    if ($words.Count -eq 0) { return @() }
-    $typed = if ($text.EndsWith(' ')) {
-      @($words | Select-Object -Skip 1)
-    } else {
-      @($words | Select-Object -Skip 1 | Select-Object -First ($words.Count - 2))
+    # $wordToComplete is authoritative for the word being completed; the AST
+    # text drops trailing spaces, so never re-derive $cur from it.
+    $tokens = @($commandAst.ToString() -split '\s+' | Where-Object { $_ -ne '' })
+    if ($tokens.Count -eq 0) { return @() }
+    $typed = @($tokens | Select-Object -Skip 1)
+    if ($typed.Count -gt 0 -and $typed[-1] -eq $wordToComplete -and $wordToComplete -ne '') {
+      $typed = @($typed | Select-Object -First ($typed.Count - 1))
     }
-    $cur = if ($text.EndsWith(' ')) { '' } else { $words[-1] }
+    $cur = $wordToComplete
     $prev = if ($typed.Count -gt 0) { $typed[-1] } else { '' }
 
     $scope = 'main'
@@ -484,7 +493,7 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
         }
         $out += [System.Management.Automation.CompletionResult]::new($o, $o, 'Text', $o)
       }
-      return ,@$out
+      return $out
     }
 
     if ($scope -eq 'main') {
