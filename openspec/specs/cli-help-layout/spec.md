@@ -41,7 +41,7 @@ The main help (`-h` and `-hh`) SHALL include an `encro commands:` section betwee
 #### Scenario: Commands section in brief help
 
 - **WHEN** the user runs `encro -h`
-- **THEN** the output contains an `encro commands:` section listing `preview` with the description `compare an original video with its encoded output side by side` and `config` with the description `inspect and persist user-level configuration defaults`
+- **THEN** the output contains an `encro commands:` section listing `preview` with the description `compare an original video with its encoded output side by side`, `config` with the description `inspect and persist user-level configuration defaults`, and `completion` with the description `print, install, or uninstall shell completion scripts`
 
 #### Scenario: Commands section in full help
 
