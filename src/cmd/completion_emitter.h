@@ -4,6 +4,7 @@
 #pragma once
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -37,5 +38,8 @@ auto buildCompletionModel() -> CompletionModel;
 
 auto emitBashScript(CompletionModel const& model) -> std::string;
 auto emitPowerShellScript(CompletionModel const& model) -> std::string;
+
+// Full script by shell name ("bash", "powershell"); nullopt otherwise.
+auto scriptFor(std::string const& shell) -> std::optional<std::string>;
 
 }  // namespace completion

@@ -73,7 +73,7 @@ target("encro")
 
   add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11")
   if is_plat("windows") then
-    add_syslinks("dbghelp")
+    add_syslinks("dbghelp", "shell32", "ole32")
   else
     add_syslinks("dl")
   end
@@ -105,7 +105,7 @@ target("tests")
 
   add_packages("catch2", "boost", "thread-pool", "indicators", "fmt", "spdlog", "libzippp", "cli11")
   if is_plat("windows") then
-    add_syslinks("dbghelp")
+    add_syslinks("dbghelp", "shell32", "ole32")
   else
     add_syslinks("dl")
   end
@@ -130,7 +130,7 @@ target("e2e_tests")
   add_packages("catch2", "boost", "libzippp", "fmt", "spdlog", "cli11")
   add_includedirs("tests")
   if is_plat("windows") then
-    add_syslinks("dbghelp")
+    add_syslinks("dbghelp", "shell32", "ole32")
   else
     add_syslinks("dl")
   end

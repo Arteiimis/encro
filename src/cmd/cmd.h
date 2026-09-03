@@ -65,6 +65,12 @@ struct CmdParseResult {
   std::optional<std::string> configUnset;
   bool configPath = false;
 
+  // ── completion subcommand (install/uninstall mutually exclusive) ──
+  bool completion = false;
+  std::string completionShell;  // "powershell" or "bash"; empty when absent
+  bool completionInstall = false;
+  bool completionUninstall = false;
+
   // ── Help output (rendered by formatter_fn) ──────────────────────
   std::string helpText;
 
@@ -79,6 +85,7 @@ struct AppTree {
   CLI::App* app = nullptr;
   CLI::App* previewSub = nullptr;
   CLI::App* configSub = nullptr;
+  CLI::App* completionSub = nullptr;
 };
 
 // Registers the whole command surface onto a fresh CLI11 app. With

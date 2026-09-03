@@ -548,13 +548,14 @@ TEST_CASE("subcommand help auto-fits its description column", "[cmd]") {
 TEST_CASE("main help lists subcommands in a git-style commands section", "[cmd]") {
   constexpr auto commandsBlock =
     "encro commands:\n"
-    "  preview   compare an original video with its encoded output side by side\n"
-    "  config    inspect and persist user-level configuration defaults\n";
+    "  preview      compare an original video with its encoded output side by side\n"
+    "  config       inspect and persist user-level configuration defaults\n"
+    "  completion   print, install, or uninstall shell completion scripts\n";
 
   SECTION("brief tier") {
     auto const result = testutils::parseArgs({"encro", "-h"});
     auto const plainHelp = stripAnsi(result.helpText);
-    // The whole section is pinned: exactly two subcommand rows, no option
+    // The whole section is pinned: exactly three subcommand rows, no option
     // group leakage (CLI11 option groups are subcommands internally).
     CHECK(plainHelp.find(commandsBlock) != std::string::npos);
   }
@@ -572,6 +573,7 @@ TEST_CASE("main help usage section omits subcommand synopses", "[cmd]") {
 
   CHECK(plainHelp.find("encro preview") == std::string::npos);
   CHECK(plainHelp.find("encro config") == std::string::npos);
+  CHECK(plainHelp.find("encro completion") == std::string::npos);
 
   // The flag-driven mode lines and the tier-advertising line stay.
   CHECK(plainHelp.find("encro -h | -hh | --version") != std::string::npos);
