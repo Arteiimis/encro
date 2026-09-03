@@ -104,9 +104,23 @@ auto pwshProfile(EnvGuard const& env) -> fs::path {
   return env.documents() / "PowerShell" / "Microsoft.PowerShell_profile.ps1";
 }
 
+// Install/uninstall coverage writes shell startup files and is exercised
+// rarely, so it stays out of default runs; opt in when touching the install
+// engine:   ENCRO_TEST_COMPLETION_INSTALL=1 xmake test-report --tag="[install]"
+void requireInstallTestingOrSkip() {
+  if (processenv::readNonEmptyEnvVar("ENCRO_TEST_COMPLETION_INSTALL").has_value()) {
+    return;
+  }
+  SKIP("Install coverage is opt-in; set ENCRO_TEST_COMPLETION_INSTALL=1 to run it.");
+}
+
 }  // namespace
 
-TEST_CASE("powershell install wires a profile and is idempotent", "[completion]") {
+TEST_CASE(
+  "powershell install wires a profile and is idempotent",
+  "[completion][install]"
+) {
+  requireInstallTestingOrSkip();
   TempDir temp;
   EnvGuard env{temp.path};
 
@@ -160,7 +174,11 @@ TEST_CASE("powershell install wires a profile and is idempotent", "[completion]"
   CHECK(countOccurrences(readIfExists(profile).value(), ">>> encro-completion >>>") == 1);
 }
 
-TEST_CASE("powershell uninstall reverses everything install created", "[completion]") {
+TEST_CASE(
+  "powershell uninstall reverses everything install created",
+  "[completion][install]"
+) {
+  requireInstallTestingOrSkip();
   TempDir temp;
   EnvGuard env{temp.path};
 
@@ -184,7 +202,11 @@ TEST_CASE("powershell uninstall reverses everything install created", "[completi
   CHECK(completion::uninstallScript("powershell") == 0);
 }
 
-TEST_CASE("bash install falls back to .bashrc without bash-completion", "[completion]") {
+TEST_CASE(
+  "bash install falls back to .bashrc without bash-completion",
+  "[completion][install]"
+) {
+  requireInstallTestingOrSkip();
   TempDir temp;
   EnvGuard env{temp.path};
 
@@ -222,7 +244,11 @@ TEST_CASE("bash install falls back to .bashrc without bash-completion", "[comple
   CHECK(completion::uninstallScript("bash") == 0);  // clean no-op
 }
 
-TEST_CASE("bash install prefers the lazy-load directory when available", "[completion]") {
+TEST_CASE(
+  "bash install prefers the lazy-load directory when available",
+  "[completion][install]"
+) {
+  requireInstallTestingOrSkip();
   TempDir temp;
   EnvGuard env{temp.path};
 
