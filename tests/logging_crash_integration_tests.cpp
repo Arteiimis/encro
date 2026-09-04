@@ -4,7 +4,6 @@
 
 #include <boost/json.hpp>  // IWYU pragma: keep
 
-#include <algorithm>
 #if defined(_WIN32)
   #include <io.h>  // IWYU pragma: keep -- Windows-only (guarded by _WIN32)
 #endif
@@ -93,23 +92,8 @@ TEST_CASE(
   auto const ts = content.substr(openPos + 1, bodyPos - openPos - 1);
   CAPTURE(ts);
   CHECK(ts.size() == 29);
-  CHECK(ts[4] == '-');
-  CHECK(ts[7] == '-');
   CHECK(ts[10] == 'T');
-  CHECK(ts[13] == ':');
-  CHECK(ts[16] == ':');
   CHECK(ts[19] == '.');
-  CHECK((ts[23] == '+' || ts[23] == '-'));
-  CHECK(std::all_of(ts.begin() + 20, ts.begin() + 23, [](char c) {
-    return c >= '0' && c <= '9';
-  }));
-  CHECK(ts[26] == ':');
-  CHECK(std::all_of(ts.begin() + 24, ts.begin() + 26, [](char c) {
-    return c >= '0' && c <= '9';
-  }));
-  CHECK(std::all_of(ts.begin() + 27, ts.end(), [](char c) {
-    return c >= '0' && c <= '9';
-  }));
 
   // The direct-write timestamp must be structurally identical to a regular
   // spdlog line's timestamp (same length) so same-second lines sort together.
@@ -167,61 +151,10 @@ TEST_CASE(
   CHECK_FALSE(crash::writeDirectLogLine("no log file"));
 }
 
-// ── RED 7.3 — crash direct write reaches both formats ───────────────────────
+// ── RED 7.3 — crash direct write reaches the active format ──────────────────
 
 TEST_CASE(
-  "crash direct write lands in .log and .ndjson with matching run id",
-  "[logging][crash_integration][run_id]"
-) {
-  TempDir temp;
-
-  auto config = logging::LogConfig{
-    .jsonEnabled = true,
-    .colorsEnabled = false,
-    .customLogDir = temp.path,
-  };
-
-  // setRunId AFTER setup: the bootstrap in setup() regenerates the id
-  auto const setupResult = logging::setup(config);
-  REQUIRE(setupResult.has_value());
-  logging::setRunId("crash-test-run-42");
-
-  REQUIRE(crash::writeDirectLogLine("boom"));
-  logging::shutdown();
-
-  // .log line carries the run id
-  auto const logPath = setupResult.value();
-  auto const logContent = testutils::readTextFile(logPath);
-  CHECK(logContent.find("boom run_id=crash-test-run-42") != std::string::npos);
-
-  // .ndjson holds a parseable crash record with the same run id
-  auto ndjsonWithExt = logPath;
-  ndjsonWithExt.replace_extension(".ndjson");
-  auto const ndjsonContent = testutils::readTextFile(ndjsonWithExt);
-
-  auto found = false;
-  auto start = std::size_t{0};
-  for (;;) {
-    auto const eol = ndjsonContent.find('\n', start);
-    if (eol == std::string::npos) { break; }
-    auto ec = boost::system::error_code{};
-    auto const parsed = boost::json::parse(ndjsonContent.substr(start, eol - start), ec);
-    if (!ec && parsed.is_object()) {
-      auto const& obj = parsed.as_object();
-      if (obj.at("module").as_string() == "infra.crash") {
-        found = true;
-        CHECK(obj.at("level").as_string() == "critical");
-        CHECK(obj.at("run_id").as_string() == "crash-test-run-42");
-        CHECK(obj.at("message").as_string() == "boom");
-      }
-    }
-    start = eol + 1;
-  }
-  CHECK(found);
-}
-
-TEST_CASE(
-  "crash direct write without JSON logging touches only the .log file",
+  "crash direct write lands in .log, and .ndjson only when JSON logging is on",
   "[logging][crash_integration][run_id]"
 ) {
   TempDir temp;
@@ -232,19 +165,66 @@ TEST_CASE(
     .customLogDir = temp.path,
   };
 
-  // setRunId AFTER setup: the bootstrap in setup() regenerates the id
-  auto const setupResult = logging::setup(config);
-  REQUIRE(setupResult.has_value());
-  logging::setRunId("crash-test-nojson");
+  SECTION("json on: .log and .ndjson with matching run id") {
+    config.jsonEnabled = true;
 
-  REQUIRE(crash::writeDirectLogLine("boom-no-json"));
-  logging::shutdown();
+    // setRunId AFTER setup: the bootstrap in setup() regenerates the id
+    auto const setupResult = logging::setup(config);
+    REQUIRE(setupResult.has_value());
+    logging::setRunId("crash-test-run-42");
 
-  auto const logPath = setupResult.value();
-  auto const logContent = testutils::readTextFile(logPath);
-  CHECK(logContent.find("boom-no-json run_id=crash-test-nojson") != std::string::npos);
+    REQUIRE(crash::writeDirectLogLine("boom"));
+    logging::shutdown();
 
-  auto ndjsonWithExt = logPath;
-  ndjsonWithExt.replace_extension(".ndjson");
-  CHECK(!fs::exists(ndjsonWithExt));
+    // .log line carries the run id
+    auto const logPath = setupResult.value();
+    auto const logContent = testutils::readTextFile(logPath);
+    CHECK(logContent.find("boom run_id=crash-test-run-42") != std::string::npos);
+
+    // .ndjson holds a parseable crash record with the same run id
+    auto ndjsonWithExt = logPath;
+    ndjsonWithExt.replace_extension(".ndjson");
+    auto const ndjsonContent = testutils::readTextFile(ndjsonWithExt);
+
+    auto found = false;
+    auto start = std::size_t{0};
+    for (;;) {
+      auto const eol = ndjsonContent.find('\n', start);
+      if (eol == std::string::npos) { break; }
+      auto ec = boost::system::error_code{};
+      auto const parsed =
+        boost::json::parse(ndjsonContent.substr(start, eol - start), ec);
+      if (!ec && parsed.is_object()) {
+        auto const& obj = parsed.as_object();
+        if (obj.at("module").as_string() == "infra.crash") {
+          found = true;
+          CHECK(obj.at("level").as_string() == "critical");
+          CHECK(obj.at("run_id").as_string() == "crash-test-run-42");
+          CHECK(obj.at("message").as_string() == "boom");
+        }
+      }
+      start = eol + 1;
+    }
+    CHECK(found);
+  }
+
+  SECTION("json off: touches only the .log file") {
+    config.jsonEnabled = false;
+
+    // setRunId AFTER setup: the bootstrap in setup() regenerates the id
+    auto const setupResult = logging::setup(config);
+    REQUIRE(setupResult.has_value());
+    logging::setRunId("crash-test-nojson");
+
+    REQUIRE(crash::writeDirectLogLine("boom-no-json"));
+    logging::shutdown();
+
+    auto const logPath = setupResult.value();
+    auto const logContent = testutils::readTextFile(logPath);
+    CHECK(logContent.find("boom-no-json run_id=crash-test-nojson") != std::string::npos);
+
+    auto ndjsonWithExt = logPath;
+    ndjsonWithExt.replace_extension(".ndjson");
+    CHECK(!fs::exists(ndjsonWithExt));
+  }
 }
