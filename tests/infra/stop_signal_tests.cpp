@@ -70,9 +70,9 @@ TEST_CASE(
   auto resetGuard = testutils::ScopedStopSignalReset{};
 
   auto requester = std::jthread{[] {
-    // sleep-ok: one-sided delay so the waiter is parked inside waitForStop
-    // before the stop fires; correctness does not depend on the duration.
-    std::this_thread::sleep_for(std::chrono::milliseconds{30});
+    // One-sided: parks the waiter inside waitForStop before the stop
+    // fires; correctness does not depend on the duration.
+    std::this_thread::sleep_for(std::chrono::milliseconds{30});  // sleep-ok: signal delay
     stopsignal::requestStop();
   }};
 

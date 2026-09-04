@@ -61,7 +61,9 @@ TEST_CASE(
         ) { }
 
         seenSlots[index] = ctx.slot;
-        std::this_thread::sleep_for(20ms);
+        std::this_thread::sleep_for(
+          20ms
+        );  // sleep-ok: workload shaping for concurrency proof
         active.fetch_sub(1, std::memory_order_acq_rel);
         return {};
       }  //

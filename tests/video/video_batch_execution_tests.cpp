@@ -178,11 +178,13 @@ TEST_CASE(
     std::ofstream out{progressFile};
     out << "frame=99\nprogress=continue\n";
   }
-  // sleep-ok: opportunity-to-parse margin. The rewritten file must leave the
-  // value unchanged (that is the assertion), so there is nothing to poll —
-  // this only gives the monitor a chance to (wrongly) re-parse if the
-  // stat-skip broke; sized above the 250 ms parse throttle.
-  std::this_thread::sleep_for(std::chrono::milliseconds{300});
+  // Opportunity-to-parse margin: the rewritten file must leave the value
+  // unchanged (that is the assertion), so there is nothing to poll — this
+  // only gives the monitor a chance to (wrongly) re-parse if the stat-skip
+  // broke; sized above the 250 ms parse throttle.
+  std::this_thread::sleep_for(
+    std::chrono::milliseconds{300}
+  );  // sleep-ok: stat-skip margin
 
   // Stat-skip: same size means unchanged, so the replacement is not re-parsed.
   {
@@ -232,9 +234,11 @@ TEST_CASE(
       std::ofstream out{progressFile, std::ios::app};
       out << "frame=" << (i + 1) << "\n";
     }
-    // sleep-ok: input signal cadence — one append per 40 ms drives the
-    // throttle; the assertions below are wide bounds on the parse count.
-    std::this_thread::sleep_for(std::chrono::milliseconds{40});
+    // Input signal cadence: one append per 40 ms drives the throttle;
+    // the assertions below are wide bounds on the parse count.
+    std::this_thread::sleep_for(
+      std::chrono::milliseconds{40}
+    );  // sleep-ok: throttle input cadence
     {
       auto lock = std::scoped_lock{state->mtx};
       auto const frame = state->lastFrameCount;
