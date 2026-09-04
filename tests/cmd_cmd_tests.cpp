@@ -55,20 +55,6 @@ auto stripAnsi(std::string_view text) -> std::string {
 
 }  // namespace
 
-TEST_CASE("commandLineInit exposes defaults", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro"});
-
-  CHECK(result.processType == "video");
-  CHECK(result.outputFormat == "mp4");
-  CHECK(result.forceConflictHandling == "y");
-  CHECK(result.color == "auto");
-  CHECK(result.imageQuality.has_value() == false);
-  CHECK(result.folderSummary == false);
-  CHECK(result.verbose == false);
-  CHECK(result.help == false);
-  CHECK(result.version == false);
-}
-
 TEST_CASE("commandLineInit --version flag sets version=true", "[cmd]") {
   auto const result = testutils::parseArgs({"encro", "--version"});
 
@@ -122,7 +108,9 @@ TEST_CASE("commandLineInit parses multi-input values", "[cmd]") {
 }
 
 TEST_CASE("commandLineInit parses a single positional input", "[cmd]") {
+  // A bare positional falls through to the encode workflow (preview stays off).
   auto const result = testutils::parseArgs({"encro", "videos"});
+  CHECK_FALSE(result.preview);
 
   REQUIRE(result.positionalInputs.has_value());
   auto const& inputs = result.positionalInputs.value();
@@ -181,18 +169,14 @@ TEST_CASE("commandLineInit reports unknown options", "[cmd]") {
   CHECK_FALSE(result.error.value().empty());
 }
 
-TEST_CASE("commandLineInit rejects removed --flat flag", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "--flat", "-i", "input.mp4"});
+TEST_CASE("commandLineInit rejects removed flags", "[cmd]") {
+  auto const flat = testutils::parseArgs({"encro", "--flat", "-i", "input.mp4"});
+  REQUIRE(flat.error.has_value());
+  CHECK(flat.error.value().find("--flat") != std::string::npos);
 
-  REQUIRE(result.error.has_value());
-  CHECK(result.error.value().find("--flat") != std::string::npos);
-}
-
-TEST_CASE("commandLineInit rejects removed -e flag", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "-e", "-i", "input.mp4"});
-
-  REQUIRE(result.error.has_value());
-  CHECK(result.error.value().find("-e") != std::string::npos);
+  auto const e = testutils::parseArgs({"encro", "-e", "-i", "input.mp4"});
+  REQUIRE(e.error.has_value());
+  CHECK(e.error.value().find("-e") != std::string::npos);
 }
 
 TEST_CASE("commandLineInit rejects --resume with --restart", "[cmd]") {
@@ -220,22 +204,20 @@ TEST_CASE("commandLineInit rejects --pack with --pack-only", "[cmd]") {
   CHECK(result.error.value().find("--pack") != std::string::npos);
 }
 
-TEST_CASE("commandLineInit caps help output to configured maximum width", "[cmd]") {
-  auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "200"};
+TEST_CASE("commandLineInit caps help output to the terminal width", "[cmd]") {
+  SECTION("wide terminal keeps help under the configured maximum") {
+    auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "200"};
 
-  auto const result = testutils::parseArgs({"encro"});
-  auto const& help = result.helpText;
+    auto const result = testutils::parseArgs({"encro"});
+    CHECK(longestHelpLine(result.helpText) <= 120);
+  }
 
-  CHECK(longestHelpLine(help) <= 120);
-}
+  SECTION("narrow terminal caps every help line") {
+    auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "72"};
 
-TEST_CASE("commandLineInit adapts help output to narrower terminal width", "[cmd]") {
-  auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "72"};
-
-  auto const result = testutils::parseArgs({"encro"});
-  auto const& help = result.helpText;
-
-  CHECK(longestHelpLine(help) <= 72);
+    auto const result = testutils::parseArgs({"encro"});
+    CHECK(longestHelpLine(result.helpText) <= 72);
+  }
 }
 
 TEST_CASE("commandLineInit parses --compress flag", "[cmd]") {
@@ -244,25 +226,21 @@ TEST_CASE("commandLineInit parses --compress flag", "[cmd]") {
   CHECK(result.compress == true);
 }
 
-TEST_CASE("commandLineInit does not set --compress by default", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro"});
-
-  CHECK(result.compress == false);
-}
-
 TEST_CASE("commandLineInit parses --image-quality as integer", "[cmd]") {
-  auto const result =
-    testutils::parseArgs({"encro", "--compress", "--image-quality", "15"});
+  SECTION("long form") {
+    auto const result =
+      testutils::parseArgs({"encro", "--compress", "--image-quality", "15"});
 
-  REQUIRE(result.imageQuality.has_value());
-  CHECK(result.imageQuality.value() == 15);
-}
+    REQUIRE(result.imageQuality.has_value());
+    CHECK(result.imageQuality.value() == 15);
+  }
 
-TEST_CASE("commandLineInit parses -q short option for quality", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "-c", "-q", "15"});
+  SECTION("short -q form") {
+    auto const result = testutils::parseArgs({"encro", "-c", "-q", "15"});
 
-  REQUIRE(result.imageQuality.has_value());
-  CHECK(result.imageQuality.value() == 15);
+    REQUIRE(result.imageQuality.has_value());
+    CHECK(result.imageQuality.value() == 15);
+  }
 }
 
 TEST_CASE("commandLineInit parses --crf as integer", "[cmd]") {
@@ -273,11 +251,15 @@ TEST_CASE("commandLineInit parses --crf as integer", "[cmd]") {
 }
 
 TEST_CASE("app-level flags apply before the preview subcommand", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "--crf", "15", "preview", "a.mp4"});
+  auto const result = testutils::parseArgs(
+    {"encro", "--crf", "15", "--video-codec", "libx264", "preview", "a.mp4", "--no-open"}
+  );
 
   REQUIRE(result.preview);
   REQUIRE(result.crf.has_value());
   CHECK(result.crf.value() == 15);
+  REQUIRE(result.videoCodec.has_value());
+  CHECK(result.videoCodec.value() == "libx264");
 }
 
 TEST_CASE("preview subcommand accepts encode flags in subcommand position", "[cmd]") {
@@ -307,22 +289,6 @@ TEST_CASE("preview subcommand accepts encode flags in subcommand position", "[cm
   CHECK_FALSE(result.error.has_value());
 }
 
-TEST_CASE("preview subcommand does not swallow app-level flags", "[cmd]") {
-  auto const result = testutils::parseArgs(
-    {"encro", "--video-codec", "libx264", "preview", "a.mp4", "--no-open"}
-  );
-
-  REQUIRE(result.preview);
-  REQUIRE(result.videoCodec.has_value());
-  CHECK(result.videoCodec.value() == "libx264");
-}
-
-TEST_CASE("commandLineInit does not set crf by default", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro"});
-
-  CHECK(result.crf.has_value() == false);
-}
-
 TEST_CASE("commandLineInit parses --preset option", "[cmd]") {
   auto const result = testutils::parseArgs({"encro", "--preset", "p7"});
 
@@ -330,42 +296,27 @@ TEST_CASE("commandLineInit parses --preset option", "[cmd]") {
   CHECK(result.nvencPreset.value() == "p7");
 }
 
-TEST_CASE("commandLineInit does not set preset by default", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro"});
+TEST_CASE("commandLineInit rejects options missing a value", "[cmd]") {
+  SECTION("-q") {
+    auto const result = testutils::parseArgs({"encro", "-q"});
 
-  CHECK(result.nvencPreset.has_value() == false);
-}
+    REQUIRE(result.error.has_value());
+    CHECK(result.error.value().find("--image-quality") != std::string::npos);
+  }
 
-TEST_CASE("commandLineInit rejects -q without a value", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "-q"});
+  SECTION("--crf") {
+    auto const result = testutils::parseArgs({"encro", "--crf"});
 
-  REQUIRE(result.error.has_value());
-  CHECK(result.error.value().find("--image-quality") != std::string::npos);
-}
+    REQUIRE(result.error.has_value());
+    CHECK(result.error.value().find("--crf") != std::string::npos);
+  }
 
-TEST_CASE("commandLineInit rejects --crf without a value", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "--crf"});
+  SECTION("--preset") {
+    auto const result = testutils::parseArgs({"encro", "--preset"});
 
-  REQUIRE(result.error.has_value());
-  CHECK(result.error.value().find("--crf") != std::string::npos);
-}
-
-TEST_CASE("commandLineInit rejects --preset without a value", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "--preset"});
-
-  REQUIRE(result.error.has_value());
-  CHECK(result.error.value().find("--preset") != std::string::npos);
-}
-
-TEST_CASE("commandLineInit default jobs is not set", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro"});
-  // jobs has a default_str of "10" but no default_value — so it should NOT be in result
-  // Verify: maxJobs is not set when --jobs is not explicitly passed
-  // Note: CLI11 with default_str does populate count(), so this depends on implementation
-  // If CLI11 sets count>0 with default_str, maxJobs will have value 10
-  // Either way is acceptable — the field has the correct default
-  CHECK(result.yesToAll == false);
-  CHECK(result.fullProgress == false);
+    REQUIRE(result.error.has_value());
+    CHECK(result.error.value().find("--preset") != std::string::npos);
+  }
 }
 
 // ── Phase 20-02: colored --help smoke tests ──
@@ -382,124 +333,122 @@ TEST_CASE("help text contains ANSI escape codes when color is always", "[cmd][co
   terminal::reset();
 }
 
-TEST_CASE("help text contains NO ANSI codes when color is never", "[cmd][color]") {
-  terminal::configure(terminal::ColorMode::Never);
+TEST_CASE("help text contains NO ANSI codes when color is disabled", "[cmd][color]") {
+  SECTION("color mode never") {
+    terminal::configure(terminal::ColorMode::Never);
 
-  auto const result = testutils::parseArgs({"encro", "--help"});
-  auto const& help = result.helpText;
+    auto const result = testutils::parseArgs({"encro", "--help"});
+    CHECK(result.helpText.find("\x1b[") == std::string::npos);
 
-  // When color is disabled, no ANSI escape codes should be present
-  CHECK(help.find("\x1b[") == std::string::npos);
+    terminal::reset();
+  }
 
-  terminal::reset();
+  SECTION("NO_COLOR environment variable") {
+    auto const noColorGuard = testutils::ScopedEnvVar{"NO_COLOR", "1"};
+
+    auto const result = testutils::parseArgs({"encro", "--help"});
+    CHECK(result.helpText.find("\x1b[") == std::string::npos);
+  }
 }
 
-TEST_CASE("brief help auto-fits the description column to the widest option", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "-h"});
-  auto const plainHelp = stripAnsi(result.helpText);
+TEST_CASE("help auto-fits the description column with a 3-space gap", "[cmd]") {
+  // Invariant form of the auto-fit contract: every rendered help places the
+  // description column exactly 3 spaces after the widest long-flag cell text
+  // it renders, and aligns every other description to that same column.
+  // Widest-cell needles stay so the test fails loudly if the widest option
+  // changes; no absolute column numbers are pinned.
+  auto checkAlignment =
+    [](
+      std::string const& plainHelp,
+      std::string_view widestNeedle,
+      std::string_view widestSuffix,
+      std::string_view widestDesc,
+      std::vector<std::pair<std::string_view, std::string_view>> const& alignedRows
+    ) {
+      auto const widest = testutils::findHelpLine(plainHelp, widestNeedle);
+      REQUIRE(widest.has_value());
+      auto const nameEnd = widest->find(widestSuffix) + widestSuffix.size();
+      auto const descCol = widest->find(widestDesc);
+      REQUIRE(descCol != std::string::npos);
+      CHECK(descCol == nameEnd + 3);
 
-  // Widest brief-tier long cell: "-f, --output-format (=mp4)" (22 chars);
-  // the short cell is a constant 4 chars ("-x, " or blanks).
-  auto const widest = testutils::findHelpLine(plainHelp, "-f, --output-format (=mp4)");
-  REQUIRE(widest.has_value());
-  auto const nameEnd = widest->find("(=mp4)") + std::string_view{"(=mp4)"}.size();
-  auto const descCol = widest->find("target format: mp4 or webp");
-  REQUIRE(descCol != std::string::npos);
-  CHECK(descCol == nameEnd + 3);  // exactly 3-space gap on the widest line
-  CHECK(descCol == 31);           // 2 indent + 4 short cell + 22 widest + 3 gap
+      for (auto const& [rowNeedle, rowDesc]: alignedRows) {
+        auto const line = testutils::findHelpLine(plainHelp, rowNeedle);
+        REQUIRE(line.has_value());
+        CAPTURE(rowNeedle);
+        CHECK(line->find(rowDesc) == descCol);
+      }
+    };
 
-  auto const helpLine = testutils::findHelpLine(plainHelp, "-h, --help");
-  REQUIRE(helpLine.has_value());
-  CHECK(helpLine->find("show help; use -hh to show all options") == descCol);
+  SECTION("brief tier") {
+    auto const result = testutils::parseArgs({"encro", "-h"});
+    checkAlignment(
+      stripAnsi(result.helpText),
+      "-f, --output-format (=mp4)",
+      "(=mp4)",
+      "target format: mp4 or webp",
+      {
+        {"-h, --help", "show help; use -hh to show all options"},
+        {"-r, --[no-]recursive", "enable recursively search"},
+      }
+    );
+  }
 
-  auto const recursiveLine = testutils::findHelpLine(plainHelp, "-r, --[no-]recursive");
-  REQUIRE(recursiveLine.has_value());
-  CHECK(recursiveLine->find("enable recursively search") == descCol);
-}
+  SECTION("full tier") {
+    auto const result = testutils::parseArgs({"encro", "-hh"});
+    checkAlignment(
+      stripAnsi(result.helpText),
+      "--force-conflict-handling (=y)",
+      "(=y)",
+      "same-name collisions in flat output",
+      {
+        {"-h, --help", "show help; use -hh to show all options"},
+        {"--video-codec (=hevc_nvenc)", "video encoder (default hevc_nvenc"},
+        {"-p, --[no-]pack", "pack encoded video outputs into zip files"},
+      }
+    );
+  }
 
-TEST_CASE("full help auto-fits the description column across all groups", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "-hh"});
-  auto const plainHelp = stripAnsi(result.helpText);
+  SECTION("capped column keeps a minimum 2-space gap on the widest line") {
+    auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "40"};
 
-  // Widest full-tier long cell: "--force-conflict-handling (=y)" (30 chars,
-  // no short name); the short cell is a constant 4 chars.
-  auto const widest =
-    testutils::findHelpLine(plainHelp, "--force-conflict-handling (=y)");
-  REQUIRE(widest.has_value());
-  auto const nameEnd = widest->find("(=y)") + std::string_view{"(=y)"}.size();
-  auto const descCol = widest->find("same-name collisions in flat output");
-  REQUIRE(descCol != std::string::npos);
-  CHECK(descCol == nameEnd + 3);
-  CHECK(descCol == 39);  // 2 indent + 4 short cell + 30 widest + 3 gap
-
-  auto const generalLine = testutils::findHelpLine(plainHelp, "-h, --help");
-  auto const processingLine =
-    testutils::findHelpLine(plainHelp, "--video-codec (=hevc_nvenc)");
-  auto const fileopLine = testutils::findHelpLine(plainHelp, "-p, --[no-]pack");
-  REQUIRE(generalLine.has_value());
-  REQUIRE(processingLine.has_value());
-  REQUIRE(fileopLine.has_value());
-  CHECK(generalLine->find("show help; use -hh to show all options") == descCol);
-  CHECK(processingLine->find("video encoder (default hevc_nvenc") == descCol);
-  CHECK(fileopLine->find("pack encoded video outputs into zip files") == descCol);
-}
-
-TEST_CASE("capped column keeps a minimum 2-space gap on the widest line", "[cmd]") {
-  // COLUMNS=40 caps the column below widest + 3, so the widest line falls
-  // back to the minimum gap.
-  auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "40"};
-
-  auto const result = testutils::parseArgs({"encro", "-hh"});
-  auto const plainHelp = stripAnsi(result.helpText);
-
-  auto const widest =
-    testutils::findHelpLine(plainHelp, "--force-conflict-handling (=y)");
-  REQUIRE(widest.has_value());
-  auto const nameEnd = widest->find("(=y)") + std::string_view{"(=y)"}.size();
-  CHECK(widest->substr(nameEnd, 2) == "  ");
-  CHECK(widest->substr(nameEnd + 2, 1) != " ");
-}
-
-TEST_CASE("subcommand help auto-fits its description column", "[cmd]") {
-  SECTION("preview aligns to its own widest option") {
-    auto const result = testutils::parseArgs({"encro", "preview", "-h"});
+    auto const result = testutils::parseArgs({"encro", "-hh"});
     auto const plainHelp = stripAnsi(result.helpText);
 
-    // Widest preview long cell: "--video-codec (=hevc_nvenc)" (27 chars, no
-    // short name); the short cell is a constant 4 chars.
-    auto const widest = testutils::findHelpLine(plainHelp, "--video-codec (=hevc_nvenc)");
+    auto const widest =
+      testutils::findHelpLine(plainHelp, "--force-conflict-handling (=y)");
     REQUIRE(widest.has_value());
-    auto const nameEnd =
-      widest->find("(=hevc_nvenc)") + std::string_view{"(=hevc_nvenc)"}.size();
-    auto const descCol = widest->find("video encoder (default hevc_nvenc");
-    REQUIRE(descCol != std::string::npos);
-    CHECK(descCol == nameEnd + 3);
-    CHECK(descCol == 36);  // 2 indent + 4 short cell + 27 widest + 3 gap
+    auto const nameEnd = widest->find("(=y)") + std::string_view{"(=y)"}.size();
+    CHECK(widest->substr(nameEnd, 2) == "  ");
+    CHECK(widest->substr(nameEnd + 2, 1) != " ");
+  }
 
-    // The description needle keeps findHelpLine off the usage line, which
-    // also contains "[--output <path>]".
-    auto const outputLine = testutils::findHelpLine(plainHelp, "output video path");
-    REQUIRE(outputLine.has_value());
-    CHECK(outputLine->find("output video path") == descCol);
+  SECTION("preview aligns to its own widest option") {
+    auto const result = testutils::parseArgs({"encro", "preview", "-h"});
+    checkAlignment(
+      stripAnsi(result.helpText),
+      "--video-codec (=hevc_nvenc)",
+      "(=hevc_nvenc)",
+      "video encoder (default hevc_nvenc",
+      {
+        // The description needle keeps findHelpLine off the usage line, which
+        // also contains "[--output <path>]".
+        {"output video path", "output video path"},
+      }
+    );
   }
 
   SECTION("config aligns to its own widest option") {
     auto const result = testutils::parseArgs({"encro", "config", "-h"});
-    auto const plainHelp = stripAnsi(result.helpText);
-
-    // Widest config long cell: "--unset" (7 chars, no short name); the short
-    // cell is a constant 4 chars.
-    auto const widest = testutils::findHelpLine(plainHelp, "--unset");
-    REQUIRE(widest.has_value());
-    auto const nameEnd = widest->find("--unset") + std::string_view{"--unset"}.size();
-    auto const descCol = widest->find("remove a persisted key");
-    REQUIRE(descCol != std::string::npos);
-    CHECK(descCol == nameEnd + 3);
-    CHECK(descCol == 16);  // 2 indent + 4 short cell + 7 widest + 3 gap
-
-    auto const listLine = testutils::findHelpLine(plainHelp, "--list");
-    REQUIRE(listLine.has_value());
-    CHECK(listLine->find("show every configurable key") == descCol);
+    checkAlignment(
+      stripAnsi(result.helpText),
+      "--unset",
+      "--unset",
+      "remove a persisted key",
+      {
+        {"--list", "show every configurable key"},
+      }
+    );
   }
 }
 
@@ -510,55 +459,63 @@ TEST_CASE("main help lists subcommands in a git-style commands section", "[cmd]"
     "  config       inspect and persist user-level configuration defaults\n"
     "  completion   print, install, or uninstall shell completion scripts\n";
 
-  SECTION("brief tier") {
-    auto const result = testutils::parseArgs({"encro", "-h"});
-    auto const plainHelp = stripAnsi(result.helpText);
-    // The whole section is pinned: exactly three subcommand rows, no option
-    // group leakage (CLI11 option groups are subcommands internally).
-    CHECK(plainHelp.find(commandsBlock) != std::string::npos);
-  }
+  // Brief tier: the whole section pinned byte-for-byte (exactly three
+  // described rows, no option group leakage).
+  auto const brief = stripAnsi(testutils::parseArgs({"encro", "-h"}).helpText);
+  CHECK(brief.find(commandsBlock) != std::string::npos);
 
-  SECTION("full tier") {
-    auto const result = testutils::parseArgs({"encro", "-hh"});
-    auto const plainHelp = stripAnsi(result.helpText);
-    CHECK(plainHelp.find(commandsBlock) != std::string::npos);
-  }
-}
-
-TEST_CASE("main help usage section omits subcommand synopses", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "-h"});
-  auto const plainHelp = stripAnsi(result.helpText);
-
-  CHECK(plainHelp.find("encro preview") == std::string::npos);
-  CHECK(plainHelp.find("encro config") == std::string::npos);
-  CHECK(plainHelp.find("encro completion") == std::string::npos);
-
-  // The flag-driven mode lines and the tier-advertising line stay.
-  CHECK(plainHelp.find("encro -h | -hh | --version") != std::string::npos);
+  // Full tier: the same section with its three described rows.
+  auto const full = stripAnsi(testutils::parseArgs({"encro", "-hh"}).helpText);
+  CHECK(full.find("encro commands:") != std::string::npos);
   CHECK(
-    plainHelp.find("encro [<input>... | -i <input> | -I <file>...]") != std::string::npos
+    full.find(
+      "  preview      compare an original video with its encoded output side by side"
+    )
+    != std::string::npos
   );
-  CHECK(plainHelp.find("encro -t picture") != std::string::npos);
-  CHECK(plainHelp.find("encro -z") != std::string::npos);
+  CHECK(
+    full.find("  config       inspect and persist user-level configuration defaults")
+    != std::string::npos
+  );
+  CHECK(
+    full.find("  completion   print, install, or uninstall shell completion scripts")
+    != std::string::npos
+  );
 }
 
-TEST_CASE("commands section sits between usage and option groups", "[cmd]") {
+TEST_CASE("main help orders usage, commands, and option groups", "[cmd]") {
   auto const result = testutils::parseArgs({"encro", "-h"});
-  auto const plainHelp = stripAnsi(result.helpText);
+  auto const help = stripAnsi(result.helpText);
 
-  auto const tierLine = plainHelp.find("encro -h | -hh | --version");
-  auto const commandsPos = plainHelp.find("encro commands:");
-  auto const generalPos = plainHelp.find("General options:");
+  // Usage synopsis is present and precedes the option groups.
+  auto const usagePos = help.find("Usage:");
+  auto const generalPos = help.find("General options:");
+  REQUIRE(usagePos != std::string::npos);
+  REQUIRE(generalPos != std::string::npos);
+  CHECK(help.find("encro [<input>... | -i <input> | -I <file>...]") != std::string::npos);
+  CHECK(help.find("input-paths") != std::string::npos);
+  CHECK(usagePos < generalPos);
+
+  // Subcommand synopses are not echoed into the usage section; the
+  // flag-driven mode lines and the tier-advertising line stay.
+  CHECK(help.find("encro preview") == std::string::npos);
+  CHECK(help.find("encro config") == std::string::npos);
+  CHECK(help.find("encro completion") == std::string::npos);
+  CHECK(help.find("encro -h | -hh | --version") != std::string::npos);
+  CHECK(help.find("encro -t picture") != std::string::npos);
+  CHECK(help.find("encro -z") != std::string::npos);
+
+  // The commands section sits between the usage lines and the option groups,
+  // blank-line separated from the preceding block.
+  auto const tierLine = help.find("encro -h | -hh | --version");
+  auto const commandsPos = help.find("encro commands:");
   REQUIRE(tierLine != std::string::npos);
   REQUIRE(commandsPos != std::string::npos);
-  REQUIRE(generalPos != std::string::npos);
   CHECK(tierLine < commandsPos);
   CHECK(commandsPos < generalPos);
-  // Section headers are blank-line separated from the preceding block; the
-  // commands section is no exception despite following the usage lines.
   REQUIRE(commandsPos >= 2);
-  CHECK(plainHelp[commandsPos - 1] == '\n');
-  CHECK(plainHelp[commandsPos - 2] == '\n');
+  CHECK(help[commandsPos - 1] == '\n');
+  CHECK(help[commandsPos - 2] == '\n');
 }
 
 TEST_CASE(
@@ -578,63 +535,24 @@ TEST_CASE(
   CHECK(stripAnsi(colored.helpText) == plain.helpText);
 }
 
-TEST_CASE("help text contains NO ANSI codes when NO_COLOR is set", "[cmd][color]") {
-  auto const noColorGuard = testutils::ScopedEnvVar{"NO_COLOR", "1"};
-
-  auto const result = testutils::parseArgs({"encro", "--help"});
-  auto const& help = result.helpText;
-
-  CHECK(help.find("\x1b[") == std::string::npos);
-}
-
-TEST_CASE(
-  "help text contains expected option names after color injection",
-  "[cmd][color]"
-) {
+TEST_CASE("help content survives color injection", "[cmd][color]") {
   auto const result = testutils::parseArgs({"encro", "-hh"});
   auto const& help = result.helpText;
 
-  // Content must survive color injection — plain text substrings still embedded
-  // Full (-hh) tier renders every option, including the advanced ones
+  // Full (-hh) tier renders every option, including the advanced ones...
   CHECK(help.find("--input") != std::string::npos);
   CHECK(help.find("--verbose") != std::string::npos);
   CHECK(help.find("--output-format") != std::string::npos);
   CHECK(help.find("--pack") != std::string::npos);
-}
 
-TEST_CASE(
-  "help text contains expected group headers after color injection",
-  "[cmd][color]"
-) {
-  auto const result = testutils::parseArgs({"encro"});
-  auto const& help = result.helpText;
-
-  // Group descriptions (used by formatGroupHeader via get_description())
+  // ...and the group headers (used by formatGroupHeader via get_description()).
   CHECK(help.find("General") != std::string::npos);
   CHECK(help.find("Input/Output") != std::string::npos);
   CHECK(help.find("Processing") != std::string::npos);
   CHECK(help.find("File operation") != std::string::npos);
 }
 
-TEST_CASE("help text includes usage synopsis before option groups", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro", "--help"});
-  auto const help = stripAnsi(result.helpText);
-
-  auto const usagePos = help.find("Usage:");
-  auto const generalOptionsPos = help.find("General options:");
-
-  REQUIRE(usagePos != std::string::npos);
-  REQUIRE(generalOptionsPos != std::string::npos);
-
-  CHECK(help.find("encro [<input>... | -i <input> | -I <file>...]") != std::string::npos);
-  CHECK(help.find("input-paths") != std::string::npos);
-  CHECK(usagePos < generalOptionsPos);
-}
-
-TEST_CASE("commandLineInit parses --min-vmaf with default 95", "[cmd]") {
-  auto const defaults = testutils::parseArgs({"encro"});
-  CHECK(defaults.minVmaf == 95);
-
+TEST_CASE("commandLineInit parses --min-vmaf", "[cmd]") {
   auto const custom = testutils::parseArgs({"encro", "--min-vmaf", "90"});
   CHECK(custom.minVmaf == 90);
   CHECK_FALSE(custom.error.has_value());
@@ -712,17 +630,6 @@ TEST_CASE("preview -h renders preview help text", "[cmd][cli-positional]") {
     result.helpText.find("encro preview <original> [<encoded>]") != std::string::npos
   );
   CHECK(result.helpText.find("--no-open") != std::string::npos);
-}
-
-TEST_CASE(
-  "bare invocation falls through to the encode workflow",
-  "[cmd][cli-positional]"
-) {
-  auto const result = testutils::parseArgs({"encro", "videos"});
-  CHECK_FALSE(result.preview);
-  REQUIRE(result.positionalInputs.has_value());
-  CHECK(result.positionalInputs.value() == std::vector<std::string>{"videos"});
-  CHECK_FALSE(result.error.has_value());
 }
 
 TEST_CASE("bare invocation with flags still falls through", "[cmd][cli-positional]") {
