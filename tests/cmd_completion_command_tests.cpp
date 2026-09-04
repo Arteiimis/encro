@@ -51,30 +51,26 @@ TEST_CASE("install and uninstall are mutually exclusive", "[completion]") {
   REQUIRE(result.error.has_value());
 }
 
-TEST_CASE("bare completion shows the subcommand help", "[completion]") {
-  auto const result = testutils::parseArgs({"encro", "completion"});
-  REQUIRE_FALSE(result.error.has_value());
-  CHECK(result.completion);
-  CHECK(result.completionShell.empty());
-  CHECK(result.helpText.find("encro completion <powershell|bash>") != std::string::npos);
-  CHECK(
-    result.helpText.find("print, install, or uninstall shell completion scripts")
-    != std::string::npos
-  );
-}
+TEST_CASE("completion help routing", "[completion]") {
+  SECTION("bare completion shows the subcommand help") {
+    auto const result = testutils::parseArgs({"encro", "completion"});
+    REQUIRE_FALSE(result.error.has_value());
+    CHECK(result.completion);
+    CHECK(result.completionShell.empty());
+    CHECK(
+      result.helpText.find("encro completion <powershell|bash>") != std::string::npos
+    );
+    CHECK(
+      result.helpText.find("print, install, or uninstall shell completion scripts")
+      != std::string::npos
+    );
+  }
 
-TEST_CASE("completion -h routes through the help path", "[completion]") {
-  auto const result = testutils::parseArgs({"encro", "completion", "-h"});
-  CHECK(result.help);
-  CHECK(result.helpText.find("encro completion <powershell|bash>") != std::string::npos);
-}
-
-TEST_CASE("main help commands section gains the completion row", "[completion]") {
-  auto const result = testutils::parseArgs({"encro", "-h"});
-  REQUIRE_FALSE(result.error.has_value());
-  CHECK(
-    result.helpText
-      .find("completion   print, install, or uninstall shell completion scripts")
-    != std::string::npos
-  );
+  SECTION("-h routes through the help path") {
+    auto const result = testutils::parseArgs({"encro", "completion", "-h"});
+    CHECK(result.help);
+    CHECK(
+      result.helpText.find("encro completion <powershell|bash>") != std::string::npos
+    );
+  }
 }

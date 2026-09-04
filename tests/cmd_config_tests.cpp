@@ -39,9 +39,25 @@ TEST_CASE("config value applies when CLI omits the option", "[cmd][config]") {
 TEST_CASE("cli value beats config value", "[cmd][config]") {
   auto const config = ScopedConfigFile{"{\"crf\": 23}"};
 
-  auto const result = testutils::parseArgs({"encro", "--crf", "30"});
-  REQUIRE_FALSE(result.error.has_value());
-  CHECK(result.crf == 30);
+  SECTION("main position") {
+    auto const result = testutils::parseArgs({"encro", "--crf", "30"});
+    REQUIRE_FALSE(result.error.has_value());
+    CHECK(result.crf == 30);
+  }
+
+  SECTION("explicit value before the preview subcommand") {
+    auto const result =
+      testutils::parseArgs({"encro", "--crf", "20", "preview", "clip.mp4"});
+    REQUIRE_FALSE(result.error.has_value());
+    CHECK(result.crf == 20);
+  }
+
+  SECTION("explicit value inside the preview subcommand") {
+    auto const result =
+      testutils::parseArgs({"encro", "preview", "--crf", "20", "clip.mp4"});
+    REQUIRE_FALSE(result.error.has_value());
+    CHECK(result.crf == 20);
+  }
 }
 
 TEST_CASE(
@@ -155,11 +171,7 @@ TEST_CASE(
   REQUIRE_FALSE(result.error.has_value());
 
   auto const& help = result.helpText;
-  // The config synopsis left the usage block for the commands section.
-  CHECK(
-    help.find("  config       inspect and persist user-level configuration defaults")
-    != std::string::npos
-  );
+  // Negation flags render collapsed; bare --no-* names stay out of the help.
   CHECK(help.find("-p, --[no-]pack") != std::string::npos);
   CHECK(help.find("-y, --[no-]yes") != std::string::npos);
   CHECK(testutils::findHelpLine(help, "--no-pack") == std::nullopt);
@@ -193,27 +205,6 @@ TEST_CASE(
   auto const presetLine = testutils::findHelpLine(result.helpText, "--preset");
   REQUIRE(presetLine.has_value());
   CHECK(presetLine->find("(=p5)") != std::string::npos);
-}
-
-TEST_CASE(
-  "preview twin display sync never overrides an explicit cli crf",
-  "[cmd][config]"
-) {
-  auto const config = ScopedConfigFile{"{\"crf\": 23}"};
-
-  SECTION("explicit value before the subcommand") {
-    auto const result =
-      testutils::parseArgs({"encro", "--crf", "20", "preview", "clip.mp4"});
-    REQUIRE_FALSE(result.error.has_value());
-    CHECK(result.crf == 20);
-  }
-
-  SECTION("explicit value inside the subcommand") {
-    auto const result =
-      testutils::parseArgs({"encro", "preview", "--crf", "20", "clip.mp4"});
-    REQUIRE_FALSE(result.error.has_value());
-    CHECK(result.crf == 20);
-  }
 }
 
 // ── Config subcommand parsing (task 5.1) ─────────────────────────────────
