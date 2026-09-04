@@ -169,7 +169,7 @@ TEST_CASE(
   "xpsnr floor maps the documented anchors and interpolates or clamps between them",
   "[video-quality]"
 ) {
-  SECTION("documented vmaf anchors") {
+  SECTION("anchors expressed as vmaf floors") {
     CHECK(videoquality::xpsnrFloorForVmafFloor(90) == Catch::Approx(38.5));
     CHECK(videoquality::xpsnrFloorForVmafFloor(95) == Catch::Approx(41.0));
     CHECK(videoquality::xpsnrFloorForVmafFloor(97) == Catch::Approx(42.5));
