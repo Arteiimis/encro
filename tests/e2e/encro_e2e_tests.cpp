@@ -286,6 +286,20 @@ TEST_CASE("encro failed run prints the log file hint on stderr", "[e2e][cli]") {
   REQUIRE(logTail.starts_with("\nencro log ("));
 }
 
+TEST_CASE("encro failed subcommand runs print the log file hint", "[e2e][cli]") {
+  // Both fail inside the command body (after CLI parse): an invalid value for
+  // --set, and --install without a shell. Not via failWithHint.
+  auto const configRun = e2e::runEncro({"config", "--set", "jobs", "4.5"});
+
+  REQUIRE(configRun.exitCode == 1);
+  CHECK(configRun.stderrText.find("Log file:") != std::string::npos);
+
+  auto const completionRun = e2e::runEncro({"completion", "--install"});
+
+  REQUIRE(completionRun.exitCode == 1);
+  CHECK(completionRun.stderrText.find("Log file:") != std::string::npos);
+}
+
 TEST_CASE("encro invalid CLI args print short help hint", "[e2e][cli]") {
   auto const result = e2e::runEncro({"--nope"});
 
@@ -938,6 +952,7 @@ TEST_CASE(
 
   REQUIRE(result.exitCode == 1);
   CHECK(result.stdoutText.find("Failed to encode: 1") != std::string::npos);
+  CHECK(result.stderrText.find("Log file:") != std::string::npos);
   REQUIRE(fs::exists(statePath));
 
   auto const state = loadJsonObject(statePath);
@@ -1428,6 +1443,7 @@ TEST_CASE(
 
   REQUIRE(result.exitCode == 1);
   CHECK(result.stdoutText.find("Failed to encode: 1") != std::string::npos);
+  CHECK(result.stderrText.find("Log file:") != std::string::npos);
   REQUIRE(fs::exists(statePath));
   auto const state = loadJsonObject(statePath);
   auto const& tasks = state.at("tasks").as_array();

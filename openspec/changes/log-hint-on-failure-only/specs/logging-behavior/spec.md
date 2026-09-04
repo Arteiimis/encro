@@ -18,6 +18,14 @@ Every run SHALL write the rotating verbose log file (`%LOCALAPPDATA%/encro/logs/
 - **WHEN** the user runs `encro preview <original> <encoded>` successfully
 - **THEN** the output does not contain a `Log file:` hint
 
+#### Scenario: Failed subcommand run prints the log hint
+- **WHEN** a subcommand fails inside its own body (for example `encro config --set jobs 4.5` with an invalid value)
+- **THEN** the output contains a `Log file: <path>` hint naming an existing log file that records the failure
+
+#### Scenario: Interrupted run prints no hint
+- **WHEN** a run is cancelled via Ctrl-C
+- **THEN** the output does not contain a `Log file:` hint
+
 #### Scenario: Help run creates no log file
 - **WHEN** the user runs `encro -h`, `encro -hh`, or `encro --help`
 - **THEN** no log file is created
