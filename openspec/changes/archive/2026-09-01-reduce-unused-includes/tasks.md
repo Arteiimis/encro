@@ -15,4 +15,4 @@
 
 ## 4. Follow-up (out of scope, noted)
 
-- [ ] 4.1 Record in the change summary that `xmake include-cleaner --check` is now CI-gateable on both platforms (adding the CI step itself is a separate change)
+- [x] 4.1 Record in the change summary that `xmake include-cleaner --check` is now CI-gateable on both platforms (adding the CI step itself is a separate change)
