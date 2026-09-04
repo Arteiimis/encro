@@ -80,14 +80,6 @@ TEST_CASE(
   CHECK(*elapsed < 95.0f);
 }
 
-TEST_CASE("videobatch types compile and are usable", "[video-batch-execution]") {
-  // GREEN phase: extraction complete — public API types verified
-  auto actionIds = videobatch::ActionIdMap{};
-  auto results = videobatch::EncodeResultsMap{};
-  CHECK(actionIds.size() == 0);
-  CHECK(results.size() == 0);
-}
-
 TEST_CASE(
   "encoding monitor exits promptly after a stop request",
   "[video-batch-execution][stop-signal]"

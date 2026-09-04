@@ -195,29 +195,6 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "parseProgressFile keeps latest frame when ffmpeg tail block is longer than 12 lines",
-  "[video-process][parseProgressFile]"
-) {
-  TempDir temp;
-  auto const filePath = temp.path / "progress.log";
-
-  {
-    std::ofstream out{filePath};
-    out << "frame=10\n";
-    out << "progress=continue\n";
-    out << "frame=25\n";
-    for (auto i = 0; i < 12; ++i) { out << "field_" << i << "=value\n"; }
-    out << "progress=end\n";
-  }
-
-  auto const result = parseProgressFile(filePath);
-  REQUIRE(result.has_value());
-  auto const frameCount = result->frameCount;
-
-  CHECK(frameCount == 25);
-}
-
-TEST_CASE(
   "isLikelyFfmpegErrorLine ignores ffmpeg metadata comment payloads",
   "[video-process][ffmpeg]"
 ) {

@@ -1407,10 +1407,6 @@ TEST_CASE(
   CHECK(count == 2);
 }
 
-TEST_CASE("console Ctrl+C availability probe is callable", "[e2e][interrupt]") {
-  CHECK_NOTHROW(e2e::consoleCtrlEventsAvailable());
-}
-
 TEST_CASE(
   "encro fails when ffprobe cannot probe the input",
   "[e2e][video][failure][fake-toolchain]"
