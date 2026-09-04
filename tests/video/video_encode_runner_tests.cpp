@@ -196,26 +196,6 @@ struct SegmentScaffold {
 }  // namespace
 
 TEST_CASE(
-  "segmented encoding runs one segment, extracts audio once, and assembles",
-  "[video-encode-runner]"
-) {
-  auto stopGuard = testutils::ScopedStopSignalReset{};
-  auto s = SegmentScaffold{2.0, true};
-
-  CHECK(s.run());
-
-  auto const log = testutils::readTextFile(s.logPath);
-  CHECK(log.find("seg_0.ts") != std::string::npos);
-  auto const extractions = testutils::countOccurrences(log, "-vn -c:a copy")
-    + testutils::countOccurrences(log, "-vn\t-c:a\tcopy");
-  CHECK(extractions == 1);
-  auto const assembled = testutils::countOccurrences(log, "-f concat")
-    + testutils::countOccurrences(log, "-f\tconcat");
-  CHECK(assembled >= 1);
-  CHECK(log.find("list.txt") != std::string::npos);
-}
-
-TEST_CASE(
   "segmented encoding marks failure and skips assembly when a segment fails",
   "[video-encode-runner]"
 ) {
@@ -283,4 +263,9 @@ TEST_CASE(
       + testutils::countOccurrences(log, "-vn\t-c:a\tcopy")
     == 1
   );
+  // The segments are assembled from the concat list exactly once.
+  auto const assembled = testutils::countOccurrences(log, "-f concat")
+    + testutils::countOccurrences(log, "-f\tconcat");
+  CHECK(assembled >= 1);
+  CHECK(log.find("list.txt") != std::string::npos);
 }

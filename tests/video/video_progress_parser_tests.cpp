@@ -22,42 +22,40 @@ TEST_CASE("readLastNLines returns tail of file", "[video-process][readLastNLines
   CHECK(lastLines[2] == "line5");
 }
 
-TEST_CASE("readLastNLines handles short files", "[video-process][readLastNLines]") {
+TEST_CASE(
+  "readLastNLines tolerates short, missing, and empty files",
+  "[video-process][readLastNLines]"
+) {
   TempDir temp;
-  auto const filePath = temp.path / "short.log";
 
-  {
-    std::ofstream out{filePath};
-    out << "only-one-line\n";
+  SECTION("short file yields its single line") {
+    auto const filePath = temp.path / "short.log";
+
+    {
+      std::ofstream out{filePath};
+      out << "only-one-line\n";
+    }
+
+    auto const lastLines = readLastNLines(filePath, 5);
+
+    REQUIRE(lastLines.size() == 1);
+    CHECK(lastLines[0] == "only-one-line");
   }
 
-  auto const lastLines = readLastNLines(filePath, 5);
+  SECTION("missing file yields empty") {
+    auto const missingPath = temp.path / "missing.log";
 
-  REQUIRE(lastLines.size() == 1);
-  CHECK(lastLines[0] == "only-one-line");
-}
+    auto const lastLines = readLastNLines(missingPath, 2);
+    CHECK(lastLines.empty());
+  }
 
-TEST_CASE(
-  "readLastNLines returns empty for missing file",
-  "[video-process][readLastNLines]"
-) {
-  TempDir temp;
-  auto const missingPath = temp.path / "missing.log";
+  SECTION("empty file yields empty") {
+    auto const filePath = temp.path / "empty.log";
+    { std::ofstream out{filePath}; }
 
-  auto const lastLines = readLastNLines(missingPath, 2);
-  CHECK(lastLines.empty());
-}
-
-TEST_CASE(
-  "readLastNLines returns empty for empty file",
-  "[video-process][readLastNLines]"
-) {
-  TempDir temp;
-  auto const filePath = temp.path / "empty.log";
-  { std::ofstream out{filePath}; }
-
-  auto const lastLines = readLastNLines(filePath, 2);
-  CHECK(lastLines.empty());
+    auto const lastLines = readLastNLines(filePath, 2);
+    CHECK(lastLines.empty());
+  }
 }
 
 namespace {
@@ -106,44 +104,39 @@ TEST_CASE(
 
 TEST_CASE(
   "parseProgressFile reads the tail of a file larger than 64 KiB",
-  "[video-process][parseProgressFile]"
+  "[video-process][parseProgressFile][parseSegmentEndUs]"
 ) {
   TempDir temp;
   auto const filePath = temp.path / "large.log";
   writeLargeProgressFile(filePath);
 
-  auto const result = parseProgressFile(filePath);
-  REQUIRE(result.has_value());
-  auto const frameCount = result->frameCount;
+  SECTION("parseProgressFile finds the frame line past the window") {
+    auto const result = parseProgressFile(filePath);
+    REQUIRE(result.has_value());
+    auto const frameCount = result->frameCount;
 
-  CHECK(frameCount == 4242);
-}
-
-TEST_CASE(
-  "parseSegmentEndUs reads the tail of a file larger than 64 KiB",
-  "[video-process][parseSegmentEndUs]"
-) {
-  TempDir temp;
-  auto const filePath = temp.path / "large.log";
-  writeLargeProgressFile(filePath);
-
-  auto const endUs = parseSegmentEndUs(filePath);
-  CHECK_FALSE(endUs.has_value());  // large.log has no out_time_us line
-
-  {
-    std::ofstream out{filePath, std::ios::app};
-    for (auto i = 0; i < 700; ++i) { out << std::string(100, 'y') << "\n"; }
-    out << "out_time_us=10024000\n";
-    out << "progress=end\n";
+    CHECK(frameCount == 4242);
   }
 
-  auto const endUs2 = parseSegmentEndUs(filePath);
-  REQUIRE(endUs2.has_value());
-  CHECK(endUs2.value() == 10'024'000);
+  SECTION("parseSegmentEndUs reads past the window") {
+    auto const endUs = parseSegmentEndUs(filePath);
+    CHECK_FALSE(endUs.has_value());  // large.log has no out_time_us line
+
+    {
+      std::ofstream out{filePath, std::ios::app};
+      for (auto i = 0; i < 700; ++i) { out << std::string(100, 'y') << "\n"; }
+      out << "out_time_us=10024000\n";
+      out << "progress=end\n";
+    }
+
+    auto const endUs2 = parseSegmentEndUs(filePath);
+    REQUIRE(endUs2.has_value());
+    CHECK(endUs2.value() == 10'024'000);
+  }
 }
 
 TEST_CASE(
-  "parseProgressFile extracts latest frame and status",
+  "parseProgressFile extracts the latest frame",
   "[video-process][parseProgressFile]"
 ) {
   TempDir temp;
@@ -264,7 +257,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "progressPercent includes base frame offset",
+  "progressPercent includes the base offset and clamps above 100",
   "[video-process][progressPercent]"
 ) {
   CHECK(progressPercent(0, 0, 100) == 0.0f);
@@ -272,9 +265,6 @@ TEST_CASE(
   CHECK(progressPercent(25, 50, 100) == 75.0f);
   CHECK(progressPercent(5, 95, 100) == 100.0f);
   CHECK(progressPercent(0, 0, 0) == 0.0f);
-}
-
-TEST_CASE("progressPercent clamps above 100", "[video-process][progressPercent]") {
   CHECK(progressPercent(10, 95, 100) == 100.0f);
   CHECK(progressPercent(50, 80, 100) == 100.0f);
 }

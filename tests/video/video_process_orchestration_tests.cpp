@@ -34,6 +34,20 @@ struct ScopedCurrentPath {
   ~ScopedCurrentPath() { fs::current_path(previous); }
 };
 
+// Watches the cwd for a stray "-progress" file: ffmpeg creates one when an
+// invocation loses its -progress value. Removes any leftover on entry and
+// fails the test if the regression reappears during the test.
+struct StrayProgressGuard {
+  fs::path path;
+
+  StrayProgressGuard(): path(fs::current_path() / "-progress") {
+    std::error_code ec;
+    fs::remove(path, ec);
+  }
+
+  ~StrayProgressGuard() { CHECK_FALSE(fs::exists(path)); }
+};
+
 // Fake ffmpeg = the shared e2e fake_media_tool binary (testutils::copyFakeTool).
 // The encoder side writes frame=/progress= progress entries by default;
 // outputs are placeholder-sized via ENCRO_FAKE_FFMPEG_OUTPUT_BYTES.
@@ -57,9 +71,8 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  auto const strayProgressPath = fs::current_path() / "-progress";
+  StrayProgressGuard strayProgress;
   auto const inputPath = temp.path / "sample.mp4";
-  if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
   writeTextFile(inputPath, "fake-video");
 
   auto ctx = appctx::AppContext{};
@@ -71,7 +84,6 @@ TEST_CASE(
   CHECK(result == 0);
   REQUIRE(encodedFiles.size() == 1);
   CHECK(encodedFiles.front().extension() == ".webp");
-  CHECK_FALSE(fs::exists(strayProgressPath));
 }
 
 TEST_CASE(
@@ -80,9 +92,8 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  auto const strayProgressPath = fs::current_path() / "-progress";
+  StrayProgressGuard strayProgress;
   auto const inputDir = temp.path / "videos";
-  if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
   fs::create_directories(inputDir);
   writeTextFile(inputDir / "a.mp4", "a");
   writeTextFile(inputDir / "b.mov", "b");
@@ -97,7 +108,6 @@ TEST_CASE(
   REQUIRE(packedFiles.size() == 1);
   CHECK(packedFiles.front().extension() == ".zip");
   CHECK(packedFiles.front().filename().string().starts_with("videos_part1["));
-  CHECK_FALSE(fs::exists(strayProgressPath));
 }
 
 TEST_CASE(
@@ -106,10 +116,9 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  auto const strayProgressPath = fs::current_path() / "-progress";
+  StrayProgressGuard strayProgress;
   auto const inputDir = temp.path / "videos";
   auto const stateFilePath = temp.path / "encro.job-state.json";
-  if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
   fs::create_directories(inputDir);
   writeTextFile(inputDir / "a.mp4", "a");
   writeTextFile(inputDir / "b.mov", "b");
@@ -165,7 +174,6 @@ TEST_CASE(
       return task.kind == jobstate::kBuildArchiveKind;
     });
   CHECK(archiveTaskCount == 1);
-  CHECK_FALSE(fs::exists(strayProgressPath));
 }
 
 TEST_CASE(
@@ -174,9 +182,8 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  auto const strayProgressPath = fs::current_path() / "-progress";
+  StrayProgressGuard strayProgress;
   auto const inputPath = temp.path / "slow.mp4";
-  if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
   writeTextFile(inputPath, "slow-video");
 
   auto ctx = appctx::AppContext{};
@@ -187,7 +194,6 @@ TEST_CASE(
 
   CHECK(result == stopsignal::kCanceledExitCode);
   CHECK_FALSE(fs::exists(temp.path / "encoded_webp" / "slow.webp"));
-  CHECK_FALSE(fs::exists(strayProgressPath));
 }
 
 TEST_CASE(
@@ -285,8 +291,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  auto const strayProgressPath = fs::current_path() / "-progress";
-  if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
+  StrayProgressGuard strayProgress;
   auto const inputPath = temp.path / "sample.mp4";
   writeTextFile(inputPath, "fake-video");
 
@@ -324,8 +329,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  auto const strayProgressPath = fs::current_path() / "-progress";
-  if (fs::exists(strayProgressPath)) { fs::remove(strayProgressPath); }
+  StrayProgressGuard strayProgress;
   auto const inputPath = temp.path / "sample.mp4";
   auto const logDir = temp.path / "logs";
   writeTextFile(inputPath, "fake-video");

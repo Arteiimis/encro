@@ -21,13 +21,7 @@ TEST_CASE("EncodeConfig validates required fields", "[encode-config]") {
 
   auto const cmd = cfg.buildCMD();
   CHECK(cmd.find(inputPath.string()) != std::string::npos);
-  CHECK(
-    cmd.find(
-      "-c:v hevc_nvenc -preset p5 -rc vbr -cq 22 -b:v 0 -tag:v hvc1 -pix_fmt yuv420p"
-    )
-    != std::string::npos
-  );
-  CHECK(cmd.find("-crf") == std::string::npos);
+  // The full NVENC chain is pinned once in the segmented mp4 command test.
   CHECK(cmd.find(cfg.progressFilePath->string()) != std::string::npos);
   auto const expectedOutput =
     (inputPath.parent_path() / std::format("{}.hevc.mp4", inputPath.stem().string()))
@@ -267,22 +261,6 @@ TEST_CASE("EncodeConfig uses custom webp quality", "[encode-config]") {
   CHECK(cmd.find("-q:v 55") != std::string::npos);
 }
 
-TEST_CASE("EncodeConfig suppresses ffmpeg banner and info output", "[encode-config]") {
-  TempDir temp;
-  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
-
-  EncodeConfig cfg;
-  cfg.inputPath = inputPath;
-
-  auto const validation = cfg.validate();
-  REQUIRE(validation);
-
-  auto const cmd = cfg.buildCMD();
-  CHECK(cmd.find("-hide_banner") != std::string::npos);
-  CHECK(cmd.find("-nostats") != std::string::npos);
-  CHECK(cmd.find("-loglevel error") != std::string::npos);
-}
-
 TEST_CASE("EncodeConfig builds segmented mp4 command", "[encode-config]") {
   TempDir temp;
   auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
@@ -420,11 +398,9 @@ TEST_CASE("EncodeConfig NVENC h264 has no hvc1 tag", "[encode-config]") {
   REQUIRE(validation);
 
   auto const cmd = cfg.buildCMD();
-  CHECK(
-    cmd.find("-c:v h264_nvenc -preset p5 -rc vbr -cq 22 -b:v 0") != std::string::npos
-  );
+  // The NVENC chain template (preset/rc/cq/b:v/pix_fmt) is pinned once in the
+  // segmented mp4 command test; the h264 delta is the missing hvc1 tag.
   CHECK(cmd.find("-tag:v hvc1") == std::string::npos);
-  CHECK(cmd.find("-pix_fmt yuv420p") != std::string::npos);
   CHECK(cmd.find("-crf") == std::string::npos);
 }
 

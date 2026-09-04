@@ -7,39 +7,34 @@ using testutils::copyFakeTool;
 
 namespace fs = std::filesystem;
 
-TEST_CASE("readAllVids skips files at or above 32MB for webp", "[video-info]") {
+TEST_CASE("readAllVids applies the 32MB size boundary for webp", "[video-info]") {
   TempDir temp;
-  auto const largeVideo = temp.path / "large.mp4";
-  testutils::writeSizedFile(largeVideo, 32ULL * 1024ULL * 1024ULL);
-
   auto config = appctx::AppConfig{};
   config.outputFormat = "webp";
   config.recursive = false;
   auto toolchain = appctx::ToolchainPaths{};
   auto runtime = appctx::RuntimeContext{};
 
-  auto const vids = readAllVids(config, toolchain, runtime, largeVideo);
+  SECTION("file at 32MB is skipped") {
+    auto const largeVideo = temp.path / "large.mp4";
+    testutils::writeSizedFile(largeVideo, 32ULL * 1024ULL * 1024ULL);
 
-  REQUIRE(vids);
-  CHECK(vids->empty());
-}
+    auto const vids = readAllVids(config, toolchain, runtime, largeVideo);
 
-TEST_CASE("readAllVids allows files just below 32MB for webp", "[video-info]") {
-  TempDir temp;
-  auto const boundaryVideo = temp.path / "boundary.mp4";
-  testutils::writeSizedFile(boundaryVideo, 32ULL * 1024ULL * 1024ULL - 1ULL);
+    REQUIRE(vids);
+    CHECK(vids->empty());
+  }
 
-  auto config = appctx::AppConfig{};
-  config.outputFormat = "webp";
-  config.recursive = false;
-  auto toolchain = appctx::ToolchainPaths{};
-  auto runtime = appctx::RuntimeContext{};
+  SECTION("file just below 32MB is kept") {
+    auto const boundaryVideo = temp.path / "boundary.mp4";
+    testutils::writeSizedFile(boundaryVideo, 32ULL * 1024ULL * 1024ULL - 1ULL);
 
-  auto const vids = readAllVids(config, toolchain, runtime, boundaryVideo);
+    auto const vids = readAllVids(config, toolchain, runtime, boundaryVideo);
 
-  REQUIRE(vids);
-  REQUIRE(vids->size() == 1);
-  CHECK(vids->front() == boundaryVideo);
+    REQUIRE(vids);
+    REQUIRE(vids->size() == 1);
+    CHECK(vids->front() == boundaryVideo);
+  }
 }
 
 TEST_CASE("readAllVids for webp prewarms video info cache", "[video-info]") {

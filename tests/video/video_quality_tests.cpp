@@ -55,25 +55,28 @@ TEST_CASE("percentile computes nearest-rank p5 and p50", "[video-quality]") {
   auto const p50 = videoquality::percentile(scores, 50.0);
   REQUIRE(p50.has_value());
   CHECK(*p50 == Catch::Approx(95.5));  // ceil(0.5*10)=5 → 5th of sorted
+
+  auto const empty = std::array<double, 0>{};
+  CHECK_FALSE(videoquality::percentile(empty, 5.0).has_value());
 }
 
-TEST_CASE("percentile returns nullopt for empty scores", "[video-quality]") {
-  auto const scores = std::array<double, 0>{};
-  CHECK_FALSE(videoquality::percentile(scores, 5.0).has_value());
-}
+TEST_CASE(
+  "ssim floor maps the documented anchors and interpolates or clamps between them",
+  "[video-quality]"
+) {
+  SECTION("documented vmaf anchors") {
+    CHECK(videoquality::ssimFloorForVmafFloor(97) == Catch::Approx(0.985));
+    CHECK(videoquality::ssimFloorForVmafFloor(95) == Catch::Approx(0.980));
+    CHECK(videoquality::ssimFloorForVmafFloor(90) == Catch::Approx(0.970));
+  }
 
-TEST_CASE("ssim floor maps the documented vmaf anchors", "[video-quality]") {
-  CHECK(videoquality::ssimFloorForVmafFloor(97) == Catch::Approx(0.985));
-  CHECK(videoquality::ssimFloorForVmafFloor(95) == Catch::Approx(0.980));
-  CHECK(videoquality::ssimFloorForVmafFloor(90) == Catch::Approx(0.970));
-}
-
-TEST_CASE("ssim floor interpolates and clamps outside anchors", "[video-quality]") {
-  // 96 is halfway between 95 and 97.
-  CHECK(videoquality::ssimFloorForVmafFloor(96) == Catch::Approx(0.9825));
-  // Below 90 and above 97 clamp to the anchors.
-  CHECK(videoquality::ssimFloorForVmafFloor(80) == Catch::Approx(0.970));
-  CHECK(videoquality::ssimFloorForVmafFloor(100) == Catch::Approx(0.985));
+  SECTION("midpoint interpolates; outside anchors clamp") {
+    // 96 is halfway between 95 and 97.
+    CHECK(videoquality::ssimFloorForVmafFloor(96) == Catch::Approx(0.9825));
+    // Below 90 and above 97 clamp to the anchors.
+    CHECK(videoquality::ssimFloorForVmafFloor(80) == Catch::Approx(0.970));
+    CHECK(videoquality::ssimFloorForVmafFloor(100) == Catch::Approx(0.985));
+  }
 }
 
 TEST_CASE(
@@ -91,18 +94,46 @@ TEST_CASE(
   CHECK(scores->back() == Catch::Approx(95.5));
 }
 
-TEST_CASE("parseVmafLog fails on missing or score-less logs", "[video-quality]") {
+TEST_CASE(
+  "quality parsers fail cleanly on missing or score-less logs",
+  "[video-quality]"
+) {
   TempDir temp;
-  auto const missing = temp.path / "missing.json";
-  CHECK_FALSE(videoquality::parseVmafLog(missing).has_value());
 
-  auto const emptyLog = temp.path / "empty.json";
-  testutils::writeTextFile(emptyLog, R"({"frames": []})");
-  CHECK_FALSE(videoquality::parseVmafLog(emptyLog).has_value());
+  SECTION("vmaf json parser") {
+    auto const missing = temp.path / "missing.json";
+    CHECK_FALSE(videoquality::parseVmafLog(missing).has_value());
 
-  auto const malformed = temp.path / "malformed.json";
-  testutils::writeTextFile(malformed, "not json");
-  CHECK_FALSE(videoquality::parseVmafLog(malformed).has_value());
+    auto const emptyLog = temp.path / "empty.json";
+    testutils::writeTextFile(emptyLog, R"({"frames": []})");
+    CHECK_FALSE(videoquality::parseVmafLog(emptyLog).has_value());
+
+    auto const malformed = temp.path / "malformed.json";
+    testutils::writeTextFile(malformed, "not json");
+    CHECK_FALSE(videoquality::parseVmafLog(malformed).has_value());
+  }
+
+  SECTION("ssim stats parser") {
+    auto const missing = temp.path / "missing.txt";
+    CHECK_FALSE(videoquality::parseSsimStats(missing).has_value());
+
+    auto const empty = temp.path / "empty.txt";
+    testutils::writeTextFile(empty, "no scores here\n");
+    CHECK_FALSE(videoquality::parseSsimStats(empty).has_value());
+  }
+
+  SECTION("xpsnr stats parser") {
+    auto const missing = temp.path / "missing.txt";
+    CHECK_FALSE(videoquality::parseXpsnrStats(missing).has_value());
+
+    auto const empty = temp.path / "empty.txt";
+    testutils::writeTextFile(empty, "no scores here\n");
+    CHECK_FALSE(videoquality::parseXpsnrStats(empty).has_value());
+
+    auto const truncated = temp.path / "truncated.txt";
+    testutils::writeTextFile(truncated, "n:    1  XPSNR y: ");
+    CHECK_FALSE(videoquality::parseXpsnrStats(truncated).has_value());
+  }
 }
 
 TEST_CASE("parseSsimStats reads per-frame ssim values", "[video-quality]") {
@@ -134,28 +165,23 @@ TEST_CASE("parseSsimStats reads the modern All: line format", "[video-quality]")
   CHECK(scores->at(1) == Catch::Approx(0.831));
 }
 
-TEST_CASE("parseSsimStats fails on missing or score-less files", "[video-quality]") {
-  TempDir temp;
-  auto const missing = temp.path / "missing.txt";
-  CHECK_FALSE(videoquality::parseSsimStats(missing).has_value());
+TEST_CASE(
+  "xpsnr floor maps the documented anchors and interpolates or clamps between them",
+  "[video-quality]"
+) {
+  SECTION("documented vmaf anchors") {
+    CHECK(videoquality::xpsnrFloorForVmafFloor(90) == Catch::Approx(38.5));
+    CHECK(videoquality::xpsnrFloorForVmafFloor(95) == Catch::Approx(41.0));
+    CHECK(videoquality::xpsnrFloorForVmafFloor(97) == Catch::Approx(42.5));
+  }
 
-  auto const empty = temp.path / "empty.txt";
-  testutils::writeTextFile(empty, "no scores here\n");
-  CHECK_FALSE(videoquality::parseSsimStats(empty).has_value());
-}
-
-TEST_CASE("xpsnr floor maps the documented vmaf anchors", "[video-quality]") {
-  CHECK(videoquality::xpsnrFloorForVmafFloor(90) == Catch::Approx(38.5));
-  CHECK(videoquality::xpsnrFloorForVmafFloor(95) == Catch::Approx(41.0));
-  CHECK(videoquality::xpsnrFloorForVmafFloor(97) == Catch::Approx(42.5));
-}
-
-TEST_CASE("xpsnr floor interpolates and clamps outside anchors", "[video-quality]") {
-  // 96 is halfway between 95 (41.0) and 97 (42.5).
-  CHECK(videoquality::xpsnrFloorForVmafFloor(96) == Catch::Approx(41.75));
-  // Below 90 and above 97 clamp to the anchors.
-  CHECK(videoquality::xpsnrFloorForVmafFloor(80) == Catch::Approx(38.5));
-  CHECK(videoquality::xpsnrFloorForVmafFloor(100) == Catch::Approx(42.5));
+  SECTION("midpoint interpolates; outside anchors clamp") {
+    // 96 is halfway between 95 (41.0) and 97 (42.5).
+    CHECK(videoquality::xpsnrFloorForVmafFloor(96) == Catch::Approx(41.75));
+    // Below 90 and above 97 clamp to the anchors.
+    CHECK(videoquality::xpsnrFloorForVmafFloor(80) == Catch::Approx(38.5));
+    CHECK(videoquality::xpsnrFloorForVmafFloor(100) == Catch::Approx(42.5));
+  }
 }
 
 TEST_CASE(
@@ -191,20 +217,6 @@ TEST_CASE(
   REQUIRE(scores.has_value());
   REQUIRE(scores->size() == 2);
   CHECK(scores->at(0) == Catch::Approx((-10.8249 - 10.7225 - 10.7331) / 3.0));
-}
-
-TEST_CASE("parseXpsnrStats fails on missing or score-less files", "[video-quality]") {
-  TempDir temp;
-  auto const missing = temp.path / "missing.txt";
-  CHECK_FALSE(videoquality::parseXpsnrStats(missing).has_value());
-
-  auto const empty = temp.path / "empty.txt";
-  testutils::writeTextFile(empty, "no scores here\n");
-  CHECK_FALSE(videoquality::parseXpsnrStats(empty).has_value());
-
-  auto const truncated = temp.path / "truncated.txt";
-  testutils::writeTextFile(truncated, "n:    1  XPSNR y: ");
-  CHECK_FALSE(videoquality::parseXpsnrStats(truncated).has_value());
 }
 
 TEST_CASE("isHdrVideo detects 10-bit and HDR transfer curves", "[video-quality]") {
