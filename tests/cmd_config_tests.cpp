@@ -155,8 +155,8 @@ TEST_CASE(
     help.find("  config       inspect and persist user-level configuration defaults")
     != std::string::npos
   );
-  CHECK(help.find("--[no-]pack,-p") != std::string::npos);
-  CHECK(help.find("--[no-]yes,-y") != std::string::npos);
+  CHECK(help.find("-p, --[no-]pack") != std::string::npos);
+  CHECK(help.find("-y, --[no-]yes") != std::string::npos);
   CHECK(testutils::findHelpLine(help, "--no-pack") == std::nullopt);
   CHECK(testutils::findHelpLine(help, "--no-yes") == std::nullopt);
 }
