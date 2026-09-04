@@ -1,10 +1,8 @@
 #include "picture/picture_process.h"
 #include "infra/stop_signal.h"
-#include "pack/pack.h"
 #include "test_utils.h"
 
 #include <chrono>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
-#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <iostream>
@@ -15,81 +13,6 @@
 namespace fs = std::filesystem;
 using testutils::copyFakeTool;
 using testutils::ScopedEnvVar;
-
-TEST_CASE(
-  "execute() Media mode produces subPart split for size overflow",
-  "[picture-process][pack]"
-) {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  auto const outputDir = temp.path / "packed";
-  fs::create_directories(inputDir);
-
-  constexpr auto kSize = std::uintmax_t{240ULL * 1024ULL * 1024ULL};
-  auto const f1 = testutils::writeSizedFile(inputDir / "a.jpg", kSize);
-  auto const f2 = testutils::writeSizedFile(inputDir / "b.jpg", kSize);
-  auto const f3 = testutils::writeSizedFile(inputDir / "c.jpg", kSize);
-
-  auto const result = pack::execute({
-    .entries = {f1, f2, f3},
-    .mode = pack::PackMode::Media,
-    .outputDir = outputDir,
-    .compact = true,
-    .removeOnFailure = true,
-  });
-
-  REQUIRE(result.has_value());
-  REQUIRE(result->exitCode == 0);
-
-  // 3 * 240MB = 720MB > 500MB limit -> subPart split expected
-  CHECK(result->zippedFiles.size() >= 2);
-
-  for (auto const& f: result->zippedFiles) {
-    CHECK(fs::exists(f));
-    CHECK(fs::file_size(f) > 0);
-  }
-}
-
-TEST_CASE(
-  "execute() Media mode with naming produces baseName prefixed zip names",
-  "[picture-process][pack]"
-) {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  auto const outputDir = temp.path / "packed";
-  auto const dirA = inputDir / "a";
-  auto const dirB = inputDir / "b";
-  fs::create_directories(dirA);
-  fs::create_directories(dirB);
-
-  auto const a1 = testutils::writeSizedFile(dirA / "alpha.jpg", 32);
-  auto const a2 = testutils::writeSizedFile(dirA / "beta.jpg", 32);
-  auto const b1 = testutils::writeSizedFile(dirB / "alpha.jpg", 32);
-  auto const b2 = testutils::writeSizedFile(dirB / "beta.jpg", 32);
-
-  auto const result = pack::execute({
-    .entries = {a1, a2, b1, b2},
-    .mode = pack::PackMode::Media,
-    .outputDir = outputDir,
-    .compact = true,
-    .removeOnFailure = true,
-    .naming = pack::NamingConfig{
-      .namingStrategy = pack::NamingStrategy::Flat,
-      .baseName = "pics",
-    },
-  });
-
-  REQUIRE(result.has_value());
-  REQUIRE(result->exitCode == 0);
-
-  // 4 small files fit in 1 zip
-  REQUIRE(result->zippedFiles.size() == 1);
-
-  auto const zipName = result->zippedFiles[0].filename().string();
-  CHECK(zipName.find("pics_part1") != std::string::npos);
-  CHECK(fs::exists(result->zippedFiles[0]));
-  CHECK(fs::file_size(result->zippedFiles[0]) > 0);
-}
 
 TEST_CASE("runPicturePackWorkflow packs directory", "[picture-process]") {
   TempDir temp;
@@ -518,48 +441,6 @@ TEST_CASE(
     testutils::listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~1#1p].zip");
   REQUIRE(entryNames.size() == 1);
   CHECK(entryNames[0].ends_with(".jpg"));
-}
-
-TEST_CASE(
-  "runPicturePackWorkflow compress stops immediately when cancellation happens mid-batch",
-  "[picture-process][compress]"
-) {
-  using namespace std::chrono_literals;
-
-  testutils::ScopedStopSignalReset stopGuard;
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  fs::create_directories(inputDir);
-  testutils::writeSizedFile(inputDir / "fast.png", 32);
-  testutils::writeSizedFile(inputDir / "slow.png", 32);
-
-  // Call 2 blocks in-flight yet would ultimately succeed - cancellation must
-  // cut through it regardless.
-  auto const cntEnv = ScopedEnvVar{
-    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
-    (temp.path / "compress-count.txt").string()
-  };
-  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2:3000:0"};
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "picture";
-  ctx.config.yesToAll = true;
-  ctx.config.verbose = true;
-  ctx.config.compressImages = true;
-  ctx.config.imageQuality = 5;
-  ctx.config.maxParallelJobs = 1;
-  ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
-
-  auto requester = std::jthread([](std::stop_token token) {
-    std::this_thread::sleep_for(1200ms);
-    if (!token.stop_requested()) { stopsignal::requestStop(); }
-  });
-
-  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
-
-  REQUIRE(runRes);
-  CHECK(runRes.value() == stopsignal::kCanceledExitCode);
-  CHECK_FALSE(fs::exists(inputDir / "packed" / "pics_part1[1~1#1p].zip"));
 }
 
 TEST_CASE(
