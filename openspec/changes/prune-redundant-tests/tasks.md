@@ -1,11 +1,11 @@
 ## 1. Batch 1 — Mechanical deletes (design.md I1 rows valid today)
 
-- [ ] 1.1 Delete `tests/packer_standalone_compile_tests.cpp` (no build-file edit needed — unit-target sources are globbed) and verify `xmake build tests` still succeeds
-- [ ] 1.2 Delete the can't-fail logging tests in I1: crash_integration `:25`/`:110`/`:151`, infra `:95`/`:37`, json `:335`/`:360` and the boost::json escaping quartet `:248`/`:271`/`:295`/`:316` (error_context `:205`/`:502` are NOT deleted — they are retained cases in the batch-3 merge); verify affected files compile
-- [ ] 1.3 Delete the can't-fail picture/pipeline/e2e/video/naming tests in I1 (`pipeline_picture_tests.cpp:264`, `encro_e2e_tests.cpp:1410`, `video_batch_execution_tests.cpp:83`, `video_progress_parser_tests.cpp:197`, `naming_strategy_tests.cpp:23`/`:39`, `picture_compress_tests.cpp:166`/`:243`); verify files compile (resolveColor pair, video_info negative-rate SECTION, and pipeline `:307` are kept — see design D1/I3)
-- [ ] 1.4 Delete the cmd tests in I1 (verbatim-default dups `cmd_cmd_tests.cpp:80`/`:274`, `:409`, `:665`, config_builder `:114`/`:784`/`:809`/`:834`, config `:137`) and the `[spike]` block `cmd_config_tests.cpp:415-544` including its `cliParse` helper (default-check folds and the preset-acceptance fold happen in batch 2); verify files compile
-- [ ] 1.5 Add the D2 replacement test in `cmd_config_tests.cpp`: store `image-quality` in a config file, run the real parse path without `-c/--compress`, assert the run succeeds with the stored value applied; verify new test passes via `xmake test-report --tag="[cmd]"`
-- [ ] 1.6 Run `xmake test-parallel` and confirm green; commit batch 1 as `test: delete meaningless tests that cannot fail or test only libraries`
+- [x] 1.1 Delete `tests/packer_standalone_compile_tests.cpp` (no build-file edit needed — unit-target sources are globbed) and verify `xmake build tests` still succeeds
+- [x] 1.2 Delete the can't-fail logging tests in I1: crash_integration `:25`/`:110`/`:151`, infra `:95`/`:37`, json `:335`/`:360` and the boost::json escaping quartet `:248`/`:271`/`:295`/`:316` (error_context `:205`/`:502` are NOT deleted — they are retained cases in the batch-3 merge); verify affected files compile
+- [x] 1.3 Delete the can't-fail picture/pipeline/e2e/video/naming tests in I1 (`pipeline_picture_tests.cpp:264`, `encro_e2e_tests.cpp:1410`, `video_batch_execution_tests.cpp:83`, `video_progress_parser_tests.cpp:197`, `naming_strategy_tests.cpp:23`/`:39`, `picture_compress_tests.cpp:166`/`:243`); verify files compile (resolveColor pair, video_info negative-rate SECTION, and pipeline `:307` are kept — see design D1/I3)
+- [x] 1.4 Delete the cmd tests in I1 (verbatim-default dups `cmd_cmd_tests.cpp:80`/`:274`, `:409`, `:665`, config_builder `:114`/`:784`/`:809`/`:834`, config `:137`) and the `[spike]` block `cmd_config_tests.cpp:415-544` including its `cliParse` helper (default-check folds and the preset-acceptance fold happen in batch 2); verify files compile
+- [x] 1.5 Add the D2 replacement test in `cmd_config_tests.cpp`: store `image-quality` in a config file, run the real parse path without `-c/--compress`, assert the run succeeds with the stored value applied; verify new test passes via `xmake test-report --tag="[cmd]"`
+- [x] 1.6 Run `xmake test-parallel` and confirm green; commit batch 1 as `test: delete meaningless tests that cannot fail or test only libraries`
 
 ## 2. Batch 2 — cmd cluster merges (design.md I3 cmd)
 
