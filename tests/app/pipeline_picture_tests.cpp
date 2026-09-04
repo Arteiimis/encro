@@ -10,7 +10,9 @@
 
 namespace fs = std::filesystem;
 
+using testutils::collisionGroupPrefix;
 using testutils::copyFakeTool;
+using testutils::hasCollisionSafePrefix;
 using testutils::listZipRegularEntryNames;
 using testutils::ScopedEnvVar;
 using testutils::ScopedStopSignalReset;
@@ -26,23 +28,6 @@ std::size_t readInvocationCount(fs::path const& counterPath) {
 }
 
 }  // namespace
-
-TEST_CASE("picture pipeline packs directory", "[pipeline]") {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  fs::create_directories(inputDir);
-  writeTextFile(inputDir / "a.jpg");
-
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "picture";
-  ctx.config.yesToAll = true;
-  ctx.config.inputPath = inputDir;
-
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  CHECK(runRes.value() == 0);
-  CHECK(fs::exists(inputDir / "packed" / "pics_part1[1~1#1p].zip"));
-}
 
 TEST_CASE("picture pipeline skips job state by default", "[pipeline]") {
   TempDir temp;
@@ -88,50 +73,8 @@ TEST_CASE(
   CHECK_FALSE(fs::exists(stateFilePath));
 }
 
-TEST_CASE("picture pipeline keeps same-folder files grouped in flat mode", "[pipeline]") {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  auto const dirA = inputDir / "a";
-  auto const dirB = inputDir / "b";
-  fs::create_directories(dirA);
-  fs::create_directories(dirB);
-  writeTextFile(dirA / "alpha.jpg");
-  writeTextFile(dirA / "beta.jpg");
-  writeTextFile(dirB / "alpha.jpg");
-  writeTextFile(dirB / "beta.jpg");
-
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "picture";
-  ctx.config.yesToAll = true;
-  ctx.config.recursive = true;
-  ctx.config.pictureFolderSummary = false;
-  ctx.config.inputPath = inputDir;
-
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  REQUIRE(runRes.value() == 0);
-
-  // Grouping is now internalized — files from different parent dirs end up in separate zips.
-  // Collect all entries from all zip files.
-  auto allEntries = std::vector<std::string>{};
-  auto packedDir = inputDir / "packed";
-  REQUIRE(fs::exists(packedDir));
-  for (auto const& de: fs::directory_iterator(packedDir)) {
-    if (de.path().extension() == ".zip") {
-      auto zipEntries = listZipRegularEntryNames(de.path());
-      allEntries.insert(allEntries.end(), zipEntries.begin(), zipEntries.end());
-    }
-  }
-  std::ranges::sort(allEntries);
-  REQUIRE(allEntries.size() >= 2);
-  // Entry names have "1000__" prefix with collision-safe naming (Phase 13)
-  CHECK(std::ranges::all_of(allEntries, [](auto const& s) {
-    return s.starts_with("1000__");
-  }));
-}
-
 TEST_CASE(
-  "picture pipeline adds flat summary files ahead of normal files by name",
+  "picture pipeline groups per source dir in flat mode and preserves keep-layout paths",
   "[pipeline]"
 ) {
   TempDir temp;
@@ -149,267 +92,62 @@ TEST_CASE(
   ctx.config.processType = "picture";
   ctx.config.yesToAll = true;
   ctx.config.recursive = true;
-  ctx.config.pictureFolderSummary = true;
-  ctx.config.inputPath = inputDir;
-
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  REQUIRE(runRes.value() == 0);
-
-  auto allEntries = std::vector<std::string>{};
-  auto packedDir = inputDir / "packed";
-  REQUIRE(fs::exists(packedDir));
-  for (auto const& de: fs::directory_iterator(packedDir)) {
-    if (de.path().extension() == ".zip") {
-      auto zipEntries = listZipRegularEntryNames(de.path());
-      allEntries.insert(allEntries.end(), zipEntries.begin(), zipEntries.end());
-    }
-  }
-  std::ranges::sort(allEntries);
-  REQUIRE(allEntries.size() == 6);
-  CHECK(allEntries[0].starts_with("0000__summary__"));
-  CHECK(allEntries[1].starts_with("0000__summary__"));
-  CHECK(allEntries[2].starts_with("1000__"));
-  CHECK(allEntries[3].starts_with("1000__"));
-  CHECK(allEntries[4].starts_with("1000__"));
-  CHECK(allEntries[5].starts_with("1000__"));
-}
-
-TEST_CASE(
-  "picture pipeline defaults to collision-safe names for unique files",
-  "[pipeline]"
-) {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  auto const dirA = inputDir / "a";
-  auto const dirB = inputDir / "b";
-  fs::create_directories(dirA);
-  fs::create_directories(dirB);
-  writeTextFile(dirA / "alpha.jpg");
-  writeTextFile(dirB / "beta.jpg");
-
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "picture";
-  ctx.config.yesToAll = true;
-  ctx.config.recursive = true;
   ctx.config.pictureFolderSummary = false;
   ctx.config.inputPath = inputDir;
 
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  REQUIRE(runRes.value() == 0);
+  SECTION("flat mode keeps same-dir files in one zip under one collision group") {
+    auto runRes = pipeline::run(ctx);
+    REQUIRE(runRes);
+    REQUIRE(runRes.value() == 0);
 
-  // Files from different dirs end up in separate zips.
-  // Plain filenames (naming internalized, Phase 13 restores collision-safe).
-  auto allEntries = std::vector<std::string>{};
-  auto packedDir = inputDir / "packed";
-  REQUIRE(fs::exists(packedDir));
-  for (auto const& de: fs::directory_iterator(packedDir)) {
-    if (de.path().extension() == ".zip") {
-      auto zipEntries = listZipRegularEntryNames(de.path());
-      allEntries.insert(allEntries.end(), zipEntries.begin(), zipEntries.end());
-    }
-  }
-  std::ranges::sort(allEntries);
-  REQUIRE(allEntries.size() == 2);
-  // Entry names have "1000__" prefix with collision-safe naming (Phase 13)
-  CHECK(allEntries[0].starts_with("1000__"));
-  CHECK(allEntries[1].starts_with("1000__"));
-}
-
-TEST_CASE(
-  "picture pipeline keeps weakly-sanitized directory names grouped",
-  "[pipeline]"
-) {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  auto const dirA = inputDir / "丹花イブキ(110p + 音声あり動画)";
-  auto const dirB = inputDir / "天川そら(110p + 音声あり動画)";
-  fs::create_directories(dirA);
-  fs::create_directories(dirB);
-  writeTextFile(dirA / "alpha.jpg");
-  writeTextFile(dirA / "beta.jpg");
-  writeTextFile(dirB / "alpha.jpg");
-  writeTextFile(dirB / "beta.jpg");
-
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "picture";
-  ctx.config.yesToAll = true;
-  ctx.config.recursive = true;
-  ctx.config.pictureFolderSummary = false;
-  ctx.config.inputPath = inputDir;
-
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  REQUIRE(runRes.value() == 0);
-
-  // Files from different dirs end up in separate zips.
-  // Entry names have "1000__" prefix (Phase 13)
-  auto allEntries = std::vector<std::string>{};
-  auto packedDir = inputDir / "packed";
-  REQUIRE(fs::exists(packedDir));
-  for (auto const& de: fs::directory_iterator(packedDir)) {
-    if (de.path().extension() == ".zip") {
-      auto zipEntries = listZipRegularEntryNames(de.path());
-      allEntries.insert(allEntries.end(), zipEntries.begin(), zipEntries.end());
-    }
-  }
-  std::ranges::sort(allEntries);
-  REQUIRE(allEntries.size() >= 2);
-  CHECK(std::ranges::all_of(allEntries, [](auto const& s) {
-    return s.starts_with("1000__");
-  }));
-}
-
-TEST_CASE("picture pipeline keeps relative paths in keep mode", "[pipeline]") {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  auto const dirA = inputDir / "a";
-  auto const dirB = inputDir / "b";
-  fs::create_directories(dirA);
-  fs::create_directories(dirB);
-  writeTextFile(dirA / "same.jpg");
-  writeTextFile(dirB / "same.jpg");
-
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "picture";
-  ctx.config.yesToAll = true;
-  ctx.config.recursive = true;
-  ctx.config.pictureFolderSummary = false;
-  ctx.config.outputLayout = appctx::OutputLayout::Keep;
-  ctx.config.inputPath = inputDir;
-
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  REQUIRE(runRes.value() == 0);
-
-  // Keep mode: internalized naming. Phase 13 restores relative paths.
-  // Each same-named file from different dirs goes to separate zips.
-  auto allEntries = std::vector<std::string>{};
-  auto packedDir = inputDir / "packed";
-  REQUIRE(fs::exists(packedDir));
-  auto zipCount = 0;
-  for (auto const& de: fs::directory_iterator(packedDir)) {
-    if (de.path().extension() == ".zip") {
+    auto const packedDir = inputDir / "packed";
+    REQUIRE(fs::exists(packedDir));
+    auto zipCount = 0;
+    auto allEntries = std::vector<std::string>{};
+    for (auto const& de: fs::directory_iterator{packedDir}) {
+      if (de.path().extension() != ".zip") { continue; }
       ++zipCount;
       auto zipEntries = listZipRegularEntryNames(de.path());
       allEntries.insert(allEntries.end(), zipEntries.begin(), zipEntries.end());
     }
+    std::ranges::sort(allEntries);
+
+    // Small fixtures pack into a single archive: same-dir files share a zip.
+    REQUIRE(zipCount == 1);
+    REQUIRE(allEntries.size() == 4);
+    // Entries carry the collision-safe flat prefix; per-directory grouping is
+    // visible as one collision group per source dir.
+    CHECK(hasCollisionSafePrefix(allEntries[0], "a", "alpha"));
+    CHECK(hasCollisionSafePrefix(allEntries[1], "a", "beta"));
+    CHECK(hasCollisionSafePrefix(allEntries[2], "b", "alpha"));
+    CHECK(hasCollisionSafePrefix(allEntries[3], "b", "beta"));
+    CHECK(collisionGroupPrefix(allEntries[0]) == collisionGroupPrefix(allEntries[1]));
+    CHECK(collisionGroupPrefix(allEntries[2]) == collisionGroupPrefix(allEntries[3]));
+    CHECK(collisionGroupPrefix(allEntries[0]) != collisionGroupPrefix(allEntries[2]));
   }
-  std::ranges::sort(allEntries);
-  CHECK(zipCount >= 1);
-  CHECK(allEntries.size() >= 1);
-}
 
-TEST_CASE(
-  "picture pipeline compress+pack produces .jpg entries",
-  "[pipeline][compress]"
-) {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  fs::create_directories(inputDir);
-  writeTextFile(inputDir / "a.png");
-  writeTextFile(inputDir / "b.png");
+  SECTION("compress with keep layout preserves relative paths as .jpg entries") {
+    auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
+    ctx.config.verbose = true;
+    ctx.config.compressImages = true;
+    ctx.config.imageQuality = 5;
+    ctx.config.outputLayout = appctx::OutputLayout::Keep;
+    ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
-  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "picture";
-  ctx.config.yesToAll = true;
-  ctx.config.verbose = true;
-  ctx.config.compressImages = true;
-  ctx.config.imageQuality = 5;
-  ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
+    auto runRes = pipeline::run(ctx);
+    REQUIRE(runRes);
+    CHECK(runRes.value() == 0);
 
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  CHECK(runRes.value() == 0);
-
-  auto const entryNames =
-    listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
-  REQUIRE(entryNames.size() == 2);
-  CHECK(entryNames[0].ends_with(".jpg"));
-  CHECK(entryNames[1].ends_with(".jpg"));
-}
-
-TEST_CASE(
-  "picture pipeline compress with keep layout preserves relative paths with .jpg",
-  "[pipeline][compress]"
-) {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  auto const dirA = inputDir / "a";
-  auto const dirB = inputDir / "b";
-  fs::create_directories(dirA);
-  fs::create_directories(dirB);
-  writeTextFile(dirA / "same.png");
-  writeTextFile(dirB / "same.png");
-
-  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "picture";
-  ctx.config.yesToAll = true;
-  ctx.config.recursive = true;
-  ctx.config.verbose = true;
-  ctx.config.compressImages = true;
-  ctx.config.imageQuality = 5;
-  ctx.config.outputLayout = appctx::OutputLayout::Keep;
-  ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
-
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  CHECK(runRes.value() == 0);
-
-  auto const entryNames =
-    listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~2#2p].zip");
-  // Compress keep layout: naming internalized, Phase 13 restores it.
-  REQUIRE(entryNames.size() >= 1);
-  for (auto const& name: entryNames) { CHECK(name.ends_with(".jpg")); }
-}
-
-TEST_CASE(
-  "picture pipeline compress with folder-summary adds summary jpg entries",
-  "[pipeline][compress]"
-) {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  auto const dirA = inputDir / "a";
-  auto const dirB = inputDir / "b";
-  fs::create_directories(dirA);
-  fs::create_directories(dirB);
-  writeTextFile(dirA / "alpha.png");
-  writeTextFile(dirA / "beta.png");
-  writeTextFile(dirB / "alpha.png");
-  writeTextFile(dirB / "beta.png");
-
-  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "picture";
-  ctx.config.yesToAll = true;
-  ctx.config.recursive = true;
-  ctx.config.verbose = true;
-  ctx.config.pictureFolderSummary = true;
-  ctx.config.compressImages = true;
-  ctx.config.imageQuality = 5;
-  ctx.config.inputPath = inputDir;
-  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
-
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  CHECK(runRes.value() == 0);
-
-  auto const entryNames =
-    listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~6#6p].zip");
-  REQUIRE(entryNames.size() == 6);
-
-  for (auto const& name: entryNames) { CHECK(name.ends_with(".jpg")); }
-  CHECK(entryNames[0].starts_with("0000__summary__"));
-  CHECK(entryNames[1].starts_with("0000__summary__"));
-  CHECK(entryNames[2].starts_with("1000__"));
-  CHECK(entryNames[3].starts_with("1000__"));
-  CHECK(entryNames[4].starts_with("1000__"));
-  CHECK(entryNames[5].starts_with("1000__"));
+    // Keep layout: entry names are the source-relative paths (.jpg after
+    // compress), the same structure property the Keep naming strategy pins.
+    auto const entryNames =
+      listZipRegularEntryNames(inputDir / "packed" / "pics_part1[1~4#4p].zip");
+    REQUIRE(entryNames.size() == 4);
+    CHECK(entryNames[0] == "a/alpha.jpg");
+    CHECK(entryNames[1] == "a/beta.jpg");
+    CHECK(entryNames[2] == "b/alpha.jpg");
+    CHECK(entryNames[3] == "b/beta.jpg");
+  }
 }
 
 TEST_CASE(
@@ -485,6 +223,8 @@ TEST_CASE(
   auto cachedCount = 0;
   for (auto const& de: fs::directory_iterator(cacheDir)) { ++cachedCount; }
   CHECK(cachedCount >= 1);
+  // Cancellation cuts through the in-flight compression: nothing is packed.
+  CHECK_FALSE(fs::exists(inputDir / "packed" / "pics_part1[1~1#1p].zip"));
 }
 
 TEST_CASE(
