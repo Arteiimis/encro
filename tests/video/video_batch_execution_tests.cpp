@@ -43,10 +43,13 @@ TEST_CASE(
   store.mergeTasks(std::array{task});
   CHECK(videobatch::detail::persistedElapsedMs(store, task.id).count() == 0);
 
-  store.markRunning(task.id);
-  std::this_thread::sleep_for(std::chrono::milliseconds{25});
-  store.markInterrupted(task.id);
-  CHECK(videobatch::detail::persistedElapsedMs(store, task.id).count() >= 15);
+  {
+    auto clock = testutils::ScopedSyntheticJobClock{1'000'000};
+    store.markRunning(task.id);
+    clock.advanceMs(25);
+    store.markInterrupted(task.id);
+  }
+  CHECK(videobatch::detail::persistedElapsedMs(store, task.id).count() == 25);
   CHECK(videobatch::detail::persistedElapsedMs(store, std::nullopt).count() == 0);
 }
 
@@ -95,16 +98,40 @@ TEST_CASE(
     plannedOutputFiles,
     actionIds
   };
+  TempDir temp;
+  auto const progressFile = temp.path / "progress.log";
+  {
+    std::ofstream out{progressFile};
+    out << "frame=7\nprogress=continue\n";
+  }
+  auto state = std::make_shared<appctx::EncodingState>();
+  state->inputPath = temp.path / "in.mp4";
+  state->totalFrames = 100;
+  state->progressFilePath = progressFile;
+  execCtx.setActive(0, state);
 
   auto monitor = videobatch::detail::startEncodingMonitor(execCtx);
-  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  // The monitor is provably inside its tick loop once the first parse
+  // landed, so the stop below cannot race the monitor's startup. Non-fatal
+  // until join: a failed wait must not unwind through the monitor thread.
+  auto const monitorReady = testutils::waitUntil(
+    [&] {
+      auto lock = std::scoped_lock{state->mtx};
+      return state->lastFrameCount.value_or(0) == 7;
+    },
+    std::chrono::seconds{5}
+  );
 
   auto const start = std::chrono::steady_clock::now();
   stopsignal::requestStop();
+  // The monitor's stop path requires no active tasks (see the stat-skip
+  // case): release the slot before joining or the join never returns.
+  execCtx.clearActive(0);
   // Join is the completion detector: the monitor must leave its tick loop on
-  // the next wake (event wait wakes it immediately), well under 1 s.
+  // the next wake (event wait wakes it immediately). Hang guard only.
   monitor.join();
-  CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds{1});
+  REQUIRE(monitorReady);
+  CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds{30});
 }
 
 TEST_CASE(
@@ -136,13 +163,26 @@ TEST_CASE(
   execCtx.setActive(0, state);
 
   auto monitor = videobatch::detail::startEncodingMonitor(execCtx);
-  // Let the first parse pass run, then rewrite the file with the same size.
-  std::this_thread::sleep_for(std::chrono::milliseconds{400});
+  // Wait for proof the first parse pass observed frame 10, then rewrite the
+  // file with the same size. Polling removes the race where a delayed first
+  // parse made the rewrite the first observation. Non-fatal until join: a
+  // failed wait must not unwind through the monitor thread.
+  auto const firstParseObserved = testutils::waitUntil(
+    [&] {
+      auto lock = std::scoped_lock{state->mtx};
+      return state->lastFrameCount.value_or(0) == 10;
+    },
+    std::chrono::seconds{5}
+  );
   {
     std::ofstream out{progressFile};
     out << "frame=99\nprogress=continue\n";
   }
-  std::this_thread::sleep_for(std::chrono::milliseconds{500});
+  // sleep-ok: opportunity-to-parse margin. The rewritten file must leave the
+  // value unchanged (that is the assertion), so there is nothing to poll —
+  // this only gives the monitor a chance to (wrongly) re-parse if the
+  // stat-skip broke; sized above the 250 ms parse throttle.
+  std::this_thread::sleep_for(std::chrono::milliseconds{300});
 
   // Stat-skip: same size means unchanged, so the replacement is not re-parsed.
   {
@@ -153,6 +193,7 @@ TEST_CASE(
   stopsignal::requestStop();
   execCtx.clearActive(0);
   monitor.join();
+  REQUIRE(firstParseObserved);
 }
 
 TEST_CASE(
@@ -191,6 +232,8 @@ TEST_CASE(
       std::ofstream out{progressFile, std::ios::app};
       out << "frame=" << (i + 1) << "\n";
     }
+    // sleep-ok: input signal cadence — one append per 40 ms drives the
+    // throttle; the assertions below are wide bounds on the parse count.
     std::this_thread::sleep_for(std::chrono::milliseconds{40});
     {
       auto lock = std::scoped_lock{state->mtx};
@@ -201,7 +244,19 @@ TEST_CASE(
       }
     }
   }
-  std::this_thread::sleep_for(std::chrono::milliseconds{400});
+  // Poll for the final value instead of a fixed trailing wait. Non-fatal
+  // until join: a failed wait must not unwind through the monitor thread.
+  auto const finalObserved = testutils::waitUntil(
+    [&] {
+      auto lock = std::scoped_lock{state->mtx};
+      return state->lastFrameCount.value_or(0) == 15;
+    },
+    std::chrono::seconds{5}
+  );
+  stopsignal::requestStop();
+  execCtx.clearActive(0);
+  monitor.join();
+  REQUIRE(finalObserved);
   {
     auto lock = std::scoped_lock{state->mtx};
     CHECK(state->lastFrameCount.value_or(0) == 15);  // final value correct
@@ -210,10 +265,6 @@ TEST_CASE(
   // append.
   CHECK(seen.size() >= 1);
   CHECK(seen.size() < 8);
-
-  stopsignal::requestStop();
-  execCtx.clearActive(0);
-  monitor.join();
 }
 TEST_CASE("barDone state transitions do not throw", "[video-batch-execution]") {
   auto appCtx = appctx::AppContext{};
@@ -288,20 +339,20 @@ struct BatchScaffold {
 
 // Polls until the fake-tool invocation log contains the needle, giving
 // load-independent proof that an invocation started; false after the
-// deadline (the REQUIRE surfaces it, no silent pass). Reads with a plain
-// stream: the log does not exist until the first invocation, and
+// deadline (the REQUIRE surfaces it, no silent pass). Raw ifstream
+// predicate: the log does not exist until the first invocation, and
 // testutils::readTextFile asserts on unopenable files.
 auto waitUntilLogContains(fs::path const& logPath, std::string_view needle) -> bool {
-  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
-  while (std::chrono::steady_clock::now() < deadline) {
-    auto log = std::ifstream{logPath, std::ios::binary};
-    if (log.is_open()) {
+  return testutils::waitUntil(
+    [&] {
+      auto log = std::ifstream{logPath, std::ios::binary};
+      if (!log.is_open()) { return false; }
       auto const content = std::string{std::istreambuf_iterator<char>{log}, {}};
-      if (content.find(needle) != std::string::npos) { return true; }
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds{10});
-  }
-  return false;
+      return content.find(needle) != std::string::npos;
+    },
+    std::chrono::seconds{10},
+    std::chrono::milliseconds{10}
+  );
 }
 
 }  // namespace

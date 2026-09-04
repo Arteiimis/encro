@@ -380,25 +380,20 @@ TEST_CASE(
   auto const testMsg = "periodic_flush_probe_12345";
   logger->info(testMsg);
 
-  // Immediately after the write (no shutdown), the line must NOT be on disk
-  // yet — only the periodic flusher can land it.
-  {
-    auto ifs = std::ifstream{logFilePath};
-    auto const content = std::string{std::istreambuf_iterator<char>{ifs}, {}};
-    CHECK(content.find(testMsg) == std::string::npos);
-  }
-
-  // Within the flush interval the line must appear on disk without shutdown(),
-  // so a hard kill at any later point cannot lose it (bounded tail).
-  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{3};
-  auto found = false;
-  while (std::chrono::steady_clock::now() < deadline && !found) {
-    auto ifs = std::ifstream{logFilePath};
-    auto const content = std::string{std::istreambuf_iterator<char>{ifs}, {}};
-    if (content.find(testMsg) != std::string::npos) { found = true; }
-    std::this_thread::sleep_for(std::chrono::milliseconds{50});
-  }
-  CHECK(found);
+  // Within the flush interval the line must appear on disk without
+  // shutdown(), so a hard kill at any later point cannot lose it (bounded
+  // tail). The old negative assertion ("not on disk yet") raced the global
+  // 1 s flusher and was removed: absence at an arbitrary moment proves
+  // nothing.
+  auto const flushed = testutils::waitUntil(
+    [&] {
+      auto ifs = std::ifstream{logFilePath};
+      auto const content = std::string{std::istreambuf_iterator<char>{ifs}, {}};
+      return content.find(testMsg) != std::string::npos;
+    },
+    std::chrono::seconds{3}
+  );
+  CHECK(flushed);
 
   logging::shutdown();
 }

@@ -302,10 +302,14 @@ TEST_CASE("job state persists accumulated encoding time across restarts", "[job-
   auto const initRes = store.initialize(config, false);
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
-  store.markRunning(task.id);
-  std::this_thread::sleep_for(std::chrono::milliseconds{30});
-  store.markProgress(task.id, 50.0f);
-  store.markInterrupted(task.id);
+  {
+    auto clock = testutils::ScopedSyntheticJobClock{5'000'000};
+    store.markRunning(task.id);
+    clock.advanceMs(1'500);
+    store.markProgress(task.id, 50.0f);
+    clock.advanceMs(500);
+    store.markInterrupted(task.id);
+  }
 
   auto resumedStore = jobstate::Store{statePath};
   auto const resumeRes = resumedStore.initialize(config, false);
@@ -314,21 +318,22 @@ TEST_CASE("job state persists accumulated encoding time across restarts", "[job-
   auto const resumed = resumedStore.findTask(task.id);
   REQUIRE(resumed.has_value());
   REQUIRE(resumed->encodedMs.has_value());
-  CHECK(*resumed->encodedMs >= 20);
-  CHECK(*resumed->encodedMs < 60000);
+  CHECK(*resumed->encodedMs == 2'000);
 
   // A second attempt keeps accumulating on top of the persisted value, and
   // the idle gap between the two attempts is not counted.
   auto const beforeRetry = resumedStore.findTask(task.id)->encodedMs;
-  std::this_thread::sleep_for(std::chrono::milliseconds{30});  // idle gap
-  resumedStore.markRunning(task.id);
-  CHECK(resumedStore.findTask(task.id)->encodedMs == beforeRetry);
-  std::this_thread::sleep_for(std::chrono::milliseconds{20});
-  resumedStore.markInterrupted(task.id);
+  {
+    auto clock = testutils::ScopedSyntheticJobClock{6'000'000};
+    resumedStore.markRunning(task.id);
+    CHECK(resumedStore.findTask(task.id)->encodedMs == beforeRetry);
+    clock.advanceMs(1'000);
+    resumedStore.markInterrupted(task.id);
+  }
   auto const afterRetry = resumedStore.findTask(task.id);
   REQUIRE(afterRetry.has_value());
   REQUIRE(afterRetry->encodedMs.has_value());
-  CHECK(*afterRetry->encodedMs > *resumed->encodedMs);
+  CHECK(afterRetry->encodedMs.value() == 3'000);
 }
 
 TEST_CASE(
@@ -395,9 +400,12 @@ TEST_CASE("job state loads a legacy file without encodedMs as zero", "[job-state
   auto const initRes = store.initialize(config, false);
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
-  store.markRunning(task.id);
-  std::this_thread::sleep_for(std::chrono::milliseconds{25});
-  store.markInterrupted(task.id);
+  {
+    auto clock = testutils::ScopedSyntheticJobClock{1'000'000};
+    store.markRunning(task.id);
+    clock.advanceMs(25);
+    store.markInterrupted(task.id);
+  }
 
   // Rewrite the state file as a pre-encodedMs legacy writer would have.
   auto text = testutils::readTextFile(statePath);
