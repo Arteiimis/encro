@@ -116,16 +116,16 @@ TEST_CASE(
   std::jthread runner([&] { outcome = s.run(); });
   // Raw ifstream predicate: the log does not exist until the first
   // invocation, and a poll predicate must not abort on absent files.
-  REQUIRE(
-    testutils::waitUntil(
-      [&] {
-        auto log = std::ifstream{s.logPath, std::ios::binary};
-        if (!log.is_open()) { return false; }
-        auto const content = std::string{std::istreambuf_iterator<char>{log}, {}};
-        return content.find("ffmpeg\t") != std::string::npos;
-      },
-      std::chrono::seconds{10}
-    )
+  // Non-fatal until the runner joins: a failed wait must stop and release
+  // the gate anyway so the encode cannot hang on an unreleased gate.
+  auto const attemptStarted = testutils::waitUntil(
+    [&] {
+      auto log = std::ifstream{s.logPath, std::ios::binary};
+      if (!log.is_open()) { return false; }
+      auto const content = std::string{std::istreambuf_iterator<char>{log}, {}};
+      return content.find("ffmpeg\t") != std::string::npos;
+    },
+    std::chrono::seconds{10}
   );
   stopsignal::requestStop();
   {
@@ -134,6 +134,7 @@ TEST_CASE(
     gate << "go";
   }
   runner.join();
+  REQUIRE(attemptStarted);
 
   REQUIRE(outcome.has_value());
   CHECK_FALSE(*outcome);

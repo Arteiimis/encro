@@ -1140,15 +1140,6 @@ TEST_CASE(
 
 namespace {
 
-bool waitUntil(std::chrono::milliseconds timeout, auto&& predicate) {
-  auto const deadline = std::chrono::steady_clock::now() + timeout;
-  while (std::chrono::steady_clock::now() < deadline) {
-    if (predicate()) { return true; }
-    std::this_thread::sleep_for(std::chrono::milliseconds{25});
-  }
-  return predicate();
-}
-
 bool encodeInFlight(fs::path const& logPath) {
   if (!fs::exists(logPath)) { return false; }
   return countActualFfmpegEncodes(logPath) >= 1;
@@ -1227,7 +1218,12 @@ TEST_CASE(
   };
 
   auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, slowEnv);
-  REQUIRE(waitUntil(std::chrono::seconds{10}, [&] { return encodeInFlight(logPath); }));
+  REQUIRE(
+    testutils::waitUntil(
+      [&] { return encodeInFlight(logPath); },
+      std::chrono::seconds{10}
+    )
+  );
 
   CHECK(proc.sendCtrlC());
   auto const interrupted = proc.wait(std::chrono::seconds{10});
@@ -1283,7 +1279,12 @@ TEST_CASE(
   };
 
   auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, slowEnv);
-  REQUIRE(waitUntil(std::chrono::seconds{10}, [&] { return encodeInFlight(logPath); }));
+  REQUIRE(
+    testutils::waitUntil(
+      [&] { return encodeInFlight(logPath); },
+      std::chrono::seconds{10}
+    )
+  );
 
   proc.terminate();
   auto const killed = proc.wait(std::chrono::seconds{5});
@@ -1335,7 +1336,12 @@ TEST_CASE(
   };
 
   auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, slowEnv);
-  REQUIRE(waitUntil(std::chrono::seconds{10}, [&] { return encodeInFlight(logPath); }));
+  REQUIRE(
+    testutils::waitUntil(
+      [&] { return encodeInFlight(logPath); },
+      std::chrono::seconds{10}
+    )
+  );
 
   CHECK(proc.sendCtrlC());
   auto const interrupted = proc.wait(std::chrono::seconds{10});
