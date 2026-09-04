@@ -17,16 +17,6 @@
 namespace fs = std::filesystem;
 
 // ============================================================
-// NamingConfig default construction tests
-// ============================================================
-
-TEST_CASE("NamingConfig default constructs with Flat strategy", "[pack][naming]") {
-  pack::NamingConfig cfg{};
-  CHECK(cfg.namingStrategy == pack::NamingStrategy::Flat);
-  CHECK_FALSE(cfg.baseName.has_value());
-}
-
-// ============================================================
 // Integration: Flat strategy — flat entry names (basename only)
 // ============================================================
 
@@ -34,6 +24,11 @@ TEST_CASE(
   "Media mode Flat strategy produces flat entry names",
   "[pack][naming][integration]"
 ) {
+  // NamingConfig default-constructs to Flat with no baseName override.
+  pack::NamingConfig const defaultNaming{};
+  CHECK(defaultNaming.namingStrategy == pack::NamingStrategy::Flat);
+  CHECK_FALSE(defaultNaming.baseName.has_value());
+
   TempDir tmp;
   auto const outputDir = tmp.path / "packed";
   fs::create_directories(outputDir);
@@ -83,52 +78,82 @@ TEST_CASE(
 // ============================================================
 
 TEST_CASE(
-  "Media mode FlatWithForce strategy produces hash-disambiguated names",
+  "FlatWithForce strategy produces hash-disambiguated names",
   "[pack][naming][integration]"
 ) {
   TempDir tmp;
   auto const outputDir = tmp.path / "packed";
   fs::create_directories(outputDir);
 
-  // Create files with SAME basename in DIFFERENT subdirectories (collision
-  // scenario)
-  testutils::writeSizedFile(tmp.path / "dirA" / "file.txt", 100);
-  testutils::writeSizedFile(tmp.path / "dirB" / "file.txt", 100);
+  SECTION("media mode with same-basename entries in different directories") {
+    // Create files with SAME basename in DIFFERENT subdirectories (collision
+    // scenario)
+    testutils::writeSizedFile(tmp.path / "dirA" / "file.txt", 100);
+    testutils::writeSizedFile(tmp.path / "dirB" / "file.txt", 100);
 
-  pack::PackRequest req{
-    .entries =
-      {
-        tmp.path / "dirA" / "file.txt",
-        tmp.path / "dirB" / "file.txt",
+    pack::PackRequest req{
+      .entries =
+        {
+          tmp.path / "dirA" / "file.txt",
+          tmp.path / "dirB" / "file.txt",
+        },
+      .mode = pack::PackMode::Media,
+      .outputDir = outputDir,
+      .compact = true,
+      .naming = pack::NamingConfig{
+        .namingStrategy = pack::NamingStrategy::FlatWithForce,
       },
-    .mode = pack::PackMode::Media,
-    .outputDir = outputDir,
-    .compact = true,
-    .naming = pack::NamingConfig{
-      .namingStrategy = pack::NamingStrategy::FlatWithForce,
-    },
-  };
+    };
 
-  auto const result = pack::execute(req);
-  REQUIRE(result.has_value());
-  CHECK(result->exitCode == 0);
-  REQUIRE_FALSE(result->zippedFiles.empty());
+    auto const result = pack::execute(req);
+    REQUIRE(result.has_value());
+    CHECK(result->exitCode == 0);
+    REQUIRE_FALSE(result->zippedFiles.empty());
 
-  auto const entryNames =
-    testutils::listZipRegularEntryNames(result->zippedFiles.front());
-  REQUIRE(entryNames.size() == 2);
+    auto const entryNames =
+      testutils::listZipRegularEntryNames(result->zippedFiles.front());
+    REQUIRE(entryNames.size() == 2);
 
-  // Each entry should contain "__" hash separator pattern (collisionnaming
-  // format) Format: <label>__<hash>__<stem>__<hash><ext>
-  for (auto const& name: entryNames) {
-    auto const sepCount = std::ranges::count(name, '_');
-    // Should have at least 6 underscores (from the collision naming format)
-    CHECK(sepCount >= 4);
-    // Should contain "__" pattern
-    CHECK(name.find("__") != std::string::npos);
+    // Each entry should contain "__" hash separator pattern (collisionnaming
+    // format) Format: <label>__<hash>__<stem>__<hash><ext>
+    for (auto const& name: entryNames) {
+      auto const sepCount = std::ranges::count(name, '_');
+      // Should have at least 6 underscores (from the collision naming format)
+      CHECK(sepCount >= 4);
+      // Should contain "__" pattern
+      CHECK(name.find("__") != std::string::npos);
+    }
+    // Both entries should end with .txt
+    for (auto const& name: entryNames) { CHECK(name.ends_with(".txt")); }
   }
-  // Both entries should end with .txt
-  for (auto const& name: entryNames) { CHECK(name.ends_with(".txt")); }
+
+  SECTION("directory mode over a tree with same-named files") {
+    auto const srcDir = tmp.path / "src";
+    auto const subDir = srcDir / "sub";
+    fs::create_directories(subDir);
+
+    testutils::writeTextFile(srcDir / "same.txt");
+    testutils::writeTextFile(subDir / "same.txt");
+
+    pack::PackRequest req{
+      .entries = {srcDir},
+      .mode = pack::PackMode::Directory,
+      .outputDir = outputDir,
+      .naming = pack::NamingConfig{
+        .namingStrategy = pack::NamingStrategy::FlatWithForce,
+      },
+    };
+
+    auto const result = pack::execute(req);
+    REQUIRE(result.has_value());
+
+    auto const zipFiles = testutils::listRegularFiles(outputDir);
+    REQUIRE(zipFiles.size() == 1);
+
+    auto const entries = testutils::listZipRegularEntryNames(zipFiles[0]);
+    CHECK(entries.size() == 2);
+    CHECK(entries[0] != entries[1]);
+  }
 }
 
 // ============================================================

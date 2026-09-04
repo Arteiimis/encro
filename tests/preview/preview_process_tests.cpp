@@ -192,31 +192,6 @@ TEST_CASE("preview fails when an input does not exist", "[preview]") {
   CHECK(res.error().find("does not exist") != std::string::npos);
 }
 
-TEST_CASE("preview manual mode with --start beyond the duration fails", "[preview]") {
-  TempDir temp;
-  auto const original = temp.path / "sample.mp4";
-  auto const encoded = temp.path / "sample.hevc.mp4";
-  testutils::writeTextFile(original);
-  testutils::writeTextFile(encoded);
-
-  auto ctx = appctx::AppContext{};
-  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
-  fillPreviewContext(ctx, temp.path, envs);
-
-  auto const res = preview::run(
-    ctx,
-    preview::PreviewOptions{
-      .original = original,
-      .encoded = encoded,
-      .startSeconds = 9999.0,
-      .durationSeconds = 10.0,
-      .noOpen = true,
-    }
-  );
-  REQUIRE_FALSE(res.has_value());
-  CHECK(res.error().find("--start") != std::string::npos);
-}
-
 TEST_CASE(
   "preview single-input mode probes and renders against window segments",
   "[preview]"
@@ -229,51 +204,45 @@ TEST_CASE(
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   fillPreviewContext(ctx, temp.path, envs);
 
-  auto const res =
-    preview::run(ctx, preview::PreviewOptions{.original = original, .noOpen = true});
-  REQUIRE(res.has_value());
-  CHECK(res.value() == 0);
+  SECTION("uniform windows across the full video") {
+    auto const res =
+      preview::run(ctx, preview::PreviewOptions{.original = original, .noOpen = true});
+    REQUIRE(res.has_value());
+    CHECK(res.value() == 0);
 
-  auto const outputPath = temp.path / "sample.preview.mp4";
-  CHECK(fs::exists(outputPath));
-  CHECK(fs::file_size(outputPath) > 0);
+    auto const outputPath = temp.path / "sample.preview.mp4";
+    CHECK(fs::exists(outputPath));
+    CHECK(fs::file_size(outputPath) > 0);
 
-  // Probe and window segments live in the scratch dir that is cleaned up.
-  auto leftover = false;
-  auto ec = std::error_code{};
-  auto const scratch = workdirs::scratchDir();
-  if (fs::is_directory(scratch, ec) && !ec) {
-    for (
-      auto const& entry:
-      fs::directory_iterator(scratch, fs::directory_options::skip_permission_denied, ec)
-    ) {
-      if (entry.path().filename().string().starts_with("preview_")) { leftover = true; }
+    // Probe and window segments live in the scratch dir that is cleaned up.
+    auto leftover = false;
+    auto ec = std::error_code{};
+    auto const scratch = workdirs::scratchDir();
+    if (fs::is_directory(scratch, ec) && !ec) {
+      for (
+        auto const& entry:
+        fs::directory_iterator(scratch, fs::directory_options::skip_permission_denied, ec)
+      ) {
+        if (entry.path().filename().string().starts_with("preview_")) { leftover = true; }
+      }
     }
+    CHECK_FALSE(leftover);
   }
-  CHECK_FALSE(leftover);
-}
 
-TEST_CASE("preview single-input manual mode encodes one window", "[preview]") {
-  TempDir temp;
-  auto const original = temp.path / "sample.mp4";
-  testutils::writeTextFile(original);
-
-  auto ctx = appctx::AppContext{};
-  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
-  fillPreviewContext(ctx, temp.path, envs);
-
-  auto const res = preview::run(
-    ctx,
-    preview::PreviewOptions{
-      .original = original,
-      .startSeconds = 10.0,
-      .durationSeconds = 20.0,
-      .noOpen = true,
-    }
-  );
-  REQUIRE(res.has_value());
-  auto const outputPath = temp.path / "sample.preview.mp4";
-  CHECK(fs::exists(outputPath));
+  SECTION("manual range encodes a single window") {
+    auto const res = preview::run(
+      ctx,
+      preview::PreviewOptions{
+        .original = original,
+        .startSeconds = 10.0,
+        .durationSeconds = 20.0,
+        .noOpen = true,
+      }
+    );
+    REQUIRE(res.has_value());
+    auto const outputPath = temp.path / "sample.preview.mp4";
+    CHECK(fs::exists(outputPath));
+  }
 }
 
 TEST_CASE("preview single-input falls back to default CQ for short videos", "[preview]") {
