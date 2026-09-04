@@ -331,6 +331,56 @@ TEST_CASE("job state persists accumulated encoding time across restarts", "[job-
   CHECK(*afterRetry->encodedMs > *resumed->encodedMs);
 }
 
+TEST_CASE(
+  "job state accumulates exact elapsed time on a synthetic clock",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const outputPath = temp.path / "input.hevc.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeTextFile(inputPath);
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto const task = jobstate::makeEncodeTask(inputPath, outputPath);
+
+  auto store = jobstate::Store{statePath};
+  REQUIRE(store.initialize(config, false));
+  store.mergeTasks(std::array{task});
+
+  {
+    auto clock = testutils::ScopedSyntheticJobClock{1'000'000};
+    store.markRunning(task.id);
+    clock.advanceMs(30'000);
+    store.markInterrupted(task.id);
+  }
+
+  // Reload from disk: the persisted accumulation is exact, not a bound.
+  auto resumedStore = jobstate::Store{statePath};
+  REQUIRE(resumedStore.initialize(config, false));
+  auto const resumed = resumedStore.findTask(task.id);
+  REQUIRE(resumed.has_value());
+  REQUIRE(resumed->encodedMs.has_value());
+  CHECK(resumed->encodedMs.value() == 30'000);
+
+  // A second attempt adds only its own window; running->interrupted with no
+  // clock advance is a pure idle gap and must not move the total.
+  {
+    auto clock = testutils::ScopedSyntheticJobClock{2'000'000};
+    resumedStore.mergeTasks(std::array{task});
+    resumedStore.markRunning(task.id);
+    clock.advanceMs(5'000);
+    resumedStore.markInterrupted(task.id);
+    resumedStore.markRunning(task.id);
+    resumedStore.markInterrupted(task.id);
+  }
+
+  auto const after = resumedStore.findTask(task.id);
+  REQUIRE(after.has_value());
+  REQUIRE(after->encodedMs.has_value());
+  CHECK(after->encodedMs.value() == 35'000);
+}
+
 TEST_CASE("job state loads a legacy file without encodedMs as zero", "[job-state]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";

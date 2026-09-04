@@ -99,6 +99,14 @@ local function injectFakeToolDefine(target)
   end
 end
 
+-- Injects the repo's tests/ source root so in-suite meta checks can scan
+-- test sources from the built binary (test processes don't know the repo
+-- layout at runtime).
+local function injectTestSourceDirDefine(target)
+  local testsDir = path.absolute(path.join(os.projectdir(), "tests"))
+  target:add("defines", "ENCRO_TEST_SOURCE_DIR=\"" .. testsDir:gsub("\\", "\\\\") .. "\"")
+end
+
 target("tests")
   set_kind("binary")
   set_default(false)
@@ -120,7 +128,10 @@ target("tests")
 
   -- Unit tests spawn the fake media tool exe directly (no cmd.exe layer).
   add_deps("encro_e2e_tool")
-  after_load(injectFakeToolDefine)
+  after_load(function(target)
+    injectFakeToolDefine(target)
+    injectTestSourceDirDefine(target)
+  end)
 target_end()
 
 target("e2e_tests")
