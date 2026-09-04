@@ -24,7 +24,7 @@ Non-goals: no changes to shard counts, TMP isolation, or log-based verdicts in `
 
 ### New Capabilities
 
-- `deterministic-test-sync`: how tests synchronize with async and subprocess activity — observable-state polling via a shared helper, fake-tool invocation gating, hang-guard time bounds, and the no-bare-sleep rule for test synchronization.
+- `deterministic-test-sync`: how tests synchronize with async and subprocess activity — observable-state polling via a shared helper, hang-guard time bounds, a controlled clock for elapsed-accumulation tests, per-test durations in shard logs, and the no-bare-sleep rule for test synchronization.
 
 ### Modified Capabilities
 
@@ -34,5 +34,5 @@ Non-goals: no changes to shard counts, TMP isolation, or log-based verdicts in `
 
 - Test infrastructure: `tests/test_utils.h`, `tests/e2e/fake_media_tool.cpp`, `tests/test_utils_tests.cpp` (helper coverage).
 - Test bodies: `tests/app/pipeline_picture_tests.cpp`, `tests/video/video_encode_runner_tests.cpp`, `tests/utils_tests.cpp`, `tests/video/video_batch_execution_tests.cpp`, `tests/job_state_tests.cpp`, `tests/logging_file_mgmt_tests.cpp`, plus dedup of local `waitUntil` copies in `tests/e2e/`.
-- Production code (test seam only, no behavior change): `src/core/job_state.{h,cpp}` / `job_state_store.cpp` gain a test-settable clock behind the same pattern already used by `src/infra/stop_signal` test hooks.
+- Production code (test seam only, no behavior change): the single `jobstate::detail::nowMs()` definition in `src/core/job_state.cpp` gains a test-settable clock behind the same pattern already used by `src/infra/stop_signal` test hooks; all callers funnel through it unchanged.
 - Build tooling: `plugins/test_parallel/xmake.lua` forwards `--durations` to shard processes; new meta-check for bare sleeps runs as part of the unit suite.
