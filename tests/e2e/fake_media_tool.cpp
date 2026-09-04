@@ -477,11 +477,24 @@ void recordCompletedInput(int argc, char* argv[]) {
 
 // Optional start gate (ENCRO_FAKE_FFMPEG_GATE_FILE): after logging the
 // invocation, block until the file exists, letting tests hold an invocation
-// in flight while they flip other state (e.g. raise a stop request). The
-// deadline keeps a miswired test from hanging the suite.
-void waitForGateFile() {
+// in flight while they flip other state (e.g. raise a stop request).
+// ENCRO_FAKE_FFMPEG_GATE_FROM_CALL restricts gating to invocations with that
+// schedule index or later, so earlier calls run to completion; without it
+// every invocation gates. An invocation without a schedule index (no count
+// file) always gates. The deadline keeps a miswired test from hanging the
+// suite.
+void waitForGateFile(int callIndex) {
   auto const gate = readEnv("ENCRO_FAKE_FFMPEG_GATE_FILE");
   if (!gate.has_value()) { return; }
+  if (callIndex > 0) {
+    if (auto const fromCall = readEnv("ENCRO_FAKE_FFMPEG_GATE_FROM_CALL"); fromCall) {
+      auto fromIndex = 1;
+      try {
+        fromIndex = std::stoi(fromCall.value());
+      } catch (...) { }
+      if (callIndex < fromIndex) { return; }
+    }
+  }
   auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
   while (!fs::exists(fs::path{gate.value()})) {
     if (std::chrono::steady_clock::now() >= deadline) { return; }
@@ -492,14 +505,18 @@ void waitForGateFile() {
 int runFakeFfmpeg(int argc, char* argv[]) {
   appendInvocationLog("ffmpeg", argc, argv);
   if (hasArg(argc, argv, "-version")) { return emitVersion("ffmpeg"); }
-  waitForGateFile();
+
+  // Resolve the schedule index before the gate: index-aware gating needs the
+  // call number, and a gated-then-blocked invocation consumes its index.
+  // -version probes returned above, so they neither gate nor consume one.
+  auto const callIndex = nextScheduledCallIndex();
+  waitForGateFile(callIndex);
 
   auto const invocation = parseFfmpegInvocation(argc, argv);
 
-  // Resolve this invocation's call index and any matching schedule entry.
+  // Resolve any matching schedule entry for this invocation.
   auto scheduledDelayMs = -1;
   auto scheduledExitCode = -1;
-  auto const callIndex = nextScheduledCallIndex();
   if (callIndex > 0) {
     if (auto const planText = readEnv("ENCRO_FAKE_FFMPEG_CALL_PLAN"); planText) {
       for (auto const& segment: parseCallPlan(planText.value())) {
