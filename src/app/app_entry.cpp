@@ -123,10 +123,7 @@ int failWithHint(
     terminal::println(Error, "Error: {}", message);
     LOG_ERROR("{}", message);
   }
-  // stderr: stdout carries product output (e.g. `encro completion bash` scripts).
-  if (auto const logFilePath = logging::currentLogFilePath(); logFilePath.has_value()) {
-    terminal::eprintln(Hint, "Log file: {}", terminal::path(logFilePath.value()));
-  }
+  logging::printLogHint();
   // End-of-run summary before the drain below, so it lands in the log.
   logging::logRunSummary(buildSummary(ctx, "failed"));
   // Drain the async queue so the error reaches the console echo and the log file
@@ -249,10 +246,14 @@ int runPreview(prelude::StartupContext const& startup) {
     );
   }
 
-  auto const status = runRes.value() == 0 ? "success" : "failed";
+  auto const exitCode = runRes.value();
+  if (exitCode != 0 && exitCode != stopsignal::kCanceledExitCode) {
+    logging::printLogHint();
+  }
+  auto const status = exitCode == 0 ? "success" : "failed";
   logging::logRunSummary(buildSummary(&ctx, status));
   logging::shutdown();
-  return runRes.value();
+  return exitCode;
 }
 
 int runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& startup) {
@@ -269,7 +270,11 @@ int runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& start
   // Success, Ctrl-C, or any other non-zero pipeline exit all reach here; today
   // these paths return without draining, so the summary must be followed by an
   // explicit shutdown.
-  auto const status = [exitCode = runRes.value()] {
+  auto const exitCode = runRes.value();
+  if (exitCode != 0 && exitCode != stopsignal::kCanceledExitCode) {
+    logging::printLogHint();
+  }
+  auto const status = [exitCode] {
     if (exitCode == stopsignal::kCanceledExitCode) { return "interrupted"; }
     return exitCode == 0 ? "success" : "failed";
   }();
@@ -303,8 +308,19 @@ int run(int argc, char* argv[]) {
   }
 
   if (startup.cmd.preview) { return runPreview(startup); }
-  if (startup.cmd.config) { return cmd::runConfigCommand(startup.cmd); }
-  if (startup.cmd.completion) { return cmd::runCompletionCommand(startup.cmd); }
+
+  // Subcommand bodies report their own errors and return non-zero; they bypass
+  // failWithHint, so the log hint is attached here on failure.
+  if (startup.cmd.config) {
+    auto const exitCode = cmd::runConfigCommand(startup.cmd);
+    if (exitCode != 0) { logging::printLogHint(); }
+    return exitCode;
+  }
+  if (startup.cmd.completion) {
+    auto const exitCode = cmd::runCompletionCommand(startup.cmd);
+    if (exitCode != 0) { logging::printLogHint(); }
+    return exitCode;
+  }
 
   auto config = buildAppConfig(startup);
   if (!config.has_value()) { return 1; }

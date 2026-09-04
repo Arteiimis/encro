@@ -439,6 +439,17 @@ auto currentLogFilePath() -> std::optional<fs::path> {
   return gCurrentLogFilePath;
 }
 
+void printLogHint() {
+  if (auto const logFilePath = currentLogFilePath(); logFilePath.has_value()) {
+    // stderr: stdout carries product output (e.g. `encro completion bash` scripts).
+    terminal::eprintln(
+      terminal::MessageKind::Hint,
+      "Log file: {}",
+      terminal::path(logFilePath.value())
+    );
+  }
+}
+
 auto currentNdjsonFilePath() -> std::optional<fs::path> {
   return gCurrentNdjsonFilePath;
 }
