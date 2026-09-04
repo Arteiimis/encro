@@ -11,7 +11,6 @@
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <type_traits>
 
 // ── File-scoped DEFINE_LOGGER — ScopedTimer's LOG_INFO calls resolve through this ──
 DEFINE_LOGGER(logtags::TEST_INFRA);
@@ -65,65 +64,110 @@ TEST_CASE("ScopedTimer logs elapsed time on destruction", "[logging][scoped_time
 // Test 3 — Move semantics transfer timing ownership
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("ScopedTimer move transfers ownership", "[logging][scoped_timer]") {
+TEST_CASE("ScopedTimer move semantics transfer ownership", "[logging][scoped_timer]") {
   auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
 
-  {
-    std::optional<logging::ScopedTimer> original(std::in_place, "move_stage");
-    logger->flush();  // flush begin message
+  SECTION("move construction") {
+    {
+      std::optional<logging::ScopedTimer> original(std::in_place, "move_stage");
+      logger->flush();  // flush begin message
 
-    // Move-construct a new ScopedTimer from the original
-    std::optional<logging::ScopedTimer> moved(std::move(*original));
+      // Move-construct a new ScopedTimer from the original
+      std::optional<logging::ScopedTimer> moved(std::move(*original));
 
-    // Destroy the original (moved-from) — should NOT log completion
-    original.reset();
+      // Destroy the original (moved-from) — should NOT log completion
+      original.reset();
+      logger->flush();
+      auto const afterOriginalReset = oss->str();
+
+      // Destroy the moved-to — SHOULD log exactly one completion
+      moved.reset();
+      logger->flush();
+      auto const afterMovedReset = oss->str();
+
+      CAPTURE(afterOriginalReset);
+      CAPTURE(afterMovedReset);
+
+      // After original reset, "completed" should NOT appear
+      CHECK(afterOriginalReset.find("move_stage completed") == std::string::npos);
+
+      // After moved reset, exactly one "completed" message should appear
+      CHECK(testutils::countOccurrences(afterMovedReset, "move_stage completed") == 1);
+    }
+
+    // Move-from also ensured that the moved-from internal state was updated.
+    // Verify: create one, move it, then let both the original (moved-from) and
+    // moved-to destruct. The stream should show exactly one begin and one complete.
+    auto [logger2, oss2] = testutils::registerCapturingLogger(
+      logtags::TEST_INFRA
+    );  // re-register for clean slate
+
+    {
+      logging::ScopedTimer t1("ownership_test");
+      logging::ScopedTimer t2(std::move(t1));
+      // t1 is moved-from, t2 owns the timing
+    }
     logger->flush();
-    auto const afterOriginalReset = oss->str();
 
-    // Destroy the moved-to — SHOULD log exactly one completion
-    moved.reset();
-    logger->flush();
-    auto const afterMovedReset = oss->str();
+    auto const finalOutput = oss2->str();
+    CAPTURE(finalOutput);
 
-    CAPTURE(afterOriginalReset);
-    CAPTURE(afterMovedReset);
+    CHECK(testutils::countOccurrences(finalOutput, "ownership_test begin") == 1);
 
-    // After original reset, "completed" should NOT appear
-    CHECK(afterOriginalReset.find("move_stage completed") == std::string::npos);
-
-    // After moved reset, exactly one "completed" message should appear
-    CHECK(testutils::countOccurrences(afterMovedReset, "move_stage completed") == 1);
+    CHECK(testutils::countOccurrences(finalOutput, "ownership_test completed") == 1);
   }
 
-  // Move-from also ensured that the moved-from internal state was updated.
-  // Verify: create one, move it, then let both the original (moved-from) and
-  // moved-to destruct. The stream should show exactly one begin and one complete.
-  auto [logger2, oss2] = testutils::registerCapturingLogger(
-    logtags::TEST_INFRA
-  );  // re-register for clean slate
+  SECTION("move assignment") {
+    {
+      logging::ScopedTimer t1("first");
+      logging::ScopedTimer t2("second");
+      logger->flush();  // flush both begin messages
 
-  {
-    logging::ScopedTimer t1("ownership_test");
-    logging::ScopedTimer t2(std::move(t1));
-    // t1 is moved-from, t2 owns the timing
+      // Move-assign t2 into t1. t1 now owns "second", t2 is moved-from.
+      t1 = std::move(t2);
+
+      // Both t1 and t2 go out of scope here (order: t2 first, then t1)
+      // t2 is moved-from — no "second completed" from t2
+      // t1 owns "second" — should log exactly one "second completed"
+    }
+    logger->flush();
+
+    auto const output = oss->str();
+    CAPTURE(output);
+
+    // There should be exactly one "first begin" (from t1's original constructor)
+    CHECK(testutils::countOccurrences(output, "first begin") == 1);
+
+    // There should be exactly one "second begin" (from t2's constructor)
+    CHECK(testutils::countOccurrences(output, "second begin") == 1);
+
+    // There should be exactly one "second completed" (from t1 after move-assign)
+    CHECK(testutils::countOccurrences(output, "second completed") == 1);
+
+    // "first completed" should NOT appear (t1 was overwritten by move-assign
+    // before it destructed, so it logs "second completed", not "first completed")
+    CHECK(output.find("first completed") == std::string::npos);
   }
-  logger->flush();
 
-  auto const finalOutput = oss2->str();
-  CAPTURE(finalOutput);
+  SECTION("self-move assignment") {
+    {
+      logging::ScopedTimer t("self");
+      logger->flush();  // flush begin
 
-  CHECK(testutils::countOccurrences(finalOutput, "ownership_test begin") == 1);
+      // Self-move-assignment — should be a no-op
+      t = std::move(t);
+      // t should still be valid and owned (not moved-from)
+    }
+    logger->flush();
 
-  CHECK(testutils::countOccurrences(finalOutput, "ownership_test completed") == 1);
-}
+    auto const output = oss->str();
+    CAPTURE(output);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 4 — ScopedTimer is not copyable
-// ─────────────────────────────────────────────────────────────────────────────
+    // Should have exactly one "self begin" and one "self completed"
+    CHECK(testutils::countOccurrences(output, "self begin") == 1);
 
-TEST_CASE("ScopedTimer is not copyable", "[logging][scoped_timer]") {
-  STATIC_CHECK_FALSE(std::is_copy_constructible_v<logging::ScopedTimer>);
-  STATIC_CHECK_FALSE(std::is_copy_assignable_v<logging::ScopedTimer>);
+    CHECK(testutils::countOccurrences(output, "self completed") == 1);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,14 +213,6 @@ TEST_CASE("Nested ScopedTimer produces correct ordering", "[logging][scoped_time
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 6 — ScopedTimer destructor is noexcept
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE("ScopedTimer destructor is noexcept", "[logging][scoped_timer]") {
-  STATIC_CHECK(std::is_nothrow_destructible_v<logging::ScopedTimer>);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Test 7 — Empty stage name edge case
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -198,72 +234,4 @@ TEST_CASE("ScopedTimer with empty stage name logs correctly", "[logging][scoped_
   // Should produce completed message without crashing
   CHECK(output.find("completed in") != std::string::npos);
   CHECK(output.find("ms") != std::string::npos);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 8 — Move assignment operator
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE("ScopedTimer move assignment works", "[logging][scoped_timer]") {
-  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
-
-  {
-    logging::ScopedTimer t1("first");
-    logging::ScopedTimer t2("second");
-    logger->flush();  // flush both begin messages
-
-    // Move-assign t2 into t1. t1 now owns "second", t2 is moved-from.
-    t1 = std::move(t2);
-
-    // t2 (moved-from) destructs — should NOT log completion for "second"
-    // (goes out of scope at end of this block, but we can't easily isolate
-    //  since t1 also goes out of scope)
-
-    // Both t1 and t2 go out of scope here (order: t2 first, then t1)
-    // t2 is moved-from — no "second completed" from t2
-    // t1 owns "second" — should log exactly one "second completed"
-  }
-  logger->flush();
-
-  auto const output = oss->str();
-  CAPTURE(output);
-
-  // There should be exactly one "first begin" (from t1's original constructor)
-  CHECK(testutils::countOccurrences(output, "first begin") == 1);
-
-  // There should be exactly one "second begin" (from t2's constructor)
-  CHECK(testutils::countOccurrences(output, "second begin") == 1);
-
-  // There should be exactly one "second completed" (from t1 after move-assign)
-  CHECK(testutils::countOccurrences(output, "second completed") == 1);
-
-  // "first completed" should NOT appear (t1 was overwritten by move-assign
-  // before it destructed, so it logs "second completed", not "first completed")
-  CHECK(output.find("first completed") == std::string::npos);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 9 — Self-move-assignment is safe
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE("self-move-assignment is safe", "[logging][scoped_timer]") {
-  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
-
-  {
-    logging::ScopedTimer t("self");
-    logger->flush();  // flush begin
-
-    // Self-move-assignment — should be a no-op
-    t = std::move(t);
-    // t should still be valid and owned (not moved-from)
-  }
-  logger->flush();
-
-  auto const output = oss->str();
-  CAPTURE(output);
-
-  // Should have exactly one "self begin" and one "self completed"
-  CHECK(testutils::countOccurrences(output, "self begin") == 1);
-
-  CHECK(testutils::countOccurrences(output, "self completed") == 1);
 }

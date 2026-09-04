@@ -39,103 +39,112 @@ struct ScopedContextReset {
 DEFINE_LOGGER(logtags::TEST_INFRA);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1 — ScopedErrorContext pushes frame on construction
+// Test 1 — ScopedErrorContext push / render / pop behavior
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
-  "ScopedErrorContext pushes frame on construction",
+  "ScopedErrorContext pushes, renders, and pops frames",
   "[logging][error_context][scoped_error_context]"
 ) {
   ScopedContextReset reset;
 
-  constexpr auto kStage = std::string_view{"test_stage"};
-  constexpr auto kDetail = std::string_view{"test_detail"};
+  // Empty TLS stack renders as an empty string
+  auto const emptyChain = logging::detail::formatContextChain();
+  CAPTURE(emptyChain);
+  CHECK(emptyChain.empty());
+  CHECK(emptyChain == "");
 
-  logging::ScopedErrorContext ctx(kStage, kDetail);
-  auto const chain = logging::detail::formatContextChain();
-
-  CAPTURE(chain);
-  CHECK(chain.find("test_stage") != std::string::npos);
-  CHECK(chain.find("test_detail") != std::string::npos);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 2 — ScopedErrorContext pops frame on destruction
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE(
-  "ScopedErrorContext pops frame on destruction",
-  "[logging][error_context][scoped_error_context]"
-) {
-  ScopedContextReset reset;
-
-  std::string insideChain;
+  // Push: frame with stage + detail renders both
   {
-    logging::ScopedErrorContext ctx("stage", "detail");
-    insideChain = logging::detail::formatContextChain();
-  }
-  auto const outsideChain = logging::detail::formatContextChain();
+    constexpr auto kStage = std::string_view{"test_stage"};
+    constexpr auto kDetail = std::string_view{"test_detail"};
 
-  CAPTURE(insideChain);
+    logging::ScopedErrorContext ctx(kStage, kDetail);
+    auto const insideChain = logging::detail::formatContextChain();
+
+    CAPTURE(insideChain);
+    CHECK_FALSE(insideChain.empty());
+    CHECK(insideChain.find("test_stage") != std::string::npos);
+    CHECK(insideChain.find("test_detail") != std::string::npos);
+
+    // Degenerate input: empty stage + detail still renders the context bracket
+    {
+      logging::ScopedErrorContext emptyCtx("", "");
+      auto const emptyStageChain = logging::detail::formatContextChain();
+      CAPTURE(emptyStageChain);
+      CHECK_FALSE(emptyStageChain.empty());
+      CHECK(emptyStageChain.find("[context:") != std::string::npos);
+    }
+  }
+
+  // Pop: after destruction the chain is gone again
+  auto const outsideChain = logging::detail::formatContextChain();
   CAPTURE(outsideChain);
-  CHECK_FALSE(insideChain.empty());
   CHECK(outsideChain.empty());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 3 — ScopedErrorContext is not copyable
+// Test 2 — Type traits of the scoped guards
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
-  "ScopedErrorContext is not copyable",
-  "[logging][error_context][scoped_error_context]"
+  "ScopedErrorContext and ScopedTimer type traits",
+  "[logging][error_context][scoped_error_context][scoped_timer]"
 ) {
   STATIC_CHECK_FALSE(std::is_copy_constructible_v<logging::ScopedErrorContext>);
   STATIC_CHECK_FALSE(std::is_copy_assignable_v<logging::ScopedErrorContext>);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 4 — ScopedErrorContext destructor is noexcept
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE(
-  "ScopedErrorContext destructor is noexcept",
-  "[logging][error_context][scoped_error_context]"
-) {
   STATIC_CHECK(std::is_nothrow_destructible_v<logging::ScopedErrorContext>);
+
+  STATIC_CHECK_FALSE(std::is_copy_constructible_v<logging::ScopedTimer>);
+  STATIC_CHECK_FALSE(std::is_copy_assignable_v<logging::ScopedTimer>);
+  STATIC_CHECK(std::is_nothrow_destructible_v<logging::ScopedTimer>);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 5 — Moved-from ScopedErrorContext does not double-pop
+// Test 3 — Move semantics do not disturb the context stack
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
-  "Moved-from ScopedErrorContext does not double-pop",
+  "ScopedErrorContext move operations do not double-pop",
   "[logging][error_context][scoped_error_context]"
 ) {
   ScopedContextReset reset;
 
+  // Move construction: the moved-from destructor is a no-op, so exactly one
+  // pop happens when both objects go out of scope
   {
     logging::ScopedErrorContext original("move_test", "detail");
     // Verify one frame is on the stack after construction
     auto const beforeMove = logging::detail::formatContextChain();
     CHECK_FALSE(beforeMove.empty());
 
-    // Move-construct a new ScopedErrorContext from the original
     logging::ScopedErrorContext moved(std::move(original));
 
-    // Destroy the original (moved-from) — the frame should still be on stack
-    // (moved-from destructor is a no-op)
-    // We can't easily test this mid-block, so we verify after both destruct
-
-    // Let both go out of scope: first moved-from (original), then moved
-    // After moved-from destructor: frame still on stack (no-op)
-    // After moved destructor: frame popped
+    // Both go out of scope here: moved-from destructor first (no-op),
+    // then the moved-to destructor pops the single frame
   }
 
   auto const chain = logging::detail::formatContextChain();
   CAPTURE(chain);
   CHECK(chain.empty());
+
+  // Self-move-assignment: a no-op (no destruction, no double-pop)
+  {
+    logging::ScopedErrorContext self("self", "test");
+    auto const beforeSelfMove = logging::detail::formatContextChain();
+    CHECK_FALSE(beforeSelfMove.empty());
+
+    self = std::move(self);
+
+    auto const afterSelfMove = logging::detail::formatContextChain();
+    CHECK_FALSE(afterSelfMove.empty());
+    // Frame should still be present (not popped by self-move)
+  }
+
+  // After destruction, stack should be empty (exactly one pop occurred)
+  auto const chainAfterSelfMove = logging::detail::formatContextChain();
+  CAPTURE(chainAfterSelfMove);
+  CHECK(chainAfterSelfMove.empty());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -166,35 +175,6 @@ TEST_CASE(
   // outer popped here
 
   auto const chain = logging::detail::formatContextChain();
-  CHECK(chain.empty());
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 7 — Self-move-assignment is safe
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE(
-  "Self-move-assignment is safe",
-  "[logging][error_context][scoped_error_context]"
-) {
-  ScopedContextReset reset;
-
-  {
-    logging::ScopedErrorContext self("self", "test");
-    auto const beforeSelfMove = logging::detail::formatContextChain();
-    CHECK_FALSE(beforeSelfMove.empty());
-
-    // Self-move-assignment — should be a no-op (no destruction, no double-pop)
-    self = std::move(self);
-
-    auto const afterSelfMove = logging::detail::formatContextChain();
-    CHECK_FALSE(afterSelfMove.empty());
-    // Frame should still be present (not popped by self-move)
-  }
-
-  // After destruction, stack should be empty (exactly one pop occurred)
-  auto const chain = logging::detail::formatContextChain();
-  CAPTURE(chain);
   CHECK(chain.empty());
 }
 
@@ -252,30 +232,6 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 9 — Empty stage name edge case
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE(
-  "Empty stage name edge case",
-  "[logging][error_context][scoped_error_context]"
-) {
-  ScopedContextReset reset;
-
-  {
-    logging::ScopedErrorContext ctx("", "");
-    auto const chain = logging::detail::formatContextChain();
-    CAPTURE(chain);
-    // Should not crash and should produce a non-empty string
-    // (containing at least the context bracket)
-    CHECK_FALSE(chain.empty());
-    CHECK(chain.find("[context:") != std::string::npos);
-  }
-
-  auto const chain = logging::detail::formatContextChain();
-  CHECK(chain.empty());
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Test 10 — Context chain format matches D-03/D-04
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -306,22 +262,6 @@ TEST_CASE(
     CAPTURE(chain);
     CHECK(chain == " [context: scan > probe]");
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 11 — Empty TLS stack produces empty string
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE(
-  "Empty TLS stack produces empty string",
-  "[logging][error_context][scoped_error_context]"
-) {
-  ScopedContextReset reset;
-
-  auto const chain = logging::detail::formatContextChain();
-  CAPTURE(chain);
-  CHECK(chain.empty());
-  CHECK(chain == "");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -422,76 +362,60 @@ TEST_CASE("LOG_INFO does not append context chain", "[logging][error_context]") 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 17 — ScopedLogAttributes serializes as [attrs: {...}] suffix (RED 1.1)
+// Test 17 — ScopedLogAttributes push / serialize / pop / shadow behavior
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
-  "ScopedLogAttributes serializes as attrs suffix",
+  "ScopedLogAttributes serializes, pops, and shadows",
   "[logging][error_context][scoped_log_attributes]"
 ) {
   ScopedContextReset reset;
 
-  logging::ScopedLogAttributes
-    attrs({{"task_id", "encode:a.mkv"}, {"input", R"(C:\vids\a.mkv)"}});
-  auto const chain = logging::detail::formatAttributeChain();
-
-  CAPTURE(chain);
-  CHECK(chain.starts_with(" [attrs: {"));
-  CHECK(chain.ends_with("}]"));
-  CHECK(chain.find(R"("task_id":"encode:a.mkv")") != std::string::npos);
-  CHECK(chain.find(R"("input":"C:\\vids\\a.mkv")") != std::string::npos);
-
-  // The serialized object must be valid JSON after stripping the wrapper
-  namespace json = boost::json;
-  auto const objectText =
-    chain.substr(9, chain.size() - 10);  // strip " [attrs: " and the trailing "]"
-  auto const parsed = json::parse(objectText);
-  CHECK(parsed.is_object());
-  CHECK(parsed.as_object().at("task_id").as_string() == "encode:a.mkv");
-  CHECK(parsed.as_object().at("input").as_string() == R"(C:\vids\a.mkv)");
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 18 — Attrs frames pop on destruction
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE(
-  "ScopedLogAttributes pops on destruction",
-  "[logging][error_context][scoped_log_attributes]"
-) {
-  ScopedContextReset reset;
-
-  std::string inside;
-  {
-    logging::ScopedLogAttributes attrs({{"task_id", "t1"}});
-    inside = logging::detail::formatAttributeChain();
-  }
-  auto const outside = logging::detail::formatAttributeChain();
-
-  CAPTURE(inside);
-  CAPTURE(outside);
-  CHECK_FALSE(inside.empty());
-  CHECK(outside.empty());
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 19 — Innermost attribute shadows outer keys
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE(
-  "Innermost attribute shadows outer keys",
-  "[logging][error_context][scoped_log_attributes]"
-) {
-  ScopedContextReset reset;
-
-  logging::ScopedLogAttributes outer({{"task_id", "outer"}, {"input", "outer-file"}});
-  {
-    logging::ScopedLogAttributes inner({{"task_id", "inner"}});
+  SECTION("serializes as attrs suffix") {
+    logging::ScopedLogAttributes
+      attrs({{"task_id", "encode:a.mkv"}, {"input", R"(C:\vids\a.mkv)"}});
     auto const chain = logging::detail::formatAttributeChain();
+
     CAPTURE(chain);
-    CHECK(chain.find(R"("task_id":"inner")") != std::string::npos);
-    CHECK(chain.find(R"("task_id":"outer")") == std::string::npos);
-    CHECK(chain.find(R"("input":"outer-file")") != std::string::npos);
+    CHECK(chain.starts_with(" [attrs: {"));
+    CHECK(chain.ends_with("}]"));
+    CHECK(chain.find(R"("task_id":"encode:a.mkv")") != std::string::npos);
+    CHECK(chain.find(R"("input":"C:\\vids\\a.mkv")") != std::string::npos);
+
+    // The serialized object must be valid JSON after stripping the wrapper
+    namespace json = boost::json;
+    auto const objectText =
+      chain.substr(9, chain.size() - 10);  // strip " [attrs: " and the trailing "]"
+    auto const parsed = json::parse(objectText);
+    CHECK(parsed.is_object());
+    CHECK(parsed.as_object().at("task_id").as_string() == "encode:a.mkv");
+    CHECK(parsed.as_object().at("input").as_string() == R"(C:\vids\a.mkv)");
+  }
+
+  SECTION("pops on destruction") {
+    std::string inside;
+    {
+      logging::ScopedLogAttributes attrs({{"task_id", "t1"}});
+      inside = logging::detail::formatAttributeChain();
+    }
+    auto const outside = logging::detail::formatAttributeChain();
+
+    CAPTURE(inside);
+    CAPTURE(outside);
+    CHECK_FALSE(inside.empty());
+    CHECK(outside.empty());
+  }
+
+  SECTION("innermost shadows outer keys") {
+    logging::ScopedLogAttributes outer({{"task_id", "outer"}, {"input", "outer-file"}});
+    {
+      logging::ScopedLogAttributes inner({{"task_id", "inner"}});
+      auto const chain = logging::detail::formatAttributeChain();
+      CAPTURE(chain);
+      CHECK(chain.find(R"("task_id":"inner")") != std::string::npos);
+      CHECK(chain.find(R"("task_id":"outer")") == std::string::npos);
+      CHECK(chain.find(R"("input":"outer-file")") != std::string::npos);
+    }
   }
 }
 

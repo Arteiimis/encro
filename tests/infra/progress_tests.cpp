@@ -28,62 +28,87 @@ bool hasWholeCodePoints(std::string const& text) {
   return (first & 0xC0u) != 0x80u && (last & 0xC0u) != 0xC0u;
 }
 
+// ── Shared EtaEstimator simulation scaffolding ──
+
+// Feeds a linear ramp: `steps` samples spaced `stepMs` apart, sample i sitting
+// at i * percentPerStep percent.
+void sampleLinearRamp(
+  progress::EtaEstimator& est,
+  std::chrono::steady_clock::time_point t,
+  int steps,
+  std::chrono::milliseconds stepMs,
+  float percentPerStep
+) {
+  for (auto i = 1; i <= steps; ++i) {
+    est.sample(t + stepMs * i, static_cast<float>(i) * percentPerStep);
+  }
+}
+
+// Feeds a constant-rate segment: `steps` samples spaced `stepMs` apart starting
+// at step `startStep`, each advancing `progress` by percentPerStep points.
+void sampleConstantRate(
+  progress::EtaEstimator& est,
+  std::chrono::steady_clock::time_point t,
+  int startStep,
+  int steps,
+  std::chrono::milliseconds stepMs,
+  double& progress,
+  double percentPerStep
+) {
+  for (auto i = startStep; i < startStep + steps; ++i) {
+    progress += percentPerStep;
+    est.sample(t + stepMs * i, static_cast<float>(progress));
+  }
+}
+
 }  // namespace
 
-TEST_CASE("progress bars emit no frames when stdout is not a terminal", "[progress]") {
-  TempDir temp;
-  auto const capturePath = temp.path / "out.txt";
-
-  {
-    auto capture = testutils::StdoutCapture{capturePath};
-    auto ctx = progress::ProgressContext{};
-    auto const barIndex = ctx.addBar("tick", progress::Tone::Default);
-    ctx.setProgress(barIndex, 0.5f);
-    terminal::write(terminal::Stream::Stdout, "status line", true);
-  }
-
-  auto const text = testutils::readTextFile(capturePath);
-  CHECK(text.find("tick") == std::string::npos);
-  CHECK(text.find("status line") != std::string::npos);
-}
-
 TEST_CASE("ProgressContext tick is safe on an empty context", "[progress]") {
+  // Ticks on an empty context must not crash and must keep subsequent
+  // progress updates working
   auto ctx = progress::ProgressContext{};
   ctx.tick();
   ctx.tick();
-}
 
-TEST_CASE(
-  "ProgressContext tick emits no frames when stdout is not a terminal",
-  "[progress]"
-) {
-  TempDir temp;
-  auto const capturePath = temp.path / "out.txt";
-
-  {
-    auto capture = testutils::StdoutCapture{capturePath};
-    auto ctx = progress::ProgressContext{};
-    auto const barIndex = ctx.addBar("tick", progress::Tone::Default);
-    ctx.setProgress(barIndex, 0.5f);
-    ctx.tick();
-    terminal::write(terminal::Stream::Stdout, "status line", true);
-  }
-
-  auto const text = testutils::readTextFile(capturePath);
-  CHECK(text.find("tick") == std::string::npos);
-  CHECK(text.find("status line") != std::string::npos);
-}
-
-TEST_CASE(
-  "ProgressContext tick keeps subsequent progress updates working",
-  "[progress]"
-) {
-  auto ctx = progress::ProgressContext{};
   auto const barIndex = ctx.addBar("tick", progress::Tone::Default);
   ctx.setProgress(barIndex, 10.0f);
   for (auto i = 0; i < 5; ++i) { ctx.tick(); }
   ctx.setProgress(barIndex, 100.0f);
   ctx.setPostfixText(barIndex, "done");
+}
+
+TEST_CASE("progress updates emit no frames when stdout is not a terminal", "[progress]") {
+  TempDir temp;
+  auto const capturePath = temp.path / "out.txt";
+
+  SECTION("setProgress without tick") {
+    {
+      auto capture = testutils::StdoutCapture{capturePath};
+      auto ctx = progress::ProgressContext{};
+      auto const barIndex = ctx.addBar("tick", progress::Tone::Default);
+      ctx.setProgress(barIndex, 0.5f);
+      terminal::write(terminal::Stream::Stdout, "status line", true);
+    }
+
+    auto const text = testutils::readTextFile(capturePath);
+    CHECK(text.find("tick") == std::string::npos);
+    CHECK(text.find("status line") != std::string::npos);
+  }
+
+  SECTION("setProgress with tick") {
+    {
+      auto capture = testutils::StdoutCapture{capturePath};
+      auto ctx = progress::ProgressContext{};
+      auto const barIndex = ctx.addBar("tick", progress::Tone::Default);
+      ctx.setProgress(barIndex, 0.5f);
+      ctx.tick();
+      terminal::write(terminal::Stream::Stdout, "status line", true);
+    }
+
+    auto const text = testutils::readTextFile(capturePath);
+    CHECK(text.find("tick") == std::string::npos);
+    CHECK(text.find("status line") != std::string::npos);
+  }
 }
 
 TEST_CASE("resolveColor maps progress tones to distinct roles", "[progress]") {
@@ -119,17 +144,93 @@ TEST_CASE("EtaEstimator has no eta before rate is established", "[progress]") {
   CHECK(est.etaSeconds(0.0f).has_value() == false);
 }
 
-TEST_CASE("EtaEstimator converges to steady-state rate", "[progress]") {
-  progress::EtaEstimator est;
-  auto t = std::chrono::steady_clock::now();
-  est.sample(t, 0.0f);
-  for (auto i = 1; i <= 20; ++i) {
-    est.sample(t + std::chrono::milliseconds{250} * i, static_cast<float>(i) * 2.5f);
+// ── Simulation harnesses (converge / dip / slowdown / wobble) sharing the
+//    sample-loop scaffolding above ──
+
+TEST_CASE("EtaEstimator simulation scenarios", "[progress]") {
+  SECTION("converges to steady-state rate") {
+    progress::EtaEstimator est;
+    auto t = std::chrono::steady_clock::now();
+    est.sample(t, 0.0f);
+    sampleLinearRamp(est, t, 20, std::chrono::milliseconds{250}, 2.5f);
+    auto const eta = est.etaSeconds(50.0f);
+    REQUIRE(eta.has_value());
+    CHECK(*eta > 4.0f);
+    CHECK(*eta < 7.0f);
   }
-  auto const eta = est.etaSeconds(50.0f);
-  REQUIRE(eta.has_value());
-  CHECK(*eta > 4.0f);
-  CHECK(*eta < 7.0f);
+
+  SECTION("recovers rate after a progress dip") {
+    progress::EtaEstimator est;
+    auto t = std::chrono::steady_clock::now();
+    est.sample(t, 0.0f);
+    sampleLinearRamp(est, t, 20, std::chrono::milliseconds{250}, 2.5f);
+    est.sample(t + std::chrono::milliseconds{250} * 22, 40.0f);
+    auto const eta = est.etaSeconds(40.0f);
+    REQUIRE(eta.has_value());
+    CHECK(*eta > 4.0f);
+    CHECK(*eta < 8.0f);
+  }
+
+  SECTION("tracks a sustained speed slowdown") {
+    // Steady 1%/s for 30 s, then the true rate halves (a sibling worker
+    // started). The projection is a since-start average, so it re-locks with a
+    // bias toward the fast early phase (see EtaEstimator's ponytail note);
+    // within ~60 s (4 tau) the displayed ETA must still land within 40% of
+    // the true remaining time.
+    progress::EtaEstimator est;
+    auto const t = std::chrono::steady_clock::now();
+    est.sample(t, 0.0f);
+    auto progress = 0.0;
+    sampleConstantRate(est, t, 1, 60, std::chrono::milliseconds{500}, progress, 0.5);
+    sampleConstantRate(est, t, 61, 120, std::chrono::milliseconds{500}, progress, 0.25);
+    auto const eta = est.etaSeconds(static_cast<float>(progress));
+    REQUIRE(eta.has_value());
+    auto const trueRemainingSec = (100.0 - progress) / 0.5;  // 80 s
+    INFO("eta: " << eta.value() << " true remaining: " << trueRemainingSec);
+    CHECK(eta.value() > trueRemainingSec * 0.6);
+    CHECK(eta.value() < trueRemainingSec * 1.1);
+  }
+
+  SECTION("stays near true remaining time under bursty speed noise") {
+    // A 40-minute encode whose instantaneous speed wobbles +-30% in a
+    // deterministic 4-second cycle (keyframe cadence, disk flushes, sibling
+    // workers), sampled at ffmpeg's 0.5 s stats cadence. The displayed ETA
+    // must track the true remaining time within a few minutes instead of
+    // swinging back and forth by tens of minutes.
+    progress::EtaEstimator est;
+    auto const t = std::chrono::steady_clock::now();
+
+    constexpr double trueTotalSec = 2400.0;
+    constexpr double sampleSec = 0.5;
+    constexpr double baseRate = 100.0 / trueTotalSec;  // percent per second
+    constexpr double noiseCycle[] = {1.3, 1.3, 1.3, 1.3, 0.7, 0.7, 0.7, 0.7};
+
+    est.sample(t, 0.0f);
+    auto progress = 0.0;
+    auto maxAbsErrorSec = 0.0;
+    for (auto i = 1;; ++i) {
+      progress += baseRate * noiseCycle[i % 8] * sampleSec;
+      auto const now = t
+        + std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::duration<double>(i * sampleSec)
+        );
+      est.sample(now, static_cast<float>(progress));
+
+      auto const elapsedSec = static_cast<double>(i) * sampleSec;
+      if (elapsedSec < 120.0) { continue; }  // warm-up: early wobble is expected
+      if (progress >= 99.0) { break; }
+
+      auto const trueRemainingSec = trueTotalSec - elapsedSec;
+      auto const eta = est.etaSeconds(static_cast<float>(progress));
+      REQUIRE(eta.has_value());
+      maxAbsErrorSec = std::max(
+        maxAbsErrorSec,
+        std::abs(static_cast<double>(eta.value()) - trueRemainingSec)
+      );
+    }
+    INFO("max ETA error (s): " << maxAbsErrorSec);
+    CHECK(maxAbsErrorSec <= 180.0);
+  }
 }
 
 TEST_CASE("EtaEstimator keeps eta stable during short stalls", "[progress]") {
@@ -235,64 +336,6 @@ TEST_CASE("EtaEstimator tracks elapsed time from the encoding anchor", "[progres
   CHECK(*est.elapsedSeconds(t + 12s) == 92.0f);
 }
 
-TEST_CASE("EtaEstimator recovers rate after a progress dip", "[progress]") {
-  progress::EtaEstimator est;
-  auto t = std::chrono::steady_clock::now();
-  est.sample(t, 0.0f);
-  for (auto i = 1; i <= 20; ++i) {
-    est.sample(t + std::chrono::milliseconds{250} * i, static_cast<float>(i) * 2.5f);
-  }
-  est.sample(t + std::chrono::milliseconds{250} * 22, 40.0f);
-  auto const eta = est.etaSeconds(40.0f);
-  REQUIRE(eta.has_value());
-  CHECK(*eta > 4.0f);
-  CHECK(*eta < 8.0f);
-}
-
-TEST_CASE(
-  "EtaEstimator stays near true remaining time under bursty speed noise",
-  "[progress]"
-) {
-  // A 40-minute encode whose instantaneous speed wobbles +-30% in a
-  // deterministic 4-second cycle (keyframe cadence, disk flushes, sibling
-  // workers), sampled at ffmpeg's 0.5 s stats cadence. The displayed ETA
-  // must track the true remaining time within a few minutes instead of
-  // swinging back and forth by tens of minutes.
-  progress::EtaEstimator est;
-  auto const t = std::chrono::steady_clock::now();
-
-  constexpr double trueTotalSec = 2400.0;
-  constexpr double sampleSec = 0.5;
-  constexpr double baseRate = 100.0 / trueTotalSec;  // percent per second
-  constexpr double noiseCycle[] = {1.3, 1.3, 1.3, 1.3, 0.7, 0.7, 0.7, 0.7};
-
-  est.sample(t, 0.0f);
-  auto progress = 0.0;
-  auto maxAbsErrorSec = 0.0;
-  for (auto i = 1;; ++i) {
-    progress += baseRate * noiseCycle[i % 8] * sampleSec;
-    auto const now = t
-      + std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::duration<double>(i * sampleSec)
-      );
-    est.sample(now, static_cast<float>(progress));
-
-    auto const elapsedSec = static_cast<double>(i) * sampleSec;
-    if (elapsedSec < 120.0) { continue; }  // warm-up: early wobble is expected
-    if (progress >= 99.0) { break; }
-
-    auto const trueRemainingSec = trueTotalSec - elapsedSec;
-    auto const eta = est.etaSeconds(static_cast<float>(progress));
-    REQUIRE(eta.has_value());
-    maxAbsErrorSec = std::max(
-      maxAbsErrorSec,
-      std::abs(static_cast<double>(eta.value()) - trueRemainingSec)
-    );
-  }
-  INFO("max ETA error (s): " << maxAbsErrorSec);
-  CHECK(maxAbsErrorSec <= 180.0);
-}
-
 TEST_CASE("EtaEstimator reset clears stale rate for bar reuse", "[progress]") {
   progress::EtaEstimator est;
   auto t = std::chrono::steady_clock::now();
@@ -317,32 +360,6 @@ TEST_CASE("EtaEstimator reset clears stale rate for bar reuse", "[progress]") {
   REQUIRE(eta.has_value());
   CHECK(*eta > 15.0f);
   CHECK(*eta < 30.0f);
-}
-
-TEST_CASE("EtaEstimator tracks a sustained speed slowdown", "[progress]") {
-  // Steady 1%/s for 30 s, then the true rate halves (a sibling worker
-  // started). The projection is a since-start average, so it re-locks with a
-  // bias toward the fast early phase (see EtaEstimator's ponytail note);
-  // within ~60 s (4 tau) the displayed ETA must still land within 40% of
-  // the true remaining time.
-  progress::EtaEstimator est;
-  auto const t = std::chrono::steady_clock::now();
-  est.sample(t, 0.0f);
-  auto progress = 0.0;
-  for (auto i = 1; i <= 60; ++i) {  // 30 s at 1%/s
-    progress += 0.5;
-    est.sample(t + std::chrono::milliseconds{500} * i, static_cast<float>(progress));
-  }
-  for (auto i = 61; i <= 180; ++i) {  // 60 s more at 0.5%/s
-    progress += 0.25;
-    est.sample(t + std::chrono::milliseconds{500} * i, static_cast<float>(progress));
-  }
-  auto const eta = est.etaSeconds(static_cast<float>(progress));
-  REQUIRE(eta.has_value());
-  auto const trueRemainingSec = (100.0 - progress) / 0.5;  // 80 s
-  INFO("eta: " << eta.value() << " true remaining: " << trueRemainingSec);
-  CHECK(eta.value() > trueRemainingSec * 0.6);
-  CHECK(eta.value() < trueRemainingSec * 1.1);
 }
 
 TEST_CASE("formatEtaBadge renders elapsed over estimate", "[progress]") {
@@ -425,71 +442,72 @@ TEST_CASE("scrollWindow keeps CJK code points whole", "[progress]") {
   }
 }
 
-TEST_CASE("fitPostfixWithEta keeps eta visible while postfix scrolls", "[progress]") {
-  auto const eta = std::string{"[12m:34s]"};
-  auto const postfix =
-    std::string{"Encoding: a_very_long_filename_that_overflows_the_budget.mp4 | 33%"};
-
-  auto const fitted = progress::fitPostfixWithEta(eta, postfix, 30);
-
-  CHECK(fitted.starts_with(eta + " | "));
-  CHECK(fitted.ends_with("| 33%"));
-  CHECK(displaytext::displayWidth(fitted) <= 30);
-  CHECK(fitted.find("...") == std::string::npos);
-}
-
-TEST_CASE("fitPostfixWithEta keeps tail fixed while label scrolls", "[progress]") {
-  auto const eta = std::string{"[1m:02s]"};
-  auto const postfix = std::string{
-    "Encoding: this_is_a_very_long_filename_that_overflows.mp4 | segment 1/1"
-  };
-
-  auto const fitted = progress::fitPostfixWithEta(eta, postfix, 40);
-
-  CHECK(fitted.starts_with("[1m:02s] | "));
-  CHECK(fitted.ends_with("| segment 1/1"));
-  CHECK(displaytext::displayWidth(fitted) <= 40);
-  CHECK(fitted.find("...") == std::string::npos);
-}
-
 TEST_CASE(
-  "fitPostfixWithEta pins the elapsed/estimate badge while label scrolls",
+  "fitPostfixWithEta keeps the eta badge and tail visible while the label scrolls",
   "[progress]"
 ) {
-  auto const badge = std::string{"[12m:34s/1h:23m]"};
-  auto const postfix =
-    std::string{"Encoding: a_very_long_filename_that_overflows_the_budget.mp4 | 33%"};
+  SECTION("keeps eta visible while postfix scrolls") {
+    auto const eta = std::string{"[12m:34s]"};
+    auto const postfix =
+      std::string{"Encoding: a_very_long_filename_that_overflows_the_budget.mp4 | 33%"};
 
-  auto const fitted = progress::fitPostfixWithEta(badge, postfix, 40);
+    auto const fitted = progress::fitPostfixWithEta(eta, postfix, 30);
 
-  CHECK(fitted.starts_with(badge + " | "));
-  CHECK(fitted.ends_with("| 33%"));
-  CHECK(displaytext::displayWidth(fitted) <= 40);
+    CHECK(fitted.starts_with(eta + " | "));
+    CHECK(fitted.ends_with("| 33%"));
+    CHECK(displaytext::displayWidth(fitted) <= 30);
+    CHECK(fitted.find("...") == std::string::npos);
+  }
+
+  SECTION("keeps tail fixed while label scrolls") {
+    auto const eta = std::string{"[1m:02s]"};
+    auto const postfix = std::string{
+      "Encoding: this_is_a_very_long_filename_that_overflows.mp4 | segment 1/1"
+    };
+
+    auto const fitted = progress::fitPostfixWithEta(eta, postfix, 40);
+
+    CHECK(fitted.starts_with("[1m:02s] | "));
+    CHECK(fitted.ends_with("| segment 1/1"));
+    CHECK(displaytext::displayWidth(fitted) <= 40);
+    CHECK(fitted.find("...") == std::string::npos);
+  }
+
+  SECTION("pins the elapsed/estimate badge while label scrolls") {
+    auto const badge = std::string{"[12m:34s/1h:23m]"};
+    auto const postfix =
+      std::string{"Encoding: a_very_long_filename_that_overflows_the_budget.mp4 | 33%"};
+
+    auto const fitted = progress::fitPostfixWithEta(badge, postfix, 40);
+
+    CHECK(fitted.starts_with(badge + " | "));
+    CHECK(fitted.ends_with("| 33%"));
+    CHECK(displaytext::displayWidth(fitted) <= 40);
+  }
+
+  SECTION("shrinks oversized tail to keep scroll window") {
+    auto const postfix =
+      std::string{"Encoding: name.mp4 | frame=12345 fps=30 size=1234kB time=00:01:23.45 "
+                  "bitrate=1234.5kbits/s speed=3.2x"};
+
+    auto const fitted = progress::fitPostfixWithEta(std::nullopt, postfix, 30);
+
+    CHECK(displaytext::displayWidth(fitted) <= 30);
+    CHECK(fitted.ends_with("..."));
+  }
 }
 
-TEST_CASE(
-  "fitPostfixWithEta shrinks oversized tail to keep scroll window",
-  "[progress]"
-) {
-  auto const postfix =
-    std::string{"Encoding: name.mp4 | frame=12345 fps=30 size=1234kB time=00:01:23.45 "
-                "bitrate=1234.5kbits/s speed=3.2x"};
+TEST_CASE("fitPostfixWithEta passes text through when it fits", "[progress]") {
+  SECTION("shows full text when it fits") {
+    auto const eta = std::string{"[1m:02s]"};
+    auto const postfix = std::string{"Encoding: a.mp4 | 50%"};
 
-  auto const fitted = progress::fitPostfixWithEta(std::nullopt, postfix, 30);
+    CHECK(progress::fitPostfixWithEta(eta, postfix, 40) == eta + " | " + postfix);
+  }
 
-  CHECK(displaytext::displayWidth(fitted) <= 30);
-  CHECK(fitted.ends_with("..."));
-}
+  SECTION("without eta matches plain fit") {
+    auto const text = std::string{"Encoding: short.mp4 | 33%"};
 
-TEST_CASE("fitPostfixWithEta shows full text when it fits", "[progress]") {
-  auto const eta = std::string{"[1m:02s]"};
-  auto const postfix = std::string{"Encoding: a.mp4 | 50%"};
-
-  CHECK(progress::fitPostfixWithEta(eta, postfix, 40) == eta + " | " + postfix);
-}
-
-TEST_CASE("fitPostfixWithEta without eta matches plain fit", "[progress]") {
-  auto const text = std::string{"Encoding: short.mp4 | 33%"};
-
-  CHECK(progress::fitPostfixWithEta(std::nullopt, text, 60) == text);
+    CHECK(progress::fitPostfixWithEta(std::nullopt, text, 60) == text);
+  }
 }

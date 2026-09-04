@@ -35,98 +35,76 @@ struct ScopedForensicReset {
 DEFINE_LOGGER(logtags::TEST_INFRA);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1 — captureEnvironmentSnapshot() returns empty string when no context set
+// Test 1 — captureEnvironmentSnapshot() reflects the forensic state
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
-  "captureEnvironmentSnapshot returns empty when no context is set",
+  "captureEnvironmentSnapshot reflects the forensic state",
   "[logging][snapshot]"
 ) {
   ScopedForensicReset reset;
 
-  auto const snapshot = logging::captureEnvironmentSnapshot();
-  CAPTURE(snapshot);
-  CHECK(snapshot.empty());
-  CHECK(snapshot == "");
-}
+  SECTION("empty when no context is set") {
+    auto const snapshot = logging::captureEnvironmentSnapshot();
+    CAPTURE(snapshot);
+    CHECK(snapshot.empty());
+    CHECK(snapshot == "");
+  }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 2 — captureEnvironmentSnapshot() returns non-empty with AppContext set
-// ─────────────────────────────────────────────────────────────────────────────
+  SECTION("non-empty when AppContext is set") {
+    appctx::AppContext mockCtx{};
+    mockCtx.config.processType = "video";
 
-TEST_CASE(
-  "captureEnvironmentSnapshot returns non-empty when AppContext is set",
-  "[logging][snapshot]"
-) {
-  ScopedForensicReset reset;
+    logging::setForensicAppContext(&mockCtx);
+    auto const snapshot = logging::captureEnvironmentSnapshot();
+    CAPTURE(snapshot);
+    CHECK_FALSE(snapshot.empty());
+    CHECK(snapshot.find("Environment:") != std::string::npos);
+  }
 
-  appctx::AppContext mockCtx{};
-  mockCtx.config.processType = "video";
+  SECTION("contains required fields when encoding active") {
+    appctx::AppContext mockCtx{};
+    mockCtx.config.processType = "video";
 
-  logging::setForensicAppContext(&mockCtx);
-  auto const snapshot = logging::captureEnvironmentSnapshot();
-  CAPTURE(snapshot);
-  CHECK_FALSE(snapshot.empty());
-  CHECK(snapshot.find("Environment:") != std::string::npos);
-}
+    logging::setForensicAppContext(&mockCtx);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 3 — Snapshot format contains required fields when encoding active
-// ─────────────────────────────────────────────────────────────────────────────
+    logging::EnvironmentSnapshot data{};
+    data.hasEncodingContext = true;
+    data.pipelineType = "video";
+    data.activeSlots = 3;
+    data.totalSlots = 8;
+    data.pending = 12;
+    data.finished = 45;
+    data.subprocessPid = 28476;
+    data.subprocessCmdline = "ffmpeg -i input.mkv -c:v libx264 output.mp4";
 
-TEST_CASE(
-  "Snapshot format contains required fields when encoding active",
-  "[logging][snapshot]"
-) {
-  ScopedForensicReset reset;
+    logging::setForensicSnapshotData(data);
 
-  appctx::AppContext mockCtx{};
-  mockCtx.config.processType = "video";
+    auto const snapshot = logging::captureEnvironmentSnapshot();
+    CAPTURE(snapshot);
 
-  logging::setForensicAppContext(&mockCtx);
+    CHECK(snapshot.find("active-slots=") != std::string::npos);
+    CHECK(snapshot.find("pending=") != std::string::npos);
+    CHECK(snapshot.find("subprocess=") != std::string::npos);
+    CHECK(snapshot.find("3/8") != std::string::npos);
+    CHECK(snapshot.find("12") != std::string::npos);
+    CHECK(snapshot.find("28476") != std::string::npos);
+  }
 
-  logging::EnvironmentSnapshot data{};
-  data.hasEncodingContext = true;
-  data.pipelineType = "video";
-  data.activeSlots = 3;
-  data.totalSlots = 8;
-  data.pending = 12;
-  data.finished = 45;
-  data.subprocessPid = 28476;
-  data.subprocessCmdline = "ffmpeg -i input.mkv -c:v libx264 output.mp4";
+  SECTION("safe with null encoding context") {
+    appctx::AppContext mockCtx{};
+    mockCtx.config.processType = "picture";
 
-  logging::setForensicSnapshotData(data);
+    logging::setForensicAppContext(&mockCtx);
 
-  auto const snapshot = logging::captureEnvironmentSnapshot();
-  CAPTURE(snapshot);
+    // No exec context set — snapshot should indicate no encoding active
+    auto const snapshot = logging::captureEnvironmentSnapshot();
+    CAPTURE(snapshot);
 
-  CHECK(snapshot.find("active-slots=") != std::string::npos);
-  CHECK(snapshot.find("pending=") != std::string::npos);
-  CHECK(snapshot.find("subprocess=") != std::string::npos);
-  CHECK(snapshot.find("3/8") != std::string::npos);
-  CHECK(snapshot.find("12") != std::string::npos);
-  CHECK(snapshot.find("28476") != std::string::npos);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 4 — Snapshot is safe with null encoding context (minimal snapshot)
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE("Snapshot is safe with null encoding context", "[logging][snapshot]") {
-  ScopedForensicReset reset;
-
-  appctx::AppContext mockCtx{};
-  mockCtx.config.processType = "picture";
-
-  logging::setForensicAppContext(&mockCtx);
-
-  // No exec context set — snapshot should indicate no encoding active
-  auto const snapshot = logging::captureEnvironmentSnapshot();
-  CAPTURE(snapshot);
-
-  CHECK_FALSE(snapshot.empty());
-  CHECK(snapshot.find("Environment:") != std::string::npos);
-  CHECK(snapshot.find("no encoding") != std::string::npos);
+    CHECK_FALSE(snapshot.empty());
+    CHECK(snapshot.find("Environment:") != std::string::npos);
+    CHECK(snapshot.find("no encoding") != std::string::npos);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,9 +139,9 @@ TEST_CASE("Snapshot emitted after LOG_ERROR", "[logging][snapshot]") {
   auto const output = oss->str();
   CAPTURE(output);
 
-  // Should contain the error with context chain
+  // Error line lands (context-chain attachment itself is covered by the
+  // error_context tests)
   CHECK(output.find("encoding failure") != std::string::npos);
-  CHECK(output.find("[context: encode(test.mkv)]") != std::string::npos);
 
   // Should contain the environment snapshot after the error line
   CHECK(output.find("Environment:") != std::string::npos);
