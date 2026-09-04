@@ -21,8 +21,8 @@
 
 ## 4. Batch 4 — video cluster + fake-tool move (design.md I2 + I3 video)
 
-- [ ] 4.1 Create `tests/fake_tool_tests.cpp`, move the 10 `[fake-tool]` cases and `runFakeTool`/`encodeArg` helpers from `encode_probe_tests.cpp:1012-1199` verbatim (no build edit — glob); verify `[fake-tool]` tag passes
-- [ ] 4.2 Apply video merges/deletes from I3 (skip-encode mid-layer delete with survivor `video_batch_execution_tests.cpp:565`; KEEP `:804` batch-level attentionWarnings; decideCq sections, barDone smoke, audio-once fold, banner fold + NVENC delta-only pins, output-planning trio, parser guard sections, KEEP `:107` and fold `:122` as a section, progressPercent table, `:145` rename, quality tables + parser trio, probe-cache key table, video-info boundary pair, previewHint fold); verify `xmake test-parallel` green
+- [x] 4.1 Create `tests/fake_tool_tests.cpp`, move the 10 `[fake-tool]` cases and `runFakeTool`/`encodeArg` helpers from `encode_probe_tests.cpp:1012-1199` verbatim (no build edit — glob); verify `[fake-tool]` tag passes
+- [x] 4.2 Apply video merges/deletes from I3 (skip-encode mid-layer delete with survivor `video_batch_execution_tests.cpp:565`; KEEP `:804` batch-level attentionWarnings; decideCq sections, barDone smoke, audio-once fold, banner fold + NVENC delta-only pins, output-planning trio, parser guard sections, KEEP `:107` and fold `:122` as a section, progressPercent table, `:145` rename, quality tables + parser trio, probe-cache key table, video-info boundary pair, previewHint fold); verify `xmake test-parallel` green
 - [ ] 4.3 Run full `xmake coverage` (per-file report, not `--summary`) and confirm every subprocess-orchestration source stays double-digit; commit batch 4 as `test: move fake-tool contract tests to their own file, merge video duplicates`
 
 ## 5. Batch 5 — picture / pipeline cluster (design.md I3 picture)
