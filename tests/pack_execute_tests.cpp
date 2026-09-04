@@ -22,6 +22,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -87,6 +88,81 @@ TEST_CASE("execute() with Media mode groups entries by parent dir", "[pack][exec
   // At least one zip file should be produced
   CHECK_FALSE(result->zippedFiles.empty());
   for (auto const& zip: result->zippedFiles) { CHECK(fs::exists(zip)); }
+}
+
+TEST_CASE(
+  "execute() Media mode produces subPart split for size overflow",
+  "[pack][execute]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const outputDir = temp.path / "packed";
+  fs::create_directories(inputDir);
+
+  constexpr auto kSize = std::uintmax_t{240ULL * 1024ULL * 1024ULL};
+  auto const f1 = testutils::writeSizedFile(inputDir / "a.jpg", kSize);
+  auto const f2 = testutils::writeSizedFile(inputDir / "b.jpg", kSize);
+  auto const f3 = testutils::writeSizedFile(inputDir / "c.jpg", kSize);
+
+  auto const result = pack::execute({
+    .entries = {f1, f2, f3},
+    .mode = pack::PackMode::Media,
+    .outputDir = outputDir,
+    .compact = true,
+    .removeOnFailure = true,
+  });
+
+  REQUIRE(result.has_value());
+  REQUIRE(result->exitCode == 0);
+
+  // 3 * 240MB = 720MB > 500MB limit -> subPart split expected
+  CHECK(result->zippedFiles.size() >= 2);
+
+  for (auto const& f: result->zippedFiles) {
+    CHECK(fs::exists(f));
+    CHECK(fs::file_size(f) > 0);
+  }
+}
+
+TEST_CASE(
+  "execute() Media mode with naming produces baseName prefixed zip names",
+  "[pack][execute]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const outputDir = temp.path / "packed";
+  auto const dirA = inputDir / "a";
+  auto const dirB = inputDir / "b";
+  fs::create_directories(dirA);
+  fs::create_directories(dirB);
+
+  auto const a1 = testutils::writeSizedFile(dirA / "alpha.jpg", 32);
+  auto const a2 = testutils::writeSizedFile(dirA / "beta.jpg", 32);
+  auto const b1 = testutils::writeSizedFile(dirB / "alpha.jpg", 32);
+  auto const b2 = testutils::writeSizedFile(dirB / "beta.jpg", 32);
+
+  auto const result = pack::execute({
+    .entries = {a1, a2, b1, b2},
+    .mode = pack::PackMode::Media,
+    .outputDir = outputDir,
+    .compact = true,
+    .removeOnFailure = true,
+    .naming = pack::NamingConfig{
+      .namingStrategy = pack::NamingStrategy::Flat,
+      .baseName = "pics",
+    },
+  });
+
+  REQUIRE(result.has_value());
+  REQUIRE(result->exitCode == 0);
+
+  // 4 small files fit in 1 zip
+  REQUIRE(result->zippedFiles.size() == 1);
+
+  auto const zipName = result->zippedFiles[0].filename().string();
+  CHECK(zipName.find("pics_part1") != std::string::npos);
+  CHECK(fs::exists(result->zippedFiles[0]));
+  CHECK(fs::file_size(result->zippedFiles[0]) > 0);
 }
 
 TEST_CASE(
