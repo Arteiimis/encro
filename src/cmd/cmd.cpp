@@ -378,12 +378,14 @@ auto formatCommandsSection(
   }
   auto const colWidth = computeColumnWidth(widest, layout);
 
-  auto result = terminal::styledText(
-    terminal::Stream::Stdout,
-    terminal::MessageKind::OptionGroup,
-    "encro commands"
+  auto result = std::format(
+    "\n{}:\n",
+    terminal::styledText(
+      terminal::Stream::Stdout,
+      terminal::MessageKind::OptionGroup,
+      "encro commands"
+    )
   );
-  result += ":\n";
   for (auto const* sub: subcommands) {
     auto const name = sub->get_name();
     auto const nameWidth = static_cast<unsigned>(name.size());
