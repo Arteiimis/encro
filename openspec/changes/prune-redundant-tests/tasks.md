@@ -9,9 +9,9 @@
 
 ## 2. Batch 2 — cmd cluster merges (design.md I3 cmd)
 
-- [ ] 2.1 Apply the cmd_cmd_tests.cpp merges from I3: fold the missing default assertions into `:58` then delete `:253`/`:332`/`:345`/`:372`; fold the `:829` preset-acceptance loop as a SECTION into `:821` then delete it; plus bare-invocation, image-quality long/short, app-level flags + preview, removed-flags pair, missing-values trio, COLUMNS cap pair, no-ANSI pair, auto-fit invariant per D3, usage-ordering collapse, commands-block shrink per D3 (descriptions + full-tier presence retained), color-injection folds, min-vmaf default half; verify `xmake test-report --tag="[cmd]"`
-- [ ] 2.2 Apply the cmd_config_tests.cpp / cmd_config_builder_tests.cpp / completion merges from I3 (preview twin display fold **carrying both sections**, negation row shrink, multi-input rejection pairs, single-positional family, single-field pass-through folds, completion_command merges); verify `xmake test-report --tag="[cmd]"` and `--tag="[completion]"`
-- [ ] 2.3 Run `xmake test-parallel`, confirm green; commit batch 2 as `test: merge duplicate cmd test assertion homes`
+- [x] 2.1 Apply the cmd_cmd_tests.cpp merges from I3: fold the missing default assertions into `:58` then delete `:253`/`:332`/`:345`/`:372`; fold the `:829` preset-acceptance loop as a SECTION into `:821` then delete it; plus bare-invocation, image-quality long/short, app-level flags + preview, removed-flags pair, missing-values trio, COLUMNS cap pair, no-ANSI pair, auto-fit invariant per D3, usage-ordering collapse, commands-block shrink per D3 (descriptions + full-tier presence retained), color-injection folds, min-vmaf default half; verify `xmake test-report --tag="[cmd]"`
+- [x] 2.2 Apply the cmd_config_tests.cpp / cmd_config_builder_tests.cpp / completion merges from I3 (preview twin display fold **carrying both sections**, negation row shrink, multi-input rejection pairs, single-positional family, single-field pass-through folds, completion_command merges); verify `xmake test-report --tag="[cmd]"` and `--tag="[completion]"`
+- [x] 2.3 Run `xmake test-parallel`, confirm green; commit batch 2 as `test: merge duplicate cmd test assertion homes`
 
 ## 3. Batch 3 — logging + infra cluster (design.md I3 logging)
 
