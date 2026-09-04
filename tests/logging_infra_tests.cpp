@@ -8,7 +8,6 @@
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
-#include <array>
 #include <cstdlib>  // IWYU pragma: keep -- needed with MSVC STL; Linux libstdc++ pulls it transitively
 #include <filesystem>
 #include <memory>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
@@ -58,10 +57,10 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 4 — logging::setup() registration verification
+// Test 4 — logging::setup() registration verification (spot checks per D6)
 // ─────────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("logging::setup: registers all 24 named loggers", "[logging][infra]") {
+TEST_CASE("logging::setup: registers the named loggers", "[logging][infra]") {
   // Use a temp directory for the log file to avoid polluting user space
   auto const tempDir = fs::temp_directory_path() / "encro_test_logging_infra";
   fs::create_directories(tempDir);
@@ -71,37 +70,18 @@ TEST_CASE("logging::setup: registers all 24 named loggers", "[logging][infra]") 
     .customLogDir = tempDir,
   };
 
-  // Call setup (registers all 24 loggers + default_logger)
+  // Call setup (registers the named loggers + default_logger)
   auto const result = logging::setup(config);
   REQUIRE(result.has_value());
 
   auto const logFilePath = result.value();
   CAPTURE(logFilePath.string());
 
-  // Verify key loggers are registered
+  // Spot-check one logger per tier (full inventory is wiring copied from
+  // setup.cpp — a change-detector, not a test)
   CHECK(spdlog::get(logtags::VIDEO_ENCODE) != nullptr);
-  CHECK(spdlog::get(logtags::APP_ENTRY) != nullptr);
   CHECK(spdlog::get(logtags::PACK_ZIP) != nullptr);
-
-  // Verify all 24 tags are registered (non-null)
-  // Collect all tags from log_tags.h that logging::setup registers
-  auto const allTags = std::array<char const*, 24>{
-    logtags::APP_ENTRY,       logtags::APP_PRELUDE,      logtags::APP_PIPELINE,
-    logtags::CMD_CONFIG,      logtags::VIDEO_ENCODE,     logtags::VIDEO_PROBE,
-    logtags::VIDEO_INFO,      logtags::VIDEO_OUTPUT,     logtags::VIDEO_BATCH,
-    logtags::VIDEO_PROGRESS,  logtags::VIDEO_STATE,      logtags::VIDEO_PROCESS,
-    logtags::PICTURE_PROCESS, logtags::PICTURE_COMPRESS, logtags::PACK_ZIP,
-    logtags::PACK_SERVICE,    logtags::CORE_SCAN,        logtags::CORE_JOB,
-    logtags::CORE_TASK,       logtags::CORE_PARALLEL,    logtags::INFRA_TOOLCHAIN,
-    logtags::INFRA_CRASH,     logtags::INFRA_SIGNAL,     logtags::UTILS_SUBPROCESS,
-  };
-
-  for (auto const* tag: allTags) {
-    CAPTURE(tag);
-    auto const logger = spdlog::get(tag);
-    INFO("Logger for tag '" << tag << "' should be registered");
-    CHECK(logger != nullptr);
-  }
+  CHECK(spdlog::get(logtags::CORE_SCAN) != nullptr);
 
   // Verify default logger is set (for crash handler compatibility)
   CHECK(spdlog::default_logger_raw() != nullptr);

@@ -71,10 +71,10 @@ bool isTimestampedName(fs::path const& p) {
 }  // namespace
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Test 1 — setup creates timestamped log file (FILE-01, D-01)
+// Test 1 — setup creates a valid timestamped log file (FILE-01, D-01)
 // ══════════════════════════════════════════════════════════════════════════════
 
-TEST_CASE("setup creates timestamped log file", "[logging][file_mgmt]") {
+TEST_CASE("setup creates a valid timestamped log file", "[logging][file_mgmt]") {
   TempDir const temp;
   auto const& testDir = temp.path;
 
@@ -88,6 +88,9 @@ TEST_CASE("setup creates timestamped log file", "[logging][file_mgmt]") {
 
   auto const logFilePath = result.value();
   CAPTURE(logFilePath.string());
+
+  // The path must be absolute
+  CHECK(logFilePath.is_absolute());
 
   // D-01: filename matches encro_YYYYMMDD_HHMMSS.log pattern
   CHECK(isTimestampedName(logFilePath));
@@ -129,158 +132,117 @@ TEST_CASE("setup creates timestamped log file", "[logging][file_mgmt]") {
   // The newly created file should not be the same as the collision file
   CHECK(logFilePath2 != (testDir / collisionName));
 
-  logging::shutdown();
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Test 2 — setup returns a valid, usable, timestamped log file path
-// ══════════════════════════════════════════════════════════════════════════════
-
-TEST_CASE("setup returns valid timestamped log file path", "[logging][file_mgmt]") {
-  TempDir const temp;
-  auto const& testDir = temp.path;
-
-  auto const config = logging::LogConfig{
-    .colorsEnabled = false,
-    .customLogDir = testDir,
-  };
-
-  auto const result = logging::setup(config);
-  REQUIRE(result.has_value());
-
-  auto const logFilePath = result.value();
-  CAPTURE(logFilePath.string());
-
-  // The path must be absolute
-  CHECK(logFilePath.is_absolute());
-
-  // The filename must match the timestamped naming pattern
-  CHECK(isTimestampedName(logFilePath));
-
-  // The file must be physically present on disk
-  CHECK(fs::exists(logFilePath));
-
   // Shutdown (drains async queue, writes pending log messages)
   logging::shutdown();
 
   // After shutdown, the log file must have non-zero size
   auto ec = std::error_code{};
-  auto const fileSize = fs::file_size(logFilePath, ec);
+  auto const fileSize = fs::file_size(logFilePath2, ec);
   CHECK(!ec);
   CHECK(fileSize > 0);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Test 3 — cleanup retains at most 10 log files (FILE-02, D-04, D-06)
+// Test 3 — cleanup retains at most 10 log files (FILE-02, D-04, D-05, D-06, D-18)
 // ══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
   TempDir const temp;
   auto const& testDir = temp.path;
 
-  // Create 15 fake encro_*.log files with different timestamps.
-  // Lexicographically unique timestamps ensure deterministic sort order.
-  for (auto i = 0; i < 15; ++i) {
-    auto const filename = fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i);
-    createFakeLogFile(testDir, filename);
-  }
-
-  // Verify 15 files were created
-  auto const preCount = countEncroFiles(testDir);
-  REQUIRE(preCount == 15);
-
   auto const config = logging::LogConfig{
     .colorsEnabled = false,
     .customLogDir = testDir,
   };
 
-  auto const result = logging::setup(config);
-  REQUIRE(result.has_value());
+  SECTION("plain log files only") {
+    // Create 15 fake encro_*.log files with different timestamps.
+    // Lexicographically unique timestamps ensure deterministic sort order.
+    for (auto i = 0; i < 15; ++i) {
+      auto const filename = fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i);
+      createFakeLogFile(testDir, filename);
+    }
 
-  auto const logFilePath = result.value();
-  CAPTURE(logFilePath.string());
+    // Verify 15 files were created
+    auto const preCount = countEncroFiles(testDir);
+    REQUIRE(preCount == 15);
 
-  // Shutdown to release file handles
-  logging::shutdown();
+    auto const result = logging::setup(config);
+    REQUIRE(result.has_value());
 
-  // After cleanup, there should be no more than 11 files
-  // (10 kept old files + 1 newly created timestamped file).
-  auto const postCount = countEncroFiles(testDir);
-  CHECK(postCount <= 11);
+    auto const logFilePath = result.value();
+    CAPTURE(logFilePath.string());
 
-  // The 10 newest files (by filename) should be the ones with largest timestamps.
-  auto const survivingFiles = sortedEncroFiles(testDir);
-  CAPTURE(survivingFiles.size());
+    // Shutdown to release file handles
+    logging::shutdown();
 
-  // Verify the oldest 5 files (indices 0-4) no longer exist
-  for (auto i = 0; i < 5; ++i) {
-    auto const expectedDeleted =
-      testDir / fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i);
-    CAPTURE(expectedDeleted.string());
-    CHECK_FALSE(fs::exists(expectedDeleted));
+    // After cleanup, there should be no more than 11 files
+    // (10 kept old files + 1 newly created timestamped file).
+    auto const postCount = countEncroFiles(testDir);
+    CHECK(postCount <= 11);
+
+    // The 10 newest files (by filename) should be the ones with largest timestamps.
+    auto const survivingFiles = sortedEncroFiles(testDir);
+    CAPTURE(survivingFiles.size());
+
+    // Verify the oldest 5 files (indices 0-4) no longer exist
+    for (auto i = 0; i < 5; ++i) {
+      auto const expectedDeleted =
+        testDir / fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i);
+      CAPTURE(expectedDeleted.string());
+      CHECK_FALSE(fs::exists(expectedDeleted));
+    }
+
+    // Verify the newest 10 old files still exist
+    for (auto i = 5; i < 15; ++i) {
+      auto const expectedSurviving =
+        testDir / fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i);
+      CAPTURE(expectedSurviving.string());
+      CHECK(fs::exists(expectedSurviving));
+    }
+
+    // The file created by setup() must also exist
+    CHECK(fs::exists(logFilePath));
   }
 
-  // Verify the newest 10 old files still exist
-  for (auto i = 5; i < 15; ++i) {
-    auto const expectedSurviving =
-      testDir / fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i);
-    CAPTURE(expectedSurviving.string());
-    CHECK(fs::exists(expectedSurviving));
+  SECTION("matches rotation files too") {
+    // Create 8 regular log files and 7 rotation files (.log.1, .log.2, .log.3)
+    for (auto i = 0; i < 8; ++i) {
+      createFakeLogFile(
+        testDir,
+        fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i)
+      );
+    }
+    // Rotation suffix files for the first few log files
+    for (auto i = 0; i < 3; ++i) {
+      createFakeLogFile(
+        testDir,
+        fmt::format("encro_{:08d}_{:06d}.log.1", 20260523, 100000 + i)
+      );
+      createFakeLogFile(
+        testDir,
+        fmt::format("encro_{:08d}_{:06d}.log.2", 20260523, 100000 + i + 1)
+      );
+    }
+    // One extra .log.3 file
+    createFakeLogFile(testDir, "encro_20260523_100005.log.3");
+
+    // Total encro_* files should be 8 + 6 + 1 = 15
+    auto const preCount = countEncroFiles(testDir);
+    REQUIRE(preCount == 15);
+
+    auto const result = logging::setup(config);
+    REQUIRE(result.has_value());
+
+    logging::shutdown();
+
+    // D-05, D-18: Rotation suffix files (encro_*.log.*) must also be counted
+    // and cleaned. With 15 total + 1 new file, after cleanup there should be
+    // at most 11 files (10 kept + 1 new).
+    auto const postCount = countEncroFiles(testDir);
+    CAPTURE(postCount);
+    CHECK(postCount <= 11);
   }
-
-  // The file created by setup() must also exist
-  CHECK(fs::exists(logFilePath));
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Test 4 — cleanup matches encro_*.log.* rotation files too (D-05, D-18)
-// ══════════════════════════════════════════════════════════════════════════════
-
-TEST_CASE("cleanup matches rotation files", "[logging][file_mgmt]") {
-  TempDir const temp;
-  auto const& testDir = temp.path;
-
-  // Create 8 regular log files and 7 rotation files (.log.1, .log.2, .log.3)
-  for (auto i = 0; i < 8; ++i) {
-    createFakeLogFile(
-      testDir,
-      fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i)
-    );
-  }
-  // Rotation suffix files for the first few log files
-  for (auto i = 0; i < 3; ++i) {
-    createFakeLogFile(
-      testDir,
-      fmt::format("encro_{:08d}_{:06d}.log.1", 20260523, 100000 + i)
-    );
-    createFakeLogFile(
-      testDir,
-      fmt::format("encro_{:08d}_{:06d}.log.2", 20260523, 100000 + i + 1)
-    );
-  }
-  // One extra .log.3 file
-  createFakeLogFile(testDir, "encro_20260523_100005.log.3");
-
-  // Total encro_* files should be 8 + 6 + 1 = 15
-  auto const preCount = countEncroFiles(testDir);
-  REQUIRE(preCount == 15);
-
-  auto const config = logging::LogConfig{
-    .colorsEnabled = false,
-    .customLogDir = testDir,
-  };
-
-  auto const result = logging::setup(config);
-  REQUIRE(result.has_value());
-
-  logging::shutdown();
-
-  // D-05, D-18: Rotation suffix files (encro_*.log.*) must also be counted
-  // and cleaned. With 15 total + 1 new file, after cleanup there should be
-  // at most 11 files (10 kept + 1 new).
-  auto const postCount = countEncroFiles(testDir);
-  CAPTURE(postCount);
-  CHECK(postCount <= 11);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

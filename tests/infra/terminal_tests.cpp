@@ -73,91 +73,79 @@ TEST_CASE("path and count helpers style key values independently", "[terminal]")
   CHECK(styledCount.find("\x1b[") != std::string::npos);
 }
 
-// ── Phase 20: New MessageKind value tests ──────────────────────────
+// ── Phase 20: MessageKind style/badge contract (table-driven) ───────
 
-TEST_CASE("styleFor(Usage) returns empty style", "[terminal]") {
-  auto const style = terminal::styleFor(terminal::MessageKind::Usage);
-  auto const text = fmt::format(style, "{}", "test");
-  CHECK(text.find("\x1b[") == std::string::npos);
-  CHECK(text == "test");
-}
+TEST_CASE("MessageKind styles and badges follow the display contract", "[terminal]") {
+  struct KindProps {
+    terminal::MessageKind kind;
+    char const* name;
+    bool styled;                  // styleFor produces ANSI output
+    std::string_view badgeLabel;  // empty = no badge prefix
+  };
 
-TEST_CASE("styleFor(OptionGroup) differs from styleFor(Usage)", "[terminal]") {
-  auto const usageStyle = terminal::styleFor(terminal::MessageKind::Usage);
-  auto const groupStyle = terminal::styleFor(terminal::MessageKind::OptionGroup);
-  auto const usageText = fmt::format(usageStyle, "{}", "test");
-  auto const groupText = fmt::format(groupStyle, "{}", "test");
-  CHECK(usageText != groupText);
-}
+  // clang-format off
+  static constexpr KindProps kKinds[] = {
+    {terminal::MessageKind::Plain,         "Plain",         false, {}     },
+    {terminal::MessageKind::Error,         "Error",         true,  "error"},
+    {terminal::MessageKind::Warning,       "Warning",       true,  "warn" },
+    {terminal::MessageKind::Success,       "Success",       true,  "done" },
+    {terminal::MessageKind::Info,          "Info",          true,  "info" },
+    {terminal::MessageKind::Hint,          "Hint",          true,  "hint" },
+    {terminal::MessageKind::Prompt,        "Prompt",        true,  "?"    },
+    {terminal::MessageKind::Heading,       "Heading",       true,  {}     },
+    {terminal::MessageKind::Usage,         "Usage",         false, {}     },
+    {terminal::MessageKind::OptionGroup,   "OptionGroup",   true,  {}     },
+    {terminal::MessageKind::OptionName,    "OptionName",    true,  {}     },
+    {terminal::MessageKind::OptionDefault, "OptionDefault", true,  {}     },
+    {terminal::MessageKind::OptionDesc,    "OptionDesc",    false, {}     },
+    {terminal::MessageKind::Version,       "Version",       false, {}     },
+  };
+  // clang-format on
 
-TEST_CASE("styleFor(OptionName) produces ANSI but not bold", "[terminal]") {
-  auto const style = terminal::styleFor(terminal::MessageKind::OptionName);
-  auto const text = fmt::format(style, "{}", "test");
-  CHECK(text.find("\x1b[") != std::string::npos);
-  auto const plainStyle = terminal::styleFor(terminal::MessageKind::Usage);
-  auto const plainText = fmt::format(plainStyle, "{}", "test");
-  CHECK(text != plainText);
-}
+  for (auto const& entry: kKinds) {
+    CAPTURE(entry.name);
 
-TEST_CASE("styleFor(OptionDesc) returns empty style", "[terminal]") {
-  auto const style = terminal::styleFor(terminal::MessageKind::OptionDesc);
-  auto const text = fmt::format(style, "{}", "test");
-  CHECK(text.find("\x1b[") == std::string::npos);
-  CHECK(text == "test");
-}
+    // styleFor: empty styles format the text verbatim; styled kinds emit ANSI
+    auto const formattedStyle = fmt::format(terminal::styleFor(entry.kind), "{}", "test");
+    if (entry.styled) {
+      CHECK(formattedStyle.find("\x1b[") != std::string::npos);
+      CHECK(formattedStyle != "test");
+    } else {
+      CHECK(formattedStyle == "test");
+      CHECK(formattedStyle.find("\x1b[") == std::string::npos);
+    }
 
-TEST_CASE("styleFor(Version) returns empty style", "[terminal]") {
-  auto const style = terminal::styleFor(terminal::MessageKind::Version);
-  auto const text = fmt::format(style, "{}", "test");
-  CHECK(text.find("\x1b[") == std::string::npos);
-  CHECK(text == "test");
-}
+    {
+      auto const _ = ScopedTerminalReset{};
+      terminal::configure(terminal::ColorMode::Always);
 
-TEST_CASE("format with Usage has no badge prefix", "[terminal]") {
-  auto const _ = ScopedTerminalReset{};
-  terminal::configure(terminal::ColorMode::Always);
+      // styledText emits ANSI in Always mode exactly for styled kinds
+      auto const alwaysText =
+        terminal::styledText(terminal::Stream::Stdout, entry.kind, "test");
+      if (entry.styled) {
+        CHECK(alwaysText.find("\x1b[") != std::string::npos);
+      } else {
+        CHECK(alwaysText == "test");
+      }
 
-  auto const text =
-    terminal::format(terminal::Stream::Stdout, terminal::MessageKind::Usage, "test");
+      // format() prefixes the badge label only for badge kinds; badge-less
+      // kinds render exactly the styled text (no "[usage]"-style prefixes)
+      auto const rendered =
+        terminal::format(terminal::Stream::Stdout, entry.kind, "test");
+      if (entry.badgeLabel.empty()) {
+        CHECK(rendered == alwaysText);
+      } else {
+        auto const badgeText = std::string{"["}.append(entry.badgeLabel).append("]");
+        CHECK(rendered.find(badgeText) != std::string::npos);
+        CHECK(rendered.find("test") != std::string::npos);
+      }
+    }
 
-  CHECK(text.find("[usage]") == std::string::npos);
-}
-
-TEST_CASE("format with OptionGroup has no badge prefix", "[terminal]") {
-  auto const _ = ScopedTerminalReset{};
-  terminal::configure(terminal::ColorMode::Always);
-
-  auto const text = terminal::format(
-    terminal::Stream::Stdout,
-    terminal::MessageKind::OptionGroup,
-    "test"
-  );
-
-  CHECK(text.find("[optiongroup]") == std::string::npos);
-}
-
-TEST_CASE("styledText with OptionName emits ANSI when Always", "[terminal]") {
-  auto const _ = ScopedTerminalReset{};
-  terminal::configure(terminal::ColorMode::Always);
-
-  auto const text = terminal::styledText(
-    terminal::Stream::Stdout,
-    terminal::MessageKind::OptionName,
-    "test"
-  );
-
-  CHECK(text.find("\x1b[") != std::string::npos);
-}
-
-TEST_CASE("styledText with OptionName returns plain when Never", "[terminal]") {
-  auto const _ = ScopedTerminalReset{};
-  terminal::configure(terminal::ColorMode::Never);
-
-  auto const text = terminal::styledText(
-    terminal::Stream::Stdout,
-    terminal::MessageKind::OptionName,
-    "test"
-  );
-
-  CHECK(text == "test");
+    // styledText returns plain text in Never mode for every kind
+    {
+      auto const _ = ScopedTerminalReset{};
+      terminal::configure(terminal::ColorMode::Never);
+      CHECK(terminal::styledText(terminal::Stream::Stdout, entry.kind, "test") == "test");
+    }
+  }
 }
