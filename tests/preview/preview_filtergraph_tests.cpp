@@ -2,11 +2,8 @@
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
-#include <filesystem>
 #include <string>
 #include <vector>
-
-namespace fs = std::filesystem;
 
 namespace {
 
@@ -42,7 +39,13 @@ auto makeWindow(std::uint64_t startUs, std::optional<double> score = std::nullop
 
 }  // namespace
 
-TEST_CASE("filtergraph fps-normalizes scales and labels both panes", "[preview]") {
+// Whole-string composition checks the targeted cases do not cover: the
+// adjacency/ordering of filters inside each pane chain (setpts -> fps ->
+// scale -> pad -> format -> badge drawtext -> label drawtext), the encoded
+// pane's badge-only chain, and the final concat across the per-window
+// hstack outputs. Individual filter values and the hstack wiring are pinned
+// by the targeted cases below.
+TEST_CASE("filtergraph orders pane chains and concatenates window stacks", "[preview]") {
   auto spec = preview::FiltergraphSpec{};
   spec.original = makeProbe(1280, 720);
   spec.encoded = makeProbe(1920, 1080);
@@ -50,8 +53,9 @@ TEST_CASE("filtergraph fps-normalizes scales and labels both panes", "[preview]"
 
   auto const graph = preview::buildPreviewFiltergraph(spec);
 
-  // Inputs are pre-cut windows: original window i is input i, encoded
-  // window i is input windowCount + i. No trims anywhere.
+  // Original pane: full chain in order — fps-normalized, scaled/padded to the
+  // original's size, format applied, ORIGINAL badge plus the window label.
+  // Standard mode input indexing: original window i is input i.
   CHECK(
     graph.find(
       "[0:v]setpts=PTS-STARTPTS,"
@@ -70,7 +74,8 @@ TEST_CASE("filtergraph fps-normalizes scales and labels both panes", "[preview]"
     != std::string::npos
   );
 
-  // Encoded pane has no segment label, only ENCODED.
+  // Encoded pane: same chain shape with only the ENCODED badge (no segment
+  // label); encoded window i is input windowCount + i (here [3:v]).
   CHECK(
     graph.find(
       "[3:v]setpts=PTS-STARTPTS,"
@@ -83,10 +88,8 @@ TEST_CASE("filtergraph fps-normalizes scales and labels both panes", "[preview]"
     )
     != std::string::npos
   );
-  CHECK(graph.find("trim=") == std::string::npos);
 
-  CHECK(graph.find("[o0][e0]hstack[h0];") != std::string::npos);
-  CHECK(graph.find("[o1][e1]hstack[h1];") != std::string::npos);
+  // The per-window stacks are concatenated in window order into [vout].
   CHECK(graph.find("[h0][h1]concat=n=2:v=1:a=0[vout]") != std::string::npos);
 }
 

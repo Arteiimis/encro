@@ -21,7 +21,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -375,7 +374,9 @@ TEST_CASE(
   auto const initRes = store.initialize(makeStoreConfig(statePath), false);
   REQUIRE(initRes.has_value());
 
-  // Request stop signal to trigger cancel
+  // Request stop signal up front: the task executor then attempts no group,
+  // packGroups fails with "Packing canceled by user.", and the resumable path
+  // deterministically maps that to kCanceledExitCode (no packing task runs).
   stopsignal::requestStop();
 
   pack::PackRequest req{
@@ -387,13 +388,9 @@ TEST_CASE(
   };
 
   auto const result = pack::execute(req);
-  // Either error (stop signal causes failure) or kCanceledExitCode
-  if (result.has_value()) {
-    CHECK(result->exitCode == stopsignal::kCanceledExitCode);
-  } else {
-    // Accept error as valid — stop signal may cause the packing itself to fail
-    SUCCEED("Error path also valid for cancellation");
-  }
+  REQUIRE(result.has_value());
+  CHECK(result->exitCode == stopsignal::kCanceledExitCode);
+  CHECK(result->zippedFiles.empty());
 
   stopsignal::reset();
 }
@@ -444,67 +441,8 @@ TEST_CASE(
   "GroupingStrategy::PerSourceDir is the default strategy",
   "[pack-execute][grouping-strategy]"
 ) {
-  TempDir temp;
-  auto const outputDir = temp.path / "output";
-  fs::create_directories(outputDir);
-
-  auto const filePath = temp.path / "test.txt";
-  testutils::writeSizedFile(filePath, 100);
-
-  pack::PackRequest request{
-    .entries = {filePath},
-    .mode = pack::PackMode::Media,
-    .outputDir = outputDir,
-  };
-
+  pack::PackRequest const request{};
   CHECK(request.groupingStrategy == pack::GroupingStrategy::PerSourceDir);
-
-  auto const result = pack::execute(request);
-  REQUIRE(result);
-  CHECK(result->zippedFiles.size() == 1);
-}
-
-TEST_CASE(
-  "SummaryConfig injects summary entries into pack",
-  "[pack-execute][summary-config]"
-) {
-  TempDir temp;
-  auto const outputDir = temp.path / "output";
-  fs::create_directories(outputDir);
-
-  auto const regularFile = temp.path / "regular.txt";
-  testutils::writeSizedFile(regularFile, 100);
-
-  auto const summaryFile = temp.path / "cover.jpg";
-  testutils::writeSizedFile(summaryFile, 200);
-
-  pack::PackRequest request{
-    .entries = {regularFile},
-    .mode = pack::PackMode::Media,
-    .outputDir = outputDir,
-    .summary = pack::SummaryConfig{
-      .entries =
-        {
-          pack::PackFileEntry{
-            .sourcePath = summaryFile,
-            .zipEntryName = "00_cover.jpg",
-            .isSummary = true,
-          },
-        },
-      .enabled = true,
-    },
-  };
-
-  auto const result = pack::execute(request);
-  REQUIRE(result);
-  CHECK(result->zippedFiles.size() == 1);
-
-  auto const entryNames = testutils::listZipRegularEntryNames(result->zippedFiles[0]);
-  CHECK(entryNames.size() == 2);
-  auto const hasCover = std::ranges::any_of(entryNames, [](std::string const& name) {
-    return name.find("cover") != std::string::npos;
-  });
-  CHECK(hasCover);
 }
 
 TEST_CASE(
@@ -544,7 +482,8 @@ TEST_CASE(
   CHECK(result->zippedFiles.size() == 1);
 
   auto const entryNames = testutils::listZipRegularEntryNames(result->zippedFiles[0]);
-  REQUIRE(entryNames.size() >= 2);
+  // Summary entry injected alongside the two regular entries, nothing else.
+  REQUIRE(entryNames.size() == 3);
   CHECK(entryNames[0].find("cover") != std::string::npos);
 }
 
