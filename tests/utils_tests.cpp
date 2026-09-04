@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdio>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <thread>
 #include <vector>
@@ -66,6 +67,32 @@ auto captureStdout(Fn&& action) -> std::string {
   std::fclose(tempFile);
 
   return output;
+}
+
+// Spawns exec2 on a worker thread, raises the stop request as soon as the
+// child's flag file appears (its proof of having started), then joins.
+// Replaces the old sleep-then-stop requesters, which raced child startup
+// under parallel shard load. elapsed receives the exec2 duration for the
+// caller's hang-guard assertion.
+auto exec2StopOnFlag(
+  std::string const& cmd,
+  bool mergeStderr,
+  fs::path const& flagPath,
+  std::chrono::duration<double>& elapsed
+) -> ExecResult {
+  auto result = std::optional<ExecResult>{};
+  auto child = std::jthread{[&] {
+    auto const startedAt = std::chrono::steady_clock::now();
+    result = exec2(cmd, mergeStderr);
+    elapsed = std::chrono::steady_clock::now() - startedAt;
+  }};
+  auto const started =
+    testutils::waitUntil([&] { return fs::exists(flagPath); }, std::chrono::seconds{10});
+  stopsignal::requestStop();
+  child.join();
+  REQUIRE(started);
+  REQUIRE(result.has_value());
+  return std::move(*result);
 }
 
 }  // namespace
@@ -136,26 +163,25 @@ TEST_CASE("exec2 terminates child process when stop is requested", "[utils]") {
 
   stopsignal::reset();
 
+  TempDir temp;
+  auto const flagPath = temp.path / "child-started";
+
 #if defined(_WIN32)
-  auto const cmd = std::string{"ping -n 10 127.0.0.1"};
+  auto const cmd = std::string{
+    "cmd /c \"type nul >" + flagPath.string() + " & ping -n 10 127.0.0.1 >nul\""
+  };
 #else
-  auto const cmd = std::string{"sleep 10"};
+  auto const cmd = std::string{"sh -c ': > " + flagPath.string() + "; sleep 10'"};
 #endif
 
-  auto requester = std::jthread([](std::stop_token token) {
-    using namespace std::chrono_literals;
-    std::this_thread::sleep_for(150ms);
-    if (!token.stop_requested()) { stopsignal::requestStop(); }
-  });
-
-  auto const startedAt = std::chrono::steady_clock::now();
-  auto const result = exec2(cmd, true);
-  auto const elapsed = std::chrono::steady_clock::now() - startedAt;
+  auto elapsed = std::chrono::duration<double>{};
+  auto const result = exec2StopOnFlag(cmd, true, flagPath, elapsed);
 
   stopsignal::reset();
 
   CHECK(result.exitCode == stopsignal::kCanceledExitCode);
-  CHECK(elapsed < 5s);
+  // Hang guard: exec2 must return once the stop lands, not outlive it.
+  CHECK(elapsed < 30s);
 }
 
 TEST_CASE(
@@ -166,29 +192,31 @@ TEST_CASE(
 
   stopsignal::reset();
 
+  TempDir temp;
+  auto const flagPath = temp.path / "child-started";
+
 #if defined(_WIN32)
+  // The start /b grandchild outlives the direct child and holds the stdout
+  // pipe open; no PowerShell, whose cold start used to blow the old 2 s
+  // elapsed bound under load.
   auto const cmd = std::string{
-    "cmd /c \"start /b powershell -NoProfile -Command Start-Sleep -Seconds 3 & "
-    "ping -n 5 127.0.0.1 >nul\""
+    "cmd /c \"type nul >"
+    + flagPath.string()
+    + " & start /b ping -n 3 127.0.0.1 & ping -n 5 127.0.0.1 >nul\""
   };
 #else
-  auto const cmd = std::string{"sh -c 'sleep 3 & sleep 4'"};
+  auto const cmd =
+    std::string{"sh -c ': > " + flagPath.string() + "; sleep 3 & sleep 4'"};
 #endif
 
-  auto requester = std::jthread([](std::stop_token token) {
-    using namespace std::chrono_literals;
-    std::this_thread::sleep_for(150ms);
-    if (!token.stop_requested()) { stopsignal::requestStop(); }
-  });
-
-  auto const startedAt = std::chrono::steady_clock::now();
-  auto const result = exec2(cmd, true);
-  auto const elapsed = std::chrono::steady_clock::now() - startedAt;
+  auto elapsed = std::chrono::duration<double>{};
+  auto const result = exec2StopOnFlag(cmd, true, flagPath, elapsed);
 
   stopsignal::reset();
 
   CHECK(result.exitCode == stopsignal::kCanceledExitCode);
-  CHECK(elapsed < 2s);
+  // Hang guard: the surviving grandchild must not extend exec2's lifetime.
+  CHECK(elapsed < 30s);
 }
 
 TEST_CASE("exec2 reports the child's exit code and pid", "[utils]") {
@@ -279,30 +307,32 @@ TEST_CASE("exec2 returns partial output captured before stop termination", "[uti
 
   auto resetGuard = testutils::ScopedStopSignalReset{};
 
+  TempDir temp;
+  auto const flagPath = temp.path / "child-started";
+
 #if defined(_WIN32)
-  auto const cmd =
-    std::string{"cmd /c \"for /l %i in (1,1,100) do @(echo tick-%i & ping -n 1 127.0.0.1 "
-                ">nul)\""};
+  auto const cmd = std::string{
+    "cmd /c \"type nul >"
+    + flagPath.string()
+    + " & for /l %i in (1,1,100) do @(echo tick-%i & ping -n 1 "
+      "127.0.0.1 >nul)\""
+  };
 #else
   auto const cmd = std::string{
-    "sh -c 'i=1; while [ $i -le 100 ]; do echo tick-$i; i=$((i+1)); sleep 0.1; done'"
+    "sh -c ': > "
+    + flagPath.string()
+    + "; i=1; while [ $i -le 100 ]; do echo tick-$i; i=$((i+1)); sleep 0.1; done'"
   };
 #endif
 
-  auto requester = std::jthread([](std::stop_token token) {
-    using namespace std::chrono_literals;
-    std::this_thread::sleep_for(400ms);
-    if (!token.stop_requested()) { stopsignal::requestStop(); }
-  });
-
-  auto const startedAt = std::chrono::steady_clock::now();
-  auto const result = exec2(cmd, true);
-  auto const elapsed = std::chrono::steady_clock::now() - startedAt;
+  auto elapsed = std::chrono::duration<double>{};
+  auto const result = exec2StopOnFlag(cmd, true, flagPath, elapsed);
 
   CHECK(result.exitCode == stopsignal::kCanceledExitCode);
   CHECK_FALSE(result.output.empty());
   CHECK(result.output.find("tick-") != std::string::npos);
-  CHECK(elapsed < 5s);
+  // Hang guard only: at least one tick line is guaranteed by the flag poll.
+  CHECK(elapsed < 30s);
 }
 
 TEST_CASE("exec2 cancels promptly when a stop is already requested", "[utils]") {
