@@ -52,7 +52,20 @@ auto resolveHelpTextLayout() -> HelpTextLayout {
 
 // ── formatter_fn helpers (no color — plain text, Phase 20 adds color) ──
 
-auto formatOptionName(CLI::Option const* opt) -> std::string {
+// Constant short-flag cell: every CLI11 short name is a single character, so
+// "-x, " covers all rows; options without a short name render blanks so the
+// long cells align in their own column.
+constexpr auto kShortCellWidth = std::size_t{4};
+
+auto formatShortCell(CLI::Option const* opt) -> std::string {
+  auto const& snames = opt->get_snames();
+  if (opt->get_positional() || snames.empty()) {
+    return std::string(kShortCellWidth, ' ');
+  }
+  return "-" + std::string{snames.front()} + ", ";
+}
+
+auto formatLongCell(CLI::Option const* opt) -> std::string {
   if (opt->get_positional()) { return opt->get_name(true); }
 
   auto const hasLongName = [&lnames = opt->get_lnames()](std::string const& name) {
@@ -61,30 +74,19 @@ auto formatOptionName(CLI::Option const* opt) -> std::string {
 
   auto names = std::string{};
   auto const& lnames = opt->get_lnames();
-  auto const& snames = opt->get_snames();
-  if (!lnames.empty()) {
-    auto first = true;
-    for (auto const& ln: lnames) {
-      // collapse a registered negation pair (--pack, --no-pack) into --[no-]pack
-      if (ln.starts_with("no-") && hasLongName(ln.substr(3))) { continue; }
-      if (!first) names += ',';
-      first = false;
-      names += hasLongName("no-" + ln) ? "--[no-]" + ln : "--" + ln;
-    }
-    if (!snames.empty()) {
-      names += ',';
-      for (auto const& sn: snames) {
-        names += '-' + sn;
-        break;  // CLI11 stores short names without dash
-      }
-    }
-  } else if (!snames.empty()) {
-    for (auto const& sn: snames) {
-      names += '-' + sn;
-      break;
-    }
+  auto first = true;
+  for (auto const& ln: lnames) {
+    // collapse a registered negation pair (--pack, --no-pack) into --[no-]pack
+    if (ln.starts_with("no-") && hasLongName(ln.substr(3))) { continue; }
+    if (!first) names += ',';
+    first = false;
+    names += hasLongName("no-" + ln) ? "--[no-]" + ln : "--" + ln;
   }
   return names;
+}
+
+auto formatOptionName(CLI::Option const* opt) -> std::string {
+  return formatShortCell(opt) + formatLongCell(opt);
 }
 
 std::size_t countLeadingWhitespace(std::string_view text) {
