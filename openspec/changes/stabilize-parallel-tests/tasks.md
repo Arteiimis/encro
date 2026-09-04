@@ -2,9 +2,9 @@
 
 ## 1. Shared test-sync foundations
 
-- [ ] 1.1 Add `testutils::waitUntil(predicate, timeout, pollInterval)` to `tests/test_utils.h` (deadline as hang guard, trailing predicate re-check) with coverage in `tests/test_utils_tests.cpp` (true when predicate holds before deadline without waiting it out; false after deadline; no silent pass). Verify: `xmake test-report --tag="[test-utils]"` passes.
-- [ ] 1.2 TDD the job-state clock hook: write failing tests in `tests/job_state_tests.cpp` that set a synthetic clock, mark running/interrupted around a pushed timestamp delta, and assert exact accumulated values (equality, not bounds); then implement the free-function hook (`setClockForTest`/reset with an atomic function pointer, mirroring `stop_signal`'s test-hook idiom) plus a scoped guard in `tests/test_utils.h`, keeping `system_clock` as the default clock. Verify: `xmake test-report --tag="[job-state]"` passes.
-- [ ] 1.3 Inject the source root into the tests target as a compile definition (`ENCRO_TEST_SOURCE_DIR`, same mechanism as `FAKE_TOOL_EXE_PATH`) so in-suite meta-checks can locate `tests/` sources from the built binary. Verify: build succeeds and a temporary probe test lists `tests/test_utils.h` under the injected path.
+- [x] 1.1 Add `testutils::waitUntil(predicate, timeout, pollInterval)` to `tests/test_utils.h` (deadline as hang guard, trailing predicate re-check) with coverage in `tests/test_utils_tests.cpp` (true when predicate holds before deadline without waiting it out; false after deadline; no silent pass). Verify: `xmake test-report --tag="[test-utils]"` passes.
+- [x] 1.2 TDD the job-state clock hook: write failing tests in `tests/job_state_tests.cpp` that set a synthetic clock, mark running/interrupted around a pushed timestamp delta, and assert exact accumulated values (equality, not bounds); then implement the free-function hook (`setClockForTest`/reset with an atomic function pointer, mirroring `stop_signal`'s test-hook idiom) plus a scoped guard in `tests/test_utils.h`, keeping `system_clock` as the default clock. Verify: `xmake test-report --tag="[job-state]"` passes.
+- [x] 1.3 Inject the source root into the tests target as a compile definition (`ENCRO_TEST_SOURCE_DIR`, same mechanism as `FAKE_TOOL_EXE_PATH`) so in-suite meta-checks can locate `tests/` sources from the built binary. Verify: build succeeds and a temporary probe test lists `tests/test_utils.h` under the injected path.
 
 ## 2. Fake tool: gate from call index
 

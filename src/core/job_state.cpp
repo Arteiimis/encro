@@ -8,6 +8,7 @@
 #include "logging/logging.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <fstream>
 #include <format>
@@ -25,7 +26,17 @@ namespace detail {
 
 constexpr auto kFlushIntervalMs = std::int64_t{2000};
 
+// Test hook target (jobstate::setClockForTest). Production worker threads
+// call markRunning/markInterrupted, so the pointer swap itself must be
+// race-free; relaxed ordering suffices for a clock read.
+std::atomic<ClockFn> testClock{nullptr};
+
 std::int64_t nowMs() {
+  if (
+    auto const clockFn = testClock.load(std::memory_order_relaxed); clockFn != nullptr
+  ) {
+    return clockFn();
+  }
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
@@ -501,6 +512,10 @@ auto flushSnapshot(
 }
 
 }  // namespace detail
+
+void setClockForTest(ClockFn clockFn) {
+  detail::testClock.store(clockFn, std::memory_order_relaxed);
+}
 
 void settleEncodedMs(TaskRecord& task, std::int64_t nowMs) {
   if (!task.startedAtMs.has_value()) { return; }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cmd/cmd.h"
+#include "core/job_state.h"
 #include "infra/env.h"
 #include "infra/stop_signal.h"
 
@@ -10,6 +11,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <exception>
@@ -22,6 +24,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 #if defined(_WIN32)
@@ -65,6 +68,54 @@ struct ScopedStopSignalReset {
   ScopedStopSignalReset() { stopsignal::reset(); }
 
   ~ScopedStopSignalReset() { stopsignal::reset(); }
+};
+
+// Polls predicate until it holds or timeout expires. The deadline is a hang
+// guard for saturated parallel runs, never a correctness margin: callers
+// REQUIRE the result at the call site, naming the awaited condition. The
+// trailing re-check keeps a predicate satisfied between polls from being
+// reported as a timeout.
+template<typename Ty>
+bool waitUntil(
+  Ty&& predicate,
+  std::chrono::milliseconds timeout = std::chrono::milliseconds{10'000},
+  std::chrono::milliseconds pollInterval = std::chrono::milliseconds{25}
+) {
+  auto const deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (predicate()) { return true; }
+    std::this_thread::sleep_for(pollInterval);
+  }
+  return predicate();
+}
+
+// Synthetic wall clock for jobstate elapsed-accumulation tests: arms
+// jobstate::setClockForTest with a controllable timestamp and restores the
+// real clock on destruction. Test cases run sequentially within a shard, so
+// the single current-value slot cannot race.
+class ScopedSyntheticJobClock {
+public:
+  explicit ScopedSyntheticJobClock(std::int64_t startMs = 1'000'000) {
+    currentMs_().store(startMs, std::memory_order_relaxed);
+    jobstate::setClockForTest(&read);
+  }
+
+  ScopedSyntheticJobClock(ScopedSyntheticJobClock const&) = delete;
+  auto operator=(ScopedSyntheticJobClock const&) -> ScopedSyntheticJobClock& = delete;
+
+  ~ScopedSyntheticJobClock() { jobstate::setClockForTest(nullptr); }
+
+  void advanceMs(std::int64_t delta) {
+    currentMs_().fetch_add(delta, std::memory_order_relaxed);
+  }
+
+private:
+  static std::int64_t read() { return currentMs_().load(std::memory_order_relaxed); }
+
+  static std::atomic<std::int64_t>& currentMs_() {
+    static std::atomic<std::int64_t> value{0};
+    return value;
+  }
 };
 
 // Environment variable scoped to the current test case: restores the previous

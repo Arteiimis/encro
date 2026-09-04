@@ -186,6 +186,14 @@ auto primarySourcePath(TaskRecord const& task) -> std::optional<fs::path>;
 // No-op when the task has never started running.
 void settleEncodedMs(TaskRecord& task, std::int64_t nowMs);
 
+// Test-only hook (same idiom as infra/stop_signal's force-exit hooks): swap
+// the clock the store reads so elapsed-accumulation tests push synthetic
+// timestamps; nullptr restores the real system clock. Must be atomic: the
+// store is driven from worker threads in production.
+using ClockFn = std::int64_t (*)();
+
+void setClockForTest(ClockFn clockFn);
+
 bool needsExecution(TaskRecord const& task);
 
 bool actionTargetExists(TaskRecord const& task);
