@@ -198,7 +198,10 @@ auto encroLogTail(std::string const& stderrText) -> std::string {
   auto const pos = stderrText.find(marker);
   if (pos == std::string::npos) { return {}; }
   auto const eol = stderrText.find('\n', pos);
-  auto const path = stderrText.substr(pos + marker.size(), eol - pos - marker.size());
+  auto path = stderrText.substr(pos + marker.size(), eol - pos - marker.size());
+  // Windows text mode turns the line's '\n' into '\r\n'; the '\r' is not part
+  // of the path.
+  if (!path.empty() && path.back() == '\r') { path.pop_back(); }
   auto in = std::ifstream{fs::path{path}};
   if (!in) { return "\n(encro log not readable: " + path + ")\n"; }
   auto content = std::string{};
