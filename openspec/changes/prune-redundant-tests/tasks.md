@@ -33,9 +33,9 @@
 
 ## 6. Batch 6 — pack / preview / naming cluster (design.md I3 pack)
 
-- [ ] 6.1 Apply pack merges from I3 (packer Directory dup delete, pack_service pairs, pack_execute summary/default-strategy/cancel-tightening, forced-disambiguation fold into naming_strategy_tests); fold `naming_strategy_tests.cpp:33`'s Flat-default assertion into `:52` then delete it; verify `xmake test-report --tag="[pack-service]"`, `--tag="[packer]"`, and `--tag="[pack-execute]"`
-- [ ] 6.2 Apply preview trims from I3 (filtergraph megatest trim, preview_process `:195` delete and `:256` fold; `:97` gains StdoutCapture + printed-once assertions before the e2e `:1866` fold lands in batch 7); verify `xmake test-parallel` green
-- [ ] 6.3 Commit batch 6 as `test: merge pack and preview duplicate test cases`
+- [x] 6.1 Apply pack merges from I3 (packer Directory dup delete, pack_service pairs, pack_execute summary/default-strategy/cancel-tightening, forced-disambiguation fold into naming_strategy_tests); fold `naming_strategy_tests.cpp:33`'s Flat-default assertion into `:52` then delete it; verify `xmake test-report --tag="[pack-service]"`, `--tag="[packer]"`, and `--tag="[pack-execute]"`
+- [x] 6.2 Apply preview trims from I3 (filtergraph megatest trim, preview_process `:195` delete and `:256` fold; `:97` gains StdoutCapture + printed-once assertions before the e2e `:1866` fold lands in batch 7); verify `xmake test-parallel` green
+- [x] 6.3 Commit batch 6 as `test: merge pack and preview duplicate test cases`
 
 ## 7. Batch 7 — e2e cluster (design.md I3 e2e)
 
