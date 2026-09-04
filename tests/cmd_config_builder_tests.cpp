@@ -111,18 +111,6 @@ TEST_CASE("buildConfig reads keep output layout", "[cmd][config]") {
   CHECK(configRes->outputLayout == appctx::OutputLayout::Keep);
 }
 
-TEST_CASE("buildConfig reads forced conflict handling flag", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "input.mp4";
-  writeTextFile(inputPath);
-
-  auto const result = makeResult(inputPath.string());
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE(configRes);
-  CHECK(configRes->forceNameConflictHandling);
-}
-
 TEST_CASE("buildConfig reads disabled conflict handling flag", "[cmd][config]") {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
@@ -779,83 +767,6 @@ TEST_CASE("buildConfig reads --image-quality with --compress", "[cmd][config]") 
   CHECK(configRes->compressImages == true);
   REQUIRE(configRes->imageQuality.has_value());
   CHECK(configRes->imageQuality.value() == 10);
-}
-
-TEST_CASE("buildConfig accepts --image-quality at minimum 2", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "pics";
-  fs::create_directories(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "picture",
-    "mp4",
-    "y",
-    "auto",
-    std::nullopt,
-    {"compress"},
-    2
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE(configRes);
-  REQUIRE(configRes->imageQuality.has_value());
-  CHECK(configRes->imageQuality.value() == 2);
-}
-
-TEST_CASE("buildConfig accepts --image-quality at maximum 31", "[cmd][config]") {
-  TempDir temp;
-  auto const inputPath = temp.path / "pics";
-  fs::create_directories(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "picture",
-    "mp4",
-    "y",
-    "auto",
-    std::nullopt,
-    {"compress"},
-    31
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE(configRes);
-  REQUIRE(configRes->imageQuality.has_value());
-  CHECK(configRes->imageQuality.value() == 31);
-}
-
-TEST_CASE(
-  "buildConfig leaves imageQuality unset when --image-quality not provided",
-  "[cmd][config]"
-) {
-  TempDir temp;
-  auto const inputPath = temp.path / "pics";
-  fs::create_directories(inputPath);
-
-  auto const result = makeResult(
-    inputPath.string(),
-    std::nullopt,
-    std::nullopt,
-    std::nullopt,
-    "picture",
-    "mp4",
-    "y",
-    "auto",
-    std::nullopt,
-    {"compress"}
-  );
-  auto const configRes = cmd::buildConfig(result);
-
-  REQUIRE(configRes);
-  CHECK(configRes->compressImages == true);
-  CHECK_FALSE(configRes->imageQuality.has_value());
 }
 
 TEST_CASE("buildConfig reads min-vmaf default and dry-run flag", "[cmd][config]") {

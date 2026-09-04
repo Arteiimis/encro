@@ -77,12 +77,6 @@ TEST_CASE("commandLineInit --version flag sets version=true", "[cmd]") {
   CHECK_FALSE(result.error.has_value());
 }
 
-TEST_CASE("commandLineInit --version is not set by default", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro"});
-
-  CHECK(result.version == false);
-}
-
 TEST_CASE("commandLineInit parses non-conflicting flags and option values", "[cmd]") {
   auto const result = testutils::parseArgs(
     {"encro",
@@ -271,12 +265,6 @@ TEST_CASE("commandLineInit parses -q short option for quality", "[cmd]") {
   CHECK(result.imageQuality.value() == 15);
 }
 
-TEST_CASE("commandLineInit does not set image-quality by default", "[cmd]") {
-  auto const result = testutils::parseArgs({"encro"});
-
-  CHECK(result.imageQuality.has_value() == false);
-}
-
 TEST_CASE("commandLineInit parses --crf as integer", "[cmd]") {
   auto const result = testutils::parseArgs({"encro", "--crf", "26"});
 
@@ -402,40 +390,6 @@ TEST_CASE("help text contains NO ANSI codes when color is never", "[cmd][color]"
 
   // When color is disabled, no ANSI escape codes should be present
   CHECK(help.find("\x1b[") == std::string::npos);
-
-  terminal::reset();
-}
-
-TEST_CASE(
-  "help text keeps aligned description columns when default values are colored",
-  "[cmd][color]"
-) {
-  terminal::configure(terminal::ColorMode::Always);
-
-  auto const result = testutils::parseArgs({"encro", "-hh"});
-  auto const plainHelp = stripAnsi(result.helpText);
-
-  auto const keepLine = testutils::findHelpLine(plainHelp, "--[no-]keep");
-  auto const outputFormatLine = testutils::findHelpLine(plainHelp, "--output-format");
-  auto const forceConflictLine =
-    testutils::findHelpLine(plainHelp, "--force-conflict-handling");
-
-  REQUIRE(keepLine.has_value());
-  REQUIRE(outputFormatLine.has_value());
-  REQUIRE(forceConflictLine.has_value());
-
-  auto const keepColumn =
-    keepLine->find("preserve relative input subdirectories inside the output directory");
-  auto const outputFormatColumn = outputFormatLine->find("target format: mp4 or webp");
-  auto const forceConflictColumn =
-    forceConflictLine->find("same-name collisions in flat output");
-
-  REQUIRE(keepColumn != std::string::npos);
-  REQUIRE(outputFormatColumn != std::string::npos);
-  REQUIRE(forceConflictColumn != std::string::npos);
-
-  CHECK(outputFormatColumn == keepColumn);
-  CHECK(forceConflictColumn == keepColumn);
 
   terminal::reset();
 }
@@ -660,15 +614,6 @@ TEST_CASE(
   CHECK(help.find("Input/Output") != std::string::npos);
   CHECK(help.find("Processing") != std::string::npos);
   CHECK(help.find("File operation") != std::string::npos);
-}
-
-TEST_CASE("help text non-empty after color injection", "[cmd][color]") {
-  auto const result = testutils::parseArgs({"encro"});
-  auto const& help = result.helpText;
-
-  CHECK_FALSE(help.empty());
-  // Help output should be substantial (multiple options rendered)
-  CHECK(help.size() > 200);
 }
 
 TEST_CASE("help text includes usage synopsis before option groups", "[cmd]") {

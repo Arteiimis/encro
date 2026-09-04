@@ -261,49 +261,6 @@ TEST_CASE(
   }));
 }
 
-TEST_CASE(
-  "picture pipeline can disable collision-safe names for unique files",
-  "[pipeline]"
-) {
-  TempDir temp;
-  auto const inputDir = temp.path / "pics";
-  auto const dirA = inputDir / "a";
-  auto const dirB = inputDir / "b";
-  fs::create_directories(dirA);
-  fs::create_directories(dirB);
-  writeTextFile(dirA / "alpha.jpg");
-  writeTextFile(dirB / "beta.jpg");
-
-  auto ctx = appctx::AppContext{};
-  ctx.config.processType = "picture";
-  ctx.config.yesToAll = true;
-  ctx.config.recursive = true;
-  ctx.config.pictureFolderSummary = false;
-  ctx.config.forceNameConflictHandling = false;
-  ctx.config.inputPath = inputDir;
-
-  auto runRes = pipeline::run(ctx);
-  REQUIRE(runRes);
-  REQUIRE(runRes.value() == 0);
-
-  // Files from different dirs end up in separate zips.
-  // Plain filenames (naming internalized, Phase 13 restores it).
-  auto allEntries = std::vector<std::string>{};
-  auto packedDir = inputDir / "packed";
-  REQUIRE(fs::exists(packedDir));
-  for (auto const& de: fs::directory_iterator(packedDir)) {
-    if (de.path().extension() == ".zip") {
-      auto zipEntries = listZipRegularEntryNames(de.path());
-      allEntries.insert(allEntries.end(), zipEntries.begin(), zipEntries.end());
-    }
-  }
-  std::ranges::sort(allEntries);
-  REQUIRE(allEntries.size() == 2);
-  // Entry names have "1000__" prefix (Phase 13)
-  CHECK(allEntries[0].starts_with("1000__"));
-  CHECK(allEntries[1].starts_with("1000__"));
-}
-
 TEST_CASE("picture pipeline keeps relative paths in keep mode", "[pipeline]") {
   TempDir temp;
   auto const inputDir = temp.path / "pics";

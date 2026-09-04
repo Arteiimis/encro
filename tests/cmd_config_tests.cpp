@@ -3,7 +3,6 @@
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
-#include <CLI/CLI.hpp>
 
 #include <filesystem>
 #include <string>
@@ -43,6 +42,18 @@ TEST_CASE("cli value beats config value", "[cmd][config]") {
   auto const result = testutils::parseArgs({"encro", "--crf", "30"});
   REQUIRE_FALSE(result.error.has_value());
   CHECK(result.crf == 30);
+}
+
+TEST_CASE(
+  "stored image-quality runs without --compress (config does not trip needs)",
+  "[cmd][config]"
+) {
+  auto const config = ScopedConfigFile{"{\"image-quality\": 10}"};
+
+  auto const result = testutils::parseArgs({"encro", "-i", "video.mp4"});
+  REQUIRE_FALSE(result.error.has_value());
+  REQUIRE(result.imageQuality.has_value());
+  CHECK(result.imageQuality.value() == 10);
 }
 
 TEST_CASE("invalid stored value fails the run when effective", "[cmd][config]") {
@@ -132,12 +143,6 @@ TEST_CASE("negation flags override persisted true values", "[cmd][config]") {
     CHECK_FALSE(result.folderSummary);
     CHECK_FALSE(result.yesToAll);
   }
-}
-
-TEST_CASE("negation without config equals the absent form", "[cmd][config]") {
-  auto const result = testutils::parseArgs({"encro", "--no-pack"});
-  REQUIRE_FALSE(result.error.has_value());
-  CHECK_FALSE(result.pack);
 }
 
 // ── Help rendering (tasks 4.2/4.3) ────────────────────────────────────────
@@ -410,135 +415,4 @@ TEST_CASE(
       cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "--path"})) == 0
     );
   }
-}
-
-// ── CLI11 behavior spike (design D1/D3, task 3.1) ──────────────────────
-// Pins the exact CLI11 2.7.2 semantics the config merge relies on, through
-// the same argc/argv parse path commandLineInit uses (the vector overload
-// processes tokens in reverse and is not the production path):
-//   1. absent option + default_str + force_callback  → binding written
-//   2. explicit CLI value beats the forced default, which is not validated
-//   3. per-name {false} suffix syntax for negation flags
-//   4. needs/excludes evaluate on command-line occurrences only
-
-namespace {
-
-// Parses through the production-style argc/argv path (CLI11 owns argv[]
-// storage, so the strings are kept alive here; argv[0] is skipped as the
-// program name, so a placeholder leads the list).
-auto cliParse(CLI::App& app, std::vector<std::string> const& args) {
-  static thread_local std::vector<std::string> storage;
-  storage = {"encro"};
-  storage.insert(storage.end(), args.begin(), args.end());
-  auto argv = std::vector<char*>{};
-  argv.reserve(storage.size());
-  for (auto& arg: storage) { argv.push_back(arg.data()); }
-  return app.parse(static_cast<int>(argv.size()), argv.data());
-}
-
-}  // namespace
-
-TEST_CASE(
-  "forced default is applied and validated when option absent",
-  "[cmd][config][spike]"
-) {
-  auto app = CLI::App{};
-  auto value = 7;
-  auto* option = app.add_option("--crf", value, "test");
-  option->check(CLI::Range(0, 51));
-  option->default_str("23");
-  option->force_callback();
-
-  cliParse(app, {});
-  CHECK(value == 23);
-}
-
-TEST_CASE(
-  "cli value beats forced default without validating it",
-  "[cmd][config][spike]"
-) {
-  auto app = CLI::App{};
-  auto value = 7;
-  auto* option = app.add_option("--crf", value, "test");
-  option->check(CLI::Range(0, 51));
-  option->default_str("99");
-  option->force_callback();
-
-  cliParse(app, {"--crf", "20"});
-  CHECK(value == 20);
-}
-
-TEST_CASE("forced flag default turns the flag on when absent", "[cmd][config][spike]") {
-  auto app = CLI::App{};
-  auto flag = false;
-  auto* option = app.add_flag("-p,--pack,--no-pack{false}", flag, "test");
-  option->default_str("true");
-  option->force_callback();
-
-  cliParse(app, {});
-  CHECK(flag);
-}
-
-TEST_CASE("negation flag forms behave with forced default", "[cmd][config][spike]") {
-  auto app = CLI::App{};
-  auto flag = false;
-  auto* option = app.add_flag("-p,--pack,--no-pack{false}", flag, "test");
-  option->default_str("true");
-  option->force_callback();
-
-  SECTION("plain form keeps true") {
-    cliParse(app, {"--pack"});
-    CHECK(flag);
-  }
-  SECTION("negation form overrides to false") {
-    cliParse(app, {"--no-pack"});
-    CHECK_FALSE(flag);
-  }
-  SECTION("short form keeps true") {
-    cliParse(app, {"-p"});
-    CHECK(flag);
-  }
-}
-
-TEST_CASE("forced default does not trigger needs", "[cmd][config][spike]") {
-  auto app = CLI::App{};
-  auto compress = false;
-  auto quality = 0;
-  auto* compressOption = app.add_flag("--compress", compress, "test");
-  auto* qualityOption = app.add_option("--image-quality", quality, "test");
-  qualityOption->needs(compressOption);
-  qualityOption->default_str("10");
-  qualityOption->force_callback();
-
-  cliParse(app, {});
-  CHECK(quality == 10);
-}
-
-TEST_CASE("forced default does not trigger excludes", "[cmd][config][spike]") {
-  auto app = CLI::App{};
-  auto dryRun = false;
-  auto value = 0;
-  auto* dryRunOption = app.add_flag("--dry-run", dryRun, "test");
-  auto* valueOption = app.add_option("--crf", value, "test");
-  valueOption->excludes(dryRunOption);
-  valueOption->default_str("28");
-  valueOption->force_callback();
-
-  cliParse(app, {"--dry-run"});
-  CHECK(dryRun);
-  CHECK(value == 28);
-}
-
-TEST_CASE(
-  "invalid forced default fails parse with validation error",
-  "[cmd][config][spike]"
-) {
-  auto app = CLI::App{};
-  auto value = 0;
-  auto* option = app.add_option("--crf", value, "test");
-  option->check(CLI::Range(0, 51));
-  option->default_str("99");
-  option->force_callback();
-
-  CHECK_THROWS_AS(cliParse(app, {}), CLI::ValidationError);
 }

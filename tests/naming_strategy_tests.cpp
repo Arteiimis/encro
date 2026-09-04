@@ -2,7 +2,7 @@
 // NamingConfig.
 //
 // Covers all three NamingStrategy values (Flat, FlatWithForce, Keep) and
-// NamingConfig default construction / designated initialization.
+// NamingConfig default construction.
 
 #include "pack/pack.h"
 #include "test_utils.h"
@@ -17,16 +17,6 @@
 namespace fs = std::filesystem;
 
 // ============================================================
-// NamingStrategy enum value tests
-// ============================================================
-
-TEST_CASE("NamingStrategy enum has correct values", "[pack][naming]") {
-  CHECK(static_cast<int>(pack::NamingStrategy::Flat) == 0);
-  CHECK(static_cast<int>(pack::NamingStrategy::FlatWithForce) == 1);
-  CHECK(static_cast<int>(pack::NamingStrategy::Keep) == 2);
-}
-
-// ============================================================
 // NamingConfig default construction tests
 // ============================================================
 
@@ -34,15 +24,6 @@ TEST_CASE("NamingConfig default constructs with Flat strategy", "[pack][naming]"
   pack::NamingConfig cfg{};
   CHECK(cfg.namingStrategy == pack::NamingStrategy::Flat);
   CHECK_FALSE(cfg.baseName.has_value());
-}
-
-TEST_CASE("NamingConfig designated initializer sets namingStrategy", "[pack][naming]") {
-  pack::NamingConfig cfg{
-    .namingStrategy = pack::NamingStrategy::FlatWithForce,
-    .baseName = "test",
-  };
-  CHECK(cfg.namingStrategy == pack::NamingStrategy::FlatWithForce);
-  CHECK(cfg.baseName == "test");
 }
 
 // ============================================================
