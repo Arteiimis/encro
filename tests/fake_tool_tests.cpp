@@ -11,7 +11,10 @@
 #include <chrono>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -25,6 +28,21 @@ auto runFakeTool(std::string const& args) -> ExecResult {
 
 auto encodeArg(fs::path const& filePath) -> std::string {
   return std::format("\"{}\"", filePath.string());
+}
+
+// Counts ffmpeg-role lines in the fake tool's invocation log; a missing log
+// counts as zero (waitUntil predicates must not abort on absent files).
+auto countFfmpegInvocations(fs::path const& logPath) -> int {
+  auto log = std::ifstream{logPath, std::ios::binary};
+  if (!log.is_open()) { return 0; }
+  auto const content = std::string{std::istreambuf_iterator<char>{log}, {}};
+  auto count = 0;
+  auto pos = std::string::size_type{0};
+  while ((pos = content.find("ffmpeg\t", pos)) != std::string::npos) {
+    ++count;
+    pos += 1;
+  }
+  return count;
 }
 
 }  // namespace
@@ -199,4 +217,110 @@ TEST_CASE("fake tool creates parent dirs for progress files", "[fake-tool]") {
 
   CHECK(res.exitCode == 0);
   CHECK(fs::exists(progressPath));
+}
+
+TEST_CASE("fake tool gates from a configured call index onwards", "[fake-tool]") {
+  TempDir temp;
+  auto const firstOutput = temp.path / "first.mp4";
+  auto const secondOutput = temp.path / "second.mp4";
+  auto const logPath = temp.path / "tool.log";
+  auto const gateFile = temp.path / "gate";
+
+  auto const logEnv = ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
+  auto const countEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", (temp.path / "calls").string()};
+  auto const gateEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string()};
+  auto const fromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
+
+  // Call 1 runs to completion despite the configured gate: bounded proof,
+  // so a tool that gates everything fails here instead of stalling 30 s.
+  auto first = std::jthread{[&] {
+    (void)runFakeTool("-hide_banner -nostats -y " + encodeArg(firstOutput));
+  }};
+  REQUIRE(
+    testutils::waitUntil([&] { return fs::exists(firstOutput); }, std::chrono::seconds{5})
+  );
+  first.join();
+
+  // Call 2 logs its invocation, then blocks on the missing gate file: the
+  // log line proves it started while the missing output proves it is held.
+  auto holder = std::jthread{[&] {
+    (void)runFakeTool("-hide_banner -nostats -y " + encodeArg(secondOutput));
+  }};
+  REQUIRE(
+    testutils::waitUntil(
+      [&] { return countFfmpegInvocations(logPath) >= 2; },
+      std::chrono::seconds{10}
+    )
+  );
+  CHECK_FALSE(fs::exists(secondOutput));
+
+  // Releasing the gate finishes the held invocation.
+  {
+    auto gate = std::ofstream{gateFile, std::ios::binary};
+    REQUIRE(gate.is_open());
+    gate << "go";
+  }
+  holder.join();
+  CHECK(fs::exists(secondOutput));
+}
+
+TEST_CASE("fake tool gates every invocation without a from-call index", "[fake-tool]") {
+  TempDir temp;
+  auto const outPath = temp.path / "out.mp4";
+  auto const logPath = temp.path / "tool.log";
+  auto const gateFile = temp.path / "gate";
+
+  auto const logEnv = ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
+  auto const gateEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string()};
+
+  auto holder = std::jthread{[&] {
+    (void)runFakeTool("-hide_banner -nostats -y " + encodeArg(outPath));
+  }};
+  REQUIRE(
+    testutils::waitUntil(
+      [&] { return countFfmpegInvocations(logPath) >= 1; },
+      std::chrono::seconds{10}
+    )
+  );
+  CHECK_FALSE(fs::exists(outPath));
+
+  {
+    auto gate = std::ofstream{gateFile, std::ios::binary};
+    REQUIRE(gate.is_open());
+    gate << "go";
+  }
+  holder.join();
+  CHECK(fs::exists(outPath));
+}
+
+TEST_CASE("fake tool version probes neither gate nor consume an index", "[fake-tool]") {
+  TempDir temp;
+  auto const outPath = temp.path / "out.mp4";
+  auto const countPath = temp.path / "calls";
+
+  auto const logEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const countEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countPath.string()};
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+  auto const fromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
+
+  // The probe answers immediately under the configured gate...
+  auto const version = runFakeTool("-version");
+  CHECK(version.exitCode == 0);
+  CHECK(version.output.find("version n5.1-fake") != std::string::npos);
+
+  // ...and consumed no index: the first real encode is call 1, below the
+  // from-call threshold, so it completes without ever seeing a gate file.
+  auto encode = std::jthread{[&] {
+    (void)runFakeTool("-hide_banner -nostats -y " + encodeArg(outPath));
+  }};
+  CHECK(
+    testutils::waitUntil([&] { return fs::exists(outPath); }, std::chrono::seconds{5})
+  );
+  encode.join();
+  CHECK(fs::exists(outPath));
+  CHECK(testutils::readTextFile(countPath) == "1");
 }
