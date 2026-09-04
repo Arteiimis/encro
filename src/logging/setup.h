@@ -79,6 +79,10 @@ void shutdown();
 // Returns std::nullopt if setup() was not called or no file sink is active.
 [[nodiscard]] auto currentLogFilePath() -> std::optional<std::filesystem::path>;
 
+// Print `Log file: <path>` on stderr when the run has a log file; no-op
+// otherwise. Failure exits call this so the error names where to look.
+void printLogHint();
+
 // ── Forensic context ────────────────────────────────────────────────────────
 // Store app context pointer for environment snapshot access.
 void setForensicAppContext(void* appCtx);

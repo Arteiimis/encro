@@ -6,19 +6,19 @@
 
 **Goals:**
 - Successful and help/version runs stop printing the `Log file:` hint entirely.
-- Failed runs print the hint once, at the failure exit, so the error and its log path appear together.
+- Failed runs print the hint once at their failure exit, so the error and its log path appear together.
 
 **Non-Goals:**
 - Changing what gets logged or when the log file is created (always-on logging stays).
-- Surfaces other than `failWithHint` (e.g. partially-failed pipeline runs that still exit through the normal summary path) — they keep their existing failure summary output and stay hint-free.
+- Interrupted runs (Ctrl-C): they exit as `interrupted`, not `failed`, and print no hint.
 
 ## Decisions
 
-- **D1: Single print point in `failWithHint`, before `logging::shutdown()`.** `currentLogFilePath()` returns nullopt after shutdown, and `failWithHint` is already the shared exit for parse errors, config errors, and toolchain failures — one call site covers all of them. Alternative (printing at each failure site) duplicates the line across callers for nothing.
+- **D1: Shared `logging::printLogHint()` called at every failure exit.** It prints the hint when a log file exists (no-op otherwise, including after `logging::shutdown()` cleared the path). Call sites: `failWithHint` (parse errors, config-build errors, toolchain failures, preview/pipeline hard errors), `runPreview`/`runAppPipeline` non-zero exits (guarded so the interrupted exit code stays hint-free), and the `config`/`completion` wrappers in `appentry::run` — their bodies report their own errors and return non-zero without reaching `failWithHint`. Alternative (a single call inside `failWithHint` only) leaves subcommand and pipeline-level failures hint-free; that gap was found in review and is covered by e2e tests.
 - **D2: stderr via `terminal::eprintln(Hint, ...)`** — the same stream as the old startup hint. stdout carries product output (`encro completion bash` scripts), and the e2e `REQUIRE_SUCCESS` helper scans stderr for `Log file: ` to dump the log tail, so switching streams would break that diagnostic path.
 - **D3: Print whenever a log file exists, including `-v` echo runs.** Under `-v` the log lines already echo to console, but naming the file still helps; skipping the hint under `-v` would add a conditional with no observable benefit.
 
 ## Risks / Trade-offs
 
-- [Runs that fail inside the pipeline (task failures) exit via the normal summary path, not `failWithHint`, so they print no hint] → Accepted: those runs print their own failed-task summary; the log file is still written and `--log-json` consumers already get the `log` path in the summary record. Revisit only if users report needing the pointer there.
+- [`printLogHint` no-ops after `logging::shutdown()`] → Every call site orders it before shutdown; the e2e assertions read the file after process exit, so flushes are complete.
 - [Output streams split: `Error:` on stdout, `Log file:` hint on stderr] → Matches existing behavior (the startup hint was stderr for the same reason); terminals show both, redirected stdout stays clean.

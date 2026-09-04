@@ -6,8 +6,6 @@
 #include "logging/logging.h"
 #include "logging/setup.h"
 
-using enum terminal::MessageKind;
-
 namespace {
 
 void setupLogging(CmdParseResult const& cmd) {
@@ -17,9 +15,8 @@ void setupLogging(CmdParseResult const& cmd) {
     .colorsEnabled = terminal::colorsEnabled(),
   };
 
-  // The log path is surfaced by failWithHint on failed runs only; successful
-  // and help/version runs stay hint-free.
-  logging::setup(logConfig);
+  // The log path is surfaced by logging::printLogHint on failed runs.
+  (void)logging::setup(logConfig);
 }
 
 }  // namespace
