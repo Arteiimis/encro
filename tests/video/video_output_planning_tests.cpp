@@ -348,58 +348,46 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "resolveVideoPackOutputPath is sibling of encoded_webp when webp has no "
-  "custom output",
+  "resolveVideoPackOutputPath defaults to packed beside the input root",
   "[video-process][pack]"
 ) {
   TempDir temp;
 
   auto config = appctx::AppConfig{};
   config.outputPath.reset();
-  config.outputFormat = "webp";
 
-  auto const packPath = resolveVideoPackOutputPath(config, temp.path);
-  CHECK(packPath == temp.path / "packed");
-}
+  SECTION("directory input sibling of encoded_webp for webp") {
+    config.outputFormat = "webp";
 
-TEST_CASE(
-  "resolveVideoPackOutputPath uses input parent sibling for webp input file",
-  "[video-process][pack]"
-) {
-  TempDir temp;
-  auto const filePath = temp.path / "sample.mp4";
-
-  {
-    std::ofstream out{filePath};
-    out << "x";
+    auto const packPath = resolveVideoPackOutputPath(config, temp.path);
+    CHECK(packPath == temp.path / "packed");
   }
 
-  auto config = appctx::AppConfig{};
-  config.outputPath.reset();
-  config.outputFormat = "webp";
+  SECTION("webp input file uses its parent directory") {
+    config.outputFormat = "webp";
+    auto const filePath = temp.path / "sample.mp4";
 
-  auto const packPath = resolveVideoPackOutputPath(config, filePath);
-  CHECK(packPath == temp.path / "packed");
-}
+    {
+      std::ofstream out{filePath};
+      out << "x";
+    }
 
-TEST_CASE(
-  "resolveVideoPackOutputPath uses file parent for non-webp input file",
-  "[video-process][pack]"
-) {
-  TempDir temp;
-  auto const filePath = temp.path / "sample.mp4";
-
-  {
-    std::ofstream out{filePath};
-    out << "x";
+    auto const packPath = resolveVideoPackOutputPath(config, filePath);
+    CHECK(packPath == temp.path / "packed");
   }
 
-  auto config = appctx::AppConfig{};
-  config.outputPath.reset();
-  config.outputFormat = "mp4";
+  SECTION("non-webp input file uses its parent directory") {
+    config.outputFormat = "mp4";
+    auto const filePath = temp.path / "sample.mp4";
 
-  auto const packPath = resolveVideoPackOutputPath(config, filePath);
-  CHECK(packPath == temp.path / "packed");
+    {
+      std::ofstream out{filePath};
+      out << "x";
+    }
+
+    auto const packPath = resolveVideoPackOutputPath(config, filePath);
+    CHECK(packPath == temp.path / "packed");
+  }
 }
 
 TEST_CASE(
