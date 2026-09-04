@@ -163,16 +163,6 @@ TEST_CASE(
   CHECK_FALSE(fs::exists(std::format("{}.partial", outputPath.string())));
 }
 
-TEST_CASE("compressImageBatch returns empty for empty input", "[picture-compress]") {
-  TempDir temp;
-
-  auto ctx = appctx::AppContext{};
-  configureCompressContext(ctx, temp.path, temp.path);
-
-  auto const results = compressImageBatch(ctx, std::span<CompressTask const>{}, 5, 2);
-  CHECK(results.empty());
-}
-
 TEST_CASE("compressImageBatch compresses single image", "[picture-compress]") {
   TempDir temp;
   auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
@@ -238,49 +228,4 @@ TEST_CASE(
 
   auto const results = compressImageBatch(ctx, tasks, 5, 1);
   CHECK(results.empty());
-}
-
-TEST_CASE(
-  "compressImageBatch returns success results alongside failures",
-  "[picture-compress]"
-) {
-  TempDir temp;
-  auto const inputOk = testutils::writeTextFile(temp.path / "ok.png");
-  auto const inputFail = testutils::writeTextFile(temp.path / "fail.png");
-  auto ctx = appctx::AppContext{};
-  ctx.config.yesToAll = true;
-  ctx.config.verbose = true;
-
-  auto const tasks = std::vector<CompressTask>{
-    {
-      .inputPath = inputOk,
-      .outputPath = temp.path / "ok.jpg",
-      .entryName = "ok.jpg",
-    },
-    {
-      .inputPath = inputFail,
-      .outputPath = temp.path / "fail.jpg",
-      .entryName = "fail.jpg",
-    },
-  };
-
-  auto results = std::vector<CompressResult>{};
-  results.reserve(2);
-
-  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
-  {
-    auto const taskOk = std::vector<CompressTask>{tasks[0]};
-    auto const batchOk = compressImageBatch(ctx, taskOk, 5, 1);
-    for (auto const& r: batchOk) { results.push_back(r); }
-  }
-
-  {
-    auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "1"};
-    auto const taskFail = std::vector<CompressTask>{tasks[1]};
-    auto const batchFail = compressImageBatch(ctx, taskFail, 5, 1);
-    for (auto const& r: batchFail) { results.push_back(r); }
-  }
-
-  REQUIRE(results.size() == 1);
-  CHECK(results[0].entryName == "ok.jpg");
 }

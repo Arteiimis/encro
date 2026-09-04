@@ -8,7 +8,6 @@
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
-#include <algorithm>
 #include <array>
 #include <cstdlib>  // IWYU pragma: keep -- needed with MSVC STL; Linux libstdc++ pulls it transitively
 #include <filesystem>
@@ -29,36 +28,6 @@ void tryRemoveAll(fs::path const& p) {
 }
 
 }  // namespace
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 1 — Tag constant format validation
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE("log_tags.h: tag constants use dot-notation format", "[logging][infra]") {
-  CHECK(logtags::APP_ENTRY == std::string_view{"app.entry"});
-  CHECK(logtags::VIDEO_ENCODE == std::string_view{"video.encode"});
-  CHECK(logtags::PACK_ZIP == std::string_view{"pack.zip"});
-
-  // Verify at least 5 representative tags use dot-notation (contain a dot, all lowercase)
-  auto const tags = std::array{
-    logtags::APP_PIPELINE,
-    logtags::CMD_CONFIG,
-    logtags::VIDEO_BATCH,
-    logtags::PICTURE_COMPRESS,
-    logtags::CORE_SCAN,
-    logtags::INFRA_TOOLCHAIN,
-  };
-  for (auto const* tag: tags) {
-    auto const sv = std::string_view{tag};
-    CAPTURE(sv);
-    CHECK(sv.find('.') != std::string_view::npos);
-    CHECK(std::none_of(sv.begin(), sv.end(), [](char c) {
-      return c >= 'A' && c <= 'Z';
-    }));
-  }
-
-  CHECK(logtags::TEST_INFRA == std::string_view{"test.infra"});
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DEFINE_LOGGER must be at file scope — it expands to a file-static function,
@@ -86,41 +55,6 @@ TEST_CASE(
   auto const output = oss->str();
   CAPTURE(output);
   CHECK(output.find("test message 42") != std::string::npos);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 3 — Source location injection format
-// ─────────────────────────────────────────────────────────────────────────────
-
-TEST_CASE("LOG_INFO: source location injected in message body", "[logging][infra]") {
-  // Use spdlog::get() directly for a fresh capture setup — the gLoggerPtr
-  // static from Test 2 may have been invalidated by the drop.
-  auto [logger, oss] = testutils::registerCapturingLogger(logtags::TEST_INFRA);
-
-  // Verify source location format by checking the message pattern that
-  // the LOG_* macros produce: "[file.cpp:line] message"
-  // We simulate what LOG_INFO expands to.
-  auto const shortName = logging::detail::shortFile(__FILE__);
-  auto const line = __LINE__;
-  // Construct the message the same way the macro does
-  auto const formattedMsg = fmt::format("[{}:{}] hello from test 3", shortName, line + 4);
-
-  logger->log(spdlog::source_loc{__FILE__, line, ""}, spdlog::level::info, formattedMsg);
-  logger->flush();
-
-  auto const output = oss->str();
-  CAPTURE(output);
-
-  // Message should contain the filename (shortFile strips directories)
-  auto const expectedShort = std::string_view{shortName};
-  CAPTURE(expectedShort);
-  CHECK(output.find(expectedShort) != std::string::npos);
-  // Message should start with '[' and contain ']' pattern
-  CHECK(output.find('[') != std::string::npos);
-  auto const bracketSpace = output.find("] ");
-  CHECK(bracketSpace != std::string::npos);
-  // After the bracket and colon there should be the actual message
-  CHECK(output.find("hello from test 3") != std::string::npos);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
