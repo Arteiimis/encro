@@ -44,5 +44,5 @@
 
 ## 8. Final verification
 
-- [ ] 8.1 Full `xmake test-parallel` run green; record measured case count before (~766) vs after and true up the proposal's estimate
-- [ ] 8.2 Full `xmake coverage` per-file check: no subprocess-orchestration source below double-digit line coverage; `xmake tidy` shows no new test-code warnings
+- [x] 8.1 Full `xmake test-parallel` run green (10,037 assertions in 602 unit cases across 12 shards; e2e 454 assertions in 32 cases). Measured: TEST_CASE occurrences 766 -> 608 (-158, -21%); test lines 22,326 -> 20,277 (-2,049, -9.2%) — below the proposal's ~2,800-3,000 line estimate because merges keep assertion text (SECTION scaffolding + strengthened survivors add lines back), moves are line-neutral, and review corrections kept several tests outright
+- [x] 8.2 `xmake tidy` clean (report-only, exit 0); spot-check confirmed flagged warnings (unchecked-optional in percentile tests, dummyFunction22) are byte-identical pre-existing code, none introduced by this change. The per-file `xmake coverage` check remains deferred (environment: mode switching blocked by pre-existing broken boost package cache record, see 5.3) — run `xmake coverage` from a working shell and confirm orchestration sources stay double-digit before archiving this change
