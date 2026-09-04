@@ -345,7 +345,9 @@ TEST_CASE(
   testutils::writeTextFile(inputPath, "fake-video");
 
   auto toolRoot = temp.path / "fake-tools";
-  SECTION("plain toolchain path") { }
+  SECTION("plain toolchain path") {
+    // The unmodified toolchain root — the shared run below covers it.
+  }
   SECTION("spaced toolchain path") {
     // Quoting round-trip parity: paths with spaces must survive the
     // command-line parse/re-join chain on every platform.
