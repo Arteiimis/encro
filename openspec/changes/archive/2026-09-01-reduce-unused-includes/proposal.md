@@ -26,3 +26,7 @@ None.
 - Tooling: `plugins/include_cleaner` gains its first real consumer (was zero-reference); `xmake include-cleaner --check` becomes a viable CI check afterward (adding the CI step itself is out of scope).
 - Verification requires both platforms: Windows build + `xmake test-report` + include-cleaner scan; Linux (WSL, clang 19) build + scan. Linux WSL copy at `~/encro` is already synced and built.
 - Reversal of the archived `2026-08-28-test-suite-cleanup` audit decision that deferred include_cleaner work; the deferral reason (platform divergence) is now measured, and the intersection strategy addresses it.
+
+## Summary
+
+Applied 2026-09-01 on both platforms: the 100-intersection includes were deleted and the 29 platform-divergent includes annotated with `IWYU pragma: keep`. Both platforms now verify clean — `xmake include-cleaner --check` passes with zero unused includes on Windows and Linux, so the check is CI-gateable on both platforms. Adding the CI step itself remains a separate change (out of scope here).
