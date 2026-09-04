@@ -123,6 +123,10 @@ int failWithHint(
     terminal::println(Error, "Error: {}", message);
     LOG_ERROR("{}", message);
   }
+  // stderr: stdout carries product output (e.g. `encro completion bash` scripts).
+  if (auto const logFilePath = logging::currentLogFilePath(); logFilePath.has_value()) {
+    terminal::eprintln(Hint, "Log file: {}", terminal::path(logFilePath.value()));
+  }
   // End-of-run summary before the drain below, so it lands in the log.
   logging::logRunSummary(buildSummary(ctx, "failed"));
   // Drain the async queue so the error reaches the console echo and the log file

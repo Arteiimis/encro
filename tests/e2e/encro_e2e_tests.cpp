@@ -263,6 +263,27 @@ TEST_CASE("encro help command exits successfully", "[e2e][cli]") {
   );
   CHECK(result.stdoutText.find("General options") != std::string::npos);
   CHECK(result.stdoutText.find("Log file:") == std::string::npos);
+  CHECK(result.stderrText.find("Log file:") == std::string::npos);
+}
+
+TEST_CASE("encro version run prints no log file hint", "[e2e][cli]") {
+  auto const result = e2e::runEncro({"--version"});
+
+  REQUIRE(result.exitCode == 0);
+  CHECK(result.stdoutText.find("Log file:") == std::string::npos);
+  CHECK(result.stderrText.find("Log file:") == std::string::npos);
+}
+
+TEST_CASE("encro failed run prints the log file hint on stderr", "[e2e][cli]") {
+  auto const result = e2e::runEncro({"--nope"});
+
+  REQUIRE(result.exitCode == 1);
+  CHECK(result.stdoutText.find("Log file:") == std::string::npos);
+  // encroLogTail is empty when stderr carries no "Log file: <path>" marker and
+  // reports an unreadable path when the named file does not exist.
+  auto const logTail = e2e::encroLogTail(result.stderrText);
+  CAPTURE(result.stderrText, logTail);
+  REQUIRE(logTail.starts_with("\nencro log ("));
 }
 
 TEST_CASE("encro invalid CLI args print short help hint", "[e2e][cli]") {
@@ -319,6 +340,7 @@ TEST_CASE(
   auto const outputDir = temp.path / "encoded_webp";
   CAPTURE(result.stdoutText, result.stderrText);
   REQUIRE(result.exitCode == 0);
+  CHECK(result.stderrText.find("Log file:") == std::string::npos);
   REQUIRE(fs::exists(outputDir));
 
   auto outputFiles = std::vector<fs::path>{};
@@ -361,6 +383,7 @@ TEST_CASE(
   auto const outputDir = temp.path / "encoded_webp";
   CAPTURE(result.stdoutText, result.stderrText);
   REQUIRE(result.exitCode == 0);
+  CHECK(result.stderrText.find("Log file:") == std::string::npos);
   REQUIRE(fs::exists(outputDir));
 
   auto outputFiles = std::vector<fs::path>{};
