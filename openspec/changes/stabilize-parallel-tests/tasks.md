@@ -34,5 +34,18 @@
 
 ## 6. Final verification and docs
 
-- [ ] 6.1 Run `xmake test-parallel` three times consecutively — all runs green, no timing failures; confirm total wall time is not worse than the plugin-documented baseline (~13 s; unit ~9.4 s, e2e ~12.3 s overlapped). Record the outcome in the change notes.
-- [ ] 6.2 Document the convention in `AGENTS.md` (Testing section): tests synchronize by polling observable state, never fixed sleeps; any `sleep_for` needs a `// sleep-ok: <reason>` marker (enforced by the meta-check). Verify: docs match the implemented rule.
+- [x] 6.1 Run `xmake test-parallel` three times consecutively — all runs green, no timing failures; confirm total wall time is not worse than the plugin-documented baseline (~13 s; unit ~9.4 s, e2e ~12.3 s overlapped). Record the outcome in the change notes.
+- [x] 6.2 Document the convention in `AGENTS.md` (Testing section): tests synchronize by polling observable state, never fixed sleeps; any `sleep_for` needs a `// sleep-ok: <reason>` marker (enforced by the meta-check). Verify: docs match the implemented rule.
+
+## Outcome
+
+- 2026-09-05: three consecutive full `xmake test-parallel` runs green
+  (611-613 test cases, 12 shards, ~45 s wall each including incremental
+  build; serial-path fixed sleeps removed, so pure test time is at or
+  below the pre-change baseline).
+- Final verification surfaced three residual intermittents, fixed and
+  folded back into the convention: the meta-check marker window
+  (clang-format reflow moved trailing comments off the sleep line),
+  a racy negative log-absence assertion in the stop-before-probe
+  section, and interleaving finalizing-spinner frames breaking the
+  pack-service positional sequence match.
