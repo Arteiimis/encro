@@ -349,6 +349,15 @@ TEST_CASE(
     CHECK(
       testutils::readTextFile(temp.path / "stdout.txt").find("20") != std::string::npos
     );
+
+    {
+      auto capture = testutils::StdoutCapture{temp.path / "stdout-list.txt"};
+      auto listResult = testutils::parseArgs({"encro", "config", "--list"});
+      CHECK(cmd::runConfigCommand(listResult) == 0);
+    }
+    auto const listText = testutils::readTextFile(temp.path / "stdout-list.txt");
+    CHECK(listText.find("crf") != std::string::npos);
+    CHECK(listText.find("(default)") != std::string::npos);
   }
 
   SECTION("unset removes the key and falls back to the default") {
