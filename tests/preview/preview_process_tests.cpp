@@ -105,16 +105,29 @@ TEST_CASE("preview generates the comparison video with fake tools", "[preview]")
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   fillPreviewContext(ctx, temp.path, envs);
 
-  auto const res = preview::run(
-    ctx,
-    preview::PreviewOptions{
-      .original = original,
-      .encoded = encoded,
-      .noOpen = true,
-    }
-  );
-  REQUIRE(res.has_value());
-  CHECK(res.value() == 0);
+  {
+    auto capture = testutils::StdoutCapture{temp.path / "stdout.txt"};
+    auto const res = preview::run(
+      ctx,
+      preview::PreviewOptions{
+        .original = original,
+        .encoded = encoded,
+        .noOpen = true,
+      }
+    );
+    REQUIRE(res.has_value());
+    CHECK(res.value() == 0);
+  }
+  auto const out = testutils::readTextFile(temp.path / "stdout.txt");
+
+  // The summary prints exactly once, after the render completes — the
+  // pre-render list print would make this two.
+  CHECK(testutils::countOccurrences(out, "Preview windows") == 1);
+  auto const listPos = out.find("Preview windows");
+  auto const writtenPos = out.find("Preview written to:");
+  REQUIRE(listPos != std::string::npos);
+  REQUIRE(writtenPos != std::string::npos);
+  CHECK(listPos < writtenPos);
 
   // Default output next to the original.
   auto const outputPath = temp.path / "sample.preview.mp4";
