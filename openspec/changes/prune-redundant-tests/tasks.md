@@ -15,9 +15,9 @@
 
 ## 3. Batch 3 — logging + infra cluster (design.md I3 logging)
 
-- [ ] 3.1 Apply logging merges from I3: fold `:390`'s trailing-newline check into JsonFormatter Test 1 then delete it; fold `:407`'s elapsed segment into `:483`'s message then delete it; KEEP `:521` (separate timestamp implementation from crash_runtime); trim level-string test to 2 levels; error_context mechanics merge **retaining** `:205` (truncation-marker rendering) and `:502` (attribute FIFO eviction) as behavior-level cases; scoped_timer move sections, file_mgmt merges, snapshot state-table, crash_integration json on/off sections + timestamp trim; verify `xmake test-report --tag="[logging]"`
-- [ ] 3.2 Apply infra merges from I3 (terminal MessageKind table preserving every distinct assertion incl. Never-mode, toolchain resolve case unchanged + findFFmpeg relocation per I2, progress smokes + fitPostfixWithEta sections + EtaEstimator scaffolding share, run_id merge) and the D6 logger-inventory spot checks; verify `xmake test-parallel` green
-- [ ] 3.3 Commit batch 3 as `test: consolidate logging and infra test duplicates`
+- [x] 3.1 Apply logging merges from I3: fold `:390`'s trailing-newline check into JsonFormatter Test 1 then delete it; fold `:407`'s elapsed segment into `:483`'s message then delete it; KEEP `:521` (separate timestamp implementation from crash_runtime); trim level-string test to 2 levels; error_context mechanics merge **retaining** `:205` (truncation-marker rendering) and `:502` (attribute FIFO eviction) as behavior-level cases; scoped_timer move sections, file_mgmt merges, snapshot state-table, crash_integration json on/off sections + timestamp trim; verify `xmake test-report --tag="[logging]"`
+- [x] 3.2 Apply infra merges from I3 (terminal MessageKind table preserving every distinct assertion incl. Never-mode, toolchain resolve case unchanged + findFFmpeg relocation per I2, progress smokes + fitPostfixWithEta sections + EtaEstimator scaffolding share, run_id merge) and the D6 logger-inventory spot checks; verify `xmake test-parallel` green
+- [x] 3.3 Commit batch 3 as `test: consolidate logging and infra test duplicates`
 
 ## 4. Batch 4 — video cluster + fake-tool move (design.md I2 + I3 video)
 
