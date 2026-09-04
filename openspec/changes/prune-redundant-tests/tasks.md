@@ -23,13 +23,13 @@
 
 - [x] 4.1 Create `tests/fake_tool_tests.cpp`, move the 10 `[fake-tool]` cases and `runFakeTool`/`encodeArg` helpers from `encode_probe_tests.cpp:1012-1199` verbatim (no build edit — glob); verify `[fake-tool]` tag passes
 - [x] 4.2 Apply video merges/deletes from I3 (skip-encode mid-layer delete with survivor `video_batch_execution_tests.cpp:565`; KEEP `:804` batch-level attentionWarnings; decideCq sections, barDone smoke, audio-once fold, banner fold + NVENC delta-only pins, output-planning trio, parser guard sections, KEEP `:107` and fold `:122` as a section, progressPercent table, `:145` rename, quality tables + parser trio, probe-cache key table, video-info boundary pair, previewHint fold); verify `xmake test-parallel` green
-- [ ] 4.3 Run full `xmake coverage` (per-file report, not `--summary`) and confirm every subprocess-orchestration source stays double-digit; commit batch 4 as `test: move fake-tool contract tests to their own file, merge video duplicates`
+- [x] 4.3 Commit batch 4 as `test: move fake-tool contract tests to their own file, merge video duplicates` (the D8 `xmake coverage` per-file check is deferred to task 8.2 for the same environment reason as 5.3)
 
 ## 5. Batch 5 — picture / pipeline cluster (design.md I3 picture)
 
-- [ ] 5.1 Move the two `pack::execute` cases from `picture_process_tests.cpp:19`/`:53` into `pack_execute_tests.cpp`; verify they pass in their new home
-- [ ] 5.2 Apply the pipeline-vs-component merges from I3: delete the weak picture copies, merge mid-batch cancel pair keeping the stronger assertions; replace `:91`/`:378`'s name-blind assertions with real property checks (per-dir grouping / keep-layout structure) in one retained pipeline case, then delete the two copies and the vacuous `:307`; verify `xmake test-parallel` green
-- [ ] 5.3 Apply picture_compress merges from I3 (buildCMD 4→1-2, success/rename merge, single/multi merge); run full `xmake coverage` per-file check; commit batch 5 as `test: single assertion home for picture workflow behaviors`
+- [x] 5.1 Move the two `pack::execute` cases from `picture_process_tests.cpp:19`/`:53` into `pack_execute_tests.cpp`; verify they pass in their new home
+- [x] 5.2 Apply the pipeline-vs-component merges from I3: delete the weak picture copies, merge mid-batch cancel pair keeping the stronger assertions; replace `:91`/`:378`'s name-blind assertions with real property checks (per-dir grouping / keep-layout structure) in one retained pipeline case, then delete the two copies and the vacuous `:307`; verify `xmake test-parallel` green
+- [x] 5.3 Apply picture_compress merges from I3 (buildCMD 4→1-2, success/rename merge, single/multi merge); commit batch 5 as `test: single assertion home for picture workflow behaviors` (the D8 `xmake coverage` per-file check is deferred to task 8.2: switching build modes in this session is blocked by a pre-existing broken boost package cache record, `installdir.failed`; run `xmake coverage` from a shell where mode switching works)
 
 ## 6. Batch 6 — pack / preview / naming cluster (design.md I3 pack)
 
