@@ -70,15 +70,15 @@ TEST_CASE(
   auto resetGuard = testutils::ScopedStopSignalReset{};
 
   auto requester = std::jthread{[] {
+    // sleep-ok: one-sided delay so the waiter is parked inside waitForStop
+    // before the stop fires; correctness does not depend on the duration.
     std::this_thread::sleep_for(std::chrono::milliseconds{30});
     stopsignal::requestStop();
   }};
 
-  auto const start = std::chrono::steady_clock::now();
+  // Returning true is the assertion (the event was observed); an elapsed
+  // responsiveness bound would measure the machine, not the code.
   CHECK(stopsignal::waitForStop(std::chrono::seconds{5}));
-  auto const elapsed = std::chrono::steady_clock::now() - start;
-
-  CHECK(elapsed < std::chrono::seconds{1});
 }
 
 TEST_CASE(
@@ -109,11 +109,8 @@ TEST_CASE(
 
   stopsignal::requestStop();
 
-  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{2};
-  while (!gExitCalled.load() && std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds{10});
-  }
-  CHECK(gExitCalled.load());
+  // Poll for the watchdog's forced-exit hook instead of a fixed poll loop.
+  CHECK(testutils::waitUntil([] { return gExitCalled.load(); }, std::chrono::seconds{5}));
 
   logging::shutdown();
 

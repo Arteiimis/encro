@@ -8,6 +8,8 @@
 #include <chrono>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -99,30 +101,47 @@ TEST_CASE(
 ) {
   auto stopGuard = testutils::ScopedStopSignalReset{};
   auto s = WebpScaffold{};
-  // Oversized output forces retries; the slow first attempt gives the stop
-  // request time to land inside the retry window.
+  // Oversized output forces retries. The whole-run gate holds the first
+  // attempt right after it logs, so the stop lands while the attempt is
+  // provably in flight — no fixed delay, no timing window.
   s.envs.push_back(
     std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "25165824")
   );
-  s.envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_DELAY_MS", "400"));
+  auto const gateFile = s.temp.path / "encode-gate";
+  s.envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+  );
 
   std::optional<bool> outcome;
   std::jthread runner([&] { outcome = s.run(); });
-  std::this_thread::sleep_for(std::chrono::milliseconds{250});
+  // Raw ifstream predicate: the log does not exist until the first
+  // invocation, and a poll predicate must not abort on absent files.
+  REQUIRE(
+    testutils::waitUntil(
+      [&] {
+        auto log = std::ifstream{s.logPath, std::ios::binary};
+        if (!log.is_open()) { return false; }
+        auto const content = std::string{std::istreambuf_iterator<char>{log}, {}};
+        return content.find("ffmpeg\t") != std::string::npos;
+      },
+      std::chrono::seconds{10}
+    )
+  );
   stopsignal::requestStop();
+  {
+    auto gate = std::ofstream{gateFile, std::ios::binary};
+    REQUIRE(gate.is_open());
+    gate << "go";
+  }
   runner.join();
 
   REQUIRE(outcome.has_value());
   CHECK_FALSE(*outcome);
-  // No further attempts after the stop: at most the first attempt ran. The
-  // fake tool appends its log line at startup, but a slow process start can
-  // race the stop, so the log assertions only apply when the file exists.
-  if (fs::exists(s.logPath)) {
-    auto const log = testutils::readTextFile(s.logPath);
-    CHECK(WebpScaffold::qualityAttempts(log, "80") == 1);
-    CHECK(log.find("-q:v 70") == std::string::npos);
-    CHECK(log.find("-q:v\t70") == std::string::npos);
-  }
+  // No further attempts after the stop: at most the first attempt ran.
+  auto const log = testutils::readTextFile(s.logPath);
+  CHECK(WebpScaffold::qualityAttempts(log, "80") == 1);
+  CHECK(log.find("-q:v 70") == std::string::npos);
+  CHECK(log.find("-q:v\t70") == std::string::npos);
   // The stale partial output was cleared by the abort path.
   CHECK_FALSE(fs::exists(*s.state.plannedOutputFile));
 }

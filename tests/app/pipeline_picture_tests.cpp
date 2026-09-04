@@ -4,6 +4,7 @@
 #include "infra/stop_signal.h"
 #include "test_utils.h"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -25,6 +26,43 @@ std::size_t readInvocationCount(fs::path const& counterPath) {
   auto value = std::size_t{0};
   if (in.is_open()) { in >> value; }
   return value;
+}
+
+// Counts ffmpeg-role lines in the fake tool's invocation log; a missing log
+// counts as zero (poll predicates must not abort on absent files).
+std::size_t countFfmpegInvocations(fs::path const& logPath) {
+  auto in = std::ifstream{logPath, std::ios::binary};
+  if (!in.is_open()) { return 0; }
+  auto const content = std::string{std::istreambuf_iterator<char>{in}, {}};
+  auto count = std::size_t{0};
+  auto pos = std::string::size_type{0};
+  while ((pos = content.find("ffmpeg\t", pos)) != std::string::npos) {
+    ++count;
+    pos += 1;
+  }
+  return count;
+}
+
+// Stop requester for the gated mid-batch cancel tests: waits for proof that
+// the second compress call is in flight (two logged ffmpeg invocations),
+// then raises the stop and releases the gate. Replaces the old fixed
+// 1200 ms sleep-and-hope, which could fire before the first call finished
+// under parallel shard load. *secondCallProven stays false when the proof
+// never arrives within 10 s; callers REQUIRE it after join.
+auto spawnGatedStop(
+  fs::path const& logPath,
+  fs::path const& gatePath,
+  bool& secondCallProven
+) -> std::jthread {
+  return std::jthread{[logPath, gatePath, &secondCallProven] {
+    secondCallProven = testutils::waitUntil(
+      [&] { return countFfmpegInvocations(logPath) >= 2; },
+      std::chrono::seconds{10}
+    );
+    stopsignal::requestStop();
+    auto gate = std::ofstream{gatePath, std::ios::binary};
+    gate << "go";
+  }};
 }
 
 }  // namespace
@@ -180,8 +218,6 @@ TEST_CASE(
   "picture pipeline compress keeps state and cache when canceled mid-batch",
   "[pipeline][compress]"
 ) {
-  using namespace std::chrono_literals;
-
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
@@ -194,7 +230,15 @@ TEST_CASE(
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
     (temp.path / "compress-count.txt").string()
   };
-  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
+  // The stop lands inside a gate-held second call: no timing window. The
+  // gate file created below persists into any resume phase, where fresh
+  // call sequences pass through it instantly.
+  auto const toolLogEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+  auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -209,12 +253,13 @@ TEST_CASE(
   auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config).value();
   auto const cacheDir = workdirs::compressCacheDir(inputDir, 5);
 
-  auto requester = std::jthread([](std::stop_token token) {
-    std::this_thread::sleep_for(1200ms);
-    if (!token.stop_requested()) { stopsignal::requestStop(); }
-  });
+  auto secondCallProven = false;
+  auto requester =
+    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
 
   auto const runRes = pipeline::run(ctx);
+  requester.join();
+  REQUIRE(secondCallProven);
 
   REQUIRE(runRes);
   CHECK(runRes.value() == stopsignal::kCanceledExitCode);
@@ -231,8 +276,6 @@ TEST_CASE(
   "picture pipeline compress rerun resumes from cache and packs completed files",
   "[pipeline][compress]"
 ) {
-  using namespace std::chrono_literals;
-
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
@@ -244,7 +287,15 @@ TEST_CASE(
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
     (temp.path / "slow-count.txt").string()
   };
-  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
+  // The stop lands inside a gate-held second call: no timing window. The
+  // gate file created below persists into any resume phase, where fresh
+  // call sequences pass through it instantly.
+  auto const toolLogEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+  auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -256,12 +307,13 @@ TEST_CASE(
   ctx.config.inputPath = inputDir;
   ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
-  auto requester = std::jthread([](std::stop_token token) {
-    std::this_thread::sleep_for(1200ms);
-    if (!token.stop_requested()) { stopsignal::requestStop(); }
-  });
+  auto secondCallProven = false;
+  auto requester =
+    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
 
   auto const canceledRes = pipeline::run(ctx);
+  requester.join();
+  REQUIRE(secondCallProven);
   REQUIRE(canceledRes);
   CHECK(canceledRes.value() == stopsignal::kCanceledExitCode);
   stopsignal::reset();
@@ -297,8 +349,6 @@ TEST_CASE(
   "picture pipeline compress recompresses replaced source on rerun",
   "[pipeline][compress]"
 ) {
-  using namespace std::chrono_literals;
-
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
@@ -310,7 +360,15 @@ TEST_CASE(
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
     (temp.path / "slow-count.txt").string()
   };
-  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
+  // The stop lands inside a gate-held second call: no timing window. The
+  // gate file created below persists into any resume phase, where fresh
+  // call sequences pass through it instantly.
+  auto const toolLogEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+  auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto const inputsLogEnv = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_INPUT_LOG",
@@ -326,12 +384,13 @@ TEST_CASE(
   ctx.config.inputPath = inputDir;
   ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
-  auto requester = std::jthread([](std::stop_token token) {
-    std::this_thread::sleep_for(1200ms);
-    if (!token.stop_requested()) { stopsignal::requestStop(); }
-  });
+  auto secondCallProven = false;
+  auto requester =
+    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
 
   auto const canceledRes = pipeline::run(ctx);
+  requester.join();
+  REQUIRE(secondCallProven);
   REQUIRE(canceledRes);
   CHECK(canceledRes.value() == stopsignal::kCanceledExitCode);
   stopsignal::reset();
@@ -373,8 +432,6 @@ TEST_CASE(
   "picture pipeline compress missing state file invalidates cache on rerun",
   "[pipeline][compress]"
 ) {
-  using namespace std::chrono_literals;
-
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
@@ -386,7 +443,15 @@ TEST_CASE(
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
     (temp.path / "slow-count.txt").string()
   };
-  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
+  // The stop lands inside a gate-held second call: no timing window. The
+  // gate file created below persists into any resume phase, where fresh
+  // call sequences pass through it instantly.
+  auto const toolLogEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+  auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -398,12 +463,13 @@ TEST_CASE(
   ctx.config.inputPath = inputDir;
   ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
-  auto requester = std::jthread([](std::stop_token token) {
-    std::this_thread::sleep_for(1200ms);
-    if (!token.stop_requested()) { stopsignal::requestStop(); }
-  });
+  auto secondCallProven = false;
+  auto requester =
+    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
 
   auto const canceledRes = pipeline::run(ctx);
+  requester.join();
+  REQUIRE(secondCallProven);
   REQUIRE(canceledRes);
   CHECK(canceledRes.value() == stopsignal::kCanceledExitCode);
   stopsignal::reset();
@@ -438,8 +504,6 @@ TEST_CASE(
   "picture pipeline compress quality change does not reuse previous cache",
   "[pipeline][compress]"
 ) {
-  using namespace std::chrono_literals;
-
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
@@ -451,7 +515,15 @@ TEST_CASE(
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
     (temp.path / "slow-count.txt").string()
   };
-  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
+  // The stop lands inside a gate-held second call: no timing window. The
+  // gate file created below persists into any resume phase, where fresh
+  // call sequences pass through it instantly.
+  auto const toolLogEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+  auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -463,12 +535,13 @@ TEST_CASE(
   ctx.config.inputPath = inputDir;
   ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
-  auto requester = std::jthread([](std::stop_token token) {
-    std::this_thread::sleep_for(1200ms);
-    if (!token.stop_requested()) { stopsignal::requestStop(); }
-  });
+  auto secondCallProven = false;
+  auto requester =
+    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
 
   auto const canceledRes = pipeline::run(ctx);
+  requester.join();
+  REQUIRE(secondCallProven);
   REQUIRE(canceledRes);
   CHECK(canceledRes.value() == stopsignal::kCanceledExitCode);
   stopsignal::reset();
@@ -501,8 +574,6 @@ TEST_CASE(
   "picture pipeline compress --restart clears stale caches and recompresses all",
   "[pipeline][compress]"
 ) {
-  using namespace std::chrono_literals;
-
   ScopedStopSignalReset stopGuard;
   TempDir temp;
   auto const inputDir = temp.path / "pics";
@@ -514,7 +585,15 @@ TEST_CASE(
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
     (temp.path / "slow-count.txt").string()
   };
-  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:7000:130"};
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
+  // The stop lands inside a gate-held second call: no timing window. The
+  // gate file created below persists into any resume phase, where fresh
+  // call sequences pass through it instantly.
+  auto const toolLogEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+  auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -526,12 +605,13 @@ TEST_CASE(
   ctx.config.inputPath = inputDir;
   ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
-  auto requester = std::jthread([](std::stop_token token) {
-    std::this_thread::sleep_for(1200ms);
-    if (!token.stop_requested()) { stopsignal::requestStop(); }
-  });
+  auto secondCallProven = false;
+  auto requester =
+    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
 
   auto const canceledRes = pipeline::run(ctx);
+  requester.join();
+  REQUIRE(secondCallProven);
   REQUIRE(canceledRes);
   CHECK(canceledRes.value() == stopsignal::kCanceledExitCode);
   stopsignal::reset();
