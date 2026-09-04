@@ -2,10 +2,16 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
+#include <format>
+#include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -78,4 +84,52 @@ TEST_CASE("waitUntil consults the predicate once past the deadline", "[test-util
   // so a condition satisfied between polls is not reported as a timeout.
   CHECK(testutils::waitUntil([] { return true; }, std::chrono::milliseconds{0}));
   CHECK_FALSE(testutils::waitUntil([] { return false; }, std::chrono::milliseconds{0}));
+}
+
+TEST_CASE("test sources carry no unmarked synchronization sleeps", "[test-utils][meta]") {
+  // Tests synchronize by polling observable state (see AGENTS.md Testing).
+  // A sleep_for in test sources must carry a `// sleep-ok: <reason>` marker
+  // on the same line; measurement and signal-cadence sleeps stay allowed
+  // through the marker. The exempt files implement polling or the fake
+  // media tool itself.
+  auto const sourceDir = fs::path{ENCRO_TEST_SOURCE_DIR};
+  REQUIRE(fs::exists(sourceDir));
+
+  auto const exempt = std::array<fs::path, 2>{
+    sourceDir / "e2e" / "fake_media_tool.cpp",
+    sourceDir / "e2e" / "e2e_test_utils.cpp",
+  };
+
+  // The needle is assembled from pieces so this file's own source does not
+  // contain the literal and trip the scan.
+  auto const needle = std::string{"sleep_"} + "for";
+  auto const marker = std::string_view{"sleep-ok"};
+
+  auto offenders = std::vector<std::string>{};
+  for (auto const& entry: fs::recursive_directory_iterator{sourceDir}) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".cpp") { continue; }
+    if (std::ranges::find(exempt, entry.path()) != exempt.end()) { continue; }
+
+    auto in = std::ifstream{entry.path()};
+    REQUIRE(in.is_open());
+    auto line = std::string{};
+    auto lineNo = 0;
+    while (std::getline(in, line)) {
+      ++lineNo;
+      if (line.find(needle) == std::string::npos) { continue; }
+      if (line.find(marker) != std::string_view::npos) { continue; }
+      offenders.push_back(
+        std::format(
+          "{}:{}: unmarked synchronization sleep — poll observable state, "
+          "or add a `// {} <reason>` marker",
+          entry.path().string(),
+          lineNo,
+          marker
+        )
+      );
+    }
+  }
+
+  for (auto const& offender: offenders) { INFO(offender); }
+  CHECK(offenders.empty());
 }

@@ -201,7 +201,9 @@ TEST_CASE(
               // Stall after the first completion to force interleaving; the
               // callback sequence must stay globally ordered regardless.
               if (completedFiles == 1) {
-                std::this_thread::sleep_for(std::chrono::milliseconds{50});
+                std::this_thread::sleep_for(
+                  std::chrono::milliseconds{50}
+                );  // sleep-ok: stall forces callback interleaving
               }
               progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
             },

@@ -70,11 +70,17 @@ task("test-parallel")
         local shard_dir = path.join(workdir, string.format("%d", i))
         makedirs(shard_dir)
         -- Forward slashes keep the values intact; see shard_envs for the
-        -- full-environment contract.
+        -- full-environment contract. --durations records per-test seconds in
+        -- the shard log so a loaded run's slowest cases are identifiable
+        -- post-mortem; duration lines contain no verdict substrings.
         local tmp = shard_dir:gsub("\\", "/")
         local proc = process.openv(
           binary,
-          {"--shard-count", tostring(count), "--shard-index", tostring(i)},
+          {
+            "--shard-count", tostring(count),
+            "--shard-index", tostring(i),
+            "--durations", "yes"
+          },
           {envs = shard_envs(tmp), stdout = path.join(workdir, string.format("shard-%d.log", i))}
         )
         if not proc then

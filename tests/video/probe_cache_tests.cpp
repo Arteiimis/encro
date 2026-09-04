@@ -138,7 +138,9 @@ TEST_CASE("probe cache evicts oldest entries beyond the cap", "[probe-cache]") {
     );
   }
   probecache::save(updates, cachePath);
-  std::this_thread::sleep_for(std::chrono::milliseconds{5});
+  std::this_thread::sleep_for(
+    std::chrono::milliseconds{5}
+  );  // sleep-ok: orders saved-vs-fresh timestamps
 
   probecache::save(
     {

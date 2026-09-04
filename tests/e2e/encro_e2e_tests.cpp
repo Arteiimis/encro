@@ -1669,7 +1669,9 @@ TEST_CASE(
     );
 
     // Change the input (size + mtime): the cached key no longer matches.
-    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    std::this_thread::sleep_for(
+      std::chrono::milliseconds{20}
+    );  // sleep-ok: mtime gap for cache-key change
     testutils::writeTextFile(inputPath, "fake-video-CHANGED");
 
     auto env2 = env;
