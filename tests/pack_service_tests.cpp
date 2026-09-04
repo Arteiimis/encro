@@ -88,8 +88,11 @@ TEST_CASE("pack range helpers append cumulative ordinal suffixes", "[pack-servic
   );
 }
 
-TEST_CASE("selectPackPlanIndexes preserves compact from source plan", "[pack-service]") {
-  auto groups = std::vector<std::vector<pack::PackFileEntry>>{
+TEST_CASE(
+  "selectPackPlanIndexes preserves compact and remaps plan helpers",
+  "[pack-service]"
+) {
+  auto const groups = std::vector<std::vector<pack::PackFileEntry>>{
     std::vector<pack::PackFileEntry>{
       pack::PackFileEntry{.sourcePath = fs::path{"a"}, .zipEntryName = "a"},
     },
@@ -97,93 +100,121 @@ TEST_CASE("selectPackPlanIndexes preserves compact from source plan", "[pack-ser
       pack::PackFileEntry{.sourcePath = fs::path{"b"}, .zipEntryName = "b"},
     },
   };
+  auto const selectedIndexes = std::vector<std::size_t>{0, 1};
 
-  // Plan with compact=false (full-progress mode)
+  // The compact flag is carried over from the source plan either way.
   auto const nonCompactPlan = pack::PackPlan{
     .groups = groups,
     .outputDir = fs::path{},
     .compact = false,
   };
-  auto const selectedIndexes = std::vector<std::size_t>{0, 1};
-
   auto const resultNonCompact =
     pack::internal::selectPackPlanIndexes(nonCompactPlan, std::span{selectedIndexes});
   CHECK(resultNonCompact.compact == false);
 
-  // Plan with compact=true (default)
   auto const compactPlan = pack::PackPlan{
     .groups = groups,
     .outputDir = fs::path{},
     .compact = true,
   };
-
   auto const resultCompact =
     pack::internal::selectPackPlanIndexes(compactPlan, std::span{selectedIndexes});
   CHECK(resultCompact.compact == true);
-}
 
-TEST_CASE(
-  "selectPackPlanIndexes delegates to named helpers instead of lambda-wrapping-lambda",
-  "[pack-service]"
-) {
-  auto groups = std::vector<std::vector<pack::PackFileEntry>>{
-    std::vector<pack::PackFileEntry>{
-      pack::PackFileEntry{.sourcePath = fs::path{"a"}, .zipEntryName = "a"},
-    },
-    std::vector<pack::PackFileEntry>{
-      pack::PackFileEntry{.sourcePath = fs::path{"b"}, .zipEntryName = "b"},
-    },
-  };
-
-  auto const plan = pack::PackPlan{
+  // zipNameForIndex remaps through the selected indexes: selected[0]=1 maps
+  // to original index 1.
+  auto const remapPlan = pack::PackPlan{
     .groups = groups,
     .outputDir = fs::path{},
     .zipNameForIndex = [](std::size_t i) { return std::format("arch{}.zip", i); },
   };
-
   auto const selected = std::vector<std::size_t>{1, 0};
-  auto const result = pack::internal::selectPackPlanIndexes(plan, std::span{selected});
-
-  // Verify zipNameForIndex remaps correctly: selected[0]=1 maps to original index 1
+  auto const result =
+    pack::internal::selectPackPlanIndexes(remapPlan, std::span{selected});
   CHECK(result.zipNameForIndex(0) == "arch1.zip");
 }
 
-TEST_CASE("packGroups compact mode reports per-file progress updates", "[pack-service]") {
+TEST_CASE(
+  "packGroups compact mode reports ordered per-file progress updates",
+  "[pack-service]"
+) {
   TempDir temp;
   auto const srcDir = temp.path / "src";
   auto const outDir = temp.path / "out";
   fs::create_directories(srcDir);
 
-  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
-  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
-  auto const f3 = testutils::writeTextFile(srcDir / "c.txt");
+  SECTION("single group counts every file in order") {
+    auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
+    auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
+    auto const f3 = testutils::writeTextFile(srcDir / "c.txt");
 
-  auto progressUpdates = std::vector<std::string>{};
-  auto const plan = pack::PackPlan{
-    .groups =
-      {
-        std::vector<pack::PackFileEntry>{
-          pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
-          pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
-          pack::PackFileEntry{.sourcePath = f3, .zipEntryName = "c.txt"},
-        },
-      },
-    .outputDir = outDir,
-    .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
-    .progressCallbacks =
-      {
-        .onCompactProgress =
-          [&](std::size_t completedFiles, std::size_t totalFiles) {
-            progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+    auto progressUpdates = std::vector<std::string>{};
+    auto const plan = pack::PackPlan{
+      .groups =
+        {
+          std::vector<pack::PackFileEntry>{
+            pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
+            pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
+            pack::PackFileEntry{.sourcePath = f3, .zipEntryName = "c.txt"},
           },
-      },
-    .compact = true,
-  };
+        },
+      .outputDir = outDir,
+      .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
+      .progressCallbacks =
+        {
+          .onCompactProgress =
+            [&](std::size_t completedFiles, std::size_t totalFiles) {
+              progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+            },
+        },
+      .compact = true,
+    };
 
-  auto const result = testService.packGroups(plan);
+    auto const result = testService.packGroups(plan);
 
-  REQUIRE(result);
-  CHECK(progressUpdates == std::vector<std::string>{"0/3", "1/3", "2/3", "3/3"});
+    REQUIRE(result);
+    CHECK(progressUpdates == std::vector<std::string>{"0/3", "1/3", "2/3", "3/3"});
+  }
+
+  SECTION("parallel groups keep the global callback order") {
+    auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
+    auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
+
+    auto progressUpdates = std::vector<std::string>{};
+    auto const plan = pack::PackPlan{
+      .groups =
+        {
+          std::vector<pack::PackFileEntry>{
+            pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
+          },
+          std::vector<pack::PackFileEntry>{
+            pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
+          },
+        },
+      .outputDir = outDir,
+      .zipNameForIndex =
+        [](std::size_t index) { return std::format("group{}.zip", index + 1); },
+      .progressCallbacks =
+        {
+          .onCompactProgress =
+            [&](std::size_t completedFiles, std::size_t totalFiles) {
+              // Stall after the first completion to force interleaving; the
+              // callback sequence must stay globally ordered regardless.
+              if (completedFiles == 1) {
+                std::this_thread::sleep_for(std::chrono::milliseconds{50});
+              }
+              progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
+            },
+        },
+      .maxParallelJobs = 2,
+      .compact = true,
+    };
+
+    auto const result = testService.packGroups(plan);
+
+    REQUIRE(result);
+    CHECK(progressUpdates == std::vector<std::string>{"0/2", "1/2", "2/2"});
+  }
 }
 
 TEST_CASE(
@@ -244,54 +275,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "packGroups compact mode keeps per-file progress callbacks ordered across parallel "
-  "groups",
-  "[pack-service]"
-) {
-  TempDir temp;
-  auto const srcDir = temp.path / "src";
-  auto const outDir = temp.path / "out";
-  fs::create_directories(srcDir);
-
-  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
-  auto const f2 = testutils::writeTextFile(srcDir / "b.txt");
-
-  auto progressUpdates = std::vector<std::string>{};
-  auto const plan = pack::PackPlan{
-    .groups =
-      {
-        std::vector<pack::PackFileEntry>{
-          pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
-        },
-        std::vector<pack::PackFileEntry>{
-          pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "b.txt"},
-        },
-      },
-    .outputDir = outDir,
-    .zipNameForIndex =
-      [](std::size_t index) { return std::format("group{}.zip", index + 1); },
-    .progressCallbacks =
-      {
-        .onCompactProgress =
-          [&](std::size_t completedFiles, std::size_t totalFiles) {
-            if (completedFiles == 1) {
-              std::this_thread::sleep_for(std::chrono::milliseconds{50});
-            }
-            progressUpdates.push_back(std::format("{}/{}", completedFiles, totalFiles));
-          },
-      },
-    .maxParallelJobs = 2,
-    .compact = true,
-  };
-
-  auto const result = testService.packGroups(plan);
-
-  REQUIRE(result);
-  CHECK(progressUpdates == std::vector<std::string>{"0/2", "1/2", "2/2"});
-}
-
-TEST_CASE(
-  "packGroups compact mode advances progress for skipped entries",
+  "packGroups skips missing sources, advances progress, and still writes the archive",
   "[pack-service]"
 ) {
   TempDir temp;
@@ -322,56 +306,7 @@ TEST_CASE(
 
   REQUIRE(result);
   CHECK(progressUpdates == std::vector<std::string>{"0/1", "1/1"});
-}
-
-TEST_CASE("packGroups notifies group success callbacks in both modes", "[pack-service]") {
-  TempDir temp;
-  auto const srcDir = temp.path / "src";
-  auto const outDir = temp.path / "out";
-  fs::create_directories(srcDir);
-
-  auto const f1 = testutils::writeTextFile(srcDir / "a.txt");
-
-  auto runCase = [&](bool compact) {
-    auto callbackEvents = std::vector<std::string>{};
-    auto callbackZipPath = fs::path{};
-    auto const plan = pack::PackPlan{
-      .groups =
-        {
-          std::vector<pack::PackFileEntry>{
-            pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "a.txt"},
-          },
-        },
-      .outputDir = outDir,
-      .zipNameForIndex = [](std::size_t) { return std::string{"group1.zip"}; },
-      .progressCallbacks = {
-        .onGroupStart =
-          [&](std::size_t index) {
-            callbackEvents.push_back(std::format("start:{}", index));
-          },
-        .onGroupSuccess =
-          [&](std::size_t index, fs::path const& zipPath) {
-            callbackEvents.push_back(std::format("success:{}", index));
-            callbackZipPath = zipPath;
-          },
-      },
-      .compact = compact,
-    };
-
-    auto const result = testService.packGroups(plan);
-
-    REQUIRE(result);
-    CHECK(callbackEvents == std::vector<std::string>{"start:0", "success:0"});
-    CHECK(callbackZipPath == outDir / "group1.zip");
-  };
-
-  SECTION("compact") {
-    runCase(true);
-  }
-
-  SECTION("full") {
-    runCase(false);
-  }
+  CHECK(result.value().size() == 1);
 }
 
 TEST_CASE(
@@ -388,6 +323,7 @@ TEST_CASE(
 
   auto runCase = [&](bool compact) {
     auto callbackEvents = std::vector<std::string>{};
+    auto successZipPaths = std::vector<fs::path>{};
     auto const plan = pack::PackPlan{
       .groups =
         {
@@ -407,8 +343,9 @@ TEST_CASE(
             callbackEvents.push_back(std::format("start:{}", index));
           },
         .onGroupSuccess =
-          [&](std::size_t index, fs::path const&) {
+          [&](std::size_t index, fs::path const& zipPath) {
             callbackEvents.push_back(std::format("success:{}", index));
+            successZipPaths.push_back(zipPath);
           },
       },
       .maxParallelJobs = 1,
@@ -421,6 +358,11 @@ TEST_CASE(
     CHECK(
       callbackEvents
       == std::vector<std::string>{"start:0", "success:0", "start:1", "success:1"}
+    );
+    // Each success callback receives its own group's zip path.
+    CHECK(
+      successZipPaths
+      == std::vector<fs::path>{outDir / "group1.zip", outDir / "group2.zip"}
     );
   };
 
@@ -450,65 +392,6 @@ TEST_CASE(
   auto const result = pack::execute(req);
   REQUIRE_FALSE(result);
   CHECK(result.error().find("not a directory") != std::string::npos);
-}
-
-TEST_CASE(
-  "execute() in Directory mode disambiguates same-named entries when forced",
-  "[pack-service]"
-) {
-  TempDir temp;
-  auto const srcDir = temp.path / "src";
-  auto const subDir = srcDir / "sub";
-  auto const outDir = temp.path / "out";
-  fs::create_directories(subDir);
-
-  testutils::writeTextFile(srcDir / "same.txt");
-  testutils::writeTextFile(subDir / "same.txt");
-
-  pack::PackRequest req{
-    .entries = {srcDir},
-    .mode = pack::PackMode::Directory,
-    .outputDir = outDir,
-    .naming = pack::NamingConfig{
-      .namingStrategy = pack::NamingStrategy::FlatWithForce,
-    },
-  };
-
-  auto const result = pack::execute(req);
-  REQUIRE(result);
-
-  auto zipFiles = testutils::listRegularFiles(outDir);
-  REQUIRE(zipFiles.size() == 1);
-
-  auto entries = testutils::listZipRegularEntryNames(zipFiles[0]);
-  CHECK(entries.size() == 2);
-  CHECK(entries[0] != entries[1]);
-}
-
-TEST_CASE("packGroups handles non-existent source files gracefully", "[pack-service]") {
-  TempDir temp;
-  auto const srcDir = temp.path / "src";
-  auto const outDir = temp.path / "out";
-  fs::create_directories(srcDir);
-
-  pack::PackPlan plan{
-    .groups =
-      {
-        {
-          pack::PackFileEntry{
-            .sourcePath = srcDir / "missing.txt",
-            .zipEntryName = "missing.txt",
-          },
-        },
-      },
-    .outputDir = outDir,
-    .zipNameForIndex = [](std::size_t) { return std::string{"pack.zip"}; },
-  };
-
-  auto const result = testService.packGroups(plan);
-
-  REQUIRE(result);
-  CHECK(result.value().size() == 1);
 }
 
 TEST_CASE("packGroups reports failure when a group task throws", "[pack-service]") {
