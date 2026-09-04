@@ -444,20 +444,21 @@ TEST_CASE("brief help auto-fits the description column to the widest option", "[
   auto const result = testutils::parseArgs({"encro", "-h"});
   auto const plainHelp = stripAnsi(result.helpText);
 
-  // Widest brief-tier first column: "--output-format,-f (=mp4)" (25 chars).
-  auto const widest = testutils::findHelpLine(plainHelp, "--output-format,-f (=mp4)");
+  // Widest brief-tier long cell: "-f, --output-format (=mp4)" (22 chars);
+  // the short cell is a constant 4 chars ("-x, " or blanks).
+  auto const widest = testutils::findHelpLine(plainHelp, "-f, --output-format (=mp4)");
   REQUIRE(widest.has_value());
   auto const nameEnd = widest->find("(=mp4)") + std::string_view{"(=mp4)"}.size();
   auto const descCol = widest->find("target format: mp4 or webp");
   REQUIRE(descCol != std::string::npos);
   CHECK(descCol == nameEnd + 3);  // exactly 3-space gap on the widest line
-  CHECK(descCol == 30);           // 2 indent + 25 widest + 3 gap
+  CHECK(descCol == 31);           // 2 indent + 4 short cell + 22 widest + 3 gap
 
-  auto const helpLine = testutils::findHelpLine(plainHelp, "--help,-h");
+  auto const helpLine = testutils::findHelpLine(plainHelp, "-h, --help");
   REQUIRE(helpLine.has_value());
   CHECK(helpLine->find("show help; use -hh to show all options") == descCol);
 
-  auto const recursiveLine = testutils::findHelpLine(plainHelp, "--[no-]recursive,-r");
+  auto const recursiveLine = testutils::findHelpLine(plainHelp, "-r, --[no-]recursive");
   REQUIRE(recursiveLine.has_value());
   CHECK(recursiveLine->find("enable recursively search") == descCol);
 }
@@ -466,7 +467,8 @@ TEST_CASE("full help auto-fits the description column across all groups", "[cmd]
   auto const result = testutils::parseArgs({"encro", "-hh"});
   auto const plainHelp = stripAnsi(result.helpText);
 
-  // Widest full-tier first column: "--force-conflict-handling (=y)" (30 chars).
+  // Widest full-tier long cell: "--force-conflict-handling (=y)" (30 chars,
+  // no short name); the short cell is a constant 4 chars.
   auto const widest =
     testutils::findHelpLine(plainHelp, "--force-conflict-handling (=y)");
   REQUIRE(widest.has_value());
@@ -474,12 +476,12 @@ TEST_CASE("full help auto-fits the description column across all groups", "[cmd]
   auto const descCol = widest->find("same-name collisions in flat output");
   REQUIRE(descCol != std::string::npos);
   CHECK(descCol == nameEnd + 3);
-  CHECK(descCol == 35);  // 2 indent + 30 widest + 3 gap
+  CHECK(descCol == 39);  // 2 indent + 4 short cell + 30 widest + 3 gap
 
-  auto const generalLine = testutils::findHelpLine(plainHelp, "--help,-h");
+  auto const generalLine = testutils::findHelpLine(plainHelp, "-h, --help");
   auto const processingLine =
     testutils::findHelpLine(plainHelp, "--video-codec (=hevc_nvenc)");
-  auto const fileopLine = testutils::findHelpLine(plainHelp, "--[no-]pack,-p");
+  auto const fileopLine = testutils::findHelpLine(plainHelp, "-p, --[no-]pack");
   REQUIRE(generalLine.has_value());
   REQUIRE(processingLine.has_value());
   REQUIRE(fileopLine.has_value());
@@ -509,7 +511,8 @@ TEST_CASE("subcommand help auto-fits its description column", "[cmd]") {
     auto const result = testutils::parseArgs({"encro", "preview", "-h"});
     auto const plainHelp = stripAnsi(result.helpText);
 
-    // Widest preview first column: "--video-codec (=hevc_nvenc)" (27 chars).
+    // Widest preview long cell: "--video-codec (=hevc_nvenc)" (27 chars, no
+    // short name); the short cell is a constant 4 chars.
     auto const widest = testutils::findHelpLine(plainHelp, "--video-codec (=hevc_nvenc)");
     REQUIRE(widest.has_value());
     auto const nameEnd =
@@ -517,7 +520,7 @@ TEST_CASE("subcommand help auto-fits its description column", "[cmd]") {
     auto const descCol = widest->find("video encoder (default hevc_nvenc");
     REQUIRE(descCol != std::string::npos);
     CHECK(descCol == nameEnd + 3);
-    CHECK(descCol == 32);  // 2 indent + 27 widest + 3 gap
+    CHECK(descCol == 36);  // 2 indent + 4 short cell + 27 widest + 3 gap
 
     // The description needle keeps findHelpLine off the usage line, which
     // also contains "[--output <path>]".
@@ -530,14 +533,15 @@ TEST_CASE("subcommand help auto-fits its description column", "[cmd]") {
     auto const result = testutils::parseArgs({"encro", "config", "-h"});
     auto const plainHelp = stripAnsi(result.helpText);
 
-    // Widest config first column: "--help,-h" (9 chars).
-    auto const widest = testutils::findHelpLine(plainHelp, "--help,-h");
+    // Widest config long cell: "--unset" (7 chars, no short name); the short
+    // cell is a constant 4 chars.
+    auto const widest = testutils::findHelpLine(plainHelp, "--unset");
     REQUIRE(widest.has_value());
-    auto const nameEnd = widest->find("--help,-h") + std::string_view{"--help,-h"}.size();
-    auto const descCol = widest->find("show config help");
+    auto const nameEnd = widest->find("--unset") + std::string_view{"--unset"}.size();
+    auto const descCol = widest->find("remove a persisted key");
     REQUIRE(descCol != std::string::npos);
     CHECK(descCol == nameEnd + 3);
-    CHECK(descCol == 14);  // 2 indent + 9 widest + 3 gap
+    CHECK(descCol == 16);  // 2 indent + 4 short cell + 7 widest + 3 gap
 
     auto const listLine = testutils::findHelpLine(plainHelp, "--list");
     REQUIRE(listLine.has_value());
