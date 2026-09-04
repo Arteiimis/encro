@@ -596,6 +596,11 @@ TEST_CASE("commands section sits between usage and option groups", "[cmd]") {
   REQUIRE(generalPos != std::string::npos);
   CHECK(tierLine < commandsPos);
   CHECK(commandsPos < generalPos);
+  // Section headers are blank-line separated from the preceding block; the
+  // commands section is no exception despite following the usage lines.
+  REQUIRE(commandsPos >= 2);
+  CHECK(plainHelp[commandsPos - 1] == '\n');
+  CHECK(plainHelp[commandsPos - 2] == '\n');
 }
 
 TEST_CASE(
