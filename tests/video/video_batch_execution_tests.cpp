@@ -522,8 +522,10 @@ TEST_CASE(
     );
 
     REQUIRE_FALSE(outcome.results.has_value());
-    // The stop landed before any fake-tool invocation: no log was created.
-    CHECK_FALSE(fs::exists(s.logPath));
+    // The abort contract is the nullopt results: whether the worker observed
+    // the stop before or after spawning the first fake-tool invocation is a
+    // load-dependent timing detail (the child's log may exist), not a
+    // correctness claim — so the log's absence is not asserted here.
   }
 
   SECTION("stop raised mid-verbose-loop leaves remaining files unattempted") {

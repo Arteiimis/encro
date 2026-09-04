@@ -49,6 +49,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 - `[install]`/`[smoke]` completion tests (install/uninstall writes shell startup files; smoke spawns real bash/PowerShell) are opt-in: skipped unless `ENCRO_TEST_COMPLETION=1`; run manually with `ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[completion]"`.
 - Compile-only tests (`pack_api_standalone_compile_test.cpp`, `packer_standalone_compile_test.cpp`): `static_assert` verifies API boundaries.
 - Tags: `[job-state]`, `[cmd]`, `[pack-service]`, `[packer]`, `[video-info]`, `[e2e]`, ...
+- **Sync convention:** tests synchronize by polling observable state via `testutils::waitUntil` (invocation logs, gate files, mutex-guarded fields) — never fixed sleeps, and no negative assertions that race async effects. Any `sleep_for` in `tests/**.cpp` needs a `// sleep-ok: <reason>` marker within 3 lines (pre-commit clang-format reflows long lines); enforced by the `[test-utils][meta]` check in `tests/test_utils_tests.cpp`. Exempt: `tests/e2e/fake_media_tool.cpp`, `tests/e2e/e2e_test_utils.cpp`. Fake-tool holds: `ENCRO_FAKE_FFMPEG_GATE_FILE` (+ `ENCRO_FAKE_FFMPEG_GATE_FROM_CALL=N` to gate only the Nth-and-later invocation); job-state elapsed tests drive `testutils::ScopedSyntheticJobClock` instead of the wall clock.
 
 ## Communication
 

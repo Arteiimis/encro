@@ -112,24 +112,40 @@ TEST_CASE("test sources carry no unmarked synchronization sleeps", "[test-utils]
 
     auto in = std::ifstream{entry.path()};
     REQUIRE(in.is_open());
-    auto line = std::string{};
-    auto lineNo = 0;
-    while (std::getline(in, line)) {
-      ++lineNo;
-      if (line.find(needle) == std::string::npos) { continue; }
-      if (line.find(marker) != std::string_view::npos) { continue; }
+    auto lines = std::vector<std::string>{};
+    for (auto line = std::string{}; std::getline(in, line);) { lines.push_back(line); }
+
+    // The marker may sit within three lines of the sleep: pre-commit
+    // clang-format reflows long statements, moving a trailing comment off
+    // the sleep statement's own line.
+    for (auto i = std::size_t{0}; i < lines.size(); ++i) {
+      if (lines[i].find(needle) == std::string::npos) { continue; }
+      auto marked = false;
+      auto const windowStart = i >= 3 ? i - 3 : 0;
+      auto const windowEnd = std::min(i + 3, lines.size() - 1);
+      for (auto j = windowStart; j <= windowEnd; ++j) {
+        if (lines[j].find(marker) != std::string_view::npos) {
+          marked = true;
+          break;
+        }
+      }
+      if (marked) { continue; }
       offenders.push_back(
         std::format(
           "{}:{}: unmarked synchronization sleep — poll observable state, "
-          "or add a `// {} <reason>` marker",
+          "or add a `// {} <reason>` marker nearby",
           entry.path().string(),
-          lineNo,
+          i + 1,
           marker
         )
       );
     }
   }
 
-  for (auto const& offender: offenders) { INFO(offender); }
+  for (auto const& offender: offenders) {
+    std::fprintf(stderr, "SLEEP-OFFENDER: %s\n", offender.c_str());
+    std::fflush(stderr);
+    INFO(offender);
+  }
   CHECK(offenders.empty());
 }
