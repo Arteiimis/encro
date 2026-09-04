@@ -39,8 +39,8 @@
 
 ## 7. Batch 7 — e2e cluster (design.md I3 e2e)
 
-- [ ] 7.1 Apply e2e merges from I3 (log-hint fold, `:277`+`:303` merge — this becomes the native-error exit-code survivor for the batch-1 deletions — spaced-path section, failure-state sections, positional sections, summary-status folds, cache fold, preview-once fold into the strengthened `preview_process_tests.cpp:97`, real-ffmpeg single-input fold, config-standalone trim with unit survivor `cmd_config_tests.cpp:291-346`); verify `xmake build e2e_tests && xmake run e2e_tests` green
-- [ ] 7.2 Run the opt-in completion suite once (`ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[completion]"`) to confirm gates intact; commit batch 7 as `test: drop e2e cases duplicating unit coverage, merge split scenarios`
+- [x] 7.1 Apply e2e merges from I3 (log-hint fold, `:277`+`:303` merge — this becomes the native-error exit-code survivor for the batch-1 deletions — spaced-path section, failure-state sections, positional sections, summary-status folds, cache fold, preview-once fold into the strengthened `preview_process_tests.cpp:97`, real-ffmpeg single-input fold, config-standalone trim with unit survivor `cmd_config_tests.cpp:291-346`); verify `xmake build e2e_tests && xmake run e2e_tests` green
+- [x] 7.2 Run the opt-in completion suite once (`ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[completion]"`) to confirm gates intact; commit batch 7 as `test: drop e2e cases duplicating unit coverage, merge split scenarios`
 
 ## 8. Final verification
 
