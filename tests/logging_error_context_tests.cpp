@@ -39,7 +39,7 @@ struct ScopedContextReset {
 DEFINE_LOGGER(logtags::TEST_INFRA);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1 — ScopedErrorContext push / render / pop behavior
+// ScopedErrorContext push / render / pop behavior
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
@@ -84,7 +84,7 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2 — Type traits of the scoped guards
+// Type traits of the scoped guards
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
@@ -101,7 +101,7 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 3 — Move semantics do not disturb the context stack
+// Move semantics do not disturb the context stack
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
@@ -148,7 +148,7 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 6 — Nested ScopedErrorContext produces correctly ordered chain
+// Nested ScopedErrorContext produces correctly ordered chain
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
@@ -179,7 +179,7 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 8 — Context depth limit 16 frames with truncation
+// Context depth limit 16 frames with truncation
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
@@ -232,7 +232,7 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 10 — Context chain format matches D-03/D-04
+// Context chain format matches D-03/D-04
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
@@ -265,7 +265,7 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 12 — LOG_ERROR appends context chain when ScopedErrorContext is active
+// LOG_ERROR appends context chain when ScopedErrorContext is active
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("LOG_ERROR appends context chain", "[logging][error_context]") {
@@ -283,7 +283,7 @@ TEST_CASE("LOG_ERROR appends context chain", "[logging][error_context]") {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 13 — LOG_ERROR without context produces no context suffix
+// LOG_ERROR without context produces no context suffix
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("LOG_ERROR without context has no suffix", "[logging][error_context]") {
@@ -300,7 +300,7 @@ TEST_CASE("LOG_ERROR without context has no suffix", "[logging][error_context]")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 14 — LOG_ERROR with nested context produces ordered chain
+// LOG_ERROR with nested context produces ordered chain
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
@@ -326,7 +326,7 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 15 — LOG_CRITICAL appends context chain
+// LOG_CRITICAL appends context chain
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("LOG_CRITICAL appends context chain", "[logging][error_context]") {
@@ -344,7 +344,7 @@ TEST_CASE("LOG_CRITICAL appends context chain", "[logging][error_context]") {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 16 — LOG_INFO does NOT append context chain
+// LOG_INFO does NOT append context chain
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE("LOG_INFO does not append context chain", "[logging][error_context]") {
@@ -362,7 +362,7 @@ TEST_CASE("LOG_INFO does not append context chain", "[logging][error_context]") 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 17 — ScopedLogAttributes push / serialize / pop / shadow behavior
+// ScopedLogAttributes push / serialize / pop / shadow behavior
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
@@ -420,7 +420,7 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 20 — Attribute stack caps at 16 frames with FIFO eviction
+// Attribute stack caps at 16 frames with FIFO eviction
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(
@@ -457,7 +457,7 @@ TEST_CASE(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 21 — Attribute values with quotes and control chars are JSON-escaped
+// Attribute values with quotes and control chars are JSON-escaped
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST_CASE(

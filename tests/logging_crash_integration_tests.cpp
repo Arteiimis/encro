@@ -151,7 +151,7 @@ TEST_CASE(
   CHECK_FALSE(crash::writeDirectLogLine("no log file"));
 }
 
-// ── RED 7.3 — crash direct write reaches the active format ──────────────────
+// ── crash direct write reaches the active format ──────────────────
 
 TEST_CASE(
   "crash direct write lands in .log, and .ndjson only when JSON logging is on",

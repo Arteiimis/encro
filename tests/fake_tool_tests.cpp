@@ -170,7 +170,7 @@ TEST_CASE("fake tool emits progress end time unless suppressed", "[fake-tool]") 
     encodeArg(temp.path / "out.mp4")
   );
 
-  auto defaultRun = runFakeTool(args);
+  auto const defaultRun = runFakeTool(args);
   CHECK(defaultRun.exitCode == 0);
   auto const text = testutils::readTextFile(progressPath);
   CHECK(text.find("out_time_us=30000000") != std::string::npos);
