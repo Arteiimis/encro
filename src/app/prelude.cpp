@@ -6,29 +6,20 @@
 #include "logging/logging.h"
 #include "logging/setup.h"
 
-#include <filesystem>
-
-namespace fs = std::filesystem;
-
 using enum terminal::MessageKind;
 
 namespace {
 
-auto setupLogging(CmdParseResult const& cmd) -> std::optional<fs::path> {
+void setupLogging(CmdParseResult const& cmd) {
   auto const logConfig = logging::LogConfig{
     .echoEnabled = cmd.verbose,
     .jsonEnabled = cmd.jsonEnabled,
     .colorsEnabled = terminal::colorsEnabled(),
   };
 
-  auto const logFilePath = logging::setup(logConfig);
-
-  if (logFilePath.has_value()) {
-    // stderr: stdout carries product output (e.g. `encro completion bash` scripts).
-    terminal::eprintln(Hint, "Log file: {}", terminal::path(logFilePath.value()));
-  }
-
-  return logFilePath;
+  // The log path is surfaced by failWithHint on failed runs only; successful
+  // and help/version runs stay hint-free.
+  logging::setup(logConfig);
 }
 
 }  // namespace
