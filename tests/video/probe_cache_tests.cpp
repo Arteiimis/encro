@@ -8,84 +8,47 @@
 namespace fs = std::filesystem;
 
 TEST_CASE("probeCacheKey encodes all decision inputs", "[probe-cache]") {
-  auto const keyA = probecache::probeCacheKey(
-    "C:\\vids\\a.mp4",
-    1234,
-    5678,
-    "hevc_nvenc",
-    std::optional<std::string>{"p6"},
-    10000,
-    95,
-    "VMAF"
-  );
-  auto const keyA2 = probecache::probeCacheKey(
-    "C:\\vids\\a.mp4",
-    1234,
-    5678,
-    "hevc_nvenc",
-    std::optional<std::string>{"p6"},
-    10000,
-    95,
-    "VMAF"
-  );
-  auto const keyB = probecache::probeCacheKey(
-    "C:\\vids\\a.mp4",
-    1234,
-    5678,
-    "hevc_nvenc",
-    std::optional<std::string>{"p7"},  // different preset
-    10000,
-    95,
-    "VMAF"
-  );
-  auto const keyC = probecache::probeCacheKey(
-    "C:\\vids\\a.mp4",
-    9999,  // different size
-    5678,
-    "hevc_nvenc",
-    std::optional<std::string>{"p6"},
-    10000,
-    95,
-    "VMAF"
-  );
-  auto const keyD = probecache::probeCacheKey(
-    "C:\\vids\\a.mp4",
-    1234,
-    5678,
-    "libx264",  // different codec
-    std::optional<std::string>{"p6"},
-    10000,
-    95,
-    "VMAF"
-  );
-  auto const keyE = probecache::probeCacheKey(
-    "C:\\vids\\a.mp4",
-    1234,
-    5678,
-    "hevc_nvenc",
-    std::optional<std::string>{"p6"},
-    10000,
-    90,  // different floor
-    "VMAF"
-  );
-  auto const keyF = probecache::probeCacheKey(
-    "C:\\vids\\a.mp4",
-    1234,
-    5678,
-    "hevc_nvenc",
-    std::optional<std::string>{"p6"},
-    10000,
-    95,
-    "SSIM"  // different metric - it is part of the identity, so switching
-            // it between runs (the migration) invalidates cached decisions
-  );
+  // Fixed base inputs; each table row mutates exactly one decision input.
+  auto keyFor = [](
+                  std::uintmax_t fileSize,
+                  std::string const& codec,
+                  std::optional<std::string> const& preset,
+                  int minVmaf,
+                  std::string_view metric
+                ) -> std::string {
+    return probecache::probeCacheKey(
+      "C:\\vids\\a.mp4",
+      fileSize,
+      5678,
+      codec,
+      preset,
+      10000,
+      minVmaf,
+      metric
+    );
+  };
 
-  CHECK(keyA == keyA2);
-  CHECK_FALSE(keyA == keyB);
-  CHECK_FALSE(keyA == keyC);
-  CHECK_FALSE(keyA == keyD);
-  CHECK_FALSE(keyA == keyE);
-  CHECK_FALSE(keyA == keyF);
+  auto const base =
+    keyFor(1234, "hevc_nvenc", std::optional<std::string>{"p6"}, 95, "VMAF");
+
+  // Same inputs twice produce the same key.
+  CHECK(keyFor(1234, "hevc_nvenc", std::optional<std::string>{"p6"}, 95, "VMAF") == base);
+
+  auto const mutations = std::vector<std::pair<std::string_view, std::string>>{
+    {"preset", keyFor(1234, "hevc_nvenc", std::optional<std::string>{"p7"}, 95, "VMAF")},
+    {"file size",
+     keyFor(9999, "hevc_nvenc", std::optional<std::string>{"p6"}, 95, "VMAF")},
+    {"codec", keyFor(1234, "libx264", std::optional<std::string>{"p6"}, 95, "VMAF")},
+    {"min vmaf floor",
+     keyFor(1234, "hevc_nvenc", std::optional<std::string>{"p6"}, 90, "VMAF")},
+    // Metric is part of the identity, so switching it between runs (the
+    // migration) invalidates cached decisions.
+    {"metric", keyFor(1234, "hevc_nvenc", std::optional<std::string>{"p6"}, 95, "SSIM")},
+  };
+  for (auto const& [dimension, mutated]: mutations) {
+    CAPTURE(dimension);
+    CHECK_FALSE(mutated == base);
+  }
 }
 
 TEST_CASE("probe cache round-trips entries through save and load", "[probe-cache]") {
