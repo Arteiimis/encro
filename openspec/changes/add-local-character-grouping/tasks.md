@@ -16,10 +16,10 @@
 
 ## 3. Assignment and clustering (pure functions) — test first
 
-- [ ] 3.1 Implement character-tag assignment: exactly one tag >= `--min-confidence` -> sanitized `[a-z0-9_]` folder name with collision suffixes; two or more -> multi-subject marker; unit-test threshold edges and sanitization
-- [ ] 3.2 Implement appearance tag-vector building (general tags >= threshold, top-K by confidence, sparse multi-hot) and cosine similarity; unit-test top-K capping and background-tag exclusion
-- [ ] 3.3 Implement greedy agglomerative clustering (hash-sorted order, centroid join at `kClusterTau`, else new cluster) and `unknown_<top-tags>` naming with deterministic collision suffixes; unit-test determinism, same-character-across-styles grouping, and distinct-cluster name collisions
-- [ ] 3.4 Implement teaching: folder references computed from folder contents (content-hash lookup) carrying both a mean tag vector and a character-tag tally; cluster-to-folder matching at `kFolderTau`; character-tag assignment targeting the owning folder's current name; user renames authoritative (no folder names in cache); `folder-vectors.json` fast path rebuildable from contents; unit-test rename-teaching for both cluster folders (including a CJK folder name) and character folders (renamed `hatsune_miku` keeps receiving its images, no old-name folder recreated), never-modify-existing-folders, and vector-rebuild after cache wipe
+- [x] 3.1 Implement character-tag assignment: exactly one tag >= `--min-confidence` -> sanitized `[a-z0-9_]` folder name with collision suffixes; two or more -> multi-subject marker; unit-test threshold edges and sanitization
+- [x] 3.2 Implement appearance tag-vector building (general tags >= threshold, top-K by confidence, sparse multi-hot) and cosine similarity; unit-test top-K capping and background-tag exclusion
+- [x] 3.3 Implement greedy agglomerative clustering (hash-sorted order, centroid join at `kClusterTau`, else new cluster) and `unknown_<top-tags>` naming with deterministic collision suffixes; unit-test determinism, same-character-across-styles grouping, and distinct-cluster name collisions
+- [x] 3.4 Implement teaching: folder references computed from folder contents (content-hash lookup) carrying both a mean tag vector and a character-tag tally; cluster-to-folder matching at `kFolderTau`; character-tag assignment targeting the owning folder's current name; user renames authoritative (no folder names in cache); `folder-vectors.json` fast path rebuildable from contents; unit-test rename-teaching for both cluster folders (including a CJK folder name) and character folders (renamed `hatsune_miku` keeps receiving its images, no old-name folder recreated), never-modify-existing-folders, and vector-rebuild after cache wipe
 
 ## 4. Pipeline wiring
 
