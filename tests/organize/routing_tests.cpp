@@ -86,7 +86,7 @@ TEST_CASE("appearanceVector caps to top-K and floors at threshold", "[organize]"
     general.push_back(tag(std::format("tag{:02}", index), 0.9 - index * 0.01));
   }
   general.push_back(tag("weak", 0.1));
-  auto const vector = organize::appearanceVector(analysis(general), 0.35);
+  auto const vector = organize::appearanceVector(analysis(general));
   CHECK(vector.size() == organize::kTopKTags);
   CHECK(vector.find("weak") == vector.end());
   CHECK(vector.find("tag00") != vector.end());
@@ -112,7 +112,7 @@ TEST_CASE(
   };
   auto pending = std::vector<std::size_t>{0, 1, 2};
 
-  auto const clusters = organize::clusterPending(items, pending, 0.35);
+  auto const clusters = organize::clusterPending(items, pending);
   REQUIRE(clusters.size() == 2);
   // Hash order decides which cluster is first; find the pink one.
   auto const& pink = clusters[0].itemIndices.size() == 2 ? clusters[0] : clusters[1];
@@ -128,7 +128,7 @@ TEST_CASE(
     item("b", analysis({tag("utterly_different", 0.9)})),
     item("c", analysis({tag("pink_hair", 0.88)})),
   };
-  auto const clusters = organize::clusterPending(items, {0, 1, 2}, 0.35);
+  auto const clusters = organize::clusterPending(items, {0, 1, 2});
   REQUIRE(clusters.size() == 2);
 
   auto used = std::set<std::string>{};
@@ -146,7 +146,7 @@ TEST_CASE("clusterFolderName falls back to deterministic hash name", "[organize]
   auto items = std::vector<organize::ImageItem>{};
   // An analysis with no general tags at threshold -> empty vector cluster.
   items.push_back(item("a", analysis({}, {tag("miku", 0.9)})));
-  auto const clusters = organize::clusterPending(items, {0}, 0.35);
+  auto const clusters = organize::clusterPending(items, {0});
   // Empty vectors never join a cluster; nothing to name.
   CHECK(clusters.empty());
 }

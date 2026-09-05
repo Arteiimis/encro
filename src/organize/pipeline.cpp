@@ -207,20 +207,33 @@ auto routeItems(
 
 // Clusters the single-subject remainder; teaching folders claim clusters
 // first, fresh clusters get unknown_ names.
-auto clusterRemainder(
-  std::vector<ImageItem>& items,
-  std::vector<std::size_t> const& pending,
-  double minConfidence,
-  std::vector<FolderReference> const& references,
-  IdfWeights const& idf
-) -> void {
-  auto const clusters = clusterPending(items, pending, minConfidence, idf);
-  auto usedNames = std::set<std::string>{};
-  for (auto const& item: items) {
-    if (!item.folderName.empty()) {
-      usedNames.insert(displaytext::pathToUtf8String(item.folderName));
-    }
+// Fallback identity for images the clusterer could not group: files from
+// the same download share a "<work>_<index>" stem prefix, and pages of one
+// work almost always share its character cast.
+auto sourceWorkKey(fs::path const& path) -> std::string {
+  auto const stem = path.stem().string();
+  auto const split = stem.find_last_of('_');
+  if (split == std::string::npos) { return {}; }
+  auto prefix = stem.substr(0, split);
+  auto index = stem.substr(split + 1);
+  if (
+    prefix.empty()
+    || index.empty()
+    || !std::ranges::all_of(index, [](char c) { return c >= '0' && c <= '9'; })
+    || !std::ranges::all_of(prefix, [](char c) { return c >= '0' && c <= '9'; })
+  ) {
+    return {};
   }
+  return prefix;
+}
+
+// Folder-match: a cluster whose appearance resembles an existing folder
+// joins it (teaching).
+auto assignFolderMatches(
+  std::vector<ImageItem>& items,
+  std::vector<Cluster> const& clusters,
+  std::vector<FolderReference> const& references
+) -> void {
   for (auto const& cluster: clusters) {
     auto matched = static_cast<FolderReference const*>(nullptr);
     auto bestScore = kFolderTau;
@@ -232,17 +245,82 @@ auto clusterRemainder(
         bestScore = score;
       }
     }
-    if (matched != nullptr) {
-      for (auto const index: cluster.itemIndices) {
-        items[index].folderName = matched->name;
-        items[index].folderSource = FolderSource::FolderMatch;
-      }
-      continue;
-    }
-    auto const name = clusterFolderName(cluster, items, usedNames);
+    if (matched == nullptr) { continue; }
     for (auto const index: cluster.itemIndices) {
-      items[index].folderName = name;
+      items[index].folderName = matched->name;
+      items[index].folderSource = FolderSource::FolderMatch;
+    }
+  }
+}
+
+// Groups singleton clusters by their download-work stem prefix; pages of one
+// work share its character cast. Returns one folder name per work group of
+// two or more pages.
+auto groupSingletonsByWork(
+  std::vector<ImageItem>& items,
+  std::vector<Cluster> const& clusters,
+  std::set<std::string>& usedNames
+) -> std::map<std::string, std::string> {
+  auto workGroups = std::map<std::string, std::vector<std::size_t>>{};
+  for (auto const& cluster: clusters) {
+    if (cluster.itemIndices.size() != 1) { continue; }
+    auto const index = cluster.itemIndices.front();
+    if (!items[index].folderName.empty()) { continue; }
+    auto const work = sourceWorkKey(items[index].path);
+    if (!work.empty()) { workGroups[work].push_back(index); }
+  }
+  auto workNames = std::map<std::string, std::string>{};
+  for (auto const& [work, indices]: workGroups) {
+    if (indices.size() < 2) { continue; }  // a lone file is no group
+    workNames[work] =
+      assignUniqueFolderName(kUnknownPrefix + std::string{"source_"} + work, usedNames)
+        .name;
+    for (auto const index: indices) {
+      items[index].folderName = fs::path{workNames[work]};
       items[index].folderSource = FolderSource::NewCluster;
+    }
+  }
+  return workNames;
+}
+
+auto clusterRemainder(
+  std::vector<ImageItem>& items,
+  std::vector<std::size_t> const& pending,
+  double minConfidence,
+  std::vector<FolderReference> const& references,
+  CorpusTraits const& traits
+) -> void {
+  auto const clusters = clusterPending(items, pending, traits);
+  auto usedNames = std::set<std::string>{};
+  for (auto const& item: items) {
+    if (!item.folderName.empty()) {
+      usedNames.insert(displaytext::pathToUtf8String(item.folderName));
+    }
+  }
+
+  // Folder-match: a cluster whose appearance resembles an existing folder
+  // joins it (teaching).
+  assignFolderMatches(items, clusters, references);
+
+  // Singleton clusters group by their download-work stem prefix (pages of
+  // one work share its character cast); the group name is allocated once
+  // per work, not per page.
+  auto const workNames = groupSingletonsByWork(items, clusters, usedNames);
+
+  for (auto const& cluster: clusters) {
+    for (auto const index: cluster.itemIndices) {
+      auto& item = items[index];
+      if (!item.folderName.empty()) { continue; }
+      if (
+        auto const nameIt = workNames.find(sourceWorkKey(item.path));
+        nameIt != workNames.end()
+      ) {
+        item.folderName = fs::path{nameIt->second};
+        item.folderSource = FolderSource::NewCluster;
+        continue;
+      }
+      item.folderName = fs::path{clusterFolderName(cluster, items, usedNames)};
+      item.folderSource = FolderSource::NewCluster;
     }
   }
 
@@ -282,12 +360,12 @@ auto runOrganize(
   // References rebuilt with the freshly cached analyses included, then the
   // fixed routing order per item. Idf weights come from the full analyzed
   // corpus so collection-constant tags cannot dominate similarity.
-  auto const idf = buildIdfWeights(items, options.minConfidence);
+  auto const traits = buildCorpusTraits(items);
   auto const characterDf = buildCharacterDf(items);
   auto const references =
-    buildFolderReferences(options.root, cache, options.minConfidence, idf);
+    buildFolderReferences(options.root, cache, options.minConfidence, traits);
   auto const pending = routeItems(items, options.minConfidence, references, characterDf);
-  clusterRemainder(items, pending, options.minConfidence, references, idf);
+  clusterRemainder(items, pending, options.minConfidence, references, traits);
 
   auto const stats = executeOrganize(options.root, items, options.dryRun);
   return ReportData{
