@@ -211,10 +211,10 @@ OnnxTagger::OnnxTagger(
       created = true;
       providerName_ = attempt.name;
       break;
-    } catch (Ort::Exception const& error) {
+    } catch (Ort::Exception const&) {
       // Provider init failed (DLLs missing, no driver, unsupported GPU):
-      // record the reason and fall through to the next provider.
-      std::cerr << "ORT " << attempt.name << " EP unavailable: " << error.what() << "\n";
+      // fall through to the next provider; the single provider notice comes
+      // from providerName_ at the end (design D1).
       providerName_ = "cpu";
     }
   }
