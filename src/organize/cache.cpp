@@ -1,7 +1,11 @@
 #include "organize/cache.h"
 
+#include "organize/assign.h"
+#include "organize/cluster.h"
+
 #include <boost/json.hpp>
 
+#include <algorithm>
 #include <fstream>
 #include <system_error>
 #include <utility>
@@ -63,13 +67,36 @@ auto resultFromJson(json::value const& value) -> AnalysisResult {
   return result;
 }
 
-auto aboveFloor(TagScore const& tag) -> bool {
-  return tag.confidence >= kCacheConfidenceFloor;
+auto aboveFloor(TagScore const& tag, double floor) -> bool {
+  return tag.confidence >= floor;
+}
+
+// Storage floors per category: the cache keeps exactly what a downstream
+// stage can read, and nothing more. Appearance vectors and corpus traits
+// consume general tags at kVectorFloor and up; character routing consumes
+// kWeakConfidence and up — below that, the unused identity head emits
+// ~0.50-0.52 noise for every vocabulary character, which used to dominate
+// the store (~2.7k dead pairs per image) without ever influencing a
+// decision. Derived from the consuming constants so a floor can never
+// silently exceed a threshold that reads the cache (design D6).
+auto keepAtOrAbove(std::vector<TagScore> const& tags, double floor)
+  -> std::vector<TagScore> {
+  auto kept = std::vector<TagScore>{};
+  kept.reserve(tags.size());
+  std::copy_if(
+    tags.begin(),
+    tags.end(),
+    std::back_inserter(kept),
+    [&](TagScore const& tag) { return aboveFloor(tag, floor); }
+  );
+  return kept;
 }
 
 }  // namespace
 
-AnalysisCache::AnalysisCache(fs::path filePath): filePath_(std::move(filePath)) { }
+AnalysisCache::AnalysisCache(fs::path filePath, std::size_t flushEveryPuts)
+  : filePath_(std::move(filePath)),
+    flushEveryPuts_(std::max<std::size_t>(1, flushEveryPuts)) { }
 
 void AnalysisCache::load() {
   auto lock = std::lock_guard{mutex_};
@@ -110,24 +137,28 @@ auto AnalysisCache::get(std::string const& contentHash) const
 
 void AnalysisCache::put(std::string const& contentHash, AnalysisResult const& result) {
   auto filtered = AnalysisResult{};
-  auto const copyAboveFloor = [&](std::vector<TagScore> const& tags) {
-    auto kept = std::vector<TagScore>{};
-    kept.reserve(tags.size());
-    std::copy_if(tags.begin(), tags.end(), std::back_inserter(kept), aboveFloor);
-    return kept;
-  };
-  filtered.general = copyAboveFloor(result.general);
-  filtered.character = copyAboveFloor(result.character);
-  filtered.rating = copyAboveFloor(result.rating);
+  filtered.general = keepAtOrAbove(result.general, kVectorFloor);
+  filtered.character = keepAtOrAbove(result.character, kWeakConfidence);
+  filtered.rating = keepAtOrAbove(result.rating, kCacheConfidenceFloor);
 
   auto lock = std::lock_guard{mutex_};
   entries_.insert_or_assign(contentHash, std::move(filtered));
+  if (++pendingPuts_ < flushEveryPuts_) { return; }
   saveLocked();
+  pendingPuts_ = 0;
+}
+
+void AnalysisCache::flush() {
+  auto lock = std::lock_guard{mutex_};
+  if (pendingPuts_ == 0) { return; }
+  saveLocked();
+  pendingPuts_ = 0;
 }
 
 void AnalysisCache::clear() {
   auto lock = std::lock_guard{mutex_};
   entries_.clear();
+  pendingPuts_ = 0;
   auto ec = std::error_code{};
   fs::remove(filePath_, ec);
 }

@@ -181,6 +181,9 @@ auto analyzeMissing(
     .tasks = std::move(analysisTasks),
     .maxConcurrency = options.maxJobs,
     .progress = progress,
+    // Per-image bar redraws flicker unless the cursor stays hidden for the
+    // whole run (same as the encode/pack/picture pipelines).
+    .hideCursor = true,
   });
   return !runResult.canceled;
 }
@@ -345,7 +348,7 @@ auto runOrganize(
   if (!scanned) { return std::unexpected(scanned.error()); }
   auto items = std::move(*scanned);
 
-  auto cache = AnalysisCache{cachePathFor(options)};
+  auto cache = AnalysisCache{cachePathFor(options), kCacheFlushEveryPuts};
   if (options.recluster) {
     cache.clear();
   } else {
@@ -353,9 +356,11 @@ auto runOrganize(
   }
   auto const cacheHits = applyCachedAnalyses(items, cache);
 
-  if (!analyzeMissing(items, engine, cache, options, progress)) {
-    return eh::makeError("interrupted: completed analysis is cached");
-  }
+  auto const analyzed = analyzeMissing(items, engine, cache, options, progress);
+  // Persist the tail batch on every exit so an interrupted run loses at most
+  // the in-flight images, never the completed-and-buffered ones.
+  cache.flush();
+  if (!analyzed) { return eh::makeError("interrupted: completed analysis is cached"); }
 
   // References rebuilt with the freshly cached analyses included, then the
   // fixed routing order per item. Idf weights come from the full analyzed

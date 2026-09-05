@@ -89,16 +89,27 @@ TEST_CASE("AnalysisCache roundtrips raw analysis by content hash", "[organize]")
   CHECK(!reloaded.get("hash-c").has_value());
 }
 
-TEST_CASE("AnalysisCache drops sub-floor confidences", "[organize]") {
+TEST_CASE("AnalysisCache stores only what routing can read, per category", "[organize]") {
+  // Floors track the consuming thresholds (design D6): general vectors read
+  // kVectorFloor (0.55) and up, character routing reads kWeakConfidence
+  // (0.53) and up. Storing lower confidences let the tagger's ~0.5 identity
+  // noise (all ~2.7k vocabulary characters per image) dominate the store
+  // without ever influencing a decision.
   auto temp = TempDir{};
   auto cache = organize::AnalysisCache{temp.path / "analysis.json"};
   cache.load();
   cache.put(
     "hash-a",
     organize::AnalysisResult{
-      .general = {tag("pink_hair", 0.9), tag("background_detail", 0.05)},
-      .character = {tag("hatsune_miku", 0.09)},
-      .rating = {},
+      .general =
+        {tag("pink_hair", 0.9),
+         tag("vector_noise", 0.5499),
+         tag("background_detail", 0.05)},
+      .character =
+        {tag("hatsune_miku", 0.7),
+         tag("weak_agreement", 0.53),
+         tag("identity_noise", 0.52)},
+      .rating = {tag("general", 0.95), tag("sub_floor", 0.09)},
     }
   );
 
@@ -106,7 +117,47 @@ TEST_CASE("AnalysisCache drops sub-floor confidences", "[organize]") {
   REQUIRE(restored.has_value());
   REQUIRE(restored->general.size() == 1);
   CHECK(restored->general.front().tag == "pink_hair");
-  CHECK(restored->character.empty());
+  REQUIRE(restored->character.size() == 2);
+  CHECK(restored->character[0].tag == "hatsune_miku");
+  CHECK(restored->character[1].tag == "weak_agreement");
+  REQUIRE(restored->rating.size() == 1);
+  CHECK(restored->rating.front().tag == "general");
+}
+
+TEST_CASE("AnalysisCache buffers puts until the flush interval", "[organize]") {
+  // One atomic rewrite per analyzed image made cache I/O quadratic in
+  // collection size; the pipeline batches puts and flushes at boundaries.
+  auto temp = TempDir{};
+  auto const cachePath = temp.path / "organized" / ".cache" / "analysis.json";
+  auto cache = organize::AnalysisCache{cachePath, /*flushEveryPuts=*/2};
+  cache.load();
+
+  cache.put("hash-a", organize::AnalysisResult{});
+  CHECK(!fs::exists(cachePath));                    // buffered: no rewrite per image
+  cache.put("hash-b", organize::AnalysisResult{});
+  CHECK(fs::exists(cachePath));                     // interval reached: batch persisted
+
+  cache.put("hash-c", organize::AnalysisResult{});  // buffered tail
+  auto midRun = organize::AnalysisCache{cachePath};
+  midRun.load();
+  CHECK(midRun.get("hash-a").has_value());
+  CHECK(!midRun.get("hash-c").has_value());
+
+  cache.flush();
+  auto reloaded = organize::AnalysisCache{cachePath};
+  reloaded.load();
+  CHECK(reloaded.get("hash-a").has_value());
+  CHECK(reloaded.get("hash-b").has_value());
+  CHECK(reloaded.get("hash-c").has_value());
+}
+
+TEST_CASE("AnalysisCache flush without pending puts writes nothing", "[organize]") {
+  auto temp = TempDir{};
+  auto const cachePath = temp.path / "analysis.json";
+  auto cache = organize::AnalysisCache{cachePath, /*flushEveryPuts=*/8};
+  cache.load();
+  cache.flush();
+  CHECK(!fs::exists(cachePath));
 }
 
 TEST_CASE("AnalysisCache treats a corrupt or wrong-version file as empty", "[organize]") {

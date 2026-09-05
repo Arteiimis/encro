@@ -136,7 +136,7 @@ The run SHALL copy (never move) each scanned image into exactly one folder under
 
 ### Requirement: Cache and resume
 
-Analysis results SHALL be cached keyed by SHA-256 of file content under `<directory>/organized/.cache/`. Re-runs SHALL skip analysis for unchanged images (renames and moves still hit the cache). The cache SHALL be written incrementally so an interrupted run (including Ctrl-C) resumes without redoing completed analysis. `--recluster` SHALL discard cached analysis before running. Cached rating tags SHALL never influence folder assignment.
+Analysis results SHALL be cached keyed by SHA-256 of file content under `<directory>/organized/.cache/`. Re-runs SHALL skip analysis for unchanged images (renames and moves still hit the cache). The cache SHALL be persisted in bounded batches (not one rewrite per image) and flushed at the analysis stage boundary and on interruption, so an interrupted run (including Ctrl-C) resumes without redoing completed analysis beyond the in-flight batch. Stored pairs SHALL be limited to each category's consuming threshold (general at or above the vector floor, character at or above the weakest routing threshold) so identity noise cannot dominate the store. `--recluster` SHALL discard cached analysis before running. Cached rating tags SHALL never influence folder assignment.
 
 #### Scenario: Re-run does not re-analyze
 
