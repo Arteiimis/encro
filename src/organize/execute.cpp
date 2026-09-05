@@ -1,6 +1,6 @@
 #include "organize/execute.h"
 
-#include "organize/sha256.h"
+#include "core/sha256.h"
 
 #include <algorithm>
 #include <format>
@@ -37,7 +37,7 @@ auto fileHashOf(fs::path const& path) -> std::string {
   auto file = std::ifstream{path, std::ios::binary};
   if (!file.is_open()) { return {}; }
   auto const bytes = std::string{std::istreambuf_iterator<char>{file}, {}};
-  return sha256Hex(bytes);
+  return core::sha256Hex(bytes);
 }
 
 }  // namespace

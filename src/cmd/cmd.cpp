@@ -563,6 +563,53 @@ constexpr auto kCompletionUsageLines = std::array{
   "encro completion <powershell|bash> [--install | --uninstall]"sv,
 };
 
+constexpr auto kOrganizeUsageLines = std::array{
+  "encro organize <dir> [-r] [--min-confidence <f>] [--model-dir <dir>] "
+  "[--download-models] [--dry-run]"sv,
+};
+
+// Local character grouping (spec: image-character-organize). Analysis is
+// fully local: image content never leaves this machine.
+auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
+  auto* sub = app.add_subcommand(
+    "organize",
+    "group a folder of images into per-character folders with a local "
+    "model; image content never leaves this machine"
+  );
+  sub->set_help_flag("-h,--help", "show organize help");
+  auto const options = std::tuple{
+    opt("dir", &result.organizeDir, "folder of images to organize", cfg::Required{}),
+    opt(
+      "-r,--recursive,--no-recursive{false}",
+      &result.recursive,
+      "also scan subdirectories"
+    ),
+    opt(
+      "--min-confidence",
+      &result.organizeMinConfidence,
+      "character-tag confidence threshold (0-1)",
+      cfg::RequiredDefault{"0.35"},
+      cfg::FloatRange{0.0, 1.0}
+    ),
+    opt(
+      "--model-dir",
+      &result.organizeModelDir,
+      "directory holding the local tagger model files (default: ~/.encro/models)",
+      cfg::ConfigKey{"model-dir"}
+    ),
+    opt(
+      "--download-models",
+      &result.organizeDownloadModels,
+      "fetch missing model files (~400 MB, one time), then run"
+    ),
+    opt("--dry-run", &result.dryRun, "classify and print the plan; copy nothing"),
+    opt("--recluster", &result.organizeRecluster, "discard cached analysis and redo it"),
+  };
+  registerAll(sub, options);
+  sub->formatter_fn(makeSubcommandHelpFormatter(sub, kOrganizeUsageLines));
+  return sub;
+}
+
 auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
   auto* sub = app.add_subcommand(
     "preview",
@@ -982,6 +1029,21 @@ auto injectConfigDefaults(CLI::App& app) -> std::optional<std::string> {
       }
     }
   }
+
+  // Sub-only config keys (model-dir lives on the organize subcommand, not
+  // the parent app): inject as forced defaults on the sub's own option.
+  // Safe against explicit CLI values: the callback reads parsed results and
+  // only fires when that subcommand is parsed.
+  for (auto const& [key, value]: loaded.values) {
+    if (app.get_option_no_throw("--" + key) != nullptr) { continue; }
+    for (auto* subc: app.get_subcommands([](CLI::App*) { return true; })) {
+      if (subc->get_name().empty()) { continue; }
+      if (auto* subOpt = subc->get_option_no_throw("--" + key)) {
+        subOpt->default_str(value);
+        subOpt->force_callback();
+      }
+    }
+  }
   return std::nullopt;
 }
 
@@ -1001,6 +1063,7 @@ auto buildAndParse(
     tree.app->parse(argc, argv);
     result.helpText = tree.app->help();
     if (tree.app->got_subcommand(tree.previewSub)) { result.preview = true; }
+    if (tree.app->got_subcommand(tree.organizeSub)) { result.organize = true; }
     if (tree.app->got_subcommand(tree.configSub)) {
       result.config = true;
       result.helpText = tree.configSub->help();
@@ -1018,6 +1081,8 @@ auto buildAndParse(
       result.helpText = tree.completionSub->help();
     } else if (tree.app->got_subcommand(tree.configSub)) {
       result.helpText = tree.configSub->help();
+    } else if (tree.app->got_subcommand(tree.organizeSub)) {
+      result.helpText = tree.organizeSub->help();
     } else {
       result.helpText = tree.previewSub->help();
     }
@@ -1059,6 +1124,7 @@ auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool inj
   registerFileOpFlags(fileop, result);
 
   auto* previewSub = registerPreviewSubcommand(*app, result);
+  auto* organizeSub = registerOrganizeSubcommand(*app, result);
   auto* configSub = registerConfigSubcommand(*app, result);
   auto* completionSub = registerCompletionSubcommand(*app, result);
   // Option groups are CLI11 subcommands too, so the commands section is given
@@ -1066,7 +1132,7 @@ auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool inj
   // the formatter lambda captures the span by value, while parse and help
   // rendering happen after this call returns.
   auto* const commandSubs =
-    new std::array<CLI::App const*, 3>{previewSub, configSub, completionSub};
+    new std::array<CLI::App const*, 4>{previewSub, organizeSub, configSub, completionSub};
 
   // Configure formatter (static storage: kAdvancedLongNames outlives the lambda)
   app->formatter_fn(makeHelpFormatter(
@@ -1087,7 +1153,7 @@ auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool inj
       result.error = *error;
     }
   }
-  return AppTree{app, previewSub, configSub, completionSub};
+  return AppTree{app, previewSub, organizeSub, configSub, completionSub};
 }
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)

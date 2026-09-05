@@ -453,16 +453,31 @@ TEST_CASE("help auto-fits the description column with a 3-space gap", "[cmd]") {
 }
 
 TEST_CASE("main help lists subcommands in a git-style commands section", "[cmd]") {
-  constexpr auto commandsBlock =
-    "encro commands:\n"
-    "  preview      compare an original video with its encoded output side by side\n"
-    "  config       inspect and persist user-level configuration defaults\n"
-    "  completion   print, install, or uninstall shell completion scripts\n";
-
-  // Brief tier: the whole section pinned byte-for-byte (exactly three
-  // described rows, no option group leakage).
+  // The organize row wraps at the terminal width, so rows are asserted
+  // individually rather than as one contiguous block.
   auto const brief = stripAnsi(testutils::parseArgs({"encro", "-h"}).helpText);
-  CHECK(brief.find(commandsBlock) != std::string::npos);
+  CHECK(brief.find("encro commands:") != std::string::npos);
+  CHECK(
+    brief.find(
+      "  preview      compare an original video with its encoded output side by side"
+    )
+    != std::string::npos
+  );
+  CHECK(
+    brief.find(
+      "  organize     group a folder of images into per-character folders "
+      "with a local model; image content never leaves this"
+    )
+    != std::string::npos
+  );
+  CHECK(
+    brief.find("  config       inspect and persist user-level configuration defaults")
+    != std::string::npos
+  );
+  CHECK(
+    brief.find("  completion   print, install, or uninstall shell completion scripts")
+    != std::string::npos
+  );
 
   // Full tier: the same section with its three described rows.
   auto const full = stripAnsi(testutils::parseArgs({"encro", "-hh"}).helpText);

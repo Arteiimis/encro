@@ -157,6 +157,8 @@ target("e2e_tests")
   add_deps("encro", "encro_e2e_tool")
   after_load(injectFakeToolDefine)
   add_files("tests/e2e/*.cpp|fake_media_tool.cpp")
+  -- The organize e2e fixtures hash file contents with the shared SHA-256.
+  add_files("src/core/sha256.cpp")
 target_end()
 
 includes("@builtin/xpack")

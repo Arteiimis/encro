@@ -10,6 +10,7 @@
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
 #include "infra/toolchain.h"
+#include "organize/organize_command.h"
 #include "preview/preview_process.h"
 
 #include "logging/log_tags.h"
@@ -308,6 +309,12 @@ int run(int argc, char* argv[]) {
   }
 
   if (startup.cmd.preview) { return runPreview(startup); }
+
+  if (startup.cmd.organize) {
+    auto const exitCode = organize::runOrganizeCommand(startup.cmd);
+    if (exitCode != 0) { logging::printLogHint(); }
+    return exitCode;
+  }
 
   // Subcommand bodies report their own errors and return non-zero; they bypass
   // failWithHint, so the log hint is attached here on failure.

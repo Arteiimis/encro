@@ -4,7 +4,7 @@
 #include "organize/execute.h"
 #include "organize/naming.h"
 #include "organize/report.h"
-#include "organize/sha256.h"
+#include "core/sha256.h"
 
 #include "test_utils.h"
 
@@ -144,11 +144,11 @@ TEST_CASE("executeOrganize copies originals untouched into one folder", "[organi
 
   auto items = std::vector<organize::ImageItem>{
     {.path = temp.path / "a.png",
-     .contentHash = organize::sha256Hex("content-a"),
+     .contentHash = core::sha256Hex("content-a"),
      .folderName = "hatsune_miku",
      .folderSource = organize::FolderSource::CharacterTag},
     {.path = temp.path / "b.png",
-     .contentHash = organize::sha256Hex("content-b"),
+     .contentHash = core::sha256Hex("content-b"),
      .folderName = "hatsune_miku"},
   };
 
@@ -167,7 +167,7 @@ TEST_CASE(
 ) {
   auto temp = TempDir{};
   testutils::writeTextFile(temp.path / "a.png", "content-a");
-  auto const hashA = organize::sha256Hex("content-a");
+  auto const hashA = core::sha256Hex("content-a");
   auto items = std::vector<organize::ImageItem>{
     {.path = temp.path / "a.png", .contentHash = hashA, .folderName = "miku"},
   };
@@ -180,7 +180,7 @@ TEST_CASE(
 
   // Same name, different content -> numeric suffix.
   testutils::writeTextFile(temp.path / "a.png", "different-content");
-  items.front().contentHash = organize::sha256Hex("different-content");
+  items.front().contentHash = core::sha256Hex("different-content");
   auto third = organize::executeOrganize(temp.path, items, false);
   CHECK(third.copied == 1);
   CHECK(fs::exists(temp.path / "organized" / "miku" / "a_2.png"));
@@ -191,7 +191,7 @@ TEST_CASE("executeOrganize dry run copies nothing", "[organize]") {
   testutils::writeTextFile(temp.path / "a.png", "content-a");
   auto items = std::vector<organize::ImageItem>{
     {.path = temp.path / "a.png",
-     .contentHash = organize::sha256Hex("content-a"),
+     .contentHash = core::sha256Hex("content-a"),
      .folderName = "miku"},
   };
 
@@ -216,8 +216,12 @@ TEST_CASE("buildFoldersSection aggregates counts and sources", "[organize]") {
 
   auto const folders = organize::buildFoldersSection(items);
   REQUIRE(folders.size() == 3);
-  auto const& miku = folders[0];
-  CHECK(miku.folder == "miku");
-  CHECK(miku.images == 2);
-  CHECK(miku.source == organize::FolderSource::CharacterTag);
+  // Map order sorts folder names: miku < mixed < unknown_pink.
+  CHECK(folders[0].folder == "miku");
+  CHECK(folders[0].images == 2);
+  CHECK(folders[0].source == organize::FolderSource::CharacterTag);
+  CHECK(folders[1].folder == "mixed");
+  CHECK(folders[1].source == organize::FolderSource::Mixed);
+  CHECK(folders[2].folder == "unknown_pink");
+  CHECK(folders[2].source == organize::FolderSource::NewCluster);
 }

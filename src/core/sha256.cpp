@@ -1,4 +1,4 @@
-#include "organize/sha256.h"
+#include "core/sha256.h"
 
 #include <array>
 #include <cstring>
@@ -6,7 +6,7 @@
 #include <iterator>
 #include <string>
 
-namespace organize {
+namespace core {
 
 namespace {
 
@@ -114,4 +114,4 @@ auto sha256Hex(std::string_view bytes) -> std::string {
   return hex;
 }
 
-}  // namespace organize
+}  // namespace core
