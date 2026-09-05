@@ -1,6 +1,7 @@
 #include "tagger/engine_factory.h"
 
 #include "core/sha256.h"
+#include "infra/env.h"
 #include "tagger/onnx_tagger.h"
 #include "tagger/tagger_types.h"
 
@@ -91,15 +92,16 @@ private:
 }  // namespace
 
 auto fakeTaggerRequested() -> bool {
-  auto* env = std::getenv("ENCRO_FAKE_TAGGER");
-  return env != nullptr && *env != '\0';
+  return processenv::readNonEmptyEnvVar("ENCRO_FAKE_TAGGER").has_value();
 }
 
 auto makeTaggerEngine(fs::path const& modelDir, std::optional<fs::path> const& ffmpegPath)
   -> std::unique_ptr<TaggerEngine> {
-  if (fakeTaggerRequested()) {
-    auto const* fixture = std::getenv("ENCRO_FAKE_TAGGER");
-    return std::make_unique<EnvFakeTagger>(fs::path{fixture});
+  if (
+    auto const fixture = processenv::readNonEmptyEnvVar("ENCRO_FAKE_TAGGER");
+    fixture.has_value()
+  ) {
+    return std::make_unique<EnvFakeTagger>(fs::path{*fixture});
   }
   return std::make_unique<
     OnnxTagger

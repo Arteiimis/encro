@@ -6,6 +6,7 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <system_error>
 
 namespace organize {
@@ -42,6 +43,31 @@ auto fileHashOf(fs::path const& path) -> std::string {
 
 }  // namespace
 
+namespace {
+
+// How many copies of "<stem><ext>" already exist in the folder; the next
+// free slot for a different-content collision is stem_<n><ext>.
+auto resolveDestination(fs::path const& folderDir, ImageItem const& item, bool dryRun)
+  -> std::optional<fs::path> {
+  auto ec = std::error_code{};
+  auto destination = folderDir / item.path.filename();
+  if (dryRun || !fs::exists(destination, ec)) { return destination; }
+
+  // Same-named file already there: identical content is a no-op, a
+  // different one keeps both via a numeric suffix.
+  auto const existingHash = fileHashOf(destination);
+  if (!existingHash.empty() && existingHash == item.contentHash) { return std::nullopt; }
+  auto const stem = item.path.stem().string();
+  auto const extension = item.path.extension().string();
+  auto suffix = 2;
+  for (;; ++suffix) {
+    destination = folderDir / std::format("{}_{}{}", stem, suffix, extension);
+    if (!fs::exists(destination, ec)) { return destination; }
+  }
+}
+
+}  // namespace
+
 auto executeOrganize(
   fs::path const& root,
   std::vector<ImageItem> const& items,
@@ -62,35 +88,21 @@ auto executeOrganize(
       item.folderName.empty() ? fs::path{kUncategorizedFolder} : item.folderName;
 
     auto const folderDir = outputRoot / folder;
-    auto folderExisted = dryRun ? false : fs::exists(folderDir, ec);
+    auto const folderExisted = dryRun ? false : fs::exists(folderDir, ec);
     if (!dryRun) { fs::create_directories(folderDir, ec); }
 
-    auto destination = folderDir / item.path.filename();
-    if (!dryRun && fs::exists(destination, ec)) {
-      // Same-named file already there: identical content is a no-op, a
-      // different one keeps both via a numeric suffix.
-      auto const sameContent =
-        !fileHashOf(destination).empty() && fileHashOf(destination) == item.contentHash;
-      if (sameContent) {
-        ++stats.skippedExisting;
-        continue;
-      }
-      auto const stem = item.path.stem().string();
-      auto const extension = item.path.extension().string();
-      auto suffix = 2;
-      for (;; ++suffix) {
-        destination = folderDir / std::format("{}_{}{}", stem, suffix, extension);
-        if (!fs::exists(destination, ec)) { break; }
-      }
+    auto const destination = resolveDestination(folderDir, item, dryRun);
+    if (!destination.has_value()) {
+      ++stats.skippedExisting;
+      continue;
     }
-
     if (dryRun) { continue; }
     if (!folderExisted) { ++stats.createdFolders; }
-    if (copySafely(item.path, stagingDir, destination)) {
+    if (copySafely(item.path, stagingDir, *destination)) {
       ++stats.copied;
     } else {
       stats.errors.push_back(
-        std::format("copy failed: {} -> {}", item.path.string(), destination.string())
+        std::format("copy failed: {} -> {}", item.path.string(), destination->string())
       );
     }
   }

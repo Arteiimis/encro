@@ -8,13 +8,15 @@
 
 namespace {
 
+// Mirrors the real wd-v3 vocabulary categories (0 general, 4 character,
+// 9 rating).
 auto vocab() -> tagger::Vocabulary {
   return tagger::Vocabulary{
     {.name = "1girl", .category = tagger::TagCategory::General},
     {.name = "hatsune_miku", .category = tagger::TagCategory::Character},
-    {.name = "artist_foo", .category = tagger::TagCategory::Artist},
+    {.name = "zzz_unknown_category", .category = static_cast<tagger::TagCategory>(1)},
     {.name = "rating_explicit", .category = tagger::TagCategory::Rating},
-    {.name = "meta_tag", .category = tagger::TagCategory::Meta},
+    {.name = "thighhighs", .category = tagger::TagCategory::General},
   };
 }
 
@@ -30,10 +32,11 @@ TEST_CASE("mapOutputs filters categories and applies the floor", "[tagger]") {
   auto const scores = std::vector<float>{0.0f, 4.0f, 100.0f, -6.0f, 8.0f};
   auto const output = tagger::mapOutputs(scores, vocab(), 0.5);
 
-  // sigmoid(0)=0.5 kept, artist(100) dropped by category, sigmoid(4)~0.982
-  // kept, sigmoid(-6)~0.002 floored, sigmoid(8)~0.9997 dropped as meta.
-  REQUIRE(output.general.size() == 1);
+  // sigmoid(0)=0.5 kept, unknown-category(100) dropped, sigmoid(4)~0.982
+  // floored, sigmoid(8)~0.9997 kept as the second general tag.
+  REQUIRE(output.general.size() == 2);
   CHECK(output.general[0].tag == "1girl");
+  CHECK(output.general[1].tag == "thighhighs");
   REQUIRE(output.character.size() == 1);
   CHECK(output.character[0].tag == "hatsune_miku");
   CHECK(output.character[0].confidence > 0.98);

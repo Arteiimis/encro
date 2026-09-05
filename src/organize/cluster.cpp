@@ -82,9 +82,9 @@ auto clusterPending(
 
   auto clusters = std::vector<Cluster>{};
   for (auto const index: ordered) {
-    if (!items[index].analysis.has_value()) { continue; }
-    auto const normalized =
-      normalizedCopy(appearanceVector(*items[index].analysis, minConfidence));
+    auto const& analysis = items[index].analysis;
+    if (!analysis.has_value()) { continue; }
+    auto const normalized = normalizedCopy(appearanceVector(*analysis, minConfidence));
     if (normalized.empty()) { continue; }
 
     auto bestCluster = static_cast<Cluster*>(nullptr);

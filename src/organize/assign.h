@@ -38,8 +38,9 @@ auto confidentCharacterTags(AnalysisResult const& analysis, double minConfidence
 auto isMultiSubject(AnalysisResult const& analysis, double minConfidence) -> bool;
 
 // A teaching reference folder: what its analyzable contents say it owns.
+// NOLINTNEXTLINE(bugprone-exception-escape): std::map members allocate by design
 struct FolderReference {
-  std::string name;                          // current name on disk
+  fs::path name;  // current name on disk; a path so CJK survives
   std::map<std::string, double> meanVector;  // mean appearance vector
   std::size_t vectorMembers = 0;
   std::map<std::string, std::size_t>

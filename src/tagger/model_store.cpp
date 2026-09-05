@@ -1,6 +1,7 @@
 #include "tagger/model_store.h"
 
 #include "core/sha256.h"
+#include "infra/env.h"
 #include "utils/utils.h"
 
 #include <httplib.h>
@@ -57,7 +58,10 @@ auto fetchOnce(std::string const& host, RemoteFile const& file, fs::path const& 
   auto removeEc = std::error_code{};
   fs::remove(partPath, removeEc);
   auto const response = client.Get(file.urlPath, [&](char const* data, size_t length) {
-    auto out = std::ofstream{partPath, std::ios::binary | std::ios::app};
+    // openmode constants are plain ints in MSVC STL; bit-or is the idiom.
+    auto const mode =
+      std::ios::binary | std::ios::app;  // NOLINT(bugprone-signed-bitwise)
+    auto out = std::ofstream{partPath, mode};
     if (!out.is_open()) { return false; }
     out.write(data, static_cast<std::streamsize>(length));
     return static_cast<bool>(out);
@@ -75,10 +79,8 @@ auto fetchOnce(std::string const& host, RemoteFile const& file, fs::path const& 
 }  // namespace
 
 auto primaryEndpoint() -> std::string {
-  auto* overridden = std::getenv("HF_ENDPOINT");
-  return (overridden != nullptr && *overridden != '\0')
-    ? std::string{overridden}
-    : std::string{"https://huggingface.co"};
+  auto const overridden = processenv::readNonEmptyEnvVar("HF_ENDPOINT");
+  return overridden.value_or("https://huggingface.co");
 }
 
 auto mirrorEndpoint() -> std::string {
@@ -90,12 +92,12 @@ auto modelFiles() -> std::vector<RemoteFile> {
   return std::vector<RemoteFile>{
     {.logical = "wd-vit-tagger-v3/model.onnx",
      .urlPath = std::string{prefix} + "/model.onnx",
-     .size = 0,      // pinned during acceptance (task 6.2)
-     .sha256 = ""},  // pinned during acceptance (task 6.2)
+     .size = 378536310,
+     .sha256 = "35f23693620b668f4d53fd3c62bf65e40af739bc52c7eb0fbc49258b58d065b6"},
     {.logical = "wd-vit-tagger-v3/selected_tags.csv",
      .urlPath = std::string{prefix} + "/selected_tags.csv",
-     .size = 0,
-     .sha256 = ""},
+     .size = 308468,
+     .sha256 = "298633d94d0031d2081c0893f29c82eab7f0df00b08483ba8f29d1e979441217"},
   };
 }
 
@@ -110,14 +112,14 @@ auto cudnnArchive() -> RemoteFile {
 }
 
 auto defaultModelDir() -> fs::path {
-  auto* home = std::getenv("USERPROFILE");
-  if (home == nullptr) { home = std::getenv("HOME"); }
-  return fs::path{home != nullptr ? home : ""} / ".encro" / "models";
+  auto const home = processenv::readEnvVar("USERPROFILE");
+  auto const homeDir = home.has_value() ? home : processenv::readEnvVar("HOME");
+  return fs::path{homeDir.value_or("")} / ".encro" / "models";
 }
 
 auto encroLibDir() -> fs::path {
-  auto* localAppData = std::getenv("LOCALAPPDATA");
-  return fs::path{localAppData != nullptr ? localAppData : ""} / "encro" / "lib";
+  auto const localAppData = processenv::readEnvVar("LOCALAPPDATA");
+  return fs::path{localAppData.value_or("")} / "encro" / "lib";
 }
 
 auto hasNvidiaDriver() -> bool {
@@ -141,6 +143,57 @@ auto allFilesPresent(fs::path const& dir, std::vector<RemoteFile> const& files) 
   });
 }
 
+namespace {
+
+enum class VerifyOutcome {
+  Accept,
+  Mismatch,
+  Reject
+};
+
+// Size/checksum verification of a fetched .part file. Size mismatches and
+// unpinned-but-wrong states are fatal (Reject); a checksum mismatch with
+// attempts left is retryable (Mismatch).
+auto verifyDownload(fs::path const& dest, RemoteFile const& file, bool retrying)
+  -> std::pair<VerifyOutcome, std::string> {
+  auto ec = std::error_code{};
+  auto const partPath = dest.string() + ".part";
+  if (file.size != 0) {
+    auto const actual = fs::file_size(partPath, ec);
+    if (ec || actual != file.size) {
+      return {
+        VerifyOutcome::Reject,
+        std::format(
+          "size mismatch for {}: got {} bytes, expected {}",
+          file.logical,
+          ec ? 0 : actual,
+          file.size
+        )
+      };
+    }
+  }
+  if (!file.sha256.empty()) {
+    auto const digest = fileHash(partPath);
+    if (digest != file.sha256) {
+      if (!retrying) {
+        return {
+          VerifyOutcome::Reject,
+          std::format(
+            "checksum mismatch for {} (got {}, expected {})",
+            file.logical,
+            digest,
+            file.sha256
+          )
+        };
+      }
+      return {VerifyOutcome::Mismatch, ""};
+    }
+  }
+  return {VerifyOutcome::Accept, ""};
+}
+
+}  // namespace
+
 auto downloadFile(
   fs::path const& dir,
   RemoteFile const& file,
@@ -150,36 +203,16 @@ auto downloadFile(
   auto ec = std::error_code{};
   fs::create_directories(dir, ec);
 
-  auto const dest = dir / fileNameOf(file);
+  auto dest = dir / fileNameOf(file);
   for (auto attempt = 0; attempt <= kMaxVerifyRetries; ++attempt) {
     auto fetched = fetchOnce(primary, file, dest);
     if (!fetched) { fetched = fetchOnce(mirror, file, dest); }
     if (!fetched) { return std::unexpected(fetched.error()); }
 
-    auto const partPath = dest.string() + ".part";
-    if (file.size != 0) {
-      auto const actual = fs::file_size(partPath, ec);
-      if (ec || actual != file.size) {
-        return eh::makeError(
-          "size mismatch for {}: got {} bytes, expected {}",
-          file.logical,
-          ec ? 0 : actual,
-          file.size
-        );
-      }
-    }
-    if (!file.sha256.empty()) {
-      auto const digest = fileHash(partPath);
-      if (digest != file.sha256) {
-        if (attempt < kMaxVerifyRetries) { continue; }
-        return eh::makeError(
-          "checksum mismatch for {} (got {}, expected {})",
-          file.logical,
-          digest,
-          file.sha256
-        );
-      }
-    }
+    auto const [outcome, errorText] =
+      verifyDownload(dest, file, attempt < kMaxVerifyRetries);
+    if (outcome == VerifyOutcome::Reject) { return eh::makeError("{}", errorText); }
+    if (outcome == VerifyOutcome::Mismatch) { continue; }
     auto renameEc = std::error_code{};
     fs::rename(dest.string() + ".part", dest, renameEc);
     if (renameEc) {

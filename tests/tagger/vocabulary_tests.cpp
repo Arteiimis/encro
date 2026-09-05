@@ -11,13 +11,13 @@ namespace fs = std::filesystem;
 
 namespace {
 
-auto const kVocabCsv = R"csv(tag_id,name,category,keep_for_model,keep_for_data,count
-0,general,0,1,1,100
-1,1girl,0,1,1,99
-2,hatsune_miku,3,1,1,98
-3,rating_explicit,4,1,1,97
-4,artist_foo,1,1,1,96
-5,thighhighs,0,1,1,95
+// Mirrors the real wd-v3 header and category scheme (0 general,
+// 4 character, 9 rating).
+auto const kVocabCsv = R"csv(tag_id,name,category,count
+0,1girl,0,99
+1,hatsune_miku,4,98
+2,rating_explicit,9,97
+3,thighhighs,0,95
 )csv";
 
 }  // namespace
@@ -29,17 +29,14 @@ TEST_CASE("loadVocabulary parses rows in file order", "[tagger]") {
 
   auto const vocab = tagger::loadVocabulary(csvPath);
   REQUIRE(vocab.has_value());
-  REQUIRE(vocab->size() == 6);
+  REQUIRE(vocab->size() == 4);
 
-  CHECK((*vocab)[0].name == "general");
+  CHECK((*vocab)[0].name == "1girl");
   CHECK((*vocab)[0].category == tagger::TagCategory::General);
-  CHECK((*vocab)[1].name == "1girl");
-  CHECK((*vocab)[2].name == "hatsune_miku");
-  CHECK((*vocab)[2].category == tagger::TagCategory::Character);
-  CHECK((*vocab)[3].name == "rating_explicit");
-  CHECK((*vocab)[3].category == tagger::TagCategory::Rating);
-  CHECK((*vocab)[4].name == "artist_foo");
-  CHECK((*vocab)[4].category == tagger::TagCategory::Artist);
+  CHECK((*vocab)[1].name == "hatsune_miku");
+  CHECK((*vocab)[1].category == tagger::TagCategory::Character);
+  CHECK((*vocab)[2].name == "rating_explicit");
+  CHECK((*vocab)[2].category == tagger::TagCategory::Rating);
 }
 
 TEST_CASE("loadVocabulary handles CRLF and empty lines", "[tagger]") {
