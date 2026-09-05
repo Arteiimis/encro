@@ -28,4 +28,7 @@ struct ReportData {
 auto buildFoldersSection(std::vector<ImageItem> const& items)
   -> std::vector<FolderReportLine>;
 
+// Human-readable report text (per-folder counts + sources, run totals).
+auto renderReport(ReportData const& report) -> std::string;
+
 }  // namespace organize

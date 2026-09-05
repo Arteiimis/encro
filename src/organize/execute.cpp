@@ -1,6 +1,5 @@
 #include "organize/execute.h"
 
-#include "organize/naming.h"
 #include "organize/sha256.h"
 
 #include <algorithm>
@@ -58,8 +57,9 @@ auto executeOrganize(
   }
 
   for (auto const& item: items) {
-    auto folder = sanitizeCharacterName(item.folderName);
-    if (folder.empty()) { folder = kUncategorizedFolder; }
+    // folderName is already sanitized at routing time; empty -> uncategorized.
+    auto const folder =
+      item.folderName.empty() ? fs::path{kUncategorizedFolder} : item.folderName;
 
     auto const folderDir = outputRoot / folder;
     auto folderExisted = dryRun ? false : fs::exists(folderDir, ec);
