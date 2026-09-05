@@ -9,6 +9,7 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <filesystem>
 #include <format>
 #include <set>
@@ -82,8 +83,9 @@ TEST_CASE("folder ownership claims by majority of sole candidates", "[organize]"
 
 TEST_CASE("appearanceVector keeps only identity-bearing tags", "[organize]") {
   // Acceptance (prpr corpus, 1899 images): unrestricted vectors carried
-  // scene/action words (nude, trembling, open_mouth) and collapsed cosine to
-  // noise (p50 0.08 vs tau 0.82); only identity features group characters.
+  // scene/action words (nude, trembling, open_mouth) and collapsed pairwise
+  // cosine to noise (p50 0.08 against the original 0.82 threshold); only
+  // identity features group characters.
   auto const vector = organize::appearanceVector(analysis({
     tag("pink_hair", 0.9),
     tag("blue_eyes", 0.8),
@@ -160,7 +162,9 @@ TEST_CASE("clusterPending merges partially overlapping identity vectors", "[orga
   auto const clusters = organize::clusterPending(items, {0, 1, 2});
   REQUIRE(clusters.size() == 2);
   auto const& merged = clusters[0].itemIndices.size() == 2 ? clusters[0] : clusters[1];
-  CHECK(merged.itemIndices.size() == 2);
+  auto members = merged.itemIndices;
+  std::sort(members.begin(), members.end());
+  CHECK(members == std::vector<std::size_t>{0, 1});
 }
 
 TEST_CASE("inTraitBand minimum df scales with corpus and floors low", "[organize]") {
