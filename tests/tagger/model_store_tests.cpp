@@ -121,3 +121,15 @@ TEST_CASE("ensureCudnn skips when no NVIDIA driver is reported", "[tagger]") {
   CHECK(!result.value());
   CHECK(fs::is_empty(temp.path));
 }
+
+TEST_CASE("HF_ENDPOINT overrides the primary endpoint", "[tagger]") {
+  auto mirror = FakeServer{};
+  auto temp = TempDir{};
+  auto guard = testutils::ScopedEnvVar("HF_ENDPOINT", mirror.url());
+
+  // Dead primary; the env-overridden endpoint must serve instead.
+  auto const installed =
+    tagger::downloadFile(temp.path, goodFile(), "http://127.0.0.1:1", mirror.url());
+  REQUIRE(installed.has_value());
+  CHECK(testutils::readTextFile(*installed) == kGoodBody);
+}

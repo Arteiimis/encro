@@ -91,7 +91,7 @@ private:
 
 }  // namespace
 
-auto fakeTaggerRequested() -> bool {
+bool fakeTaggerRequested() {
   return processenv::readNonEmptyEnvVar("ENCRO_FAKE_TAGGER").has_value();
 }
 

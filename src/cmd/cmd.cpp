@@ -587,7 +587,7 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
     opt(
       "--min-confidence",
       &result.organizeMinConfidence,
-      "character-tag confidence threshold (0-1)",
+      "confidence floor for appearance and subject-count tags (0-1)",
       cfg::RequiredDefault{"0.35"},
       cfg::FloatRange{0.0, 1.0}
     ),

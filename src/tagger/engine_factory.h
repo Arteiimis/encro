@@ -15,7 +15,7 @@ namespace fs = std::filesystem;
 namespace tagger {
 
 // True when ENCRO_FAKE_TAGGER is set (model management is bypassed too).
-auto fakeTaggerRequested() -> bool;
+bool fakeTaggerRequested();
 
 // Builds the production OnnxTagger (throws std::runtime_error on load
 // failure) or the env-driven fake. ffmpegPath feeds preprocessing.

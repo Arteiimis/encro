@@ -40,11 +40,11 @@ auto defaultModelDir() -> fs::path;
 auto encroLibDir() -> fs::path;
 
 // True when an NVIDIA driver is present (nvcuda.dll loads).
-auto hasNvidiaDriver() -> bool;
+bool hasNvidiaDriver();
 
 // True when every file in `files` exists under `dir` (size-checked when the
 // manifest pins a size).
-auto allFilesPresent(fs::path const& dir, std::vector<RemoteFile> const& files) -> bool;
+bool allFilesPresent(fs::path const& dir, std::vector<RemoteFile> const& files);
 
 // Downloads `file` to dir/<filename>: primary host first, mirror fallback,
 // .part streaming, checksum verify (when pinned), bounded retry on mismatch,
