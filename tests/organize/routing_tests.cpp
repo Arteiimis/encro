@@ -53,9 +53,9 @@ TEST_CASE("confidentCharacterTags filters at the character threshold", "[organiz
 }
 
 TEST_CASE("isMultiSubject detects count tags at or above threshold", "[organize]") {
-  CHECK(organize::isMultiSubject(analysis({tag("2girls", 0.8)}), 0.35));
-  CHECK(!organize::isMultiSubject(analysis({tag("2girls", 0.2)}), 0.35));
-  CHECK(!organize::isMultiSubject(analysis({tag("1girl", 0.9)}), 0.35));
+  CHECK(organize::isMultiSubject(analysis({tag("2girls", 0.9)})));
+  CHECK(!organize::isMultiSubject(analysis({tag("2girls", 0.6)})));
+  CHECK(!organize::isMultiSubject(analysis({tag("1girl", 0.9)})));
 }
 
 TEST_CASE("folder ownership claims by majority of sole candidates", "[organize]") {

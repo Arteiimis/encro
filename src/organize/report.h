@@ -22,6 +22,7 @@ struct ReportData {
   std::size_t copied = 0;
   std::size_t skippedExisting = 0;
   std::size_t cacheHits = 0;
+  std::vector<std::string> copyErrors;  // per-file copy failures; visible in report
 };
 
 // Aggregates the per-folder view from the final assignment state.

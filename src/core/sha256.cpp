@@ -1,6 +1,7 @@
 #include "core/sha256.h"
 
 #include <array>
+#include <fstream>
 #include <cstring>
 #include <format>
 #include <iterator>
@@ -74,7 +75,25 @@ void processBlock(std::array<std::uint32_t, 8>& state, std::uint8_t const* block
 
 }  // namespace
 
-auto sha256Hex(std::string_view bytes) -> std::string {
+auto hexOf(std::array<std::uint32_t, 8> const& state) -> std::string {
+  auto hex = std::string{};
+  hex.reserve(64);
+  std::format_to(
+    std::back_inserter(hex),
+    "{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
+    state[0],
+    state[1],
+    state[2],
+    state[3],
+    state[4],
+    state[5],
+    state[6],
+    state[7]
+  );
+  return hex;
+}
+
+auto digest(std::string_view bytes) -> std::string {
   auto state = std::array<std::uint32_t, 8>{
     0x6a09e667u,
     0xbb67ae85u,
@@ -105,13 +124,84 @@ auto sha256Hex(std::string_view bytes) -> std::string {
   }
   processBlock(state, tail.data());
   if (tailLength == 128) { processBlock(state, tail.data() + 64); }
+  return hexOf(state);
+}
 
-  auto hex = std::string{};
-  hex.reserve(64);
-  for (auto const word: state) {
-    std::format_to(std::back_inserter(hex), "{:08x}", word);
+auto finishSha256(
+  std::array<std::uint32_t, 8>& state,
+  std::uint8_t const* tailBytes,
+  std::size_t remainder,
+  std::uint64_t totalBytes
+) -> std::string {
+  auto tail = std::array<std::uint8_t, 128>{};
+  std::memcpy(tail.data(), tailBytes, remainder);
+  tail[remainder] = 0x80;
+  auto const tailLength = remainder <= 55 ? std::size_t{64} : std::size_t{128};
+  auto const bitLength = totalBytes * 8;
+  for (auto index = std::size_t{0}; index < 8; ++index) {
+    tail[tailLength - 1 - index] = static_cast<std::uint8_t>(bitLength >> (8 * index));
   }
-  return hex;
+  processBlock(state, tail.data());
+  if (tailLength == 128) { processBlock(state, tail.data() + 64); }
+  return hexOf(state);
+}
+
+auto sha256Hex(std::string_view bytes) -> std::string {
+  return digest(bytes);
+}
+
+auto sha256File(std::filesystem::path const& path) -> std::string {
+  auto file = std::ifstream{path, std::ifstream::binary};
+  if (!file.is_open()) { return {}; }
+  auto state = std::array<std::uint32_t, 8>{
+    0x6a09e667u,
+    0xbb67ae85u,
+    0x3c6ef372u,
+    0xa54ff53au,
+    0x510e527fu,
+    0x9b05688cu,
+    0x1f83d9abu,
+    0x5be0cd19u,
+  };
+  auto buffer = std::array<char, 8192>{};
+  auto total = std::uint64_t{0};
+  auto pending = std::array<std::uint8_t, 64>{};
+  auto pendingSize = std::size_t{0};
+  while (
+    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()))
+    || file.gcount() > 0
+  ) {
+    auto const got = static_cast<std::size_t>(file.gcount());
+    if (got == 0) { break; }
+    total += got;
+    // Top up pending to a whole 64-byte block first.
+    auto offset = std::size_t{0};
+    if (pendingSize > 0) {
+      auto const take = std::min(64 - pendingSize, got);
+      std::memcpy(pending.data() + pendingSize, buffer.data(), take);
+      pendingSize += take;
+      offset = take;
+      if (pendingSize < 64) { continue; }
+      processBlock(state, pending.data());
+      pendingSize = 0;
+    }
+    auto const full = (got - offset) / 64;
+    for (auto block = std::size_t{0}; block < full; ++block) {
+      processBlock(
+        state,
+        reinterpret_cast<std::uint8_t const*>(buffer.data()) + offset + block * 64
+      );
+    }
+    pendingSize = got - offset - full * 64;
+    if (pendingSize > 0) {
+      std::memcpy(
+        pending.data(),
+        reinterpret_cast<std::uint8_t const*>(buffer.data()) + offset + full * 64,
+        pendingSize
+      );
+    }
+  }
+  return finishSha256(state, pending.data(), pendingSize, total);
 }
 
 }  // namespace core

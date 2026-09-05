@@ -20,7 +20,7 @@ auto confidentCharacterTags(AnalysisResult const& analysis) -> std::vector<TagSc
   return tags;
 }
 
-auto isMultiSubject(AnalysisResult const& analysis, double) -> bool {
+bool isMultiSubject(AnalysisResult const& analysis) {
   // Count tags are subject assertions: like character identities they need
   // strong evidence (the ~0.5 sigmoid band is zero-evidence noise).
   for (auto const& tag: analysis.general) {
@@ -31,7 +31,7 @@ auto isMultiSubject(AnalysisResult const& analysis, double) -> bool {
   return false;
 }
 
-auto claimedTag(FolderReference const& reference) -> std::string {
+std::string claimedTag(FolderReference const& reference) {
   auto best = std::string{};
   auto bestCount = std::size_t{0};
   for (auto const& [tag, count]: reference.soleTagCounts) {

@@ -18,14 +18,19 @@ inline constexpr auto kFolderTau = 0.80;   // tuned during acceptance (6.2)
 inline constexpr auto kUnknownPrefix = "unknown_";
 
 // Sparse appearance vector: general tags at or above the threshold, capped
-// to the top K by confidence, as tag -> confidence.
+// to the top K by confidence, as tag -> confidence. Subject-count tags are
+// excluded (design D4: they route, they do not describe appearance).
 auto appearanceVector(AnalysisResult const& analysis, double minConfidence)
   -> std::map<std::string, double>;
 
-auto cosineSimilarity(
+// appearanceVector with the result L2-normalized (similarity-ready).
+auto normalizedAppearanceVector(AnalysisResult const& analysis, double minConfidence)
+  -> std::map<std::string, double>;
+
+double cosineSimilarity(
   std::map<std::string, double> const& a,
   std::map<std::string, double> const& b
-) -> double;
+);
 
 // NOLINTNEXTLINE(bugprone-exception-escape): std::map members allocate by design
 struct Cluster {
