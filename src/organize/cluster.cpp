@@ -17,16 +17,17 @@ auto l2Norm(std::map<std::string, double> const& vector) -> double {
   return std::sqrt(sum);
 }
 
-auto normalizedCopy(std::map<std::string, double> vector)
+}  // namespace
+
+auto normalizedAppearanceVector(AnalysisResult const& analysis, double minConfidence)
   -> std::map<std::string, double> {
+  auto vector = appearanceVector(analysis, minConfidence);
   auto const norm = l2Norm(vector);
   if (norm > 0.0) {
     for (auto& [_, value]: vector) { value /= norm; }
   }
   return vector;
 }
-
-}  // namespace
 
 auto appearanceVector(AnalysisResult const& analysis, double minConfidence)
   -> std::map<std::string, double> {
@@ -36,7 +37,12 @@ auto appearanceVector(AnalysisResult const& analysis, double minConfidence)
     analysis.general.begin(),
     analysis.general.end(),
     std::back_inserter(candidates),
-    [&](TagScore const& tag) { return tag.confidence >= minConfidence; }
+    [&](TagScore const& tag) {
+      if (tag.confidence < minConfidence) { return false; }
+      // Count tags route multi-subject images; they are not appearance.
+      return std::ranges::find(kSubjectCountTags, tag.tag)
+        == std::ranges::end(kSubjectCountTags);
+    }
   );
   std::sort(
     candidates.begin(),
@@ -55,10 +61,10 @@ auto appearanceVector(AnalysisResult const& analysis, double minConfidence)
   return vector;
 }
 
-auto cosineSimilarity(
+double cosineSimilarity(
   std::map<std::string, double> const& a,
   std::map<std::string, double> const& b
-) -> double {
+) {
   auto const normA = l2Norm(a);
   auto const normB = l2Norm(b);
   if (normA == 0.0 || normB == 0.0) { return 0.0; }
@@ -84,7 +90,7 @@ auto clusterPending(
   for (auto const index: ordered) {
     auto const& analysis = items[index].analysis;
     if (!analysis.has_value()) { continue; }
-    auto const normalized = normalizedCopy(appearanceVector(*analysis, minConfidence));
+    auto const normalized = normalizedAppearanceVector(*analysis, minConfidence);
     if (normalized.empty()) { continue; }
 
     auto bestCluster = static_cast<Cluster*>(nullptr);

@@ -31,7 +31,7 @@ auto resolveModelDir(CmdParseResult const& cmd) -> fs::path {
 
 // Fail fast when model files are missing (spec "Model and runtime file
 // management"): list what is absent and both remedies before any scan.
-auto requireModels(fs::path const& modelDir) -> bool {
+bool requireModels(fs::path const& modelDir) {
   auto const files = tagger::modelFiles();
   if (tagger::allFilesPresent(modelDir, files)) { return true; }
 
@@ -56,7 +56,7 @@ auto requireModels(fs::path const& modelDir) -> bool {
 
 }  // namespace
 
-auto runOrganizeCommand(CmdParseResult const& cmd) -> int {
+int runOrganizeCommand(CmdParseResult const& cmd) {
   auto const modelDir = resolveModelDir(cmd);
   auto const fakeEngine = tagger::fakeTaggerRequested();
 

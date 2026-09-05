@@ -24,7 +24,7 @@ auto accumulateMember(
   FolderReference& reference,
   AnalysisResult const& analysis,
   double minConfidence
-) -> bool {
+) {
   // Cached-but-empty analysis still counts as analyzable: routing happened,
   // it simply produced nothing.
   ++reference.analyzableMembers;
@@ -32,10 +32,8 @@ auto accumulateMember(
   auto const candidates = confidentCharacterTags(analysis);
   if (candidates.size() == 1) { ++reference.soleTagCounts[candidates.front().tag]; }
 
-  auto vector = appearanceVector(analysis, minConfidence);
-  auto const norm = l2Norm(vector);
-  if (norm == 0.0) { return true; }
-  for (auto& [_, value]: vector) { value /= norm; }
+  auto vector = normalizedAppearanceVector(analysis, minConfidence);
+  if (vector.empty()) { return; }
 
   auto const count = static_cast<double>(reference.vectorMembers);
   for (auto& [_, value]: reference.meanVector) { value *= count; }
@@ -43,7 +41,6 @@ auto accumulateMember(
   reference.vectorMembers += 1;
   auto const total = static_cast<double>(reference.vectorMembers);
   for (auto& [_, value]: reference.meanVector) { value /= total; }
-  return true;
 }
 
 auto buildReference(

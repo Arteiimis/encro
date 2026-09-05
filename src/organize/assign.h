@@ -42,7 +42,7 @@ inline constexpr auto kCharacterConfidence = 0.85;
 auto confidentCharacterTags(AnalysisResult const& analysis) -> std::vector<TagScore>;
 
 // True when a subject-count tag (general category) is present.
-auto isMultiSubject(AnalysisResult const& analysis, double minConfidence) -> bool;
+bool isMultiSubject(AnalysisResult const& analysis);
 
 // A teaching reference folder: what its analyzable contents say it owns.
 // NOLINTNEXTLINE(bugprone-exception-escape): std::map members allocate by design
@@ -58,7 +58,7 @@ struct FolderReference {
 // The tag this folder claims (sole at-or-above-threshold candidate for a
 // majority of analyzable members), or "" when none. The tally must be built
 // with the caller's current threshold.
-auto claimedTag(FolderReference const& reference) -> std::string;
+std::string claimedTag(FolderReference const& reference);
 
 // The folder claiming `tag` with the most tagged members, or nullptr.
 auto owningFolder(std::vector<FolderReference> const& references, std::string const& tag)

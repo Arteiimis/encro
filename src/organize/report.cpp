@@ -72,6 +72,7 @@ auto renderReport(ReportData const& report) -> std::string {
     report.skippedExisting,
     report.cacheHits
   );
+  for (auto const& error: report.copyErrors) { text += std::format("  {}\n", error); }
   return text;
 }
 

@@ -40,8 +40,14 @@ TEST_CASE("scanImages picks up supported images flat and hashed", "[organize]") 
   for (auto const& item: *res) {
     hashes[item.path.filename().string()] = item.contentHash;
   }
-  // Same content -> same hash; every item carries a non-empty digest.
-  CHECK(hashes.at("a.png") == hashes.at("a.png"));
+  // Identical content in two files -> identical hash across files.
+  testutils::writeTextFile(temp.path / "a-copy.png", "png-bytes");
+  auto const recopied = organize::scanImages(temp.path, false);
+  REQUIRE(recopied.has_value());
+  for (auto const& item: *recopied) {
+    hashes[item.path.filename().string()] = item.contentHash;
+  }
+  CHECK(hashes.at("a.png") == hashes.at("a-copy.png"));
   CHECK(!hashes.at("a.png").empty());
   CHECK(!hashes.at("d.webp").empty());
   CHECK(hashes.at("a.png") != hashes.at("d.webp"));

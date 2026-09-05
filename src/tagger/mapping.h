@@ -10,7 +10,7 @@
 
 namespace tagger {
 
-auto sigmoidConfidence(double logit) -> double;
+double sigmoidConfidence(double logit);
 
 // Map model output columns through the vocabulary; artist/meta rows are
 // dropped, confidences are sigmoid-transformed and floored.

@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <format>
 #include <mutex>
 #include <set>
@@ -52,7 +53,7 @@ auto routeConfident(
     item.folderSource = FolderSource::CharacterTag;
     return;
   }
-  if (confident.size() >= 2 || isMultiSubject(*item.analysis, minConfidence)) {
+  if (confident.size() >= 2 || isMultiSubject(*item.analysis)) {
     item.folderName = fs::path{kMixedFolder};
     item.folderSource = FolderSource::Mixed;
     return;
@@ -112,19 +113,28 @@ auto analyzeMissing(
   if (progress != nullptr) { progress->resetEta(barIndex); }
   auto const total = analysisTasks.size();
   auto done = std::atomic<std::size_t>{0};
+  auto const startedAt = std::chrono::steady_clock::now();
   for (auto& task: analysisTasks) {
     task.run = [run = std::move(task.run),
                 &done,
                 total,
                 barIndex,
-                progress](taskexec::TaskContext& ctx) -> eh::Result<void> {
+                progress,
+                startedAt](taskexec::TaskContext& ctx) -> eh::Result<void> {
       auto outcome = run(ctx);
       auto const finished = done.fetch_add(1) + 1;
       if (progress != nullptr) {
         auto const percent =
           static_cast<float>(finished) / static_cast<float>(total) * 100.0F;
+        auto const seconds =
+          std::chrono::duration<float>(std::chrono::steady_clock::now() - startedAt)
+            .count();
+        auto const rate = seconds > 0.0F ? static_cast<float>(finished) / seconds : 0.0F;
         progress->setProgress(barIndex, percent);
-        progress->setPostfixText(barIndex, std::format("{}/{}", finished, total));
+        progress->setPostfixText(
+          barIndex,
+          std::format("{}/{} - {:.0f} img/s", finished, total, rate)
+        );
       }
       return outcome;
     };

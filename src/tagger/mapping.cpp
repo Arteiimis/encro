@@ -6,7 +6,7 @@
 
 namespace tagger {
 
-auto sigmoidConfidence(double logit) -> double {
+double sigmoidConfidence(double logit) {
   return 1.0 / (1.0 + std::exp(-logit));
 }
 

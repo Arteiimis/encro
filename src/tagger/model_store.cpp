@@ -123,7 +123,7 @@ auto encroLibDir() -> fs::path {
   return fs::path{localAppData.value_or("")} / "encro" / "lib";
 }
 
-auto hasNvidiaDriver() -> bool {
+bool hasNvidiaDriver() {
 #if defined(_WIN32)
   auto const driver = LoadLibraryW(L"nvcuda.dll");
   if (driver == nullptr) { return false; }
@@ -134,7 +134,7 @@ auto hasNvidiaDriver() -> bool {
 #endif
 }
 
-auto allFilesPresent(fs::path const& dir, std::vector<RemoteFile> const& files) -> bool {
+bool allFilesPresent(fs::path const& dir, std::vector<RemoteFile> const& files) {
   return std::ranges::all_of(files, [&](RemoteFile const& file) {
     auto ec = std::error_code{};
     auto const path = dir / fileNameOf(file);
