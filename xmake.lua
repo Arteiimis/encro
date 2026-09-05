@@ -62,6 +62,12 @@ add_requires("fmt")
 add_requires("indicators")
 add_requires("libzippp")
 -- add_requireconfs("libzippp.libzip", {configs = {toolchains = "clang"}})
+add_requires("cpp-httplib v0.53.1", {configs = {ssl = true}})
+-- Local GPU-flavor ORT package (build-repo/): the xrepo one drags a `cuda`
+-- build dep we don't want (CUDA/cuDNN DLLs are runtime concerns for us) and
+-- it is unsupported under MSYS-shell package envs.
+add_repositories("encro-repo build-repo")
+add_requires("onnxruntime-gpu 1.22.1")
 add_requires("catch2")
 
 target("encro")
@@ -71,7 +77,7 @@ target("encro")
     set_policy("build.optimization.lto", true)
   end
 
-  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11")
+  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11", "cpp-httplib", "onnxruntime")
   if is_plat("windows") then
     add_syslinks("dbghelp", "shell32", "ole32")
   else
@@ -111,7 +117,7 @@ target("tests")
   set_kind("binary")
   set_default(false)
 
-  add_packages("catch2", "boost", "thread-pool", "indicators", "fmt", "spdlog", "libzippp", "cli11")
+  add_packages("catch2", "boost", "thread-pool", "indicators", "fmt", "spdlog", "libzippp", "cli11", "cpp-httplib", "onnxruntime")
   if is_plat("windows") then
     add_syslinks("dbghelp", "shell32", "ole32")
   else
@@ -121,8 +127,10 @@ target("tests")
   add_files("tests/*.cpp")
   add_files("tests/app/*.cpp")
   add_files("tests/infra/*.cpp")
+  add_files("tests/organize/*.cpp")
   add_files("tests/picture/*.cpp")
   add_files("tests/preview/*.cpp")
+  add_files("tests/tagger/*.cpp")
   add_files("tests/video/*.cpp")
   add_files("src/**.cpp|main.cpp")
 
