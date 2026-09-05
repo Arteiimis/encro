@@ -22,7 +22,7 @@ auto buildFolderReferences(
   fs::path const& root,
   AnalysisCache const& cache,
   double minConfidence,
-  IdfWeights const& idf = {}
+  CorpusTraits const& traits = {}
 ) -> std::vector<FolderReference>;
 
 }  // namespace organize

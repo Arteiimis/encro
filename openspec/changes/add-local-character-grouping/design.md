@@ -44,7 +44,7 @@ Dropped from the branch: `src/ai` transport, prompts, cloud describe/cluster/nam
 
 ### D4: Tag vectors — top-K general tags per image, cosine similarity
 
-The appearance vector is the image's general-category tags with confidence >= `--min-confidence`, capped to the top 20 by idf-weighted confidence (`confidence x ln(N/df)` over the analyzed corpus), as a sparse vector. Acceptance showed top-confidence tags on a themed collection are genre/censoring/framing constants (df ~= N) that carry no identity signal and would both dominate similarity and name folders after non-character traits; idf suppression removes them without a hardcoded vocabulary. Character and rating tags are excluded from the vector; ratings are cached but per spec never affect layout. Subject-count tags (a fixed design-constant list, e.g. `2girls`, `multiple_boys`) feed the multi-subject routing decision and are excluded from the vector. Images whose vectors empty out under idf land in `uncategorized/` — honest: the collection offers no identity signal for them.
+The appearance vector is the image's general-category tags at or above the vector evidence floor `kVectorFloor = 0.55` (NOT `--min-confidence`: the 0.35 floor admits the whole ~8k-tag vocabulary, saturating document frequencies and emptying vectors — observed in acceptance; and the 0.5 zero-evidence line still admits noise up to ~0.52), restricted to the trait band (df between `max(1, corpus/20)` and 75% of the corpus — collection constants and one-off scene tags are equally useless for telling characters apart; acceptance found the identity traits at df 18-46), weighted by `confidence x idf`, capped to the top 20. Character and rating tags are excluded from the vector; ratings are cached but per spec never affect layout. Subject-count tags (a fixed design-constant list, e.g. `2girls`, `multiple_boys`) feed the multi-subject routing decision and are excluded from the vector.
 
 ### D4a: Character confidence threshold
 
@@ -56,6 +56,10 @@ Deterministic order (content-hash sort): compare each image vector to existing c
 
 - *Alternatives*: **DBSCAN/HDBSCAN** — density parameters are harder to explain than a similarity threshold and the library-free implementation is heavier; **k-means** — needs k; **Chinese whispers** — comparable quality, more passes. The greedy centroid walk is the least code with deterministic output.
 - *ponytail: order-dependent assignment; a full agglomerative pass is the upgrade path if purity suffers.*
+
+### D5a: Source-work grouping for unclusterable pages
+
+Acceptance on a doujin collection showed comic pages defeat tag-space clustering by design: every page is a different composition, so pairwise vector similarity never reaches the cluster threshold even within one work. Pages whose stem matches a `<work>_<index>` download pattern (reader-app exports) therefore group by their `<work>` prefix after clustering: singleton clusters of the same work land in one `unknown_source_<work>/` folder. This encodes the real prior — one downloaded work shares its character cast — without any hardcoded vocabulary, and turns the user's one-time rename of that folder into teaching material for future runs.
 
 ### D6: Teaching — folder references own both a tag vector and a character-tag tally; the cache stores raw analysis, never folder names
 
