@@ -12,11 +12,29 @@
 
 namespace organize {
 
-inline constexpr auto kTopKTags = std::size_t{20};
-inline constexpr auto kClusterTau = 0.82;   // tuned during acceptance (6.2)
-inline constexpr auto kFolderTau = 0.80;    // tuned during acceptance (6.2)
+inline constexpr auto kTopKTags = std::size_t{10};
+// Acceptance on a 1899-image illustration dump: identity-restricted vectors
+// separate characters at 0.50 (70 clusters for 1528 previously-fragmenting
+// images, same-identity pairs co-cluster 59%) while general-tag vectors
+// never rose above noise (pairwise cosine p50 0.08). 0.50 also keeps the
+// small-corpus acceptance collection clustered without regression.
+inline constexpr auto kClusterTau = 0.50;
+// Folder-match compares a cluster centroid against a teaching folder mean.
+// Same-character pairs measure 0.67-0.98; unrelated pairs sit at p90 0.32,
+// so 0.65 adopts real matches and stays above the noise band.
+inline constexpr auto kFolderTau = 0.65;
 inline constexpr auto kUnknownPrefix = "unknown_";
 inline constexpr auto kVectorFloor = 0.55;  // above the 0.5 noise band; see CorpusTraits
+// Trait-band minimum document frequency: min(corpus / kTraitMinDfCorpusCapFraction,
+// max(kTraitMinDfFloor, corpus / kTraitMinDfCorpusFraction)) — recurring-trait
+// support of 2% of the corpus with an absolute floor, capped at a fifth of
+// the corpus so tiny runs keep their traits. The old corpus/20 rule
+// collapsed at scale: at 1899 images it demanded df >= 94 and kept only 184
+// of 1843 tags, all collection-wide scene words, leaving vectors no identity
+// signal at all.
+inline constexpr auto kTraitMinDfFloor = std::size_t{5};
+inline constexpr auto kTraitMinDfCorpusFraction = std::size_t{50};
+inline constexpr auto kTraitMinDfCorpusCapFraction = std::size_t{5};
 inline constexpr auto kTraitMaxDfFraction = 0.75;
 
 // Corpus statistics shaping appearance vectors: idf weights suppress
@@ -27,6 +45,9 @@ inline constexpr auto kTraitMaxDfFraction = 0.75;
 // kVectorFloor (0.55): the 0.5 zero-evidence band extends to ~0.52 of noise
 // and --min-confidence (0.35) lets the whole 8k-tag vocabulary through,
 // which saturates df and empties vectors (both observed in acceptance).
+// Vectors themselves carry identity-bearing tags only (isIdentityTag in
+// cluster.cpp): scene and action words share the general category but
+// describe the picture, not the person.
 // NOLINTNEXTLINE(bugprone-exception-escape): std::map members allocate by design
 struct CorpusTraits {
   std::map<std::string, double> idf;
