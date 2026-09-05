@@ -19,9 +19,12 @@ auto l2Norm(std::map<std::string, double> const& vector) -> double {
 
 }  // namespace
 
-auto normalizedAppearanceVector(AnalysisResult const& analysis, double minConfidence)
-  -> std::map<std::string, double> {
-  auto vector = appearanceVector(analysis, minConfidence);
+auto normalizedAppearanceVector(
+  AnalysisResult const& analysis,
+  double minConfidence,
+  IdfWeights const& idf
+) -> std::map<std::string, double> {
+  auto vector = appearanceVector(analysis, minConfidence, idf);
   auto const norm = l2Norm(vector);
   if (norm > 0.0) {
     for (auto& [_, value]: vector) { value /= norm; }
@@ -29,33 +32,62 @@ auto normalizedAppearanceVector(AnalysisResult const& analysis, double minConfid
   return vector;
 }
 
-auto appearanceVector(AnalysisResult const& analysis, double minConfidence)
-  -> std::map<std::string, double> {
-  auto candidates = std::vector<TagScore>{};
-  candidates.reserve(analysis.general.size());
-  std::copy_if(
-    analysis.general.begin(),
-    analysis.general.end(),
-    std::back_inserter(candidates),
-    [&](TagScore const& tag) {
-      if (tag.confidence < minConfidence) { return false; }
-      // Count tags route multi-subject images; they are not appearance.
-      return std::ranges::find(kSubjectCountTags, tag.tag)
-        == std::ranges::end(kSubjectCountTags);
+auto buildIdfWeights(std::vector<ImageItem> const& items, double minConfidence)
+  -> IdfWeights {
+  auto documentFrequency = std::map<std::string, std::size_t>{};
+  auto corpus = std::size_t{0};
+  for (auto const& item: items) {
+    if (!item.analysis.has_value()) { continue; }
+    ++corpus;
+    auto seen = std::set<std::string>{};
+    for (auto const& tag: item.analysis->general) {
+      if (tag.confidence < minConfidence) { continue; }
+      if (
+        std::ranges::find(kSubjectCountTags, tag.tag)
+        != std::ranges::end(kSubjectCountTags)
+      ) {
+        continue;
+      }
+      seen.insert(tag.tag);
     }
-  );
-  std::sort(
-    candidates.begin(),
-    candidates.end(),
-    [](TagScore const& a, TagScore const& b) {
-      if (a.confidence != b.confidence) { return a.confidence > b.confidence; }
-      return a.tag < b.tag;
+    for (auto const& tag: seen) { documentFrequency[tag] += 1; }
+  }
+
+  auto idf = IdfWeights{};
+  for (auto const& [tag, frequency]: documentFrequency) {
+    idf[tag] = std::log(static_cast<double>(corpus) / static_cast<double>(frequency));
+  }
+  return idf;
+}
+
+auto appearanceVector(
+  AnalysisResult const& analysis,
+  double minConfidence,
+  IdfWeights const& idf
+) -> std::map<std::string, double> {
+  auto weighted = std::vector<TagScore>{};
+  weighted.reserve(analysis.general.size());
+  for (auto const& tag: analysis.general) {
+    if (tag.confidence < minConfidence) { continue; }
+    // Count tags route multi-subject images; they are not appearance.
+    if (
+      std::ranges::find(kSubjectCountTags, tag.tag) != std::ranges::end(kSubjectCountTags)
+    ) {
+      continue;
     }
-  );
+    // Collection-constant tags (idf -> 0) carry no identity signal.
+    auto const weight = tag.confidence * (idf.contains(tag.tag) ? idf.at(tag.tag) : 1.0);
+    weighted.push_back(TagScore{.tag = tag.tag, .confidence = weight});
+  }
+  std::sort(weighted.begin(), weighted.end(), [](TagScore const& a, TagScore const& b) {
+    if (a.confidence != b.confidence) { return a.confidence > b.confidence; }
+    return a.tag < b.tag;
+  });
 
   auto vector = std::map<std::string, double>{};
-  for (auto const& tag: candidates) {
+  for (auto const& tag: weighted) {
     if (vector.size() >= kTopKTags) { break; }
+    if (tag.confidence <= 0.0) { break; }
     vector[tag.tag] = tag.confidence;
   }
   return vector;
@@ -78,7 +110,8 @@ double cosineSimilarity(
 auto clusterPending(
   std::vector<ImageItem> const& items,
   std::vector<std::size_t> const& pending,
-  double minConfidence
+  double minConfidence,
+  IdfWeights const& idf
 ) -> std::vector<Cluster> {
   // Deterministic order: content-hash sorted indices.
   auto ordered = pending;
@@ -90,7 +123,7 @@ auto clusterPending(
   for (auto const index: ordered) {
     auto const& analysis = items[index].analysis;
     if (!analysis.has_value()) { continue; }
-    auto const normalized = normalizedAppearanceVector(*analysis, minConfidence);
+    auto const normalized = normalizedAppearanceVector(*analysis, minConfidence, idf);
     if (normalized.empty()) { continue; }
 
     auto bestCluster = static_cast<Cluster*>(nullptr);

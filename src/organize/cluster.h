@@ -17,15 +17,32 @@ inline constexpr auto kClusterTau = 0.82;  // tuned during acceptance (6.2)
 inline constexpr auto kFolderTau = 0.80;   // tuned during acceptance (6.2)
 inline constexpr auto kUnknownPrefix = "unknown_";
 
+// Per-tag inverse document frequency over the analyzed corpus. Tags firing
+// on nearly every image describe the collection (genre, censoring, framing)
+// rather than the depicted character; idf = ln(N/df) suppresses them.
+using IdfWeights = std::map<std::string, double>;
+
+// Builds idf weights from every analyzed item's general tags (thresholded,
+// count tags excluded). Pass the result to the vector builders.
+auto buildIdfWeights(std::vector<ImageItem> const& items, double minConfidence)
+  -> IdfWeights;
+
 // Sparse appearance vector: general tags at or above the threshold, capped
-// to the top K by confidence, as tag -> confidence. Subject-count tags are
-// excluded (design D4: they route, they do not describe appearance).
-auto appearanceVector(AnalysisResult const& analysis, double minConfidence)
-  -> std::map<std::string, double>;
+// to the top K by idf-weighted confidence, as tag -> weight.
+// Subject-count tags are excluded (design D4: they route, they do not
+// describe appearance). An empty idf map treats every tag as weight 1.
+auto appearanceVector(
+  AnalysisResult const& analysis,
+  double minConfidence,
+  IdfWeights const& idf = {}
+) -> std::map<std::string, double>;
 
 // appearanceVector with the result L2-normalized (similarity-ready).
-auto normalizedAppearanceVector(AnalysisResult const& analysis, double minConfidence)
-  -> std::map<std::string, double>;
+auto normalizedAppearanceVector(
+  AnalysisResult const& analysis,
+  double minConfidence,
+  IdfWeights const& idf = {}
+) -> std::map<std::string, double>;
 
 double cosineSimilarity(
   std::map<std::string, double> const& a,
@@ -43,7 +60,8 @@ struct Cluster {
 auto clusterPending(
   std::vector<ImageItem> const& items,
   std::vector<std::size_t> const& pending,
-  double minConfidence
+  double minConfidence,
+  IdfWeights const& idf = {}
 ) -> std::vector<Cluster>;
 
 // unknown_<top-tags> name for the cluster; collisions get _2/_3... suffixes.
