@@ -29,7 +29,7 @@ auto accumulateMember(
   // it simply produced nothing.
   ++reference.analyzableMembers;
 
-  auto const candidates = confidentCharacterTags(analysis, minConfidence);
+  auto const candidates = confidentCharacterTags(analysis);
   if (candidates.size() == 1) { ++reference.soleTagCounts[candidates.front().tag]; }
 
   auto vector = appearanceVector(analysis, minConfidence);

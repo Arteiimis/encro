@@ -70,6 +70,18 @@ add_repositories("encro-repo build-repo")
 add_requires("onnxruntime-gpu 1.22.1")
 add_requires("catch2")
 
+-- Copies the shared ORT runtime DLLs next to binaries that link them:
+-- direct exe execution does not get xmake's package PATH injection, and a
+-- stale onnxruntime.dll from System32 or PATH would mismatch the headers.
+local function copyOrtRuntimeDlls(target)
+  local pkg = target:pkg("onnxruntime-gpu")
+  if pkg == nil then return end
+  local bindir = path.join(pkg:installdir(), "bin")
+  if os.isdir(bindir) then
+    os.cp(path.join(bindir, "*.dll"), target:targetdir())
+  end
+end
+
 target("encro")
   set_kind("binary")
 
@@ -86,6 +98,7 @@ target("encro")
 
   add_includedirs("src", {public = true})
   add_files("src/**.cpp")
+  after_build(copyOrtRuntimeDlls)
 target_end()
 
 target("encro_e2e_tool")
@@ -94,6 +107,7 @@ target("encro_e2e_tool")
 
   add_files("tests/e2e/fake_media_tool.cpp")
 target_end()
+
 
 -- Injects the absolute path of the fake media tool binary as a compile-time
 -- define, so unit and e2e test binaries can spawn it directly.
@@ -140,6 +154,7 @@ target("tests")
     injectFakeToolDefine(target)
     injectTestSourceDirDefine(target)
   end)
+  after_build(copyOrtRuntimeDlls)
 target_end()
 
 target("e2e_tests")
@@ -156,6 +171,7 @@ target("e2e_tests")
 
   add_deps("encro", "encro_e2e_tool")
   after_load(injectFakeToolDefine)
+  after_build(copyOrtRuntimeDlls)
   add_files("tests/e2e/*.cpp|fake_media_tool.cpp")
   -- The organize e2e fixtures hash file contents with the shared SHA-256.
   add_files("src/core/sha256.cpp")

@@ -53,7 +53,7 @@ TEST_CASE("pipeline files known characters, clusters, and mixed", "[organize]") 
 
   auto engine = FakeTagger{};
   engine.byName["miku-1.png"] = {.character = {tag("hatsune_miku", 0.9)}};
-  engine.byName["miku-2.png"] = {.character = {tag("hatsune_miku", 0.8)}};
+  engine.byName["miku-2.png"] = {.character = {tag("hatsune_miku", 0.9)}};
   engine.byName["oc-a.png"] = {.general = {tag("pink_hair", 0.9), tag("blue_eyes", 0.8)}};
   engine.byName["duo.png"] =
     {.general = {tag("2girls", 0.9)}, .character = {tag("a", 0.8), tag("b", 0.7)}};

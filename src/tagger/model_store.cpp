@@ -106,8 +106,9 @@ auto cudnnArchive() -> RemoteFile {
     .logical = "cudnn-9.5.1-cuda12",
     .urlPath = "/compute/cudnn/redist/cudnn/windows-x86_64/"
                "cudnn-windows-x86_64-9.5.1.17_cuda12-archive.zip",
-    .size = 557597538,  // verified against NVIDIA's CDN during exploration
-    .sha256 = "",       // pinned during acceptance (task 6.2)
+    .size = 557597538,
+    .sha256 =
+      "3a4cecc8b6d6aa7f6777620e6f2c129b76be635357c4506f2c4ccdbe0e2a1641",  // acceptance-pinned
   };
 }
 

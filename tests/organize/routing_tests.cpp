@@ -44,12 +44,12 @@ auto item(std::string name, organize::AnalysisResult result) -> organize::ImageI
 
 }  // namespace
 
-TEST_CASE("confidentCharacterTags filters and sorts", "[organize]") {
+TEST_CASE("confidentCharacterTags filters at the character threshold", "[organize]") {
   auto const result = analysis({}, {tag("a", 0.5), tag("b", 0.9), tag("c", 0.3)});
-  auto const tags = organize::confidentCharacterTags(result, 0.35);
-  REQUIRE(tags.size() == 2);
+  auto const tags = organize::confidentCharacterTags(result);
+  // 0.5-band confidences are zero-evidence noise and must not count.
+  REQUIRE(tags.size() == 1);
   CHECK(tags[0].tag == "b");
-  CHECK(tags[1].tag == "a");
 }
 
 TEST_CASE("isMultiSubject detects count tags at or above threshold", "[organize]") {
