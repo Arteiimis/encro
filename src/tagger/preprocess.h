@@ -17,7 +17,8 @@ namespace fs = std::filesystem;
 namespace tagger {
 
 inline constexpr auto kInputEdge = 448;
-inline constexpr auto kInputBytes = std::size_t{kInputEdge * kInputEdge * 3};
+inline constexpr auto kInputBytes =
+  std::size_t{kInputEdge} * std::size_t{kInputEdge} * std::size_t{3};
 
 // The pinned preprocessing command: white-base overlay (correct alpha
 // flattening), aspect-preserving scale + pad, raw RGB stdout. Asserted by the

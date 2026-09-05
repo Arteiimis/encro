@@ -6,13 +6,14 @@
 
 namespace tagger {
 
-// Danbooru tag categories used by the wd tagger vocab (selected_tags.csv).
+// Danbooru tag categories in the wd-v3 vocabulary (selected_tags.csv):
+// 0 = general (appearance/subject-count tags), 4 = character, 9 = rating
+// (general/sensitive/questionable/explicit). Verified against the real CSV
+// during acceptance; other Danbooru categories are absent from this vocab.
 enum class TagCategory {
   General = 0,
-  Artist = 1,
-  Character = 3,
-  Rating = 4,
-  Meta = 9,
+  Character = 4,
+  Rating = 9,
 };
 
 // One (tag, confidence) pair from the tagger output.

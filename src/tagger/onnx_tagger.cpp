@@ -1,6 +1,7 @@
 #include "tagger/onnx_tagger.h"
 
 #include "tagger/mapping.h"
+#include "infra/env.h"
 #include "tagger/preprocess.h"
 
 #include <onnxruntime_cxx_api.h>
@@ -36,18 +37,16 @@ namespace {
 auto ensureGpuRuntimePaths(fs::path const& modelDir) -> void {
 #if defined(_WIN32)
   auto const libDir = []() -> fs::path {
-    auto* localAppData = std::getenv("LOCALAPPDATA");
-    auto base = fs::path{localAppData != nullptr ? localAppData : ""};
-    return base / "encro" / "lib";
+    auto const localAppData = processenv::readEnvVar("LOCALAPPDATA");
+    return fs::path{localAppData.value_or("")} / "encro" / "lib";
   }();
 
-  for (auto const dir: {libDir, modelDir}) {
+  for (auto const& dir: {libDir, modelDir}) {
     auto ec = std::error_code{};
     if (dir.empty() || !fs::exists(dir, ec) || ec) { continue; }
     AddDllDirectory(dir.c_str());
 
-    auto* pathBuf = std::getenv("PATH");
-    auto currentPath = std::string{pathBuf != nullptr ? pathBuf : ""};
+    auto currentPath = processenv::readEnvVar("PATH").value_or("");
     if (currentPath.find(dir.string()) != std::string::npos) { continue; }
     auto const newPath = dir.string() + ";" + currentPath;
     _putenv_s("PATH", newPath.c_str());
@@ -66,7 +65,7 @@ struct OnnxTagger::SessionState {
 
 OnnxTagger::OnnxTagger(
   fs::path modelPath,
-  fs::path vocabPath,
+  fs::path const& vocabPath,
   std::optional<fs::path> ffmpegPath
 )
   : modelPath_(std::move(modelPath)), ffmpegPath_(std::move(ffmpegPath)) {

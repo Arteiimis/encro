@@ -21,7 +21,11 @@ inline constexpr auto kEngineConfidenceFloor = 0.01;
 
 class OnnxTagger final: public TaggerEngine {
 public:
-  OnnxTagger(fs::path modelPath, fs::path vocabPath, std::optional<fs::path> ffmpegPath);
+  OnnxTagger(
+    fs::path modelPath,
+    fs::path const& vocabPath,
+    std::optional<fs::path> ffmpegPath
+  );
 
   ~OnnxTagger() override;
 
