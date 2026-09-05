@@ -60,13 +60,12 @@ constexpr auto kIdentityBlocklist = std::array{
 };
 
 bool isIdentityTag(std::string const& tag) {
-  for (auto const& blocked: kIdentityBlocklist) {
-    if (tag == blocked) { return false; }
+  if (std::ranges::find(kIdentityBlocklist, tag) != kIdentityBlocklist.end()) {
+    return false;
   }
-  for (auto const& pattern: kIdentityPatterns) {
-    if (tag.find(pattern) != std::string::npos) { return true; }
-  }
-  return false;
+  return std::ranges::any_of(kIdentityPatterns, [&](std::string_view pattern) {
+    return tag.find(pattern) != std::string::npos;
+  });
 }
 
 auto l2Norm(std::map<std::string, double> const& vector) -> double {
