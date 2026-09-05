@@ -2,14 +2,14 @@
 
 ## 1. Setup and porting
 
-- [ ] 1.1 Add `onnxruntime` (pinned 1.22.x, `gpu=true`) and `cpp-httplib` (`ssl=true`) to `xmake.lua`; verify `xmake build encro` links an Ort session-creation snippet on clang-cl
-- [ ] 1.2 Port `scan` and `sha256` with their tests from branch `add-ai-character-grouping`, adding the `organized/`-tree exclusion with a test (spec: scan excludes the output tree); verify the ported `[organize]` tests pass
-- [ ] 1.3 Port the content-hash cache, adapted to store the raw analysis output per hash (tag/confidence pairs by category truncated at a 0.1 confidence floor, including subject-count tags and character-tag candidates — thresholds are applied at routing time, not baked into the cache) and no folder assignment; unit-test keying by SHA-256 (rename/move still hits), incremental write, resume-from-partial, and the truncation floor
-- [ ] 1.4 Port `execute` (add skip-existing when target name and content hash match) and the `report` skeleton; unit-test untouched originals, exactly-one-folder copies, and re-run-after-rename creating no duplicate folders
+- [x] 1.1 Add `onnxruntime` (pinned 1.22.x, `gpu=true`) and `cpp-httplib` (`ssl=true`) to `xmake.lua`; verify `xmake build encro` links an Ort session-creation snippet on clang-cl
+- [x] 1.2 Port `scan` and `sha256` with their tests from branch `add-ai-character-grouping`, adding the `organized/`-tree exclusion with a test (spec: scan excludes the output tree); verify the ported `[organize]` tests pass
+- [x] 1.3 Port the content-hash cache, adapted to store the raw analysis output per hash (tag/confidence pairs by category truncated at a 0.1 confidence floor, including subject-count tags and character-tag candidates — thresholds are applied at routing time, not baked into the cache) and no folder assignment; unit-test keying by SHA-256 (rename/move still hits), incremental write, resume-from-partial, and the truncation floor
+- [x] 1.4 Port `execute` (add skip-existing when target name and content hash match) and the `report` skeleton; unit-test untouched originals, exactly-one-folder copies, and re-run-after-rename creating no duplicate folders
 
 ## 2. Tagger engine (`src/tagger`) — test first
 
-- [ ] 2.1 Define the `TaggerEngine` seam and `TagResult` types; unit-test the tag-vocabulary loader against a `selected_tags.csv` fixture (general/character/rating category split, id mapping)
+- [x] 2.1 Define the `TaggerEngine` seam and `TagResult` types; unit-test the tag-vocabulary loader against a `selected_tags.csv` fixture (general/character/rating category split, id mapping)
 - [ ] 2.2 Implement the preprocessing contract as one ffmpeg invocation (white-base overlay for alpha, 448x448 pad, `rawvideo rgb24` stdout); unit-test the argument building against a fake-tool fixture and add a `[real-ffmpeg]` test asserting 448*448*3 bytes of decodable output
 - [ ] 2.3 Implement `OnnxTagger`: single-seam session creation (CUDA EP append, CPU fallback, one notice line, lib-dir PATH prepend + `AddDllDirectory`), NHWC float32 0..255 tensor build, output-to-tags mapping; unit-test tensor build and mapping as pure functions, plus a `[real-model]` smoke test that SKIPs when the model dir is absent
 - [ ] 2.4 Implement the model store and downloader: manifest with pinned sha256/size, `.part` streaming, atomic rename, bounded retry on checksum mismatch, Hugging Face -> hf-mirror fallback with `HF_ENDPOINT` override, cuDNN self-install gated on `nvcuda.dll` presence (download, verify, extract `bin/*.dll` via libzippp into the encro lib dir); unit-test all paths against a loopback fake server including mirror fallback, checksum rejection, HF_ENDPOINT, and cuDNN skip without an NVIDIA driver
