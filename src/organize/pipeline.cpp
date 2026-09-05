@@ -17,6 +17,7 @@
 #include <format>
 #include <mutex>
 #include <map>
+#include <optional>
 #include <set>
 
 namespace organize {
@@ -310,7 +311,11 @@ auto clusterRemainder(
   // per work, not per page.
   auto const workNames = groupSingletonsByWork(items, clusters, usedNames);
 
+  // One name per cluster, allocated on its first unnamed member (allocation
+  // consumes `usedNames`, so a second call for the same cluster would
+  // collide-suffix every remaining member into its own folder).
   for (auto const& cluster: clusters) {
+    auto clusterName = std::optional<fs::path>{};
     for (auto const index: cluster.itemIndices) {
       auto& item = items[index];
       if (!item.folderName.empty()) { continue; }
@@ -322,7 +327,10 @@ auto clusterRemainder(
         item.folderSource = FolderSource::NewCluster;
         continue;
       }
-      item.folderName = fs::path{clusterFolderName(cluster, items, usedNames)};
+      if (!clusterName.has_value()) {
+        clusterName = fs::path{clusterFolderName(cluster, items, usedNames)};
+      }
+      item.folderName = *clusterName;
       item.folderSource = FolderSource::NewCluster;
     }
   }
