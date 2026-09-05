@@ -16,6 +16,7 @@
 #include <chrono>
 #include <format>
 #include <mutex>
+#include <map>
 #include <set>
 
 namespace organize {
@@ -26,34 +27,71 @@ auto cachePathFor(Options const& options) -> fs::path {
   return options.root / "organized" / ".cache" / "analysis.json";
 }
 
+// Assigns an item to the folder for `tag`, honoring folder ownership
+// (a teaching folder that claims the tag keeps images under its own name).
+auto fileByCharacter(
+  std::string const& tag,
+  ImageItem& item,
+  std::vector<FolderReference> const& references
+) -> void {
+  if (auto const* owner = owningFolder(references, tag); owner != nullptr) {
+    item.folderName = owner->name;
+    item.folderSource = FolderSource::FolderMatch;
+    return;
+  }
+  auto sanitized = sanitizeCharacterName(tag);
+  if (sanitized.empty()) { sanitized = fallbackCharacterName(tag); }
+  item.folderName = fs::path{sanitized};
+  item.folderSource = FolderSource::CharacterTag;
+}
+
 // Fixed routing order (spec): one confident tag -> character folder
-// (ownership-redirected); multi-subject -> mixed/; else clustering pending.
+// (ownership-redirected); competing identities -> mixed/; else clustering
+// pending. A lone weak candidate (above the zero-evidence floor, below the
+// strong threshold) still claims the image — a second subject with no
+// identity signal does not make the image ownerless.
 auto routeConfident(
   ImageItem& item,
   std::size_t index,
   double minConfidence,
   std::vector<FolderReference> const& references,
+  std::map<std::string, std::size_t> const& characterDf,
   std::vector<std::size_t>& pending
 ) -> void {
   if (!item.analysis.has_value()) {
     pending.push_back(index);
     return;
   }
-  auto const confident = confidentCharacterTags(*item.analysis);
-  if (confident.size() == 1) {
-    auto const tag = confident.front().tag;
-    if (auto const* owner = owningFolder(references, tag); owner != nullptr) {
-      item.folderName = owner->name;
-      item.folderSource = FolderSource::FolderMatch;
-      return;
-    }
-    auto sanitized = sanitizeCharacterName(tag);
-    if (sanitized.empty()) { sanitized = fallbackCharacterName(tag); }
-    item.folderName = fs::path{sanitized};
-    item.folderSource = FolderSource::CharacterTag;
+  auto const candidates = positiveCharacterTags(*item.analysis);
+  auto const credible = std::vector<TagScore>{
+    candidates.begin(),
+    std::ranges::find_if_not(candidates, [&](TagScore const& tag) {
+      return isCredibleCandidate(tag, characterDf);
+    })
+  };
+  auto const strongCount =
+    static_cast<std::size_t>(std::ranges::count_if(candidates, [](TagScore const& tag) {
+      return tag.confidence >= kCharacterConfidence;
+    }));
+  if (strongCount == 1) {
+    fileByCharacter(candidates.front().tag, item, references);
     return;
   }
-  if (confident.size() >= 2 || isMultiSubject(*item.analysis)) {
+  if (strongCount >= 2) {
+    item.folderName = fs::path{kMixedFolder};
+    item.folderSource = FolderSource::Mixed;
+    return;
+  }
+  if (credible.size() == 1) {
+    fileByCharacter(credible.front().tag, item, references);
+    return;
+  }
+  if (credible.size() >= 2) {
+    item.folderName = fs::path{kMixedFolder};
+    item.folderSource = FolderSource::Mixed;
+    return;
+  }
+  if (hasStrongCountTag(*item.analysis)) {
     item.folderName = fs::path{kMixedFolder};
     item.folderSource = FolderSource::Mixed;
     return;
@@ -151,7 +189,8 @@ auto analyzeMissing(
 auto routeItems(
   std::vector<ImageItem>& items,
   double minConfidence,
-  std::vector<FolderReference> const& references
+  std::vector<FolderReference> const& references,
+  std::map<std::string, std::size_t> const& characterDf
 ) -> std::vector<std::size_t> {
   auto pending = std::vector<std::size_t>{};
   for (auto index = std::size_t{0}; index < items.size(); ++index) {
@@ -161,7 +200,7 @@ auto routeItems(
       item.folderSource = FolderSource::Uncategorized;
       continue;
     }
-    routeConfident(item, index, minConfidence, references, pending);
+    routeConfident(item, index, minConfidence, references, characterDf, pending);
   }
   return pending;
 }
@@ -244,9 +283,10 @@ auto runOrganize(
   // fixed routing order per item. Idf weights come from the full analyzed
   // corpus so collection-constant tags cannot dominate similarity.
   auto const idf = buildIdfWeights(items, options.minConfidence);
+  auto const characterDf = buildCharacterDf(items);
   auto const references =
     buildFolderReferences(options.root, cache, options.minConfidence, idf);
-  auto const pending = routeItems(items, options.minConfidence, references);
+  auto const pending = routeItems(items, options.minConfidence, references, characterDf);
   clusterRemainder(items, pending, options.minConfidence, references, idf);
 
   auto const stats = executeOrganize(options.root, items, options.dryRun);

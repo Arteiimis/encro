@@ -30,7 +30,7 @@ auto accumulateMember(
   // it simply produced nothing.
   ++reference.analyzableMembers;
 
-  auto const candidates = confidentCharacterTags(analysis);
+  auto const candidates = positiveCharacterTags(analysis);
   if (candidates.size() == 1) { ++reference.soleTagCounts[candidates.front().tag]; }
 
   auto vector = normalizedAppearanceVector(analysis, minConfidence, idf);
