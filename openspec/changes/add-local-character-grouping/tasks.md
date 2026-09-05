@@ -23,10 +23,10 @@
 
 ## 4. Pipeline wiring
 
-- [ ] 4.1 Orchestrate scan -> analyze -> assign/cluster/teach -> execute -> report through the existing task executor; wire the analyze-stage `ProgressContext` bar (count, img/s, ETA via `EtaEstimator`) and provider notice; unit-test staging with a fake tagger
-- [ ] 4.2 Implement `mixed/` and `uncategorized/` semantics; unit-test multi-subject routing (two-or-more confident character tags, or subject-count tags such as `2girls` without exactly one confident character tag -> `mixed/`), analysis failure -> `uncategorized/`, and every image landing in exactly one folder
-- [ ] 4.3 Implement `--dry-run` (full analysis, report, zero copies), `--recluster` (discard cached analysis), and Ctrl-C-safe incremental cache writes with resume issuing no re-analysis; unit-test each
-- [ ] 4.4 Extend the report to list per-folder counts and assignment sources (character tag / folder match / new cluster / mixed / uncategorized) plus run totals; unit-test the rendered report
+- [x] 4.1 Orchestrate scan -> analyze -> assign/cluster/teach -> execute -> report through the existing task executor; wire the analyze-stage `ProgressContext` bar (count, img/s, ETA via `EtaEstimator`) and provider notice; unit-test staging with a fake tagger
+- [x] 4.2 Implement `mixed/` and `uncategorized/` semantics; unit-test multi-subject routing (two-or-more confident character tags, or subject-count tags such as `2girls` without exactly one confident character tag -> `mixed/`), analysis failure -> `uncategorized/`, and every image landing in exactly one folder
+- [x] 4.3 Implement `--dry-run` (full analysis, report, zero copies), `--recluster` (discard cached analysis), and Ctrl-C-safe incremental cache writes with resume issuing no re-analysis; unit-test each
+- [x] 4.4 Extend the report to list per-folder counts and assignment sources (character tag / folder match / new cluster / mixed / uncategorized) plus run totals; unit-test the rendered report
 
 ## 5. CLI and e2e
 
