@@ -107,10 +107,11 @@ auto ensureGpuRuntimePaths(fs::path const& modelDir) -> void {
   if (cudaPathEnv.has_value()) {
     candidates.emplace_back(fs::path{*cudaPathEnv} / "bin");
   }
-  for (
-    auto const source:
-    {registryEnvironmentValue(L"Path"), processenv::readEnvVar("PATH").value_or("")}
-  ) {
+  auto pathSources = std::vector<std::string>{
+    registryEnvironmentValue(L"Path"),
+    processenv::readEnvVar("PATH").value_or("")
+  };
+  for (auto const& source: pathSources) {
     auto stream = std::istringstream{source};
     auto entry = std::string{};
     while (std::getline(stream, entry, ';')) {
