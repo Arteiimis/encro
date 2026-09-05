@@ -30,9 +30,16 @@ inline constexpr auto kSubjectCountTags = std::array{
 
 inline constexpr auto kMixedFolder = "mixed";
 
-// Character-tag candidates at or above the threshold, confidence-descending.
-auto confidentCharacterTags(AnalysisResult const& analysis, double minConfidence)
-  -> std::vector<TagScore>;
+// Character identities need far stronger evidence than appearance tags: the
+// character head emits ~sigmoid(0)=0.5 for every unused identity, so the
+// --min-confidence floor (0.35) would make all 2.7k identities candidates
+// and route everything to mixed/. Community practice for wd taggers is a
+// high character threshold (0.85). Tunable during acceptance.
+inline constexpr auto kCharacterConfidence = 0.85;
+
+// Character-tag candidates at or above kCharacterConfidence,
+// confidence-descending.
+auto confidentCharacterTags(AnalysisResult const& analysis) -> std::vector<TagScore>;
 
 // True when a subject-count tag (general category) is present.
 auto isMultiSubject(AnalysisResult const& analysis, double minConfidence) -> bool;

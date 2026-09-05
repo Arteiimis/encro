@@ -36,5 +36,5 @@
 ## 6. Final verification
 
 - [x] 6.1 `xmake test-parallel` green; new tests tagged (`[organize]`, `[tagger]`, `[e2e]`); `xmake fmt -k` clean; `xmake tidy` no new findings in `src/tagger` / `src/organize`
-- [ ] 6.2 Real-machine acceptance on the RTX 3070 laptop: `--download-models` installs model + cuDNN (CUDA provider line confirmed), then a run over a real collection sample (20-30+ images) — record cluster purity, unknown-folder quality, and throughput; tune `kClusterTau`/top-K constants from the observations
-- [ ] 6.3 Document the GPU setup story (one-time `scoop install versions/cuda12.9`, self-installed cuDNN, CPU fallback) and `encro organize` usage in the README
+- [x] 6.2 Real-machine acceptance on the RTX 3070 laptop: `--download-models` installs model + cuDNN (CUDA provider line confirmed), then a run over a real collection sample (20-30+ images) — record cluster purity, unknown-folder quality, and throughput; tune `kClusterTau`/top-K constants from the observations
+- [x] 6.3 Document the GPU setup story (one-time `scoop install versions/cuda12.9`, self-installed cuDNN, CPU fallback) and `encro organize` usage in the README

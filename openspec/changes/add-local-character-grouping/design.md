@@ -46,6 +46,10 @@ Dropped from the branch: `src/ai` transport, prompts, cloud describe/cluster/nam
 
 The appearance vector is the image's general-category tags with confidence >= the character threshold, capped to the top 20 by confidence, as a multi-hot/sparse vector over the tag vocabulary (induced from the CSV tag ids). Top-K capping drops background noise (scenery tags) that would otherwise dominate similarity. Character and rating tags are excluded from the vector; ratings are cached but per spec never affect layout. Subject-count tags (a fixed design-constant list, e.g. `2girls`, `multiple_boys`) feed the multi-subject routing decision and are excluded from the vector.
 
+### D4a: Character confidence threshold
+
+Acceptance on real inference (task 6.2) showed the character head emits sigmoid(0)≈0.5 for every unused identity, so reusing `--min-confidence` (0.35) for character candidates floods routing with ~2.7k phantom candidates and routes everything to `mixed/`. Character identity therefore uses its own threshold `kCharacterConfidence = 0.85` (community practice for wd taggers), while `--min-confidence` keeps governing appearance vectors and subject-count tags.
+
 ### D5: Clustering — greedy agglomerative assignment to centroids
 
 Deterministic order (content-hash sort): compare each image vector to existing cluster centroids (running mean of L2-normalized vectors); join the best cluster when cosine >= `kClusterTau` (named constant, default tuned on real data), else open a new cluster. O(n·k) where k is the cluster count — fine at personal-collection scale; no cluster-count input needed.
