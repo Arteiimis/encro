@@ -41,7 +41,7 @@ All classification decisions SHALL be computed on the local machine by model fil
 
 ### Requirement: Known-character assignment
 
-For every image, the analyzer SHALL produce character-tag candidates with confidence values. A character tag SHALL count as a confident candidate only at or above the character confidence threshold (a design constant, default 0.85 — character heads emit ~0.5 confidence for every unused identity, so this threshold must sit well above `--min-confidence`). An image with exactly one confident character tag SHALL be assigned to a folder named after that tag, sanitized to `[a-z0-9_]` with deterministic collision suffixes. An image with two or more confident character tags SHALL be treated as multi-subject.
+For every image, the analyzer SHALL produce character-tag candidates with confidence values. A character tag SHALL count as a confident candidate only at or above the character confidence threshold (a design constant, default 0.60 — character heads emit ~0.5 confidence for every unused identity so the threshold must sit above `--min-confidence`, and AI-generated art sits off the training distribution which further depresses confidence). An image with exactly one confident character tag SHALL be assigned to a folder named after that tag, sanitized to `[a-z0-9_]` with deterministic collision suffixes. An image with two or more confident character tags SHALL be treated as multi-subject.
 
 #### Scenario: Single confident character tag names the folder
 

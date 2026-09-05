@@ -33,9 +33,11 @@ inline constexpr auto kMixedFolder = "mixed";
 // Character identities need far stronger evidence than appearance tags: the
 // character head emits ~sigmoid(0)=0.5 for every unused identity, so the
 // --min-confidence floor (0.35) would make all 2.7k identities candidates
-// and route everything to mixed/. Community practice for wd taggers is a
-// high character threshold (0.85). Tunable during acceptance.
-inline constexpr auto kCharacterConfidence = 0.85;
+// and route everything to mixed/. AI-generated art sits off the training
+// distribution and systematically depresses character confidence (real
+// identities fire ~0.6-0.85 where Danbooru originals fire 0.9+), so the
+// threshold sits at 0.60. Tunable during acceptance.
+inline constexpr auto kCharacterConfidence = 0.60;
 
 // Character-tag candidates at or above kCharacterConfidence,
 // confidence-descending.

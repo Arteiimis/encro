@@ -5,6 +5,7 @@
 
 #include "organize/assign.h"
 #include "organize/cache.h"
+#include "organize/cluster.h"
 
 #include <filesystem>
 #include <vector>
@@ -20,7 +21,8 @@ namespace organize {
 auto buildFolderReferences(
   fs::path const& root,
   AnalysisCache const& cache,
-  double minConfidence
+  double minConfidence,
+  IdfWeights const& idf = {}
 ) -> std::vector<FolderReference>;
 
 }  // namespace organize
