@@ -1,7 +1,7 @@
 // Ported pipeline foundations: SHA-256 reference vectors and the scan stage
 // (change add-local-character-grouping tasks 1.1/1.2).
 #include "organize/scan.h"
-#include "organize/sha256.h"
+#include "core/sha256.h"
 
 #include "test_utils.h"
 
@@ -12,15 +12,15 @@ namespace fs = std::filesystem;
 
 TEST_CASE("sha256Hex matches reference vectors", "[organize]") {
   CHECK(
-    organize::sha256Hex("")
+    core::sha256Hex("")
     == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   );
   CHECK(
-    organize::sha256Hex("abc")
+    core::sha256Hex("abc")
     == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
   );
   CHECK(
-    organize::sha256Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")
+    core::sha256Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")
     == "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
   );
 }

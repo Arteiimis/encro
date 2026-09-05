@@ -14,9 +14,14 @@ auto buildFoldersSection(std::vector<ImageItem> const& items)
   // folder name -> (count, highest-priority source seen)
   auto counts = std::map<std::string, std::pair<std::size_t, FolderSource>>{};
   for (auto const& item: items) {
-    auto& [count, source] = counts[displaytext::pathToUtf8String(item.folderName)];
-    count += 1;
-    if (order(item.folderSource) < order(source)) { source = item.folderSource; }
+    auto const key = displaytext::pathToUtf8String(item.folderName);
+    auto [entry, inserted] = counts.try_emplace(key, 1, item.folderSource);
+    if (inserted) { continue; }
+    entry->second.first += 1;
+    // Highest-priority source seen: the lowest enum ordinal wins.
+    if (order(item.folderSource) < order(entry->second.second)) {
+      entry->second.second = item.folderSource;
+    }
   }
 
   auto folders = std::vector<FolderReportLine>{};

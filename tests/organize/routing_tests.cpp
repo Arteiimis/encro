@@ -2,7 +2,7 @@
 #include "organize/assign.h"
 #include "organize/cache.h"
 #include "organize/cluster.h"
-#include "organize/sha256.h"
+#include "core/sha256.h"
 #include "organize/teach.h"
 
 #include "test_utils.h"
@@ -37,7 +37,7 @@ auto item(std::string name, organize::AnalysisResult result) -> organize::ImageI
   auto const bytes = name + "-bytes";
   return organize::ImageItem{
     .path = fs::path{name},
-    .contentHash = organize::sha256Hex(bytes),
+    .contentHash = core::sha256Hex(bytes),
     .analysis = std::move(result),
   };
 }
@@ -155,10 +155,10 @@ TEST_CASE("buildFolderReferences skips cache misses and the cache dir", "[organi
   auto cache = organize::AnalysisCache{cachePath};
   cache.load();
   cache.put(
-    organize::sha256Hex("member-bytes"),
+    core::sha256Hex("member-bytes"),
     analysis({tag("pink_hair", 0.9)}, {tag("miku", 0.9)})
   );
-  cache.put(organize::sha256Hex("empty-bytes"), organize::AnalysisResult{});
+  cache.put(core::sha256Hex("empty-bytes"), organize::AnalysisResult{});
 
   auto const folder = temp.path / "organized" / "unknown_pink";
   fs::create_directories(folder);
@@ -183,7 +183,7 @@ TEST_CASE("renamed character folder keeps teaching under its new name", "[organi
   cache.load();
   for (auto index = 0; index < 5; ++index) {
     cache.put(
-      organize::sha256Hex("miku-" + std::to_string(index)),
+      core::sha256Hex("miku-" + std::to_string(index)),
       analysis({}, {tag("hatsune_miku", 0.9)})
     );
   }

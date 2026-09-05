@@ -139,9 +139,10 @@ TEST_CASE(
 }
 
 TEST_CASE("key table knows the configurable keys", "[cmd][config-store]") {
-  CHECK(configstore::keys().size() == 16);
+  CHECK(configstore::keys().size() == 17);
   CHECK(configstore::isKnownKey("crf"));
   CHECK(configstore::isKnownKey("folder-summary"));
+  CHECK(configstore::isKnownKey("model-dir"));
   CHECK_FALSE(configstore::isKnownKey("dry-run"));
   CHECK_FALSE(configstore::isKnownKey("output"));
   CHECK(configstore::jsonKindOf("jobs") == configstore::JsonKind::Number);

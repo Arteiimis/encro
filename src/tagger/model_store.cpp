@@ -1,6 +1,6 @@
 #include "tagger/model_store.h"
 
-#include "organize/sha256.h"
+#include "core/sha256.h"
 #include "utils/utils.h"
 
 #include <httplib.h>
@@ -39,7 +39,7 @@ auto fileHash(fs::path const& path) -> std::string {
   auto file = std::ifstream{path, std::ios::binary};
   if (!file.is_open()) { return {}; }
   auto const bytes = std::string{std::istreambuf_iterator<char>{file}, {}};
-  return organize::sha256Hex(bytes);
+  return core::sha256Hex(bytes);
 }
 
 // Downloads urlPath from host into dest via a .part sibling, verifies, and

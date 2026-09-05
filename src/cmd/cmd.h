@@ -52,6 +52,14 @@ struct CmdParseResult {
   std::optional<double> previewDuration;
   bool previewNoOpen = false;
 
+  // ── organize subcommand ────────────────────────────────────────
+  bool organize = false;
+  std::optional<std::string> organizeDir;
+  std::optional<double> organizeMinConfidence;
+  std::optional<std::string> organizeModelDir;
+  bool organizeDownloadModels = false;
+  bool organizeRecluster = false;
+
   // ── File operation options ─────────────────────────────────────
   bool pack = false;
   bool packOnly = false;
@@ -84,6 +92,7 @@ struct CmdParseResult {
 struct AppTree {
   CLI::App* app = nullptr;
   CLI::App* previewSub = nullptr;
+  CLI::App* organizeSub = nullptr;
   CLI::App* configSub = nullptr;
   CLI::App* completionSub = nullptr;
 };

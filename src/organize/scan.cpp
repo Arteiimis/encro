@@ -1,7 +1,7 @@
 #include "organize/scan.h"
 
 #include "core/media_scanner.h"
-#include "organize/sha256.h"
+#include "core/sha256.h"
 
 #include <algorithm>
 #include <fstream>
@@ -15,7 +15,7 @@ auto fileHash(fs::path const& path) -> std::string {
   auto file = std::ifstream{path, std::ios::binary};
   if (!file.is_open()) { return {}; }
   auto const bytes = std::string{std::istreambuf_iterator<char>{file}, {}};
-  return sha256Hex(bytes);
+  return core::sha256Hex(bytes);
 }
 
 // The output tree lives at <root>/organized and must never re-enter the scan
