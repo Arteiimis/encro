@@ -27,6 +27,7 @@ auto cosineSimilarity(
   std::map<std::string, double> const& b
 ) -> double;
 
+// NOLINTNEXTLINE(bugprone-exception-escape): std::map members allocate by design
 struct Cluster {
   std::vector<std::size_t> itemIndices;    // into the scanned items
   std::map<std::string, double> centroid;  // running mean of L2-normalized

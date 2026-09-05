@@ -34,6 +34,10 @@ auto routeConfident(
   std::vector<FolderReference> const& references,
   std::vector<std::size_t>& pending
 ) -> void {
+  if (!item.analysis.has_value()) {
+    pending.push_back(index);
+    return;
+  }
   auto const confident = confidentCharacterTags(*item.analysis, minConfidence);
   if (confident.size() == 1) {
     auto const tag = confident.front().tag;
@@ -44,7 +48,7 @@ auto routeConfident(
     }
     auto sanitized = sanitizeCharacterName(tag);
     if (sanitized.empty()) { sanitized = fallbackCharacterName(tag); }
-    item.folderName = fs::path{std::move(sanitized)};
+    item.folderName = fs::path{sanitized};
     item.folderSource = FolderSource::CharacterTag;
     return;
   }
@@ -56,23 +60,9 @@ auto routeConfident(
   pending.push_back(index);
 }
 
-}  // namespace
-
-auto runOrganize(
-  Options const& options,
-  tagger::TaggerEngine& engine,
-  progress::ProgressContext* progress
-) -> eh::Result<ReportData> {
-  auto scanned = scanImages(options.root, options.recursive);
-  if (!scanned) { return std::unexpected(scanned.error()); }
-  auto items = std::move(*scanned);
-
-  auto cache = AnalysisCache{cachePathFor(options)};
-  if (options.recluster) {
-    cache.clear();
-  } else {
-    cache.load();
-  }
+// Loads cached analyses into the items; returns how many were covered.
+auto applyCachedAnalyses(std::vector<ImageItem>& items, AnalysisCache& cache)
+  -> std::size_t {
   auto cacheHits = std::size_t{0};
   for (auto index = std::size_t{0}; index < items.size(); ++index) {
     auto const cached = cache.get(items[index].contentHash);
@@ -80,71 +70,79 @@ auto runOrganize(
     ++cacheHits;
     items[index].analysis = *cached;
   }
+  return cacheHits;
+}
 
-  // Analyze everything the cache does not cover; identical content dedupes
-  // through the cache on the fly. Failures cache an empty result so re-runs
-  // never re-pay for a deterministic decode failure.
-  {
-    auto analysisTasks = std::vector<taskexec::TaskSpec>{};
-    auto cacheMutex = std::mutex{};
-    for (auto index = std::size_t{0}; index < items.size(); ++index) {
-      if (cache.get(items[index].contentHash).has_value()) { continue; }
-      analysisTasks.push_back(
-        taskexec::TaskSpec{
-          .id = items[index].contentHash,
-          .label = items[index].path.filename().string(),
-          .input = items[index].path.string(),
-          .run = [&engine, &items, &cache, &cacheMutex, index](taskexec::TaskContext&)
-            -> eh::Result<void> {
-            auto result = engine.classify(items[index].path);
-            auto outcome = result.has_value() ? std::move(*result) : AnalysisResult{};
-            auto lock = std::lock_guard{cacheMutex};
-            items[index].analysis = outcome;
-            cache.put(items[index].contentHash, outcome);
-            return {};
-          },
-        }
-      );
-    }
-
-    auto barIndex = std::numeric_limits<std::size_t>::max();
-    if (progress != nullptr && !analysisTasks.empty()) {
-      barIndex = progress->addBar("Analyzing");
-      progress->resetEta(barIndex);
-    }
-    auto const total = analysisTasks.size();
-    auto done = std::atomic<std::size_t>{0};
-    for (auto& task: analysisTasks) {
-      task.run = [run = std::move(task.run),
-                  &done,
-                  total,
-                  barIndex,
-                  progress](taskexec::TaskContext& ctx) -> eh::Result<void> {
-        auto outcome = run(ctx);
-        auto const finished = done.fetch_add(1) + 1;
-        if (progress != nullptr) {
-          auto const percent =
-            static_cast<float>(finished) / static_cast<float>(total) * 100.0F;
-          progress->setProgress(barIndex, percent);
-          progress->setPostfixText(barIndex, std::format("{}/{}", finished, total));
-        }
-        return outcome;
-      };
-    }
-    auto const runResult = taskexec::runTasks({
-      .tasks = std::move(analysisTasks),
-      .maxConcurrency = options.maxJobs,
-      .progress = progress,
-    });
-    if (runResult.canceled) {
-      return eh::makeError("interrupted: completed analysis is cached");
-    }
+// Analyzes everything the cache does not cover; identical content dedupes
+// through the cache on the fly. Failures cache an empty result so re-runs
+// never re-pay for a deterministic decode failure. Returns false on cancel.
+auto analyzeMissing(
+  std::vector<ImageItem>& items,
+  tagger::TaggerEngine& engine,
+  AnalysisCache& cache,
+  Options const& options,
+  progress::ProgressContext* progress
+) -> bool {
+  auto analysisTasks = std::vector<taskexec::TaskSpec>{};
+  auto cacheMutex = std::mutex{};
+  for (auto index = std::size_t{0}; index < items.size(); ++index) {
+    if (cache.get(items[index].contentHash).has_value()) { continue; }
+    analysisTasks.push_back(
+      taskexec::TaskSpec{
+        .id = items[index].contentHash,
+        .label = items[index].path.filename().string(),
+        .input = items[index].path.string(),
+        .run = [&engine, &items, &cache, &cacheMutex, index](taskexec::TaskContext&)
+          -> eh::Result<void> {
+          auto result = engine.classify(items[index].path);
+          auto outcome = AnalysisResult{};
+          if (result.has_value()) { outcome = std::move(*result); }
+          auto lock = std::lock_guard{cacheMutex};
+          items[index].analysis = outcome;
+          cache.put(items[index].contentHash, outcome);
+          return {};
+        },
+      }
+    );
   }
+  if (analysisTasks.empty()) { return true; }
 
-  // References rebuilt with the freshly cached analyses included, then the
-  // fixed routing order per item.
-  auto references = buildFolderReferences(options.root, cache, options.minConfidence);
+  auto barIndex = progress != nullptr ? progress->addBar("Analyzing")
+                                      : std::numeric_limits<std::size_t>::max();
+  if (progress != nullptr) { progress->resetEta(barIndex); }
+  auto const total = analysisTasks.size();
+  auto done = std::atomic<std::size_t>{0};
+  for (auto& task: analysisTasks) {
+    task.run = [run = std::move(task.run),
+                &done,
+                total,
+                barIndex,
+                progress](taskexec::TaskContext& ctx) -> eh::Result<void> {
+      auto outcome = run(ctx);
+      auto const finished = done.fetch_add(1) + 1;
+      if (progress != nullptr) {
+        auto const percent =
+          static_cast<float>(finished) / static_cast<float>(total) * 100.0F;
+        progress->setProgress(barIndex, percent);
+        progress->setPostfixText(barIndex, std::format("{}/{}", finished, total));
+      }
+      return outcome;
+    };
+  }
+  auto const runResult = taskexec::runTasks({
+    .tasks = std::move(analysisTasks),
+    .maxConcurrency = options.maxJobs,
+    .progress = progress,
+  });
+  return !runResult.canceled;
+}
 
+// Routes every analyzed item; returns the single-subject remainder indices.
+auto routeItems(
+  std::vector<ImageItem>& items,
+  double minConfidence,
+  std::vector<FolderReference> const& references
+) -> std::vector<std::size_t> {
   auto pending = std::vector<std::size_t>{};
   for (auto index = std::size_t{0}; index < items.size(); ++index) {
     auto& item = items[index];
@@ -153,11 +151,20 @@ auto runOrganize(
       item.folderSource = FolderSource::Uncategorized;
       continue;
     }
-    routeConfident(item, index, options.minConfidence, references, pending);
+    routeConfident(item, index, minConfidence, references, pending);
   }
+  return pending;
+}
 
-  // Cluster the single-subject remainder; teaching folders claim clusters.
-  auto const clusters = clusterPending(items, pending, options.minConfidence);
+// Clusters the single-subject remainder; teaching folders claim clusters
+// first, fresh clusters get unknown_ names.
+auto clusterRemainder(
+  std::vector<ImageItem>& items,
+  std::vector<std::size_t> const& pending,
+  double minConfidence,
+  std::vector<FolderReference> const& references
+) -> void {
+  auto const clusters = clusterPending(items, pending, minConfidence);
   auto usedNames = std::set<std::string>{};
   for (auto const& item: items) {
     if (!item.folderName.empty()) {
@@ -197,6 +204,37 @@ auto runOrganize(
       item.folderSource = FolderSource::Uncategorized;
     }
   }
+}
+
+}  // namespace
+
+auto runOrganize(
+  Options const& options,
+  tagger::TaggerEngine& engine,
+  progress::ProgressContext* progress
+) -> eh::Result<ReportData> {
+  auto scanned = scanImages(options.root, options.recursive);
+  if (!scanned) { return std::unexpected(scanned.error()); }
+  auto items = std::move(*scanned);
+
+  auto cache = AnalysisCache{cachePathFor(options)};
+  if (options.recluster) {
+    cache.clear();
+  } else {
+    cache.load();
+  }
+  auto const cacheHits = applyCachedAnalyses(items, cache);
+
+  if (!analyzeMissing(items, engine, cache, options, progress)) {
+    return eh::makeError("interrupted: completed analysis is cached");
+  }
+
+  // References rebuilt with the freshly cached analyses included, then the
+  // fixed routing order per item.
+  auto const references =
+    buildFolderReferences(options.root, cache, options.minConfidence);
+  auto const pending = routeItems(items, options.minConfidence, references);
+  clusterRemainder(items, pending, options.minConfidence, references);
 
   auto const stats = executeOrganize(options.root, items, options.dryRun);
   return ReportData{
