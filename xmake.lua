@@ -77,7 +77,7 @@ target("encro")
     set_policy("build.optimization.lto", true)
   end
 
-  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11", "cpp-httplib", "onnxruntime")
+  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11", "cpp-httplib", "onnxruntime-gpu")
   if is_plat("windows") then
     add_syslinks("dbghelp", "shell32", "ole32")
   else
@@ -117,7 +117,7 @@ target("tests")
   set_kind("binary")
   set_default(false)
 
-  add_packages("catch2", "boost", "thread-pool", "indicators", "fmt", "spdlog", "libzippp", "cli11", "cpp-httplib", "onnxruntime")
+  add_packages("catch2", "boost", "thread-pool", "indicators", "fmt", "spdlog", "libzippp", "cli11", "cpp-httplib", "onnxruntime-gpu")
   if is_plat("windows") then
     add_syslinks("dbghelp", "shell32", "ole32")
   else
