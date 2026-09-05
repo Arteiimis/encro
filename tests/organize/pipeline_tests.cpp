@@ -80,6 +80,30 @@ TEST_CASE("pipeline files known characters, clusters, and mixed", "[organize]") 
   CHECK(testutils::readTextFile(temp.path / "miku-1.png") == "miku-1");
 }
 
+TEST_CASE("lone weak character candidate claims the image", "[organize]") {
+  // Second subject with no facial detail -> weak/no identity signal; the
+  // main character still owns the image (user acceptance scenario).
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "venti-solo.png", "vs");
+  testutils::writeTextFile(temp.path / "venti-duo.png", "vd");
+  testutils::writeTextFile(temp.path / "clash.png", "clash");
+
+  auto engine = FakeTagger{};
+  engine.byName["venti-solo.png"] =
+    {.general = {tag("2boys", 0.7)}, .character = {tag("venti", 0.55)}};
+  engine.byName["venti-duo.png"] =
+    {.general = {tag("2boys", 0.7)}, .character = {tag("venti", 0.55)}};
+  engine.byName["clash.png"] = {.character = {tag("venti", 0.55), tag("kieran", 0.52)}};
+
+  auto const report = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  REQUIRE(report.has_value());
+  // Weak-but-only candidate files by character even though count tags fired.
+  CHECK(fs::exists(temp.path / "organized" / "venti" / "venti-solo.png"));
+  CHECK(fs::exists(temp.path / "organized" / "venti" / "venti-duo.png"));
+  // The stronger weak candidate wins the image; no mixed for weak-only.
+  CHECK(fs::exists(temp.path / "organized" / "venti" / "clash.png"));
+}
+
 TEST_CASE("pipeline routes count-tag multi-subject and analysis failures", "[organize]") {
   auto temp = TempDir{};
   testutils::writeTextFile(temp.path / "duo.png", "duo");

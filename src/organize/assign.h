@@ -36,12 +36,42 @@ inline constexpr auto kMixedFolder = "mixed";
 // and route everything to mixed/. AI-generated art sits off the training
 // distribution and systematically depresses character confidence (real
 // identities fire ~0.6-0.85 where Danbooru originals fire 0.9+), so the
-// threshold sits at 0.60. Tunable during acceptance.
+// strong threshold sits at 0.60. Confidence above 0.5 (a zero logit) is
+// weak-but-positive evidence and is enough to claim an image when it is the
+// only candidate. Count-tag assertions (2boys, ...) use a strong 0.85
+// threshold: they must never fire on the 0.5 noise band. All tunable during
+// acceptance.
 inline constexpr auto kCharacterConfidence = 0.60;
+inline constexpr auto kZeroEvidence = 0.50;
+inline constexpr auto kSubjectCountConfidence = 0.85;
+// A character candidate below the strong threshold is credible when it fires
+// at least kWeakConfidence on at least kMinCharacterDf images: consistent
+// cross-image agreement separates a real identity from per-image noise
+// (acceptance: noise candidates capped at 0.5213, the real identity spanned
+// 0.53-0.73 across 32 of 83 images).
+inline constexpr auto kWeakConfidence = 0.53;
+inline constexpr auto kMinCharacterDf = std::size_t{3};
 
-// Character-tag candidates at or above kCharacterConfidence,
-// confidence-descending.
-auto confidentCharacterTags(AnalysisResult const& analysis) -> std::vector<TagScore>;
+// Identity-bearing character candidates (confidence above the zero-evidence
+// floor), confidence-descending. Strong candidates additionally satisfy
+// confidence >= kCharacterConfidence.
+auto positiveCharacterTags(AnalysisResult const& analysis) -> std::vector<TagScore>;
+
+// Per-candidate document frequency across the analyzed corpus (how many
+// images fire each character candidate above the zero-evidence floor).
+auto buildCharacterDf(std::vector<ImageItem> const& items)
+  -> std::map<std::string, std::size_t>;
+
+// A candidate is credible on its own confidence, or on cross-image
+// agreement at the weaker confidence level.
+auto isCredibleCandidate(
+  TagScore const& candidate,
+  std::map<std::string, std::size_t> const& characterDf
+) -> bool;
+
+// True when a subject-count tag is asserted at or above
+// kSubjectCountConfidence (a strong multi-subject assertion).
+auto hasStrongCountTag(AnalysisResult const& analysis) -> bool;
 
 // True when a subject-count tag (general category) is present.
 bool isMultiSubject(AnalysisResult const& analysis);

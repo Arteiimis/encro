@@ -44,19 +44,20 @@ auto item(std::string name, organize::AnalysisResult result) -> organize::ImageI
 
 }  // namespace
 
-TEST_CASE("confidentCharacterTags filters at the character threshold", "[organize]") {
+TEST_CASE("positiveCharacterTags keeps identity-bearing candidates", "[organize]") {
   auto const result = analysis({}, {tag("a", 0.5), tag("b", 0.9), tag("c", 0.3)});
-  auto const tags = organize::confidentCharacterTags(result);
-  // 0.5-band confidences are zero-evidence noise and must not count.
+  auto const tags = organize::positiveCharacterTags(result);
+  // Exactly-0.5 confidences are zero logit = zero evidence; excluded.
   REQUIRE(tags.size() == 1);
   CHECK(tags[0].tag == "b");
 }
 
-TEST_CASE("isMultiSubject detects count tags at or above threshold", "[organize]") {
-  CHECK(organize::isMultiSubject(analysis({tag("2girls", 0.9)})));
+TEST_CASE("hasStrongCountTag detects asserted count tags", "[organize]") {
+  CHECK(organize::hasStrongCountTag(analysis({tag("2girls", 0.9)})));
   // 0.5-band confidences are zero-evidence noise and must not count.
-  CHECK(!organize::isMultiSubject(analysis({tag("2girls", 0.5)})));
-  CHECK(!organize::isMultiSubject(analysis({tag("1girl", 0.9)})));
+  CHECK(!organize::hasStrongCountTag(analysis({tag("2girls", 0.5)})));
+  CHECK(!organize::hasStrongCountTag(analysis({tag("2girls", 0.6)})));
+  CHECK(!organize::hasStrongCountTag(analysis({tag("1girl", 0.9)})));
 }
 
 TEST_CASE("folder ownership claims by majority of sole candidates", "[organize]") {
