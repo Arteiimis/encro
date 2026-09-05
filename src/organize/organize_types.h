@@ -37,7 +37,8 @@ struct ImageItem {
   fs::path path;
   std::string contentHash;                 // sha256 hex of file bytes
   std::optional<AnalysisResult> analysis;  // nullopt = not analyzed yet
-  std::string folderName;                  // "" = unassigned
+  fs::path folderName;                     // empty = unassigned; kept as a
+                                           // path so CJK names survive
   FolderSource folderSource = FolderSource::Uncategorized;
 };
 

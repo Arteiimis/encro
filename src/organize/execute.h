@@ -14,7 +14,7 @@ namespace fs = std::filesystem;
 namespace organize {
 
 inline constexpr auto kUncategorizedFolder = "uncategorized";
-inline constexpr auto kMixedFolder = "mixed";
+// kMixedFolder lives in organize/assign.h (routing owns the constant).
 
 struct ExecuteStats {
   std::size_t copied = 0;
