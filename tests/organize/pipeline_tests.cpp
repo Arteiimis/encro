@@ -196,6 +196,41 @@ TEST_CASE("renamed character folder teaches subsequent runs", "[organize]") {
   CHECK(!fs::exists(temp.path / "organized" / "hatsune_miku"));
 }
 
+TEST_CASE("a merged cluster shares one folder", "[organize]") {
+  // Per-image name allocation collision-suffixed every member of a cluster
+  // into its own folder (1400 folders for ~43 clusters on the acceptance
+  // corpus); a cluster must allocate its name once.
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "a.png", "a");
+  testutils::writeTextFile(temp.path / "b.png", "b");
+  testutils::writeTextFile(temp.path / "c.png", "c");
+
+  auto engine = FakeTagger{};
+  engine.byName["a.png"] = {.general = {tag("pink_hair", 0.9), tag("blue_eyes", 0.8)}};
+  engine.byName["b.png"] = {.general = {tag("pink_hair", 0.88), tag("blue_eyes", 0.82)}};
+  engine.byName["c.png"] = {.general = {tag("black_hair", 0.9), tag("brown_eyes", 0.85)}};
+
+  auto const report = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  REQUIRE(report.has_value());
+
+  auto unknownFolders = std::map<std::string, int>{};
+  for (auto const& entry: fs::directory_iterator{temp.path / "organized"}) {
+    auto const name = entry.path().filename().string();
+    if (!name.starts_with("unknown_")) { continue; }
+    unknownFolders[name] = static_cast<int>(
+      std::ranges::count_if(fs::directory_iterator{entry.path()}, [](auto const&) {
+        return true;
+      })
+    );
+  }
+  REQUIRE(unknownFolders.size() == 2);
+  auto const members = std::vector<int>{
+    unknownFolders.begin()->second,
+    std::next(unknownFolders.begin())->second
+  };
+  CHECK((members == std::vector<int>{2, 1} || members == std::vector<int>{1, 2}));
+}
+
 TEST_CASE("renderReport lists folders with sources and totals", "[organize]") {
   auto report = organize::ReportData{
     .folders = {organize::FolderReportLine{
