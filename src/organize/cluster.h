@@ -13,35 +13,42 @@
 namespace organize {
 
 inline constexpr auto kTopKTags = std::size_t{20};
-inline constexpr auto kClusterTau = 0.82;  // tuned during acceptance (6.2)
-inline constexpr auto kFolderTau = 0.80;   // tuned during acceptance (6.2)
+inline constexpr auto kClusterTau = 0.82;   // tuned during acceptance (6.2)
+inline constexpr auto kFolderTau = 0.80;    // tuned during acceptance (6.2)
 inline constexpr auto kUnknownPrefix = "unknown_";
+inline constexpr auto kVectorFloor = 0.55;  // above the 0.5 noise band; see CorpusTraits
+inline constexpr auto kTraitMaxDfFraction = 0.75;
 
-// Per-tag inverse document frequency over the analyzed corpus. Tags firing
-// on nearly every image describe the collection (genre, censoring, framing)
-// rather than the depicted character; idf = ln(N/df) suppresses them.
-using IdfWeights = std::map<std::string, double>;
+// Corpus statistics shaping appearance vectors: idf weights suppress
+// collection-constant tags (genre/censoring/framing fire on every image and
+// describe the collection, not the character), and the df band keeps only
+// mid-frequency traits — one-off scene tags and collection constants are
+// equally useless for telling characters apart. Vector confidence floor is
+// kVectorFloor (0.55): the 0.5 zero-evidence band extends to ~0.52 of noise
+// and --min-confidence (0.35) lets the whole 8k-tag vocabulary through,
+// which saturates df and empties vectors (both observed in acceptance).
+// NOLINTNEXTLINE(bugprone-exception-escape): std::map members allocate by design
+struct CorpusTraits {
+  std::map<std::string, double> idf;
+  std::map<std::string, std::size_t> df;
+  std::size_t corpus = 0;
 
-// Builds idf weights from every analyzed item's general tags (thresholded,
-// count tags excluded). Pass the result to the vector builders.
-auto buildIdfWeights(std::vector<ImageItem> const& items, double minConfidence)
-  -> IdfWeights;
+  auto inTraitBand(std::string const& tag) const -> bool;
+};
 
-// Sparse appearance vector: general tags at or above the threshold, capped
-// to the top K by idf-weighted confidence, as tag -> weight.
-// Subject-count tags are excluded (design D4: they route, they do not
-// describe appearance). An empty idf map treats every tag as weight 1.
-auto appearanceVector(
-  AnalysisResult const& analysis,
-  double minConfidence,
-  IdfWeights const& idf = {}
-) -> std::map<std::string, double>;
+// Builds corpus traits from every analyzed item's general tags (count tags
+// excluded). Pass the result to the vector builders.
+auto buildCorpusTraits(std::vector<ImageItem> const& items) -> CorpusTraits;
+
+// Sparse appearance vector: general tags in the trait band, capped to the
+// top K by idf-weighted confidence, as tag -> weight.
+auto appearanceVector(AnalysisResult const& analysis, CorpusTraits const& traits = {})
+  -> std::map<std::string, double>;
 
 // appearanceVector with the result L2-normalized (similarity-ready).
 auto normalizedAppearanceVector(
   AnalysisResult const& analysis,
-  double minConfidence,
-  IdfWeights const& idf = {}
+  CorpusTraits const& traits = {}
 ) -> std::map<std::string, double>;
 
 double cosineSimilarity(
@@ -60,8 +67,7 @@ struct Cluster {
 auto clusterPending(
   std::vector<ImageItem> const& items,
   std::vector<std::size_t> const& pending,
-  double minConfidence,
-  IdfWeights const& idf = {}
+  CorpusTraits const& traits = {}
 ) -> std::vector<Cluster>;
 
 // unknown_<top-tags> name for the cluster; collisions get _2/_3... suffixes.
