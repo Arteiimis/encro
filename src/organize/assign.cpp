@@ -4,15 +4,14 @@
 
 namespace organize {
 
-auto confidentCharacterTags(AnalysisResult const& analysis, double minConfidence)
-  -> std::vector<TagScore> {
+auto confidentCharacterTags(AnalysisResult const& analysis) -> std::vector<TagScore> {
   auto tags = std::vector<TagScore>{};
   tags.reserve(analysis.character.size());
   std::copy_if(
     analysis.character.begin(),
     analysis.character.end(),
     std::back_inserter(tags),
-    [&](TagScore const& tag) { return tag.confidence >= minConfidence; }
+    [&](TagScore const& tag) { return tag.confidence >= kCharacterConfidence; }
   );
   std::sort(tags.begin(), tags.end(), [](TagScore const& a, TagScore const& b) {
     if (a.confidence != b.confidence) { return a.confidence > b.confidence; }
@@ -21,9 +20,11 @@ auto confidentCharacterTags(AnalysisResult const& analysis, double minConfidence
   return tags;
 }
 
-auto isMultiSubject(AnalysisResult const& analysis, double minConfidence) -> bool {
+auto isMultiSubject(AnalysisResult const& analysis, double) -> bool {
+  // Count tags are subject assertions: like character identities they need
+  // strong evidence (the ~0.5 sigmoid band is zero-evidence noise).
   for (auto const& tag: analysis.general) {
-    if (tag.confidence < minConfidence) { continue; }
+    if (tag.confidence < kCharacterConfidence) { continue; }
     auto const match = std::ranges::find(kSubjectCountTags, tag.tag);
     if (match != std::ranges::end(kSubjectCountTags)) { return true; }
   }

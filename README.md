@@ -155,6 +155,34 @@ those — so you can see what the probe-selected configuration will look like
 before committing to a full encode. With two inputs, it compares an existing
 original with its encoded output.
 
+### Grouping images by character (`organize`)
+
+```sh
+xmake run encro organize <dir> [-r] [--min-confidence F] [--dry-run]
+```
+
+`organize` sorts a folder of images into per-character folders under
+`<dir>/organized/` using a local AI model (wd-vit-tagger-v3). Analysis is
+fully local: image content never leaves this machine. Known characters file
+by their tag (`organized/hatsune_miku/`); everything else clusters by
+appearance into `unknown_<tags>/` folders; multi-subject images land in
+`mixed/`. Originals are always copied, never moved.
+
+The first run needs the model files (~400 MB, one time):
+
+```sh
+xmake run encro organize <dir> --download-models
+```
+
+Rename any output folder to rename a character — e.g. `hatsune_miku` →
+`初音ミク`; later runs file new images of that character under your name.
+`--dry-run` prints the plan without copying; results are cached by content
+hash, so re-runs and interrupted runs re-analyze nothing (`--recluster`
+discards the cache). On NVIDIA GPUs the model runs on CUDA; install the
+CUDA runtime once with `scoop install versions/cuda12.9` (cuDNN is
+downloaded automatically by `--download-models`). Without it, everything
+falls back to the CPU with a notice.
+
 ## Building
 
 C++26, xmake build system. Primary platform is Windows (clang-cl + lld-link);

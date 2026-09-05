@@ -38,7 +38,7 @@ auto routeConfident(
     pending.push_back(index);
     return;
   }
-  auto const confident = confidentCharacterTags(*item.analysis, minConfidence);
+  auto const confident = confidentCharacterTags(*item.analysis);
   if (confident.size() == 1) {
     auto const tag = confident.front().tag;
     if (auto const* owner = owningFolder(references, tag); owner != nullptr) {
