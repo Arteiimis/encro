@@ -1,7 +1,7 @@
 #include "organize/teach.h"
 
 #include "organize/cluster.h"
-#include "organize/sha256.h"
+#include "core/sha256.h"
 
 #include <algorithm>
 #include <fstream>
@@ -42,7 +42,7 @@ auto buildFolderReferences(
       auto file = std::ifstream{member.path(), std::ios::binary};
       if (!file.is_open()) { continue; }
       auto const bytes = std::string{std::istreambuf_iterator<char>{file}, {}};
-      auto const cached = cache.get(sha256Hex(bytes));
+      auto const cached = cache.get(core::sha256Hex(bytes));
       if (!cached.has_value()) { continue; }
       // Cached-but-empty analysis still counts as analyzable: routing
       // happened, it simply produced nothing.

@@ -63,6 +63,13 @@ struct Range {
   }
 };
 
+// Double-bounded range for floating-point options (Range is int-only).
+struct FloatRange {
+  double lo;
+  double hi;
+  void operator()(CLI::Option* option) const { option->check(CLI::Range(lo, hi)); }
+};
+
 struct PositiveNumber {
   void operator()(CLI::Option* option) const {
     option->check(CLI::PositiveNumber);

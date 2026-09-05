@@ -24,7 +24,7 @@ namespace configstore {
 // Canonical order mirrors the CLI help groups (General / IO / Processing /
 // FileOp); save() writes keys in this order so the file is diff-stable.
 
-inline constexpr auto kKeys = std::array<KeyDef, 16>{{
+inline constexpr auto kKeys = std::array<KeyDef, 17>{{
   {"color", JsonKind::String},
   {"yes", JsonKind::Boolean},
   {"output-format", JsonKind::String},
@@ -41,6 +41,7 @@ inline constexpr auto kKeys = std::array<KeyDef, 16>{{
   {"preset", JsonKind::String},
   {"video-codec", JsonKind::String},
   {"pack", JsonKind::Boolean},
+  {"model-dir", JsonKind::String},
 }};
 
 auto keys() -> std::span<KeyDef const> {

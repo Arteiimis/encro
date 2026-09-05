@@ -1,6 +1,6 @@
 // Downloader paths against a loopback fake server (task 2.4): primary ->
 // mirror fallback, checksum rejection, presence checks, cuDNN driver gate.
-#include "organize/sha256.h"
+#include "core/sha256.h"
 #include "tagger/model_store.h"
 
 #include "test_utils.h"
@@ -50,7 +50,7 @@ auto goodFile() -> tagger::RemoteFile {
     .logical = "test/model.bin",
     .urlPath = "/good/file.bin",
     .size = kGoodBody.size(),
-    .sha256 = organize::sha256Hex(kGoodBody),
+    .sha256 = core::sha256Hex(kGoodBody),
   };
 }
 
@@ -94,7 +94,7 @@ TEST_CASE("downloadFile rejects checksum mismatch after bounded retries", "[tagg
   auto server = FakeServer{};
   auto temp = TempDir{};
   auto corrupt = goodFile();
-  corrupt.sha256 = organize::sha256Hex("different-bytes");
+  corrupt.sha256 = core::sha256Hex("different-bytes");
 
   auto const installed =
     tagger::downloadFile(temp.path, corrupt, server.url(), server.url());

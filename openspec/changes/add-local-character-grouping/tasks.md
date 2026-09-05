@@ -30,8 +30,8 @@
 
 ## 5. CLI and e2e
 
-- [ ] 5.1 Register `encro organize` with `-r/--recursive`, `--min-confidence`, `--model-dir`, `--download-models`, `--dry-run`, `--recluster`; add the `model-dir` config key with validation and precedence (CLI > config > default); verify help output shows the privacy line and options, config set/get accept/reject, and completion registry entries update
-- [ ] 5.2 Add the `encro_fake_tagger` fixture tool (env-var-driven content-hash -> tags mapping, the `fake_media_tool` pattern) and e2e tests: happy path grouping, resume without duplicate analysis, rename-teaching across runs, dry-run copies nothing, missing models fail fast with guidance; assert classification exercises no network path (the downloader runs only behind `--download-models`)
+- [x] 5.1 Register `encro organize` with `-r/--recursive`, `--min-confidence`, `--model-dir`, `--download-models`, `--dry-run`, `--recluster`; add the `model-dir` config key with validation and precedence (CLI > config > default); verify help output shows the privacy line and options, config set/get accept/reject, and completion registry entries update
+- [x] 5.2 Add the `encro_fake_tagger` fixture tool (env-var-driven content-hash -> tags mapping, the `fake_media_tool` pattern) and e2e tests: happy path grouping, resume without duplicate analysis, rename-teaching across runs, dry-run copies nothing, missing models fail fast with guidance; assert classification exercises no network path (the downloader runs only behind `--download-models`)
 
 ## 6. Final verification
 
