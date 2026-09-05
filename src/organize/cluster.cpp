@@ -4,12 +4,70 @@
 #include "organize/naming.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
+#include <string_view>
 
 namespace organize {
 
 namespace {
+
+// Identity-bearing tag substrings: the visual features that make a character
+// recognizable (hair, eyes, anatomy, signature accessories). Acceptance on a
+// 1899-image illustration dump showed unrestricted general-tag vectors are
+// dominated by scene/action words and cannot tell characters apart (pairwise
+// cosine p50 0.08); identity-only vectors cluster the same corpus cleanly.
+constexpr auto kIdentityPatterns = std::array{
+  std::string_view{"hair"},     std::string_view{"eyes"},
+  std::string_view{"ahoge"},    std::string_view{"bangs"},
+  std::string_view{"ponytail"}, std::string_view{"twintails"},
+  std::string_view{"braid"},    std::string_view{"sidelocks"},
+  std::string_view{"horn"},     std::string_view{"tail"},
+  std::string_view{"ears"},     std::string_view{"wing"},
+  std::string_view{"glasses"},  std::string_view{"eyepatch"},
+  std::string_view{"mask"},     std::string_view{"headband"},
+  std::string_view{"hairband"}, std::string_view{"hair_ornament"},
+  std::string_view{"earrings"}, std::string_view{"halo"},
+  std::string_view{"antennae"}, std::string_view{"fangs"},
+};
+
+// Tags matching a pattern but describing the scene or an expression, not the
+// person ("tears" contains "ears", "cocktail" contains "tail", ...).
+constexpr auto kIdentityBlocklist = std::array{
+  std::string_view{"pubic_hair"},
+  std::string_view{"male_pubic_hair"},
+  std::string_view{"female_pubic_hair"},
+  std::string_view{"body_hair"},
+  std::string_view{"armpit_hair"},
+  std::string_view{"facial_hair"},
+  std::string_view{"chest_hair"},
+  std::string_view{"cum_on_hair"},
+  std::string_view{"tears"},
+  std::string_view{"horny"},
+  std::string_view{"cocktail"},
+  std::string_view{"closed_eyes"},
+  std::string_view{"half-closed_eyes"},
+  std::string_view{"almost-closed_eyes"},
+  std::string_view{"empty_eyes"},
+  std::string_view{"rolling_eyes"},
+  std::string_view{"one_eye_closed"},
+  std::string_view{"mask_remove"},
+  std::string_view{"mask_removed"},
+  std::string_view{"mask_off"},
+  std::string_view{"mask_on"},
+  std::string_view{"holding_mask"},
+};
+
+bool isIdentityTag(std::string const& tag) {
+  for (auto const& blocked: kIdentityBlocklist) {
+    if (tag == blocked) { return false; }
+  }
+  for (auto const& pattern: kIdentityPatterns) {
+    if (tag.find(pattern) != std::string::npos) { return true; }
+  }
+  return false;
+}
 
 auto l2Norm(std::map<std::string, double> const& vector) -> double {
   auto sum = 0.0;
@@ -38,8 +96,13 @@ auto CorpusTraits::inTraitBand(std::string const& tag) const -> bool {
   if (df.empty()) { return true; }
   auto const it = df.find(tag);
   if (it == df.end()) { return false; }
-  // Scale the minimum with the corpus so small runs keep their traits.
-  auto const minDf = std::max<std::size_t>(1, corpus / 20);
+  // Scale the minimum with the corpus (recurring-trait support ~2%), from an
+  // absolute floor so small runs keep their traits, capped at a fifth of the
+  // corpus so tiny runs keep theirs.
+  auto const minDf = std::min(
+    corpus / kTraitMinDfCorpusCapFraction,
+    std::max(kTraitMinDfFloor, corpus / kTraitMinDfCorpusFraction)
+  );
   return it->second >= minDf
     && static_cast<double>(it->second)
     <= kTraitMaxDfFraction * static_cast<double>(corpus);
@@ -85,6 +148,8 @@ auto appearanceVector(AnalysisResult const& analysis, CorpusTraits const& traits
     // Outside the trait band: collection constants and one-off scene noise
     // are equally useless for telling characters apart.
     if (!traits.inTraitBand(tag.tag)) { continue; }
+    // Scene and action words describe the picture, not the person.
+    if (!isIdentityTag(tag.tag)) { continue; }
     auto const weight =
       tag.confidence * (traits.idf.contains(tag.tag) ? traits.idf.at(tag.tag) : 1.0);
     weighted.push_back(TagScore{.tag = tag.tag, .confidence = weight});

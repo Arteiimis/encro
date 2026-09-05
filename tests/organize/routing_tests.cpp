@@ -80,16 +80,40 @@ TEST_CASE("folder ownership claims by majority of sole candidates", "[organize]"
   CHECK(organize::owningFolder(references, "hatsune_miku") == &references[0]);
 }
 
+TEST_CASE("appearanceVector keeps only identity-bearing tags", "[organize]") {
+  // Acceptance (prpr corpus, 1899 images): unrestricted vectors carried
+  // scene/action words (nude, trembling, open_mouth) and collapsed cosine to
+  // noise (p50 0.08 vs tau 0.82); only identity features group characters.
+  auto const vector = organize::appearanceVector(analysis({
+    tag("pink_hair", 0.9),
+    tag("blue_eyes", 0.8),
+    tag("dragon_horns", 0.85),
+    tag("nude", 0.95),
+    tag("open_mouth", 0.85),
+    tag("trembling", 0.7),
+    // Substring traps: each matches a pattern but is scene/expression.
+    tag("pubic_hair", 0.9),
+    tag("cum_on_hair", 0.8),
+    tag("tears", 0.75),
+    tag("horny", 0.7),
+    tag("cocktail", 0.6),
+  }));
+  REQUIRE(vector.size() == 3);
+  CHECK(vector.count("pink_hair") == 1);
+  CHECK(vector.count("blue_eyes") == 1);
+  CHECK(vector.count("dragon_horns") == 1);
+}
+
 TEST_CASE("appearanceVector caps to top-K and floors at threshold", "[organize]") {
   auto general = std::vector<organize::TagScore>{};
   for (auto index = 0; index < 25; ++index) {
-    general.push_back(tag(std::format("tag{:02}", index), 0.9 - index * 0.01));
+    general.push_back(tag(std::format("hair_{:02}", index), 0.9 - index * 0.01));
   }
-  general.push_back(tag("weak", 0.1));
+  general.push_back(tag("hair_weak", 0.1));
   auto const vector = organize::appearanceVector(analysis(general));
   CHECK(vector.size() == organize::kTopKTags);
-  CHECK(vector.find("weak") == vector.end());
-  CHECK(vector.find("tag00") != vector.end());
+  CHECK(vector.find("hair_weak") == vector.end());
+  CHECK(vector.find("hair_00") != vector.end());
 }
 
 TEST_CASE("cosineSimilarity is 1 for identical, 0 for disjoint", "[organize]") {
@@ -119,13 +143,68 @@ TEST_CASE(
   CHECK(pink.itemIndices.size() == 2);
 }
 
+TEST_CASE("clusterPending merges partially overlapping identity vectors", "[organize]") {
+  // kClusterTau sits at 0.50 (acceptance): one character with slightly
+  // different feature sets must merge, not fragment into per-image folders.
+  auto items = std::vector<organize::ImageItem>{
+    item(
+      "a",
+      analysis({tag("pink_hair", 0.9), tag("blue_eyes", 0.8), tag("ahoge", 0.7)})
+    ),
+    item(
+      "b",
+      analysis({tag("pink_hair", 0.85), tag("blue_eyes", 0.75), tag("ahoge", 0.75)})
+    ),
+    item("c", analysis({tag("black_hair", 0.9), tag("brown_eyes", 0.8)})),
+  };
+  auto const clusters = organize::clusterPending(items, {0, 1, 2});
+  REQUIRE(clusters.size() == 2);
+  auto const& merged = clusters[0].itemIndices.size() == 2 ? clusters[0] : clusters[1];
+  CHECK(merged.itemIndices.size() == 2);
+}
+
+TEST_CASE("inTraitBand minimum df scales with corpus and floors low", "[organize]") {
+  // Acceptance (prpr corpus): corpus/20 at 1899 images demanded df >= 94 and
+  // kept only 184 collection-wide tags; the minimum now grows as corpus/50
+  // from an absolute floor of 5.
+  auto const traits = organize::CorpusTraits{
+    .idf = {},
+    .df = {{"in_band", 37}, {"too_rare", 10}, {"collection_constant", 1500}},
+    .corpus = 1899,
+  };
+  CHECK(traits.inTraitBand("in_band"));
+  CHECK(!traits.inTraitBand("too_rare"));
+  CHECK(!traits.inTraitBand("collection_constant"));
+  CHECK(!traits.inTraitBand("absent"));
+
+  auto const small = organize::CorpusTraits{
+    .idf = {},
+    .df = {{"edge", 5}, {"below", 4}},
+    .corpus = 100,
+  };
+  CHECK(small.inTraitBand("edge"));
+  CHECK(!small.inTraitBand("below"));
+
+  // Tiny corpus: the support requirement never exceeds a fifth of it.
+  auto const tiny = organize::CorpusTraits{
+    .idf = {},
+    .df = {{"only", 1}},
+    .corpus = 4,
+  };
+  CHECK(tiny.inTraitBand("only"));
+
+  // No corpus statistics at all (tests, single-image runs): no filtering.
+  auto const empty = organize::CorpusTraits{};
+  CHECK(empty.inTraitBand("anything"));
+}
+
 TEST_CASE(
   "clusterPending opens a new cluster below tau and names distinctly",
   "[organize]"
 ) {
   auto items = std::vector<organize::ImageItem>{
     item("a", analysis({tag("pink_hair", 0.9)})),
-    item("b", analysis({tag("utterly_different", 0.9)})),
+    item("b", analysis({tag("black_hair", 0.9)})),
     item("c", analysis({tag("pink_hair", 0.88)})),
   };
   auto const clusters = organize::clusterPending(items, {0, 1, 2});
