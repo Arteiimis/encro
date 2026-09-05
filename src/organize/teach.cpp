@@ -23,7 +23,8 @@ auto l2Norm(std::map<std::string, double> const& vector) -> double {
 auto accumulateMember(
   FolderReference& reference,
   AnalysisResult const& analysis,
-  double minConfidence
+  double minConfidence,
+  IdfWeights const& idf
 ) {
   // Cached-but-empty analysis still counts as analyzable: routing happened,
   // it simply produced nothing.
@@ -32,7 +33,7 @@ auto accumulateMember(
   auto const candidates = confidentCharacterTags(analysis);
   if (candidates.size() == 1) { ++reference.soleTagCounts[candidates.front().tag]; }
 
-  auto vector = normalizedAppearanceVector(analysis, minConfidence);
+  auto vector = normalizedAppearanceVector(analysis, minConfidence, idf);
   if (vector.empty()) { return; }
 
   auto const count = static_cast<double>(reference.vectorMembers);
@@ -46,7 +47,8 @@ auto accumulateMember(
 auto buildReference(
   fs::path const& folderDir,
   AnalysisCache const& cache,
-  double minConfidence
+  double minConfidence,
+  IdfWeights const& idf
 ) -> FolderReference {
   auto reference = FolderReference{.name = folderDir.filename()};
   auto ec = std::error_code{};
@@ -57,7 +59,7 @@ auto buildReference(
     auto const bytes = std::string{std::istreambuf_iterator<char>{file}, {}};
     auto const cached = cache.get(core::sha256Hex(bytes));
     if (!cached.has_value()) { continue; }
-    accumulateMember(reference, *cached, minConfidence);
+    accumulateMember(reference, *cached, minConfidence, idf);
   }
   return reference;
 }
@@ -67,7 +69,8 @@ auto buildReference(
 auto buildFolderReferences(
   fs::path const& root,
   AnalysisCache const& cache,
-  double minConfidence
+  double minConfidence,
+  IdfWeights const& idf
 ) -> std::vector<FolderReference> {
   auto const outputRoot = root / "organized";
   auto ec = std::error_code{};
@@ -78,7 +81,7 @@ auto buildFolderReferences(
     // Skip cache-internal directories; only character/unknown/mixed folders
     // teach.
     if (!entry.is_directory() || entry.path().filename() == ".cache") { continue; }
-    auto reference = buildReference(entry.path(), cache, minConfidence);
+    auto reference = buildReference(entry.path(), cache, minConfidence, idf);
     if (reference.analyzableMembers > 0) { references.push_back(std::move(reference)); }
   }
   return references;

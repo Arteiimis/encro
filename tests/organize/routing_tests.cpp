@@ -54,7 +54,8 @@ TEST_CASE("confidentCharacterTags filters at the character threshold", "[organiz
 
 TEST_CASE("isMultiSubject detects count tags at or above threshold", "[organize]") {
   CHECK(organize::isMultiSubject(analysis({tag("2girls", 0.9)})));
-  CHECK(!organize::isMultiSubject(analysis({tag("2girls", 0.6)})));
+  // 0.5-band confidences are zero-evidence noise and must not count.
+  CHECK(!organize::isMultiSubject(analysis({tag("2girls", 0.5)})));
   CHECK(!organize::isMultiSubject(analysis({tag("1girl", 0.9)})));
 }
 

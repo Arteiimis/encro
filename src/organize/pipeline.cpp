@@ -172,9 +172,10 @@ auto clusterRemainder(
   std::vector<ImageItem>& items,
   std::vector<std::size_t> const& pending,
   double minConfidence,
-  std::vector<FolderReference> const& references
+  std::vector<FolderReference> const& references,
+  IdfWeights const& idf
 ) -> void {
-  auto const clusters = clusterPending(items, pending, minConfidence);
+  auto const clusters = clusterPending(items, pending, minConfidence, idf);
   auto usedNames = std::set<std::string>{};
   for (auto const& item: items) {
     if (!item.folderName.empty()) {
@@ -240,11 +241,13 @@ auto runOrganize(
   }
 
   // References rebuilt with the freshly cached analyses included, then the
-  // fixed routing order per item.
+  // fixed routing order per item. Idf weights come from the full analyzed
+  // corpus so collection-constant tags cannot dominate similarity.
+  auto const idf = buildIdfWeights(items, options.minConfidence);
   auto const references =
-    buildFolderReferences(options.root, cache, options.minConfidence);
+    buildFolderReferences(options.root, cache, options.minConfidence, idf);
   auto const pending = routeItems(items, options.minConfidence, references);
-  clusterRemainder(items, pending, options.minConfidence, references);
+  clusterRemainder(items, pending, options.minConfidence, references, idf);
 
   auto const stats = executeOrganize(options.root, items, options.dryRun);
   return ReportData{
