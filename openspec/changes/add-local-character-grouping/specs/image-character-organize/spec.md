@@ -41,7 +41,7 @@ All classification decisions SHALL be computed on the local machine by model fil
 
 ### Requirement: Known-character assignment
 
-For every image, the analyzer SHALL produce character-tag candidates with confidence values. A character tag SHALL count as a confident candidate only at or above the character confidence threshold (a design constant, default 0.60 — character heads emit ~0.5 confidence for every unused identity so the threshold must sit above `--min-confidence`, and AI-generated art sits off the training distribution which further depresses confidence). An image with exactly one confident character tag SHALL be assigned to a folder named after that tag, sanitized to `[a-z0-9_]` with deterministic collision suffixes. An image with two or more confident character tags SHALL be treated as multi-subject.
+For every image, the analyzer SHALL produce character-tag candidates with confidence values. Character confidence is tiered: a candidate is confident at or above the character confidence threshold (a design constant, default 0.60 — character heads emit ~0.5 confidence for every unused identity so the threshold must sit above `--min-confidence`, and AI-generated art sits off the training distribution which further depresses confidence), and weak-but-identity-bearing above 0.5 (the zero-evidence floor: a zero logit). An image with exactly one confident candidate SHALL be assigned to a folder named after that tag; when no confident candidate exists but exactly one weak candidate does, the image SHALL be assigned to that tag's folder as well (a second, uncharacterized subject does not make the image ownerless). Folder names are sanitized to `[a-z0-9_]` with deterministic collision suffixes. An image with two or more confident character tags SHALL be treated as multi-subject.
 
 #### Scenario: Single confident character tag names the folder
 
@@ -79,7 +79,7 @@ Routing follows a fixed order: assignment by exactly one at-or-above-threshold c
 
 ### Requirement: Multi-subject fallback
 
-An image is multi-subject when it has two or more confident character tags (at or above the character confidence threshold), or when its subject-count tags (a fixed vocabulary of general tags such as `2girls`) are asserted at or above that same threshold. A multi-subject image with exactly one confident character tag SHALL be assigned to that character's folder; every other multi-subject image SHALL be copied into `mixed/`.
+An image is multi-subject when it has two or more confident character tags, two or more weak competing character candidates with no confident candidate, or a subject-count tag (a fixed vocabulary of general tags such as `2girls`) asserted at or above the strong count threshold with no character candidate above the zero-evidence floor. A multi-subject image with exactly one confident character tag SHALL be assigned to that character's folder; every other multi-subject image SHALL be copied into `mixed/`.
 
 #### Scenario: Two confident character tags go to mixed
 
