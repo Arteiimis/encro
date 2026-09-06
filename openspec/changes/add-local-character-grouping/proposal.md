@@ -33,8 +33,8 @@ The motivating collection is a folder of AI-generated anime/illustration images 
 ## Impact
 
 - **New code**: `src/tagger` (ONNX session wrapper, tag vocabulary loading, preprocessing contract) and `src/organize` (scan, assign, cluster, teach, execute, report, cache) — partially ported from the abandoned branch.
-- **Modified code**: `src/cmd` (subcommand and option registration, config key), `xmake.lua` (onnxruntime package added; cpp-httplib re-added from the abandoned branch for the downloader).
-- **Dependencies**: onnxruntime (xrepo prebuilt, `gpu=true` CUDA flavor with CPU-provider fallback), cpp-httplib (model and cuDNN downloader), libzippp (existing dependency, used to extract the cuDNN archive), ffmpeg (image decoding via the existing external-tool pattern, now also feeding the tagger).
+- **Modified code**: `src/cmd` (subcommand and option registration, config key), `xmake.lua` (onnxruntime package added).
+- **Dependencies**: onnxruntime (xrepo prebuilt, `gpu=true` CUDA flavor with CPU-provider fallback), libzippp (existing dependency, used to extract the cuDNN archive), ffmpeg (image decoding via the existing external-tool pattern, now also feeding the tagger).
 - **Runtime artifacts**: model files (~350 MB) under the model dir; per-run cache under `<directory>/organized/.cache/`.
 - **Tests**: ported unit tests for the salvaged stages; new unit tests behind a fake-tagger seam; e2e tests driven by a fixture-based fake tagger (no network, no model files); manual validation on a real image set as the acceptance step.
 - **Supersedes**: branch `add-ai-character-grouping` (not merged; nothing to migrate).
