@@ -67,9 +67,12 @@ add_requires("libzippp")
 add_requires("cpp-httplib v0.53.1")
 -- Local GPU-flavor ORT package (build-repo/): the xrepo one drags a `cuda`
 -- build dep we don't want (CUDA/cuDNN DLLs are runtime concerns for us) and
--- it is unsupported under MSYS-shell package envs.
+-- it is unsupported under MSYS-shell package envs. Its prebuilt binaries are
+-- win-x64-only, so non-Windows hosts skip it and build the tagger stub.
 add_repositories("encro-repo build-repo")
-add_requires("onnxruntime-gpu 1.22.1")
+if is_plat("windows") then
+  add_requires("onnxruntime-gpu 1.22.1")
+end
 add_requires("catch2")
 
 -- Copies the shared ORT runtime DLLs next to binaries that link them:
@@ -102,8 +105,9 @@ target("encro")
     set_policy("build.optimization.lto", true)
   end
 
-  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11", "onnxruntime-gpu")
+  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11")
   if is_plat("windows") then
+    add_packages("onnxruntime-gpu")
     add_syslinks("dbghelp", "shell32", "ole32")
   else
     add_syslinks("dl")
@@ -111,6 +115,11 @@ target("encro")
 
   add_includedirs("src", {public = true})
   add_files("src/**.cpp")
+  -- ONNX inference links win-x64-only ORT binaries; other hosts get the
+  -- engine_factory stub instead.
+  if not is_plat("windows") then
+    remove_files("src/tagger/onnx_tagger.cpp")
+  end
   after_build(copyOrtRuntimeDlls)
 target_end()
 
@@ -144,8 +153,9 @@ target("tests")
   set_kind("binary")
   set_default(false)
 
-  add_packages("catch2", "boost", "thread-pool", "indicators", "fmt", "spdlog", "libzippp", "cli11", "cpp-httplib", "onnxruntime-gpu")
+  add_packages("catch2", "boost", "thread-pool", "indicators", "fmt", "spdlog", "libzippp", "cli11", "cpp-httplib")
   if is_plat("windows") then
+    add_packages("onnxruntime-gpu")
     add_syslinks("dbghelp", "shell32", "ole32")
   else
     add_syslinks("dl")
@@ -158,6 +168,10 @@ target("tests")
   add_files("tests/picture/*.cpp")
   add_files("tests/preview/*.cpp")
   add_files("tests/tagger/*.cpp")
+  -- Constructs OnnxTagger directly; windows-only like the engine it drives.
+  if not is_plat("windows") then
+    remove_files("tests/tagger/real_model_tests.cpp")
+  end
   add_files("tests/video/*.cpp")
   add_files("src/**.cpp|main.cpp")
 

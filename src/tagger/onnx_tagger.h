@@ -32,7 +32,7 @@ public:
   auto classify(fs::path const& path) -> eh::Result<TaggerOutput> override;
 
   // "cuda" or "cpu" — the pipeline prints this as the one provider notice.
-  auto providerName() const -> std::string const& { return providerName_; }
+  auto providerName() const -> std::string override { return providerName_; }
 
 private:
   fs::path modelPath_;
