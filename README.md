@@ -158,7 +158,7 @@ original with its encoded output.
 ### Grouping images by character (`organize`)
 
 ```sh
-xmake run encro organize <dir> [-r] [--min-confidence F] [--dry-run]
+xmake run encro organize <dir> [-r] [--min-confidence F] [--model-dir <dir>] [--dry-run]
 ```
 
 `organize` sorts a folder of images into per-character folders under
