@@ -65,13 +65,11 @@ struct CmdParseResult {
   bool packOnly = false;
   bool overwrite = false;
 
-  // ── config subcommand (mutually exclusive actions) ──────
+  // ── config subcommand (positional action verbs) ──────
   bool config = false;
-  bool configList = false;
-  std::optional<std::string> configGet;
-  std::optional<std::vector<std::string>> configSet;
-  std::optional<std::string> configUnset;
-  bool configPath = false;
+  std::string configVerb;  // list|get|set|unset|path; empty when absent
+  std::optional<std::string> configKey;
+  std::optional<std::string> configValue;
 
   // ── completion subcommand (install/uninstall mutually exclusive) ──
   bool completion = false;

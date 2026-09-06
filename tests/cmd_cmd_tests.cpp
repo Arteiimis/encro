@@ -442,11 +442,11 @@ TEST_CASE("help auto-fits the description column with a 3-space gap", "[cmd]") {
     auto const result = testutils::parseArgs({"encro", "config", "-h"});
     checkAlignment(
       stripAnsi(result.helpText),
-      "--unset",
-      "--unset",
-      "remove a persisted key",
+      "-h, --help",
+      "-h, --help",
+      "show config help",
       {
-        {"--list", "show every configurable key"},
+        {"action", "list | get <key> | set <key> <value> | unset <key> | path"},
       }
     );
   }
