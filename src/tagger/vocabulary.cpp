@@ -3,6 +3,7 @@
 #include <charconv>
 #include <fstream>
 #include <iterator>
+#include <string_view>
 #include <utility>
 
 namespace tagger {
