@@ -15,7 +15,7 @@ auto buildPreprocessCommand(fs::path const& ffmpeg, fs::path const& input)
     kInputEdge
   );
   return std::format(
-    R"("{}" -hide_banner -loglevel quiet -y -i "{}" )"
+    R"({} -hide_banner -loglevel quiet -y -i "{}" )"
     R"(-f lavfi -i color=c=white:s={}x{} )"
     R"(-filter_complex "{}" -frames:v 1 -f rawvideo -)",
     quoteToolPath(ffmpeg),
