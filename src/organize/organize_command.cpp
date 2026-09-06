@@ -7,7 +7,6 @@
 #include "organize/pipeline.h"
 #include "tagger/engine_factory.h"
 #include "tagger/model_store.h"
-#include "tagger/onnx_tagger.h"
 #include "utils/utils.h"
 
 #include <filesystem>
@@ -93,8 +92,7 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
 
   if (!fakeEngine) {
     // The one provider notice (spec "Execution provider selection").
-    auto const& provider = dynamic_cast<tagger::OnnxTagger&>(*engine).providerName();
-    terminal::println(MessageKind::Info, "onnxruntime: {}", provider);
+    terminal::println(MessageKind::Info, "onnxruntime: {}", engine->providerName());
   }
 
   auto options = Options{
