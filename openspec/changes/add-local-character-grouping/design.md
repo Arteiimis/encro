@@ -38,7 +38,7 @@ The WD contract is: flatten alpha over white, pad to square, resize to 448×448,
 ### D3: Module layout — `src/tagger` (engine seam) vs `src/organize` (pipeline)
 
 - `src/tagger`: `TaggerEngine` interface (image bytes/path in → `TagResult {general, character, rating}` vectors of (tag, confidence) out), `OnnxTagger` (session, preprocessing invocation, tensor build, sigmoid outputs, vocabulary from `selected_tags.csv`), and `FakeTagger` for tests. The pipeline never touches onnxruntime headers.
-- `src/organize`: ported scan/SHA-256/cache/execute/report plus new assign (waves), cluster (tag vectors), teach (folder references), naming (sanitizer), and the model store/downloader under `src/tagger` (downloader reuses cpp-httplib, re-added to `xmake.lua` with `ssl=true`).
+- `src/organize`: ported scan/SHA-256/cache/execute/report plus new assign (waves), cluster (tag vectors), teach (folder references), naming (sanitizer), and the model store/downloader under `src/tagger` (downloader shells out to the platform `curl` via the existing `exec2` runner — Windows ships one since Win10 1803, TLS and the trust store stay the OS's own; the shipped binary carries no HTTP/TLS library, and cpp-httplib remains a test-only, ssl-free dependency for the loopback fake server).
 
 Dropped from the branch: `src/ai` transport, prompts, cloud describe/cluster/name/audit, thumbnail mosaic machinery, `encro_fake_ai_server`.
 
