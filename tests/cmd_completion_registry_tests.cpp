@@ -1,7 +1,10 @@
 #include "cmd/completion_registry.h"
 
+#include <CLI/CLI.hpp>
+
 #include <catch2/catch_all.hpp>
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -9,13 +12,15 @@ namespace {
 
 // The registries are process-global and shared with the capture tests' real
 // build, so synthetic names must never leak past a test case: the guard wipes
-// both maps even when an assertion throws.
+// the maps even when an assertion throws.
 struct RegistryGuard {
   RegistryGuard() { clear(); }
   ~RegistryGuard() { clear(); }
   static void clear() {
     completion::optionValues().clear();
     completion::configKeyOptions().clear();
+    completion::pathOptions().clear();
+    completion::positionalOptions().clear();
   }
 };
 
@@ -78,4 +83,28 @@ TEST_CASE("registry maps config keys to long names", "[completion]") {
 
   completion::recordConfigKey("jobs", "--renamed");
   REQUIRE(*completion::longNameOfConfigKey("jobs") == "--renamed");
+}
+
+TEST_CASE("registry records path options by long name", "[completion]") {
+  RegistryGuard guard;
+  completion::recordPath("--model-dir");
+  completion::recordPath("--input");
+  completion::recordPath("--model-dir");  // set semantics: re-record is a no-op
+
+  REQUIRE(completion::pathOptions() == std::set<std::string>{"--input", "--model-dir"});
+}
+
+TEST_CASE("registry records positional candidates by option pointer", "[completion]") {
+  RegistryGuard guard;
+  CLI::App app{"registry tests"};
+  auto* shell = app.add_option("shell", "target shell");
+  auto* dir = app.add_option("dir", "folder");
+
+  completion::recordPositional(shell, {"bash", "powershell"});
+
+  REQUIRE(
+    *completion::positionalCandidatesOf(shell)
+    == std::vector<std::string>{"bash", "powershell"}
+  );
+  REQUIRE(completion::positionalCandidatesOf(dir) == nullptr);
 }

@@ -146,6 +146,38 @@ TEST_CASE("model path ids resolve to real value options", "[completion]") {
   }
 }
 
+TEST_CASE("model derives path ids from the registry", "[completion]") {
+  auto const model = completion::buildCompletionModel();
+  for (
+    auto const* id:
+    {"input", "inputs", "output", "state_file", "ffmpeg_path", "model_dir"}
+  ) {
+    INFO("path id " << id);
+    REQUIRE(has(model.pathIds, id));
+  }
+}
+
+TEST_CASE("model carries positional candidates per subcommand scope", "[completion]") {
+  auto const model = completion::buildCompletionModel();
+
+  auto const* completionScope = findScope(model, "completion");
+  REQUIRE(completionScope != nullptr);
+  REQUIRE(completionScope->positionals.size() == 1);
+  REQUIRE(
+    completionScope->positionals.front() == std::vector<std::string>{"bash", "powershell"}
+  );
+
+  auto const* organize = findScope(model, "organize");
+  REQUIRE(organize != nullptr);
+  REQUIRE(organize->positionals.size() == 1);
+  REQUIRE(organize->positionals.front().empty());
+
+  auto const* preview = findScope(model, "preview");
+  REQUIRE(preview != nullptr);
+  REQUIRE(preview->positionals.size() == 2);
+  for (auto const& positional: preview->positionals) { REQUIRE(positional.empty()); }
+}
+
 TEST_CASE("model collects config keys with enumerated values", "[completion]") {
   auto const model = completion::buildCompletionModel();
   REQUIRE(has(model.configKeys, "jobs"));
@@ -175,7 +207,12 @@ TEST_CASE("emitted scripts cover the full surface deterministically", "[completi
   REQUIRE(contains(bash, "_ENCRO_HIDDEN_resume=\"--restart\""));
   REQUIRE(contains(bash, "_ENCRO_HIDDEN_restart=\"--resume\""));
   REQUIRE(contains(bash, "compgen -W \"$_ENCRO_CONFIG_KEYS\""));
+  REQUIRE(contains(bash, "_ENCRO_POSN_completion=1"));
+  REQUIRE(contains(bash, "_ENCRO_POSCANDS_completion=\"bash powershell\""));
+  REQUIRE(contains(bash, "_ENCRO_POSN_organize=1"));
+  REQUIRE_FALSE(contains(bash, "_ENCRO_POSCANDS_organize"));
   REQUIRE(contains(powershell, "'output_format' = @('mp4', 'webp')"));
+  REQUIRE(contains(powershell, "'completion' = ,@(@('bash', 'powershell'))"));
   REQUIRE(contains(powershell, "Register-ArgumentCompleter -CommandName encro -Native"));
 }
 
