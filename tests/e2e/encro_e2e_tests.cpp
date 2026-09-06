@@ -309,8 +309,8 @@ TEST_CASE(
 
 TEST_CASE("encro failed subcommand runs print the log file hint", "[e2e][cli]") {
   // Both fail inside the command body (after CLI parse): an invalid value for
-  // --set, and --install without a shell. Not via failWithHint.
-  auto const configRun = e2e::runEncro({"config", "--set", "jobs", "4.5"});
+  // config set, and --install without a shell. Not via failWithHint.
+  auto const configRun = e2e::runEncro({"config", "set", "jobs", "4.5"});
 
   REQUIRE(configRun.exitCode == 1);
   CHECK(configRun.stderrText.find("Log file:") != std::string::npos);
@@ -1858,7 +1858,7 @@ TEST_CASE("encro config set feeds persisted values into encode runs", "[e2e][con
     toolchain.root.string(),
   };
 
-  auto const setRun = e2e::runEncro({"config", "--set", "crf", "23"}, std::nullopt, env);
+  auto const setRun = e2e::runEncro({"config", "set", "crf", "23"}, std::nullopt, env);
   REQUIRE_SUCCESS(setRun);
   REQUIRE(fs::exists(configPath));
 
@@ -1878,7 +1878,7 @@ TEST_CASE("encro config set feeds persisted values into encode runs", "[e2e][con
   CHECK(countLogLines(logPath, "-cq\t23") == 1);
 
   // unsetting the key falls back to the built-in default (28).
-  auto const unsetRun = e2e::runEncro({"config", "--unset", "crf"}, std::nullopt, env);
+  auto const unsetRun = e2e::runEncro({"config", "unset", "crf"}, std::nullopt, env);
   REQUIRE_SUCCESS(unsetRun);
   auto restartArgs = baseArgs;
   restartArgs.push_back("--restart");
@@ -1896,7 +1896,7 @@ TEST_CASE("encro config overrides and store failures work standalone", "[e2e][co
 
   SECTION("--no-pack overrides a persisted pack=true") {
     auto const setRun =
-      e2e::runEncro({"config", "--set", "pack", "true"}, std::nullopt, env);
+      e2e::runEncro({"config", "set", "pack", "true"}, std::nullopt, env);
     REQUIRE_SUCCESS(setRun);
 
     auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
@@ -1946,7 +1946,7 @@ TEST_CASE("encro config overrides and store failures work standalone", "[e2e][co
       != std::string::npos
     );
 
-    auto const pathRun = e2e::runEncro({"config", "--path"}, std::nullopt, env);
+    auto const pathRun = e2e::runEncro({"config", "path"}, std::nullopt, env);
     REQUIRE_SUCCESS(pathRun);
   }
 }

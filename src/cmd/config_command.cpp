@@ -70,18 +70,19 @@ int getAction(configstore::LoadResult const& loaded, std::string const& key) {
 int setAction(
   configstore::LoadResult& loaded,
   std::filesystem::path const& configPath,
-  std::vector<std::string> const& parts
+  std::string const& key,
+  std::string const& value
 ) {
-  auto const& key = parts[0];
   if (!configstore::isKnownKey(key)) { return reportUnknownKey(key); }
 
-  auto value = parts[1];
-  if (auto const error = configstore::validateValue(key, value); error.has_value()) {
-    terminal::eprintln(Error, "invalid value for {}: {} ({})", key, parts[1], *error);
+  // validateValue canonicalizes transformed values in place.
+  auto stored = value;
+  if (auto const error = configstore::validateValue(key, stored); error.has_value()) {
+    terminal::eprintln(Error, "invalid value for {}: {} ({})", key, value, *error);
     return 1;
   }
 
-  loaded.values.insert_or_assign(key, value);
+  loaded.values.insert_or_assign(key, stored);
   if (
     auto const saveError = configstore::save(configPath, loaded.values);
     saveError.has_value()
@@ -113,7 +114,7 @@ int runConfigCommand(CmdParseResult const& cmd) {
   auto const configPath = configstore::resolveConfigPath();
 
   // `path` only resolves the location; it never reads the file content.
-  if (cmd.configPath) {
+  if (cmd.configVerb == "path") {
     terminal::println(Plain, "{}", terminal::path(configPath));
     return 0;
   }
@@ -125,11 +126,15 @@ int runConfigCommand(CmdParseResult const& cmd) {
   }
   warnUnknownKeys(loaded, configPath);
 
-  if (cmd.configList) { return listAction(loaded); }
-  if (cmd.configGet.has_value()) { return getAction(loaded, *cmd.configGet); }
-  if (cmd.configSet.has_value()) { return setAction(loaded, configPath, *cmd.configSet); }
-  if (cmd.configUnset.has_value()) {
-    return unsetAction(loaded, configPath, *cmd.configUnset);
+  // The arity validation in cmd.cpp guarantees the key/value positionals are
+  // present for the verbs that need them.
+  if (cmd.configVerb == "list") { return listAction(loaded); }
+  if (cmd.configVerb == "get") { return getAction(loaded, *cmd.configKey); }
+  if (cmd.configVerb == "set") {
+    return setAction(loaded, configPath, *cmd.configKey, *cmd.configValue);
+  }
+  if (cmd.configVerb == "unset") {
+    return unsetAction(loaded, configPath, *cmd.configKey);
   }
 
   // Bare `encro config`: helpText holds the config subcommand help.

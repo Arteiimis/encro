@@ -296,11 +296,6 @@ _encro_complete() {
       _encro_files
       return 0
     fi
-    if [ "$prev_id" = "set" ] && [ "$scope" = "config" ]; then
-      COMPREPLY=( $(compgen -W "$_ENCRO_CONFIG_KEYS" -- "$cur") )
-      [ "${#COMPREPLY[@]}" -eq 0 ] && _encro_no_candidates
-      return 0
-    fi
     local cands_var="_ENCRO_CANDS_$prev_id"
     local cands="${!cands_var-}"
     if [ -n "$cands" ]; then
@@ -312,24 +307,35 @@ _encro_complete() {
     return 0
   fi
 
-  if [ "$scope" = "config" ]; then
-    local set_idx=-1
-    for ((i=1; i<COMP_CWORD; i++)); do
-      [ "${COMP_WORDS[i]}" = "--set" ] && set_idx=$i
+  # config actions are positional verbs: offer the keys after get/set/unset
+  # and the key's enumerated values after `set <key>`.
+  if [ "$scope" = "config" ] && [[ "$cur" != -* ]]; then
+    local action="" vkey=""
+    for ((i=scope_idx+1; i<COMP_CWORD; i++)); do
+      w="${COMP_WORDS[i]}"
+      [[ "$w" == -* ]] && continue
+      if [ -z "$action" ]; then action="$w"; continue; fi
+      vkey="$w"; break
     done
-    if [ "$set_idx" -ge 0 ] && [ $((COMP_CWORD - set_idx - 1)) -ge 1 ] && [[ "$cur" != -* ]]; then
-      local key="${COMP_WORDS[set_idx+1]}"
-      local key_id="${_ENCRO_KEY_IDS[$key]-}"
-      local kv_var="_ENCRO_KEY_VALUES_${key_id}"
-      local kv="${!kv_var-}"
-      if [ -n "$kv" ]; then
-        COMPREPLY=( $(compgen -W "$kv" -- "$cur") )
-        [ "${#COMPREPLY[@]}" -eq 0 ] && _encro_no_candidates
-      else
-        _encro_no_candidates
-      fi
+    if [ "$action" = "set" ] && [ -n "$vkey" ]; then
+      local kv_var="_ENCRO_KEY_VALUES_${_ENCRO_KEY_IDS[$vkey]-}"
+      COMPREPLY=( $(compgen -W "${!kv_var-}" -- "$cur") )
+      [ "${#COMPREPLY[@]}" -eq 0 ] && _encro_no_candidates
       return 0
     fi
+    if [ -n "$vkey" ]; then
+      _encro_no_candidates
+      return 0
+    fi
+    case "$action" in
+      get|set|unset)
+        COMPREPLY=( $(compgen -W "$_ENCRO_CONFIG_KEYS" -- "$cur") )
+        [ "${#COMPREPLY[@]}" -eq 0 ] && _encro_no_candidates
+        return 0 ;;
+      list|path)
+        _encro_no_candidates
+        return 0 ;;
+    esac
   fi
 
   if [[ "$cur" == -* ]]; then
@@ -456,9 +462,15 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
         return !slot.empty();
       });
     if (!hasCandidates) { continue; }
-    // Leading comma: without it PowerShell unrolls the single-element outer
-    // array when storing, collapsing the per-slot nesting by one level.
-    out << "  '" << scope.name << "' = ,@(";
+    // Leading comma only for single-slot scopes: without it PowerShell unrolls
+    // the single-element outer array when storing, collapsing the per-slot
+    // nesting by one level; with it, multi-slot scopes gain a spurious wrapper
+    // that shifts every slot index by one level.
+    out
+      << "  '"
+      << scope.name
+      << "' = "
+      << (scope.positionals.size() == 1 ? ",@(" : "@(");
     for (std::size_t i = 0; i < scope.positionals.size(); ++i) {
       if (i > 0) { out << ", "; }
       out << psList(scope.positionals[i]);
@@ -534,9 +546,6 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
     $prevId = if ($__encroNameId.ContainsKey($prev)) { $__encroNameId[$prev] } else { '' }
     if ($prevId -and ($__encroValueIds -contains $prevId)) {
       if ($__encroPathIds -contains $prevId) { return @() }
-      if ($prevId -eq 'set' -and $scope -eq 'config') {
-        return & $__encroResults $__encroConfigKeys $wordToComplete
-      }
       if ($__encroCands.ContainsKey($prevId)) {
         $result = & $__encroResults $__encroCands[$prevId] $wordToComplete
         if ($result.Count -gt 0) { return $result }
@@ -544,22 +553,32 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
       return & $__encroSelf $wordToComplete
     }
 
-    if ($scope -eq 'config') {
-      $setIdx = -1
-      for ($i = 0; $i -lt $typed.Count; $i++) {
-        if ($typed[$i] -eq '--set') { $setIdx = $i }
+    # config actions are positional verbs: offer the keys after get/set/unset
+    # and the key's enumerated values after `set <key>`.
+    if ($scope -eq 'config' -and -not $cur.StartsWith('-')) {
+      $action = ''; $vkey = ''
+      for ($i = $scopeIdx + 1; $i -lt $typed.Count; $i++) {
+        $w = $typed[$i]
+        if ($w.StartsWith('-')) { continue }
+        if ($action -eq '') { $action = $w; continue }
+        $vkey = $w; break
       }
-      if ($setIdx -ge 0 -and ($typed.Count - $setIdx - 1) -ge 1 -and -not $cur.StartsWith('-')) {
-        $key = $typed[$setIdx + 1]
-        if ($__encroKeyIds.ContainsKey($key)) {
-          $keyId = $__encroKeyIds[$key]
-          if ($__encroKeyValues.ContainsKey($keyId)) {
-            $result = & $__encroResults $__encroKeyValues[$keyId] $wordToComplete
-            if ($result.Count -gt 0) { return $result }
+      if ($action -in 'get', 'set', 'unset') {
+        if ($vkey -ne '') {
+          if ($action -eq 'set') {
+            if ($__encroKeyIds.ContainsKey($vkey)) {
+              $keyId = $__encroKeyIds[$vkey]
+              if ($__encroKeyValues.ContainsKey($keyId)) {
+                $result = & $__encroResults $__encroKeyValues[$keyId] $wordToComplete
+                if ($result.Count -gt 0) { return $result }
+              }
+            }
           }
+          return & $__encroSelf $wordToComplete
         }
-        return & $__encroSelf $wordToComplete
+        return & $__encroResults $__encroConfigKeys $wordToComplete
       }
+      if ($action -in 'list', 'path') { return & $__encroSelf $wordToComplete }
     }
 
     if ($cur.StartsWith('-')) {

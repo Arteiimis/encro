@@ -97,8 +97,9 @@ TEST_CASE("model keeps subcommand scopes separate", "[completion]") {
   REQUIRE(findOption(*preview, "pack") == nullptr);  // main-only
 
   auto const* config = findScope(model, "config");
-  REQUIRE(findOption(*config, "set") != nullptr);
-  REQUIRE(findOption(*config, "jobs") == nullptr);  // main-only
+  // Actions are positional verbs now; the verb slot's candidates are asserted
+  // in the positional-candidates test below.
+  REQUIRE(findOption(*config, "set") == nullptr);
 }
 
 TEST_CASE(
@@ -122,15 +123,6 @@ TEST_CASE(
   REQUIRE(has(inputs->hiddenBy, "-i"));
   REQUIRE(has(input->hiddenBy, "--inputs"));
   REQUIRE(has(input->hiddenBy, "-I"));
-
-  auto const* setAction = findOption(*findScope(model, "config"), "set");
-  auto const* getAction = findOption(*findScope(model, "config"), "get");
-  REQUIRE(setAction != nullptr);
-  REQUIRE(getAction != nullptr);
-  for (auto const* other: {"--list", "--get", "--unset", "--path"}) {
-    REQUIRE(has(setAction->hiddenBy, other));
-  }
-  REQUIRE(has(getAction->hiddenBy, "--set"));
 }
 
 TEST_CASE("model path ids resolve to real value options", "[completion]") {
@@ -166,6 +158,16 @@ TEST_CASE("model carries positional candidates per subcommand scope", "[completi
   REQUIRE(
     completionScope->positionals.front() == std::vector<std::string>{"bash", "powershell"}
   );
+
+  auto const* config = findScope(model, "config");
+  REQUIRE(config != nullptr);
+  REQUIRE(config->positionals.size() == 3);  // verb, key, value
+  REQUIRE(
+    config->positionals.front()
+    == std::vector<std::string>{"list", "get", "set", "unset", "path"}
+  );
+  REQUIRE(config->positionals[1].empty());  // key slot: dynamic, no enum
+  REQUIRE(config->positionals[2].empty());  // value slot: dynamic, no enum
 
   auto const* organize = findScope(model, "organize");
   REQUIRE(organize != nullptr);
@@ -209,10 +211,17 @@ TEST_CASE("emitted scripts cover the full surface deterministically", "[completi
   REQUIRE(contains(bash, "compgen -W \"$_ENCRO_CONFIG_KEYS\""));
   REQUIRE(contains(bash, "_ENCRO_POSN_completion=1"));
   REQUIRE(contains(bash, "_ENCRO_POSCANDS_completion=\"bash powershell\""));
+  REQUIRE(contains(bash, "_ENCRO_POSN_config=3"));
+  // Verb slot carries the action names; key/value slots carry no candidates.
+  REQUIRE(contains(bash, "_ENCRO_POSCANDS_config=\"list get set unset path::\""));
   REQUIRE(contains(bash, "_ENCRO_POSN_organize=1"));
   REQUIRE_FALSE(contains(bash, "_ENCRO_POSCANDS_organize"));
   REQUIRE(contains(powershell, "'output_format' = @('mp4', 'webp')"));
   REQUIRE(contains(powershell, "'completion' = ,@(@('bash', 'powershell'))"));
+  REQUIRE(contains(
+    powershell,
+    "'config' = @(@('list', 'get', 'set', 'unset', 'path'), @(), @())"
+  ));
   REQUIRE(contains(powershell, "Register-ArgumentCompleter -CommandName encro -Native"));
 }
 

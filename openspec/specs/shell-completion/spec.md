@@ -68,21 +68,21 @@ A generated script SHALL offer as candidates every option registered for the cur
 
 ### Requirement: Generated scripts complete enumerated values and config keys
 
-For options whose legal values are enumerated by the CLI's own validation (for example `-f/--output-format`, `--color`, `--preset`, `-t/--type`, `--force-conflict-handling`), the script SHALL offer those legal values as value candidates. After `config --set` the script SHALL offer the configurable keys, and after a key whose values are enumerated the script SHALL offer that key's legal values. Numeric options (for example `--crf`, `-j/--jobs`) and free-text value options that take neither enumerated values nor paths (for example `--video-codec`) SHALL NOT offer value candidates.
+For options whose legal values are enumerated by the CLI's own validation (for example `-f/--output-format`, `--color`, `--preset`, `-t/--type`, `--force-conflict-handling`), the script SHALL offer those legal values as value candidates. After the config action verbs `get`, `set`, and `unset` the script SHALL offer the configurable keys, and after `config set <key>` the script SHALL offer that key's legal values when they are enumerated. Numeric options (for example `--crf`, `-j/--jobs`) and free-text value options that take neither enumerated values nor paths (for example `--video-codec`) SHALL NOT offer value candidates.
 
 #### Scenario: Enumerated option values are offered
 
 - **WHEN** the user types `encro --output-format ` and requests completion
 - **THEN** the candidates are `mp4` and `webp`
 
-#### Scenario: Config keys are offered after --set
+#### Scenario: Config keys are offered after the action verbs
 
-- **WHEN** the user types `encro config --set ` and requests completion
+- **WHEN** the user types `encro config set ` and requests completion
 - **THEN** the candidates include the configurable keys such as `jobs`, `crf`, and `output-format`
 
 #### Scenario: Config key values are offered after the key
 
-- **WHEN** the user types `encro config --set output-format ` and requests completion
+- **WHEN** the user types `encro config set output-format ` and requests completion
 - **THEN** the candidates are `mp4` and `webp`
 
 #### Scenario: Numeric options offer no values
@@ -107,11 +107,6 @@ The script SHALL NOT offer an option (under any of its names) when the typed wor
 - **THEN** `--inputs` is not offered
 - **AND WHEN** the user has typed `--inputs <path>` and requests completion for `-`
 - **THEN** `--input` and `-i` are not offered
-
-#### Scenario: Config actions hide each other
-
-- **WHEN** the user has typed `encro config --set jobs 4 --` and requests completion
-- **THEN** `--list`, `--get`, `--unset`, and `--path` are not offered, but `--set`-compatible remaining options are still offered
 
 ### Requirement: Path options delegate to the shell's native file completion
 
