@@ -13,6 +13,10 @@
 #include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/spdlog.h>
 
+#if defined(_WIN32) || defined(_WIN64)
+  #include <windows.h>  // IWYU pragma: keep -- wincolor sink level attributes (guarded by _WIN32)
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -362,6 +366,19 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
   if (config.echoEnabled) {
     if (config.colorsEnabled) {
       auto consoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+      // spdlog defaults apply bold to warn/err/critical; keep the colors only
+#if defined(_WIN32) || defined(_WIN64)
+      consoleSink->set_color(spdlog::level::warn, FOREGROUND_RED | FOREGROUND_GREEN);
+      consoleSink->set_color(spdlog::level::err, FOREGROUND_RED);
+      consoleSink->set_color(
+        spdlog::level::critical,
+        BACKGROUND_RED | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE
+      );
+#else
+      consoleSink->set_color(spdlog::level::warn, "\033[33m");
+      consoleSink->set_color(spdlog::level::err, "\033[31m");
+      consoleSink->set_color(spdlog::level::critical, "\033[41m");
+#endif
       consoleSink->set_pattern(kLogPattern);
       sinks.emplace_back(std::move(consoleSink));
     } else {
