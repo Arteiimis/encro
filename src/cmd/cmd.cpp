@@ -680,63 +680,48 @@ auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::Ap
   return sub;
 }
 
-// Persistent user-level configuration (spec: user-config). Actions are
-// mutually exclusive; bare `encro config` shows the subcommand help.
+// Persistent user-level configuration (spec: user-config). Git-style
+// positional actions (`config set <key> <value>`); bare `encro config` shows
+// the subcommand help.
 auto registerConfigSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
   auto* sub =
     app.add_subcommand("config", "inspect and persist user-level configuration defaults");
   sub->set_help_flag("-h,--help", "show config help");
   auto const options = std::tuple{
     opt(
-      "--list",
-      &result.configList,
-      "show every configurable key with its value and source",
-      cfg::Excludes{"--get"},
-      cfg::Excludes{"--set"},
-      cfg::Excludes{"--unset"},
-      cfg::Excludes{"--path"}
+      "action",
+      &result.configVerb,
+      "list | get <key> | set <key> <value> | unset <key> | path",
+      cfg::Members{"list", "get", "set", "unset", "path"}
     ),
-    opt(
-      "--get",
-      &result.configGet,
-      "print the effective value of one key",
-      cfg::Excludes{"--list"},
-      cfg::Excludes{"--set"},
-      cfg::Excludes{"--unset"},
-      cfg::Excludes{"--path"}
-    ),
-    opt(
-      "--set",
-      &result.configSet,
-      "validate and persist a value: --set <key> <value>",
-      cfg::Expected{2, 2},
-      cfg::Excludes{"--list"},
-      cfg::Excludes{"--get"},
-      cfg::Excludes{"--unset"},
-      cfg::Excludes{"--path"}
-    ),
-    opt(
-      "--unset",
-      &result.configUnset,
-      "remove a persisted key (falls back to the built-in default)",
-      cfg::Excludes{"--list"},
-      cfg::Excludes{"--get"},
-      cfg::Excludes{"--set"},
-      cfg::Excludes{"--path"}
-    ),
-    opt(
-      "--path",
-      &result.configPath,
-      "print the resolved config file location",
-      cfg::Excludes{"--list"},
-      cfg::Excludes{"--get"},
-      cfg::Excludes{"--set"},
-      cfg::Excludes{"--unset"}
-    ),
+    opt("key", &result.configKey, "config key (get/set/unset)"),
+    opt("value", &result.configValue, "value to persist (set)"),
   };
   registerAll(sub, options);
   sub->formatter_fn(makeSubcommandHelpFormatter(sub, kConfigUsageLines));
   return sub;
+}
+
+// The declarative table cannot express "each action fixes how many of the
+// key/value positionals are present"; words past the last positional are
+// rejected natively by CLI11, this closes the under-filled cases through the
+// same native-error channel (spec: wrong argument count exits non-zero).
+auto configActionArityError(CmdParseResult const& result) -> std::optional<std::string> {
+  auto const required = result.configVerb == "set"               ? 2
+    : result.configVerb == "get" || result.configVerb == "unset" ? 1
+                                                                 : 0;
+  auto const given = static_cast<int>(result.configKey.has_value())
+    + static_cast<int>(result.configValue.has_value());
+  if (given != required) {
+    return std::format(
+      "config {}: {} argument{} expected, but {} given",
+      result.configVerb,
+      required,
+      required == 1 ? "" : "s",
+      given
+    );
+  }
+  return std::nullopt;
 }
 
 // Completion scripts for supported shells; install/uninstall are mutually
@@ -1073,6 +1058,9 @@ auto buildAndParse(
     if (tree.app->got_subcommand(tree.configSub)) {
       result.config = true;
       result.helpText = tree.configSub->help();
+      if (auto const error = configActionArityError(result); error.has_value()) {
+        result.error = *error;
+      }
     }
     if (tree.app->got_subcommand(tree.completionSub)) {
       result.completion = true;

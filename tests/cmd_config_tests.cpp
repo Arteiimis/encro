@@ -209,55 +209,55 @@ TEST_CASE(
 
 // ── Config subcommand parsing (task 5.1) ─────────────────────────────────
 
-TEST_CASE("config subcommand actions parse and exclude each other", "[cmd][config]") {
+TEST_CASE("config subcommand actions parse and validate arity", "[cmd][config]") {
   SECTION("each action parses") {
-    CHECK(testutils::parseArgs({"encro", "config", "--list"}).configList);
+    CHECK(testutils::parseArgs({"encro", "config", "list"}).configVerb == "list");
 
-    auto const getPath = testutils::parseArgs({"encro", "config", "--get", "crf"});
-    CHECK(getPath.configGet == "crf");
+    auto const getPath = testutils::parseArgs({"encro", "config", "get", "crf"});
+    REQUIRE(getPath.configVerb == "get");
+    CHECK(getPath.configKey == "crf");
 
-    auto const setPath = testutils::parseArgs({"encro", "config", "--set", "crf", "20"});
-    REQUIRE(setPath.configSet.has_value());
-    CHECK(setPath.configSet->size() == 2);
-    CHECK(setPath.configSet.value()[0] == "crf");
-    CHECK(setPath.configSet.value()[1] == "20");
+    auto const setPath = testutils::parseArgs({"encro", "config", "set", "crf", "20"});
+    REQUIRE(setPath.configVerb == "set");
+    CHECK(setPath.configKey == "crf");
+    CHECK(setPath.configValue == "20");
 
-    CHECK(
-      testutils::parseArgs({"encro", "config", "--unset", "crf"}).configUnset == "crf"
-    );
-    CHECK(testutils::parseArgs({"encro", "config", "--path"}).configPath);
+    auto const unsetPath = testutils::parseArgs({"encro", "config", "unset", "crf"});
+    REQUIRE(unsetPath.configVerb == "unset");
+    CHECK(unsetPath.configKey == "crf");
+
+    CHECK(testutils::parseArgs({"encro", "config", "path"}).configVerb == "path");
   }
 
-  SECTION("combined actions are rejected natively") {
-    auto const result = testutils::parseArgs({"encro", "config", "--list", "--path"});
-    CHECK(result.error.has_value());
-  }
-
-  SECTION("set requires exactly two values") {
-    CHECK(testutils::parseArgs({"encro", "config", "--set", "crf"}).error.has_value());
+  SECTION("wrong argument counts are rejected") {
+    CHECK(testutils::parseArgs({"encro", "config", "set"}).error.has_value());
+    CHECK(testutils::parseArgs({"encro", "config", "set", "crf"}).error.has_value());
     CHECK(
-      testutils::parseArgs({"encro", "config", "--set", "crf", "20", "30"})
+      testutils::parseArgs({"encro", "config", "set", "crf", "20", "30"})
         .error.has_value()
     );
+    CHECK(testutils::parseArgs({"encro", "config", "get"}).error.has_value());
+    CHECK(testutils::parseArgs({"encro", "config", "unset"}).error.has_value());
+    CHECK(testutils::parseArgs({"encro", "config", "list", "extra"}).error.has_value());
+    CHECK(testutils::parseArgs({"encro", "config", "path", "extra"}).error.has_value());
   }
 
   SECTION("bare config carries the config help") {
     auto const result = testutils::parseArgs({"encro", "config"});
     REQUIRE(result.config);
-    CHECK_FALSE(result.configList);
-    CHECK(result.helpText.find("--set") != std::string::npos);
-    CHECK(result.helpText.find("--unset") != std::string::npos);
+    CHECK(result.configVerb.empty());
+    CHECK(result.helpText.find("set <key> <value>") != std::string::npos);
   }
 
   SECTION("config -h prints the config help with success") {
     auto const result = testutils::parseArgs({"encro", "config", "-h"});
     CHECK(result.help);
-    CHECK(result.helpText.find("--unset") != std::string::npos);
+    CHECK(result.helpText.find("set <key> <value>") != std::string::npos);
     CHECK(result.helpText.find("--verbose") == std::string::npos);  // not the main help
   }
 
   SECTION("unknown action fails natively") {
-    CHECK(testutils::parseArgs({"encro", "config", "--export"}).error.has_value());
+    CHECK(testutils::parseArgs({"encro", "config", "export"}).error.has_value());
   }
 
   SECTION("subcommand name wins over positional input") {
@@ -274,7 +274,7 @@ TEST_CASE(
   "[cmd][config]"
 ) {
   auto const parsed =
-    testutils::parseArgs({"encro", "config", "--list"});  // populate the registry
+    testutils::parseArgs({"encro", "config", "list"});  // populate the registry
   REQUIRE_FALSE(parsed.error.has_value());
 
   auto const temp = TempDir{};
@@ -282,7 +282,7 @@ TEST_CASE(
   auto const guard = testutils::ScopedEnvVar("ENCRO_CONFIG", configPath.string());
 
   SECTION("set writes the file, creating parent directories") {
-    auto setResult = testutils::parseArgs({"encro", "config", "--set", "crf", "20"});
+    auto setResult = testutils::parseArgs({"encro", "config", "set", "crf", "20"});
     CHECK_FALSE(setResult.error.has_value());
     CHECK(cmd::runConfigCommand(setResult) == 0);
 
@@ -291,36 +291,35 @@ TEST_CASE(
   }
 
   SECTION("set rejects unknown keys and invalid values without writing") {
-    auto unknown = testutils::parseArgs({"encro", "config", "--set", "dry-run", "true"});
+    auto unknown = testutils::parseArgs({"encro", "config", "set", "dry-run", "true"});
     CHECK(cmd::runConfigCommand(unknown) == 1);
 
-    auto invalid = testutils::parseArgs({"encro", "config", "--set", "crf", "99"});
+    auto invalid = testutils::parseArgs({"encro", "config", "set", "crf", "99"});
     CHECK(cmd::runConfigCommand(invalid) == 1);
 
     CHECK_FALSE(std::filesystem::exists(configPath));
   }
 
   SECTION("set rejects non-boolean values for flag keys") {
-    auto notBoolean =
-      testutils::parseArgs({"encro", "config", "--set", "pack", "banana"});
+    auto notBoolean = testutils::parseArgs({"encro", "config", "set", "pack", "banana"});
     CHECK(cmd::runConfigCommand(notBoolean) == 1);
     CHECK_FALSE(std::filesystem::exists(configPath));
   }
 
   SECTION("set rejects non-integer values for number keys") {
-    auto notInteger = testutils::parseArgs({"encro", "config", "--set", "crf", "4.5"});
+    auto notInteger = testutils::parseArgs({"encro", "config", "set", "crf", "4.5"});
     CHECK(cmd::runConfigCommand(notInteger) == 1);
 
-    auto inRange = testutils::parseArgs({"encro", "config", "--set", "jobs", "4.5"});
+    auto inRange = testutils::parseArgs({"encro", "config", "set", "jobs", "4.5"});
     CHECK(cmd::runConfigCommand(inRange) == 1);
 
     CHECK_FALSE(std::filesystem::exists(configPath));
   }
 
   SECTION("set accepts boolean true and false for flag keys") {
-    auto on = testutils::parseArgs({"encro", "config", "--set", "pack", "true"});
+    auto on = testutils::parseArgs({"encro", "config", "set", "pack", "true"});
     CHECK(cmd::runConfigCommand(on) == 0);
-    auto off = testutils::parseArgs({"encro", "config", "--set", "pack", "false"});
+    auto off = testutils::parseArgs({"encro", "config", "set", "pack", "false"});
     CHECK(cmd::runConfigCommand(off) == 0);
     CHECK(
       testutils::readTextFile(configPath).find("\"pack\": false") != std::string::npos
@@ -329,7 +328,7 @@ TEST_CASE(
 
   SECTION("set canonicalizes transformed values") {
     auto setResult =
-      testutils::parseArgs({"encro", "config", "--set", "force-conflict-handling", "N"});
+      testutils::parseArgs({"encro", "config", "set", "force-conflict-handling", "N"});
     CHECK(cmd::runConfigCommand(setResult) == 0);
     CHECK(
       testutils::readTextFile(configPath).find("\"force-conflict-handling\": \"n\"")
@@ -338,12 +337,12 @@ TEST_CASE(
   }
 
   SECTION("get and list reflect the store") {
-    auto setResult = testutils::parseArgs({"encro", "config", "--set", "crf", "20"});
+    auto setResult = testutils::parseArgs({"encro", "config", "set", "crf", "20"});
     REQUIRE(cmd::runConfigCommand(setResult) == 0);
 
     {
       auto capture = testutils::StdoutCapture{temp.path / "stdout.txt"};
-      auto getResult = testutils::parseArgs({"encro", "config", "--get", "crf"});
+      auto getResult = testutils::parseArgs({"encro", "config", "get", "crf"});
       CHECK(cmd::runConfigCommand(getResult) == 0);
     }
     CHECK(
@@ -352,7 +351,7 @@ TEST_CASE(
 
     {
       auto capture = testutils::StdoutCapture{temp.path / "stdout-list.txt"};
-      auto listResult = testutils::parseArgs({"encro", "config", "--list"});
+      auto listResult = testutils::parseArgs({"encro", "config", "list"});
       CHECK(cmd::runConfigCommand(listResult) == 0);
     }
     auto const listText = testutils::readTextFile(temp.path / "stdout-list.txt");
@@ -362,18 +361,16 @@ TEST_CASE(
 
   SECTION("unset removes the key and falls back to the default") {
     REQUIRE(
-      cmd::runConfigCommand(
-        testutils::parseArgs({"encro", "config", "--set", "jobs", "4"})
-      )
+      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "set", "jobs", "4"}))
       == 0
     );
     REQUIRE(
-      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "--unset", "jobs"}))
+      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "unset", "jobs"}))
       == 0
     );
     CHECK_FALSE(testutils::readTextFile(configPath).find("jobs") != std::string::npos);
     CHECK(
-      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "--unset", "jobs"}))
+      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "unset", "jobs"}))
       == 0
     );
   }
@@ -383,7 +380,7 @@ TEST_CASE(
 
     {
       auto capture = testutils::StdoutCapture{temp.path / "stdout-path.txt"};
-      auto pathResult = testutils::parseArgs({"encro", "config", "--path"});
+      auto pathResult = testutils::parseArgs({"encro", "config", "path"});
       CHECK(cmd::runConfigCommand(pathResult) == 0);
     }
     CHECK(
@@ -394,25 +391,18 @@ TEST_CASE(
 
   SECTION("actions fail on a malformed store") {
     testutils::writeTextFile(configPath, "{ broken");
+    CHECK(cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "list"})) == 1);
     CHECK(
-      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "--list"})) == 1
+      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "get", "crf"})) == 1
     );
     CHECK(
-      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "--get", "crf"}))
+      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "set", "crf", "20"}))
       == 1
     );
     CHECK(
-      cmd::runConfigCommand(
-        testutils::parseArgs({"encro", "config", "--set", "crf", "20"})
-      )
+      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "unset", "crf"}))
       == 1
     );
-    CHECK(
-      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "--unset", "crf"}))
-      == 1
-    );
-    CHECK(
-      cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "--path"})) == 0
-    );
+    CHECK(cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "path"})) == 0);
   }
 }

@@ -138,8 +138,10 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
       << "echo \"ENUM: $(probe encro --output-format '')\"\n"
       << "echo \"HIDDEN: $(probe encro --resume --re)\"\n"
       << "echo \"SUB: $(probe encro pre)\"\n"
-      << "echo \"CFGVAL: $(probe encro config --set output-format '')\"\n"
-      << "echo \"SETDONE: $(probe encro config --set jobs 4 --)\"\n"
+      << "echo \"CFGVERB: $(probe encro config '')\"\n"
+      << "echo \"CFGKEY: $(probe encro config set '')\"\n"
+      << "echo \"CFGVAL: $(probe encro config set output-format '')\"\n"
+      << "echo \"SETDONE: $(probe encro config set jobs 4 --)\"\n"
       << "echo \"POSBARE: $(probe encro completion '')\"\n"
       << "echo \"POSPREFIX: $(probe encro completion p)\"\n"
       << "echo \"POSFLAG: $(probe encro completion --install '')\"\n"
@@ -156,11 +158,14 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
   CHECK(output.find("HIDDEN: --recursive --resume") != std::string::npos);
   CHECK(output.find("HIDDEN: --restart") == std::string::npos);
   CHECK(output.find("SUB: preview") != std::string::npos);
+  // Config action verbs complete at the verb slot; keys and then key values
+  // complete after the set verb.
+  CHECK(output.find("CFGVERB: list get set unset path\n") != std::string::npos);
+  CHECK(output.find("CFGKEY: color") != std::string::npos);
+  CHECK(output.find(" folder-summary") != std::string::npos);
   CHECK(output.find("CFGVAL: mp4 webp") != std::string::npos);
-  // after a completed --set pair, remaining config options are offered and
-  // the four other actions are excluded
-  CHECK(output.find("SETDONE: --help --set") != std::string::npos);
-  CHECK(output.find("--get") == std::string::npos);
+  // after a completed set pair, only the remaining config options are offered
+  CHECK(output.find("SETDONE: --help\n") != std::string::npos);
   // Subcommand positional slots: enum candidates, flag-order independence,
   // past-the-end suppression, and path-positional fall-through.
   CHECK(output.find("POSBARE: bash powershell\n") != std::string::npos);
@@ -210,9 +215,11 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
       << "echo \"ENUM: $(Probe 'encro --output-format ')\"\n"
       << "echo \"HIDDEN: $(Probe 'encro --resume --re')\"\n"
       << "echo \"SUB: $(Probe 'encro pre')\"\n"
-      << "echo \"CFGVAL: $(Probe 'encro config --set output-format ')\"\n"
+      << "echo \"CFGVERB: $(Probe 'encro config ')\"\n"
+      << "echo \"CFGKEY: $(Probe 'encro config set ')\"\n"
+      << "echo \"CFGVAL: $(Probe 'encro config set output-format ')\"\n"
       << "echo \"SCOPE: $(Probe 'encro preview --')\"\n"
-      << "echo \"SETDONE: $(Probe 'encro config --set jobs 4 --')\"\n"
+      << "echo \"SETDONE: $(Probe 'encro config set jobs 4 --')\"\n"
       << "echo \"POSBARE: $(Probe 'encro completion ')\"\n"
       << "echo \"POSPREFIX: $(Probe 'encro completion p')\"\n"
       << "echo \"POSFLAG: $(Probe 'encro completion --install ')\"\n"
@@ -231,11 +238,13 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
   CHECK(output.find("HIDDEN: --recursive,--resume") != std::string::npos);
   CHECK(output.find("HIDDEN: --restart") == std::string::npos);
   CHECK(output.find("SUB: preview") != std::string::npos);
+  CHECK(output.find("CFGVERB: list,get,set,unset,path") != std::string::npos);
+  CHECK(output.find("CFGKEY: color,compress,crf") != std::string::npos);
   CHECK(output.find("CFGVAL: mp4,webp") != std::string::npos);
   // preview scope: its own options only, no main-command --pack
   CHECK(output.find("--pack") == std::string::npos);
   CHECK(output.find("--start") != std::string::npos);
-  CHECK(output.find("SETDONE: --help,--set") != std::string::npos);
+  CHECK(output.find("SETDONE: --help") != std::string::npos);
   // Subcommand positional slots: enum candidates, flag-order independence,
   // past-the-end self-echo (no candidates), and file delegation.
   CHECK(output.find("POSBARE: bash,powershell") != std::string::npos);
