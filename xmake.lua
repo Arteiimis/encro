@@ -62,7 +62,9 @@ add_requires("fmt")
 add_requires("indicators")
 add_requires("libzippp")
 -- add_requireconfs("libzippp.libzip", {configs = {toolchains = "clang"}})
-add_requires("cpp-httplib v0.53.1", {configs = {ssl = true}})
+-- Header-only HTTP server for the downloader tests; the shipped binary
+-- itself downloads via the platform curl (no OpenSSL linkage).
+add_requires("cpp-httplib v0.53.1")
 -- Local GPU-flavor ORT package (build-repo/): the xrepo one drags a `cuda`
 -- build dep we don't want (CUDA/cuDNN DLLs are runtime concerns for us) and
 -- it is unsupported under MSYS-shell package envs.
@@ -89,7 +91,7 @@ target("encro")
     set_policy("build.optimization.lto", true)
   end
 
-  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11", "cpp-httplib", "onnxruntime-gpu")
+  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11", "onnxruntime-gpu")
   if is_plat("windows") then
     add_syslinks("dbghelp", "shell32", "ole32")
   else

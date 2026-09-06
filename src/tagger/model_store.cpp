@@ -4,7 +4,6 @@
 #include "infra/env.h"
 #include "utils/utils.h"
 
-#include <httplib.h>
 #include <libzippp/libzippp.h>
 
 #include <algorithm>
@@ -43,35 +42,36 @@ auto fileHash(fs::path const& path) -> std::string {
   return core::sha256Hex(bytes);
 }
 
-// Downloads urlPath from host into dest via a .part sibling, verifies, and
-// renames into place.
-auto fetchOnce(std::string const& host, RemoteFile const& file, fs::path const& dest)
+// Downloads urlPath from endpoint into dest via a .part sibling, using the
+// platform curl: Windows ships one since Win10 1803 and Linux distros have
+// it, so TLS and the trust store stay the OS's own (no static OpenSSL in the
+// binary). -f turns HTTP errors into exit codes, -L follows endpoint
+// redirects, -sS keeps only the error line, --retry rides out transient
+// drops. ponytail: output is captured, so no live progress bar -- the
+// downloadMissing report lines are the progress; inherit stderr instead of
+// capturing if that ever feels blind.
+auto fetchOnce(std::string const& endpoint, RemoteFile const& file, fs::path const& dest)
   -> eh::Result<void> {
-  // cpp-httplib accepts bare hosts (http) and scheme-prefixed hosts (https).
-  httplib::Client client{host};
-  client.set_follow_location(true);
-  client.set_connection_timeout(30);
-  client.set_read_timeout(600, 0);
-
   auto const partPath = dest.string() + ".part";
-  // A previous attempt may have left a partial file; this write appends.
+  // A previous attempt may have left a partial file; start each attempt
+  // fresh so a corrupt or foreign partial can never verify by accident.
   auto removeEc = std::error_code{};
   fs::remove(partPath, removeEc);
-  auto const response = client.Get(file.urlPath, [&](char const* data, size_t length) {
-    // openmode constants are plain ints in MSVC STL; bit-or is the idiom.
-    auto const mode =
-      std::ios::binary | std::ios::app;  // NOLINT(bugprone-signed-bitwise)
-    auto out = std::ofstream{partPath, mode};
-    if (!out.is_open()) { return false; }
-    out.write(data, static_cast<std::streamsize>(length));
-    return static_cast<bool>(out);
-  });
-
-  if (!response) { return eh::makeError("connection to {} failed", host); }
-  if (response->status != 200) {
+  auto const command = std::format(
+    "curl -fsSL --retry 3 --connect-timeout 30 -o \"{}\" \"{}\"",
+    partPath,
+    endpoint + file.urlPath
+  );
+  auto const result = exec2(command, true);
+  if (result.exitCode != 0) {
     auto ec = std::error_code{};
     fs::remove(partPath, ec);
-    return eh::makeError("HTTP {} from {}{}", response->status, host, file.urlPath);
+    return eh::makeError(
+      "download from {} failed (curl exit {}): {}",
+      endpoint,
+      result.exitCode,
+      result.output
+    );
   }
   return {};
 }
