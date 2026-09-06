@@ -34,7 +34,7 @@ TEST_CASE("preprocess contract on a real ffmpeg", "[tagger][real-ffmpeg]") {
   auto const input = temp.path / "red.png";
   auto const [exitCode, output, _] = exec2(
     std::format(
-      R"("{}" -hide_banner -loglevel error -y -f lavfi -i color=c=red:s=100x50 -frames:v 1 "{}")",
+      R"({} -hide_banner -loglevel error -y -f lavfi -i color=c=red:s=100x50 -frames:v 1 "{}")",
       quoteToolPath(*ffmpeg),
       input.string()
     )

@@ -186,9 +186,9 @@ TEST_CASE("exec2 terminates child process when stop is requested", "[utils]") {
 
 TEST_CASE("exec2 reports a missing tool as exit 127, not a spawn exception", "[utils]") {
   // The real-ffmpeg tests' skip path (findFFmpeg -> exec2 of a bare name)
-  // needs a non-zero exit code for a missing tool: posix used to turn the
-  // execve ENOENT into a boost exception that aborted the whole suite.
-  CHECK(exec2("definitely_missing_tool_xyz -version").exitCode == 127);
+  // needs a non-zero exit code for a missing tool: the posix launcher used
+  // to turn the execve ENOENT into a boost exception that aborted the suite.
+  CHECK(exec2("definitely-not-a-real-command-xyz123").exitCode == 127);
 
 #if !defined(_WIN32)
   CHECK(exec2("\"/definitely_missing_dir_xyz/tool\" -version").exitCode == 127);
@@ -242,10 +242,6 @@ TEST_CASE("exec2 reports the child's exit code and pid", "[utils]") {
   CHECK(result.exitCode == 7);
   CHECK(result.pid.has_value());
   CHECK(result.pid.value() > 0);
-}
-
-TEST_CASE("exec2 throws when the executable cannot be launched", "[utils]") {
-  CHECK_THROWS(exec2("definitely-not-a-real-command-xyz123"));
 }
 
 TEST_CASE(
