@@ -84,6 +84,14 @@ struct NonNegativeNumber {
   }
 };
 
+// Marks the option's value as a file/directory path: completion delegates the
+// value slot to the shell's native file-name completion.
+struct Path {
+  void operator()(CLI::Option* option) const {
+    if (auto const name = captureLongName(option)) { completion::recordPath(*name); }
+  }
+};
+
 struct Required {
   void operator()(CLI::Option* option) const { option->required(); }
 };
@@ -95,6 +103,11 @@ struct Members {
   Members(std::initializer_list<std::string> values): legal(values) { }
   void operator()(CLI::Option* option) const {
     option->check(CLI::IsMember(legal));
+    if (option->get_lnames().empty() && option->get_snames().empty()) {
+      // Positional (no long/short names): captured by option pointer so the
+      // emitter can resolve it while walking the scope's positional order.
+      completion::recordPositional(option, legal);
+    }
     if (auto const name = captureLongName(option)) {
       completion::recordCandidates(*name, legal);
     }

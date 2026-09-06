@@ -54,10 +54,17 @@ auto buildScope(CLI::App const& app, std::string name) -> ScopeInfo {
     if (!names.empty()) { namesOf[option] = std::move(names); }
   }
 
-  auto scope = ScopeInfo{std::move(name), {}};
+  auto scope = ScopeInfo{std::move(name), {}, {}};
   for (auto const* option: ptrs) {
     auto const found = namesOf.find(option);
-    if (found == namesOf.end()) { continue; }  // positional: shell-native files
+    if (found == namesOf.end()) {
+      // Positional (no display names): candidates only when the registry
+      // captured enumerated values for the option pointer.
+      auto slot = std::vector<std::string>{};
+      if (auto const* candidates = positionalCandidatesOf(option)) { slot = *candidates; }
+      scope.positionals.push_back(std::move(slot));
+      continue;
+    }
     auto const longName = *cfg::captureLongName(option);
     auto info = OptionInfo{};
     info.names = found->second;
@@ -167,7 +174,9 @@ auto buildCompletionModel() -> CompletionModel {
   }
   std::ranges::sort(model.subcommands, {}, &ScopeInfo::name);
 
-  model.pathIds = {"input", "inputs", "output", "state_file", "ffmpeg_path"};
+  for (auto const& longName: pathOptions()) {
+    model.pathIds.push_back(normalizedId(longName));
+  }
   for (auto const& [key, longName]: configKeyOptions()) {
     model.configKeys.push_back(key);
     if (
@@ -202,13 +211,29 @@ auto emitBashScript(CompletionModel const& model) -> std::string {
   }
   out << ")\n\n";
 
-  auto const emitScope = [&out](std::string const& key, ScopeInfo const& scope) {
-    // Plain string (not an array): the glue reads it via ${!opts_var}, which
-    // only word-splits simple variables.
-    out << "_ENCRO_OPTS_" << key << "=\"" << join(scopeNames(scope)) << "\"\n";
-  };
-  emitScope("main", model.main);
-  for (auto const& scope: model.subcommands) { emitScope(scope.name, scope); }
+  auto const emitScope =
+    [&out](std::string const& key, ScopeInfo const& scope, bool isSub) {
+      // Plain string (not an array): the glue reads it via ${!opts_var}, which
+      // only word-splits simple variables.
+      out << "_ENCRO_OPTS_" << key << "=\"" << join(scopeNames(scope)) << "\"\n";
+      if (!isSub) { return; }
+      out << "_ENCRO_POSN_" << key << "=" << scope.positionals.size() << "\n";
+      // Colon-separated candidate groups, one per positional slot; omitted
+      // entirely when no positional carries candidates.
+      auto const hasCandidates =
+        std::ranges::any_of(scope.positionals, [](std::vector<std::string> const& slot) {
+          return !slot.empty();
+        });
+      if (!hasCandidates) { return; }
+      out << "_ENCRO_POSCANDS_" << key << "=\"";
+      for (std::size_t i = 0; i < scope.positionals.size(); ++i) {
+        if (i > 0) { out << ':'; }
+        out << join(scope.positionals[i]);
+      }
+      out << "\"\n";
+    };
+  emitScope("main", model.main, false);
+  for (auto const& scope: model.subcommands) { emitScope(scope.name, scope, true); }
 
   out << "\n_ENCRO_VALUE_IDS=\" " << join(valueIds(model)) << " \"\n";
   out << "_ENCRO_PATH_IDS=\" " << join(model.pathIds) << " \"\n";
@@ -258,10 +283,11 @@ _encro_complete() {
   local typed=" ${COMP_WORDS[*]:1:COMP_CWORD-1} "
 
   local scope="main"
+  local scope_idx=0
   for ((i=1; i<COMP_CWORD; i++)); do
     w="${COMP_WORDS[i]}"
     [[ "$w" == -* ]] && continue
-    case " $_ENCRO_SUB_NAMES " in *" $w "*) scope="$w"; break ;; esac
+    case " $_ENCRO_SUB_NAMES " in *" $w "*) scope="$w"; scope_idx=$i; break ;; esac
   done
 
   local prev_id="${_ENCRO_NAME_ID[$prev]-}"
@@ -325,6 +351,40 @@ _encro_complete() {
     return 0
   fi
 
+  # Subcommand positional slots: the slot being completed is the count of
+  # typed words after the subcommand name that are neither flags nor values
+  # of a preceding value-taking option.
+  if [ "$scope" != "main" ]; then
+    local slot=0 prevw="${COMP_WORDS[scope_idx]}" prevwId
+    for ((i=scope_idx+1; i<COMP_CWORD; i++)); do
+      w="${COMP_WORDS[i]}"
+      if [[ "$w" == -* ]]; then prevw="$w"; continue; fi
+      prevwId="${_ENCRO_NAME_ID[$prevw]-}"
+      if [ -n "$prevwId" ] && [[ " $_ENCRO_VALUE_IDS " == *" $prevwId "* ]]; then
+        prevw="$w"; continue
+      fi
+      slot=$((slot+1)); prevw="$w"
+    done
+    local posn_var="_ENCRO_POSN_$scope"
+    local posn="${!posn_var:-0}"
+    if [ "$slot" -ge "$posn" ]; then
+      _encro_no_candidates
+      return 0
+    fi
+    local pc_var="_ENCRO_POSCANDS_$scope"
+    local pc="${!pc_var-}"
+    if [ -n "$pc" ]; then
+      local group
+      group="$(cut -d: -f$((slot+1)) <<<"$pc")"
+      if [ -n "$group" ]; then
+        COMPREPLY=( $(compgen -W "$group" -- "$cur") )
+        [ "${#COMPREPLY[@]}" -eq 0 ] && _encro_no_candidates
+        return 0
+      fi
+    fi
+    return 0
+  fi
+
   if [ "$scope" = "main" ]; then
     COMPREPLY=( $(compgen -W "$_ENCRO_SUB_NAMES" -- "$cur") )
   fi
@@ -384,6 +444,29 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
   out << "$__encroPathIds = " << psList(model.pathIds) << "\n";
   out << "$__encroSubNames = " << psList(sortedUnique(subNames(model))) << "\n";
 
+  out << "$__encroPosN = @{\n";
+  for (auto const& scope: model.subcommands) {
+    out << "  '" << scope.name << "' = " << scope.positionals.size() << "\n";
+  }
+  out << "}\n";
+  out << "$__encroPosCands = @{\n";
+  for (auto const& scope: model.subcommands) {
+    auto const hasCandidates =
+      std::ranges::any_of(scope.positionals, [](std::vector<std::string> const& slot) {
+        return !slot.empty();
+      });
+    if (!hasCandidates) { continue; }
+    // Leading comma: without it PowerShell unrolls the single-element outer
+    // array when storing, collapsing the per-slot nesting by one level.
+    out << "  '" << scope.name << "' = ,@(";
+    for (std::size_t i = 0; i < scope.positionals.size(); ++i) {
+      if (i > 0) { out << ", "; }
+      out << psList(scope.positionals[i]);
+    }
+    out << ")\n";
+  }
+  out << "}\n\n";
+
   out << "$__encroCands = @{\n";
   for (auto const& [id, candidates]: candidatesById(model)) {
     out << "  '" << id << "' = " << psList(candidates) << "\n";
@@ -438,11 +521,13 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
     $prev = if ($typed.Count -gt 0) { $typed[-1] } else { '' }
 
     $scope = 'main'
+    $scopeIdx = -1
     $seenWord = $false
-    foreach ($w in $typed) {
+    for ($i = 0; $i -lt $typed.Count; $i++) {
+      $w = $typed[$i]
       if (-not $seenWord -and -not $w.StartsWith('-')) {
         $seenWord = $true
-        if ($__encroSubNames -contains $w) { $scope = $w }
+        if ($__encroSubNames -contains $w) { $scope = $w; $scopeIdx = $i; break }
       }
     }
 
@@ -492,6 +577,33 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
         $out += [System.Management.Automation.CompletionResult]::new($o, $o, 'Text', $o)
       }
       return $out
+    }
+
+    # Subcommand positional slots: the slot being completed is the count of
+    # typed words after the subcommand name that are neither flags nor values
+    # of a preceding value-taking option.
+    if ($scope -ne 'main') {
+      $slot = 0
+      $prevw = $typed[$scopeIdx]
+      for ($i = $scopeIdx + 1; $i -lt $typed.Count; $i++) {
+        $w = $typed[$i]
+        if ($w.StartsWith('-')) { $prevw = $w; continue }
+        $prevwId = if ($__encroNameId.ContainsKey($prevw)) { $__encroNameId[$prevw] } else { '' }
+        if ($prevwId -and ($__encroValueIds -contains $prevwId)) { $prevw = $w; continue }
+        $slot++
+        $prevw = $w
+      }
+      $posn = if ($__encroPosN.ContainsKey($scope)) { $__encroPosN[$scope] } else { 0 }
+      if ($slot -ge $posn) { return & $__encroSelf $wordToComplete }
+      if ($__encroPosCands.ContainsKey($scope)) {
+        $cands = @($__encroPosCands[$scope][$slot])
+        if ($cands.Count -gt 0) {
+          $result = & $__encroResults $cands $wordToComplete
+          if ($result.Count -gt 0) { return $result }
+          return & $__encroSelf $wordToComplete
+        }
+      }
+      return @()
     }
 
     if ($scope -eq 'main') {

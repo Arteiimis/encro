@@ -2,7 +2,7 @@
 
 ### Requirement: Path options delegate to the shell's native file completion
 
-For options that take file or directory paths and are declared as path-taking in the CLI's own option definitions, the script SHALL delegate to the shell's native file-name completion instead of offering candidates from the CLI definitions. The path-taking set SHALL be derived from the option declarations (input, inputs, output, state file, ffmpeg path, and organize's model dir today), so an option registered as path-taking is covered without editing the completion generator. Positionals that take paths (main-command inputs, preview's original/encoded, organize's dir) SHALL continue to fall through to the shell's native file completion.
+For options that take file or directory paths and are declared as path-taking in the CLI's own option definitions, the script SHALL delegate to the shell's native file-name completion instead of offering candidates from the CLI definitions. The path-taking set SHALL be derived from the option declarations (input, inputs, output, state file, ffmpeg path, and organize's model dir today), so an option registered as path-taking is covered without editing the completion generator. Subcommand positionals that take paths (preview's original/encoded, organize's dir) SHALL continue to fall through to the shell's native file completion; main-command positional inputs keep the existing main-scope behavior (subcommand names at the main position).
 
 #### Scenario: Input path completes as a file
 
