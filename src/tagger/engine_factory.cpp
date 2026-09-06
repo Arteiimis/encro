@@ -2,8 +2,10 @@
 
 #include "core/sha256.h"
 #include "infra/env.h"
-#include "tagger/onnx_tagger.h"
 #include "tagger/tagger_types.h"
+#if defined(_WIN32)
+  #include "tagger/onnx_tagger.h"
+#endif
 
 #include <boost/json.hpp>
 
@@ -91,6 +93,20 @@ private:
 
 }  // namespace
 
+#if !defined(_WIN32)
+// The local onnxruntime-gpu package ships win-x64 binaries only, so non-
+// Windows hosts build without the ONNX engine; organize still starts and
+// degrades each image to uncategorized/ through the classify error.
+class UnsupportedPlatformTagger final: public TaggerEngine {
+public:
+  auto classify(fs::path const&) -> eh::Result<TaggerOutput> override {
+    return eh::makeError(
+      "onnx inference requires a windows build (no onnxruntime package for this platform)"
+    );
+  }
+};
+#endif
+
 bool fakeTaggerRequested() {
   return processenv::readNonEmptyEnvVar("ENCRO_FAKE_TAGGER").has_value();
 }
@@ -103,9 +119,15 @@ auto makeTaggerEngine(fs::path const& modelDir, std::optional<fs::path> const& f
   ) {
     return std::make_unique<EnvFakeTagger>(fs::path{*fixture});
   }
+#if defined(_WIN32)
   return std::make_unique<
     OnnxTagger
   >(modelDir / "model.onnx", modelDir / "selected_tags.csv", ffmpegPath);
+#else
+  (void)modelDir;
+  (void)ffmpegPath;
+  return std::make_unique<UnsupportedPlatformTagger>();
+#endif
 }
 
 }  // namespace tagger
