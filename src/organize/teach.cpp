@@ -4,6 +4,7 @@
 #include "organize/cluster.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iterator>
 #include <system_error>
