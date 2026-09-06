@@ -125,6 +125,9 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
       << "source \""
       << forwardSlashes(scriptPath.string())
       << "\"\n"
+      // Shadow the compopt builtin: _encro_no_candidates becomes observable
+      // as a SUPPRESSED marker in the probe output (fall-through prints none).
+      << "compopt() { echo SUPPRESSED; }\n"
       << "probe() {\n"
       << "  COMP_WORDS=(\"$@\")\n"
       << "  COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 ))\n"
@@ -136,7 +139,13 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
       << "echo \"HIDDEN: $(probe encro --resume --re)\"\n"
       << "echo \"SUB: $(probe encro pre)\"\n"
       << "echo \"CFGVAL: $(probe encro config --set output-format '')\"\n"
-      << "echo \"SETDONE: $(probe encro config --set jobs 4 --)\"\n";
+      << "echo \"SETDONE: $(probe encro config --set jobs 4 --)\"\n"
+      << "echo \"POSBARE: $(probe encro completion '')\"\n"
+      << "echo \"POSPREFIX: $(probe encro completion p)\"\n"
+      << "echo \"POSFLAG: $(probe encro completion --install '')\"\n"
+      << "echo \"POSDONE: $(probe encro completion bash '')\"\n"
+      << "echo \"POSNOMATCH: $(probe encro completion zz)\"\n"
+      << "echo \"POSPATH: $(probe encro organize --model-dir X '')\"\n";
   }
 
   auto const [exitCode, output] =
@@ -152,6 +161,17 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
   // the four other actions are excluded
   CHECK(output.find("SETDONE: --help --set") != std::string::npos);
   CHECK(output.find("--get") == std::string::npos);
+  // Subcommand positional slots: enum candidates, flag-order independence,
+  // past-the-end suppression, and path-positional fall-through.
+  CHECK(output.find("POSBARE: bash powershell\n") != std::string::npos);
+  CHECK(output.find("POSPREFIX: powershell") != std::string::npos);
+  CHECK(output.find("POSFLAG: bash powershell") != std::string::npos);
+  CHECK(output.find("POSDONE: SUPPRESSED") != std::string::npos);
+  CHECK(output.find("POSNOMATCH: SUPPRESSED") != std::string::npos);
+  // X is --model-dir's value, so the dir positional slot stays unfilled: the
+  // function falls through (no suppression), leaving file completion to bash.
+  CHECK(output.find("POSPATH: SUPPRESSED") == std::string::npos);
+  CHECK(output.find("POSPATH: --") == std::string::npos);
 }
 
 TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][smoke]") {
@@ -169,11 +189,17 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
   auto const scriptPath = emitScriptTo(temp, "powershell", "encro-pwsh.ps1");
   auto const scriptRef = "\"" + forwardSlashes(scriptPath.string()) + "\"";
 
+  // Known file so the empty-return file fallback lists something assertable.
+  { auto stream = std::ofstream{temp.path / "zzz.txt", std::ios::binary}; }
+
   auto const driver = temp.path / "drive-ps.ps1";
   {
     auto stream = std::ofstream{driver, std::ios::binary | std::ios::trunc};
     REQUIRE(stream.is_open());
     stream
+      << "Set-Location -LiteralPath '"
+      << forwardSlashes(temp.path.string())
+      << "'\n"
       << ". "
       << scriptRef
       << "\n"
@@ -186,7 +212,12 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
       << "echo \"SUB: $(Probe 'encro pre')\"\n"
       << "echo \"CFGVAL: $(Probe 'encro config --set output-format ')\"\n"
       << "echo \"SCOPE: $(Probe 'encro preview --')\"\n"
-      << "echo \"SETDONE: $(Probe 'encro config --set jobs 4 --')\"\n";
+      << "echo \"SETDONE: $(Probe 'encro config --set jobs 4 --')\"\n"
+      << "echo \"POSBARE: $(Probe 'encro completion ')\"\n"
+      << "echo \"POSPREFIX: $(Probe 'encro completion p')\"\n"
+      << "echo \"POSFLAG: $(Probe 'encro completion --install ')\"\n"
+      << "echo \"POSDONE: $(Probe 'encro completion bash zz')\"\n"
+      << "echo \"POSPATH: $(Probe 'encro organize --model-dir X ')\"\n";
   }
 
   auto const [exitCode, output] = runCapture(
@@ -205,4 +236,19 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
   CHECK(output.find("--pack") == std::string::npos);
   CHECK(output.find("--start") != std::string::npos);
   CHECK(output.find("SETDONE: --help,--set") != std::string::npos);
+  // Subcommand positional slots: enum candidates, flag-order independence,
+  // past-the-end self-echo (no candidates), and file delegation.
+  CHECK(output.find("POSBARE: bash,powershell") != std::string::npos);
+  CHECK(output.find("POSPREFIX: powershell") != std::string::npos);
+  CHECK(output.find("POSFLAG: bash,powershell") != std::string::npos);
+  CHECK(output.find("POSDONE: zz") != std::string::npos);
+  // X is --model-dir's value, so the dir slot stays unfilled and the empty
+  // return falls back to native file completion (5.1 prefixes ".\" , PS7
+  // does not, so match within the line).
+  auto const pospathPos = output.find("POSPATH: ");
+  REQUIRE(pospathPos != std::string::npos);
+  auto const pospathLine =
+    output.substr(pospathPos, output.find('\n', pospathPos) - pospathPos);
+  CHECK(pospathLine.find("zzz.txt") != std::string::npos);
+  CHECK(pospathLine.find("--") == std::string::npos);
 }

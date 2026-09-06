@@ -23,6 +23,9 @@ struct OptionInfo {
 struct ScopeInfo {
   std::string name;  // "" for the main command
   std::vector<OptionInfo> options;
+  // Positional slots in registration order; an empty entry delegates the
+  // slot to the shell's native file completion.
+  std::vector<std::vector<std::string>> positionals;
 };
 
 struct CompletionModel {

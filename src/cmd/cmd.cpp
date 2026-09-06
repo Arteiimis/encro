@@ -595,7 +595,8 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
       "--model-dir",
       &result.organizeModelDir,
       "directory holding the local tagger model files (default: ~/.encro/models)",
-      cfg::ConfigKey{"model-dir"}
+      cfg::ConfigKey{"model-dir"},
+      cfg::Path{}
     ),
     opt(
       "--download-models",
@@ -624,7 +625,8 @@ auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::Ap
     opt(
       "--output",
       &result.previewOutput,
-      "output video path (default: <original-dir>/<original-stem>.preview.mp4)"
+      "output video path (default: <original-dir>/<original-stem>.preview.mp4)",
+      cfg::Path{}
     ),
     opt(
       "--start",
@@ -826,21 +828,24 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
       "-i,--input",
       &result.input,
       "input file or directory path",
-      cfg::Excludes{"--inputs"}
+      cfg::Excludes{"--inputs"},
+      cfg::Path{}
     ),
     opt(
       "-I,--inputs",
       &result.inputs,
       "input video file paths",
-      cfg::Expected{0, kMaxPositionalInputs}
+      cfg::Expected{0, kMaxPositionalInputs},
+      cfg::Path{}
     ),
     opt(
       "-o,--output",
       &result.output,
       "custom output directory path\n  aliases: + or input:// for input "
-      "root, = or common:// for common root"
+      "root, = or common:// for common root",
+      cfg::Path{}
     ),
-    opt("--state-file", &result.stateFile, "custom job state file path"),
+    opt("--state-file", &result.stateFile, "custom job state file path", cfg::Path{}),
     opt(
       "-f,--output-format",
       &result.outputFormat,
@@ -924,7 +929,8 @@ void registerProcessingFlags(
       "-x,--ffmpeg-path",
       &result.ffmpegPath,
       "custom ffmpeg install path",
-      cfg::ConfigKey{"ffmpeg-path"}
+      cfg::ConfigKey{"ffmpeg-path"},
+      cfg::Path{}
     ),
     opt(
       "-c,--compress,--no-compress{false}",
