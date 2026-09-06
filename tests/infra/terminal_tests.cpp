@@ -71,6 +71,10 @@ TEST_CASE("path and count helpers style key values independently", "[terminal]")
   CHECK(styledPath.find("\x1b[") != std::string::npos);
   CHECK(styledCount.find("42") != std::string::npos);
   CHECK(styledCount.find("\x1b[") != std::string::npos);
+
+  // No kind or token helper may emit the bold SGR
+  CHECK(styledPath.find("\x1b[1m") == std::string::npos);
+  CHECK(styledCount.find("\x1b[1m") == std::string::npos);
 }
 
 // ── Phase 20: MessageKind style/badge contract (table-driven) ───────
@@ -94,7 +98,7 @@ TEST_CASE("MessageKind styles and badges follow the display contract", "[termina
     {terminal::MessageKind::Prompt,        "Prompt",        true,  "?"    },
     {terminal::MessageKind::Heading,       "Heading",       true,  {}     },
     {terminal::MessageKind::Usage,         "Usage",         false, {}     },
-    {terminal::MessageKind::OptionGroup,   "OptionGroup",   true,  {}     },
+    {terminal::MessageKind::OptionGroup,   "OptionGroup",   false, {}     },
     {terminal::MessageKind::OptionName,    "OptionName",    true,  {}     },
     {terminal::MessageKind::OptionDefault, "OptionDefault", true,  {}     },
     {terminal::MessageKind::OptionDesc,    "OptionDesc",    false, {}     },
@@ -107,6 +111,7 @@ TEST_CASE("MessageKind styles and badges follow the display contract", "[termina
 
     // styleFor: empty styles format the text verbatim; styled kinds emit ANSI
     auto const formattedStyle = fmt::format(terminal::styleFor(entry.kind), "{}", "test");
+    CHECK(formattedStyle.find("\x1b[1m") == std::string::npos);
     if (entry.styled) {
       CHECK(formattedStyle.find("\x1b[") != std::string::npos);
       CHECK(formattedStyle != "test");
