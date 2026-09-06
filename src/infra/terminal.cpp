@@ -84,14 +84,13 @@ auto defaultBadgeLabel(MessageKind kind) -> std::string_view {
 }
 
 auto styleForToken(TokenKind kind, MessageKind messageKind) -> fmt::text_style {
-  using fmt::emphasis;
   using fmt::fg;
   using c = fmt::color;
 
   switch (kind) {
-    case TokenKind::Badge: return styleFor(messageKind) | emphasis::bold;
-    case TokenKind::Value: return fg(c::floral_white) | emphasis::bold;
-    case TokenKind::Path : return fg(c::light_sky_blue) | emphasis::bold;
+    case TokenKind::Badge: return styleFor(messageKind);
+    case TokenKind::Value: return fg(c::floral_white);
+    case TokenKind::Path : return fg(c::light_sky_blue);
   }
 
   return {};
@@ -177,15 +176,15 @@ auto styleFor(MessageKind kind) -> fmt::text_style {
 
   switch (kind) {
     case MessageKind::Plain        : return {};
-    case MessageKind::Error        : return fg(tc::red) | emphasis::bold;
-    case MessageKind::Warning      : return fg(tc::yellow) | emphasis::bold;
-    case MessageKind::Success      : return fg(tc::green) | emphasis::bold;
+    case MessageKind::Error        : return fg(tc::red);
+    case MessageKind::Warning      : return fg(tc::yellow);
+    case MessageKind::Success      : return fg(tc::green);
     case MessageKind::Info         : return fg(c::steel_blue);
     case MessageKind::Hint         : return fg(c::slate_gray);
-    case MessageKind::Prompt       : return fg(tc::cyan) | emphasis::bold;
-    case MessageKind::Heading      : return fg(c::steel_blue) | emphasis::bold;
+    case MessageKind::Prompt       : return fg(tc::cyan);
+    case MessageKind::Heading      : return fg(c::steel_blue);
     case MessageKind::Usage        : return {};
-    case MessageKind::OptionGroup  : return emphasis::bold;
+    case MessageKind::OptionGroup  : return {};
     case MessageKind::OptionName   : return fg(tc::cyan);
     case MessageKind::OptionDefault: return fg(tc::cyan) | emphasis::faint;
     case MessageKind::OptionDesc   :

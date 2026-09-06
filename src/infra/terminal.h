@@ -77,7 +77,7 @@ auto value(fmt::format_string<Tys...> fmtText, Tys&&... args) -> std::string {
 template<class Ty>
 auto count(Ty const& number, Stream stream = Stream::Stdout) -> std::string {
   if (!colorsEnabled(stream)) { return fmt::format("{}", number); }
-  return fmt::format(fmt::fg(fmt::color::golden_rod) | fmt::emphasis::bold, "{}", number);
+  return fmt::format(fmt::fg(fmt::color::golden_rod), "{}", number);
 }
 
 template<class... Tys>
