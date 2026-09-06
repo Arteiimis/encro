@@ -27,10 +27,13 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <future>
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <string_view>
+#include <system_error>
 #include <variant>
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
@@ -174,6 +177,53 @@ auto terminateOnStop(
   co_return std::nullopt;
 }
 
+// PATH lookup for a bare tool token: bpv2's posix find_executable resolves
+// neither absolute paths (boost::filesystem appends instead of replacing)
+// nor bare names on this platform.
+auto findOnPath(fs::path const& token) -> fs::path {
+  auto const* pathEnv = std::getenv("PATH");
+  if (pathEnv == nullptr) { return {}; }
+  auto const view = std::string_view{pathEnv};
+  auto start = size_t{0};
+  while (start <= view.size()) {
+    auto const end = view.find(':', start);
+    auto const dir = view.substr(
+      start,
+      end == std::string_view::npos ? std::string_view::npos : end - start
+    );
+    if (!dir.empty()) {
+      auto candidate = fs::path{dir} / token;
+      auto ec = std::error_code{};
+      if (fs::is_regular_file(candidate, ec) && !ec) { return candidate; }
+    }
+    if (end == std::string_view::npos) { break; }
+    start = end + 1;
+  }
+  return {};
+}
+
+// Resolves the shell-parsed executable token to a spawnable path, or an
+// empty path when the tool does not exist. bpv2's posix find_executable
+// cannot resolve absolute paths (see findOnPath above), so a PATH miss falls
+// back to the verbatim token — and the stat check turns a missing tool into
+// an exit code (sh's 127) instead of an ENOENT thrown out of the launcher.
+auto resolveExecutableToken(boost::process::v2::shell const& command) -> fs::path {
+  auto const& rawToken = command.argv()[0];
+  auto const token = fs::path{rawToken};
+  auto const raw = token.native();
+  auto const pathLike = raw.find('/') != decltype(raw)::npos
+    || raw.find(fs::path::preferred_separator) != decltype(raw)::npos;
+  auto const found = boost::process::v2::environment::find_executable(rawToken);
+  auto exePath = found.empty() ? fs::path{} : fs::path{found.native()};
+#if !defined(_WIN32)
+  if (exePath.empty() && !pathLike) { exePath = findOnPath(token); }
+#endif
+  if (exePath.empty()) { exePath = token; }
+  auto ec = std::error_code{};
+  if (!fs::exists(exePath, ec) || ec) { return {}; }
+  return exePath;
+}
+
 // NOLINTNEXTLINE(readability-function-size): linear 3-way coroutine race; branches are 3-9 lines each
 auto runProcess(
   std::string cmd,
@@ -188,6 +238,9 @@ auto runProcess(
   auto const executor = co_await asio::this_coro::executor;
 
   auto command = bp::shell{boost::string_view{cmd.data(), cmd.size()}};
+
+  auto const exePath = resolveExecutableToken(command);
+  if (exePath.empty()) { co_return ExecResult{127, "", {}}; }
 
   // One pipe for the child's output; stdout and stderr share its write end so
   // merged output keeps its natural interleaving.
@@ -206,12 +259,6 @@ auto runProcess(
     bp::process
   >(executor, command.exe(), command.args(), std::move(stdio));
 #else
-  // boost::process v2's posix find_executable cannot resolve absolute paths
-  // (boost::filesystem appends instead of replacing), leaving an empty exe and
-  // execve("") ENOENT; the parsed argv[0] token is the correct program name.
-  auto const* exeToken = command.argv()[0];
-  auto exePath = bp::environment::find_executable(exeToken);
-  if (exePath.empty()) { exePath = exeToken; }
   auto process =
     std::make_shared<bp::process>(executor, exePath, command.args(), std::move(stdio));
 #endif

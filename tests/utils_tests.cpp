@@ -184,6 +184,17 @@ TEST_CASE("exec2 terminates child process when stop is requested", "[utils]") {
   CHECK(elapsed < 30s);
 }
 
+TEST_CASE("exec2 reports a missing tool as exit 127, not a spawn exception", "[utils]") {
+  // The real-ffmpeg tests' skip path (findFFmpeg -> exec2 of a bare name)
+  // needs a non-zero exit code for a missing tool: posix used to turn the
+  // execve ENOENT into a boost exception that aborted the whole suite.
+  CHECK(exec2("definitely_missing_tool_xyz -version").exitCode == 127);
+
+#if !defined(_WIN32)
+  CHECK(exec2("\"/definitely_missing_dir_xyz/tool\" -version").exitCode == 127);
+#endif
+}
+
 TEST_CASE(
   "exec2 closes the output pipe after stop even if another process keeps stdout open",
   "[utils]"
