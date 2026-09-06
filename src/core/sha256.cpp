@@ -1,6 +1,8 @@
 #include "core/sha256.h"
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <fstream>
 #include <cstring>
 #include <format>
