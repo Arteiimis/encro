@@ -259,8 +259,12 @@ auto runProcess(
     bp::process
   >(executor, command.exe(), command.args(), std::move(stdio));
 #else
-  auto process =
-    std::make_shared<bp::process>(executor, exePath, command.args(), std::move(stdio));
+  // bpv2's posix filesystem::path is boost::filesystem (windows uses
+  // std::filesystem), so convert the resolved path back before spawning;
+  // native() carries the posix bytes through unchanged.
+  auto process = std::make_shared<
+    bp::process
+  >(executor, bp::filesystem::path{exePath.native()}, command.args(), std::move(stdio));
 #endif
   auto const capturedPid = static_cast<int>(process->id());
 
