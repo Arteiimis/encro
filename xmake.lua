@@ -174,6 +174,10 @@ target("tests")
   end
   add_files("tests/video/*.cpp")
   add_files("src/**.cpp|main.cpp")
+  -- Mirrors the encro target: the ORT engine impl is windows-only.
+  if not is_plat("windows") then
+    remove_files("src/tagger/onnx_tagger.cpp")
+  end
 
   -- Unit tests spawn the fake media tool exe directly (no cmd.exe layer).
   add_deps("encro_e2e_tool")
