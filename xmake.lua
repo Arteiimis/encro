@@ -75,12 +75,23 @@ add_requires("catch2")
 -- Copies the shared ORT runtime DLLs next to binaries that link them:
 -- direct exe execution does not get xmake's package PATH injection, and a
 -- stale onnxruntime.dll from System32 or PATH would mismatch the headers.
+-- Only the ORT core plus its CUDA EP plugin go next to the exes: the EP's
+-- cuDNN/cuBLAS dependencies resolve at runtime through
+-- ensureGpuRuntimePaths (%LOCALAPPDATA%/encro/lib self-install + the user's
+-- CUDA on PATH), so copying the package's full ~1.9GB CUDA stack into
+-- build/ would just duplicate those.
 local function copyOrtRuntimeDlls(target)
   local pkg = target:pkg("onnxruntime-gpu")
   if pkg == nil then return end
   local bindir = path.join(pkg:installdir(), "bin")
-  if os.isdir(bindir) then
-    os.cp(path.join(bindir, "*.dll"), target:targetdir())
+  if not os.isdir(bindir) then return end
+  for _, dll in ipairs({
+    "onnxruntime.dll",
+    "onnxruntime_providers_shared.dll",
+    "onnxruntime_providers_cuda.dll",
+  }) do
+    local src = path.join(bindir, dll)
+    if os.isfile(src) then os.cp(src, target:targetdir()) end
   end
 end
 
