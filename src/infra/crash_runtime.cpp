@@ -28,6 +28,21 @@ namespace {
 
 auto gInstalled = std::atomic<bool>{false};
 
+// Set once during startup (see setCrashContextProvider); read from the crash
+// path. Not synchronized: the write happens before any concurrent crash is
+// plausible, and the crash path must stay lock-free.
+auto gContextProvider = std::function<std::string()>{};
+
+// Reads the context provider; never throws. Returns "" when no provider is
+// installed or the provider itself fails (e.g. querying the current Catch2
+// test name outside an active session).
+auto currentCrashContext() -> std::string {
+  if (!gContextProvider) { return {}; }
+  try {
+    return gContextProvider();
+  } catch (...) { return {}; }
+}
+
 void writeToStderr(std::string const& message) {
   std::fwrite(message.data(), 1, message.size(), stderr);
   std::fflush(stderr);
@@ -149,9 +164,11 @@ void writeCrashMessage(std::string const& message) {
 
 void writeCrashReport(std::string_view reason) {
   auto frames = crash::captureStacktrace(2);
+  auto context = currentCrashContext();
   auto message = std::format(
-    "\n[CRASH] {}\n[CRASH] stacktrace:\n{}",
+    "\n[CRASH] {}{}\n[CRASH] stacktrace:\n{}",
     reason,
+    context.empty() ? std::string{} : std::format(" [context: {}]", context),
     crash::formatStacktrace(frames)
   );
   writeCrashMessage(message);
@@ -174,7 +191,53 @@ void terminateHandler() {
 }
 
 #if defined(_WIN32)
+
+// Fatal codes the first-chance handler reports on: access violation, illegal
+// instruction (the MSVC STL hardening trap under clang-cl), stack overflow.
+// Everything else — incl. C++ exceptions used by test assertions — passes
+// through untouched.
+bool isFatalExceptionCode(unsigned long code) {
+  switch (code) {
+    case EXCEPTION_ACCESS_VIOLATION   :  // 0xC0000005
+    case EXCEPTION_ILLEGAL_INSTRUCTION:  // 0xC000001D
+    case EXCEPTION_STACK_OVERFLOW     :  // 0xC00000FD
+      return true;
+    default: return false;
+  }
+}
+
+// The exception the first-chance handler already reported, so the UE filter
+// can skip the duplicate when the same exception falls through (paths without
+// Catch2: encro itself, the crash-child).
+auto gVehReportedRecord = std::atomic<void const*>{nullptr};
+
+LONG WINAPI vehFatalHandler(EXCEPTION_POINTERS* exceptionInfo) {
+  if (exceptionInfo == nullptr || exceptionInfo->ExceptionRecord == nullptr) {
+    return EXCEPTION_CONTINUE_SEARCH;
+  }
+  auto const* record = exceptionInfo->ExceptionRecord;
+  if (!isFatalExceptionCode(record->ExceptionCode)) { return EXCEPTION_CONTINUE_SEARCH; }
+  gVehReportedRecord.store(record, std::memory_order_release);
+  writeCrashReport(
+    std::format(
+      "fatal exception code=0x{:08X}",
+      static_cast<unsigned long>(record->ExceptionCode)
+    )
+  );
+  // Keep the normal dispatch: third-party filters (Catch2) keep their message
+  // and termination flow; our UE filter suppresses its duplicate report.
+  return EXCEPTION_CONTINUE_SEARCH;
+}
+
 LONG WINAPI unhandledExceptionFilter(EXCEPTION_POINTERS* exceptionInfo) {
+  if (
+    exceptionInfo != nullptr
+    && exceptionInfo->ExceptionRecord != nullptr
+    && gVehReportedRecord.load(std::memory_order_acquire)
+      == exceptionInfo->ExceptionRecord
+  ) {
+    return EXCEPTION_CONTINUE_SEARCH;  // already reported by vehFatalHandler
+  }
   auto code = exceptionInfo == nullptr || exceptionInfo->ExceptionRecord == nullptr
     ? 0UL
     : exceptionInfo->ExceptionRecord->ExceptionCode;
@@ -200,6 +263,10 @@ void installSignalHandler(int signalNumber) {
 
 namespace crash {
 
+void setCrashContextProvider(std::function<std::string()> provider) {
+  gContextProvider = std::move(provider);
+}
+
 void installHandlers() {
   auto expected = false;
   if (!gInstalled.compare_exchange_strong(expected, true)) { return; }
@@ -207,6 +274,7 @@ void installHandlers() {
   std::set_terminate(terminateHandler);
 
 #if defined(_WIN32)
+  AddVectoredExceptionHandler(1 /* call first */, vehFatalHandler);
   SetUnhandledExceptionFilter(unhandledExceptionFilter);
 #else
   installSignalHandler(SIGABRT);

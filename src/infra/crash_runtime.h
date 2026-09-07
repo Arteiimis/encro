@@ -1,12 +1,20 @@
 #pragma once
 
 #include <exception>
+#include <functional>
 #include <string>
 #include <string_view>
 
 namespace crash {
 
 void installHandlers();
+
+// Installs (or clears with nullptr) a provider consulted when a crash record is
+// written; its return value is appended to the record's reason line as
+// " [context: ...]" (e.g. the running test's name). Intended to be set once
+// during startup, before any crash can occur. A throwing provider is silently
+// ignored — the crash path must never fail inside itself.
+void setCrashContextProvider(std::function<std::string()> provider);
 
 void reportCaughtException(std::string_view context, std::exception const& exception);
 

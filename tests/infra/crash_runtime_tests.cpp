@@ -99,6 +99,36 @@ TEST_CASE("reportUnknownException writes stacktrace section", "[crash]") {
   }
 }
 
+TEST_CASE("crash context provider annotates crash records", "[crash]") {
+  TempDir temp;
+  auto const logPath = temp.path / "context.log";
+
+  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto logger = std::make_shared<spdlog::logger>("crash-context", sink);
+  logger->set_level(spdlog::level::trace);
+
+  auto guard = ScopedDefaultLogger(logger);
+  crash::setCrashContextProvider([]() -> std::string { return "the-running-test"; });
+  auto const ex = std::runtime_error{"boom"};
+  crash::reportCaughtException("unit-test", ex);
+  logger->flush();
+
+  auto const content = readText(logPath);
+  CHECK(content.find("[context: the-running-test]") != std::string::npos);
+
+  // Clearing the provider stops the annotation (no placeholder noise).
+  crash::setCrashContextProvider(nullptr);
+  crash::reportCaughtException("unit-test", ex);
+  logger->flush();
+
+  auto const cleared = readText(logPath);
+  auto const firstRecord = cleared.find("unit-test: boom");
+  auto const secondRecord = cleared.find("unit-test: boom", firstRecord + 1);
+  REQUIRE(firstRecord != std::string::npos);
+  REQUIRE(secondRecord != std::string::npos);
+  CHECK(cleared.find("[context:", secondRecord) == std::string::npos);
+}
+
 TEST_CASE("crash runtime handles real process crash", "[crash][integration]") {
   auto const self = boost::dll::program_location();
 
@@ -118,6 +148,69 @@ TEST_CASE("crash runtime handles real process crash", "[crash][integration]") {
   CHECK(child.exit_code() != 0);
   CHECK(output.find("[CRASH]") != std::string::npos);
   CHECK(output.find("stacktrace") != std::string::npos);
+}
+
+TEST_CASE(
+  "hardening violation produces a single crash record",
+  "[crash][integration][hardening]"
+) {
+  auto const self = boost::dll::program_location();
+
+  auto ctx = boost::asio::io_context{};
+  auto childOut = boost::asio::readable_pipe{ctx};
+  auto childErr = boost::asio::readable_pipe{ctx};
+  auto child = bp::process{
+    ctx,
+    self,
+    {"--encro-crash-child=oob"},
+    bp::process_stdio{.out = childOut, .err = childErr}
+  };
+  child.wait();
+
+  auto const output = readProcessStream(childOut) + readProcessStream(childErr);
+
+  CHECK(child.exit_code() != 0);
+  CHECK(output.find("[CRASH]") != std::string::npos);
+  CHECK(output.find("stacktrace") != std::string::npos);
+  // Context provider annotation survives the whole crash path.
+  CHECK(output.find("[context: crash-child-oob]") != std::string::npos);
+#if defined(_WIN32)
+  CHECK(output.find("0xC000001D") != std::string::npos);
+  // The first-chance handler reports once; the UE filter suppresses the
+  // duplicate for the same exception.
+  CHECK(output.find("stacktrace", output.find("stacktrace") + 1) == std::string::npos);
+#endif
+}
+
+TEST_CASE(
+  "in-session hardening violation still produces a crash record",
+  "[crash][integration][hardening]"
+) {
+  auto const self = boost::dll::program_location();
+
+  auto ctx = boost::asio::io_context{};
+  auto childOut = boost::asio::readable_pipe{ctx};
+  auto childErr = boost::asio::readable_pipe{ctx};
+  // The child runs a real Catch2 session: its FatalConditionHandler owns the
+  // UE filter slot while the gated test case traps, so this pins the scenario
+  // the filter displacement used to break.
+  auto gate = testutils::ScopedEnvVar{"ENCRO_TEST_CRASH_OOB", "1"};
+  auto child = bp::process{
+    ctx,
+    self,
+    {"[crash-on-demand]"},
+    bp::process_stdio{.out = childOut, .err = childErr}
+  };
+  child.wait();
+
+  auto const output = readProcessStream(childOut) + readProcessStream(childErr);
+
+  CHECK(child.exit_code() != 0);
+  CHECK(output.find("[CRASH]") != std::string::npos);
+  CHECK(output.find("stacktrace") != std::string::npos);
+  // Real provider (installed in the test runner's main): the record names the
+  // crashing test.
+  CHECK(output.find("[context: in-session hardening crash]") != std::string::npos);
 }
 
 // ── RED 7.2 — NDJSON crash line construction ────────────────────────────────
