@@ -18,3 +18,4 @@ clang_*_has_flags.gcno
 tmp/ut.xml
 tmp/ut.log
 __pycache__/
+.pi/subagents.json
