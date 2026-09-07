@@ -277,14 +277,15 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
     + videoPath.string()
     + "\"";
 
-  auto const [exitCode, output, pid] = exec2(cmd, false);
+  auto const [exitCode, output, pid, stderrText] = exec2(cmd, false);
 
   if (exitCode != 0) {
     LOG_DEBUG(
-      "ffprobe exit code {} for {} (output bytes: {})",
+      "ffprobe exit code {} for {} (output bytes: {}, stderr bytes: {})",
       exitCode,
       videoPath.string(),
-      output.size()
+      output.size(),
+      stderrText.size()
     );
     return json::object{};
   }

@@ -260,6 +260,25 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "concat manifest entries resolve from the manifest directory",
+  "[video-process]"
+) {
+  TempDir temp;
+  auto const segDir = temp.path / "segs";
+  fs::create_directories(segDir);
+  writeTextFile(segDir / "seg_0.ts", "x");
+  writeTextFile(segDir / "seg_1.ts", "x");
+
+  REQUIRE(writeConcatManifest(segDir / "list.txt", segDir, 2));
+
+  auto const text = readTextFile(segDir / "list.txt");
+  CHECK(text.find("file 'seg_0.ts'") != std::string::npos);
+  CHECK(text.find("file 'seg_1.ts'") != std::string::npos);
+  // No absolute or slash-bearing paths may leak into the manifest.
+  CHECK(text.find(temp.path.string()) == std::string::npos);
+  CHECK(text.find("/") == std::string::npos);
+}
+TEST_CASE(
   "video scan narration prints one outcome line on non-TTY output",
   "[video-process][orchestration]"
 ) {
@@ -273,6 +292,8 @@ TEST_CASE(
 
   auto ctx = appctx::AppContext{};
   configureVideoContext(ctx, temp.path, inputDir);
+  // Verbose off: the log echo must not blur the product-narration assertions.
+  ctx.config.verbose = false;
 
   auto const outPath = temp.path / "stdout.txt";
   {

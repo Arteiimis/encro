@@ -428,6 +428,82 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "encro real ffmpeg assembles segments with a relative output dir",
+  "[e2e][smoke][real-ffmpeg][video]"
+) {
+  requireRealToolchainOrSkip();
+
+  TempDir temp;
+  auto const inputPath = temp.path / "relout.mp4";
+  createRealSmokeVideo(inputPath, "relative output");
+
+  // Relative -o: the concat manifest must resolve from its own directory.
+  auto const result = e2e::runEncro(
+    {
+      "-y",
+      "-i",
+      inputPath.string(),
+      "-o",
+      "out",
+      "-j",
+      "1",
+      "--video-codec",
+      "libx264",
+    },
+    temp.path
+  );
+
+  CAPTURE(result.stdoutText, result.stderrText);
+  REQUIRE(result.exitCode == 0);
+  auto const outputDir = temp.path / "out";
+  REQUIRE(fs::exists(outputDir));
+  auto const mp4s = listFilesWithExtension(outputDir, ".mp4");
+  REQUIRE(mp4s.size() == 1);
+  CHECK(fs::file_size(mp4s.front()) > 0);
+  CHECK(probePrimaryCodecName(mp4s.front()) == "h264");
+}
+
+TEST_CASE(
+  "encro real ffmpeg compresses a png through the temp extension",
+  "[e2e][smoke][real-ffmpeg][picture]"
+) {
+  requireRealToolchainOrSkip();
+
+  TempDir temp;
+  auto const png = temp.path / "picture.png";
+  REQUIRE_SUCCESS(
+    e2e::runProcess(
+      systemToolPath("ffmpeg"),
+      {"-y",
+       "-f",
+       "lavfi",
+       "-i",
+       "color=c=red:s=32x32:d=1",
+       "-frames:v",
+       "1",
+       png.string()}
+    )
+  );
+  REQUIRE(fs::exists(png));
+
+  auto const result = e2e::runEncro(
+    {"-y", "--type", "picture", "-i", temp.path.string(), "-c", "-j", "1"},
+    temp.path
+  );
+
+  CAPTURE(result.stdoutText, result.stderrText);
+  REQUIRE(result.exitCode == 0);
+  // The compressed jpg is packed; the entry name proves the temp-extension
+  // round trip produced a real jpg.
+  auto const zips = listFilesWithExtension(temp.path / "packed", ".zip");
+  REQUIRE(zips.size() == 1);
+  auto const entries = testutils::listZipRegularEntryNames(zips.front());
+  REQUIRE(entries.size() == 1);
+  // Zip entries carry the picture stem (extension-less by naming design).
+  CHECK(entries.front().find("picture") != std::string::npos);
+}
+
+TEST_CASE(
   "encro real ffmpeg smoke converts mp4 with audio to h264 mp4 keeping audio",
   "[e2e][smoke][real-ffmpeg][mp4]"
 ) {
@@ -574,6 +650,8 @@ TEST_CASE(
     // file follows as a plain path, still on stdout with the count line.
     CHECK(result.stdoutText.find("Encoded 0/1 videos") != std::string::npos);
     CHECK(result.stdoutText.find(inputPath.filename().string()) != std::string::npos);
+    // The failed-file entry names the child diagnostic as the reason.
+    CHECK(result.stdoutText.find("Option fake not found.") != std::string::npos);
     CHECK(result.stdoutText.find("Videos that failed to encode") == std::string::npos);
     CHECK(result.stderrText.find("Videos that failed to encode") == std::string::npos);
     CHECK(result.stderrText.find("Log file:") != std::string::npos);
@@ -1890,6 +1968,31 @@ TEST_CASE(
     REQUIRE_SUCCESS(result);
 
     checkRenderedDuration(temp.path / "single60s.preview.mp4");
+  }
+
+  SECTION("bare output filename writes to the working directory") {
+    auto const original = temp.path / "bare60s.mp4";
+    auto makeOriginal = makeArgs;
+    makeOriginal.push_back(original.string());
+    REQUIRE_SUCCESS(e2e::runProcess(systemToolPath("ffmpeg"), makeOriginal));
+
+    // A bare --output name resolves against the working directory (the temp
+    // dir the run is rooted at) instead of crashing on an empty parent.
+    auto const result = e2e::runEncro(
+      {
+        "--video-codec",
+        "libx264",
+        "preview",
+        original.string(),
+        "--output",
+        "result.mp4",
+        "--no-open",
+      },
+      temp.path
+    );
+    REQUIRE_SUCCESS(result);
+
+    checkRenderedDuration(temp.path / "result.mp4");
   }
 }
 

@@ -2,6 +2,7 @@
 #include "test_utils.h"
 
 #include <filesystem>
+#include <map>
 #include <format>
 #include <string>
 
@@ -26,6 +27,11 @@ void configureCompressContext(
 
 }  // namespace
 
+TEST_CASE("compression temp path keeps the target media extension", "[picture]") {
+  CHECK(compressionTempPath("out/name.jpg") == fs::path{"out/name.partial.jpg"});
+  CHECK(compressionTempPath("out/pic.webp") == fs::path{"out/pic.partial.webp"});
+  CHECK(compressionTempPath("bare.png") == fs::path{"bare.partial.png"});
+}
 TEST_CASE(
   "ImageCompressConfig::buildCMD produces a valid command",
   "[picture-compress]"
@@ -120,7 +126,8 @@ TEST_CASE(
   auto const result = compressImage(ctx, inputPath, outputPath, 5);
   CHECK(result == false);
   CHECK_FALSE(fs::exists(outputPath));
-  CHECK(fs::exists(std::format("{}.partial", outputPath.string())));
+  // The temp file keeps the target media extension (muxer inference).
+  CHECK(fs::exists(compressionTempPath(outputPath)));
 }
 
 TEST_CASE(
@@ -157,7 +164,8 @@ TEST_CASE(
        .entryName = "photo.jpg"},
     };
 
-    auto const results = compressImageBatch(ctx, tasks, 5, 2);
+    std::map<fs::path, std::string> failureReasons;
+    auto const results = compressImageBatch(ctx, tasks, 5, 2, failureReasons);
     REQUIRE(results.size() == 1);
     CHECK(results[0].originalPath == inputPath);
     CHECK(results[0].compressedPath == temp.path / "photo.jpg");
@@ -176,7 +184,8 @@ TEST_CASE(
       {.inputPath = inputC, .outputPath = temp.path / "c.jpg", .entryName = "c.jpg"},
     };
 
-    auto const results = compressImageBatch(ctx, tasks, 5, 3);
+    std::map<fs::path, std::string> failureReasons;
+    auto const results = compressImageBatch(ctx, tasks, 5, 3, failureReasons);
     REQUIRE(results.size() == 3);
     CHECK(fs::exists(temp.path / "a.jpg"));
     CHECK(fs::exists(temp.path / "b.jpg"));
@@ -201,6 +210,7 @@ TEST_CASE(
      .entryName = "photo.jpg"},
   };
 
-  auto const results = compressImageBatch(ctx, tasks, 5, 1);
+  std::map<fs::path, std::string> failureReasons;
+  auto const results = compressImageBatch(ctx, tasks, 5, 1, failureReasons);
   CHECK(results.empty());
 }

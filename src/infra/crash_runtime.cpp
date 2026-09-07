@@ -157,7 +157,24 @@ void writeCrashMessage(std::string const& message) {
   //      std::_Exit/ExitProcess the async queue is never drained, so this tier
   //      is best-effort only. The direct tier above is the durability guarantee.
   //   3) writeToStderr — ultimate fallback, always available
-  if (tryWriteDirectToLogFile(message)) { return; }
+  if (tryWriteDirectToLogFile(message)) {
+    // Terminal visibility (error-visibility): whenever the log tier carried
+    // the full report, stderr still gets the one-line reason plus the log
+    // path — a crash must not leave the terminal silent.
+    auto const begin = message.find_first_not_of('\n');
+    auto const lineEnd = message.find('\n', begin);
+    auto const firstLine = message.substr(
+      begin,
+      lineEnd == std::string::npos ? std::string::npos : lineEnd - begin
+    );
+    auto stderrLine = std::string{firstLine};
+    if (auto const logPath = logging::currentLogFilePath(); logPath.has_value()) {
+      stderrLine += std::format(" [log: {}]", logPath.value().string());
+    }
+    stderrLine += '\n';
+    writeToStderr(stderrLine);
+    return;
+  }
   if (tryWriteToLogger(message)) { return; }
   writeToStderr(message);
 }
