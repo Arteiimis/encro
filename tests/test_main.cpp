@@ -1,8 +1,6 @@
 #define CATCH_CONFIG_RUNNER
 
 #include "infra/crash_runtime.h"
-
-#include "infra/crash_runtime.h"
 #include "infra/env.h"
 
 #include <catch2/catch_all.hpp>                            // IWYU pragma: keep

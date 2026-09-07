@@ -230,17 +230,12 @@ LONG WINAPI vehFatalHandler(EXCEPTION_POINTERS* exceptionInfo) {
 }
 
 LONG WINAPI unhandledExceptionFilter(EXCEPTION_POINTERS* exceptionInfo) {
-  if (
-    exceptionInfo != nullptr
-    && exceptionInfo->ExceptionRecord != nullptr
-    && gVehReportedRecord.load(std::memory_order_acquire)
-      == exceptionInfo->ExceptionRecord
-  ) {
+  auto const* record =
+    exceptionInfo == nullptr ? nullptr : exceptionInfo->ExceptionRecord;
+  if (record != nullptr && gVehReportedRecord.load(std::memory_order_acquire) == record) {
     return EXCEPTION_CONTINUE_SEARCH;  // already reported by vehFatalHandler
   }
-  auto code = exceptionInfo == nullptr || exceptionInfo->ExceptionRecord == nullptr
-    ? 0UL
-    : exceptionInfo->ExceptionRecord->ExceptionCode;
+  auto code = record == nullptr ? 0UL : record->ExceptionCode;
   writeCrashReport(std::format("unhandled SEH exception code=0x{:08X}", code));
   return EXCEPTION_EXECUTE_HANDLER;
 }
