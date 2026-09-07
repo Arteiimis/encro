@@ -38,7 +38,20 @@ end
 if is_plat("windows") then
   add_defines("NOMINMAX")
   add_defines("WIN32_LEAN_AND_MEAN")
+  -- C++26 hardened MSVC STL: precondition violations trap (ud2 under clang-cl,
+  -- interceptable by the crash handler) instead of UB. See src/infra/crash_runtime.cpp.
   add_defines("_MSVC_STL_HARDENING=1")
+else
+  -- clang + libstdc++: cheap precondition checks (no ABI break); violations print
+  -- a reason and abort, surfacing through the crash handler as SIGABRT.
+  add_defines("_GLIBCXX_ASSERTIONS=1")
+end
+
+if is_mode("release") and is_plat("windows") then
+  -- Crash stacks must resolve: emit PDBs next to release binaries so crash
+  -- records show module!function instead of module+offset. Codegen is
+  -- unaffected and xpack ships the exe only.
+  set_symbols("debug")
 end
 
 -- SPDLOG_ACTIVE_LEVEL per build mode (D-14)
