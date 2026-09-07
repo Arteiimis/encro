@@ -17,6 +17,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 namespace bp = boost::process::v2;
@@ -52,6 +53,27 @@ auto readProcessStream(boost::asio::readable_pipe& stream) -> std::string {
     if (ec || count == 0) { break; }
   }
   return result;
+}
+
+struct CrashChild {
+  int exitCode = 0;
+  std::string output;
+};
+
+// Spawns this test binary with the given argument list and captures its exit
+// code and merged stdout+stderr.
+auto spawnSelf(std::vector<std::string> const& args) -> CrashChild {
+  auto ctx = boost::asio::io_context{};
+  auto childOut = boost::asio::readable_pipe{ctx};
+  auto childErr = boost::asio::readable_pipe{ctx};
+  auto child = bp::process{
+    ctx,
+    boost::dll::program_location(),
+    args,
+    bp::process_stdio{.out = childOut, .err = childErr}
+  };
+  child.wait();
+  return {child.exit_code(), readProcessStream(childOut) + readProcessStream(childErr)};
 }
 
 }  // namespace
@@ -130,55 +152,35 @@ TEST_CASE("crash context provider annotates crash records", "[crash]") {
 }
 
 TEST_CASE("crash runtime handles real process crash", "[crash][integration]") {
-  auto const self = boost::dll::program_location();
+  auto const child = spawnSelf({"--encro-crash-child"});
 
-  auto ctx = boost::asio::io_context{};
-  auto childOut = boost::asio::readable_pipe{ctx};
-  auto childErr = boost::asio::readable_pipe{ctx};
-  auto child = bp::process{
-    ctx,
-    self,
-    {"--encro-crash-child"},
-    bp::process_stdio{.out = childOut, .err = childErr}
-  };
-  child.wait();
-
-  auto const output = readProcessStream(childOut) + readProcessStream(childErr);
-
-  CHECK(child.exit_code() != 0);
-  CHECK(output.find("[CRASH]") != std::string::npos);
-  CHECK(output.find("stacktrace") != std::string::npos);
+  CHECK(child.exitCode != 0);
+  CHECK(child.output.find("[CRASH]") != std::string::npos);
+  CHECK(child.output.find("stacktrace") != std::string::npos);
 }
 
 TEST_CASE(
   "hardening violation produces a single crash record",
   "[crash][integration][hardening]"
 ) {
-  auto const self = boost::dll::program_location();
+  auto const child = spawnSelf({"--encro-crash-child=oob"});
 
-  auto ctx = boost::asio::io_context{};
-  auto childOut = boost::asio::readable_pipe{ctx};
-  auto childErr = boost::asio::readable_pipe{ctx};
-  auto child = bp::process{
-    ctx,
-    self,
-    {"--encro-crash-child=oob"},
-    bp::process_stdio{.out = childOut, .err = childErr}
-  };
-  child.wait();
-
-  auto const output = readProcessStream(childOut) + readProcessStream(childErr);
-
-  CHECK(child.exit_code() != 0);
-  CHECK(output.find("[CRASH]") != std::string::npos);
-  CHECK(output.find("stacktrace") != std::string::npos);
+  CHECK(child.exitCode != 0);
+  CHECK(child.output.find("[CRASH]") != std::string::npos);
+  CHECK(child.output.find("stacktrace") != std::string::npos);
   // Context provider annotation survives the whole crash path.
-  CHECK(output.find("[context: crash-child-oob]") != std::string::npos);
+  CHECK(child.output.find("[context: crash-child-oob]") != std::string::npos);
 #if defined(_WIN32)
-  CHECK(output.find("0xC000001D") != std::string::npos);
+  CHECK(child.output.find("0xC000001D") != std::string::npos);
+  // Release PDBs resolve the application frames (module!function), so the
+  // stack is actionable instead of bare offsets.
+  CHECK(child.output.find("tests!") != std::string::npos);
   // The first-chance handler reports once; the UE filter suppresses the
   // duplicate for the same exception.
-  CHECK(output.find("stacktrace", output.find("stacktrace") + 1) == std::string::npos);
+  CHECK(
+    child.output.find("stacktrace", child.output.find("stacktrace") + 1)
+    == std::string::npos
+  );
 #endif
 }
 
@@ -186,31 +188,18 @@ TEST_CASE(
   "in-session hardening violation still produces a crash record",
   "[crash][integration][hardening]"
 ) {
-  auto const self = boost::dll::program_location();
-
-  auto ctx = boost::asio::io_context{};
-  auto childOut = boost::asio::readable_pipe{ctx};
-  auto childErr = boost::asio::readable_pipe{ctx};
   // The child runs a real Catch2 session: its FatalConditionHandler owns the
   // UE filter slot while the gated test case traps, so this pins the scenario
   // the filter displacement used to break.
   auto gate = testutils::ScopedEnvVar{"ENCRO_TEST_CRASH_OOB", "1"};
-  auto child = bp::process{
-    ctx,
-    self,
-    {"[crash-on-demand]"},
-    bp::process_stdio{.out = childOut, .err = childErr}
-  };
-  child.wait();
+  auto const child = spawnSelf({"[crash-on-demand]"});
 
-  auto const output = readProcessStream(childOut) + readProcessStream(childErr);
-
-  CHECK(child.exit_code() != 0);
-  CHECK(output.find("[CRASH]") != std::string::npos);
-  CHECK(output.find("stacktrace") != std::string::npos);
+  CHECK(child.exitCode != 0);
+  CHECK(child.output.find("[CRASH]") != std::string::npos);
+  CHECK(child.output.find("stacktrace") != std::string::npos);
   // Real provider (installed in the test runner's main): the record names the
   // crashing test.
-  CHECK(output.find("[context: in-session hardening crash]") != std::string::npos);
+  CHECK(child.output.find("[context: in-session hardening crash]") != std::string::npos);
 }
 
 // ── RED 7.2 — NDJSON crash line construction ────────────────────────────────
