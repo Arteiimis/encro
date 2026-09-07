@@ -29,6 +29,8 @@ struct EncodingBatchOutcome {
   std::optional<EncodeResultsMap> results;     // nullopt = canceled at the prompt
   std::vector<std::string> attentionWarnings;  // unreachable-floor files
   bool dryRun = false;  // probe plan printed; exit without encoding
+  // input -> child diagnostic line for failed encodes
+  std::map<fs::path, std::string> failureReasons;
 };
 
 // Batch job description threaded through the encode pipeline: the files to

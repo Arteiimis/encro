@@ -30,6 +30,7 @@ struct BatchState {
   appctx::AppContext const& ctx;
   std::atomic_size_t& completed;
   std::vector<CompressResult>& results;
+  std::map<fs::path, std::string>& failureReasons;
   std::mutex& resultsMutex;
   progress::ProgressContext& progressCtx;
 };
@@ -59,8 +60,17 @@ auto compressImageTask(
     return eh::makeError("Compression canceled by user.");
   }
 
-  auto const success = compressImage(state.ctx, task.inputPath, task.outputPath, quality);
-  if (success) { recordCompressSuccess(task, state.results, state.resultsMutex); }
+  std::string failureReason;
+  auto const success =
+    compressImage(state.ctx, task.inputPath, task.outputPath, quality, &failureReason);
+  if (success) {
+    recordCompressSuccess(task, state.results, state.resultsMutex);
+  } else {
+    auto lock = std::scoped_lock{state.resultsMutex};
+    if (!failureReason.empty()) {
+      state.failureReasons.emplace(task.inputPath, failureReason);
+    }
+  }
 
   auto const done = state.completed.fetch_add(1, std::memory_order_release) + 1;
 
@@ -87,13 +97,19 @@ auto ImageCompressConfig::buildCMD() const -> std::string {
   return cmd;
 }
 
+auto compressionTempPath(fs::path const& outputPath) -> fs::path {
+  return outputPath.parent_path()
+    / (outputPath.stem().string() + ".partial" + outputPath.extension().string());
+}
+
 bool compressImage(
   appctx::AppContext const& ctx,
   fs::path const& inputPath,
   fs::path const& outputPath,
-  int quality
+  int quality,
+  std::string* failureReason
 ) {
-  auto const partialPath = fs::path{std::format("{}.partial", outputPath.string())};
+  auto const partialPath = compressionTempPath(outputPath);
 
   auto const cfg = ImageCompressConfig{
     .ffmpegPath = ctx.toolchain.ffmpegPath,
@@ -105,13 +121,16 @@ bool compressImage(
   auto const cmd = cfg.buildCMD();
   LOG_DEBUG("Compress image: {}", cmd);
 
-  auto const [exitCode, output, pid] = exec2(cmd);
+  auto const [exitCode, output, pid, stderrText] = exec2(cmd);
   if (exitCode != 0) {
+    auto const reason = extractFailureReason(output, "", exitCode);
     LOG_WARN(
-      "Image compression failed: input={} exitCode={}",
+      "Image compression failed: input={} exitCode={} reason={}",
       inputPath.string(),
-      exitCode
+      exitCode,
+      reason
     );
+    if (failureReason != nullptr) { *failureReason = reason; }
     return false;
   }
 
@@ -173,6 +192,7 @@ void retryFailedTasks(
   appctx::AppContext const& ctx,
   std::span<CompressTask const> allTasks,
   std::vector<CompressResult>& results,
+  std::map<fs::path, std::string>& failureReasons,
   std::mutex& resultsMutex,
   int quality,
   progress::ProgressContext& progressCtx
@@ -198,10 +218,17 @@ void retryFailedTasks(
     if (stopsignal::isStopRequested()) { break; }
 
     auto const& task = failedTasks[i];
-    auto const success = compressImage(ctx, task.inputPath, task.outputPath, quality);
+    std::string failureReason;
+    auto const success =
+      compressImage(ctx, task.inputPath, task.outputPath, quality, &failureReason);
     if (success) {
       recordCompressSuccess(task, results, resultsMutex);
       ++recovered;
+    } else {
+      auto lock = std::scoped_lock{resultsMutex};
+      if (!failureReason.empty()) {
+        failureReasons.emplace(task.inputPath, failureReason);
+      }
     }
 
     auto const percent =
@@ -229,7 +256,8 @@ auto compressImageBatch(
   appctx::AppContext& ctx,
   std::span<CompressTask const> tasks,
   int quality,
-  std::size_t maxParallel
+  std::size_t maxParallel,
+  std::map<fs::path, std::string>& failureReasons
 ) -> std::vector<CompressResult> {
   if (tasks.empty()) { return {}; }
 
@@ -259,6 +287,7 @@ auto compressImageBatch(
     .ctx = ctx,
     .completed = completed,
     .results = results,
+    .failureReasons = failureReasons,
     .resultsMutex = resultsMutex,
     .progressCtx = progressCtx,
   };
@@ -305,7 +334,15 @@ auto compressImageBatch(
     });
   LOG_INFO("Image compression batch completed: {}/{} succeeded", succeeded, total);
 
-  retryFailedTasks(ctx, tasks, results, resultsMutex, quality, progressCtx);
+  retryFailedTasks(
+    ctx,
+    tasks,
+    results,
+    failureReasons,
+    resultsMutex,
+    quality,
+    progressCtx
+  );
 
   auto const finalSucceeded = results.size();
   LOG_INFO("Image compression final: {}/{} images compressed", finalSucceeded, total);

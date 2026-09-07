@@ -25,7 +25,7 @@ TEST_CASE(
 
   auto temp = TempDir{};
   auto const input = temp.path / "probe.png";
-  auto const [exitCode, output, _] = exec2(
+  auto const [exitCode, output, _, stderrText] = exec2(
     std::format(
       R"("{}" -hide_banner -loglevel error -y -f lavfi -i color=c=red:s=448x448 -frames:v 1 "{}")",
       quoteToolPath(*ffmpeg),

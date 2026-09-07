@@ -3,6 +3,7 @@
 #include "core/app_context.h"
 
 #include <filesystem>
+#include <map>
 #include <span>
 #include <string>
 #include <vector>
@@ -32,16 +33,22 @@ struct CompressResult {
   std::string originalEntryName;
 };
 
+// Temp path keeps the target media extension (<stem>.partial.<ext>) so the
+// encoder infers the container; renamed atomically to outputPath on success.
+auto compressionTempPath(fs::path const& outputPath) -> fs::path;
+
 bool compressImage(
   appctx::AppContext const& ctx,
   fs::path const& inputPath,
   fs::path const& outputPath,
-  int quality
+  int quality,
+  std::string* failureReason = nullptr
 );
 
 auto compressImageBatch(
   appctx::AppContext& ctx,
   std::span<CompressTask const> tasks,
   int quality,
-  std::size_t maxParallel
+  std::size_t maxParallel,
+  std::map<fs::path, std::string>& failureReasons
 ) -> std::vector<CompressResult>;

@@ -54,6 +54,7 @@ void printEncodingSummary(
   fs::path const& outputDir,
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes,
+  std::map<fs::path, std::string> const& failureReasons,
   std::span<std::string const> attentionWarnings
 );
 
@@ -322,6 +323,7 @@ int runScannedEncodingWorkflow(
   auto const pendingVids = prepared.pendingVids;
   auto vidsRunRes = EncodeResultsMap{};
   auto attentionWarnings = std::vector<std::string>{};
+  auto failureReasons = std::map<fs::path, std::string>{};
   {
     logging::ScopedTimer timer("video.encode");
     auto const encodeLabel = std::format("{} video(s)", vids.size());
@@ -343,6 +345,7 @@ int runScannedEncodingWorkflow(
       return 0;
     }
     attentionWarnings = std::move(outcome.attentionWarnings);
+    failureReasons = std::move(outcome.failureReasons);
     vidsRunRes = mergeEncodeResults(prepared.initialResults, outcome.results.value());
   }
 
@@ -378,6 +381,7 @@ int runScannedEncodingWorkflow(
     summaryOutputDir(ctx.config, planningRootDir, plannedOutputFiles),
     plannedOutputFiles,
     vidsRunRes,
+    failureReasons,
     attentionWarnings
   );
   if (onCompleted) { onCompleted(); }
@@ -491,6 +495,7 @@ void printEncodingSummary(
   fs::path const& outputDir,
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes,
+  std::map<fs::path, std::string> const& failureReasons,
   std::span<std::string const> attentionWarnings
 ) {
   auto const successCount = std::ranges::count_if(vidsRunRes, _1->*second);
@@ -513,7 +518,13 @@ void printEncodingSummary(
 
   if (failureCount > 0) {
     for (auto const& [vidPath, success]: vidsRunRes) {
-      if (!success) { terminal::println(Plain, "  {}", terminal::path(vidPath)); }
+      if (success) { continue; }
+      auto const reason = failureReasons.find(vidPath);
+      if (reason != failureReasons.end()) {
+        terminal::println(Plain, "  {}: {}", terminal::path(vidPath), reason->second);
+      } else {
+        terminal::println(Plain, "  {}", terminal::path(vidPath));
+      }
     }
   }
 

@@ -1,4 +1,6 @@
 #include "infra/crash_runtime.h"
+
+#include "logging/setup.h"
 #include "test_utils.h"
 
 #include <boost/asio/buffer.hpp>
@@ -247,6 +249,37 @@ TEST_CASE("installHandlers is callable in-process and idempotent", "[crash]") {
   CHECK(true);
 }
 
+TEST_CASE("crash reason reaches stderr when the log file is writable", "[crash]") {
+  TempDir temp;
+  auto config = logging::LogConfig{
+    .colorsEnabled = false,
+    .customLogDir = temp.path,
+  };
+  auto const setupResult = logging::setup(config);
+  REQUIRE(setupResult.has_value());
+  auto const logPath = logging::currentLogFilePath();
+  REQUIRE(logPath.has_value());
+
+  auto const errFile = temp.path / "err.txt";
+  {
+    auto capture = testutils::StderrCapture{errFile};
+    auto const ex = std::runtime_error{"boom"};
+    crash::reportCaughtException("unit-test", ex);
+  }
+
+  // One line on stderr: reason plus the log path, no stacktrace.
+  auto const errText = testutils::readTextFile(errFile);
+  CHECK(errText.find("[CRASH] unit-test: boom") != std::string::npos);
+  CHECK(errText.find("[log:") != std::string::npos);
+  CHECK(errText.find(logPath.value().string()) != std::string::npos);
+  CHECK(errText.find("stacktrace") == std::string::npos);
+  // The full report stays in the log file.
+  auto const logText = testutils::readTextFile(logPath.value());
+  CHECK(logText.find("unit-test: boom") != std::string::npos);
+  CHECK(logText.find("stacktrace") != std::string::npos);
+
+  logging::shutdown();
+}
 TEST_CASE(
   "crash report falls back to stderr when logging is not initialized",
   "[crash]"

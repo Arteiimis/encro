@@ -44,6 +44,8 @@ struct WebpEncodeContext {
   // Keeps the forensic snapshot's subprocessCmdline in sync with the quality
   // tier actually being attempted.
   std::function<void(std::string const&)> cmdlineUpdater;
+  // Receives the child's diagnostic line so the failed-file list can name it.
+  appctx::EncodingState& state;
 };
 
 struct WebpEncodeStep {
@@ -182,19 +184,35 @@ auto runWebpEncodingStep(
     return {-1, std::nullopt};
   }
 
-  auto const [exitCode, _, pid] = exec2(cfg.buildCMD(), [&](std::string_view line) {
-    reportEncodingDiagnostic(encodeCtx.statusUpdater, line);
-  });
+  auto const [exitCode, capturedOutput, pid, stderrText] =
+    exec2(cfg.buildCMD(), [&](std::string_view line) {
+      reportEncodingDiagnostic(encodeCtx.statusUpdater, line);
+    });
   if (exitCode != 0) {
+    auto const reason =
+      extractFailureReason(capturedOutput, stderrText, exitCode, isLikelyFfmpegErrorLine);
     LOG_WARN(
-      "WebP encoding step failed: input={} quality={} exitCode={}",
+      "WebP encoding step failed: input={} quality={} exitCode={} reason={}",
       encodeCtx.inputVidPath.string(),
       quality,
-      exitCode
+      exitCode,
+      reason
     );
+    {
+      auto lock = std::scoped_lock{encodeCtx.state.mtx};
+      encodeCtx.state.lastError = reason;
+    }
     return {exitCode, std::nullopt};
   }
-  if (!fs::exists(outputFile)) { return {exitCode, std::nullopt}; }
+  if (!fs::exists(outputFile)) {
+    auto const reason =
+      std::format("encoder produced no output file: {}", outputFile.string());
+    {
+      auto lock = std::scoped_lock{encodeCtx.state.mtx};
+      encodeCtx.state.lastError = reason;
+    }
+    return {exitCode, std::nullopt};
+  }
 
   LOG_DEBUG(
     "WebP encoding step output size: input={} quality={} bytes={}",
@@ -423,20 +441,29 @@ bool encodeOneSegment(
     state.subprocessCmdline = cfg.buildCMD();
   }
 
-  auto const [exitCode, _, pid] = exec2(cfg.buildCMD(), [&](std::string_view line) {
-    reportEncodingDiagnostic(statusUpdater, line);
-  });
+  auto const [exitCode, capturedOutput, pid, stderrText] =
+    exec2(cfg.buildCMD(), [&](std::string_view line) {
+      reportEncodingDiagnostic(statusUpdater, line);
+    });
   if (pid.has_value()) {
     auto lock = std::scoped_lock{state.mtx};
     state.subprocessPid = pid;
   }
   if (exitCode != 0) {
+    auto const reason =
+      extractFailureReason(capturedOutput, stderrText, exitCode, isLikelyFfmpegErrorLine);
     LOG_WARN(
-      "Segment encode exited with non-zero code: input={} segment={} exitCode={}",
+      "Segment encode exited with non-zero code: input={} segment={} exitCode={} "
+      "reason={}",
       state.inputPath.string(),
       spec.segmentIndex,
-      exitCode
+      exitCode,
+      reason
     );
+    {
+      auto lock = std::scoped_lock{state.mtx};
+      state.lastError = reason;
+    }
     return false;
   }
 
@@ -469,7 +496,7 @@ auto ensureAudioFile(
       audioPath,
       aacFallback
     );
-    auto const [exitCode, _, pid] = exec2(cmd, [&](std::string_view line) {
+    auto const [exitCode, _, pid, stderrText] = exec2(cmd, [&](std::string_view line) {
       reportEncodingDiagnostic(statusUpdater, line);
     });
     if (pid.has_value()) {
@@ -499,17 +526,8 @@ bool assembleSegments(
   function_ref statusUpdater
 ) {
   auto const listPath = spec.segmentDir / "list.txt";
-  {
-    auto out = std::ofstream{listPath};
-    if (!out) {
-      LOG_ERROR("Failed to write segment list: {}", listPath.string());
-      return false;
-    }
-    for (auto index = std::uint64_t{0}; index < spec.segmentCount; ++index) {
-      auto pathStr = segmentFilePath(spec.segmentDir, index).string();
-      std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
-      out << "file '" << pathStr << "'\n";
-    }
+  if (!writeConcatManifest(listPath, spec.segmentDir, spec.segmentCount)) {
+    return false;
   }
 
   auto const cmd = buildSegmentAssemblyCmd(
@@ -524,19 +542,27 @@ bool assembleSegments(
     state.subprocessCmdline = cmd;
   }
 
-  auto const [exitCode, _, pid] = exec2(cmd, [&](std::string_view line) {
-    reportEncodingDiagnostic(statusUpdater, line);
-  });
+  auto const [exitCode, capturedOutput, pid, stderrText] =
+    exec2(cmd, [&](std::string_view line) {
+      reportEncodingDiagnostic(statusUpdater, line);
+    });
   if (pid.has_value()) {
     auto lock = std::scoped_lock{state.mtx};
     state.subprocessPid = pid;
   }
   if (exitCode != 0) {
+    auto const reason =
+      extractFailureReason(capturedOutput, stderrText, exitCode, isLikelyFfmpegErrorLine);
     LOG_WARN(
-      "Segment assembly exited with non-zero code: input={} exitCode={}",
+      "Segment assembly exited with non-zero code: input={} exitCode={} reason={}",
       state.inputPath.string(),
-      exitCode
+      exitCode,
+      reason
     );
+    {
+      auto lock = std::scoped_lock{state.mtx};
+      state.lastError = reason;
+    }
     return false;
   }
   if (!fs::exists(plan.outputFilePath)) {
@@ -677,6 +703,28 @@ bool runSegmentedEncoding(
 
 }  // namespace
 
+// Concat-demuxer rule: manifest entries resolve from the manifest's own
+// directory, so bare segment names work for relative and absolute runs alike.
+bool writeConcatManifest(
+  fs::path const& listPath,
+  fs::path const& segmentDir,
+  std::uint64_t segmentCount
+) {
+  auto out = std::ofstream{listPath};
+  if (!out) {
+    LOG_ERROR("Failed to write segment list: {}", listPath.string());
+    return false;
+  }
+  for (auto index = std::uint64_t{0}; index < segmentCount; ++index) {
+    out
+      << "file '"
+      << segmentFilePath(segmentDir, index).filename().string()
+      << "'"
+      << "\n";
+  }
+  return true;
+}
+
 bool encodeVideo(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
@@ -718,10 +766,12 @@ bool encodeVideo(
         .outputFilePath = executionPlan.outputFilePath,
         .progressFilePath = executionPlan.progressFilePath,
         .statusUpdater = statusUpdater,
-        .cmdlineUpdater = [&state](std::string const& cmd) {
-          auto lock = std::scoped_lock{state.mtx};
-          state.subprocessCmdline = cmd;
-        },
+        .cmdlineUpdater =
+          [&state](std::string const& cmd) {
+            auto lock = std::scoped_lock{state.mtx};
+            state.subprocessCmdline = cmd;
+          },
+        .state = state,
       }
     );
   }

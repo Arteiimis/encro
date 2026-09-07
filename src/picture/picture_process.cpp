@@ -18,6 +18,7 @@
 #include <array>
 #include <filesystem>
 #include <memory>
+#include <map>
 #include <unordered_map>
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
@@ -425,7 +426,13 @@ auto runCompressionPhase(
     auto const compressLabel =
       std::format("{} picture(s) q={}", compressTasks.size(), quality);
     logging::ScopedErrorContext scopedCtx("picture.compress", compressLabel);
-    return compressImageBatch(ctx, compressTasks, quality, maxParallel);
+    std::map<fs::path, std::string> failureReasons;
+    auto const results =
+      compressImageBatch(ctx, compressTasks, quality, maxParallel, failureReasons);
+    for (auto const& [path, reason]: failureReasons) {
+      terminal::println(Plain, "  {}: {}", terminal::path(path), reason);
+    }
+    return results;
   }();
 
   if (stopsignal::isStopRequested()) {

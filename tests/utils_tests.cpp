@@ -201,6 +201,88 @@ TEST_CASE("exec2 terminates child process when stop is requested", "[utils]") {
   CHECK(elapsed < 30s);
 }
 
+TEST_CASE("exec2 captures child stderr separately when merging is disabled", "[utils]") {
+#if defined(_WIN32)
+  auto const cmd = std::string{"cmd /c \"echo out-line & echo err-line 1>&2\""};
+#else
+  auto const cmd = std::string{"sh -c 'echo out-line; echo err-line 1>&2'"};
+#endif
+
+  auto const result = exec2(cmd, false);
+
+  CHECK(result.exitCode == 0);
+  // The merged output holds only stdout; the child's stderr lands in the
+  // separate field, available to the caller and never forwarded anywhere.
+  CHECK(result.output.find("out-line") != std::string::npos);
+  CHECK(result.output.find("err-line") == std::string::npos);
+  CHECK(result.stderrText.find("err-line") != std::string::npos);
+}
+
+TEST_CASE("exec2 keeps stderr in the merged output when merging is enabled", "[utils]") {
+#if defined(_WIN32)
+  auto const cmd = std::string{"cmd /c \"echo out-line & echo err-line 1>&2\""};
+#else
+  auto const cmd = std::string{"sh -c 'echo out-line; echo err-line 1>&2'"};
+#endif
+
+  auto const result = exec2(cmd);
+
+  CHECK(result.exitCode == 0);
+  CHECK(result.output.find("out-line") != std::string::npos);
+  CHECK(result.output.find("err-line") != std::string::npos);
+  CHECK(result.stderrText.empty());
+}
+
+TEST_CASE("exec2 separate stderr stays empty for silent children", "[utils]") {
+#if defined(_WIN32)
+  auto const cmd = std::string{"cmd /c \"echo out-line\""};
+#else
+  auto const cmd = std::string{"sh -c 'echo out-line'"};
+#endif
+
+  auto const result = exec2(cmd, false);
+
+  CHECK(result.exitCode == 0);
+  CHECK(result.output.find("out-line") != std::string::npos);
+  CHECK(result.stderrText.empty());
+}
+
+TEST_CASE("extractFailureReason prefers the classifier-accepted stderr line", "[utils]") {
+  auto const captured = std::string{"progress frame=1\n"};
+  auto const stderrText = std::string{"\nUnable to open file: missing.mp4\nmore\n"};
+
+  auto const reason =
+    extractFailureReason(captured, stderrText, 1, [](std::string_view line) {
+      return line.find("Unable") != std::string_view::npos;
+    });
+
+  CHECK(reason == "Unable to open file: missing.mp4");
+}
+
+TEST_CASE("extractFailureReason falls back to the last non-empty line", "[utils]") {
+  auto const captured = std::string{"first line\nmid line\nlast line\n"};
+
+  auto const reason = extractFailureReason(captured, "", 3, {});
+
+  CHECK(reason == "last line");
+}
+
+TEST_CASE(
+  "extractFailureReason falls back to the exit code when nothing carries a line",
+  "[utils]"
+) {
+  CHECK(extractFailureReason("", "", 17, {}) == "exit code 17");
+  CHECK(extractFailureReason("\n \n", "", 9, {}) == "exit code 9");
+}
+
+TEST_CASE("extractFailureReason caps long reasons", "[utils]") {
+  auto const longLine = std::string(500, 'x');
+
+  auto const reason = extractFailureReason(longLine, "", 1, {});
+
+  CHECK(reason.size() <= 200);
+}
+
 TEST_CASE("exec2 reports a missing tool as exit 127, not a spawn exception", "[utils]") {
   // The real-ffmpeg tests' skip path (findFFmpeg -> exec2 of a bare name)
   // needs a non-zero exit code for a missing tool: the posix launcher used
@@ -262,7 +344,7 @@ TEST_CASE("exec2 reports the child's exit code and pid", "[utils]") {
 }
 
 TEST_CASE(
-  "exec2 merges stderr into stdout by default and discards it when disabled",
+  "exec2 merges stderr into stdout by default and captures it separately otherwise",
   "[utils]"
 ) {
 #if defined(_WIN32)
