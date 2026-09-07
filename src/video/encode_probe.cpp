@@ -182,12 +182,14 @@ auto probeSingleFile(
   auto const durationRes = getVidTotalDurationUs(ctx.toolchain, ctx.runtime, inputPath);
   if (!durationRes.has_value()) {
     LOG_DEBUG("Probing skipped (no duration): {}", inputPath.string());
+    plan.skipReason = "no duration";
     return plan;
   }
   auto const totalDurationUs = durationRes.value();
   auto const windows = pickProbeWindows(totalDurationUs);
   if (!windows.has_value()) {
     LOG_DEBUG("Probing skipped (short video): {}", inputPath.string());
+    plan.skipReason = "short video";
     return plan;
   }
 
@@ -224,6 +226,7 @@ auto probeSingleFile(
       inputPath.string(),
       kDefaultCq
     );
+    plan.skipReason = "scoring failed";
     return plan;
   }
 
@@ -853,9 +856,6 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
     return eh::makeError("Probing canceled by user.");
   }
 
-  // The bars are gone; a single line replaces them.
-  terminal::println(Info, "Probing complete: {} file(s).", vids.size());
-
   // Persist fresh decisions so the next run skips probing.
   flushCachePlans(ctx, vids, plans);
 
@@ -960,12 +960,13 @@ auto formatProbePlanRow(
     : std::string{marker} + padToDisplayWidth(name, nameWidth - prefixWidth(marker));
   if (!plan.probed) {
     return std::format(
-      "  {}  {:>3}  {:>6}  {:>9}  {:<6}",
+      "  {}  {:>3}  {:>6}  {:>9}  {:<6} (not probed: {})",
       nameCell,
       plan.chosenCq,
       "\xE2\x80\x94",
       "\xE2\x80\x94",
-      "\xE2\x80\x94"
+      "\xE2\x80\x94",
+      plan.skipReason
     );
   }
   auto suffix = std::string{};
@@ -982,53 +983,38 @@ auto formatProbePlanRow(
   );
 }
 
-// Very narrow terminal: name on its own line, metrics indented below.
-void printTwoLineRow(ProbePlan const& plan, std::string_view marker) {
-  auto const ratio = probePlanRatio(plan);
-  if (!plan.probed) {
+void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) {
+  if (plans.empty()) { return; }
+  // No pending file carries measured data: the plan collapses to the single
+  // outcome line naming the count, the CQ in effect, and the skip reason.
+  if (std::ranges::none_of(plans, &ProbePlan::probed)) {
+    auto reasons = std::vector<std::string_view>{};
+    for (auto const& plan: plans) {
+      if (std::ranges::find(reasons, plan.skipReason) == reasons.end()) {
+        reasons.push_back(plan.skipReason);
+      }
+    }
+    auto const joined = reasons
+      | std::views::join_with(std::string_view{", "})
+      | std::ranges::to<std::string>();
+    auto const reasonText =
+      joined == "short video" ? std::string{"short videos"} : joined;
     terminal::println(
       Plain,
-      "  {}{} (default; not probed)",
-      marker,
-      displaytext::pathToUtf8String(plan.inputPath.filename())
+      "{} video(s) to encode at CQ {} (probing skipped: {})",
+      plans.size(),
+      plans.front().chosenCq,
+      reasonText
     );
     return;
   }
-  terminal::println(
-    Plain,
-    "  {}{}",
-    marker,
-    displaytext::pathToUtf8String(plan.inputPath.filename())
-  );
-  if (plan.fromCache) { terminal::println(Plain, "    (cached decision)"); }
-  terminal::println(
-    Plain,
-    "    CQ {} \xC2\xB7 p5 {} \xC2\xB7 {} \xC2\xB7 {}{}",
-    plan.chosenCq,
-    formatProbeP5(plan),
-    displaytext::formatSizeBytes(plan.estimatedBytes),
-    ratio.has_value() ? displaytext::formatSignedPercent(ratio.value()) : "\xE2\x80\x94",
-    plan.skipEncode ? kSkippedSuffix : ""
-  );
-}
 
-auto probeRule(std::size_t width) -> std::string {
-  auto rule = std::string{};
-  rule.reserve(width * 3);
-  for (auto index = std::size_t{0}; index < width; ++index) { rule += "\xE2\x94\x80"; }
-  return rule;
-}
-
-void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) {
   auto const layout = displaytext::layoutColumns(consolewidth::resolveColumns());
   auto const nameWidth = resolvePlanNameWidth(plans, layout);
-  // Rule matches the table width when the table renders; fixed width on the
-  // two-line fallback.
-  auto const ruleWidth = layout.has_value()
-    ? nameWidth.value_or(std::size_t{40}) + kRuleFixedWidth
-    : std::size_t{40};
+  auto const width = nameWidth.value_or(std::size_t{40});
+  auto const ruleWidth = width + kRuleFixedWidth;
 
-  terminal::println(Plain, "{}", probeRule(ruleWidth));
+  terminal::println(Plain, "{}", displaytext::boxRule(ruleWidth));
   terminal::println(Plain, "Encoding plan (min p5-VMAF-equivalent {}):", minVmafFloor);
 
   auto const stats = collectPlanStats(plans);
@@ -1042,52 +1028,45 @@ void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) {
     );
   }
 
-  if (!layout.has_value()) {
-    for (auto const* plan: stats.normal) { printTwoLineRow(*plan, ""); }
-    for (auto const* plan: stats.warnings) { printTwoLineRow(*plan, "\xE2\x9A\xA0 "); }
-  } else {
-    // layout has a value here, so resolvePlanNameWidth cannot be nullopt
-    // NOLINTNEXTLINE(bugprone-unchecked-optional-access): same invariant as the layout branch
-    auto const width = nameWidth.value();
-    auto lines = std::vector<std::string>{};
-    lines.reserve(plans.size() + 1);
-    lines.push_back(
-      std::format(
-        "  {}  {:>3}  {:>6}  {:>9}  {:<6}",
-        padToDisplayWidth("File", width),
-        "CQ",
-        "p5",
-        "Est.Size",
-        "Ratio"
-      )
-    );
-    for (auto const* plan: stats.normal) {
-      lines.push_back(formatProbePlanRow(*plan, "", width));
-    }
-    for (auto const* plan: stats.warnings) {
-      lines.push_back(formatProbePlanRow(*plan, "\xE2\x9A\xA0 ", width));
-    }
-    terminal::write(
-      terminal::Stream::Stdout,
-      std::ranges::to<std::string>(lines | std::views::join_with('\n')),
-      true
+  auto lines = std::vector<std::string>{};
+  lines.reserve(plans.size() + 1);
+  lines.push_back(
+    std::format(
+      "  {}  {:>3}  {:>6}  {:>9}  {:<6}",
+      padToDisplayWidth("File", width),
+      "CQ",
+      "p5",
+      "Est.Size",
+      "Ratio"
+    )
+  );
+  for (auto const* plan: stats.normal) {
+    lines.push_back(formatProbePlanRow(*plan, "", width));
+  }
+  for (auto const* plan: stats.warnings) {
+    lines.push_back(formatProbePlanRow(*plan, "\xE2\x9A\xA0 ", width));
+  }
+  terminal::write(
+    terminal::Stream::Stdout,
+    std::ranges::to<std::string>(lines | std::views::join_with('\n')),
+    true
+  );
+
+  // Totals need estimates; no ratio is computed against an empty estimate.
+  if (stats.estCount > 0) {
+    auto const ratio = stats.totalSource > 0
+      ? static_cast<double>(stats.totalEst) / static_cast<double>(stats.totalSource)
+      : 0.0;
+    terminal::println(
+      Plain,
+      "  Total: {} file(s), est. {}, source {} ({})",
+      plans.size(),
+      displaytext::formatSizeBytes(std::optional{stats.totalEst}),
+      displaytext::formatSizeBytes(stats.totalSource),
+      displaytext::formatSignedPercent(ratio)
     );
   }
-
-  auto const ratio = stats.totalSource > 0
-    ? static_cast<double>(stats.totalEst) / static_cast<double>(stats.totalSource)
-    : 0.0;
-  terminal::println(
-    Plain,
-    "  Total: {} file(s), est. {}, source {} ({})",
-    plans.size(),
-    displaytext::formatSizeBytes(
-      stats.estCount > 0 ? std::optional{stats.totalEst} : std::nullopt
-    ),
-    displaytext::formatSizeBytes(stats.totalSource),
-    displaytext::formatSignedPercent(ratio)
-  );
-  terminal::println(Plain, "{}", probeRule(ruleWidth));
+  terminal::println(Plain, "{}", displaytext::boxRule(ruleWidth));
 }
 
 }  // namespace encodeprobe

@@ -260,6 +260,103 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "video scan narration prints one outcome line on non-TTY output",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  StrayProgressGuard strayProgress;
+  auto const inputDir = temp.path / "videos";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.mp4", "fake-video");
+  writeTextFile(inputDir / "b.mov", "fake-video");
+
+  auto ctx = appctx::AppContext{};
+  configureVideoContext(ctx, temp.path, inputDir);
+
+  auto const outPath = temp.path / "stdout.txt";
+  {
+    auto capture = StdoutCapture{outPath};
+    CHECK(handlePathEncoding(ctx, inputDir) == 0);
+  }
+
+  auto const captured = readTextFile(outPath);
+  // Piped output: the scan reports its outcome once, in user terms, with no
+  // start line and no code-literal qualifiers.
+  CHECK(captured.find("Found 2 video(s) under") != std::string::npos);
+  CHECK(captured.find("Scanning") == std::string::npos);
+  CHECK(captured.find("candidate") == std::string::npos);
+}
+
+TEST_CASE(
+  "post-encode summary is the count line plus preview hints on success",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  StrayProgressGuard strayProgress;
+  auto const inputDir = temp.path / "videos";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.mp4", "fake-video");
+  writeTextFile(inputDir / "b.mov", "fake-video");
+
+  auto ctx = appctx::AppContext{};
+  configureVideoContext(ctx, temp.path, inputDir);
+
+  auto const outPath = temp.path / "stdout.txt";
+  {
+    auto capture = StdoutCapture{outPath};
+    CHECK(handlePathEncoding(ctx, inputDir) == 0);
+  }
+
+  auto const captured = readTextFile(outPath);
+  // The count line carries the encoded count and the resolved output
+  // directory; the preview hints follow. No headers, no count table.
+  CHECK(captured.find("Encoded 2/2 videos") != std::string::npos);
+  CHECK(captured.find("encoded_webp") != std::string::npos);
+  CHECK(captured.find("Compare:") != std::string::npos);
+  CHECK(captured.find("All encoding tasks completed.") == std::string::npos);
+  CHECK(captured.find("Summary:") == std::string::npos);
+  CHECK(captured.find("Total videos found") == std::string::npos);
+  CHECK(captured.find("Needs attention") == std::string::npos);
+}
+
+TEST_CASE(
+  "post-encode summary names failures and lists failed files",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  StrayProgressGuard strayProgress;
+  auto const inputDir = temp.path / "videos";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "alpha.mp4", "fake-video");
+  writeTextFile(inputDir / "beta.mp4", "fake-video");
+
+  auto const failEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_FAIL_MATCH", "__beta__"};
+  auto ctx = appctx::AppContext{};
+  configureVideoContext(ctx, temp.path, inputDir);
+
+  auto const outPath = temp.path / "stdout.txt";
+  {
+    auto capture = StdoutCapture{outPath};
+    CHECK(handlePathEncoding(ctx, inputDir) == 1);
+  }
+
+  auto const captured = readTextFile(outPath);
+  // The count line names the failure; the failed file is listed as a plain
+  // path; no empty "Needs attention" section and no legacy headers.
+  CHECK(captured.find("Encoded 1/2 videos") != std::string::npos);
+  CHECK(captured.find("beta.mp4") != std::string::npos);
+  CHECK(captured.find("Videos that failed to encode") == std::string::npos);
+  CHECK(captured.find("Needs attention") == std::string::npos);
+  CHECK(captured.find("All encoding tasks completed.") == std::string::npos);
+  // The succeeded file still gets its preview hint.
+  CHECK(captured.find("Compare:") != std::string::npos);
+  CHECK(captured.find("alpha.mp4") != std::string::npos);
+}
+
+TEST_CASE(
   "scan failure reports the error line on stderr without doubling the marker",
   "[video-process][orchestration]"
 ) {

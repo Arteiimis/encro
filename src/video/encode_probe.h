@@ -113,6 +113,8 @@ struct ProbePlan {
   bool unreachableFloor = false;
   bool fromCache = false;   // decision reused from the persisted probe cache
   bool skipEncode = false;  // estimatedBytes > source size; excluded from encoding
+  // Why probing was skipped when probed is false; the plan names it.
+  std::string_view skipReason = "short video";
 };
 
 struct

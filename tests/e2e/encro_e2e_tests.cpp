@@ -570,14 +570,11 @@ TEST_CASE(
     );
 
     REQUIRE(result.exitCode == 1);
-    CHECK(result.stdoutText.find("Failed to encode: 1") != std::string::npos);
-    // The summary block stays on stdout as one unit: count line plus the
-    // failed-file list, even though the entries read as warnings.
-    CHECK(
-      result.stdoutText.find("warning: Videos that failed to encode:")
-      != std::string::npos
-    );
+    // The count line names the failure and the output location; the failed
+    // file follows as a plain path, still on stdout with the count line.
+    CHECK(result.stdoutText.find("Encoded 0/1 videos") != std::string::npos);
     CHECK(result.stdoutText.find(inputPath.filename().string()) != std::string::npos);
+    CHECK(result.stdoutText.find("Videos that failed to encode") == std::string::npos);
     CHECK(result.stderrText.find("Videos that failed to encode") == std::string::npos);
     CHECK(result.stderrText.find("Log file:") != std::string::npos);
     REQUIRE(fs::exists(statePath));
@@ -618,7 +615,7 @@ TEST_CASE(
     );
 
     REQUIRE(result.exitCode == 1);
-    CHECK(result.stdoutText.find("Failed to encode: 1") != std::string::npos);
+    CHECK(result.stdoutText.find("Encoded 1/2 videos") != std::string::npos);
 
     auto const outputFiles = listFilesWithExtension(temp.path / "out", ".webp");
     REQUIRE(outputFiles.size() == 1);
@@ -1469,7 +1466,7 @@ TEST_CASE(
   );
 
   REQUIRE(result.exitCode == 1);
-  CHECK(result.stdoutText.find("Failed to encode: 1") != std::string::npos);
+  CHECK(result.stdoutText.find("Encoded 0/1 videos") != std::string::npos);
   CHECK(result.stderrText.find("Log file:") != std::string::npos);
   REQUIRE(fs::exists(statePath));
   auto const state = loadJsonObject(statePath);
@@ -1696,6 +1693,8 @@ TEST_CASE(
     auto const result1 = e2e::runEncro(makeArgs(temp.path / "out1"), std::nullopt, env1);
     REQUIRE_SUCCESS(result1);
     CHECK(result1.stdoutText.find("(cached)") == std::string::npos);
+    // The plan carries the probing outcome; no standalone completion line.
+    CHECK(result1.stdoutText.find("Probing complete") == std::string::npos);
     auto const probeScorings1 = countLogLines(log1, "libvmaf");
     REQUIRE(probeScorings1 > 0);  // probing really scored
     auto const cq1 = extractPlanCq(result1.stdoutText);

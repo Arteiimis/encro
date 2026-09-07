@@ -38,6 +38,30 @@ auto sourcePaths(std::vector<pack::PackFileEntry> const& entries)
 
 }  // namespace
 
+TEST_CASE(
+  "directory pack scan narration prints one outcome line on non-TTY output",
+  "[packer]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  fs::create_directories(inputDir);
+  testutils::writeTextFile(inputDir / "a.bin", "x");
+  testutils::writeTextFile(inputDir / "b.bin", "y");
+
+  auto const outPath = temp.path / "stdout.txt";
+  {
+    auto capture = testutils::StdoutCapture{outPath};
+    auto const planRes =
+      pack::Packer{}.buildDirectoryPackPlan(inputDir, temp.path / "packed");
+    REQUIRE(planRes);
+  }
+
+  auto const captured = testutils::readTextFile(outPath);
+  CHECK(captured.find("Found 2 file(s) under") != std::string::npos);
+  CHECK(captured.find("Scanning") == std::string::npos);
+  CHECK(captured.find("(recursive=") == std::string::npos);
+}
+
 TEST_CASE("groupFilesBySize splits sequentially by limit", "[packer][groupFilesBySize]") {
   TempDir temp;
   auto const f1 = testutils::writeSizedFile(temp.path / "a.bin", 100);
