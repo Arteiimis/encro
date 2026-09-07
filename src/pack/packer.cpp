@@ -750,12 +750,13 @@ auto pack::Packer::buildDirectoryPackPlan(
     return eh::makeError("Input path is not a directory: {}", dirPath.string());
   }
 
-  terminal::println(
-    Info,
-    "Scanning input path for files: {} (recursive={})...",
-    terminal::path(dirPath),
-    options.recursive ? terminal::value("true") : terminal::value("false")
-  );
+  if (terminal::streamIsTerminal(terminal::Stream::Stdout)) {
+    terminal::println(
+      Info,
+      "Scanning input path for files: {} ...",
+      terminal::path(dirPath)
+    );
+  }
 
   auto const allFiles =
     scanDirectoryFiles(dirPath, options.recursive, options.excludedPath);
@@ -766,8 +767,9 @@ auto pack::Packer::buildDirectoryPackPlan(
 
   terminal::println(
     Info,
-    "File scan completed, found {} file(s).",
-    terminal::count(allFiles.size())
+    "Found {} file(s) under {}.",
+    terminal::count(allFiles.size()),
+    terminal::path(dirPath)
   );
 
   auto const groupedFiles = groupFilesBySize(allFiles, maxGroupSize);

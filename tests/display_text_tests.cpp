@@ -66,6 +66,24 @@ TEST_CASE("truncateWithEllipsis preserves valid long Chinese text", "[display-te
   CHECK(truncated.ends_with("..."));
 }
 
+// Narration wording conventions (pipeline-narration): trailing status
+// ellipses are three ASCII dots; the mid-string filename truncation marker is
+// the typographic U+2026, so the two stay visually distinct.
+TEST_CASE(
+  "trailing ellipses are ASCII and the truncation marker stays typographic",
+  "[display-text]"
+) {
+  auto const text = std::string{"a_very_long_ascii_video_file_name_here.mp4"};
+
+  auto const trailing = displaytext::truncateWithEllipsis(text, 16);
+  CHECK(trailing.ends_with("..."));
+  CHECK(trailing.find("\xE2\x80\xA6") == std::string::npos);  // no U+2026 trailing
+
+  auto const middle = displaytext::truncateMiddle(text, 16);
+  CHECK(middle.find("\xE2\x80\xA6") != std::string::npos);  // U+2026 mid-string
+  CHECK(middle.find("...") == std::string::npos);           // never ASCII dots
+}
+
 TEST_CASE("truncateWithEllipsis keeps ascii text within width budget", "[display-text]") {
   auto const text = std::string{"this_is_a_very_long_ascii_filename_for_progress.mp4"};
 

@@ -23,3 +23,11 @@ auto resolveVideoPackOutputPath(
   appctx::AppConfig const& config,
   fs::path const& inputPath
 ) -> fs::path;
+
+// The output root for planned encode outputs: the explicit --output when set,
+// the webp default subdirectory next to the source root, or nullopt when
+// outputs land next to their inputs.
+auto resolveOutputRootDir(
+  appctx::AppConfig const& config,
+  std::optional<fs::path> const& sourceRootDir
+) -> std::optional<fs::path>;

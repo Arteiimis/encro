@@ -174,4 +174,12 @@ inline auto pathToUtf8String(std::filesystem::path const& path) -> std::string {
   return out;
 }
 
+// Rule lines of tabular reports share one glyph family (U+2500 box drawing).
+inline auto boxRule(std::size_t width) -> std::string {
+  auto rule = std::string{};
+  rule.reserve(width * 3);
+  for (auto index = std::size_t{0}; index < width; ++index) { rule += "\xE2\x94\x80"; }
+  return rule;
+}
+
 }  // namespace displaytext

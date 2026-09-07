@@ -57,7 +57,10 @@ auto sourceLabel(FolderSource source) -> std::string_view {
 auto renderReport(ReportData const& report) -> std::string {
   auto text = std::string{};
   text += "folder                          images  source\n";
-  text += "----------------------------------------------\n";
+  // The rule shares the encode plan's glyph family (pipeline-narration);
+  // its 46 glyphs match the header row's width.
+  text += displaytext::boxRule(46);
+  text += '\n';
   for (auto const& folder: report.folders) {
     text += std::format(
       "{:<30} {:>6}  {}\n",

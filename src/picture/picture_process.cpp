@@ -296,8 +296,9 @@ auto executeDirectPackWorkflow(
 
   terminal::println(
     Info,
-    "Picture scan completed, {} picture(s) found, grouping into package batch(es).",
-    terminal::count(pics.size())
+    "Found {} picture(s) under {}.",
+    terminal::count(pics.size()),
+    terminal::path(dirPath)
   );
 
   if (!confirmPicturePack(ctx.config)) {
@@ -538,11 +539,6 @@ auto runCompressPackPhase(
   ) {  // NOLINT(bugprone-unchecked-optional-access): guarded by the !compressOutcome check above
     return stopsignal::kCanceledExitCode;
   }
-  terminal::println(
-    Info,
-    "{} picture(s) prepared for packing, preparing pack plan...",
-    terminal::count(compressOutcome.value().results.size())
-  );
   return 0;
 }
 
@@ -558,10 +554,9 @@ auto executeCompressPackWorkflow(
   auto const quality = ctx.config.imageQuality.value_or(kDefaultPictureCompressQuality);
   terminal::println(
     Info,
-    "Picture scan completed, {} picture(s) found, will be compressed to JPEG "
-    "(quality={}).",
+    "Found {} picture(s) under {}.",
     terminal::count(scannedPics.size()),
-    terminal::count(quality)
+    terminal::path(dirPath)
   );
 
   if (!confirmPicturePack(ctx.config)) {

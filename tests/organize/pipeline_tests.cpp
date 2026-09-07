@@ -247,4 +247,7 @@ TEST_CASE("renderReport lists folders with sources and totals", "[organize]") {
   CHECK(text.find("hatsune_miku") != std::string::npos);
   CHECK(text.find("character tag") != std::string::npos);
   CHECK(text.find("scanned 2 images") != std::string::npos);
+  // Report rules share the encode plan's glyph family (pipeline-narration).
+  CHECK(text.find("\xE2\x94\x80") != std::string::npos);
+  CHECK(text.find("---") == std::string::npos);
 }
