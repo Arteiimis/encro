@@ -51,7 +51,7 @@ int packEncodedVideos(
 );
 
 void printEncodingSummary(
-  std::span<fs::path const> vids,
+  fs::path const& outputDir,
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes,
   std::span<std::string const> attentionWarnings
@@ -165,18 +165,21 @@ auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
   logging::ScopedTimer timer("video.scan");
   auto const scanPathStr = inputPath.string();
   logging::ScopedErrorContext scopedCtx("video.scan", scanPathStr);
-  terminal::println(
-    Info,
-    "Scanning input path for videos: {} ...",
-    terminal::path(inputPath)
-  );
+  if (terminal::streamIsTerminal(terminal::Stream::Stdout)) {
+    terminal::println(
+      Info,
+      "Scanning input path for videos: {} ...",
+      terminal::path(inputPath)
+    );
+  }
   LOG_INFO("Scanning input path: {}", inputPath.string());
   auto vids = readAllVids(ctx.config, ctx.toolchain, ctx.runtime, inputPath);
   if (!vids) { return eh::makeError("Failed to scan input videos: {}", vids.error()); }
   terminal::println(
     Info,
-    "Video scan completed, found {} candidate file(s).",
-    terminal::count(vids->size())
+    "Found {} video(s) under {}.",
+    terminal::count(vids->size()),
+    terminal::path(inputPath)
   );
   LOG_INFO("Scan completed: {} candidate video(s)", vids->size());
   return vids.value();
@@ -189,17 +192,20 @@ auto scanInputVideosFromFiles(
   logging::ScopedTimer timer("video.scan");
   auto const scanLabel = std::format("{} file(s)", inputPaths.size());
   logging::ScopedErrorContext scopedCtx("video.scan", scanLabel);
-  terminal::println(
-    Info,
-    "Scanning input files for videos: {} file(s) ...",
-    terminal::count(inputPaths.size())
-  );
+  if (terminal::streamIsTerminal(terminal::Stream::Stdout)) {
+    terminal::println(
+      Info,
+      "Scanning input files for videos: {} file(s) ...",
+      terminal::count(inputPaths.size())
+    );
+  }
   LOG_INFO("Scanning {} provided input file(s)", inputPaths.size());
   auto vids = readAllVidsFromFiles(ctx.config, ctx.toolchain, ctx.runtime, inputPaths);
   terminal::println(
     Info,
-    "Video scan completed, found {} candidate file(s).",
-    terminal::count(vids.size())
+    "Found {} video(s) from {} provided file(s).",
+    terminal::count(vids.size()),
+    terminal::count(inputPaths.size())
   );
   LOG_INFO("Scan completed from files: {} candidate video(s)", vids.size());
   return vids;
@@ -258,6 +264,22 @@ auto maybeHandleInterruptedEncoding(
   });
 
   return stopsignal::kCanceledExitCode;
+}
+
+// The output directory the count line names: the explicit --output, the webp
+// default subdirectory, or wherever the planned outputs land.
+auto summaryOutputDir(
+  appctx::AppConfig const& config,
+  std::optional<fs::path> const& planningRootDir,
+  appctx::path_map<fs::path> const& plannedOutputFiles
+) -> fs::path {
+  if (auto const dir = resolveOutputRootDir(config, planningRootDir)) {
+    return dir.value();
+  }
+  if (!plannedOutputFiles.empty()) {
+    return plannedOutputFiles.begin()->second.parent_path();
+  }
+  return planningRootDir.value_or(fs::path{});
 }
 
 int maybePackWorkflowOutputs(
@@ -352,7 +374,12 @@ int runScannedEncodingWorkflow(
 
   withJobState(ctx, [](jobstate::Store& store) { store.setStage("completed"); });
 
-  printEncodingSummary(vids, plannedOutputFiles, vidsRunRes, attentionWarnings);
+  printEncodingSummary(
+    summaryOutputDir(ctx.config, planningRootDir, plannedOutputFiles),
+    plannedOutputFiles,
+    vidsRunRes,
+    attentionWarnings
+  );
   if (onCompleted) { onCompleted(); }
 
   return hasEncodingFailures(vidsRunRes) ? 1 : 0;
@@ -461,49 +488,32 @@ int packEncodedVideos(
 }
 
 void printEncodingSummary(
-  std::span<fs::path const> vids,
+  fs::path const& outputDir,
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes,
   std::span<std::string const> attentionWarnings
 ) {
-  terminal::println(Success, "All encoding tasks completed.");
-  terminal::println(Heading, "Summary:");
-
   auto const successCount = std::ranges::count_if(vidsRunRes, _1->*second);
-  auto const failureCount = vidsRunRes.size() - successCount;
+  auto const failureCount = vidsRunRes.size() - static_cast<std::size_t>(successCount);
 
   LOG_INFO(
     "Encoding summary: total={} success={} failed={}",
-    vids.size(),
+    vidsRunRes.size(),
     successCount,
     failureCount
   );
 
-  // Align the count labels so the colons line up, matching the plan table's
-  // aligned numeric columns.
   terminal::println(
     Info,
-    "  {:>22}: {}",
-    "Total videos found",
-    terminal::count(vids.size())
-  );
-  terminal::println(
-    Success,
-    "  {:>22}: {}",
-    "Successfully encoded",
-    terminal::count(successCount)
-  );
-  terminal::println(
-    Warning,
-    "  {:>22}: {}",
-    "Failed to encode",
-    terminal::count(failureCount)
+    "Encoded {}/{} videos \xE2\x86\x92 {}",
+    terminal::count(successCount),
+    terminal::count(vidsRunRes.size()),
+    terminal::path(outputDir)
   );
 
   if (failureCount > 0) {
-    terminal::println(Warning, "Videos that failed to encode:");
     for (auto const& [vidPath, success]: vidsRunRes) {
-      if (!success) { terminal::println(Error, "  {}", terminal::path(vidPath)); }
+      if (!success) { terminal::println(Plain, "  {}", terminal::path(vidPath)); }
     }
   }
 

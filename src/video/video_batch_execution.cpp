@@ -486,12 +486,6 @@ auto prepareEncodingExecution(
     EncodingProgressState
   >(job.vids.size(), overallTotalCount, initialCompletedCount, workerCount, compact);
 
-  terminal::println(
-    Info,
-    "Scheduling {} video(s) with max {} concurrent encode job(s)...",
-    terminal::count(job.vids.size()),
-    terminal::count(workerCount)
-  );
   LOG_INFO(
     "Scheduling encoding workers: workers={} pending={} overall={} "
     "completed-before-start={}",

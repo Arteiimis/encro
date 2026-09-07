@@ -40,18 +40,6 @@ auto buildConflictHandledOutputPath(
     );
 }
 
-auto resolveOutputRootDir(
-  appctx::AppConfig const& config,
-  std::optional<fs::path> const& sourceRootDir
-) -> std::optional<fs::path> {
-  if (config.outputPath.has_value()) { return *config.outputPath; }
-  if (config.outputFormat != "webp" || !sourceRootDir.has_value()) {
-    return std::nullopt;
-  }
-
-  return *sourceRootDir / "encoded_webp";
-}
-
 auto resolvePlannedOutputDir(
   appctx::AppConfig const& config,
   fs::path const& inputPath,
@@ -100,6 +88,18 @@ void ensureUniqueOutputPaths(appctx::path_map<fs::path>& plannedOutputFiles) {
 }
 
 }  // namespace
+
+auto resolveOutputRootDir(
+  appctx::AppConfig const& config,
+  std::optional<fs::path> const& sourceRootDir
+) -> std::optional<fs::path> {
+  if (config.outputPath.has_value()) { return *config.outputPath; }
+  if (config.outputFormat != "webp" || !sourceRootDir.has_value()) {
+    return std::nullopt;
+  }
+
+  return *sourceRootDir / "encoded_webp";
+}
 
 auto planVideoOutputFiles(
   appctx::AppConfig const& config,

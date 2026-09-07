@@ -700,10 +700,7 @@ TEST_CASE(
   );
 }
 
-TEST_CASE(
-  "printProbePlan renders the two-line fallback on tiny terminals",
-  "[encode-probe]"
-) {
+TEST_CASE("printProbePlan keeps the table form on tiny terminals", "[encode-probe]") {
   TempDir temp;
   auto const kMegabyte = std::uintmax_t{1'048'576};
   auto const input = temp.path / "clip.mp4";
@@ -723,16 +720,97 @@ TEST_CASE(
     encodeprobe::printProbePlan(plans, 95);
   }
   auto const text = testutils::readTextFile(out);
+  // The per-file continuation-line form is gone: the aligned table renders
+  // with a capped name column even on tiny terminals.
   CHECK(text.find("clip.mp4") != std::string::npos);
+  CHECK(text.find("Est.Size") != std::string::npos);
+  CHECK(text.find("0.5 MB") != std::string::npos);
+  CHECK(text.find("\xC2\xB7") == std::string::npos);  // no mid-dot continuation lines
+}
+
+TEST_CASE(
+  "printProbePlan collapses to one line when nothing was measured",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto plans = std::vector<encodeprobe::ProbePlan>{
+    {.inputPath = temp.path / "b.mp4", .chosenCq = 28},
+    {.inputPath = temp.path / "a.mp4", .chosenCq = 28},
+  };
+  auto const out = temp.path / "stdout.txt";
+  {
+    auto capture = testutils::StdoutCapture{out};
+    encodeprobe::printProbePlan(plans, 95);
+  }
+  auto const text = testutils::readTextFile(out);
   CHECK(
-    text.find(
-      "CQ 28 \xC2\xB7 p5 96.0 \xC2\xB7 0.5 MB \xC2\xB7 \xE2\x88\x92"
-      "50%"
-    )
+    text.find("2 video(s) to encode at CQ 28 (probing skipped: short videos)")
     != std::string::npos
   );
-  // No table header in the two-line form.
-  CHECK(text.find("Est.Size") == std::string::npos);
+  // No table furniture and no per-file rows on the collapsed form.
+  CHECK(text.find("\xE2\x94\x80") == std::string::npos);  // rule lines
+  CHECK(text.find("Encoding plan") == std::string::npos);
+  CHECK(text.find("Total:") == std::string::npos);
+  CHECK(text.find("a.mp4") == std::string::npos);
+}
+
+TEST_CASE("printProbePlan states the skip reason on unprobed rows", "[encode-probe]") {
+  TempDir temp;
+  auto const probedFile = temp.path / "alpha.mp4";
+  auto const skippedFile = temp.path / "beta.mp4";
+  auto plans = std::vector<encodeprobe::ProbePlan>{
+    {.inputPath = probedFile,
+     .chosenCq = 26,
+     .metric = videoquality::QualityMetric::Vmaf,
+     .p5 = 95.0,
+     .estimatedBytes = 500'000,
+     .probed = true},
+    {.inputPath = skippedFile, .chosenCq = 28, .skipReason = "scoring failed"},
+  };
+  auto const out = temp.path / "stdout.txt";
+  {
+    auto capture = testutils::StdoutCapture{out};
+    encodeprobe::printProbePlan(plans, 95);
+  }
+  auto const text = testutils::readTextFile(out);
+  // The table stays; the unprobed row carries its reason.
+  CHECK(text.find("beta.mp4") != std::string::npos);
+  CHECK(text.find("(not probed: scoring failed)") != std::string::npos);
+  // The probed row still carries measurements and totals still print.
+  CHECK(text.find("alpha.mp4") != std::string::npos);
+  CHECK(text.find("Total:") != std::string::npos);
+}
+
+TEST_CASE("printProbePlan omits totals when no estimates exist", "[encode-probe]") {
+  TempDir temp;
+  auto plans = std::vector<encodeprobe::ProbePlan>{
+    {.inputPath = temp.path / "a.mp4",
+     .chosenCq = 26,
+     .metric = videoquality::QualityMetric::Vmaf,
+     .p5 = 95.0,
+     .probed = true},
+    {.inputPath = temp.path / "b.mp4",
+     .chosenCq = 26,
+     .metric = videoquality::QualityMetric::Vmaf,
+     .p5 = 96.0,
+     .probed = true},
+  };
+  auto const out = temp.path / "stdout.txt";
+  {
+    auto capture = testutils::StdoutCapture{out};
+    encodeprobe::printProbePlan(plans, 95);
+  }
+  auto const text = testutils::readTextFile(out);
+  // Measured p5 keeps the table, but no totals line and no ratio computed
+  // against an empty estimate.
+  CHECK(text.find("Total:") == std::string::npos);
+  CHECK(
+    text.find(
+      "\xE2\x88\x92"
+      "100%"
+    )
+    == std::string::npos
+  );  // no nonsense \xE2\x88\x92100%
 }
 
 TEST_CASE("printProbePlan caps the name column on wide terminals", "[encode-probe]") {

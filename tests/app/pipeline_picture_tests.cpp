@@ -215,6 +215,47 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "picture pipeline announces the compression phase exactly once",
+  "[pipeline][compress]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.png");
+  writeTextFile(inputDir / "b.png");
+
+  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.maxParallelJobs = 1;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
+
+  auto const outPath = temp.path / "stdout.txt";
+  {
+    auto capture = testutils::StdoutCapture{outPath};
+    auto const runRes = pipeline::run(ctx);
+    REQUIRE(runRes);
+    CHECK(runRes.value() == 0);
+  }
+
+  auto const captured = testutils::readTextFile(outPath);
+  // One scan outcome line, one phase announcement, no mechanics narration.
+  CHECK(captured.find("Found 2 picture(s) under") != std::string::npos);
+  CHECK(
+    testutils::countOccurrences(captured, "Compressing 2 picture(s) to JPEG (quality=5)")
+    == 1
+  );
+  CHECK(captured.find("will be compressed") == std::string::npos);
+  CHECK(captured.find("grouping into") == std::string::npos);
+  CHECK(captured.find("preparing pack plan") == std::string::npos);
+}
+
+TEST_CASE(
   "picture pipeline compress keeps state and cache when canceled mid-batch",
   "[pipeline][compress]"
 ) {
