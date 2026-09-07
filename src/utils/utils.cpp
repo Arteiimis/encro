@@ -53,6 +53,7 @@ namespace asio = boost::asio;
 // bare coroutine_handle::resume entries in stack traces.
 
 struct ReadEof { };
+struct StderrEof { };
 struct ProcessExit { };
 struct StopRequested { };
 
@@ -60,13 +61,15 @@ constexpr auto kTerminateWaitTimeout = std::chrono::milliseconds{500};
 
 struct ProcessReadState {
   std::string output_;
+  std::string stderr_;  // merging-off children only
   std::atomic<bool> callbacksEnabled_{true};
 };
 
 auto readAllInto(
   std::shared_ptr<asio::readable_pipe> pipe,
   std::shared_ptr<ProcessReadState> state,
-  std::function<void(std::string_view)> const& onLine
+  std::function<void(std::string_view)> const& onLine,
+  bool intoStderr = false
 ) -> asio::awaitable<void> {
   auto pendingLine = std::string{};
   auto buffer = std::array<char, 4096>{};
@@ -80,6 +83,10 @@ auto readAllInto(
     if (ec || count == 0) { break; }
 
     auto const chunk = std::string_view{buffer.data(), count};
+    if (intoStderr) {
+      state->stderr_.append(chunk);
+      continue;
+    }
     state->output_.append(chunk);
     pendingLine.append(chunk);
 
@@ -249,8 +256,13 @@ auto runProcess(
   asio::connect_pipe(pipeReader, pipeWriter);
   auto const writeEnd = pipeWriter.native_handle();
 
-  auto stdio = mergeStdErr ? bp::process_stdio{.out = writeEnd, .err = writeEnd}
-                           : bp::process_stdio{.out = writeEnd, .err = nullptr};
+  auto stderrReader = asio::readable_pipe{executor};
+  auto stderrWriter = asio::writable_pipe{executor};
+  if (!mergeStdErr) { asio::connect_pipe(stderrReader, stderrWriter); }
+
+  auto stdio = mergeStdErr
+    ? bp::process_stdio{.out = writeEnd, .err = writeEnd}
+    : bp::process_stdio{.out = writeEnd, .err = stderrWriter.native_handle()};
 
 #if defined(_WIN32)
   // Windows CreateProcess resolves the exe from the command line when the
@@ -272,38 +284,63 @@ auto runProcess(
   auto pipeCloseEc = boost::system::error_code{};
   // NOLINTNEXTLINE(bugprone-unused-return-value): asio close(ec) returns void via BOOST_ASIO_SYNC_OP_VOID
   pipeWriter.close(pipeCloseEc);
+  if (!mergeStdErr) { stderrWriter.close(pipeCloseEc); }
 
   auto pipeShared = std::make_shared<asio::readable_pipe>(std::move(pipeReader));
+  auto stderrPipeShared = std::make_shared<asio::readable_pipe>(std::move(stderrReader));
   auto state = std::make_shared<ProcessReadState>();
 
   auto readAll = [pipeShared, state, onLine]() -> asio::awaitable<ReadEof> {
     co_await readAllInto(pipeShared, state, onLine);
     co_return ReadEof{};
   };
+  auto readAllStderr = [stderrPipeShared, state]() -> asio::awaitable<StderrEof> {
+    co_await readAllInto(stderrPipeShared, state, {}, true);
+    co_return StderrEof{};
+  };
   auto waitExitOp = [process]() -> asio::awaitable<ProcessExit> {
     co_return co_await waitExit(*process);
   };
   auto stopOp = []() -> asio::awaitable<StopRequested> { co_return co_await stopWait(); };
+  auto makeResult = [&](int code) {
+    return ExecResult{code, state->output_, capturedPid, state->stderr_};
+  };
 
   // The losing awaitables are cancelled when one wins; every pending op here
   // (pipe read, timers) supports cancellation, so no handler outlives this
   // frame and ctx.run() is guaranteed to drain.
-  auto outcome = co_await (readAll() || waitExitOp() || stopOp());
+  // Both races share the ReadEof/ProcessExit/StopRequested outcomes; the
+  // merging-off race adds the stderr reader with its own EOF tag.
+  using RaceOutcome = std::variant<ReadEof, StderrEof, ProcessExit, StopRequested>;
+  auto runRace = [&]() -> asio::awaitable<RaceOutcome> {
+    if (!mergeStdErr) {
+      co_return co_await (readAll() || readAllStderr() || waitExitOp() || stopOp());
+    }
+    // Merging on: no stderr pipe; map the 3-way race onto the outcome set.
+    auto alt = co_await (readAll() || waitExitOp() || stopOp());
+    co_return std::visit([](auto const& v) -> RaceOutcome { return v; }, alt);
+  };
+  auto const outcome = co_await runRace();
 
-  if (std::holds_alternative<ReadEof>(outcome)) {
-    // EOF first: no more output will arrive. Wait for the child, honoring
-    // a stop request that may arrive meanwhile.
+  if (
+    std::holds_alternative<ReadEof>(outcome) || std::holds_alternative<StderrEof>(outcome)
+  ) {
+    // A pipe hit EOF; drain the other one fully (an already-EOF read returns
+    // immediately). Wait for the child, honoring a stop request that may
+    // arrive meanwhile.
+    co_await readAllInto(pipeShared, state, onLine);
+    if (!mergeStdErr) { co_await readAllInto(stderrPipeShared, state, {}, true); }
     auto second = co_await (waitExitOp() || stopOp());
     if (std::holds_alternative<StopRequested>(second)) {
       state->callbacksEnabled_.store(false, std::memory_order_release);
       if (
         auto const exitCode = co_await terminateOnStop(process, cmd); exitCode.has_value()
       ) {
-        co_return ExecResult{exitCode.value(), state->output_, capturedPid};
+        co_return makeResult(exitCode.value());
       }
-      co_return ExecResult{stopsignal::kCanceledExitCode, state->output_, capturedPid};
+      co_return makeResult(stopsignal::kCanceledExitCode);
     }
-    co_return ExecResult{process->exit_code(), state->output_, capturedPid};
+    co_return makeResult(process->exit_code());
   }
 
   if (std::holds_alternative<ProcessExit>(outcome)) {
@@ -314,7 +351,8 @@ auto runProcess(
     // per pipe).
     co_await asio::post(executor, asio::use_awaitable);
     co_await readAllInto(pipeShared, state, onLine);
-    co_return ExecResult{process->exit_code(), state->output_, capturedPid};
+    if (!mergeStdErr) { co_await readAllInto(stderrPipeShared, state, {}, true); }
+    co_return makeResult(process->exit_code());
   }
 
   // Stop first: suppress further callbacks, terminate, and return the
@@ -324,9 +362,9 @@ auto runProcess(
   if (
     auto const exitCode = co_await terminateOnStop(process, cmd); exitCode.has_value()
   ) {
-    co_return ExecResult{exitCode.value(), state->output_, capturedPid};
+    co_return makeResult(exitCode.value());
   }
-  co_return ExecResult{stopsignal::kCanceledExitCode, state->output_, capturedPid};
+  co_return makeResult(stopsignal::kCanceledExitCode);
 }
 
 auto exec2Impl(
@@ -359,6 +397,51 @@ auto exec2(std::string_view cmd, std::function<void(std::string_view)> const& on
 
 auto exec2(std::string_view cmd, bool mergeStdErr) -> ExecResult {
   return exec2Impl(cmd, nullptr, mergeStdErr);
+}
+
+// Extracts a one-line failure reason for a failed child: the first line the
+// classifier accepts (when given) - else the last non-empty line - from the
+// separate stderr text when it carries anything, else from the retained
+// merged-output capture; trimmed, capped at ~200 chars, with an "exit code
+// N" fallback when neither carries a line.
+auto extractFailureReason(
+  std::string_view capturedOutput,
+  std::string_view stderrText,
+  int exitCode,
+  std::function<bool(std::string_view)> const& acceptedLine
+) -> std::string {
+  auto const& source = !stderrText.empty() ? stderrText : capturedOutput;
+
+  constexpr auto kWhitespace = " \t\r\n";
+
+  constexpr auto kMaxReasonLength = std::size_t{200};
+  auto trim = [](std::string_view text) {
+    auto const begin = text.find_first_not_of(kWhitespace);
+    if (begin == std::string_view::npos) { return std::string_view{}; }
+    auto const end = text.find_last_not_of(kWhitespace);
+    return text.substr(begin, end - begin + 1);
+  };
+
+  auto accepted = std::string{};
+  auto lastNonEmpty = std::string_view{};
+  auto pending = std::string_view{source};
+  while (!pending.empty()) {
+    auto const newlinePos = pending.find('\n');
+    auto const line = pending.substr(0, newlinePos);
+    pending = newlinePos == std::string_view::npos ? std::string_view{}
+                                                   : pending.substr(newlinePos + 1);
+    auto const trimmed = trim(line);
+    if (trimmed.empty()) { continue; }
+    lastNonEmpty = trimmed;
+    if (accepted.empty() && acceptedLine && acceptedLine(trimmed)) {
+      accepted = std::string{trimmed};
+    }
+  }
+
+  auto reason = !accepted.empty() ? accepted : std::string{lastNonEmpty};
+  if (reason.empty()) { reason = std::format("exit code {}", exitCode); }
+  if (reason.size() > kMaxReasonLength) { reason.resize(kMaxReasonLength); }
+  return reason;
 }
 
 bool readUserIpt(bool yesToAll, std::string_view prompt) {

@@ -258,6 +258,37 @@ TEST_CASE(
   }
 }
 
+TEST_CASE("preview honors a bare output filename in the working directory", "[preview]") {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  testutils::writeTextFile(original);
+
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillPreviewContext(ctx, temp.path, envs);
+
+  // The working directory moves to the temp dir; the bare output name must
+  // resolve there instead of crashing on an empty parent path.
+  auto const previousCwd = fs::current_path();
+  std::error_code cwdEc;
+  fs::current_path(temp.path, cwdEc);
+  REQUIRE_FALSE(cwdEc);
+  struct CwdRestore {
+    fs::path path;
+    ~CwdRestore() {
+      std::error_code ec;
+      fs::current_path(path, ec);
+    }
+  } cwdRestore{previousCwd};
+
+  auto const res = preview::run(
+    ctx,
+    preview::PreviewOptions{.original = original, .output = "result.mp4", .noOpen = true}
+  );
+  REQUIRE(res.has_value());
+  CHECK(res.value() == 0);
+  CHECK(fs::exists(temp.path / "result.mp4"));
+}
 TEST_CASE("preview single-input falls back to default CQ for short videos", "[preview]") {
   TempDir temp;
   auto const original = temp.path / "sample.mp4";

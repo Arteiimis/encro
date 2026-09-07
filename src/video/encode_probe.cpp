@@ -283,11 +283,14 @@ bool runProbeEncode(
     return false;
   }
   if (result.exitCode != 0 || !fs::exists(segFile)) {
+    auto const reason =
+      extractFailureReason(result.output, result.stderrText, result.exitCode);
     LOG_WARN(
-      "Probe encode failed: input={} cq={} exitCode={}",
+      "Probe encode failed: input={} cq={} exitCode={} reason={}",
       inputPath.string(),
       cq,
-      result.exitCode
+      result.exitCode,
+      reason
     );
     return false;
   }

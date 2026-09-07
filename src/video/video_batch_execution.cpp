@@ -276,7 +276,8 @@ auto runEncodingTask(
 auto runEncodingWithoutProgress(
   appctx::AppContext& ctx,
   videobatch::EncodingBatchJob const& job,
-  appctx::path_map<int> const& probeCqByInput
+  appctx::path_map<int> const& probeCqByInput,
+  std::map<fs::path, std::string>& failureReasons
 ) -> videobatch::EncodeResultsMap {
   auto vidsRunRes = videobatch::EncodeResultsMap{};
 
@@ -318,6 +319,9 @@ auto runEncodingWithoutProgress(
       fs::remove(state.progressFilePath.value(), ec);
     }
     vidsRunRes.emplace(vidPath, success);
+    if (!success && state.lastError.has_value()) {
+      failureReasons.emplace(vidPath, state.lastError.value());
+    }
     finalizeEncodeResult(
       ctx,
       state.actionId,
@@ -432,12 +436,17 @@ auto buildEncodeTasks(
 
 auto collectEncodingResults(
   std::vector<fs::path> const& vids,
-  taskexec::TaskRunResult const& runState
+  taskexec::TaskRunResult const& runState,
+  std::map<fs::path, std::string>& failureReasons
 ) -> videobatch::EncodeResultsMap {
   auto results = videobatch::EncodeResultsMap{};
   for (auto taskIndex = std::size_t{0}; taskIndex < vids.size(); ++taskIndex) {
     if (runState.attempted[taskIndex] == 0) { continue; }
     results.emplace(vids[taskIndex], runState.results[taskIndex].has_value());
+    if (!runState.results[taskIndex].has_value()) {
+      auto const& error = runState.results[taskIndex].error();
+      if (!error.empty()) { failureReasons.emplace(vids[taskIndex], error); }
+    }
   }
   return results;
 }
@@ -463,10 +472,11 @@ struct PreparedEncodingExecution {
 auto runVerboseEncoding(
   appctx::AppContext& ctx,
   videobatch::EncodingBatchJob const& job,
-  appctx::path_map<int>& probeCqByInput
+  appctx::path_map<int>& probeCqByInput,
+  std::map<fs::path, std::string>& failureReasons
 ) -> videobatch::EncodeResultsMap {
   terminal::messageln(Warning, "Verbose output enabled: progress bars are disabled.");
-  return runEncodingWithoutProgress(ctx, job, probeCqByInput);
+  return runEncodingWithoutProgress(ctx, job, probeCqByInput, failureReasons);
 }
 
 auto prepareEncodingExecution(
@@ -589,9 +599,12 @@ auto videobatch::runEncodingTasks(
   };
 
   if (ctx.config.verbose) {
+    std::map<fs::path, std::string> failureReasons;
+    auto results = runVerboseEncoding(ctx, encodableJob, probeCqByInput, failureReasons);
     return EncodingBatchOutcome{
-      .results = runVerboseEncoding(ctx, encodableJob, probeCqByInput),
+      .results = std::move(results),
       .attentionWarnings = std::move(attentionWarnings),
+      .failureReasons = std::move(failureReasons),
     };
   }
 
@@ -619,7 +632,9 @@ auto videobatch::runEncodingTasks(
 
   execution.monitorThread.join();
 
-  auto const results = collectEncodingResults(encodableJob.vids, runState);
+  std::map<fs::path, std::string> failureReasons;
+  auto const results =
+    collectEncodingResults(encodableJob.vids, runState, failureReasons);
 
   LOG_INFO(
     "Encoding batch completed: attempted={} completed={} ",
@@ -630,5 +645,6 @@ auto videobatch::runEncodingTasks(
   return EncodingBatchOutcome{
     .results = results,
     .attentionWarnings = std::move(attentionWarnings),
+    .failureReasons = std::move(failureReasons),
   };
 }

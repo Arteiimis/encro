@@ -30,7 +30,8 @@ auto runPreprocess(fs::path const& ffmpeg, fs::path const& input)
   -> eh::Result<std::vector<std::uint8_t>> {
   // -loglevel quiet keeps stderr empty, so the merged capture is the raw
   // frame alone.
-  auto const [exitCode, output, _] = exec2(buildPreprocessCommand(ffmpeg, input));
+  auto const [exitCode, output, _, stderrText] =
+    exec2(buildPreprocessCommand(ffmpeg, input));
   if (exitCode != 0) {
     return eh::makeError(
       "ffmpeg preprocess failed (exit {}) for {}",

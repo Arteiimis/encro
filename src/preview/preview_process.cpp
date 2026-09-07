@@ -290,7 +290,11 @@ auto renderPreview(
   FiltergraphSpec const& spec,
   fs::path const& outputPath
 ) -> eh::Result<int> {
-  fs::create_directories(outputPath.parent_path());
+  // A bare filename has no directory component: resolve against the working
+  // directory instead of crashing on create_directories("").
+  if (auto const parent = outputPath.parent_path(); !parent.empty()) {
+    fs::create_directories(parent);
+  }
 
   auto const cmd = buildPreviewCommand(
     ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"}),

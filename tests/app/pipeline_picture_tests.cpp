@@ -215,6 +215,42 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "picture compression failures list the child diagnostic per file",
+  "[pipeline][compress]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.png");
+
+  auto const exitEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "9"};
+  auto const errEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_STDERR", "Compression failed: fake muxer"};
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.maxParallelJobs = 1;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
+
+  auto const outPath = temp.path / "stdout.txt";
+  {
+    auto capture = testutils::StdoutCapture{outPath};
+    auto const runRes = pipeline::run(ctx);
+    REQUIRE_FALSE(runRes);
+    CHECK(runRes.error().find("All picture compressions failed") != std::string::npos);
+  }
+
+  // The failed-file list carries the child diagnostic as the reason.
+  auto const captured = testutils::readTextFile(outPath);
+  CHECK(captured.find("Compression failed: fake muxer") != std::string::npos);
+  CHECK(captured.find("a.png:") != std::string::npos);
+}
+
+TEST_CASE(
   "picture pipeline announces the compression phase exactly once",
   "[pipeline][compress]"
 ) {

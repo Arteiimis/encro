@@ -27,12 +27,27 @@ struct ExecResult {
   int exitCode;
   std::string output;
   std::optional<int> pid;
+  // Child stderr when stream merging is disabled; empty when merging is on
+  // (the merged output already carries it). Never forwarded to our stderr.
+  std::string stderrText;
 };
 
 auto exec2(std::string_view cmd) -> ExecResult;
 auto exec2(std::string_view cmd, std::function<void(std::string_view)> const& onLine)
   -> ExecResult;
 auto exec2(std::string_view cmd, bool mergeStdErr) -> ExecResult;
+
+// Extracts a one-line failure reason for a failed child: the first line the
+// classifier accepts (when given) — else the last non-empty line — from the
+// separate stderr text when it carries anything, else from the retained
+// merged-output capture; trimmed, capped at ~200 chars, with an
+// "exit code N" fallback when neither carries a line.
+auto extractFailureReason(
+  std::string_view capturedOutput,
+  std::string_view stderrText,
+  int exitCode,
+  std::function<bool(std::string_view)> const& acceptedLine = {}
+) -> std::string;
 
 bool readUserIpt(bool yesToAll, std::string_view prompt);
 
