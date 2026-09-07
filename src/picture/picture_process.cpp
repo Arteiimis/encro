@@ -301,7 +301,7 @@ auto executeDirectPackWorkflow(
   );
 
   if (!confirmPicturePack(ctx.config)) {
-    terminal::println(Warning, "Packing task canceled by user.");
+    terminal::messageln(Warning, "Packing task canceled by user.");
     return canceledExitCodeForPromptAbort();
   }
 
@@ -431,7 +431,7 @@ auto runCompressionPhase(
     if (auto* store = ctx.runtime.jobState.get(); store != nullptr) {
       store->markInterrupted(jobstate::kCompressPhaseTaskId, "canceled by user");
     }
-    terminal::println(Warning, "Compression task canceled by user.");
+    terminal::messageln(Warning, "Compression task canceled by user.");
     return CompressPhaseOutcome{.canceled = true, .results = {}};
   }
 
@@ -565,7 +565,7 @@ auto executeCompressPackWorkflow(
   );
 
   if (!confirmPicturePack(ctx.config)) {
-    terminal::println(Warning, "Packing task canceled by user.");
+    terminal::messageln(Warning, "Packing task canceled by user.");
     return canceledExitCodeForPromptAbort();
   }
 

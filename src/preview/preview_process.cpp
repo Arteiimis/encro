@@ -323,7 +323,7 @@ void reportAndOpen(PreviewOptions const& options, fs::path const& outputPath) {
     if (openfile::openWithDefaultApp(outputPath)) {
       terminal::println(Info, "Opened in the default player.");
     } else {
-      terminal::println(Warning, "Could not open the preview in the default player.");
+      terminal::messageln(Warning, "Could not open the preview in the default player.");
     }
   }
 }
@@ -590,7 +590,7 @@ auto probeSingleInputPlan(
     );
   }
   if (!plan.probed) {
-    terminal::println(
+    terminal::messageln(
       Warning,
       "Probing skipped (short video or scoring failure); previewing at default CQ {}.",
       encodeprobe::kDefaultCq

@@ -136,7 +136,7 @@ void printNoEncodableVideosMessage(
   fs::path const& inputPath
 ) {
   if (!fs::is_regular_file(inputPath)) {
-    terminal::println(
+    terminal::messageln(
       Hint,
       "No encodable videos found in path: {}",
       terminal::path(inputPath)
@@ -145,7 +145,7 @@ void printNoEncodableVideosMessage(
   }
 
   if (config.outputFormat == "mp4" && isHevcEncoded(toolchain, inputPath)) {
-    terminal::println(
+    terminal::messageln(
       Hint,
       "Video is already HEVC encoded: {}",
       terminal::path(inputPath)
@@ -153,7 +153,7 @@ void printNoEncodableVideosMessage(
     return;
   }
 
-  terminal::println(
+  terminal::messageln(
     Hint,
     "No encodable videos found for file: {}",
     terminal::path(inputPath)
@@ -341,7 +341,7 @@ int runScannedEncodingWorkflow(
       "All encodes already complete. Do you want to proceed with packing? (Y/n): "
     );
     if (!proceed) {
-      terminal::println(Warning, "Packing task canceled by user.");
+      terminal::messageln(Warning, "Packing task canceled by user.");
       return canceledExitCodeForPromptAbort();
     }
   }
@@ -381,7 +381,7 @@ auto collectEncodedOutputFiles(
       ctx.config.outputFormat == "webp"
       && fs::file_size(outFile.value()) >= kWebpPackMaxSize
     ) {
-      terminal::println(
+      terminal::messageln(
         Warning,
         "Skipping oversized webp for packing: {} ({} bytes)",
         terminal::path(outFile.value()),
@@ -411,7 +411,7 @@ int packEncodedVideos(
   auto const encodedOutputFiles =
     collectEncodedOutputFiles(ctx, plannedOutputFiles, vidsRunRes);
   if (encodedOutputFiles.empty()) {
-    terminal::println(Hint, "No encoded output files found to pack.");
+    terminal::messageln(Hint, "No encoded output files found to pack.");
     return 0;
   }
 
@@ -541,7 +541,7 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
   auto const scanRes = scanInputVideos(ctx, inputPath);
   if (!scanRes) {
     LOG_ERROR("{}", scanRes.error());
-    terminal::println(Error, "Error: {}", scanRes.error());
+    terminal::messageln(Error, "{}", scanRes.error());
     return 1;
   }
   auto const& vids = scanRes.value();
@@ -568,7 +568,7 @@ int handleMultiFileEncoding(
   auto const vids = scanInputVideosFromFiles(ctx, inputPaths);
 
   if (vids.empty()) {
-    terminal::println(Hint, "No encodable videos found in provided files.");
+    terminal::messageln(Hint, "No encodable videos found in provided files.");
     return 0;
   }
 

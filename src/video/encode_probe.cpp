@@ -1034,7 +1034,7 @@ void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) {
   auto const stats = collectPlanStats(plans);
 
   if (!stats.warnings.empty()) {
-    terminal::println(
+    terminal::messageln(
       Warning,
       "\xE2\x9A\xA0 {} file(s) can't reach the floor; encoded at the lowest CQ {}.",
       stats.warnings.size(),
