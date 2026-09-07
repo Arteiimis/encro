@@ -274,13 +274,13 @@ TEST_CASE("preview single-input falls back to default CQ for short videos", "[pr
 
   std::string out;
   {
-    auto capture = testutils::StdoutCapture{temp.path / "stdout.txt"};
+    auto capture = testutils::StderrCapture{temp.path / "stderr.txt"};
     auto const res =
       preview::run(ctx, preview::PreviewOptions{.original = original, .noOpen = true});
     REQUIRE(res.has_value());
   }
-  out = testutils::readTextFile(temp.path / "stdout.txt");
-  CHECK(out.find("Probing skipped") != std::string::npos);
+  out = testutils::readTextFile(temp.path / "stderr.txt");
+  CHECK(out.find("warning: Probing skipped") != std::string::npos);
   auto const outputPath = temp.path / "sample.preview.mp4";
   CHECK(fs::exists(outputPath));
 }

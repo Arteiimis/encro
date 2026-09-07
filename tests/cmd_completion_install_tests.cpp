@@ -96,6 +96,35 @@ void requireInstallTestingOrSkip() {
 }  // namespace
 
 TEST_CASE(
+  "install reports success on stdout and hints on stderr",
+  "[completion][install]"
+) {
+  requireInstallTestingOrSkip();
+  TempDir temp;
+  EnvGuard env{temp.path};
+
+  auto const outPath = temp.path / "stdout.txt";
+  auto const errPath = temp.path / "stderr.txt";
+  {
+    auto errCapture = testutils::StderrCapture{errPath};
+    auto outCapture = testutils::StdoutCapture{outPath};
+    REQUIRE(completion::installScript("powershell") == 0);
+  }
+
+  // Result lines (script installed, profile wired) are the command's product
+  // output: stdout. The follow-up hint is a diagnostic: stderr, with the
+  // plain-text prefix.
+  auto const outText = readIfExists(outPath).value_or("");
+  auto const errText = readIfExists(errPath).value_or("");
+  CHECK(outText.find("installed completion script") != std::string::npos);
+  CHECK(outText.find("wired:") != std::string::npos);
+  CHECK(
+    errText.find("hint: open a new PowerShell session to load it") != std::string::npos
+  );
+  CHECK(errText.find("installed completion script") == std::string::npos);
+}
+
+TEST_CASE(
   "powershell install wires a profile and is idempotent",
   "[completion][install]"
 ) {

@@ -34,7 +34,7 @@ bool requireModels(fs::path const& modelDir) {
   auto const files = tagger::modelFiles();
   if (tagger::allFilesPresent(modelDir, files)) { return true; }
 
-  terminal::println(
+  terminal::messageln(
     MessageKind::Error,
     "models not found in {}",
     displaytext::pathToUtf8String(modelDir)
@@ -42,10 +42,10 @@ bool requireModels(fs::path const& modelDir) {
   for (auto const& file: files) {
     auto const name = file.urlPath.substr(file.urlPath.find_last_of('/') + 1);
     if (!fs::exists(modelDir / name)) {
-      terminal::println(MessageKind::Plain, "  missing: {}", name);
+      terminal::eprintln(MessageKind::Plain, "  missing: {}", name);
     }
   }
-  terminal::println(
+  terminal::eprintln(
     MessageKind::Info,
     "  -> rerun with --download-models to fetch them, or place the files "
     "manually in the model directory"
@@ -69,7 +69,7 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
       terminal::println(MessageKind::Plain, "{}", line);
     });
     if (!downloaded) {
-      terminal::println(MessageKind::Error, "{}", downloaded.error());
+      terminal::messageln(MessageKind::Error, "{}", downloaded.error());
       return 1;
     }
   }
@@ -84,7 +84,7 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
                                    : std::nullopt
       );
     } catch (std::exception const& error) {
-      terminal::println(MessageKind::Error, "{}", error.what());
+      terminal::messageln(MessageKind::Error, "{}", error.what());
       return nullptr;
     }
   }();
@@ -112,7 +112,7 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
   auto progress = progress::ProgressContext{};
   auto const runResult = runOrganize(options, *engine, &progress);
   if (!runResult) {
-    terminal::println(MessageKind::Error, "{}", runResult.error());
+    terminal::messageln(MessageKind::Error, "{}", runResult.error());
     return 1;
   }
 

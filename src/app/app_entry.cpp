@@ -109,7 +109,7 @@ auto compileTimestamp() -> std::string {
 }
 
 void printHelpHint() {
-  terminal::println(Hint, "Run encro -h for help (or -hh for all options).");
+  terminal::messageln(Hint, "Run encro -h for help (or -hh for all options).");
 }
 
 int failWithHint(
@@ -121,7 +121,7 @@ int failWithHint(
   if (startup.cmd.verbose) {
     LOG_ERROR("{}", message);
   } else {
-    terminal::println(Error, "Error: {}", message);
+    terminal::messageln(Error, "{}", message);
     LOG_ERROR("{}", message);
   }
   logging::printLogHint();

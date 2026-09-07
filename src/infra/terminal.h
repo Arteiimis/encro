@@ -55,10 +55,9 @@ bool colorsEnabled(Stream stream = Stream::Stdout);
 
 auto styleFor(MessageKind kind) -> fmt::text_style;
 
-auto styledText(Stream stream, MessageKind kind, std::string_view text) -> std::string;
+auto streamFor(MessageKind kind) -> Stream;
 
-auto badge(MessageKind kind, std::string_view label, Stream stream = Stream::Stdout)
-  -> std::string;
+auto styledText(Stream stream, MessageKind kind, std::string_view text) -> std::string;
 
 auto value(std::string_view text, Stream stream = Stream::Stdout) -> std::string;
 
@@ -125,6 +124,15 @@ void eprintln(MessageKind kind, fmt::format_string<Tys...> fmtText, Tys&&... arg
     format(Stream::Stderr, kind, fmtText, std::forward<Tys>(args)...),
     true
   );
+}
+
+// Kind-dispatched entry points: the message kind decides both rendering and
+// the target stream (see streamFor). Severity diagnostics (Error/Warning/Hint)
+// land on stderr; narration, results, prompts, and help text stay on stdout.
+template<class... Tys>
+void messageln(MessageKind kind, fmt::format_string<Tys...> fmtText, Tys&&... args) {
+  auto const stream = streamFor(kind);
+  write(stream, format(stream, kind, fmtText, std::forward<Tys>(args)...), true);
 }
 
 }  // namespace terminal

@@ -62,7 +62,7 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
       stateFilePath.string()
     );
     // Under -v the LOG_WARN echo is the console warning; avoid double printing.
-    if (!ctx.config.verbose) { terminal::println(Warning, "{}", message); }
+    if (!ctx.config.verbose) { terminal::messageln(Warning, "{}", message); }
     LOG_WARN("{}", message);
   }
 
@@ -161,7 +161,7 @@ auto run(appctx::AppContext& ctx) -> eh::Result<int> {
       && ctx.config.outputFormat == "mp4"
       && !ctx.config.crf.has_value();
     if (!plansMp4) {
-      terminal::println(
+      terminal::messageln(
         Warning,
         "Dry run: no encoding plan for this pipeline; exiting without encoding."
       );

@@ -289,9 +289,9 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     fs::create_directories(logDir, ec2);
     if (!ec2) {
       // D-22: warn the user when falling back to the temp directory
-      terminal::println(
+      terminal::messageln(
         terminal::MessageKind::Warning,
-        "Warning: Using temporary log directory: {}",
+        "Using temporary log directory: {}",
         terminal::path(logDir)
       );
     } else {

@@ -101,6 +101,23 @@ TEST_CASE("readUserIpt returns true when yesToAll", "[utils]") {
   CHECK(readUserIpt(true, ""));
 }
 
+TEST_CASE("readUserIpt renders the prompt as a plain question", "[utils]") {
+  auto input = std::istringstream{"\n"};
+  auto* oldBuf = std::cin.rdbuf(input.rdbuf());
+
+  auto const temp = TempDir{};
+  auto const outPath = temp.path / "stdout.txt";
+  {
+    auto capture = testutils::StdoutCapture{outPath};
+    CHECK(readUserIpt(false, "Proceed? (Y/n): "));
+  }
+  std::cin.rdbuf(oldBuf);
+
+  // No leading badge or severity prefix: the question text and its choice
+  // marker are the whole prompt.
+  CHECK(testutils::readTextFile(outPath) == "Proceed? (Y/n): ");
+}
+
 TEST_CASE("readUserIpt reads input", "[utils]") {
   auto input = std::istringstream{"y\n"};
   auto* oldBuf = std::cin.rdbuf(input.rdbuf());

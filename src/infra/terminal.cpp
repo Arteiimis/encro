@@ -21,7 +21,6 @@ namespace {
 auto g_colorMode = std::atomic<ColorMode>{ColorMode::Auto};
 
 enum class TokenKind {
-  Badge,
   Value,
   Path,
 };
@@ -62,9 +61,12 @@ bool enableVirtualTerminal(Stream stream) {
 }
 #endif
 
-auto defaultBadgeLabel(MessageKind kind) -> std::string_view {
+auto severityPrefix(MessageKind kind) -> std::string_view {
   switch (kind) {
     case MessageKind::Plain        :
+    case MessageKind::Success      :
+    case MessageKind::Info         :
+    case MessageKind::Prompt       :
     case MessageKind::Heading      :
     case MessageKind::Usage        :
     case MessageKind::OptionGroup  :
@@ -72,23 +74,19 @@ auto defaultBadgeLabel(MessageKind kind) -> std::string_view {
     case MessageKind::OptionDefault:
     case MessageKind::OptionDesc   :
     case MessageKind::Version      : return {};
-    case MessageKind::Error        : return "error";
-    case MessageKind::Warning      : return "warn";
-    case MessageKind::Success      : return "done";
-    case MessageKind::Info         : return "info";
-    case MessageKind::Hint         : return "hint";
-    case MessageKind::Prompt       : return "?";
+    case MessageKind::Error        : return "error:";
+    case MessageKind::Warning      : return "warning:";
+    case MessageKind::Hint         : return "hint:";
   }
 
   return {};
 }
 
-auto styleForToken(TokenKind kind, MessageKind messageKind) -> fmt::text_style {
+auto styleForToken(TokenKind kind) -> fmt::text_style {
   using fmt::fg;
   using c = fmt::color;
 
   switch (kind) {
-    case TokenKind::Badge: return styleFor(messageKind);
     case TokenKind::Value: return fg(c::floral_white);
     case TokenKind::Path : return fg(c::light_sky_blue);
   }
@@ -96,14 +94,9 @@ auto styleForToken(TokenKind kind, MessageKind messageKind) -> fmt::text_style {
   return {};
 }
 
-auto styleToken(
-  Stream stream,
-  TokenKind kind,
-  MessageKind messageKind,
-  std::string_view text
-) -> std::string {
+auto styleToken(Stream stream, TokenKind kind, std::string_view text) -> std::string {
   if (!colorsEnabled(stream)) { return std::string{text}; }
-  return fmt::format(styleForToken(kind, messageKind), "{}", text);
+  return fmt::format(styleForToken(kind), "{}", text);
 }
 
 }  // namespace
@@ -194,33 +187,51 @@ auto styleFor(MessageKind kind) -> fmt::text_style {
   return {};
 }
 
+auto streamFor(MessageKind kind) -> Stream {
+  switch (kind) {
+    case MessageKind::Error        :
+    case MessageKind::Warning      :
+    case MessageKind::Hint         : return Stream::Stderr;
+    case MessageKind::Plain        :
+    case MessageKind::Success      :
+    case MessageKind::Info         :
+    case MessageKind::Prompt       :
+    case MessageKind::Heading      :
+    case MessageKind::Usage        :
+    case MessageKind::OptionGroup  :
+    case MessageKind::OptionName   :
+    case MessageKind::OptionDefault:
+    case MessageKind::OptionDesc   :
+    case MessageKind::Version      : return Stream::Stdout;
+  }
+
+  return Stream::Stdout;
+}
+
 auto styledText(Stream stream, MessageKind kind, std::string_view text) -> std::string {
   if (kind == MessageKind::Plain || !colorsEnabled(stream)) { return std::string{text}; }
   return fmt::format(styleFor(kind), "{}", text);
 }
 
-auto badge(MessageKind kind, std::string_view label, Stream stream) -> std::string {
-  return styleToken(stream, TokenKind::Badge, kind, fmt::format("[{}]", label));
-}
-
 auto value(std::string_view text, Stream stream) -> std::string {
-  return styleToken(stream, TokenKind::Value, MessageKind::Plain, text);
+  return styleToken(stream, TokenKind::Value, text);
 }
 
 auto path(std::filesystem::path const& valuePath, Stream stream) -> std::string {
-  return styleToken(stream, TokenKind::Path, MessageKind::Plain, valuePath.string());
+  return styleToken(stream, TokenKind::Path, valuePath.string());
 }
 
 auto renderMessage(Stream stream, MessageKind kind, std::string_view text)
   -> std::string {
-  if (kind == MessageKind::Plain || !colorsEnabled(stream)) { return std::string{text}; }
+  if (kind == MessageKind::Plain) { return std::string{text}; }
 
-  if (kind == MessageKind::Heading) { return styledText(stream, kind, text); }
+  auto const prefix = severityPrefix(kind);
+  if (prefix.empty()) { return styledText(stream, kind, text); }
 
-  auto const badgeLabel = defaultBadgeLabel(kind);
-  if (badgeLabel.empty()) { return styledText(stream, kind, text); }
-
-  return fmt::format("{} {}", badge(kind, badgeLabel, stream), text);
+  // The prefix is plain text first: severity survives with colors disabled.
+  // Colors decorate the prefix only, never the message body.
+  if (!colorsEnabled(stream)) { return std::string{prefix}.append(" ").append(text); }
+  return fmt::format("{} {}", fmt::format(styleFor(kind), "{}", prefix), text);
 }
 
 void write(Stream stream, std::string_view text, bool newline) {

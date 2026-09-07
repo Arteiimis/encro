@@ -297,13 +297,16 @@ TEST_CASE(
     REQUIRE(logTail.starts_with("\nencro log ("));
   }
 
-  SECTION("short help hint on stdout") {
-    CHECK(result.stdoutText.find("Invalid arguments") != std::string::npos);
+  SECTION("failure line and short help hint on stderr") {
+    CHECK(result.stderrText.find("error: Invalid arguments") != std::string::npos);
+    CHECK(result.stderrText.find("Error:") == std::string::npos);
     CHECK(
-      result.stdoutText.find("Run encro -h for help (or -hh for all options).")
+      result.stderrText.find("hint: Run encro -h for help (or -hh for all options).")
       != std::string::npos
     );
-    CHECK(result.stdoutText.find("General options") == std::string::npos);
+    CHECK(result.stderrText.find("General options") == std::string::npos);
+    CHECK(result.stdoutText.find("Invalid arguments") == std::string::npos);
+    CHECK(result.stdoutText.find("Run encro -h for help") == std::string::npos);
   }
 }
 
@@ -313,11 +316,17 @@ TEST_CASE("encro failed subcommand runs print the log file hint", "[e2e][cli]") 
   auto const configRun = e2e::runEncro({"config", "set", "jobs", "4.5"});
 
   REQUIRE(configRun.exitCode == 1);
+  // Subcommand diagnostics carry the same plain-text severity prefix on
+  // stderr as the main pipeline.
+  CHECK(configRun.stderrText.find("error: invalid value for jobs") != std::string::npos);
+  CHECK(configRun.stdoutText.find("invalid value") == std::string::npos);
   CHECK(configRun.stderrText.find("Log file:") != std::string::npos);
 
   auto const completionRun = e2e::runEncro({"completion", "--install"});
 
   REQUIRE(completionRun.exitCode == 1);
+  CHECK(completionRun.stderrText.find("error: specify a shell") != std::string::npos);
+  CHECK(completionRun.stdoutText.find("specify a shell") == std::string::npos);
   CHECK(completionRun.stderrText.find("Log file:") != std::string::npos);
 }
 
@@ -325,15 +334,16 @@ TEST_CASE("encro missing input prints short help hint", "[e2e][cli]") {
   auto const result = e2e::runEncro({});
 
   CHECK(result.exitCode == 1);
-  CHECK(result.stdoutText.find("Input path is required") != std::string::npos);
+  CHECK(result.stderrText.find("error: Input path is required") != std::string::npos);
   CHECK(
-    result.stdoutText.find("Pass a directory or file list directly") != std::string::npos
+    result.stderrText.find("Pass a directory or file list directly") != std::string::npos
   );
   CHECK(
-    result.stdoutText.find("Run encro -h for help (or -hh for all options).")
+    result.stderrText.find("hint: Run encro -h for help (or -hh for all options).")
     != std::string::npos
   );
-  CHECK(result.stdoutText.find("General options") == std::string::npos);
+  CHECK(result.stderrText.find("General options") == std::string::npos);
+  CHECK(result.stdoutText.find("Input path is required") == std::string::npos);
 }
 
 TEST_CASE(
@@ -561,6 +571,14 @@ TEST_CASE(
 
     REQUIRE(result.exitCode == 1);
     CHECK(result.stdoutText.find("Failed to encode: 1") != std::string::npos);
+    // The summary block stays on stdout as one unit: count line plus the
+    // failed-file list, even though the entries read as warnings.
+    CHECK(
+      result.stdoutText.find("warning: Videos that failed to encode:")
+      != std::string::npos
+    );
+    CHECK(result.stdoutText.find(inputPath.filename().string()) != std::string::npos);
+    CHECK(result.stderrText.find("Videos that failed to encode") == std::string::npos);
     CHECK(result.stderrText.find("Log file:") != std::string::npos);
     REQUIRE(fs::exists(statePath));
 
@@ -619,6 +637,46 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "encro oversized webp pack warning goes to stderr",
+  "[e2e][video][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  testutils::writeTextFile(inputPath, "fake-video");
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+
+  auto const result = e2e::runEncro(
+    {
+      "-y",
+      "-p",
+      "-i",
+      inputPath.string(),
+      "-f",
+      "webp",
+      "-j",
+      "1",
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    },
+    std::nullopt,
+    {{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "22000000"}}
+  );
+
+  REQUIRE(result.exitCode == 0);
+  // Mid-run per-file warnings belong on stderr; the run's product output and
+  // the summary hints stay on stdout.
+  CHECK(
+    result.stderrText.find("warning: Skipping oversized webp for packing:")
+    != std::string::npos
+  );
+  CHECK(result.stdoutText.find("Skipping oversized webp") == std::string::npos);
+  CHECK(
+    result.stderrText.find("hint: No encoded output files found to pack.")
+    != std::string::npos
+  );
+}
+
+TEST_CASE(
   "encro prompts before overwriting output and cancels on EOF",
   "[e2e][cli][prompt][fake-toolchain]"
 ) {
@@ -655,7 +713,12 @@ TEST_CASE(
     prompted.stdoutText.find("do you want to encode the video to webp format")
     != std::string::npos
   );
-  CHECK(prompted.stdoutText.find("canceled by user") != std::string::npos);
+  // The standalone cancellation notice is a warning: stderr, not stdout.
+  CHECK(
+    prompted.stderrText.find("warning: Encoding tasks canceled by user.")
+    != std::string::npos
+  );
+  CHECK(prompted.stdoutText.find("canceled by user") == std::string::npos);
   REQUIRE(fs::exists(outputPath));
   CHECK(fs::last_write_time(outputPath) == firstWriteTime);
 }
@@ -851,8 +914,10 @@ TEST_CASE("encro fails when custom ffmpeg directory has no tools", "[e2e][toolch
 
   REQUIRE(result.exitCode == 1);
   CHECK(
-    result.stdoutText.find("Tool check failed: FFmpeg not found") != std::string::npos
+    result.stderrText.find("error: Tool check failed: FFmpeg not found")
+    != std::string::npos
   );
+  CHECK(result.stdoutText.find("Tool check failed") == std::string::npos);
 }
 
 TEST_CASE("encro resume requires an existing state file", "[e2e][resume]") {
@@ -871,10 +936,14 @@ TEST_CASE("encro resume requires an existing state file", "[e2e][resume]") {
   });
 
   REQUIRE(result.exitCode == 1);
+  // The pipeline error surfaces through failWithHint: prefixed error line on
+  // stderr, followed by the stderr log hint.
   CHECK(
-    result.stdoutText.find("Resume requested but no state file was found")
+    result.stderrText
+      .find("error: Pipeline failed: Resume requested but no state file was found")
     != std::string::npos
   );
+  CHECK(result.stdoutText.find("Resume requested") == std::string::npos);
   CHECK_FALSE(fs::exists(statePath));
 }
 
