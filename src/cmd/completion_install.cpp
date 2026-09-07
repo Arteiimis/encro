@@ -244,7 +244,7 @@ int installPowerShell(std::string const& scriptText) {
     );
   }
 
-  terminal::println(
+  terminal::messageln(
     terminal::MessageKind::Hint,
     "open a new PowerShell session to load it; re-run after upgrading encro"
   );
@@ -329,7 +329,7 @@ int installBash(std::string const& scriptText) {
         forwardSlashes(target.string())
       );
     }
-    terminal::println(
+    terminal::messageln(
       terminal::MessageKind::Hint,
       "bash-completion loads it for new shells; re-run after upgrading encro"
     );
@@ -385,7 +385,7 @@ int installBash(std::string const& scriptText) {
     "wired: {}",
     forwardSlashes(bashrc.string())
   );
-  terminal::println(
+  terminal::messageln(
     terminal::MessageKind::Hint,
     "open a new bash session to load it; re-run after upgrading encro"
   );

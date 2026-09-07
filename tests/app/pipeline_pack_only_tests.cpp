@@ -12,6 +12,7 @@ using testutils::hasCollisionSafePrefix;
 using testutils::listZipRegularEntryNames;
 using testutils::readTextFile;
 using testutils::ScopedStopSignalReset;
+using testutils::StderrCapture;
 using testutils::StdoutCapture;
 using testutils::writeTextFile;
 
@@ -217,10 +218,12 @@ TEST_CASE(
   ctxB.config.stateFilePath = stateFilePath;
   ctxB.config.outputFormat = "webp";
 
-  auto const capturePath = temp.path / "stdout.txt";
+  auto const stderrPath = temp.path / "stderr.txt";
+  auto const stdoutPath = temp.path / "stdout.txt";
   auto exitCode = 0;
   {
-    auto capture = StdoutCapture{capturePath};
+    auto stderrCapture = StderrCapture{stderrPath};
+    auto stdoutCapture = StdoutCapture{stdoutPath};
     auto const runResB = pipeline::run(ctxB);
     REQUIRE(runResB);
     exitCode = runResB.value();
@@ -229,8 +232,11 @@ TEST_CASE(
   CHECK(exitCode == 0);
   CHECK(fs::exists(inputDirB / "packed"));
 
-  auto const captured = readTextFile(capturePath);
+  auto const captured = readTextFile(stderrPath);
+  CHECK(captured.starts_with("warning: "));
   CHECK(captured.find("does not match") != std::string::npos);
   CHECK(captured.find("discarding") != std::string::npos);
-  CHECK(captured.find("Resuming job state") == std::string::npos);
+  // The stale state was discarded, not resumed; the resume notice (stdout)
+  // must be absent.
+  CHECK(readTextFile(stdoutPath).find("Resuming job state") == std::string::npos);
 }

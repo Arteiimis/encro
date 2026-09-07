@@ -19,6 +19,7 @@ using testutils::listRegularFiles;
 using testutils::readTextFile;
 using testutils::ScopedEnvVar;
 using testutils::ScopedStopSignalReset;
+using testutils::StderrCapture;
 using testutils::StdoutCapture;
 using testutils::writeTextFile;
 
@@ -242,7 +243,7 @@ TEST_CASE(
 
   auto result = 0;
   {
-    auto capture = StdoutCapture{capturePath};
+    auto capture = StderrCapture{capturePath};
     result = handlePathEncoding(ctx, inputPath);
   }
 
@@ -252,10 +253,35 @@ TEST_CASE(
 
   auto const captured = readTextFile(capturePath);
   CHECK(
-    captured.find("Verbose output enabled: progress bars are disabled.")
+    captured.find("warning: Verbose output enabled: progress bars are disabled.")
     != std::string::npos
   );
   CHECK(captured.find("Scheduling") == std::string::npos);
+}
+
+TEST_CASE(
+  "scan failure reports the error line on stderr without doubling the marker",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  StrayProgressGuard strayProgress;
+  auto const missingPath = temp.path / "does-not-exist.mp4";
+
+  auto ctx = appctx::AppContext{};
+  configureVideoContext(ctx, temp.path, missingPath);
+
+  auto const errPath = temp.path / "stderr.txt";
+  auto result = -1;
+  {
+    auto capture = StderrCapture{errPath};
+    result = handlePathEncoding(ctx, missingPath);
+  }
+
+  CHECK(result == 1);
+  auto const captured = readTextFile(errPath);
+  CHECK(captured.find("error: Failed to scan input videos") != std::string::npos);
+  CHECK(captured.find("Error:") == std::string::npos);
 }
 
 TEST_CASE(

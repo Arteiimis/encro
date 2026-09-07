@@ -371,7 +371,7 @@ auto runProbeStage(
   }
   if (!probeRes) {
     LOG_ERROR("{}", probeRes.error());
-    terminal::println(Error, "Error: {}", probeRes.error());
+    terminal::messageln(Error, "{}", probeRes.error());
     return ProbeStageStatus::Failed;
   }
   for (auto const& [vidPath, plan]: probeRes->plans) {
@@ -465,7 +465,7 @@ auto runVerboseEncoding(
   videobatch::EncodingBatchJob const& job,
   appctx::path_map<int>& probeCqByInput
 ) -> videobatch::EncodeResultsMap {
-  terminal::println(Warning, "Verbose output enabled: progress bars are disabled.");
+  terminal::messageln(Warning, "Verbose output enabled: progress bars are disabled.");
   return runEncodingWithoutProgress(ctx, job, probeCqByInput);
 }
 
@@ -546,7 +546,7 @@ bool confirmEncodingStart(appctx::AppContext& ctx) {
     )
   );
   if (!proceed) {
-    terminal::println(Warning, "Encoding tasks canceled by user.");
+    terminal::messageln(Warning, "Encoding tasks canceled by user.");
     LOG_INFO("Encoding canceled by user.");
     return false;
   }

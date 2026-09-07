@@ -617,12 +617,15 @@ TEST_CASE(
   };
 
   auto const out = temp.path / "stdout.txt";
+  auto const err = temp.path / "stderr.txt";
   {
     ScopedEnvVar columns("COLUMNS", "80");
+    auto errCapture = testutils::StderrCapture{err};
     auto capture = testutils::StdoutCapture{out};
     encodeprobe::printProbePlan(plans, 95);
   }
   auto const text = testutils::readTextFile(out);
+  auto const warnings = testutils::readTextFile(err);
 
   // Header with aligned columns.
   CHECK(text.find("  File") != std::string::npos);
@@ -643,8 +646,12 @@ TEST_CASE(
   CHECK(alphaPos < betaPos);
   CHECK(betaPos < gammaPos);
   CHECK(text.find("\xE2\x9A\xA0") != std::string::npos);  // warning marker
-  // Unreachable count line.
-  CHECK(text.find("1 file(s) can't reach the floor") != std::string::npos);
+  // The unreachable-floor warning line is a diagnostic: stderr, with the
+  // plain-text prefix.
+  CHECK(
+    warnings.find("warning: \xE2\x9A\xA0 1 file(s) can't reach the floor")
+    != std::string::npos
+  );
   // One-decimal p5 at/above the floor, two decimals below it.
   CHECK(text.find(" 26") != std::string::npos);
   CHECK(text.find("95.0") != std::string::npos);
