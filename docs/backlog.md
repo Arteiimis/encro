@@ -71,3 +71,31 @@ investigation. Newest last.
   "flaky". exec2 now mirrors the launcher by accepting the first argv-prefix
   join that names an existing file (regression test:
   "exec2 resolves an unquoted tool path containing spaces").
+
+## RESOLVED: narration tests capture log lines on stdout (order-dependent)
+
+- **Status:** fixed in `test: keep unit-test log fallback off stdout` ·
+  **Found:** 2026-09-08 (CI run 34230413061, debug job; release/coverage green)
+- **Symptom:** `video scan narration prints one outcome line on non-TTY output`
+  (`tests/video/video_process_orchestration_tests.cpp:307`) intermittently
+  fails with `captured.find("Scanning") != npos` (plus `candidate` at `:308`),
+  while re-running the same commit goes green.
+- **Root cause:** Catch2 v3.15 defaults to `--order rand` with a fresh seed per
+  run, so test order varies. The unit-test binary never calls
+  `logging::setup()`, and `LOG_*` falls back to
+  `spdlog::default_logger_raw()` (`src/logging/logging.h`), which is spdlog's
+  built-in **stdout** logger. Whenever the narration test ran before the first
+  test that calls `logging::shutdown()` (which resets the default logger to
+  null), `LOG_INFO("Scanning input path: ...")` and
+  `LOG_INFO("Scan completed: N candidate video(s)")`
+  (`src/video/video_process.cpp:176,185`) landed in the test's `StdoutCapture`
+  file and tripped the absence assertions. Reproduced locally: the test alone
+  fails; paired with `logging::shutdown: cleans up spdlog global state` it
+  fails only when the narration test runs first. ~2% per CI job — the test must
+  precede the run's first `logging::shutdown()`. Same mechanism applied to
+  `packer_tests.cpp:61` (`Scanning` from `src/pack/packer.cpp:756`).
+- **Fix:** sink-less default logger installed in `tests/test_main.cpp`;
+  regression guard is the `[test-utils][meta]` child probe in
+  `tests/infra/crash_runtime_tests.cpp`. The crash-on-demand child keeps the
+  stdout logger because its report is what the parent test reads.
+- **Impact:** CI reliability only; product code unaffected.
