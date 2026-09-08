@@ -6,6 +6,8 @@
 #include <catch2/catch_all.hpp>                            // IWYU pragma: keep
 #include <catch2/interfaces/catch_interfaces_capture.hpp>  // getResultCapture().getCurrentTestName()
 
+#include <spdlog/spdlog.h>
+
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -118,6 +120,12 @@ int main(int argc, char* argv[]) {
     return Catch::getResultCapture().getCurrentTestName();
   });
   isolateConfigEnv();
+  // Sink-less default logger: the LOG_* fallback must not reach the stdout the
+  // narration tests capture. The crash-on-demand child keeps stdout logging —
+  // its crash report is what the parent test reads (see docs/backlog.md).
+  if (!processenv::readEnvVar("ENCRO_TEST_CRASH_OOB").has_value()) {
+    spdlog::set_default_logger(std::make_shared<spdlog::logger>("test-null"));
+  }
   return Catch::Session{}.run(argc, argv);
 }
 
