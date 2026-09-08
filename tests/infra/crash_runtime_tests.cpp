@@ -1,5 +1,7 @@
 #include "infra/crash_runtime.h"
 
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 #include "logging/setup.h"
 #include "test_utils.h"
 
@@ -31,6 +33,8 @@
 
 namespace fs = std::filesystem;
 namespace bp = boost::process::v2;
+
+DEFINE_LOGGER(logtags::TEST_INFRA);
 
 namespace {
 
@@ -195,6 +199,26 @@ TEST_CASE("crash runtime handles real process crash", "[crash][integration]") {
   CHECK(child.exitCode != 0);
   CHECK(child.output.find("[CRASH]") != std::string::npos);
   CHECK(child.output.find("stacktrace") != std::string::npos);
+}
+
+// ── Test-binary startup: log routing ────────────────────────────────────────
+
+// Selector for the hidden probe below; the meta-check spawns this binary with
+// the same tag.
+constexpr auto kLogProbeTag = "[.][log-probe]";
+
+// Hidden probe: the child must start with a clean logger registry, so an
+// in-process probe would read state other test cases left behind instead.
+TEST_CASE("log probe", kLogProbeTag) {
+  LOG_INFO("log-probe-marker");
+}
+
+TEST_CASE("test binary keeps log records off its output streams", "[test-utils][meta]") {
+  // A fresh process starts with exactly the logger registry test_main
+  // installs; a fallback LOG_INFO record must reach neither stream.
+  auto const child = spawnSelf({kLogProbeTag});
+  CHECK(child.exitCode == 0);
+  CHECK(child.output.find("log-probe-marker") == std::string::npos);
 }
 
 TEST_CASE(
