@@ -332,7 +332,7 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
   config.recursive = result.recursive;
   config.packOutput = result.pack;
   config.packOnly = result.packOnly;
-  config.verbose = result.verbose;
+  config.verbose = result.verbosity >= 1;
   config.fullProgress = result.fullProgress;
   config.jsonEnabled = result.jsonEnabled;
 

@@ -19,6 +19,7 @@ namespace terminal {
 namespace {
 
 auto g_colorMode = std::atomic<ColorMode>{ColorMode::Auto};
+auto g_quiet = std::atomic<bool>{false};
 
 enum class TokenKind {
   Value,
@@ -66,6 +67,7 @@ auto severityPrefix(MessageKind kind) -> std::string_view {
     case MessageKind::Plain        :
     case MessageKind::Success      :
     case MessageKind::Info         :
+    case MessageKind::Summary      :
     case MessageKind::Prompt       :
     case MessageKind::Heading      :
     case MessageKind::Usage        :
@@ -125,6 +127,24 @@ void configure(ColorMode mode) {
 
 void reset() {
   configure(ColorMode::Auto);
+  setQuiet(false);
+}
+
+void setQuiet(bool quiet) {
+  g_quiet.store(quiet, std::memory_order_release);
+}
+
+bool quiet() {
+  return g_quiet.load(std::memory_order_acquire);
+}
+
+bool suppressedByQuiet(MessageKind kind) {
+  switch (kind) {
+    case MessageKind::Info   :
+    case MessageKind::Success:
+    case MessageKind::Heading: return true;
+    default                  : return false;
+  }
 }
 
 auto colorMode() -> ColorMode {
@@ -173,6 +193,7 @@ auto styleFor(MessageKind kind) -> fmt::text_style {
     case MessageKind::Warning      : return fg(tc::yellow);
     case MessageKind::Success      : return fg(tc::green);
     case MessageKind::Info         : return fg(c::steel_blue);
+    case MessageKind::Summary      : return fg(c::steel_blue);
     case MessageKind::Hint         : return fg(c::slate_gray);
     case MessageKind::Prompt       : return fg(tc::cyan);
     case MessageKind::Heading      : return fg(c::steel_blue);
@@ -195,6 +216,7 @@ auto streamFor(MessageKind kind) -> Stream {
     case MessageKind::Plain        :
     case MessageKind::Success      :
     case MessageKind::Info         :
+    case MessageKind::Summary      :
     case MessageKind::Prompt       :
     case MessageKind::Heading      :
     case MessageKind::Usage        :

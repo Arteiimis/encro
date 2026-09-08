@@ -55,6 +55,35 @@ auto stripAnsi(std::string_view text) -> std::string {
 
 }  // namespace
 
+TEST_CASE("commandLineInit counts -v occurrences and clamps verbosity", "[cmd]") {
+  auto const single = testutils::parseArgs({"encro", "-v"});
+  CHECK(single.verbosity == 1);
+  CHECK(single.quiet == false);
+
+  auto const double_ = testutils::parseArgs({"encro", "-vv"});
+  CHECK(double_.verbosity == 2);
+
+  auto const triple = testutils::parseArgs({"encro", "-vvv"});
+  CHECK(triple.verbosity == 2);  // clamped
+}
+
+TEST_CASE("commandLineInit maps --debug to verbosity level 2", "[cmd]") {
+  auto const debugOnly = testutils::parseArgs({"encro", "--debug"});
+  CHECK(debugOnly.verbosity == 2);
+
+  auto const debugWithV = testutils::parseArgs({"encro", "-v", "--debug"});
+  CHECK(debugWithV.verbosity == 2);
+}
+
+TEST_CASE("commandLineInit parses --quiet long-only", "[cmd]") {
+  auto const quiet = testutils::parseArgs({"encro", "--quiet"});
+  CHECK(quiet.quiet == true);
+  CHECK(quiet.verbosity == 0);
+  // -q stays image quality: --quiet has no short alias.
+  auto const withQ = testutils::parseArgs({"encro", "-i", "x.mp4", "-c", "-q", "20"});
+  CHECK(withQ.quiet == false);
+  CHECK(withQ.imageQuality.value_or(0) == 20);
+}
 TEST_CASE("commandLineInit --version flag sets version=true", "[cmd]") {
   auto const result = testutils::parseArgs({"encro", "--version"});
 
@@ -82,7 +111,7 @@ TEST_CASE("commandLineInit parses non-conflicting flags and option values", "[cm
   CHECK(result.forceConflictHandling == "n");
   CHECK(result.folderSummary == true);
   CHECK(result.color == "always");
-  CHECK(result.verbose == true);
+  CHECK(result.verbosity == 1);
   CHECK(result.fullProgress == true);
   CHECK(result.overwrite == true);
   CHECK(result.compress == true);

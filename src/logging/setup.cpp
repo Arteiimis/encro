@@ -9,8 +9,9 @@
 
 #include <spdlog/async.h>
 #include <spdlog/sinks/rotating_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/sinks/stdout_sinks.h>
+#include <spdlog/sinks/sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>  // stderr_color_sink_mt lives here
+#include <spdlog/sinks/stdout_sinks.h>        // stderr_sink_mt lives here
 #include <spdlog/spdlog.h>
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -123,6 +124,55 @@ std::size_t retainRecentLogs(fs::path const& logDir, int const maxKeep) {
     return 0;
   }
 }
+
+// ── Verbose echo formatters (verbose-levels D3/D4) ──────────────────────────
+
+// Level-1 echo: renders "level: message" with the macro-baked location prefix
+// and the trailing attrs/context chains stripped, reusing the same payload
+// boundaries the JSON formatter parses.
+class EchoShortFormatter final: public spdlog::formatter {
+public:
+  void format(spdlog::details::log_msg const& msg, spdlog::memory_buf_t& dest) override {
+    // Level 1: error and above never echo — the clean console error line owns
+    // them (verbose-levels D4).
+    if (msg.level >= spdlog::level::err) {
+      dest.clear();
+      return;
+    }
+    auto payload = std::string_view{msg.payload.data(), msg.payload.size()};
+
+    // Strip the leading "[file:line]" the LOG_* macros bake in.
+    if (!payload.empty() && payload.front() == '[') {
+      auto const close = payload.find(']');
+      if (close != std::string_view::npos) {
+        payload.remove_prefix(close + 1);
+        while (!payload.empty() && payload.front() == ' ') { payload.remove_prefix(1); }
+      }
+    }
+
+    // Strip the trailing "[context: ...]"/"[attrs: ...]" chains (attrs is
+    // appended last, so peel from the tail). rfind yields npos when a marker
+    // is absent — treat npos as "no cut from that marker" rather than letting
+    // it win the max (npos is size_t max).
+    for (;;) {
+      auto const attrs = payload.rfind(" [attrs:");
+      auto const context = payload.rfind(" [context:");
+      auto const cut = std::min(
+        attrs == std::string_view::npos ? payload.size() : attrs,
+        context == std::string_view::npos ? payload.size() : context
+      );
+      if (cut == payload.size()) { break; }
+      payload.remove_suffix(payload.size() - cut);
+    }
+
+    auto const level = spdlog::level::to_string_view(msg.level);
+    fmt::format_to(std::back_inserter(dest), "{}: {}\n", level, payload);
+  }
+
+  auto clone() const -> std::unique_ptr<spdlog::formatter> override {
+    return std::make_unique<EchoShortFormatter>();
+  }
+};
 
 }  // namespace
 // ── Log directory resolution (migrated from prelude.cpp, logic unchanged) ──
@@ -362,10 +412,19 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     gCurrentLogFilePath = filePath;
   }
 
-  // 4. Optional console sink
-  if (config.echoEnabled) {
-    if (config.colorsEnabled) {
-      auto consoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+  // 4. Optional console echo sink: stderr (D2), level-filtered per echoLevel.
+  if (config.echoLevel >= 1) {
+    auto makeSink = [&]() -> std::shared_ptr<spdlog::sinks::sink> {
+      if (config.echoSinkOverride) { return config.echoSinkOverride; }
+      if (config.colorsEnabled) {
+        return std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+      }
+      return std::make_shared<spdlog::sinks::stderr_sink_mt>();
+    }();
+
+    if (config.colorsEnabled && config.echoSinkOverride == nullptr) {
+      auto* consoleSink =
+        static_cast<spdlog::sinks::stderr_color_sink_mt*>(makeSink.get());
       // spdlog defaults apply bold to warn/err/critical; keep the colors only
 #if defined(_WIN32) || defined(_WIN64)
       consoleSink->set_color(spdlog::level::warn, FOREGROUND_RED | FOREGROUND_GREEN);
@@ -379,13 +438,19 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
       consoleSink->set_color(spdlog::level::err, "\033[31m");
       consoleSink->set_color(spdlog::level::critical, "\033[41m");
 #endif
-      consoleSink->set_pattern(kLogPattern);
-      sinks.emplace_back(std::move(consoleSink));
-    } else {
-      auto consoleSink = std::make_shared<spdlog::sinks::stdout_sink_mt>();
-      consoleSink->set_pattern(kLogPattern);
-      sinks.emplace_back(std::move(consoleSink));
     }
+
+    if (config.echoLevel >= 2) {
+      // Full debug echo: the exact file-log format.
+      makeSink->set_level(spdlog::level::debug);
+      makeSink->set_pattern(kLogPattern);
+    } else {
+      // Curated echo: info + warning only (errors own the clean console line),
+      // rendered by the short stripping formatter.
+      makeSink->set_level(spdlog::level::info);
+      makeSink->set_formatter(std::make_unique<EchoShortFormatter>());
+    }
+    sinks.emplace_back(std::move(makeSink));
   }
 
   // 5. Init global thread pool (resettable flag; supports setup/shutdown/setup in tests)

@@ -227,8 +227,21 @@ auto resolveExecutableToken(boost::process::v2::shell const& command) -> fs::pat
 #endif
   if (exePath.empty()) { exePath = token; }
   auto ec = std::error_code{};
-  if (!fs::exists(exePath, ec) || ec) { return {}; }
-  return exePath;
+  if (fs::exists(exePath, ec) && !ec) { return exePath; }
+
+  // The shell parse splits an unquoted path at its first space, while the
+  // Windows launcher still resolves the tool via the whitespace-extension
+  // search. Mirror that: the first argv-prefix join naming an existing file
+  // wins, so bare spaced paths keep working (quoteToolPath stays unquoted on
+  // Windows because some configs carry compound commands).
+  auto const argv = command.argv();
+  auto joined = fs::path{};
+  for (auto i = 0; argv[i] != nullptr; ++i) {
+    if (i) { joined += fs::path::value_type{' '}; }
+    joined += fs::path{argv[i]};
+    if (fs::is_regular_file(joined, ec) && !ec) { return joined; }
+  }
+  return {};
 }
 
 // NOLINTNEXTLINE(readability-function-size): linear 3-way coroutine race; branches are 3-9 lines each

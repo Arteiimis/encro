@@ -1,4 +1,5 @@
 #include "logging/setup.h"
+
 #include "test_utils.h"
 
 #include <spdlog/spdlog.h>
@@ -38,7 +39,7 @@ TEST_CASE("counting sink counts per level and forwards records", "[logging][summ
   auto const& testDir = temp.path;
 
   auto const config = logging::LogConfig{
-    .echoEnabled = false,
+    .echoLevel = 0,
     .jsonEnabled = false,
     .colorsEnabled = false,
     .customLogDir = testDir,
@@ -76,7 +77,7 @@ TEST_CASE(
   auto const& testDir = temp.path;
 
   auto const config = logging::LogConfig{
-    .echoEnabled = false,
+    .echoLevel = 0,
     .jsonEnabled = true,
     .colorsEnabled = false,
     .customLogDir = testDir,
@@ -130,4 +131,91 @@ TEST_CASE(
   CHECK(hrLine.find("status=success") != std::string::npos);
   CHECK(hrLine.find("level_counts={") != std::string::npos);
   CHECK(hrLine.find("log=") != std::string::npos);
+}
+
+// ── verbose-levels: echo levels, stream, and format ───────────────────────
+
+TEST_CASE(
+  "echo level 1 emits curated short-format diagnostics on the echo stream",
+  "[logging][echo]"
+) {
+  TempDir temp;
+  auto echoBuffer = std::make_shared<std::ostringstream>();
+  auto echoSink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*echoBuffer);
+
+  auto config = logging::LogConfig{
+    .echoLevel = 1,
+    .jsonEnabled = false,
+    .colorsEnabled = false,
+    .customLogDir = temp.path,
+    .echoSinkOverride = echoSink,
+  };
+  REQUIRE(logging::setup(config).has_value());
+
+  // Macro-shaped payloads: LOG_* bake "[file:line]" plus trailing chains, and
+  // the short formatter must strip both. Emitted directly on a synchronous
+  // logger: other tests register the "test.infra" name, which would make
+  // LOG_* macros resolve past the echo sink, and the async queue could race
+  // the read below.
+  auto syncEcho = std::make_shared<spdlog::logger>("echo-sync-l1", echoSink);
+  syncEcho->set_level(spdlog::level::debug);
+  auto const fileTag = "logging_summary_tests.cpp";
+  syncEcho->info(
+    fmt::format(
+      "[{}:{}] {}{}",
+      fileTag,
+      150,
+      "hello info",
+      " [attrs: {\"task\":\"a.webp\"}]"
+    )
+  );
+  syncEcho->warn(fmt::format("[{}:{}] {}", fileTag, 151, "hello warn"));
+  syncEcho->debug(fmt::format("[{}:{}] {}", fileTag, 152, "hello debug"));
+  syncEcho->error(fmt::format("[{}:{}] {}", fileTag, 153, "hello error"));
+  logging::shutdown();
+
+  auto const echoText = echoBuffer->str();
+
+  // Short format: level name + message; no timestamp, location, or attrs.
+  CHECK(echoText.find("info: hello info") != std::string::npos);
+  CHECK(echoText.find("warning: hello warn") != std::string::npos);
+  CHECK(echoText.find(".cpp:") == std::string::npos);
+  CHECK(echoText.find("[attrs:") == std::string::npos);
+  CHECK(echoText.find("hello debug") == std::string::npos);  // debug filtered
+  CHECK(echoText.find("hello error") == std::string::npos);  // errors own the clean line
+
+  // Setup still produced the run log file alongside the echo stream.
+  auto const logFiles = testutils::listRegularFiles(temp.path);
+  REQUIRE_FALSE(logFiles.empty());
+}
+
+TEST_CASE(
+  "echo level 2 emits the full file-log format on the echo stream",
+  "[logging][echo]"
+) {
+  TempDir temp;
+  auto echoBuffer = std::make_shared<std::ostringstream>();
+  auto echoSink = std::make_shared<spdlog::sinks::ostream_sink_mt>(*echoBuffer);
+
+  auto config = logging::LogConfig{
+    .echoLevel = 2,
+    .jsonEnabled = false,
+    .colorsEnabled = false,
+    .customLogDir = temp.path,
+    .echoSinkOverride = echoSink,
+  };
+  REQUIRE(logging::setup(config).has_value());
+
+  auto syncEcho = std::make_shared<spdlog::logger>("echo-sync-l2", echoSink);
+  syncEcho->set_level(spdlog::level::debug);
+
+  syncEcho->debug("deep debug detail");
+  syncEcho->error("loud error");
+  logging::shutdown();
+
+  auto const echoText = echoBuffer->str();
+  // Full format: timestamped, with the level tag; debug records included.
+  CHECK(echoText.find("deep debug detail") != std::string::npos);
+  CHECK(echoText.find("loud error") != std::string::npos);
+  CHECK(echoText.find("[debug]") != std::string::npos);
 }
