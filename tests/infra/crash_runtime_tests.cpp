@@ -15,11 +15,25 @@
 #include <spdlog/spdlog.h>
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iterator>
 #include <string>
+#include <thread>
 #include <vector>
+
+#if defined(_WIN32)
+  #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+  #endif
+  #ifndef NOMINMAX
+    #define NOMINMAX
+  #endif
+  #include <windows.h>
+#endif
 
 namespace fs = std::filesystem;
 namespace bp = boost::process::v2;
@@ -77,6 +91,44 @@ auto spawnSelf(std::vector<std::string> const& args) -> CrashChild {
   child.wait();
   return {child.exit_code(), readProcessStream(childOut) + readProcessStream(childErr)};
 }
+
+// Like spawnSelf, but fails fast instead of hanging when the child deadlocks:
+// waits bounded on a helper thread and kills the child on expiry.
+auto spawnSelfBounded(std::vector<std::string> const& args, std::chrono::seconds bound)
+  -> CrashChild {
+  auto ctx = boost::asio::io_context{};
+  auto childOut = boost::asio::readable_pipe{ctx};
+  auto childErr = boost::asio::readable_pipe{ctx};
+  auto child = bp::process{
+    ctx,
+    boost::dll::program_location(),
+    args,
+    bp::process_stdio{.out = childOut, .err = childErr}
+  };
+  auto exitCode = std::promise<int>{};
+  auto waiter = std::thread{[&]() { exitCode.set_value(child.wait()); }};
+  auto future = exitCode.get_future();
+  if (future.wait_for(bound) != std::future_status::ready) {
+    child.terminate();
+    waiter.join();
+    return {-1, "<spawn timed out and was killed>"};
+  }
+  waiter.join();
+  return {future.get(), readProcessStream(childOut) + readProcessStream(childErr)};
+}
+
+#if defined(_WIN32)
+// Raises a fatal-code exception that local SEH immediately catches; the
+// first-chance VEH sees it before the __except filter. Kept free of C++
+// objects with destructors so it can host __try.
+auto raiseAndCatchFatalCode() -> bool {
+  auto caught = false;
+  __try {
+    ::RaiseException(EXCEPTION_ACCESS_VIOLATION, 0, 0, nullptr);
+  } __except (caught = true, EXCEPTION_EXECUTE_HANDLER) { }
+  return caught;
+}
+#endif
 
 }  // namespace
 
@@ -301,4 +353,122 @@ TEST_CASE(
   CHECK(content.find("[CRASH]") != std::string::npos);
   CHECK(content.find("unit-test: boom") != std::string::npos);
   CHECK(content.find("stacktrace") != std::string::npos);
+}
+
+// ── DLL-load zone: crash paths stand down under loader lock ──────────────────
+
+TEST_CASE("DLL-load zone is scoped, nestable, and thread-local", "[crash]") {
+  CHECK_FALSE(crash::inDllLoadZone());
+  {
+    auto const outer = crash::ScopedDllLoadZone{};
+    CHECK(crash::inDllLoadZone());
+    {
+      auto const inner = crash::ScopedDllLoadZone{};
+      CHECK(crash::inDllLoadZone());
+    }
+    CHECK(crash::inDllLoadZone());
+  }
+  CHECK_FALSE(crash::inDllLoadZone());
+
+  // Cross-thread: a zone held on another thread leaves this one unaffected.
+  auto zoneEntered = std::atomic<bool>{false};
+  auto release = std::atomic<bool>{false};
+  auto holder = std::thread{[&]() {
+    auto const zone = crash::ScopedDllLoadZone{};
+    zoneEntered.store(true, std::memory_order_release);
+    while (!release.load(std::memory_order_acquire)) { std::this_thread::yield(); }
+  }};
+  REQUIRE(testutils::waitUntil([&] { return zoneEntered.load(); }));
+  CHECK_FALSE(crash::inDllLoadZone());
+  release.store(true, std::memory_order_release);
+  holder.join();
+  CHECK_FALSE(crash::inDllLoadZone());
+}
+
+TEST_CASE("crash reports inside a DLL-load zone omit the stacktrace", "[crash]") {
+  TempDir temp;
+  auto const logPath = temp.path / "zoned.log";
+
+  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto logger = std::make_shared<spdlog::logger>("crash-zoned", sink);
+  logger->set_level(spdlog::level::trace);
+
+  auto guard = ScopedDefaultLogger(logger);
+  auto const zone = crash::ScopedDllLoadZone{};
+  auto const ex = std::runtime_error{"boom"};
+  crash::reportCaughtException("unit-test", ex);
+  logger->flush();
+
+  auto const content = readText(logPath);
+  CHECK(content.find("[CRASH]") != std::string::npos);
+  CHECK(content.find("unit-test: boom") != std::string::npos);
+  // The omission marker replaces the trace; no frames leak through.
+  CHECK(content.find("<skipped: DLL-load zone (loader lock)>") != std::string::npos);
+  CHECK(content.find("#00") == std::string::npos);
+}
+
+#if defined(_WIN32)
+TEST_CASE(
+  "fatal-code exceptions pass through the VEH inside a DLL-load zone",
+  "[crash]"
+) {
+  TempDir temp;
+  auto const logPath = temp.path / "pass-through.log";
+
+  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto logger = std::make_shared<spdlog::logger>("crash-pass-through", sink);
+  logger->set_level(spdlog::level::trace);
+
+  auto guard = ScopedDefaultLogger(logger);
+  {
+    auto const zone = crash::ScopedDllLoadZone{};
+    REQUIRE(raiseAndCatchFatalCode());
+  }
+  logger->flush();
+
+  // The exception was a handled probe from the VEH's point of view: no
+  // record may exist for it anywhere.
+  auto const content = readText(logPath);
+  CHECK(content.find("[CRASH]") == std::string::npos);
+}
+
+TEST_CASE(
+  "fatal-code exceptions outside a DLL-load zone still report first-chance",
+  "[crash]"
+) {
+  TempDir temp;
+  auto const logPath = temp.path / "control.log";
+
+  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto logger = std::make_shared<spdlog::logger>("crash-control", sink);
+  logger->set_level(spdlog::level::trace);
+
+  auto guard = ScopedDefaultLogger(logger);
+  REQUIRE(raiseAndCatchFatalCode());
+  logger->flush();
+
+  // Control: the same raise without the zone produces the first-chance
+  // record (reason + stacktrace) as before the carve-out.
+  auto const content = readText(logPath);
+  CHECK(content.find("[CRASH]") != std::string::npos);
+  CHECK(content.find("0xC0000005") != std::string::npos);
+  CHECK(content.find("stacktrace") != std::string::npos);
+}
+#endif
+
+TEST_CASE(
+  "dll-zone crash-child exits promptly without a crash record",
+  "[crash][integration]"
+) {
+  // Bounded wait: a regression deadlocks the child exactly like the backlog
+  // hang, so the spawn must fail fast (killed at the bound) instead of
+  // hanging the suite.
+  auto const child =
+    spawnSelfBounded({"--encro-crash-child=dll-zone"}, std::chrono::seconds{10});
+
+  REQUIRE(child.exitCode == 0);
+#if defined(_WIN32)
+  CHECK(child.output.find("dll-zone-child caught=1") != std::string::npos);
+#endif
+  CHECK(child.output.find("[CRASH]") == std::string::npos);
 }
