@@ -41,7 +41,8 @@
 - [x] 3.3 Manual verification on this machine (model files present):
       `tests.exe "[real-model]"` completes instead of hanging at the seed
       line; record the outcome in the change notes (CI lacks the model and
-      SKIPs, as today)
+      SKIPs, as today). Outcome 2026-09-08: all 16216 assertions passed in
+      2.4 s (pre-fix: infinite hang at the seed line).
 
 ## 4. Verification and wrap-up
 
