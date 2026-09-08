@@ -26,12 +26,6 @@
 #include <vector>
 
 #if defined(_WIN32)
-  #ifndef WIN32_LEAN_AND_MEAN
-    #define WIN32_LEAN_AND_MEAN
-  #endif
-  #ifndef NOMINMAX
-    #define NOMINMAX
-  #endif
   #include <windows.h>
 #endif
 
@@ -76,24 +70,9 @@ struct CrashChild {
   std::string output;
 };
 
-// Spawns this test binary with the given argument list and captures its exit
-// code and merged stdout+stderr.
-auto spawnSelf(std::vector<std::string> const& args) -> CrashChild {
-  auto ctx = boost::asio::io_context{};
-  auto childOut = boost::asio::readable_pipe{ctx};
-  auto childErr = boost::asio::readable_pipe{ctx};
-  auto child = bp::process{
-    ctx,
-    boost::dll::program_location(),
-    args,
-    bp::process_stdio{.out = childOut, .err = childErr}
-  };
-  child.wait();
-  return {child.exit_code(), readProcessStream(childOut) + readProcessStream(childErr)};
-}
-
-// Like spawnSelf, but fails fast instead of hanging when the child deadlocks:
-// waits bounded on a helper thread and kills the child on expiry.
+// Spawns this test binary bounded: waits at most `bound` for exit and kills
+// the child on expiry, so a deadlocked child fails fast instead of hanging
+// the suite. Captures merged stdout+stderr once the child is gone.
 auto spawnSelfBounded(std::vector<std::string> const& args, std::chrono::seconds bound)
   -> CrashChild {
   auto ctx = boost::asio::io_context{};
@@ -105,23 +84,28 @@ auto spawnSelfBounded(std::vector<std::string> const& args, std::chrono::seconds
     args,
     bp::process_stdio{.out = childOut, .err = childErr}
   };
-  auto exitCode = std::promise<int>{};
-  auto waiter = std::thread{[&]() { exitCode.set_value(child.wait()); }};
-  auto future = exitCode.get_future();
-  if (future.wait_for(bound) != std::future_status::ready) {
+  // std::async's future blocks in its destructor, so the kill branch still
+  // waits for the (terminated) child before returning.
+  auto waiter = std::async(std::launch::async, [&] { return child.wait(); });
+  if (waiter.wait_for(bound) != std::future_status::ready) {
     child.terminate();
-    waiter.join();
     return {-1, "<spawn timed out and was killed>"};
   }
-  waiter.join();
-  return {future.get(), readProcessStream(childOut) + readProcessStream(childErr)};
+  return {waiter.get(), readProcessStream(childOut) + readProcessStream(childErr)};
+}
+
+// Spawns this test binary with the given argument list and captures its exit
+// code and merged stdout+stderr; bounded far above any legit crash-child
+// runtime so only a deadlocked child trips it.
+auto spawnSelf(std::vector<std::string> const& args) -> CrashChild {
+  return spawnSelfBounded(args, std::chrono::seconds{120});
 }
 
 #if defined(_WIN32)
 // Raises a fatal-code exception that local SEH immediately catches; the
 // first-chance VEH sees it before the __except filter. Kept free of C++
 // objects with destructors so it can host __try.
-auto raiseAndCatchFatalCode() -> bool {
+bool raiseAndCatchFatalCode() {
   auto caught = false;
   __try {
     ::RaiseException(EXCEPTION_ACCESS_VIOLATION, 0, 0, nullptr);
