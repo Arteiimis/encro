@@ -77,7 +77,7 @@ void isolateConfigEnv() {
 #if defined(_WIN32)
 // SEH body isolated from C++ objects with destructors (zone lives in the
 // caller) so __try compiles.
-auto raiseAndCatchFatalCode() -> bool {
+bool raiseAndCatchFatalCode() {
   auto caught = false;
   __try {
     ::RaiseException(EXCEPTION_ACCESS_VIOLATION, 0, 0, nullptr);
@@ -86,7 +86,7 @@ auto raiseAndCatchFatalCode() -> bool {
 }
 #endif
 
-auto raiseFatalInsideDllLoadZone() -> int {
+int raiseFatalInsideDllLoadZone() {
   crash::installHandlers();
 #if defined(_WIN32)
   auto const zone = crash::ScopedDllLoadZone{};
