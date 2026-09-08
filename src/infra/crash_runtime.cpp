@@ -33,6 +33,10 @@ auto gInstalled = std::atomic<bool>{false};
 // plausible, and the crash path must stay lock-free.
 auto gContextProvider = std::function<std::string()>{};
 
+// Per-thread depth of active DLL-load zones: the crash paths read it to skip
+// work that can block under loader lock. Depth (not bool) so zones nest.
+thread_local int gDllLoadZoneDepth = 0;
+
 // Reads the context provider; never throws. Returns "" when no provider is
 // installed or the provider itself fails (e.g. querying the current Catch2
 // test name outside an active session).
@@ -180,13 +184,18 @@ void writeCrashMessage(std::string const& message) {
 }
 
 void writeCrashReport(std::string_view reason) {
-  auto frames = crash::captureStacktrace(2);
+  // The dbgeng-backed capture waits for a debug event that can never arrive on
+  // a thread holding the loader lock; inside a DLL-load zone report reason +
+  // context only, with a marker where the trace would be.
+  auto const zoned = crash::inDllLoadZone();
+  auto frames = zoned ? std::vector<std::string>{} : crash::captureStacktrace(2);
   auto context = currentCrashContext();
   auto message = std::format(
     "\n[CRASH] {}{}\n[CRASH] stacktrace:\n{}",
     reason,
     context.empty() ? std::string{} : std::format(" [context: {}]", context),
-    crash::formatStacktrace(frames)
+    zoned ? std::string{"<skipped: DLL-load zone (loader lock)>"}
+          : crash::formatStacktrace(frames)
   );
   writeCrashMessage(message);
 }
@@ -234,6 +243,11 @@ LONG WINAPI vehFatalHandler(EXCEPTION_POINTERS* exceptionInfo) {
   }
   auto const* record = exceptionInfo->ExceptionRecord;
   if (!isFatalExceptionCode(record->ExceptionCode)) { return EXCEPTION_CONTINUE_SEARCH; }
+  // DLL-init exceptions raised on the loader-lock thread are typically handled
+  // third-party probes; running the report there deadlocks (dbgeng attach
+  // under loader lock). Pass through — the UE filter / terminate path still
+  // reports (trace-less) if the exception turns out to be truly fatal.
+  if (crash::inDllLoadZone()) { return EXCEPTION_CONTINUE_SEARCH; }
   gVehReportedRecord.store(record, std::memory_order_release);
   writeCrashReport(
     std::format(
@@ -277,6 +291,18 @@ namespace crash {
 
 void setCrashContextProvider(std::function<std::string()> provider) {
   gContextProvider = std::move(provider);
+}
+
+ScopedDllLoadZone::ScopedDllLoadZone() {
+  ++gDllLoadZoneDepth;
+}
+
+ScopedDllLoadZone::~ScopedDllLoadZone() {
+  --gDllLoadZoneDepth;
+}
+
+bool inDllLoadZone() {
+  return gDllLoadZoneDepth > 0;
 }
 
 void installHandlers() {

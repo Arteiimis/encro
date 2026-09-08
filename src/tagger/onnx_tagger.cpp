@@ -1,5 +1,6 @@
 #include "tagger/onnx_tagger.h"
 
+#include "infra/crash_runtime.h"
 #include "tagger/mapping.h"
 #include "infra/env.h"
 #include "tagger/preprocess.h"
@@ -143,6 +144,10 @@ auto ensureGpuRuntimePaths(fs::path const& modelDir) -> void {
       GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
     return fs::path{std::wstring{buffer.data(), len}}.parent_path();
   }();
+  // Crash-report work must not run while this thread may hold the loader
+  // lock: the dbgeng stack capture deadlocks there. DLL-init exceptions pass
+  // through first chance instead of hanging the process.
+  auto const dllLoadZone = crash::ScopedDllLoadZone{};
   for (
     auto const* name:
     {L"onnxruntime_providers_shared.dll", L"onnxruntime_providers_cuda.dll"}
