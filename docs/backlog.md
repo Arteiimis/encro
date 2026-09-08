@@ -3,9 +3,10 @@
 Deferred issues, recorded with diagnosis so future fixes can skip the
 investigation. Newest last.
 
-## Flaky `test-parallel` hang (unit shard stuck before first test)
+## RESOLVED: Flaky `test-parallel` hang (unit shard stuck before first test)
 
-- **Status:** open · **Found:** 2026-09-08 (during console-message-conventions verification)
+- **Status:** fixed in c5977dc (`crash-veh-loader-lock-safety`: DLL-load zone
+  gating the crash paths) · **Found:** 2026-09-08 (during console-message-conventions verification)
 - **Symptom:** `xmake test-parallel` sometimes hangs indefinitely with one unit
   shard's `tests.exe` stuck right after the Catch2 seed line (0 tests run,
   near-zero CPU); the same binary passes all 12 shards in ~13 s on other runs.

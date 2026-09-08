@@ -45,9 +45,9 @@
 
 ## 4. Verification and wrap-up
 
-- [ ] 4.1 Run `xmake fmt -k` clean and `xmake tidy` over the touched files;
+- [x] 4.1 Run `xmake fmt -k` clean and `xmake tidy` over the touched files;
       then full `xmake test-report`, the e2e suite, and several
       `xmake test-parallel` runs including the previously-hanging
       first-test condition
-- [ ] 4.2 Mark the backlog entry "Flaky `test-parallel` hang" resolved with
+- [x] 4.2 Mark the backlog entry "Flaky `test-parallel` hang" resolved with
       the fix commit hash once landed
