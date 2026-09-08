@@ -322,7 +322,8 @@ auto renderPreview(
 }
 
 void reportAndOpen(PreviewOptions const& options, fs::path const& outputPath) {
-  terminal::println(Success, "Preview written to: {}", terminal::path(outputPath));
+  // The run's final summary line bypasses the quiet gate (verbose-levels).
+  terminal::println(Summary, "Preview written to: {}", terminal::path(outputPath));
   if (!options.noOpen) {
     if (openfile::openWithDefaultApp(outputPath)) {
       terminal::println(Info, "Opened in the default player.");

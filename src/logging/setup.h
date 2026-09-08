@@ -1,5 +1,7 @@
 #pragma once
 
+#include <spdlog/sinks/sink.h>
+
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -47,10 +49,15 @@ void logRunSummary(SummaryData const& data);
 [[nodiscard]] auto currentNdjsonFilePath() -> std::optional<std::filesystem::path>;
 
 struct LogConfig {
-  bool echoEnabled{false};
+  int echoLevel{
+    0
+  };  // 0 off, 1 curated info+warning echo (short format), 2 full debug echo
   bool jsonEnabled{false};
   bool colorsEnabled{true};
   std::optional<std::filesystem::path> customLogDir;
+  // Test seam: replaces the stderr echo sink when set (format/level behavior
+  // stays identical to the production stderr sink).
+  std::shared_ptr<spdlog::sinks::sink> echoSinkOverride;
 };
 
 // ── Environment snapshot data for forensic diagnostics ──────────────────────

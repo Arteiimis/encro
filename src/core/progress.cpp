@@ -14,6 +14,15 @@
 
 namespace progress {
 
+namespace {
+
+// Bars and cursor escapes render only on an interactive, non-quiet stdout.
+bool progressBarsAllowed() {
+  return terminal::streamIsTerminal(terminal::Stream::Stdout) && !terminal::quiet();
+}
+
+}  // namespace
+
 auto resolveColor(Tone tone, bool colorsEnabled) -> indicators::Color {
   using indicators::Color;
 
@@ -386,14 +395,14 @@ void ProgressContext::render() {
   // Non-TTY stdout: skip the render pass entirely. This gate is load-bearing
   // even with the null sink above — DynamicProgress::print_progress writes
   // newlines/cursor escapes directly to std::cout, bypassing per-bar streams.
-  if (!terminal::streamIsTerminal(terminal::Stream::Stdout)) { return; }
+  if (!progressBarsAllowed()) { return; }
   manager_.print_progress();
   renderedBarCount_ = bars_.size();
 }
 
 void ProgressContext::eraseBars() {
   auto lock = std::scoped_lock{mtx_};
-  if (!terminal::streamIsTerminal(terminal::Stream::Stdout)) { return; }
+  if (!progressBarsAllowed()) { return; }
   for (std::size_t index = 0; index < renderedBarCount_; ++index) {
     indicators::move_up(1);
     indicators::erase_line();
@@ -453,7 +462,7 @@ std::size_t addBar(
 namespace {
 
 void setCursorVisible(bool visible) {
-  if (!terminal::streamIsTerminal(terminal::Stream::Stdout)) { return; }
+  if (!progressBarsAllowed()) { return; }
 #if defined(_WIN32) || defined(_WIN64)
   HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
   CONSOLE_CURSOR_INFO cursorInfo;

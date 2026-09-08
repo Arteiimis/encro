@@ -253,8 +253,7 @@ TEST_CASE(
 
   auto const captured = readTextFile(capturePath);
   CHECK(
-    captured.find("warning: Verbose output enabled: progress bars are disabled.")
-    != std::string::npos
+    captured.find("warning: Echo enabled: progress bars disabled.") != std::string::npos
   );
   CHECK(captured.find("Scheduling") == std::string::npos);
 }

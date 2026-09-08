@@ -475,7 +475,11 @@ auto runVerboseEncoding(
   appctx::path_map<int>& probeCqByInput,
   std::map<fs::path, std::string>& failureReasons
 ) -> videobatch::EncodeResultsMap {
-  terminal::messageln(Warning, "Verbose output enabled: progress bars are disabled.");
+  // One notice covers both echo levels; suppressed under --quiet, where bars
+  // are already off (verbose-levels D5/D6).
+  if (!terminal::quiet()) {
+    terminal::messageln(Warning, "Echo enabled: progress bars disabled.");
+  }
   return runEncodingWithoutProgress(ctx, job, probeCqByInput, failureReasons);
 }
 

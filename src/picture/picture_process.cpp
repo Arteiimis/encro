@@ -334,7 +334,7 @@ auto executeDirectPackWorkflow(
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
   terminal::println(
-    Success,
+    Summary,
     "All pictures packed successfully to: {}",
     terminal::path(outputDir)
   );
@@ -509,7 +509,7 @@ auto executePicturePack(
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
   terminal::println(
-    Success,
+    Summary,
     "All pictures packed successfully to: {}",
     terminal::path(outputDir)
   );

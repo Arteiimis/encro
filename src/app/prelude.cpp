@@ -10,10 +10,11 @@ namespace {
 
 void setupLogging(CmdParseResult const& cmd) {
   auto const logConfig = logging::LogConfig{
-    .echoEnabled = cmd.verbose,
+    .echoLevel = cmd.verbosity,
     .jsonEnabled = cmd.jsonEnabled,
     .colorsEnabled = terminal::colorsEnabled(),
   };
+  terminal::setQuiet(cmd.quiet);
 
   // The log path is surfaced by logging::printLogHint on failed runs.
   (void)logging::setup(logConfig);
