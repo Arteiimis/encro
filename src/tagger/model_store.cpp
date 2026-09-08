@@ -1,6 +1,7 @@
 #include "tagger/model_store.h"
 
 #include "core/sha256.h"
+#include "infra/crash_runtime.h"
 #include "infra/env.h"
 #include "utils/utils.h"
 
@@ -125,6 +126,10 @@ auto encroLibDir() -> fs::path {
 
 bool hasNvidiaDriver() {
 #if defined(_WIN32)
+  // ponytail: guards our own load window; DLL init inside third-party library
+  // calls (no load site of ours) stays the ceiling — bounded helper-thread
+  // capture is the upgrade path if it ever bites.
+  auto const dllLoadZone = crash::ScopedDllLoadZone{};
   auto const driver = LoadLibraryW(L"nvcuda.dll");
   if (driver == nullptr) { return false; }
   FreeLibrary(driver);
