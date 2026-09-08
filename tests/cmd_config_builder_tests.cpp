@@ -49,7 +49,8 @@ auto makeResult(
     else if (flag == "restart") result.restart = true;
     else if (flag == "keep") result.keep = true;
     else if (flag == "folder-summary") result.folderSummary = true;
-    else if (flag == "verbose") result.verbose = true;
+    else if (flag == "verbose") result.verbosity = 1;
+    else if (flag == "debug") result.verbosity = 2;
     else if (flag == "compress") result.compress = true;
     else if (flag == "full-progress") result.fullProgress = true;
     else if (flag == "overwrite") result.overwrite = true;

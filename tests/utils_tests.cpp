@@ -13,6 +13,7 @@
 #include "test_utils.h"
 
 #if defined(_WIN32)
+  #include <windows.h>
 #else
   #include <unistd.h>
 #endif
@@ -292,6 +293,34 @@ TEST_CASE("exec2 reports a missing tool as exit 127, not a spawn exception", "[u
 #if !defined(_WIN32)
   CHECK(exec2("\"/definitely_missing_dir_xyz/tool\" -version").exitCode == 127);
 #endif
+}
+
+TEST_CASE("exec2 resolves an unquoted tool path containing spaces", "[utils]") {
+  // quoteToolPath emits bare paths on Windows, and the launcher historically
+  // resolved them via the whitespace-extension search — the exit-127 token
+  // check must not reject the first space-split token outright.
+  namespace fs = std::filesystem;
+
+#if defined(_WIN32)
+  auto self = std::array<wchar_t, 1024>{};
+  auto const len =
+    GetModuleFileNameW(nullptr, self.data(), static_cast<DWORD>(self.size()));
+  REQUIRE(len > 0);
+  REQUIRE(len < static_cast<DWORD>(self.size()));
+  auto const exePath = fs::path{self.data()};
+#else
+  auto const exePath = fs::canonical("/proc/self/exe");
+#endif
+
+  TempDir temp;
+  auto const spacedDir = temp.path / "tool tools dir";
+  REQUIRE(fs::create_directory(spacedDir));
+  auto const spacedExe = spacedDir / exePath.filename();
+  REQUIRE(fs::copy_file(exePath, spacedExe));
+
+  // Deliberately unquoted; --list-tests exits 0 without running the suite.
+  auto const result = exec2(spacedExe.string() + " --list-tests");
+  CHECK(result.exitCode == 0);
 }
 
 TEST_CASE(

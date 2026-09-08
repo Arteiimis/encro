@@ -43,6 +43,28 @@ auto findSingleOutputFile(fs::path const& outputDir) -> fs::path {
   return outputFiles.front();
 }
 
+std::size_t countOccurrences(std::string const& text, std::string_view needle) {
+  auto count = std::size_t{0};
+  for (
+    auto pos = text.find(needle); pos != std::string::npos;
+    pos = text.find(needle, pos + needle.size())
+  ) {
+    ++count;
+  }
+  return count;
+}
+
+auto firstLineContaining(std::string const& text, std::string_view needle)
+  -> std::string {
+  auto stream = std::istringstream{text};
+  auto line = std::string{};
+  while (std::getline(stream, line)) {
+    if (!line.empty() && line.back() == '\r') { line.pop_back(); }
+    if (line.find(needle) != std::string::npos) { return line; }
+  }
+  return {};
+}
+
 auto loadJsonObject(fs::path const& path) -> json::object {
   auto const content = testutils::readTextFile(path);
   auto const value = json::parse(content);
@@ -395,6 +417,249 @@ TEST_CASE(
   CHECK(outputFiles.front().extension() == ".webp");
   CHECK(containsStemMarker(outputFiles.front().filename().string(), "sample"));
   CHECK(fs::file_size(outputFiles.front()) > 0);
+}
+
+TEST_CASE(
+  "encro -v echoes diagnostics to stderr and keeps stdout product-only",
+  "[e2e][video][fake-toolchain][verbose]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  testutils::writeTextFile(inputPath, "fake-video");
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+
+  auto const result = e2e::runEncro({
+    "-y",
+    "-v",
+    "-i",
+    inputPath.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+  REQUIRE_SUCCESS(result);
+  CAPTURE(result.stdoutText, result.stderrText);
+
+  // stdout keeps the product lines and receives no echoed log records.
+  CHECK(result.stdoutText.find("Encoded 1/1 videos") != std::string::npos);
+  CHECK(result.stdoutText.find("info: ") == std::string::npos);
+  CHECK(result.stdoutText.find("[debug]") == std::string::npos);
+
+  // stderr carries the short-format echo plus the bars-disabled notice.
+  CHECK(result.stderrText.find("info: ") != std::string::npos);
+  CHECK(
+    result.stderrText.find("warning: Echo enabled: progress bars disabled.")
+    != std::string::npos
+  );
+  CHECK(result.stderrText.find("[debug]") == std::string::npos);
+
+  // The bars-disabled notice prints once, not per task.
+  CHECK(
+    countOccurrences(result.stderrText, "Echo enabled: progress bars disabled.") == 1
+  );
+
+  // The file log keeps the full debug set regardless of the echo level. The
+  // log path is only surfaced on failed runs, so force a failure to read it.
+  // A distinct input name avoids the resume logic matching the output the
+  // successful run above already produced.
+  auto const failedInputPath = temp.path / "failing.avi";
+  testutils::writeTextFile(failedInputPath, "fake-video");
+  auto const failedRun = e2e::runEncro(
+    {
+      "-y",
+      "-v",
+      "-i",
+      failedInputPath.string(),
+      "-f",
+      "webp",
+      "-j",
+      "1",
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    },
+    std::nullopt,
+    {
+      {"ENCRO_FAKE_FFMPEG_EXIT_CODE", "17"},
+      {"ENCRO_FAKE_FFMPEG_STDERR", "Option fake not found."},
+    }
+  );
+  REQUIRE(failedRun.exitCode == 1);
+  CAPTURE(failedRun.stderrText, e2e::encroLogTail(failedRun.stderrText));
+  CHECK(e2e::encroLogTail(failedRun.stderrText).find("[debug]") != std::string::npos);
+}
+
+TEST_CASE(
+  "encro -vv echoes the full file-log format on stderr",
+  "[e2e][video][fake-toolchain][verbose]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  testutils::writeTextFile(inputPath, "fake-video");
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+
+  auto const result = e2e::runEncro({
+    "-y",
+    "-vv",
+    "-i",
+    inputPath.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+  REQUIRE_SUCCESS(result);
+  CAPTURE(result.stdoutText, result.stderrText);
+
+  // Full format: timestamped, with the level tag; debug records included.
+  CHECK(result.stderrText.find("[debug]") != std::string::npos);
+  CHECK(result.stdoutText.find("[debug]") == std::string::npos);
+  // The bars-disabled notice prints once at -vv too (task 2.3).
+  CHECK(
+    countOccurrences(result.stderrText, "Echo enabled: progress bars disabled.") == 1
+  );
+
+  // The file log keeps the full debug set at echo level 2 as well.
+  auto const failedInputPath = temp.path / "failing.avi";
+  testutils::writeTextFile(failedInputPath, "fake-video");
+  auto const failedRun = e2e::runEncro(
+    {
+      "-y",
+      "-vv",
+      "-i",
+      failedInputPath.string(),
+      "-f",
+      "webp",
+      "-j",
+      "1",
+      "--ffmpeg-path",
+      toolchain.root.string(),
+    },
+    std::nullopt,
+    {
+      {"ENCRO_FAKE_FFMPEG_EXIT_CODE", "17"},
+      {"ENCRO_FAKE_FFMPEG_STDERR", "Option fake not found."},
+    }
+  );
+  REQUIRE(failedRun.exitCode == 1);
+  CAPTURE(failedRun.stderrText, e2e::encroLogTail(failedRun.stderrText));
+  CHECK(e2e::encroLogTail(failedRun.stderrText).find("[debug]") != std::string::npos);
+}
+
+TEST_CASE(
+  "encro -v keeps the parse error line identical and unduplicated",
+  "[e2e][verbose]"
+) {
+  auto const plain = e2e::runEncro({"--definitely-not-an-option-xyz"});
+  auto const verbose = e2e::runEncro({"-v", "--definitely-not-an-option-xyz"});
+  CAPTURE(plain.stderrText, verbose.stderrText);
+
+  REQUIRE(plain.exitCode == 1);
+  REQUIRE(verbose.exitCode == 1);
+  CHECK(countOccurrences(plain.stderrText, "error: ") == 1);
+  CHECK(countOccurrences(verbose.stderrText, "error: ") == 1);
+  // Same clean line either way (no verbose decoration).
+  auto const plainLine = firstLineContaining(plain.stderrText, "error: ");
+  auto const verboseLine = firstLineContaining(verbose.stderrText, "error: ");
+  REQUIRE_FALSE(plainLine.empty());
+  CHECK(verboseLine == plainLine);
+}
+
+TEST_CASE(
+  "encro --quiet suppresses narration but keeps summary and failure output",
+  "[e2e][video][fake-toolchain][quiet]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  testutils::writeTextFile(inputPath, "fake-video");
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+  auto const withQuiet = [&baseArgs]() {
+    auto args = baseArgs;
+    args.push_back("--quiet");
+    return args;
+  }();
+
+  SECTION("successful quiet run prints only the final summary line") {
+    auto const result = e2e::runEncro(withQuiet);
+    REQUIRE_SUCCESS(result);
+    CAPTURE(result.stdoutText, result.stderrText);
+
+    CHECK(result.stdoutText.find("Encoded 1/1 videos") != std::string::npos);
+    CHECK(result.stdoutText.find("Found 1 video(s)") == std::string::npos);
+    CHECK(result.stdoutText.find("Scanning") == std::string::npos);
+    CHECK(result.stdoutText.find("Scheduling") == std::string::npos);
+    CHECK(result.stdoutText.find("Encoding video:") == std::string::npos);
+  }
+
+  SECTION("failing quiet run still prints the failure paths") {
+    auto const result = e2e::runEncro(
+      withQuiet,
+      std::nullopt,
+      {
+        {"ENCRO_FAKE_FFMPEG_EXIT_CODE", "17"},
+        {"ENCRO_FAKE_FFMPEG_STDERR", "Option fake not found."},
+      }
+    );
+    CAPTURE(result.stdoutText, result.stderrText, e2e::encroLogTail(result.stderrText));
+
+    CHECK(result.exitCode == 1);
+    // The count line and the failed-file list survive quiet.
+    CHECK(result.stdoutText.find("Encoded 0/1 videos") != std::string::npos);
+    CHECK(result.stdoutText.find("Option fake not found.") != std::string::npos);
+    // So does the log hint, and the log file keeps the debug set.
+    CHECK(result.stderrText.find("Log file:") != std::string::npos);
+    CHECK(e2e::encroLogTail(result.stderrText).find("[debug]") != std::string::npos);
+
+    // Quiet does not change exit codes: the same run without --quiet also
+    // exits 1.
+    auto const loudRun = e2e::runEncro(
+      baseArgs,
+      std::nullopt,
+      {
+        {"ENCRO_FAKE_FFMPEG_EXIT_CODE", "17"},
+        {"ENCRO_FAKE_FFMPEG_STDERR", "Option fake not found."},
+      }
+    );
+    CHECK(loudRun.exitCode == result.exitCode);
+  }
+
+  SECTION("quiet with -v suppresses narration while echo still emits") {
+    auto quietAndVerbose = baseArgs;
+    quietAndVerbose.push_back("-v");
+    quietAndVerbose.push_back("--quiet");
+    auto const result = e2e::runEncro(quietAndVerbose);
+    REQUIRE_SUCCESS(result);
+    CAPTURE(result.stdoutText, result.stderrText);
+
+    // Narration stays suppressed on stdout…
+    CHECK(result.stdoutText.find("Found 1 video(s)") == std::string::npos);
+    CHECK(result.stdoutText.find("Encoded 1/1 videos") != std::string::npos);
+    // …while the echo stream still emits short-format records, and the
+    // bars-disabled notice stays suppressed (bars are already off).
+    CHECK(result.stderrText.find("info: ") != std::string::npos);
+    CHECK(
+      result.stderrText.find("Echo enabled: progress bars disabled.") == std::string::npos
+    );
+  }
 }
 
 TEST_CASE(

@@ -37,6 +37,7 @@ TEST_CASE(
 
   auto const& help = result.helpText;
   CHECK(help.find("--verbose") == std::string::npos);
+  CHECK(help.find("--debug") == std::string::npos);
   CHECK(help.find("--log-json") == std::string::npos);
   CHECK(help.find("--full-progress") == std::string::npos);
   CHECK(help.find("--color") == std::string::npos);
@@ -48,6 +49,8 @@ TEST_CASE(
 
   CHECK(isLastNonEmptyLine(help, kHintLine));
 
+  // --quiet is a visible General option (no -q alias; -q is image quality).
+  CHECK(help.find("--quiet") != std::string::npos);
   CHECK(help.find("--input") != std::string::npos);
   CHECK(help.find("--crf") != std::string::npos);
 }
@@ -59,6 +62,9 @@ TEST_CASE("full help via -hh shows advanced options and no hint", "[cmd][tiering
 
   auto const& help = result.helpText;
   CHECK(help.find("--verbose") != std::string::npos);
+  CHECK(help.find("--debug") != std::string::npos);
+  CHECK(help.find("echo progress detail to the terminal") != std::string::npos);
+  CHECK(help.find("suppress narration and progress output") != std::string::npos);
   CHECK(help.find("--log-json") != std::string::npos);
   CHECK(help.find("--color") != std::string::npos);
   CHECK(help.find("--inputs") != std::string::npos);

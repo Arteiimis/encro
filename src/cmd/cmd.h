@@ -11,7 +11,9 @@ struct CmdParseResult {
   // ── General options ────────────────────────────────────────────
   bool help = false;
   bool version = false;
-  bool verbose = false;
+  int verbosity = 0;  // 0 off, 1 curated echo (-v), 2 full debug (-vv/--debug)
+  bool quiet = false;
+  bool debug = false;
   bool fullProgress = false;
   bool jsonEnabled = false;
   std::string color = "auto";

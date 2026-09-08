@@ -1,6 +1,7 @@
 #include "preview/preview_process.h"
 
 #include "core/work_dirs.h"
+#include "infra/terminal.h"
 
 #include "test_utils.h"
 
@@ -158,6 +159,42 @@ TEST_CASE("preview --output overrides the default location", "[preview]") {
   );
   REQUIRE(res.has_value());
   CHECK(fs::exists(custom));
+}
+
+TEST_CASE("preview --quiet keeps the result line but drops narration", "[preview]") {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  auto const encoded = temp.path / "sample.hevc.mp4";
+  testutils::writeTextFile(original);
+  testutils::writeTextFile(encoded);
+
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillPreviewContext(ctx, temp.path, envs);
+
+  terminal::setQuiet(true);
+  {
+    auto capture = testutils::StdoutCapture{temp.path / "stdout.txt"};
+    auto const res = preview::run(
+      ctx,
+      preview::PreviewOptions{
+        .original = original,
+        .encoded = encoded,
+        .noOpen = true,
+      }
+    );
+    REQUIRE(res.has_value());
+    CHECK(res.value() == 0);
+  }
+  terminal::setQuiet(false);
+  auto const out = testutils::readTextFile(temp.path / "stdout.txt");
+  CAPTURE(out);
+
+  // The run's final summary line bypasses the quiet gate; narration (the
+  // preview window list) is suppressed.
+  CHECK(out.find("Preview written to:") != std::string::npos);
+  CHECK(out.find("Preview windows") == std::string::npos);
+  CHECK(fs::exists(temp.path / "sample.preview.mp4"));
 }
 
 TEST_CASE("preview rejects webp inputs with a video-comparison-only error", "[preview]") {

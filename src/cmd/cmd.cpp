@@ -318,6 +318,7 @@ auto visibleOptionsOf(
 // cli-help-tiering main spec's enumeration misses --video-codec).
 constexpr auto kAdvancedLongNames = std::array{
   "verbose"sv,
+  "debug"sv,
   "log-json"sv,
   "full-progress"sv,
   "color"sv,
@@ -764,17 +765,26 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
   auto* helpOpt =
     app.add_flag("-h,--help", result.help, "show help; use -hh to show all options");
   app.add_flag("--version", result.version, "show version information");
+  // Occurrence counting for -vv is a CLI11 flag trait, not an option; kept
+  // beside help/version because it bypasses the spec table.
+  app.add_flag(
+    "-v,--verbose",
+    result.verbosity,
+    "echo progress detail to the terminal (stderr); repeat for full debug "
+    "(disables progress bars)"
+  );
   auto const options = std::tuple{
     opt(
-      "-v,--verbose",
-      &result.verbose,
-      "echo log lines to the console (disables progress bars)"
+      "--quiet",
+      &result.quiet,
+      "suppress narration and progress output; errors and the summary still print"
     ),
     opt(
       "--log-json",
       &result.jsonEnabled,
       "enable NDJSON structured log output (one JSON object per line)"
     ),
+    opt("--debug", &result.debug, "echo full debug diagnostics to the terminal (stderr)"),
     opt(
       "-F,--full-progress",
       &result.fullProgress,
@@ -1053,6 +1063,8 @@ auto buildAndParse(
   try {
     tree.app->parse(argc, argv);
     result.helpText = tree.app->help();
+    if (result.debug) { result.verbosity = std::max(result.verbosity, 2); }
+    result.verbosity = std::min(result.verbosity, 2);
     if (tree.app->got_subcommand(tree.previewSub)) { result.preview = true; }
     if (tree.app->got_subcommand(tree.organizeSub)) { result.organize = true; }
     if (tree.app->got_subcommand(tree.configSub)) {

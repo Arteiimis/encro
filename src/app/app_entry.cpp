@@ -113,17 +113,14 @@ void printHelpHint() {
 }
 
 int failWithHint(
-  prelude::StartupContext const& startup,
   std::string const& message,
   bool showHelpHint = false,
   appctx::AppContext* ctx = nullptr
 ) {
-  if (startup.cmd.verbose) {
-    LOG_ERROR("{}", message);
-  } else {
-    terminal::messageln(Error, "{}", message);
-    LOG_ERROR("{}", message);
-  }
+  // The clean error line prints in every verbosity mode; the echo never
+  // replaces it (verbose-levels D4).
+  terminal::messageln(Error, "{}", message);
+  LOG_ERROR("{}", message);
   logging::printLogHint();
   // End-of-run summary before the drain below, so it lands in the log.
   logging::logRunSummary(buildSummary(ctx, "failed"));
@@ -138,11 +135,7 @@ auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional
   auto const& cmd = startup.cmd;
 
   if (cmd.error.has_value()) {
-    return failWithHint(
-      startup,
-      std::format("Invalid arguments: {}", cmd.error.value()),
-      true
-    );
+    return failWithHint(std::format("Invalid arguments: {}", cmd.error.value()), true);
   }
 
   if (cmd.help) {
@@ -162,7 +155,7 @@ auto buildAppConfig(prelude::StartupContext const& startup)
   -> std::optional<appctx::AppConfig> {
   auto configRes = cmd::buildConfig(startup.cmd);
   if (!configRes) {
-    failWithHint(startup, configRes.error(), true);
+    failWithHint(configRes.error(), true);
     return std::nullopt;
   }
 
@@ -179,12 +172,7 @@ bool ensureToolchainReady(
 
   auto const toolRes = toolchain::resolve(ctx.config, ctx.toolchain);
   if (!toolRes) {
-    failWithHint(
-      startup,
-      std::format("Tool check failed: {}", toolRes.error()),
-      false,
-      &ctx
-    );
+    failWithHint(std::format("Tool check failed: {}", toolRes.error()), false, &ctx);
     return false;
   }
 
@@ -205,7 +193,6 @@ int runPreview(prelude::StartupContext const& startup) {
   auto const configRes = cmd::buildConfig(cmd);
   if (!configRes) {
     return failWithHint(
-      startup,
       std::format("Preview failed: {}", configRes.error()),
       false,
       &ctx
@@ -239,12 +226,7 @@ int runPreview(prelude::StartupContext const& startup) {
 
   auto const runRes = preview::run(ctx, options);
   if (!runRes) {
-    return failWithHint(
-      startup,
-      std::format("Preview failed: {}", runRes.error()),
-      false,
-      &ctx
-    );
+    return failWithHint(std::format("Preview failed: {}", runRes.error()), false, &ctx);
   }
 
   auto const exitCode = runRes.value();
@@ -260,12 +242,7 @@ int runPreview(prelude::StartupContext const& startup) {
 int runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& startup) {
   auto runRes = pipeline::run(ctx);
   if (!runRes) {
-    return failWithHint(
-      startup,
-      std::format("Pipeline failed: {}", runRes.error()),
-      false,
-      &ctx
-    );
+    return failWithHint(std::format("Pipeline failed: {}", runRes.error()), false, &ctx);
   }
 
   // Success, Ctrl-C, or any other non-zero pipeline exit all reach here; today

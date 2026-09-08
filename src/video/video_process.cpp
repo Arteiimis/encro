@@ -509,7 +509,7 @@ void printEncodingSummary(
   );
 
   terminal::println(
-    Info,
+    Summary,
     "Encoded {}/{} videos \xE2\x86\x92 {}",
     terminal::count(successCount),
     terminal::count(vidsRunRes.size()),

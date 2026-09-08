@@ -27,6 +27,7 @@ enum class MessageKind {
   Warning,
   Success,
   Info,
+  Summary,
   Hint,
   Prompt,
   Heading,
@@ -44,6 +45,17 @@ auto parseColorMode(std::string_view text) -> std::optional<ColorMode>;
 bool streamIsTerminal(Stream stream);
 
 void configure(ColorMode mode);
+
+// Quiet mode (--quiet): narration lines (Info/Success/Heading) are suppressed
+// at the kind-dispatched entry points; severity diagnostics
+// (error/warning/hint), run summaries, failure lists, product output (Plain),
+// prompts, help, and version bypass the gate.
+void setQuiet(bool quiet);
+bool quiet();
+
+// True for narration kinds the quiet gate suppresses (not severity, run
+// summaries, product output, prompts, or help tokens).
+bool suppressedByQuiet(MessageKind kind);
 
 void reset();
 
@@ -90,8 +102,14 @@ auto format(
   return renderMessage(stream, kind, message);
 }
 
+// True when the quiet gate suppresses this narration kind right now.
+inline bool quietSuppresses(MessageKind kind) {
+  return quiet() && suppressedByQuiet(kind);
+}
+
 template<class... Tys>
 void print(MessageKind kind, fmt::format_string<Tys...> fmtText, Tys&&... args) {
+  if (quietSuppresses(kind)) { return; }
   write(
     Stream::Stdout,
     format(Stream::Stdout, kind, fmtText, std::forward<Tys>(args)...),
@@ -101,6 +119,7 @@ void print(MessageKind kind, fmt::format_string<Tys...> fmtText, Tys&&... args) 
 
 template<class... Tys>
 void println(MessageKind kind, fmt::format_string<Tys...> fmtText, Tys&&... args) {
+  if (quietSuppresses(kind)) { return; }
   write(
     Stream::Stdout,
     format(Stream::Stdout, kind, fmtText, std::forward<Tys>(args)...),
@@ -131,6 +150,7 @@ void eprintln(MessageKind kind, fmt::format_string<Tys...> fmtText, Tys&&... arg
 // land on stderr; narration, results, prompts, and help text stay on stdout.
 template<class... Tys>
 void messageln(MessageKind kind, fmt::format_string<Tys...> fmtText, Tys&&... args) {
+  if (quietSuppresses(kind)) { return; }
   auto const stream = streamFor(kind);
   write(stream, format(stream, kind, fmtText, std::forward<Tys>(args)...), true);
 }
