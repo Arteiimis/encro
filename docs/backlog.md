@@ -26,20 +26,16 @@ investigation. Newest last.
   `MiniDumpWriteDump` or stderr-only reporting.
 - **Impact:** CI/verification reliability only; product code unaffected.
 
-## Flaky e2e `encro webp CLI can use the fake ffmpeg toolchain`
+## RESOLVED: e2e `encro webp CLI can use the fake ffmpeg toolchain`
 
-- **Status:** open · **Found:** 2026-09-08 (during console-message-conventions verification)
-- **Symptom:** `tests/e2e/encro_e2e_tests.cpp` "encro webp CLI can use the fake
-  ffmpeg toolchain" (spaced-toolchain section) intermittently fails with
-  `exitCode == 1` and `Failed to encode: 1` in the summary — the encode itself
-  failed and produced no output. Confirmed failing at HEAD without local
-  changes, passing on later reruns.
-- **Diagnosis so far:** not stream/badge related; the fake tool log in the kept
-  temp dir needs checking (invocation log was absent from the kept dir —
-  inspect the fake ffmpeg's recorded stderr/exit path and the encoded-webp
-  planning step). Suspect a retry/step race in the webp size-targeting loop
-  (`video_encode_runner`) under parallel-shard load.
-- **Fix direction:** reproduce under `--shard-index` replay, inspect the fake
-  tool log + job state in the kept temp dir, then fix the underlying race or
-  fake-tool response.
-- **Impact:** CI signal only; product code unaffected.
+- **Status:** fixed in 1a4550d (exec2 unquoted spaced-path resolution) · **Found:**
+  2026-09-08 (during console-message-conventions verification)
+- **Root cause (not a race):** `5cec2fa` added the exit-127 token check to
+  exec2. On Windows `quoteToolPath` emits bare paths, and the shell parse
+  splits a spaced path at its first space; the new `fs::exists(argv[0])` then
+  rejected the truncated token before the launcher's whitespace-extension
+  search could resolve the real tool. Deterministic on Windows for spaced
+  `--ffmpeg-path` roots; CI (posix, quoted paths) stayed green, which read as
+  "flaky". exec2 now mirrors the launcher by accepting the first argv-prefix
+  join that names an existing file (regression test:
+  "exec2 resolves an unquoted tool path containing spaces").
