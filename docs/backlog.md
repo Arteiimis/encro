@@ -19,6 +19,37 @@ investigation. Newest last.
   dbgeng COM service. Under loader lock that COM init deadlocks
   (`dbgeng!DebugCreateEx` → `SleepEx` forever), so the process never exits and
   the shard never finishes.
+- **Root cause confirmed 2026-09-08** (source walk + live repro; supersedes
+  the "dbghelp" assumption — `xmake.lua`'s `add_syslinks("dbghelp")` is a red
+  herring, the import table carries no dbghelp.dll):
+  - MSVC STL `std::stacktrace` (stl/src/stacktrace.cpp) symbolizes via
+    dbgeng, not dbghelp: lazy `LoadLibraryExW(dbgeng.dll)` → `DebugCreate` →
+    `AttachProcess(self, NONINVASIVE)` → `WaitForEvent(0, INFINITE)` — an
+    indefinite debug-event wait that cannot complete from a thread holding
+    the loader lock mid-DLL-init. Matches the cdb frames exactly.
+  - Trigger chain: `tests.exe` imports `onnxruntime.dll`; with model files
+    present (`~/.encro/models`), `real_model_tests` constructs `OnnxTagger` →
+    `ensureGpuRuntimePaths` `LoadLibraryExW`s `onnxruntime_providers_cuda.dll`
+    (onnx_tagger.cpp); its static init raises a first-chance AV (a fatal code
+    in `isFatalExceptionCode`), so `vehFatalHandler` runs the full report on
+    the loader-lock-holding thread. `captureStacktrace` is the first statement
+    of `writeCrashReport`, hence zero output before the hang.
+  - Seed determinism mechanism: the dbgeng engine is a per-process phoenix
+    singleton behind an SRW lock — the *first* `captureStacktrace` in a
+    process performs the deadlocking attach; later calls only query. A shard
+    hangs iff its first test is the onnx load *and* no earlier test warmed
+    the symbolizer (e.g. crash_runtime tests do); shard composition is fixed
+    by `--rng-seed`.
+  - Live repro (twice, different seeds): `tests.exe "[real-model]"` alone
+    prints only `Filters:` + seed line and never finishes; main thread
+    `WaitReason=ExecutionDelay` (SleepEx family), CPU frozen across samples
+    (0.3 s → 0.3 s).
+  - Design blind spot: hardening-crash-diagnostics design D1's risk list only
+    costed "one integer comparison per first-chance exception" and never
+    considered that first-chance handling runs the report path on threads
+    that may hold the loader lock, where LoadLibrary/COM/debug-engine waits
+    are forbidden. Same latent deadlock exists in `encro.exe` (it runs the
+    same provider preload), not just tests.
 - **Fix direction:** the VEH handler must not hijack exceptions that originate
   inside third-party DLL initialization (or at minimum must not run the
   dbgeng-backed stack capture on the loader-lock thread); consider
