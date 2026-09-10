@@ -15,13 +15,11 @@ struct ProgressData {
   uint64_t frameCount;
 };
 
-// One segment recorded by the segment muxer's live CSV list:
-// "<file name>,<start seconds>,<end seconds>". The listed times carry the
-// encoder's reorder delay, so they are informational only: resume seeks to the
-// segment's fixed-duration mark (index * segment duration) instead.
+// One segment row of the segment muxer's live CSV list. Only the row's end time
+// is consumed: cut boundaries come from the encoder's cadence and file names
+// from kSegmentFilePattern, because the muxer updates rows in place and may pad
+// a name with spaces.
 struct SegmentListEntry {
-  std::string fileName;
-  std::uint64_t startUs;
   std::uint64_t endUs;
 };
 
