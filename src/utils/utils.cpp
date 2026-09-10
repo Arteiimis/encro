@@ -184,6 +184,7 @@ auto terminateOnStop(
   co_return std::nullopt;
 }
 
+#if !defined(_WIN32)
 // PATH lookup for a bare tool token: bpv2's posix find_executable resolves
 // neither absolute paths (boost::filesystem appends instead of replacing)
 // nor bare names on this platform.
@@ -208,6 +209,7 @@ auto findOnPath(fs::path const& token) -> fs::path {
   }
   return {};
 }
+#endif
 
 // Resolves the shell-parsed executable token to a spawnable path, or an
 // empty path when the tool does not exist. bpv2's posix find_executable
