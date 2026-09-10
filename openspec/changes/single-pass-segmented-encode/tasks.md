@@ -32,5 +32,5 @@
 
 ## 6. Delivery
 
-- [ ] 6.1 Commit implementation, tests and the ticked `tasks.md` in one atomic commit with a conventional subject (e.g. `perf: encode a video task in one ffmpeg pass`) and a body carrying the measured before/after numbers; verify `git status` is clean afterwards.
-- [ ] 6.2 Run the post-change code review (Standards, Spec, leanness) per the repo's `code-review` workflow and resolve accepted findings with a fresh verification pass; verify the review findings are each marked resolved, rejected with justification, or handed to the user.
+- [x] 6.1 Commit implementation, tests and the ticked `tasks.md` in one atomic commit with a conventional subject (e.g. `perf: encode a video task in one ffmpeg pass`) and a body carrying the measured before/after numbers; verify `git status` is clean afterwards.
+- [x] 6.2 Run the post-change code review (Standards, Spec, leanness) per the repo's `code-review` workflow and resolve accepted findings with a fresh verification pass; verify the review findings are each marked resolved, rejected with justification, or handed to the user.
