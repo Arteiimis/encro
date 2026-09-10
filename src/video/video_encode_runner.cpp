@@ -14,13 +14,19 @@
 #include "logging/logging.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
+#include <thread>
+#include <vector>
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_ENCODE);
@@ -35,6 +41,11 @@ constexpr auto kWebpQualityStep = 10;
 constexpr auto kWebpFineQualityStep = 5;
 constexpr auto kWebpSmallGapThreshold = std::uintmax_t{3ULL * 1024ULL * 1024ULL};
 constexpr auto kSegmentDurationUs = std::uint64_t{10'000'000};
+// The muxer's listed times carry the encoder's reorder delay, so a complete
+// list ends slightly past the source duration, while a run that died with a
+// segment in flight leaves a whole segment-duration gap.
+constexpr auto kSegmentListCompleteToleranceUs = std::uint64_t{1'000'000};
+constexpr auto kSegmentListPollInterval = std::chrono::milliseconds{100};
 
 struct WebpEncodeContext {
   fs::path inputVidPath;
@@ -58,11 +69,11 @@ struct EncodeExecutionPlan {
   fs::path outputFilePath;
 };
 
-// The output side of segmented encoding: which segments to assemble and the
-// transcript audio, if any.
+// The output side of segmented encoding: the segments to assemble, in the
+// order the encoder's list recorded them, and the transcript audio, if any.
 struct SegmentAssemblySpec {
   fs::path segmentDir;
-  std::uint64_t segmentCount;
+  std::vector<std::string> segmentNames;
   std::optional<fs::path> audioPath;
 };
 
@@ -114,31 +125,6 @@ auto prepareEncodeExecution(appctx::EncodingState& state)
   return EncodeExecutionPlan{
     .progressFilePath = progressFilePath,
     .outputFilePath = plannedOutputFile.value(),
-  };
-}
-
-auto buildEncodeConfig(
-  appctx::AppContext& ctx,
-  appctx::EncodingState const& state,
-  EncodeExecutionPlan const& plan
-) -> EncodeConfig {
-  auto const settings = resolveInputEncodeSettings(
-    ctx.toolchain,
-    ctx.runtime,
-    state.inputPath,
-    ctx.config.nvencPreset
-  );
-
-  return EncodeConfig{
-    .ffmpegPath = ctx.toolchain.ffmpegPath,
-    .inputPath = state.inputPath,
-    .outputFilePath = plan.outputFilePath,
-    .outputFormat = ctx.config.outputFormat,
-    .videoCodec = ctx.config.videoCodec,
-    .crf = state.chosenCq.has_value() ? state.chosenCq : ctx.config.crf,
-    .nvencPreset = settings.nvencPreset,
-    .maxrateKbps = settings.maxrateKbps,
-    .progressFilePath = plan.progressFilePath
   };
 }
 
@@ -382,92 +368,133 @@ bool encodeWebpWithTargetSize(
   return false;
 }
 
-auto segmentFilePath(fs::path const& segmentDir, std::uint64_t index) -> fs::path {
-  return segmentDir / std::format("seg_{}.ts", index);
+auto segmentFileName(std::uint64_t index) -> std::string {
+  // Must match kSegmentFilePattern, which the muxer writes.
+  return std::format("seg_{}.ts", index);
 }
 
-auto segmentProgressFilePath(fs::path const& segmentDir, std::uint64_t index)
-  -> fs::path {
-  return segmentDir / std::format("seg_{}.progress", index);
+// The live list the segment muxer appends a row to per finished segment.
+auto segmentListPath(fs::path const& segmentDir) -> fs::path {
+  return segmentDir / kSegmentListFileName;
 }
 
-bool encodeOneSegment(
-  appctx::AppContext& ctx,
+// Completion signal of the single-pass encode: every row the muxer has closed
+// is a segment that is complete on disk, while the row still being written
+// never counts. Recording happens here instead of after a per-segment process.
+struct SegmentListWatch {
+  fs::path listPath;
+  std::string taskId;
+  std::uint64_t startNumber = 0;
+  std::uint64_t segmentTotal = 0;
+  jobstate::Store* store = nullptr;
+  std::function<void(std::string const&)> statusUpdater;
+  std::atomic<std::uint64_t> completedSegments{0};
+};
+
+void markCompletedSegments(SegmentListWatch& watch) {
+  auto const entries = parseSegmentList(watch.listPath);
+  auto const total = watch.startNumber + static_cast<std::uint64_t>(entries.size());
+  if (total <= watch.completedSegments.load(std::memory_order_acquire)) { return; }
+
+  watch.completedSegments.store(total, std::memory_order_release);
+  if (watch.store != nullptr) {
+    watch.store->markSegmentProgress(watch.taskId, total, total * kSegmentDurationUs);
+  }
+  if (watch.statusUpdater) {
+    watch.statusUpdater(std::format("segment {}/{}", total, watch.segmentTotal));
+  }
+}
+
+// Segments an earlier attempt already finished, in order: bounded by the
+// encoder's own list when it is still on disk, otherwise by the recorded count.
+// Names are derived from the index because the muxer updates list rows in place
+// and may pad a name with spaces, while the files follow the naming pattern.
+auto reusableSegments(
+  fs::path const& segmentDir,
+  std::span<SegmentListEntry const> listedSegments,
+  std::uint64_t storedSegments
+) -> std::vector<std::string> {
+  auto const limit = !listedSegments.empty() ? listedSegments.size()
+                                             : static_cast<std::size_t>(storedSegments);
+
+  auto reusable = std::vector<std::string>{};
+  for (auto index = std::size_t{0}; index < limit; ++index) {
+    auto const name = segmentFileName(static_cast<std::uint64_t>(index));
+    if (!fs::exists(segmentDir / name)) { break; }
+    reusable.push_back(name);
+  }
+  return reusable;
+}
+
+// True when the encoder has nothing left to do: every segment is on disk, or the
+// muxer's cut cadence produced fewer segments than the duration implies and its
+// list already covers the whole timeline.
+auto encodeComplete(
+  std::uint64_t completed,
+  std::uint64_t segmentTotal,
+  std::span<SegmentListEntry const> listedSegments,
+  std::uint64_t totalDurationUs
+) -> bool {
+  if (completed >= segmentTotal) { return true; }
+  return !listedSegments.empty()
+    && completed == listedSegments.size()
+    && listedSegments.back().endUs + kSegmentListCompleteToleranceUs >= totalDurationUs;
+}
+
+void watchSegmentList(SegmentListWatch& watch, std::stop_token const& stopToken) {
+  while (!stopToken.stop_requested()) {
+    markCompletedSegments(watch);
+    std::this_thread::sleep_for(kSegmentListPollInterval);
+  }
+  markCompletedSegments(watch);
+}
+
+// Runs the whole segment series in one ffmpeg invocation and blocks until it
+// exits, recording segments as the encoder closes them.
+bool runEncoderSeries(
   appctx::EncodingState& state,
-  function_ref statusUpdater,
-  SegmentEncodeSpec const& spec,
-  std::size_t workerCount
+  SegmentListWatch& watch,
+  EncodeConfig const& cfg,
+  function_ref statusUpdater
 ) {
-  auto const segProgressFile =
-    segmentProgressFilePath(spec.tempOutputPath.parent_path(), spec.segmentIndex);
-  {
-    auto ec = std::error_code{};
-    fs::remove(segProgressFile, ec);
-  }
-
-  auto const settings = resolveInputEncodeSettings(
-    ctx.toolchain,
-    ctx.runtime,
-    state.inputPath,
-    ctx.config.nvencPreset
-  );
-
-  auto const cfg = buildSegmentEncodeConfig(
-    ctx.toolchain,
-    spec,
-    EncodeProfile{
-      .outputFormat = ctx.config.outputFormat,
-      .videoCodec = ctx.config.videoCodec,
-      .crf = state.chosenCq.has_value() ? state.chosenCq : ctx.config.crf,
-      .settings = settings,
-      .workerCount = workerCount,
-    },
-    segProgressFile
-  );
-
-  if (auto const validationResult = cfg.validate(); !validationResult) {
-    LOG_ERROR(
-      "Segment config invalid: input={} segment={} error={}",
-      state.inputPath.string(),
-      spec.segmentIndex,
-      validationResult.error()
-    );
-    return false;
-  }
-
+  auto const cmd = cfg.buildCMD();
   {
     auto lock = std::scoped_lock{state.mtx};
-    state.progressFilePath = segProgressFile;
-    state.subprocessCmdline = cfg.buildCMD();
+    state.subprocessCmdline = cmd;
   }
 
+  // NOLINTNEXTLINE(performance-unnecessary-value-param): std::jthread invokes the callable with a stop_token value
+  auto watcher = std::jthread{[&watch](std::stop_token stopToken) {
+    watchSegmentList(watch, stopToken);
+  }};
   auto const [exitCode, capturedOutput, pid, stderrText] =
-    exec2(cfg.buildCMD(), [&](std::string_view line) {
+    exec2(cmd, [&](std::string_view line) {
       reportEncodingDiagnostic(statusUpdater, line);
     });
+  watcher.request_stop();
+  watcher.join();
+
   if (pid.has_value()) {
     auto lock = std::scoped_lock{state.mtx};
     state.subprocessPid = pid;
   }
-  if (exitCode != 0) {
-    auto const reason =
-      extractFailureReason(capturedOutput, stderrText, exitCode, isLikelyFfmpegErrorLine);
-    LOG_WARN(
-      "Segment encode exited with non-zero code: input={} segment={} exitCode={} "
-      "reason={}",
-      state.inputPath.string(),
-      spec.segmentIndex,
-      exitCode,
-      reason
-    );
-    {
-      auto lock = std::scoped_lock{state.mtx};
-      state.lastError = reason;
-    }
-    return false;
-  }
+  if (exitCode == 0) { return true; }
 
-  return fs::exists(spec.tempOutputPath);
+  auto const reason =
+    extractFailureReason(capturedOutput, stderrText, exitCode, isLikelyFfmpegErrorLine);
+  LOG_WARN(
+    "Segment series encode exited with non-zero code: input={} completed={} exitCode={} "
+    "reason={}",
+    state.inputPath.string(),
+    watch.completedSegments.load(),
+    exitCode,
+    reason
+  );
+  {
+    auto lock = std::scoped_lock{state.mtx};
+    state.lastError = reason;
+  }
+  return false;
 }
 
 auto ensureAudioFile(
@@ -526,9 +553,7 @@ bool assembleSegments(
   function_ref statusUpdater
 ) {
   auto const listPath = spec.segmentDir / "list.txt";
-  if (!writeConcatManifest(listPath, spec.segmentDir, spec.segmentCount)) {
-    return false;
-  }
+  if (!writeConcatManifest(listPath, spec.segmentNames)) { return false; }
 
   auto const cmd = buildSegmentAssemblyCmd(
     ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"}),
@@ -577,7 +602,7 @@ bool assembleSegments(
   return true;
 }
 
-// NOLINTNEXTLINE(readability-function-size): linear segment loop; phase comments delimit blocks
+// NOLINTNEXTLINE(readability-function-size): encode and assemble phases; comments delimit blocks
 bool runSegmentedEncoding(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
@@ -591,26 +616,22 @@ bool runSegmentedEncoding(
   auto const workRootRes = workdirs::resolveWorkRoot(ctx.config);
   if (!workRootRes) { return failEncoding(state, workRootRes.error()); }
   auto const segmentDir = videoseg::segmentDirForTask(*workRootRes, taskId);
+  auto const listPath = segmentListPath(segmentDir);
 
-  auto resumeSegment = std::uint64_t{0};
-  auto resumeTimeUs = std::uint64_t{0};
   auto const store = ctx.runtime.jobState;
   auto const task = store ? store->findTask(taskId) : std::nullopt;
-  if (task.has_value() && task->segmentIndex.has_value()) {
-    resumeSegment = task->segmentIndex.value();
-    resumeTimeUs = task->resumeTimeUs.value_or(0);
-  } else {
+  auto const storedSegments =
+    task.has_value() ? task->segmentIndex.value_or(0) : std::uint64_t{0};
+  if (storedSegments == 0) {
+    // No recorded progress: start clean. A --restart run lands here too.
     videoseg::removeSegmentDir(segmentDir);
   }
   videoseg::createSegmentDir(segmentDir);
 
-  for (auto index = std::uint64_t{0}; index < resumeSegment; ++index) {
-    if (!fs::exists(segmentFilePath(segmentDir, index))) {
-      resumeSegment = index;
-      resumeTimeUs = index * kSegmentDurationUs;
-      break;
-    }
-  }
+  // Which earlier segments are reusable: see reusableSegments for the naming
+  // and verification rules.
+  auto const previousEntries = parseSegmentList(listPath);
+  auto completedNames = reusableSegments(segmentDir, previousEntries, storedSegments);
 
   auto const durationRes =
     getVidTotalDurationUs(ctx.toolchain, ctx.runtime, state.inputPath);
@@ -622,12 +643,37 @@ bool runSegmentedEncoding(
       std::format("Cannot segment video with zero duration: {}", state.inputPath.string())
     );
   }
-  auto const segmentCount =
+  auto const segmentTotal =
     (totalDurationUs + kSegmentDurationUs - 1) / kSegmentDurationUs;
+  auto const completed = static_cast<std::uint64_t>(completedNames.size());
+  auto const resumeUs = completed * kSegmentDurationUs;
 
   auto const audioRes = ensureAudioFile(ctx, state, segmentDir, statusUpdater);
   if (!audioRes) { return failEncoding(state, audioRes.error()); }
   auto const& audioPath = audioRes.value();
+
+  auto const assemble = [&](std::vector<std::string> names) {
+    auto const assembly = SegmentAssemblySpec{
+      .segmentDir = segmentDir,
+      .segmentNames = std::move(names),
+      .audioPath = audioPath,
+    };
+    if (!assembleSegments(ctx, state, plan, assembly, statusUpdater)) { return false; }
+    videoseg::removeSegmentDir(segmentDir);
+    return true;
+  };
+
+  // Nothing left to encode: every segment is on disk already (a run interrupted
+  // during assembly), or the muxer's cut cadence produced fewer segments than
+  // the duration implies and its list covers the whole timeline.
+  if (encodeComplete(completed, segmentTotal, previousEntries, totalDurationUs)) {
+    LOG_DEBUG(
+      "All {} segment(s) already encoded; assembling only: input={}",
+      completed,
+      state.inputPath.string()
+    );
+    return assemble(std::move(completedNames));
+  }
 
   auto totalFrames = std::int64_t{0};
   if (
@@ -636,69 +682,89 @@ bool runSegmentedEncoding(
   ) {
     totalFrames = framesRes.value();
   }
-
-  auto const setBaseFrameOffset = [&](std::uint64_t cumulativeUs) {
-    auto const offset =
-      segmentBaseFrameOffset(cumulativeUs, totalFrames, totalDurationUs);
+  {
+    // One continuous progress counter spans the whole run, so only the resumed
+    // prefix needs an offset.
     auto lock = std::scoped_lock{state.mtx};
-    state.baseFrameOffset = offset;
-  };
-  setBaseFrameOffset(resumeTimeUs);
-
-  for (auto index = resumeSegment; index < segmentCount; ++index) {
-    if (stopsignal::isStopRequested()) { return false; }
-
-    auto const startUs = index * kSegmentDurationUs;
-    auto const durationUs = std::min(kSegmentDurationUs, totalDurationUs - startUs);
-
-    if (statusUpdater) {
-      statusUpdater(std::format("segment {}/{}", index + 1, segmentCount));
-    }
-
-    LOG_DEBUG(
-      "Encoding segment: input={} segment={}/{} start={}us duration={}us",
-      state.inputPath.string(),
-      index + 1,
-      segmentCount,
-      startUs,
-      durationUs
-    );
-
-    auto const spec = SegmentEncodeSpec{
-      .inputPath = state.inputPath,
-      .segmentIndex = index,
-      .startUs = startUs,
-      .durationUs = durationUs,
-      .tempOutputPath = segmentFilePath(segmentDir, index),
-    };
-    if (!encodeOneSegment(ctx, state, statusUpdater, spec, workerCount)) { return false; }
-
-    auto const parsedEndUs =
-      parseSegmentEndUs(segmentProgressFilePath(segmentDir, index));
-    if (!parsedEndUs.has_value()) {
-      LOG_WARN(
-        "Failed to parse segment end time; falling back to nominal duration {}us "
-        "(segment {} of {})",
-        durationUs,
-        index + 1,
-        segmentCount
-      );
-    }
-    auto const actualUs = parsedEndUs.value_or(durationUs);
-    resumeTimeUs += actualUs;
-    setBaseFrameOffset(resumeTimeUs);
-    if (store) { store->markSegmentProgress(taskId, index + 1, resumeTimeUs); }
+    state.baseFrameOffset =
+      segmentBaseFrameOffset(resumeUs, totalFrames, totalDurationUs);
   }
 
-  auto const assembly = SegmentAssemblySpec{
-    .segmentDir = segmentDir,
-    .segmentCount = segmentCount,
-    .audioPath = audioPath,
-  };
-  if (!assembleSegments(ctx, state, plan, assembly, statusUpdater)) { return false; }
+  auto const settings = resolveInputEncodeSettings(
+    ctx.toolchain,
+    ctx.runtime,
+    state.inputPath,
+    ctx.config.nvencPreset
+  );
+  auto const cfg = buildSegmentSeriesConfig(
+    ctx.toolchain,
+    state.inputPath,
+    SegmentSeries{
+      .segmentDir = segmentDir,
+      .startNumber = completed,
+      .resumeUs = resumeUs,
+    },
+    EncodeProfile{
+      .outputFormat = ctx.config.outputFormat,
+      .videoCodec = ctx.config.videoCodec,
+      .crf = state.chosenCq.has_value() ? state.chosenCq : ctx.config.crf,
+      .settings = settings,
+      .workerCount = workerCount,
+    },
+    plan.progressFilePath
+  );
+  if (auto const validationResult = cfg.validate(); !validationResult) {
+    return failEncoding(
+      state,
+      std::format(
+        "Segment series config invalid: input={} error={}",
+        state.inputPath.string(),
+        validationResult.error()
+      )
+    );
+  }
 
-  videoseg::removeSegmentDir(segmentDir);
-  return true;
+  LOG_DEBUG(
+    "Encoding segment series: input={} resume={}us completed={}/{} startNumber={}",
+    state.inputPath.string(),
+    resumeUs,
+    completed,
+    segmentTotal,
+    completed
+  );
+  if (statusUpdater) {
+    statusUpdater(std::format("segment {}/{}", completed + 1, segmentTotal));
+  }
+
+  // ffmpeg rewrites the list, so the poller must not read the previous
+  // attempt's rows; those are already captured in completedNames.
+  auto ec = std::error_code{};
+  fs::remove(listPath, ec);
+
+  auto watch = SegmentListWatch{
+    .listPath = listPath,
+    .taskId = taskId,
+    .startNumber = completed,
+    .segmentTotal = segmentTotal,
+    .store = store.get(),
+    .statusUpdater = statusUpdater,
+    .completedSegments = completed,
+  };
+  if (!runEncoderSeries(state, watch, cfg, statusUpdater)) { return false; }
+  if (stopsignal::isStopRequested()) { return false; }
+
+  auto names = std::move(completedNames);
+  for (auto index = std::size_t{0}; index < parseSegmentList(listPath).size(); ++index) {
+    names.push_back(segmentFileName(completed + static_cast<std::uint64_t>(index)));
+  }
+  if (names.size() <= completed) {
+    return failEncoding(
+      state,
+      std::format("Segment encode produced no segments: {}", state.inputPath.string())
+    );
+  }
+
+  return assemble(std::move(names));
 }
 
 }  // namespace
@@ -707,21 +773,14 @@ bool runSegmentedEncoding(
 // directory, so bare segment names work for relative and absolute runs alike.
 bool writeConcatManifest(
   fs::path const& listPath,
-  fs::path const& segmentDir,
-  std::uint64_t segmentCount
+  std::span<std::string const> segmentNames
 ) {
   auto out = std::ofstream{listPath};
   if (!out) {
     LOG_ERROR("Failed to write segment list: {}", listPath.string());
     return false;
   }
-  for (auto index = std::uint64_t{0}; index < segmentCount; ++index) {
-    out
-      << "file '"
-      << segmentFilePath(segmentDir, index).filename().string()
-      << "'"
-      << "\n";
-  }
+  for (auto const& name: segmentNames) { out << "file '" << name << "'" << "\n"; }
   return true;
 }
 
@@ -735,28 +794,16 @@ bool encodeVideo(
   if (!executionPlanRes) { return failEncoding(state, executionPlanRes.error()); }
 
   auto const& executionPlan = executionPlanRes.value();
-  auto const cfg = buildEncodeConfig(ctx, state, executionPlan);
+  auto const inputPathStr = state.inputPath.string();
+  logging::ScopedErrorContext scopedCtx("video.encode", inputPathStr);
 
   LOG_DEBUG(
-    "Encode config: input={} output-format={} output-file={} progress-file={}",
+    "Encoding video: input={} output-format={} output-file={} progress-file={}",
     state.inputPath.string(),
     ctx.config.outputFormat,
     executionPlan.outputFilePath.string(),
     executionPlan.progressFilePath.string()
   );
-
-  auto const validationResult = cfg.validate();
-  if (!validationResult) { return failEncoding(state, validationResult.error()); }
-
-  {
-    auto lock = std::scoped_lock{state.mtx};
-    state.subprocessCmdline = cfg.buildCMD();
-  }
-
-  auto const inputPathStr = state.inputPath.string();
-  logging::ScopedErrorContext scopedCtx("video.encode", inputPathStr);
-
-  LOG_DEBUG("Encoding video: {}", state.inputPath.string());
 
   if (ctx.config.outputFormat == "webp") {
     return encodeWebpWithTargetSize(

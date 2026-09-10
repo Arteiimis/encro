@@ -15,13 +15,26 @@ struct ProgressData {
   uint64_t frameCount;
 };
 
+// One segment recorded by the segment muxer's live CSV list:
+// "<file name>,<start seconds>,<end seconds>". The listed times carry the
+// encoder's reorder delay, so they are informational only: resume seeks to the
+// segment's fixed-duration mark (index * segment duration) instead.
+struct SegmentListEntry {
+  std::string fileName;
+  std::uint64_t startUs;
+  std::uint64_t endUs;
+};
+
+// Reads the segment list in file order. Malformed lines, and a final line that
+// was still being written when read (no trailing newline), are ignored; a
+// missing or empty list yields no entries.
+auto parseSegmentList(fs::path const& listPath) -> std::vector<SegmentListEntry>;
+
 bool isLikelyFfmpegErrorLine(std::string_view line);
 
 auto readLastNLines(fs::path const& filePath, std::size_t n) -> std::vector<std::string>;
 
 auto parseProgressFile(fs::path const& progressFilePath) -> std::optional<ProgressData>;
-
-auto parseSegmentEndUs(fs::path const& progressFilePath) -> std::optional<std::uint64_t>;
 
 inline std::uint64_t segmentBaseFrameOffset(
   std::uint64_t cumulativeDurationUs,

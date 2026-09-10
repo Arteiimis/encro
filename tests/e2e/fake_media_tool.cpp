@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <chrono>
@@ -18,10 +20,14 @@ namespace fs = std::filesystem;
 namespace {
 
 struct FfmpegInvocation {
+  std::optional<fs::path> inputFile;
   std::optional<fs::path> outputFile;
   std::optional<fs::path> progressFile;
-  std::optional<double> seekSeconds;
-  std::optional<double> durationSeconds;
+  std::optional<fs::path> segmentPattern;
+  std::optional<fs::path> segmentListFile;
+  std::optional<double> segmentSeconds;
+  std::optional<std::uint64_t> segmentStartNumber;
+  bool segmentMuxer = false;
 };
 
 auto readEnv(std::string const& key) -> std::optional<std::string> {
@@ -85,7 +91,6 @@ auto readTextFile(fs::path const& path) -> std::optional<std::string> {
   if (!input.is_open()) { return std::nullopt; }
   return std::string{std::istreambuf_iterator<char>{input}, {}};
 }
-
 void appendInvocationLog(std::string_view toolName, int argc, char* argv[]) {
   auto const logFile = readEnv("ENCRO_FAKE_TOOL_LOG_FILE");
   if (!logFile.has_value()) { return; }
@@ -116,16 +121,22 @@ void writeSizedFile(fs::path const& path, std::uintmax_t sizeInBytes) {
   out.flush();
 }
 
-auto parseDoubleArg(int argc, char* argv[], std::string_view name)
-  -> std::optional<double> {
-  for (auto index = 1; index + 1 < argc; ++index) {
-    if (std::string_view{argv[index]} == name) {
-      try {
-        return std::stod(argv[index + 1]);
-      } catch (...) { return std::nullopt; }
-    }
-  }
-  return std::nullopt;
+// Options that take no value, so the next token is not theirs to consume. Every
+// other "-something" argument consumes the token after it, which keeps option
+// values (like -force_key_frames "expr:...") from being mistaken for the output
+// path.
+constexpr auto kFlagOnlyOptions = std::array{
+  std::string_view{"-y"},
+  std::string_view{"-hide_banner"},
+  std::string_view{"-nostats"},
+  std::string_view{"-an"},
+  std::string_view{"-vn"},
+  std::string_view{"-shortest"},
+  std::string_view{"-version"},
+};
+
+auto isFlagOnlyOption(std::string_view arg) -> bool {
+  return std::ranges::find(kFlagOnlyOptions, arg) != kFlagOnlyOptions.end();
 }
 
 auto parseFfmpegInvocation(int argc, char* argv[]) -> FfmpegInvocation {
@@ -133,33 +144,46 @@ auto parseFfmpegInvocation(int argc, char* argv[]) -> FfmpegInvocation {
 
   for (auto index = 1; index < argc; ++index) {
     auto const arg = std::string_view{argv[index]};
+    if (arg.empty()) { continue; }
 
-    if (
-      arg == "-i"
-      || arg == "-f"
-      || arg == "-vf"
-      || arg == "-c:v"
-      || arg == "-q:v"
-      || arg == "-crf"
-      || arg == "-loop"
-      || arg == "-loglevel"
-      || arg == "-progress"
-    ) {
-      if (index + 1 >= argc) { break; }
-      auto const value = fs::path{argv[++index]};
-      if (arg == "-progress") { invocation.progressFile = value; }
+    // A lone "-" is the null-muxer output sentinel, a positional argument.
+    auto const isOption = arg.size() > 1 && arg.front() == '-';
+    if (!isOption) {
+      // A positional argument: the output target, or the segment pattern when
+      // the invocation drives the segment muxer.
+      if (invocation.segmentMuxer) {
+        invocation.segmentPattern = fs::path{argv[index]};
+      } else {
+        invocation.outputFile = fs::path{argv[index]};
+      }
       continue;
     }
+    if (isFlagOnlyOption(arg)) { continue; }
 
-    if (arg == "-hide_banner" || arg == "-nostats" || arg == "-y") { continue; }
+    auto const nextValue = index + 1 < argc ? argv[index + 1] : nullptr;
+    if (nextValue == nullptr) { break; }
 
-    // A lone "-" is the null-muxer output sentinel, not a flag.
-    if (arg.size() > 1 && arg.front() == '-') { continue; }
-    if (!arg.empty()) { invocation.outputFile = fs::path{argv[index]}; }
+    if (arg == "-i") {
+      invocation.inputFile = fs::path{nextValue};
+    } else if (arg == "-progress") {
+      invocation.progressFile = fs::path{nextValue};
+    } else if (arg == "-f") {
+      if (std::string_view{nextValue} == "segment") { invocation.segmentMuxer = true; }
+    } else if (arg == "-segment_list") {
+      invocation.segmentListFile = fs::path{nextValue};
+    } else if (arg == "-segment_start_number") {
+      try {
+        invocation.segmentStartNumber =
+          static_cast<std::uint64_t>(std::stoull(nextValue));
+      } catch (...) { }
+    } else if (arg == "-segment_time") {
+      try {
+        invocation.segmentSeconds = std::stod(nextValue);
+      } catch (...) { }
+    }
+
+    ++index;
   }
-
-  invocation.seekSeconds = parseDoubleArg(argc, argv, "-ss");
-  invocation.durationSeconds = parseDoubleArg(argc, argv, "-t");
 
   return invocation;
 }
@@ -365,7 +389,16 @@ auto runScoringInvocation(int argc, char* argv[]) -> int {
   return 0;
 }
 
-// Emulates -progress output so the parser paths are exercised end to end.
+auto countFrameLines(fs::path const& path) -> std::size_t {
+  auto const content = readTextFile(path);
+  if (!content.has_value()) { return 0; }
+  return static_cast<std::size_t>(std::count(content->begin(), content->end(), '\n'));
+}
+
+// Emulates -progress output so the parser paths are exercised end to end. The
+// frame counter is bounded by the run's frame list when the test provides one
+// (a single-invocation series writes that list before this runs), otherwise it
+// advances by a fixed step.
 void writeFakeProgressFile(FfmpegInvocation const& invocation) {
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access): caller checks has_value
   auto const progressPath = invocation.progressFile.value();
@@ -375,17 +408,17 @@ void writeFakeProgressFile(FfmpegInvocation const& invocation) {
   }
   auto out = std::ofstream{progressPath};
   if (!out.is_open()) { return; }
-  out << "frame=10\n";
+
+  auto frame =
+    static_cast<std::size_t>(readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_FRAME_STEP", 10));
   if (
-    readEnvInt("ENCRO_FAKE_FFMPEG_PROGRESS_NO_END_TIME", 0) == 0
-    && invocation.seekSeconds.has_value()
-    && invocation.durationSeconds.has_value()
+    auto const framesFile = readEnv("ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES_FILE"); framesFile
   ) {
-    auto const endUs = static_cast<std::uint64_t>(
-      (invocation.seekSeconds.value() + invocation.durationSeconds.value()) * 1e6
-    );
-    out << "out_time_us=" << endUs << "\n";
+    auto const encodedFrames = countFrameLines(fs::path{framesFile.value()});
+    if (encodedFrames > 0) { frame = encodedFrames; }
   }
+
+  out << "frame=" << frame << "\n";
   out << "progress=end\n";
 }
 
@@ -502,6 +535,190 @@ void waitForGateFile(int callIndex) {
   }
 }
 
+// Quotes an argument for the single command line string the encoder command
+// builder produces (msvcrt rules: double up backslashes before a quote).
+auto quoteArg(std::string const& text) -> std::string {
+  auto quoted = std::string{"\""};
+  auto backslashes = std::size_t{0};
+  for (auto const ch: text) {
+    if (ch == '\\') {
+      ++backslashes;
+      quoted.push_back(ch);
+      continue;
+    }
+    if (ch == '"') {
+      quoted.append(backslashes + 1, '\\');
+      quoted.push_back('"');
+      backslashes = 0;
+      continue;
+    }
+    backslashes = 0;
+    quoted.push_back(ch);
+  }
+  quoted.append(backslashes, '\\');
+  quoted.push_back('"');
+  return quoted;
+}
+
+// Appends one {"frame": N} line per frame, the shape a cheap frame census can
+// read back with the fake ffprobe.
+void appendFrameLines(std::optional<fs::path> const& path, int firstFrame, int count) {
+  if (!path.has_value() || count <= 0) { return; }
+  if (!path->parent_path().empty()) { fs::create_directories(path->parent_path()); }
+  auto out = std::ofstream{path.value(), std::ios::app};
+  if (!out.is_open()) { return; }
+  for (auto index = 0; index < count; ++index) {
+    out << "{\"frame\":" << (firstFrame + index) << "}\n";
+  }
+}
+
+// Rewrites one file with the frames of the segment currently in flight, so a
+// parent that reads it while the "encoder" runs sees a live counter.
+void replaceFrameLines(std::optional<fs::path> const& path, int firstFrame, int count) {
+  if (!path.has_value()) { return; }
+  if (!path->parent_path().empty()) { fs::create_directories(path->parent_path()); }
+  auto out = std::ofstream{path.value(), std::ios::trunc};
+  if (!out.is_open()) { return; }
+  for (auto index = 0; index < count; ++index) {
+    out << "{\"frame\":" << (firstFrame + index) << "}\n";
+  }
+}
+
+// Expands the muxer's printf-style output pattern ("seg_%d.ts", "seg_%03d.ts")
+// into the concrete file name for one segment index.
+auto expandSegmentPattern(std::string pattern, std::uint64_t index) -> std::string {
+  auto const marker = pattern.find('%');
+  if (marker == std::string::npos) { return pattern; }
+
+  auto end = marker + 1;
+  auto width = std::size_t{0};
+  while (end < pattern.size() && std::isdigit(static_cast<unsigned char>(pattern[end]))) {
+    width = width * 10 + static_cast<std::size_t>(pattern[end] - '0');
+    ++end;
+  }
+  if (end >= pattern.size() || pattern[end] != 'd') { return pattern; }
+
+  auto digits = std::to_string(index);
+  if (width > digits.size()) { digits.insert(0, width - digits.size(), '0'); }
+  return pattern.substr(0, marker) + digits + pattern.substr(end + 1);
+}
+
+// Frames the scenario emits per cut mark: a single value applies to every
+// attempt, a comma list steps per invocation index, so a resumed attempt can
+// continue the timeline with a shorter final segment.
+auto segmentFramesForCall(std::string const& spec, int callIndex) -> int {
+  auto values = std::vector<int>{};
+  auto stream = std::istringstream{spec};
+  auto part = std::string{};
+  while (std::getline(stream, part, ',')) {
+    try {
+      values.push_back(std::stoi(part));
+    } catch (...) { }
+  }
+  if (values.empty()) { return 60; }
+  auto const index =
+    callIndex > 0 ? static_cast<std::size_t>(callIndex - 1) : std::size_t{0};
+  return values[std::min(index, values.size() - 1)];
+}
+
+// Emulates `-f segment`: one invocation writes the whole series, closing a
+// segment per cut mark and appending its row to the live list, so the parent
+// sees segments complete while the encode is still running.
+int runFakeSegmentSeries(FfmpegInvocation const& invocation, int callIndex) {
+  if (!invocation.segmentPattern.has_value() || !invocation.segmentListFile.has_value()) {
+    std::cerr << "segment muxer without a list or pattern\n";
+    return 2;
+  }
+
+  auto const pattern = invocation.segmentPattern->string();
+  auto const startNumber = invocation.segmentStartNumber.value_or(0);
+  auto const segmentCount = readEnvInt("ENCRO_FAKE_FFMPEG_SEGMENT_COUNT", 3);
+  // A resumed attempt writes only the segments that are still missing.
+  auto const remainingSegments =
+    std::max(0, segmentCount - static_cast<int>(startNumber));
+  auto const outputBytes = readEnvSize("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", 1024);
+  auto const failAfterSegments = readEnvInt("ENCRO_FAKE_FFMPEG_FAIL_AFTER_SEGMENTS", -1);
+  auto const framesPerSegment = segmentFramesForCall(
+    readEnv("ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES").value_or("240"),
+    callIndex
+  );
+  // The final segment is short in every real stream (the source ends mid-window).
+  auto const tailFrames =
+    readEnvInt("ENCRO_FAKE_FFMPEG_SEGMENT_TAIL_FRAMES", framesPerSegment);
+  auto const framesFile = readEnv("ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES_FILE");
+  auto const finalFile = readEnv("ENCRO_FAKE_FFMPEG_SEGMENT_FINAL_FILE");
+
+  auto const listFile = invocation.segmentListFile.value();
+  if (!listFile.parent_path().empty()) { fs::create_directories(listFile.parent_path()); }
+  // ffmpeg rewrites the list for every attempt.
+  { auto out = std::ofstream{listFile, std::ios::trunc}; }
+
+  constexpr auto kSegmentTailWindowMs = 400;
+  constexpr auto kSegmentTailStepMs = 100;
+
+  for (auto index = 0; index < remainingSegments; ++index) {
+    if (failAfterSegments >= 0 && index >= failAfterSegments) {
+      return readEnvInt("ENCRO_FAKE_FFMPEG_EXIT_CODE", 1);
+    }
+    if (auto const failMatch = readEnv("ENCRO_FAKE_FFMPEG_FAIL_MATCH"); failMatch) {
+      // Resume-style injection: the input path names the attempt, so a test can
+      // fail only the first or only the resumed run.
+      auto const inputText =
+        invocation.inputFile.has_value() ? invocation.inputFile->string() : std::string{};
+      if (inputText.find(failMatch.value()) != std::string::npos) {
+        return readEnvInt("ENCRO_FAKE_FFMPEG_EXIT_CODE", 1);
+      }
+    }
+
+    auto const absolute = startNumber + static_cast<std::uint64_t>(index);
+    auto const isLast = index + 1 == remainingSegments;
+    auto const frames = isLast ? tailFrames : framesPerSegment;
+    // Cut marks sit every full segment apart, so a resumed attempt continues the
+    // timeline exactly where its predecessor stopped.
+    auto const firstFrame = static_cast<int>(absolute) * framesPerSegment;
+    auto const segmentFile = expandSegmentPattern(pattern, absolute);
+    writeSizedFile(segmentFile, outputBytes);
+    appendFrameLines(
+      finalFile.has_value() ? std::optional<fs::path>{*finalFile} : std::nullopt,
+      firstFrame,
+      frames
+    );
+
+    auto row = std::ofstream{listFile, std::ios::app};
+    if (row.is_open()) {
+      row
+        << fs::path{segmentFile}.filename().string()
+        << ','
+        << std::format("{:.6f}", static_cast<double>(firstFrame) / 24.0)
+        << ','
+        << std::format("{:.6f}", static_cast<double>(firstFrame + frames) / 24.0)
+        << '\n';
+      row.flush();
+    }
+
+    // The live counter a parent polls: everything before this cut mark plus the
+    // frames of the segment currently in flight.
+    constexpr auto kSegmentTailWindowMs = 400;
+    constexpr auto kSegmentTailStepMs = 100;
+    constexpr auto kSegmentTailSteps = kSegmentTailWindowMs / kSegmentTailStepMs;
+    for (auto step = 1; step <= kSegmentTailSteps; ++step) {
+      replaceFrameLines(
+        framesFile.has_value() ? std::optional<fs::path>{*framesFile} : std::nullopt,
+        firstFrame,
+        frames * step / kSegmentTailSteps
+      );
+      std::this_thread::sleep_for(std::chrono::milliseconds{kSegmentTailStepMs});
+    }
+    replaceFrameLines(
+      framesFile.has_value() ? std::optional<fs::path>{*framesFile} : std::nullopt,
+      firstFrame,
+      frames
+    );
+  }
+
+  return 0;
+}
+
 int runFakeFfmpeg(int argc, char* argv[]) {
   appendInvocationLog("ffmpeg", argc, argv);
   if (hasArg(argc, argv, "-version")) { return emitVersion("ffmpeg"); }
@@ -577,6 +794,15 @@ int runFakeFfmpeg(int argc, char* argv[]) {
     } else {
       std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
     }
+  }
+
+  if (invocation.segmentMuxer) {
+    // A series invocation writes segments, not a single output file, so it is
+    // terminal: no container is produced here.
+    auto const seriesExitCode = runFakeSegmentSeries(invocation, callIndex);
+    if (seriesExitCode != 0) { return seriesExitCode; }
+    if (invocation.progressFile.has_value()) { writeFakeProgressFile(invocation); }
+    return 0;
   }
 
   if (invocation.progressFile.has_value()) { writeFakeProgressFile(invocation); }

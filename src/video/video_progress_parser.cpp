@@ -6,8 +6,17 @@
 #include <boost/parser/parser.hpp>
 
 #include <cctype>
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
 #include <deque>
 #include <fstream>
+#include <iterator>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -75,6 +84,38 @@ bool isLikelyFfmpegMetadataLine(std::string_view line) {
     || startsWithCaseInsensitive(trimmed, "stream mapping:")
     || startsWithCaseInsensitive(trimmed, "duration:")
     || startsWithCaseInsensitive(trimmed, "press [q] to stop");
+}
+
+// Parses "<file name>,<start seconds>,<end seconds>" into one list entry.
+auto parseSegmentListLine(std::string_view line) -> std::optional<SegmentListEntry> {
+  auto const firstComma = line.find(',');
+  if (firstComma == std::string_view::npos) { return std::nullopt; }
+  auto const secondComma = line.find(',', firstComma + 1);
+  if (secondComma == std::string_view::npos) { return std::nullopt; }
+
+  auto const name = trimWhitespace(line.substr(0, firstComma));
+  if (name.empty()) { return std::nullopt; }
+
+  auto const parseSeconds = [](std::string_view text) -> std::optional<std::uint64_t> {
+    auto const trimmed = trimWhitespace(text);
+    if (trimmed.empty()) { return std::nullopt; }
+    auto buffer = std::string{trimmed};
+    char* end = nullptr;
+    auto const value = std::strtod(buffer.c_str(), &end);
+    if (end == buffer.c_str() || *end != '\0' || value < 0.0) { return std::nullopt; }
+    return static_cast<std::uint64_t>(std::llround(value * 1'000'000.0));
+  };
+
+  auto const startUs =
+    parseSeconds(line.substr(firstComma + 1, secondComma - firstComma - 1));
+  auto const endUs = parseSeconds(line.substr(secondComma + 1));
+  if (!startUs.has_value() || !endUs.has_value()) { return std::nullopt; }
+
+  return SegmentListEntry{
+    .fileName = std::string{name},
+    .startUs = startUs.value(),
+    .endUs = endUs.value(),
+  };
 }
 
 }  // namespace
@@ -167,21 +208,25 @@ auto parseProgressFile(fs::path const& progressFilePath) -> std::optional<Progre
   return ProgressData{frameCount.value()};
 }
 
-auto parseSegmentEndUs(fs::path const& progressFilePath) -> std::optional<std::uint64_t> {
-  namespace bp = boost::parser;
+auto parseSegmentList(fs::path const& listPath) -> std::vector<SegmentListEntry> {
+  auto file = std::ifstream{listPath, std::ios::binary};
+  if (!file.is_open()) { return {}; }
 
-  auto const lines = readLastNLines(progressFilePath, kProgressTailLines);
-  if (lines.empty()) { return std::nullopt; }
-
-  auto endUs = std::optional<std::uint64_t>{};
-
-  auto const endUsParser = bp::string("out_time_us=") >> bp::uint_;
-
-  for (auto const& line: lines) {
-    if (auto const& res = parse(line, endUsParser); res.has_value()) {
-      endUs = std::get<1>(res.value());
-    }
+  auto content = std::string{std::istreambuf_iterator<char>{file}, {}};
+  // The muxer appends rows while the encoder runs, so a read can catch a
+  // half-written final row; drop it unless the line was terminated.
+  if (!content.empty() && content.back() != '\n') {
+    auto const lastBreak = content.rfind('\n');
+    content.erase(lastBreak == std::string::npos ? 0 : lastBreak + 1);
   }
 
-  return endUs;
+  auto entries = std::vector<SegmentListEntry>{};
+  auto stream = std::istringstream{content};
+  auto line = std::string{};
+  while (std::getline(stream, line)) {
+    if (auto const entry = parseSegmentListLine(line); entry.has_value()) {
+      entries.push_back(entry.value());
+    }
+  }
+  return entries;
 }

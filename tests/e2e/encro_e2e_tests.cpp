@@ -263,12 +263,11 @@ auto segmentDirFromLog(fs::path const& logPath) -> fs::path {
     auto tokenStream = std::istringstream{line};
     auto token = std::string{};
     while (std::getline(tokenStream, token, '\t')) {
-      if (token == "mpegts" && std::getline(tokenStream, token, '\t')) {
-        return fs::path{token}.parent_path();
-      }
+      // A single-pass series names its output pattern, not individual files.
+      if (token.ends_with("seg_%d.ts")) { return fs::path{token}.parent_path(); }
     }
   }
-  FAIL("No segment invocation found in fake tool log");
+  FAIL("No segment series invocation found in fake tool log");
   return {};
 }
 
@@ -1346,9 +1345,15 @@ TEST_CASE(
   );
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const framesPath = temp.path / "frames.log";
+  auto const finalFramesPath = temp.path / "final-frames.log";
   auto const env = std::map<std::string, std::string>{
     {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
     {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+    {"ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES_FILE", framesPath.string()},
+    {"ENCRO_FAKE_FFMPEG_SEGMENT_FINAL_FILE", finalFramesPath.string()},
+    // 25 s of 24 fps source: two full 10 s segments and a 5 s tail.
+    {"ENCRO_FAKE_FFMPEG_SEGMENT_TAIL_FRAMES", "120"},
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
@@ -1362,13 +1367,12 @@ TEST_CASE(
     toolchain.root.string(),
   };
 
+  // The first attempt closes one segment and then dies mid-series.
   auto failEnv = env;
-  failEnv["ENCRO_FAKE_FFMPEG_FAIL_MATCH"] = "seg_1.ts";
+  failEnv["ENCRO_FAKE_FFMPEG_FAIL_AFTER_SEGMENTS"] = "1";
   auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, failEnv);
   REQUIRE(firstRun.exitCode == 1);
-  CHECK(countLogLines(logPath, "seg_0.ts") == 1);
-  CHECK(countLogLines(logPath, "seg_1.ts") == 1);
-  CHECK(countLogLines(logPath, "seg_2.ts") == 0);
+  CHECK(countLogLines(logPath, "-f\tsegment") == 1);
 
   auto const state = loadJsonObject(statePath);
   auto const& tasks = state.at("tasks").as_array();
@@ -1376,16 +1380,19 @@ TEST_CASE(
   CHECK(tasks.front().as_object().at("status").as_string() == "failed");
   CHECK(tasks.front().as_object().at("segmentIndex").as_int64() == 1);
 
+  // The resumed attempt continues from the 10 s mark instead of re-encoding.
   auto const secondRun = e2e::runEncro(baseArgs, std::nullopt, env);
   REQUIRE(secondRun.exitCode == 0);
-
-  CHECK(countLogLines(logPath, "-ss\t0.000000") == 1);
-  CHECK(countLogLines(logPath, "-ss\t10.000000") == 2);
-  CHECK(countLogLines(logPath, "-ss\t20.000000") == 1);
-  CHECK(countLogLines(logPath, "seg_0.ts") == 1);
-  CHECK(countLogLines(logPath, "seg_1.ts") == 2);
-  CHECK(countLogLines(logPath, "seg_2.ts") == 1);
+  CHECK(countLogLines(logPath, "-f\tsegment") == 2);
+  CHECK(countLogLines(logPath, "-ss\t10.000000") == 1);
+  CHECK(countLogLines(logPath, "-segment_start_number\t1") == 1);
+  CHECK(countLogLines(logPath, "-ss\t0.000000") == 0);
   CHECK(countLogLines(logPath, "-f\tconcat") == 1);
+  // Every source frame is encoded exactly once across the two attempts.
+  CHECK(
+    testutils::countOccurrences(testutils::readTextFile(finalFramesPath), "{\"frame\":")
+    == 600
+  );
 
   auto const outputPath = findOutputMp4(temp.path);
   REQUIRE(outputPath.has_value());
@@ -1431,16 +1438,20 @@ TEST_CASE(
   };
 
   auto failEnv = env;
+  // Matches the assembly step's output only: the series invocation writes the
+  // segment pattern, not the container, so the encode runs to completion.
   failEnv["ENCRO_FAKE_FFMPEG_FAIL_MATCH"] = "hevc.mp4";
   auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, failEnv);
   REQUIRE(firstRun.exitCode == 1);
-  CHECK(countLogLines(logPath, "seg_2.ts") == 1);
+  CHECK(countLogLines(logPath, "-f\tsegment") == 1);
   CHECK(countLogLines(logPath, "-f\tconcat") == 1);
 
   auto const secondRun = e2e::runEncro(baseArgs, std::nullopt, env);
   REQUIRE(secondRun.exitCode == 0);
+  // Every segment is already complete, so the encoder is skipped entirely.
+  CHECK(countLogLines(logPath, "-f\tsegment") == 1);
   CHECK(countLogLines(logPath, "-f\tconcat") == 2);
-  CHECK(countLogLines(logPath, "-ss\t0.000000") == 1);
+  CHECK(countLogLines(logPath, "-segment_start_number") == 0);
 
   auto const outputPath = findOutputMp4(temp.path);
   REQUIRE(outputPath.has_value());
@@ -1480,16 +1491,18 @@ TEST_CASE(
   };
 
   auto failEnv = env;
-  failEnv["ENCRO_FAKE_FFMPEG_FAIL_MATCH"] = "seg_1.ts";
+  failEnv["ENCRO_FAKE_FFMPEG_FAIL_AFTER_SEGMENTS"] = "1";
   auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, failEnv);
   REQUIRE(firstRun.exitCode == 1);
 
+  // A recorded segment whose file vanished rewinds the run to that segment.
   fs::remove(segmentDirFromLog(logPath) / "seg_0.ts");
 
   auto const secondRun = e2e::runEncro(baseArgs, std::nullopt, env);
   REQUIRE(secondRun.exitCode == 0);
-  CHECK(countLogLines(logPath, "-ss\t0.000000") == 2);
-  CHECK(countLogLines(logPath, "seg_1.ts") == 2);
+  CHECK(countLogLines(logPath, "-f\tsegment") == 2);
+  CHECK(countLogLines(logPath, "-segment_start_number") == 0);
+  CHECK(countLogLines(logPath, "-ss\t") == 0);
 
   auto const outputPath = findOutputMp4(temp.path);
   REQUIRE(outputPath.has_value());
@@ -1528,17 +1541,21 @@ TEST_CASE(
   };
 
   auto failEnv = env;
-  failEnv["ENCRO_FAKE_FFMPEG_FAIL_MATCH"] = "seg_1.ts";
+  failEnv["ENCRO_FAKE_FFMPEG_FAIL_AFTER_SEGMENTS"] = "1";
   auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, failEnv);
   REQUIRE(firstRun.exitCode == 1);
   auto const staleSegmentDir = segmentDirFromLog(logPath);
   REQUIRE(fs::exists(staleSegmentDir / "seg_0.ts"));
+  testutils::writeTextFile(staleSegmentDir / "stale-marker.txt", "x");
 
   auto restartArgs = baseArgs;
   restartArgs.push_back("--restart");
   auto const secondRun = e2e::runEncro(restartArgs, std::nullopt, env);
   REQUIRE(secondRun.exitCode == 0);
-  CHECK(countLogLines(logPath, "-ss\t0.000000") == 2);
+  // The previous attempt's segment directory is discarded before encoding.
+  CHECK_FALSE(fs::exists(staleSegmentDir / "stale-marker.txt"));
+  CHECK(countLogLines(logPath, "-f\tsegment") == 2);
+  CHECK(countLogLines(logPath, "-segment_start_number") == 0);
   CHECK(countLogLines(logPath, "-f\tconcat") == 1);
 
   auto const outputPath = findOutputMp4(temp.path);
@@ -1819,6 +1836,187 @@ TEST_CASE(
   CHECK(testutils::listRegularFiles(temp.path / "encoded_mp4").empty());
 }
 
+namespace {
+
+// Frames the encoder actually wrote, counted by decoding the file.
+auto probeFrameCount(fs::path const& videoPath) -> std::int64_t {
+  auto const probed = probeJson(
+    videoPath,
+    {"-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames"}
+  );
+  auto const& streams = probed.at("streams").as_array();
+  REQUIRE_FALSE(streams.empty());
+  return std::stoll(
+    std::string{streams.front().as_object().at("nb_read_frames").as_string()}
+  );
+}
+
+// Timestamps of the file's keyframes, in seconds.
+auto probeKeyframeTimes(fs::path const& videoPath) -> std::vector<double> {
+  auto const probed = probeJson(
+    videoPath,
+    {"-select_streams",
+     "v:0",
+     "-skip_frame",
+     "nokey",
+     "-show_entries",
+     "frame=best_effort_timestamp_time"}
+  );
+
+  auto times = std::vector<double>{};
+  auto const* frames = probed.if_contains("frames");
+  if (frames == nullptr) { return times; }
+  for (auto const& frame: frames->as_array()) {
+    if (!frame.is_object()) { continue; }
+    auto const* stamp = frame.as_object().if_contains("best_effort_timestamp_time");
+    if (stamp == nullptr || !stamp->is_string()) { continue; }
+    times.push_back(std::stod(std::string{stamp->as_string()}));
+  }
+  return times;
+}
+
+bool hasKeyframeNear(std::vector<double> const& times, double mark, double tolerance) {
+  for (auto const value: times) {
+    if (value >= mark - tolerance && value <= mark + tolerance) { return true; }
+  }
+  return false;
+}
+
+// A source whose own keyframes sit off the 10 s segment marks (every 100
+// frames = 4.17 s at 24 fps), so a keyframe landing on a mark proves the
+// encoder enforced the cut cadence instead of following the source.
+auto createLongGopFixture(fs::path const& outputPath, double seconds, int size)
+  -> fs::path {
+  auto const result = e2e::runProcess(
+    systemToolPath("ffmpeg"),
+    {"-y",
+     "-f",
+     "lavfi",
+     "-i",
+     std::format("testsrc2=duration={}:size={}x{}:rate=24", seconds, size, size * 3 / 4),
+     "-an",
+     "-c:v",
+     "libx264",
+     "-preset",
+     "veryfast",
+     "-crf",
+     "28",
+     "-g",
+     "100",
+     "-pix_fmt",
+     "yuv420p",
+     outputPath.string()}
+  );
+  REQUIRE_SUCCESS(result);
+  REQUIRE(fs::exists(outputPath));
+  return outputPath;
+}
+
+}  // namespace
+
+TEST_CASE(
+  "encro real ffmpeg cuts segments at the forced keyframe marks",
+  "[e2e][smoke][real-ffmpeg][video][segment]"
+) {
+  requireRealToolchainOrSkip();
+
+  TempDir temp;
+  // 22 s at 24 fps: two segment marks (10 s, 20 s), natural keyframes every
+  // 100 frames -- none of them on a mark.
+  auto const inputPath = createLongGopFixture(temp.path / "longgop.mp4", 22.0, 320);
+  auto const sourceFrames = probeFrameCount(inputPath);
+
+  // libx264 keeps the case runnable without a GPU; the cut cadence comes from
+  // -force_key_frames, which the CPU path must honor as well.
+  auto const result = e2e::runEncro(
+    {"-y", "-i", inputPath.string(), "-j", "1", "--video-codec", "libx264"},
+    temp.path
+  );
+
+  CAPTURE(result.stdoutText, result.stderrText);
+  REQUIRE(result.exitCode == 0);
+
+  auto const outputPath = findOutputMp4(temp.path, inputPath);
+  REQUIRE(outputPath.has_value());
+  // Every source frame appears in the assembled output exactly once.
+  CHECK(probeFrameCount(outputPath.value()) == sourceFrames);
+
+  // The cuts are keyframes on the marks, not the source's own keyframes.
+  auto const keyframes = probeKeyframeTimes(outputPath.value());
+  CHECK(hasKeyframeNear(keyframes, 10.0, 1.0 / 24.0));
+  CHECK(hasKeyframeNear(keyframes, 20.0, 1.0 / 24.0));
+}
+
+TEST_CASE(
+  "encro real ffmpeg resumes a killed segmented encode frame-exactly",
+  "[e2e][smoke][real-ffmpeg][video][segment][interrupt]"
+) {
+  requireRealToolchainOrSkip();
+
+  TempDir temp;
+  auto const inputPath = createLongGopFixture(temp.path / "resume.mp4", 30.0, 960);
+  auto const sourceFrames = probeFrameCount(inputPath);
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logRoot = temp.path / "logroot";
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--video-codec",
+    "libx264",
+    "--state-file",
+    statePath.string(),
+  };
+
+  auto const logEnv = std::map<std::string, std::string>{
+#if defined(_WIN32)
+    {"LOCALAPPDATA", logRoot.string()},
+#else
+    {"XDG_STATE_HOME", logRoot.string()},
+#endif
+  };
+
+  // Hard-kill once the first segment is closed and the run is still working:
+  // the per-segment state flush is what makes a resumed run possible at all.
+  auto observedSegmentIndex = std::int64_t{-1};
+  auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, logEnv);
+  auto const observed = testutils::waitUntil(
+    [&] {
+      if (!fs::exists(statePath)) { return false; }
+      try {
+        auto const state = loadJsonObject(statePath);
+        auto const& tasks = state.at("tasks").as_array();
+        if (tasks.empty()) { return false; }
+        auto const& task = tasks.front().as_object();
+        if (task.at("status").as_string() != "running") { return false; }
+        observedSegmentIndex = task.at("segmentIndex").as_int64();
+        return observedSegmentIndex >= 1;
+      } catch (...) { return false; }
+    },
+    std::chrono::seconds{60}
+  );
+  CAPTURE(observedSegmentIndex);
+  REQUIRE(observed);
+  proc.terminate();
+  REQUIRE(proc.wait(std::chrono::seconds{10}).has_value());
+
+  // The interruption left no output, so the resumed run has to finish the file.
+  CHECK_FALSE(findOutputMp4(temp.path, inputPath).has_value());
+
+  // The resumed run continues the series from the recorded mark.
+  auto const resumed = e2e::runEncro(baseArgs, std::nullopt, logEnv);
+  CAPTURE(resumed.stdoutText, resumed.stderrText);
+  REQUIRE(resumed.exitCode == 0);
+
+  // Every source frame is in the output exactly once, exactly as an
+  // uninterrupted run would produce it.
+  auto const outputPath = findOutputMp4(temp.path, inputPath);
+  REQUIRE(outputPath.has_value());
+  CHECK(probeFrameCount(outputPath.value()) == sourceFrames);
+}
+
 TEST_CASE(
   "encro mp4 encode extracts audio once and keeps it out of segments",
   "[e2e][resume][segment][audio]"
@@ -1852,7 +2050,7 @@ TEST_CASE(
   };
 
   auto failEnv = env;
-  failEnv["ENCRO_FAKE_FFMPEG_FAIL_MATCH"] = "seg_1.ts";
+  failEnv["ENCRO_FAKE_FFMPEG_FAIL_AFTER_SEGMENTS"] = "1";
   auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, failEnv);
   REQUIRE(firstRun.exitCode == 1);
 
@@ -1861,17 +2059,18 @@ TEST_CASE(
 
   CHECK(countLogLines(logPath, "-c:a\tcopy") == 1);
   CHECK(countLogLines(logPath, "audio.avi") == 2);
-  CHECK(countLogLines(logPath, "-f\tmpegts") == 4);
+  // One segment-series invocation per attempt, each video-only.
+  CHECK(countLogLines(logPath, "-segment_format\tmpegts") == 2);
   CHECK(countLogLines(logPath, "-map\t0:v") == 1);
   CHECK(countLogLines(logPath, "-map\t1:a") == 1);
-  CHECK(countLogLines(logPath, "-an") == 4);
+  CHECK(countLogLines(logPath, "-an") == 2);
 
   auto const content = testutils::readTextFile(logPath);
   auto stream = std::istringstream{content};
   auto line = std::string{};
   auto segmentLinesWithAudio = std::size_t{0};
   while (std::getline(stream, line)) {
-    if (line.find("mpegts") == std::string::npos) { continue; }
+    if (line.find("-segment_format") == std::string::npos) { continue; }
     if (line.find("-c:a") != std::string::npos) { ++segmentLinesWithAudio; }
   }
   CHECK(segmentLinesWithAudio == 0);

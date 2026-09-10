@@ -296,6 +296,134 @@ TEST_CASE("EncodeConfig builds segmented mp4 command", "[encode-config]") {
   );
 }
 
+TEST_CASE("EncodeConfig builds single-pass segment series command", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
+  auto const segmentDir = temp.path / "segs";
+  auto const progressFile = temp.path / "progress.txt";
+
+  auto toolchain = appctx::ToolchainPaths{};
+  toolchain.ffmpegPath = "ffmpeg";
+  auto const cfg = buildSegmentSeriesConfig(
+    toolchain,
+    inputPath,
+    SegmentSeries{.segmentDir = segmentDir},
+    EncodeProfile{
+      .outputFormat = "mp4",
+      .videoCodec = "hevc_nvenc",
+      .crf = 22,
+      .settings = EncodeInputSettings{.nvencPreset = "p6", .maxrateKbps = 10000},
+      .workerCount = 0,
+    },
+    progressFile
+  );
+
+  auto const validation = cfg.validate();
+  REQUIRE(validation);
+
+  auto const cmd = cfg.buildCMD();
+  // One invocation writes the whole series: no per-segment -t, no resume seek.
+  CHECK(cmd.find(" -t ") == std::string::npos);
+  CHECK(cmd.find(" -ss ") == std::string::npos);
+  CHECK(
+    cmd.find(
+      "-c:v hevc_nvenc -preset p6 -rc vbr -cq 22 -b:v 0 -maxrate 10000k -bufsize "
+      "20000k -tag:v hvc1 -pix_fmt yuv420p"
+    )
+    != std::string::npos
+  );
+  CHECK(cmd.find(" -an") != std::string::npos);
+  CHECK(cmd.find(" -forced-idr 1") != std::string::npos);
+  CHECK(
+    cmd.find("-force_key_frames \"expr:gte(t,n_forced*10.000000)\"") != std::string::npos
+  );
+  CHECK(
+    cmd.find(
+      "-f segment -segment_time 10.000000 -segment_format mpegts -reset_timestamps 1"
+    )
+    != std::string::npos
+  );
+  CHECK(cmd.find("-segment_start_number") == std::string::npos);
+  CHECK(
+    cmd.find(
+      std::format(
+        "-segment_list \"{}\" -segment_list_type csv -segment_list_flags +live",
+        (segmentDir / "segments.csv").string()
+      )
+    )
+    != std::string::npos
+  );
+  CHECK(
+    cmd.find(std::format("\"{}\"", (segmentDir / "seg_%d.ts").string()))
+    != std::string::npos
+  );
+  CHECK(
+    cmd.find(std::format("-progress \"{}\"", progressFile.string())) != std::string::npos
+  );
+  // The series mode never names the final container; assembly owns it.
+  CHECK(
+    cmd.find(std::format("{}.hevc.mp4", inputPath.stem().string())) == std::string::npos
+  );
+}
+
+TEST_CASE("EncodeConfig resume series seeks to the segment mark", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
+
+  auto toolchain = appctx::ToolchainPaths{};
+  toolchain.ffmpegPath = "ffmpeg";
+  auto const buildCmd = [&](std::uint64_t startNumber) {
+    return buildSegmentSeriesConfig(
+             toolchain,
+             inputPath,
+             SegmentSeries{
+               .segmentDir = temp.path / "segs",
+               .startNumber = startNumber,
+               .resumeUs = startNumber * 10'000'000,
+             },
+             EncodeProfile{.outputFormat = "mp4", .videoCodec = "hevc_nvenc", .crf = 22},
+             temp.path / "progress.txt"
+    )
+      .buildCMD();
+  };
+
+  CHECK(buildCmd(0).find(" -ss ") == std::string::npos);
+  CHECK(buildCmd(0).find("-segment_start_number") == std::string::npos);
+  CHECK(buildCmd(1).find(" -ss 10.000000 -i ") != std::string::npos);
+  CHECK(buildCmd(1).find(" -segment_start_number 1") != std::string::npos);
+  CHECK(buildCmd(12).find(" -ss 120.000000 -i ") != std::string::npos);
+  CHECK(buildCmd(12).find(" -segment_start_number 12") != std::string::npos);
+}
+
+TEST_CASE("EncodeConfig series keeps forced IDRs off CPU codecs", "[encode-config]") {
+  TempDir temp;
+  auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");
+
+  auto toolchain = appctx::ToolchainPaths{};
+  toolchain.ffmpegPath = "ffmpeg";
+  auto const cmd = buildSegmentSeriesConfig(
+                     toolchain,
+                     inputPath,
+                     SegmentSeries{.segmentDir = temp.path / "segs"},
+                     EncodeProfile{
+                       .outputFormat = "mp4",
+                       .videoCodec = "libx265",
+                       .crf = 22,
+                       .workerCount = 4,
+                     },
+                     temp.path / "progress.txt"
+  )
+                     .buildCMD();
+
+  // -forced-idr is an NVENC option; CPU codecs still honor -force_key_frames.
+  CHECK(cmd.find(" -forced-idr") == std::string::npos);
+  CHECK(
+    cmd.find(" -force_key_frames \"expr:gte(t,n_forced*10.000000)\"") != std::string::npos
+  );
+  CHECK(cmd.find("-threads") != std::string::npos);
+  CHECK(cmd.find("-f segment") != std::string::npos);
+}
+
 TEST_CASE("EncodeConfig keeps -crf for non-NVENC codec", "[encode-config]") {
   TempDir temp;
   auto const inputPath = testutils::writeTextFile(temp.path / "sample.mp4");

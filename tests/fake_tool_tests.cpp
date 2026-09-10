@@ -179,28 +179,21 @@ TEST_CASE("fake tool records completed inputs", "[fake-tool]") {
   CHECK(text == std::format("{}\n", (temp.path / "a.png").string()));
 }
 
-TEST_CASE("fake tool emits progress end time unless suppressed", "[fake-tool]") {
+TEST_CASE("fake tool writes progress frames", "[fake-tool]") {
   TempDir temp;
   auto const progressPath = temp.path / "prog.txt";
   auto const args = std::format(
-    "-progress {} -ss 10 -t 20 -y {}",
+    "-progress {} -y {}",
     encodeArg(progressPath),
     encodeArg(temp.path / "out.mp4")
   );
 
-  auto const defaultRun = runFakeTool(args);
-  CHECK(defaultRun.exitCode == 0);
-  auto const text = testutils::readTextFile(progressPath);
-  CHECK(text.find("out_time_us=30000000") != std::string::npos);
+  auto const run = runFakeTool(args);
 
-  testutils::writeTextFile(progressPath, "");
-  auto const suppressEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_PROGRESS_NO_END_TIME", "1"};
-  auto const suppressed = runFakeTool(args);
-  CHECK(suppressed.exitCode == 0);
-  auto const suppressedText = testutils::readTextFile(progressPath);
-  CHECK(suppressedText.find("out_time_us") == std::string::npos);
-  CHECK(suppressedText.find("frame=") != std::string::npos);
-  CHECK(suppressedText.find("progress=end") != std::string::npos);
+  CHECK(run.exitCode == 0);
+  auto const text = testutils::readTextFile(progressPath);
+  CHECK(text.find("frame=") != std::string::npos);
+  CHECK(text.find("progress=end") != std::string::npos);
 }
 
 TEST_CASE("fake tool creates parent dirs for progress files", "[fake-tool]") {
