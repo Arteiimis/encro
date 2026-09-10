@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <span>
+#include <string>
 
 namespace fs = std::filesystem;
 
@@ -17,10 +19,10 @@ bool encodeVideo(
   std::size_t workerCount = 1
 );
 
-// Writes the concat manifest: one bare `file 'seg_N.ts'` entry per segment,
-// so entries resolve from the manifest's own directory.
+// Writes the concat manifest: one bare `file 'seg_N.ts'` entry per segment, in
+// the order the encoder's list recorded them, so entries resolve from the
+// manifest's own directory.
 bool writeConcatManifest(
   fs::path const& listPath,
-  fs::path const& segmentDir,
-  std::uint64_t segmentCount
+  std::span<std::string const> segmentNames
 );
