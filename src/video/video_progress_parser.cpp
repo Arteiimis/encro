@@ -6,6 +6,7 @@
 #include <boost/parser/parser.hpp>
 
 #include <cctype>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -86,7 +87,9 @@ bool isLikelyFfmpegMetadataLine(std::string_view line) {
     || startsWithCaseInsensitive(trimmed, "press [q] to stop");
 }
 
-// Parses "<file name>,<start seconds>,<end seconds>" into one list entry.
+// Parses one "<file name>,<start seconds>,<end seconds>" row. The name and start
+// time are validated so a malformed or half-written row is skipped, but only the
+// end time is kept.
 auto parseSegmentListLine(std::string_view line) -> std::optional<SegmentListEntry> {
   auto const firstComma = line.find(',');
   if (firstComma == std::string_view::npos) { return std::nullopt; }
@@ -96,25 +99,35 @@ auto parseSegmentListLine(std::string_view line) -> std::optional<SegmentListEnt
   auto const name = trimWhitespace(line.substr(0, firstComma));
   if (name.empty()) { return std::nullopt; }
 
-  auto const parseSeconds = [](std::string_view text) -> std::optional<std::uint64_t> {
+  auto const parseSeconds = [](std::string_view text) -> std::optional<double> {
     auto const trimmed = trimWhitespace(text);
     if (trimmed.empty()) { return std::nullopt; }
-    auto buffer = std::string{trimmed};
-    char* end = nullptr;
-    auto const value = std::strtod(buffer.c_str(), &end);
-    if (end == buffer.c_str() || *end != '\0' || value < 0.0) { return std::nullopt; }
-    return static_cast<std::uint64_t>(std::llround(value * 1'000'000.0));
+    auto value = 0.0;
+    auto const* const begin = trimmed.data();
+    auto const* const end = begin + trimmed.size();
+    if (
+      auto const result = std::from_chars(begin, end, value);
+      result.ec != std::errc{} || result.ptr != end
+    ) {
+      return std::nullopt;
+    }
+    return value;
   };
 
-  auto const startUs =
+  auto const startSeconds =
     parseSeconds(line.substr(firstComma + 1, secondComma - firstComma - 1));
-  auto const endUs = parseSeconds(line.substr(secondComma + 1));
-  if (!startUs.has_value() || !endUs.has_value()) { return std::nullopt; }
+  auto const endSeconds = parseSeconds(line.substr(secondComma + 1));
+  if (
+    !startSeconds.has_value()
+    || !endSeconds.has_value()
+    || startSeconds.value() < 0.0
+    || endSeconds.value() < 0.0
+  ) {
+    return std::nullopt;
+  }
 
   return SegmentListEntry{
-    .fileName = std::string{name},
-    .startUs = startUs.value(),
-    .endUs = endUs.value(),
+    .endUs = static_cast<std::uint64_t>(std::llround(endSeconds.value() * 1'000'000.0)),
   };
 }
 

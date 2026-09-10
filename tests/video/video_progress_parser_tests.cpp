@@ -232,13 +232,8 @@ TEST_CASE(
   auto const entries = parseSegmentList(listPath);
 
   REQUIRE(entries.size() == 3);
-  CHECK(entries[0].fileName == "seg_0.ts");
-  CHECK(entries[0].startUs == 0);
   CHECK(entries[0].endUs == 10'125'000);
-  CHECK(entries[1].fileName == "seg_1.ts");
-  CHECK(entries[1].startUs == 10'125'000);
-  // Names are kept verbatim: ordering comes from the list, never from padding.
-  CHECK(entries[2].fileName == "seg_1000.ts");
+  CHECK(entries[1].endUs == 20'250'000);
   CHECK(entries[2].endUs == 10'010'000'000);
 }
 
@@ -264,8 +259,8 @@ TEST_CASE(
   auto const entries = parseSegmentList(listPath);
 
   REQUIRE(entries.size() == 2);
-  CHECK(entries[0].fileName == "seg_0.ts");
-  CHECK(entries[1].fileName == "seg_2.ts");
+  CHECK(entries[0].endUs == 10'125'000);
+  CHECK(entries[1].endUs == 30'000'000);
 }
 
 TEST_CASE(

@@ -535,96 +535,37 @@ void waitForGateFile(int callIndex) {
   }
 }
 
-// Quotes an argument for the single command line string the encoder command
-// builder produces (msvcrt rules: double up backslashes before a quote).
-auto quoteArg(std::string const& text) -> std::string {
-  auto quoted = std::string{"\""};
-  auto backslashes = std::size_t{0};
-  for (auto const ch: text) {
-    if (ch == '\\') {
-      ++backslashes;
-      quoted.push_back(ch);
-      continue;
-    }
-    if (ch == '"') {
-      quoted.append(backslashes + 1, '\\');
-      quoted.push_back('"');
-      backslashes = 0;
-      continue;
-    }
-    backslashes = 0;
-    quoted.push_back(ch);
-  }
-  quoted.append(backslashes, '\\');
-  quoted.push_back('"');
-  return quoted;
-}
-
-// Appends one {"frame": N} line per frame, the shape a cheap frame census can
-// read back with the fake ffprobe.
-void appendFrameLines(std::optional<fs::path> const& path, int firstFrame, int count) {
+// Writes one {"frame": N} line per frame, the shape a cheap frame census can read
+// back with the fake ffprobe. Truncating rewrites the frames of the segment
+// currently in flight, so a parent polling it sees a live counter; appending
+// accumulates the run's frames.
+void writeFrameLines(
+  std::optional<fs::path> const& path,
+  int firstFrame,
+  int count,
+  std::ios_base::openmode mode
+) {
   if (!path.has_value() || count <= 0) { return; }
   if (!path->parent_path().empty()) { fs::create_directories(path->parent_path()); }
-  auto out = std::ofstream{path.value(), std::ios::app};
+  auto out = std::ofstream{path.value(), mode};
   if (!out.is_open()) { return; }
   for (auto index = 0; index < count; ++index) {
     out << "{\"frame\":" << (firstFrame + index) << "}\n";
   }
 }
 
-// Rewrites one file with the frames of the segment currently in flight, so a
-// parent that reads it while the "encoder" runs sees a live counter.
-void replaceFrameLines(std::optional<fs::path> const& path, int firstFrame, int count) {
-  if (!path.has_value()) { return; }
-  if (!path->parent_path().empty()) { fs::create_directories(path->parent_path()); }
-  auto out = std::ofstream{path.value(), std::ios::trunc};
-  if (!out.is_open()) { return; }
-  for (auto index = 0; index < count; ++index) {
-    out << "{\"frame\":" << (firstFrame + index) << "}\n";
-  }
-}
-
-// Expands the muxer's printf-style output pattern ("seg_%d.ts", "seg_%03d.ts")
-// into the concrete file name for one segment index.
+// Expands the muxer's printf-style output pattern ("seg_%d.ts") into the
+// concrete file name for one segment index.
 auto expandSegmentPattern(std::string pattern, std::uint64_t index) -> std::string {
-  auto const marker = pattern.find('%');
+  auto const marker = pattern.find("%d");
   if (marker == std::string::npos) { return pattern; }
-
-  auto end = marker + 1;
-  auto width = std::size_t{0};
-  while (end < pattern.size() && std::isdigit(static_cast<unsigned char>(pattern[end]))) {
-    width = width * 10 + static_cast<std::size_t>(pattern[end] - '0');
-    ++end;
-  }
-  if (end >= pattern.size() || pattern[end] != 'd') { return pattern; }
-
-  auto digits = std::to_string(index);
-  if (width > digits.size()) { digits.insert(0, width - digits.size(), '0'); }
-  return pattern.substr(0, marker) + digits + pattern.substr(end + 1);
-}
-
-// Frames the scenario emits per cut mark: a single value applies to every
-// attempt, a comma list steps per invocation index, so a resumed attempt can
-// continue the timeline with a shorter final segment.
-auto segmentFramesForCall(std::string const& spec, int callIndex) -> int {
-  auto values = std::vector<int>{};
-  auto stream = std::istringstream{spec};
-  auto part = std::string{};
-  while (std::getline(stream, part, ',')) {
-    try {
-      values.push_back(std::stoi(part));
-    } catch (...) { }
-  }
-  if (values.empty()) { return 60; }
-  auto const index =
-    callIndex > 0 ? static_cast<std::size_t>(callIndex - 1) : std::size_t{0};
-  return values[std::min(index, values.size() - 1)];
+  return pattern.substr(0, marker) + std::to_string(index) + pattern.substr(marker + 2);
 }
 
 // Emulates `-f segment`: one invocation writes the whole series, closing a
 // segment per cut mark and appending its row to the live list, so the parent
 // sees segments complete while the encode is still running.
-int runFakeSegmentSeries(FfmpegInvocation const& invocation, int callIndex) {
+int runFakeSegmentSeries(FfmpegInvocation const& invocation) {
   if (!invocation.segmentPattern.has_value() || !invocation.segmentListFile.has_value()) {
     std::cerr << "segment muxer without a list or pattern\n";
     return 2;
@@ -638,10 +579,7 @@ int runFakeSegmentSeries(FfmpegInvocation const& invocation, int callIndex) {
     std::max(0, segmentCount - static_cast<int>(startNumber));
   auto const outputBytes = readEnvSize("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", 1024);
   auto const failAfterSegments = readEnvInt("ENCRO_FAKE_FFMPEG_FAIL_AFTER_SEGMENTS", -1);
-  auto const framesPerSegment = segmentFramesForCall(
-    readEnv("ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES").value_or("240"),
-    callIndex
-  );
+  auto const framesPerSegment = readEnvInt("ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES", 240);
   // The final segment is short in every real stream (the source ends mid-window).
   auto const tailFrames =
     readEnvInt("ENCRO_FAKE_FFMPEG_SEGMENT_TAIL_FRAMES", framesPerSegment);
@@ -655,6 +593,7 @@ int runFakeSegmentSeries(FfmpegInvocation const& invocation, int callIndex) {
 
   constexpr auto kSegmentTailWindowMs = 400;
   constexpr auto kSegmentTailStepMs = 100;
+  constexpr auto kSegmentTailSteps = kSegmentTailWindowMs / kSegmentTailStepMs;
 
   for (auto index = 0; index < remainingSegments; ++index) {
     if (failAfterSegments >= 0 && index >= failAfterSegments) {
@@ -678,10 +617,11 @@ int runFakeSegmentSeries(FfmpegInvocation const& invocation, int callIndex) {
     auto const firstFrame = static_cast<int>(absolute) * framesPerSegment;
     auto const segmentFile = expandSegmentPattern(pattern, absolute);
     writeSizedFile(segmentFile, outputBytes);
-    appendFrameLines(
+    writeFrameLines(
       finalFile.has_value() ? std::optional<fs::path>{*finalFile} : std::nullopt,
       firstFrame,
-      frames
+      frames,
+      std::ios::app
     );
 
     auto row = std::ofstream{listFile, std::ios::app};
@@ -698,21 +638,20 @@ int runFakeSegmentSeries(FfmpegInvocation const& invocation, int callIndex) {
 
     // The live counter a parent polls: everything before this cut mark plus the
     // frames of the segment currently in flight.
-    constexpr auto kSegmentTailWindowMs = 400;
-    constexpr auto kSegmentTailStepMs = 100;
-    constexpr auto kSegmentTailSteps = kSegmentTailWindowMs / kSegmentTailStepMs;
     for (auto step = 1; step <= kSegmentTailSteps; ++step) {
-      replaceFrameLines(
+      writeFrameLines(
         framesFile.has_value() ? std::optional<fs::path>{*framesFile} : std::nullopt,
         firstFrame,
-        frames * step / kSegmentTailSteps
+        frames * step / kSegmentTailSteps,
+        std::ios::trunc
       );
       std::this_thread::sleep_for(std::chrono::milliseconds{kSegmentTailStepMs});
     }
-    replaceFrameLines(
+    writeFrameLines(
       framesFile.has_value() ? std::optional<fs::path>{*framesFile} : std::nullopt,
       firstFrame,
-      frames
+      frames,
+      std::ios::trunc
     );
   }
 
@@ -799,7 +738,7 @@ int runFakeFfmpeg(int argc, char* argv[]) {
   if (invocation.segmentMuxer) {
     // A series invocation writes segments, not a single output file, so it is
     // terminal: no container is produced here.
-    auto const seriesExitCode = runFakeSegmentSeries(invocation, callIndex);
+    auto const seriesExitCode = runFakeSegmentSeries(invocation);
     if (seriesExitCode != 0) { return seriesExitCode; }
     if (invocation.progressFile.has_value()) { writeFakeProgressFile(invocation); }
     return 0;
