@@ -92,6 +92,16 @@ void requireRealToolchainOrSkip() {
   SKIP("System FFmpeg/FFprobe not available on PATH.");
 }
 
+// The env entry that redirects the app's log directory under the test temp dir,
+// so a run's ndjson log can be read back without touching the user's logs.
+auto logRootEnv(fs::path const& logRoot) -> std::pair<std::string, std::string> {
+#if defined(_WIN32)
+  return {"LOCALAPPDATA", logRoot.string()};
+#else
+  return {"XDG_STATE_HOME", logRoot.string()};
+#endif
+}
+
 auto createRealSmokeVideo(
   fs::path const& outputPath,
   std::optional<std::string> const& comment = std::nullopt
@@ -1406,6 +1416,85 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "encro mp4 resume keeps completed segments across further interruptions",
+  "[e2e][resume][segment]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.avi";
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const probeJson = temp.path / "probe.json";
+  auto const framesPath = temp.path / "frames.log";
+  auto const finalFramesPath = temp.path / "final-frames.log";
+  testutils::writeTextFile(inputPath, "fake-video");
+  testutils::writeTextFile(
+    probeJson,
+    R"({"format":{"duration":"25.0"},"streams":[{"codec_type":"video","codec_name":"h264","nb_frames":"125","avg_frame_rate":"5/1"}]})"
+  );
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+    {"ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES_FILE", framesPath.string()},
+    {"ENCRO_FAKE_FFMPEG_SEGMENT_FINAL_FILE", finalFramesPath.string()},
+    {"ENCRO_FAKE_FFMPEG_SEGMENT_TAIL_FRAMES", "120"},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "-i",
+    inputPath.string(),
+    "-j",
+    "1",
+    "--state-file",
+    statePath.string(),
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto failEnv = env;
+  failEnv["ENCRO_FAKE_FFMPEG_FAIL_AFTER_SEGMENTS"] = "1";
+  REQUIRE(e2e::runEncro(baseArgs, std::nullopt, failEnv).exitCode == 1);
+
+  SECTION("a second interruption still resumes after both recorded segments") {
+    // The resumed attempt fails once more, after closing one more segment.
+    REQUIRE(e2e::runEncro(baseArgs, std::nullopt, failEnv).exitCode == 1);
+
+    auto const state = loadJsonObject(statePath);
+    auto const& tasks = state.at("tasks").as_array();
+    REQUIRE(tasks.size() == 1);
+    CHECK(tasks.front().as_object().at("segmentIndex").as_int64() == 2);
+
+    auto const finalRun = e2e::runEncro(baseArgs, std::nullopt, env);
+    REQUIRE(finalRun.exitCode == 0);
+    // The third attempt continues at the 20 s mark instead of restarting.
+    CHECK(countLogLines(logPath, "-ss\t20.000000") == 1);
+    CHECK(countLogLines(logPath, "-segment_start_number\t2") == 1);
+    CHECK(countLogLines(logPath, "-ss\t10.000000") == 1);
+    // Three attempts, three segments, and every frame exactly once.
+    CHECK(countLogLines(logPath, "-f\tsegment") == 3);
+    CHECK(
+      testutils::countOccurrences(testutils::readTextFile(finalFramesPath), "{\"frame\":")
+      == 600
+    );
+  }
+
+  SECTION("a deleted segment list still resumes from the recorded count") {
+    fs::remove(segmentDirFromLog(logPath) / "segments.csv");
+
+    auto const finalRun = e2e::runEncro(baseArgs, std::nullopt, env);
+    REQUIRE(finalRun.exitCode == 0);
+    CHECK(countLogLines(logPath, "-ss\t10.000000") == 1);
+    CHECK(countLogLines(logPath, "-segment_start_number\t1") == 1);
+    CHECK(countLogLines(logPath, "-f\tsegment") == 2);
+    CHECK(
+      testutils::countOccurrences(testutils::readTextFile(finalFramesPath), "{\"frame\":")
+      == 600
+    );
+  }
+}
+
+TEST_CASE(
   "encro mp4 resume reruns concat only when segments exist but output missing",
   "[e2e][resume][segment]"
 ) {
@@ -1624,11 +1713,7 @@ TEST_CASE(
     {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
     {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
     {"ENCRO_FAKE_FFMPEG_DELAY_MS", "15000"},
-#if defined(_WIN32)
-    {"LOCALAPPDATA", logRoot.string()},
-#else
-    {"XDG_STATE_HOME", logRoot.string()},
-#endif
+    logRootEnv(logRoot),
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
@@ -1839,7 +1924,7 @@ TEST_CASE(
 namespace {
 
 // Frames the encoder actually wrote, counted by decoding the file.
-auto probeFrameCount(fs::path const& videoPath) -> std::int64_t {
+std::int64_t probeFrameCount(fs::path const& videoPath) {
   auto const probed = probeJson(
     videoPath,
     {"-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames"}
@@ -1970,13 +2055,7 @@ TEST_CASE(
     statePath.string(),
   };
 
-  auto const logEnv = std::map<std::string, std::string>{
-#if defined(_WIN32)
-    {"LOCALAPPDATA", logRoot.string()},
-#else
-    {"XDG_STATE_HOME", logRoot.string()},
-#endif
-  };
+  auto const logEnv = std::map<std::string, std::string>{logRootEnv(logRoot)};
 
   // Hard-kill once the first segment is closed and the run is still working:
   // the per-segment state flush is what makes a resumed run possible at all.
@@ -2088,13 +2167,7 @@ TEST_CASE(
   TempDir temp;
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const logRoot = temp.path / "logroot";
-  auto logEnv = std::map<std::string, std::string>{
-#if defined(_WIN32)
-    {"LOCALAPPDATA", logRoot.string()}
-#else
-    {"XDG_STATE_HOME", logRoot.string()}
-#endif
-  };
+  auto logEnv = std::map<std::string, std::string>{logRootEnv(logRoot)};
 
   SECTION("successful run ends with summary status success") {
     auto const inputPath = temp.path / "sample.avi";

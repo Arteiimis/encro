@@ -40,11 +40,6 @@ constexpr auto kWebpMinQuality = 20;
 constexpr auto kWebpQualityStep = 10;
 constexpr auto kWebpFineQualityStep = 5;
 constexpr auto kWebpSmallGapThreshold = std::uintmax_t{3ULL * 1024ULL * 1024ULL};
-constexpr auto kSegmentDurationUs = std::uint64_t{10'000'000};
-// The muxer's listed times carry the encoder's reorder delay, so a complete
-// list ends slightly past the source duration, while a run that died with a
-// segment in flight leaves a whole segment-duration gap.
-constexpr auto kSegmentListCompleteToleranceUs = std::uint64_t{1'000'000};
 constexpr auto kSegmentListPollInterval = std::chrono::milliseconds{100};
 
 struct WebpEncodeContext {
@@ -368,16 +363,6 @@ bool encodeWebpWithTargetSize(
   return false;
 }
 
-auto segmentFileName(std::uint64_t index) -> std::string {
-  // Must match kSegmentFilePattern, which the muxer writes.
-  return std::format("seg_{}.ts", index);
-}
-
-// The live list the segment muxer appends a row to per finished segment.
-auto segmentListPath(fs::path const& segmentDir) -> fs::path {
-  return segmentDir / kSegmentListFileName;
-}
-
 // Completion signal of the single-pass encode: every row the muxer has closed
 // is a segment that is complete on disk, while the row still being written
 // never counts. Recording happens here instead of after a per-segment process.
@@ -405,30 +390,27 @@ void markCompletedSegments(SegmentListWatch& watch) {
   }
 }
 
-// Segments an earlier attempt already finished, in order: bounded by the
-// encoder's own list when it is still on disk, otherwise by the recorded count.
-// Names are derived from the index because the muxer updates list rows in place
-// and may pad a name with spaces, while the files follow the naming pattern.
-auto reusableSegments(
-  fs::path const& segmentDir,
-  std::span<SegmentListEntry const> listedSegments,
-  std::uint64_t storedSegments
-) -> std::vector<std::string> {
-  auto const limit = !listedSegments.empty() ? listedSegments.size()
-                                             : static_cast<std::size_t>(storedSegments);
-
+// Segments an earlier attempt already finished, in order. The recorded count is
+// the authority: the muxer rewrites its list for every attempt, so the list only
+// ever describes the last one, while job state accumulates the total. Names are
+// derived from the index because the muxer updates list rows in place and may
+// pad a name with spaces, while the files follow the naming pattern.
+auto reusableSegments(fs::path const& segmentDir, std::uint64_t storedSegments)
+  -> std::vector<std::string> {
   auto reusable = std::vector<std::string>{};
-  for (auto index = std::size_t{0}; index < limit; ++index) {
-    auto const name = segmentFileName(static_cast<std::uint64_t>(index));
+  for (auto index = std::uint64_t{0}; index < storedSegments; ++index) {
+    auto const name = segmentFileName(index);
     if (!fs::exists(segmentDir / name)) { break; }
     reusable.push_back(name);
   }
   return reusable;
 }
 
-// True when the encoder has nothing left to do: every segment is on disk, or the
-// muxer's cut cadence produced fewer segments than the duration implies and its
-// list already covers the whole timeline.
+// True when the encoder has nothing left to do: every segment mark is already on
+// disk, or the muxer's cut cadence produced fewer segments than the duration
+// implies and its list reaches the end of the timeline. Listed times carry the
+// encoder's reorder delay, so a complete list ends at or just past the duration
+// while a run that died with a segment in flight stops a whole segment short.
 auto encodeComplete(
   std::uint64_t completed,
   std::uint64_t segmentTotal,
@@ -437,8 +419,8 @@ auto encodeComplete(
 ) -> bool {
   if (completed >= segmentTotal) { return true; }
   return !listedSegments.empty()
-    && completed == listedSegments.size()
-    && listedSegments.back().endUs + kSegmentListCompleteToleranceUs >= totalDurationUs;
+    && completed >= listedSegments.size()
+    && listedSegments.back().endUs >= totalDurationUs;
 }
 
 void watchSegmentList(SegmentListWatch& watch, std::stop_token const& stopToken) {
@@ -454,8 +436,7 @@ void watchSegmentList(SegmentListWatch& watch, std::stop_token const& stopToken)
 bool runEncoderSeries(
   appctx::EncodingState& state,
   SegmentListWatch& watch,
-  EncodeConfig const& cfg,
-  function_ref statusUpdater
+  EncodeConfig const& cfg
 ) {
   auto const cmd = cfg.buildCMD();
   {
@@ -469,7 +450,7 @@ bool runEncoderSeries(
   }};
   auto const [exitCode, capturedOutput, pid, stderrText] =
     exec2(cmd, [&](std::string_view line) {
-      reportEncodingDiagnostic(statusUpdater, line);
+      reportEncodingDiagnostic(watch.statusUpdater, line);
     });
   watcher.request_stop();
   watcher.join();
@@ -631,7 +612,7 @@ bool runSegmentedEncoding(
   // Which earlier segments are reusable: see reusableSegments for the naming
   // and verification rules.
   auto const previousEntries = parseSegmentList(listPath);
-  auto completedNames = reusableSegments(segmentDir, previousEntries, storedSegments);
+  auto completedNames = reusableSegments(segmentDir, storedSegments);
 
   auto const durationRes =
     getVidTotalDurationUs(ctx.toolchain, ctx.runtime, state.inputPath);
@@ -750,11 +731,13 @@ bool runSegmentedEncoding(
     .statusUpdater = statusUpdater,
     .completedSegments = completed,
   };
-  if (!runEncoderSeries(state, watch, cfg, statusUpdater)) { return false; }
+  if (!runEncoderSeries(state, watch, cfg)) { return false; }
   if (stopsignal::isStopRequested()) { return false; }
 
+  // This run's segments continue the numbering after the resumed prefix.
   auto names = std::move(completedNames);
-  for (auto index = std::size_t{0}; index < parseSegmentList(listPath).size(); ++index) {
+  auto const runSegments = parseSegmentList(listPath).size();
+  for (auto index = std::size_t{0}; index < runSegments; ++index) {
     names.push_back(segmentFileName(completed + static_cast<std::uint64_t>(index)));
   }
   if (names.size() <= completed) {

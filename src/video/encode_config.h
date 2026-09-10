@@ -17,9 +17,20 @@
 namespace fs = std::filesystem;
 
 // Segment file naming shared by the muxer pattern (which writes the files) and
-// segmentFilePath (which resolves them); the two must stay in step.
+// the helpers below that resolve them; the two forms must stay in step.
 inline constexpr auto kSegmentFilePattern = std::string_view{"seg_%d.ts"};
 inline constexpr auto kSegmentListFileName = std::string_view{"segments.csv"};
+// The fixed cut cadence: segment marks, the muxer's cut interval and the resume
+// stride all derive from this one value.
+inline constexpr auto kSegmentDurationUs = std::uint64_t{10'000'000};
+
+inline auto segmentFileName(std::uint64_t index) -> std::string {
+  return std::format("seg_{}.ts", index);
+}
+
+inline auto segmentListPath(fs::path const& segmentDir) -> fs::path {
+  return segmentDir / kSegmentListFileName;
+}
 
 // One ffmpeg invocation writes every segment of a task attempt. startNumber is
 // the first segment index this run writes (0 for a fresh run), and resumeUs the
@@ -28,7 +39,6 @@ struct SegmentSeries {
   fs::path segmentDir;
   std::uint64_t startNumber = 0;
   std::uint64_t resumeUs = 0;
-  std::uint64_t cutIntervalUs = 10'000'000;
   bool operator==(SegmentSeries const&) const = default;
 };
 
@@ -196,7 +206,7 @@ private:
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access): isSeries guards the caller
     auto const& series = segmentSeries.value();
     auto const cutSeconds =
-      std::format("{:.6f}", static_cast<double>(series.cutIntervalUs) / 1'000'000.0);
+      std::format("{:.6f}", static_cast<double>(kSegmentDurationUs) / 1'000'000.0);
 
     auto cmd = std::string{" -an"};
     if (videoCodec.value_or("hevc_nvenc").ends_with("_nvenc")) {
@@ -212,7 +222,7 @@ private:
     if (series.startNumber > 0) {
       cmd += std::format(" -segment_start_number {}", series.startNumber);
     }
-    auto const listPath = series.segmentDir / kSegmentListFileName;
+    auto const listPath = segmentListPath(series.segmentDir);
     auto const pattern = series.segmentDir / kSegmentFilePattern;
     cmd += std::format(
       " -segment_list \"{}\" -segment_list_type csv -segment_list_flags +live",
