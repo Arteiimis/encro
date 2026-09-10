@@ -16,6 +16,22 @@
 
 namespace fs = std::filesystem;
 
+// Segment file naming shared by the muxer pattern (which writes the files) and
+// segmentFilePath (which resolves them); the two must stay in step.
+inline constexpr auto kSegmentFilePattern = std::string_view{"seg_%d.ts"};
+inline constexpr auto kSegmentListFileName = std::string_view{"segments.csv"};
+
+// One ffmpeg invocation writes every segment of a task attempt. startNumber is
+// the first segment index this run writes (0 for a fresh run), and resumeUs the
+// seek point when continuing a previous attempt.
+struct SegmentSeries {
+  fs::path segmentDir;
+  std::uint64_t startNumber = 0;
+  std::uint64_t resumeUs = 0;
+  std::uint64_t cutIntervalUs = 10'000'000;
+  bool operator==(SegmentSeries const&) const = default;
+};
+
 struct EncodeConfig {
   std::optional<fs::path> ffmpegPath = "ffmpeg";
   std::optional<fs::path> inputPath;
@@ -32,6 +48,11 @@ struct EncodeConfig {
   std::optional<std::uint64_t> segmentStartUs;
   std::optional<std::uint64_t> segmentDurationUs;
   std::optional<fs::path> tempOutputPath;
+  // Set for single-pass segmented encodes: one ffmpeg invocation writes the
+  // whole segment series of a task attempt (see
+  // openspec/changes/single-pass-segmented-encode). Probe encodes leave this
+  // unset and keep the per-window segment fields above.
+  std::optional<SegmentSeries> segmentSeries;
 
   bool operator==(EncodeConfig const&) const = default;
 
@@ -100,11 +121,17 @@ struct EncodeConfig {
     }
 
     auto const isSegmented = segmentIndex.has_value();
+    auto const isSeries = segmentSeries.has_value();
     auto const seconds = [](std::uint64_t micros) {
       return std::format("{:.6f}", static_cast<double>(micros) / 1'000'000.0);
     };
 
-    if (isSegmented) {
+    if (isSeries) {
+      // NOLINTNEXTLINE(bugprone-unchecked-optional-access): set together with segmentSeries by buildSegmentSeriesConfig
+      auto const resumeUs = segmentSeries->resumeUs;
+      if (resumeUs > 0) { cmd += std::format(" -ss {}", seconds(resumeUs)); }
+      cmd += std::format(" -i \"{}\"", inputPath->string());
+    } else if (isSegmented) {
       // NOLINTNEXTLINE(bugprone-unchecked-optional-access): set together with segmentIndex by buildSegmentEncodeConfig
       auto const startSec = seconds(segmentStartUs.value());
       cmd += std::format(" -ss {} -i \"{}\"", startSec, inputPath->string());
@@ -143,16 +170,55 @@ struct EncodeConfig {
       if (threads.has_value()) { cmd += std::format(" -threads {}", threads.value()); }
     }
 
-    if (isSegmented) { cmd += " -f mpegts"; }
+    if (isSeries) {
+      cmd += buildSegmentSeriesFlags();
+    } else if (isSegmented) {
+      cmd += " -f mpegts";
+    }
 
-    auto const outputVidPath = tempOutputPath.value_or(buildOutputPath());
-
-    cmd += std::format(" \"{}\"", outputVidPath.string());
+    if (!isSeries) {
+      auto const outputVidPath = tempOutputPath.value_or(buildOutputPath());
+      cmd += std::format(" \"{}\"", outputVidPath.string());
+    }
 
     if (progressFilePath.has_value()) {
       cmd += std::format(" -progress \"{}\"", progressFilePath->string());
     }
 
+    return cmd;
+  }
+
+private:
+  // The segment-muxer tail of a single-pass segmented encode: video-only
+  // segments, one keyframe-forced cut per segment-duration mark, and the
+  // live segment list that names what the encoder has already closed.
+  auto buildSegmentSeriesFlags() const -> std::string {
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access): isSeries guards the caller
+    auto const& series = segmentSeries.value();
+    auto const cutSeconds =
+      std::format("{:.6f}", static_cast<double>(series.cutIntervalUs) / 1'000'000.0);
+
+    auto cmd = std::string{" -an"};
+    if (videoCodec.value_or("hevc_nvenc").ends_with("_nvenc")) {
+      // hevc_nvenc ignores -force_key_frames unless the keyframes are real
+      // IDRs; without this the cuts follow the source's own keyframes.
+      cmd += " -forced-idr 1";
+    }
+    cmd += std::format(" -force_key_frames \"expr:gte(t,n_forced*{})\"", cutSeconds);
+    cmd += std::format(
+      " -f segment -segment_time {} -segment_format mpegts -reset_timestamps 1",
+      cutSeconds
+    );
+    if (series.startNumber > 0) {
+      cmd += std::format(" -segment_start_number {}", series.startNumber);
+    }
+    auto const listPath = series.segmentDir / kSegmentListFileName;
+    auto const pattern = series.segmentDir / kSegmentFilePattern;
+    cmd += std::format(
+      " -segment_list \"{}\" -segment_list_type csv -segment_list_flags +live",
+      listPath.string()
+    );
+    cmd += std::format(" \"{}\"", pattern.string());
     return cmd;
   }
 };
@@ -228,19 +294,41 @@ inline auto resolveInputEncodeSettings(
 // production only in CQ and output path (invariant asserted by tests).
 // workerCount caps CPU-codec threads to hw_threads / workers so N parallel
 // encodes do not oversubscribe the machine; 0 leaves threads on ffmpeg auto.
+inline auto threadCapForWorkers(std::size_t workerCount) -> std::optional<int> {
+  if (workerCount == 0) { return std::nullopt; }
+  auto const hw = std::thread::hardware_concurrency();
+  if (hw == 0) { return std::nullopt; }
+  return std::max(1u, hw / static_cast<unsigned>(workerCount));
+}
+
+inline auto buildSegmentSeriesConfig(
+  appctx::ToolchainPaths const& toolchain,
+  fs::path const& inputPath,
+  SegmentSeries series,
+  EncodeProfile const& profile,
+  std::optional<fs::path> progressFilePath = std::nullopt
+) -> EncodeConfig {
+  return EncodeConfig{
+    .ffmpegPath = toolchain.ffmpegPath,
+    .inputPath = inputPath,
+    .outputFormat = profile.outputFormat,
+    .videoCodec = profile.videoCodec,
+    .crf = profile.crf,
+    .nvencPreset = profile.settings.nvencPreset,
+    .maxrateKbps = profile.settings.maxrateKbps,
+    .threads = threadCapForWorkers(profile.workerCount),
+    .progressFilePath = std::move(progressFilePath),
+    .segmentSeries = std::move(series)
+  };
+}
+
 inline auto buildSegmentEncodeConfig(
   appctx::ToolchainPaths const& toolchain,
   SegmentEncodeSpec const& spec,
   EncodeProfile const& profile,
   std::optional<fs::path> progressFilePath = std::nullopt
 ) -> EncodeConfig {
-  auto threads = std::optional<int>{};
-  if (profile.workerCount > 0) {
-    auto const hw = std::thread::hardware_concurrency();
-    if (hw > 0) {
-      threads = std::max(1u, hw / static_cast<unsigned>(profile.workerCount));
-    }
-  }
+  auto threads = threadCapForWorkers(profile.workerCount);
 
   return EncodeConfig{
     .ffmpegPath = toolchain.ffmpegPath,

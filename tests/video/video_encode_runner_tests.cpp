@@ -216,13 +216,14 @@ struct SegmentScaffold {
 }  // namespace
 
 TEST_CASE(
-  "segmented encoding marks failure and skips assembly when a segment fails",
+  "segmented encoding marks failure and skips assembly when the series fails",
   "[video-encode-runner]"
 ) {
   auto stopGuard = testutils::ScopedStopSignalReset{};
   auto s = SegmentScaffold{2.0, false};
+  // Fail before the first segment is closed, so nothing can be assembled.
   s.envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_FAIL_MATCH", "seg_0.ts")
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_FAIL_AFTER_SEGMENTS", "0")
   );
 
   CHECK_FALSE(s.run());
@@ -232,7 +233,7 @@ TEST_CASE(
     CHECK_FALSE(s.state.success);
   }
   auto const log = testutils::readTextFile(s.logPath);
-  CHECK(log.find("seg_0.ts") != std::string::npos);
+  CHECK(log.find("seg_%d.ts") != std::string::npos);
   CHECK(log.find("-f concat") == std::string::npos);
 }
 
@@ -257,15 +258,15 @@ TEST_CASE(
     CHECK_FALSE(s.state.success);
   }
   auto const log = testutils::readTextFile(s.logPath);
-  // Segments ran; only the assembly step failed.
-  CHECK(log.find("seg_0.ts") != std::string::npos);
+  // The series ran; only the assembly step failed.
+  CHECK(log.find("-f\tsegment") != std::string::npos);
   auto const assembled = testutils::countOccurrences(log, "-f concat")
     + testutils::countOccurrences(log, "-f\tconcat");
   CHECK(assembled >= 1);
 }
 
 TEST_CASE(
-  "segmented encoding extracts audio exactly once across segments",
+  "segmented encoding extracts audio once and writes the series in one pass",
   "[video-encode-runner]"
 ) {
   auto stopGuard = testutils::ScopedStopSignalReset{};
@@ -275,9 +276,10 @@ TEST_CASE(
   CHECK(s.run());
 
   auto const log = testutils::readTextFile(s.logPath);
-  CHECK(log.find("seg_0.ts") != std::string::npos);
-  CHECK(log.find("seg_1.ts") != std::string::npos);
-  CHECK(log.find("seg_2.ts") != std::string::npos);
+  // One invocation writes the whole series, so the segment pattern appears
+  // once even though three segments were produced.
+  CHECK(testutils::countOccurrences(log, "-f\tsegment") == 1);
+  CHECK(testutils::countOccurrences(log, "seg_%d.ts") == 1);
   CHECK(
     testutils::countOccurrences(log, "-vn -c:a copy")
       + testutils::countOccurrences(log, "-vn\t-c:a\tcopy")
@@ -288,4 +290,5 @@ TEST_CASE(
     + testutils::countOccurrences(log, "-f\tconcat");
   CHECK(assembled >= 1);
   CHECK(log.find("list.txt") != std::string::npos);
+  CHECK(fs::exists(s.state.plannedOutputFile.value()));
 }

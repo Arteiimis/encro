@@ -104,7 +104,7 @@ TEST_CASE(
 
 TEST_CASE(
   "parseProgressFile reads the tail of a file larger than 64 KiB",
-  "[video-process][parseProgressFile][parseSegmentEndUs]"
+  "[video-process][parseProgressFile]"
 ) {
   TempDir temp;
   auto const filePath = temp.path / "large.log";
@@ -116,22 +116,6 @@ TEST_CASE(
     auto const frameCount = result->frameCount;
 
     CHECK(frameCount == 4242);
-  }
-
-  SECTION("parseSegmentEndUs reads past the window") {
-    auto const endUs = parseSegmentEndUs(filePath);
-    CHECK_FALSE(endUs.has_value());  // large.log has no out_time_us line
-
-    {
-      std::ofstream out{filePath, std::ios::app};
-      for (auto i = 0; i < 700; ++i) { out << std::string(100, 'y') << "\n"; }
-      out << "out_time_us=10024000\n";
-      out << "progress=end\n";
-    }
-
-    auto const endUs2 = parseSegmentEndUs(filePath);
-    REQUIRE(endUs2.has_value());
-    CHECK(endUs2.value() == 10'024'000);
   }
 }
 
@@ -207,56 +191,6 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "parseSegmentEndUs extracts final out_time_us",
-  "[video-process][parseSegmentEndUs]"
-) {
-  TempDir temp;
-  auto const filePath = temp.path / "progress.log";
-
-  {
-    std::ofstream out{filePath};
-    out << "frame=10\n";
-    out << "out_time_us=5040000\n";
-    out << "progress=continue\n";
-    out << "frame=50\n";
-    out << "out_time_us=10024000\n";
-    out << "progress=end\n";
-  }
-
-  auto const endUs = parseSegmentEndUs(filePath);
-  REQUIRE(endUs.has_value());
-  CHECK(endUs.value() == 10'024'000);
-}
-
-TEST_CASE(
-  "parseSegmentEndUs returns nullopt for missing file",
-  "[video-process][parseSegmentEndUs]"
-) {
-  TempDir temp;
-  auto const missingPath = temp.path / "missing.log";
-
-  auto const endUs = parseSegmentEndUs(missingPath);
-  CHECK_FALSE(endUs.has_value());
-}
-
-TEST_CASE(
-  "parseSegmentEndUs returns nullopt when out_time_us is absent",
-  "[video-process][parseSegmentEndUs]"
-) {
-  TempDir temp;
-  auto const filePath = temp.path / "progress.log";
-
-  {
-    std::ofstream out{filePath};
-    out << "frame=50\n";
-    out << "progress=end\n";
-  }
-
-  auto const endUs = parseSegmentEndUs(filePath);
-  CHECK_FALSE(endUs.has_value());
-}
-
-TEST_CASE(
   "progressPercent includes the base offset and clamps above 100",
   "[video-process][progressPercent]"
 ) {
@@ -279,4 +213,78 @@ TEST_CASE(
   CHECK(segmentBaseFrameOffset(90'000'000, 2700, 90'000'000) == 2700);
   CHECK(segmentBaseFrameOffset(30'000'000, 0, 90'000'000) == 0);
   CHECK(segmentBaseFrameOffset(30'000'000, 2700, 0) == 0);
+}
+
+TEST_CASE(
+  "parseSegmentList reads the muxer list in file order",
+  "[video-process][segment-list]"
+) {
+  TempDir temp;
+  auto const listPath = temp.path / "segments.csv";
+
+  {
+    std::ofstream out{listPath};
+    out << "seg_0.ts,0.000000,10.125000\n";
+    out << "seg_1.ts,10.125000,20.250000\n";
+    out << "seg_1000.ts,10000.000000,10010.000000\n";
+  }
+
+  auto const entries = parseSegmentList(listPath);
+
+  REQUIRE(entries.size() == 3);
+  CHECK(entries[0].fileName == "seg_0.ts");
+  CHECK(entries[0].startUs == 0);
+  CHECK(entries[0].endUs == 10'125'000);
+  CHECK(entries[1].fileName == "seg_1.ts");
+  CHECK(entries[1].startUs == 10'125'000);
+  // Names are kept verbatim: ordering comes from the list, never from padding.
+  CHECK(entries[2].fileName == "seg_1000.ts");
+  CHECK(entries[2].endUs == 10'010'000'000);
+}
+
+TEST_CASE(
+  "parseSegmentList skips malformed rows and the row still being written",
+  "[video-process][segment-list]"
+) {
+  TempDir temp;
+  auto const listPath = temp.path / "segments.csv";
+
+  {
+    std::ofstream out{listPath};
+    out << "seg_0.ts,0.000000,10.125000\n";
+    out << "garbage-without-commas\n";
+    out << "seg_1.ts,not-a-time,20.000000\n";
+    out << ",10.000000,20.000000\n";
+    out << "seg_2.ts,20.000000,30.000000\n";
+    // The muxer appends while it encodes: a half-written final row must not
+    // count as a completed segment.
+    out << "seg_3.ts,30.000000,40.";
+  }
+
+  auto const entries = parseSegmentList(listPath);
+
+  REQUIRE(entries.size() == 2);
+  CHECK(entries[0].fileName == "seg_0.ts");
+  CHECK(entries[1].fileName == "seg_2.ts");
+}
+
+TEST_CASE(
+  "parseSegmentList yields nothing for absent or empty lists",
+  "[video-process][segment-list]"
+) {
+  TempDir temp;
+
+  CHECK(parseSegmentList(temp.path / "missing.csv").empty());
+
+  auto const emptyPath = temp.path / "empty.csv";
+  { std::ofstream out{emptyPath}; }
+  CHECK(parseSegmentList(emptyPath).empty());
+
+  // Only an unterminated row so far: nothing is confirmed complete yet.
+  auto const partialPath = temp.path / "partial.csv";
+  {
+    std::ofstream out{partialPath};
+    out << "seg_0.ts,0.000000,10.125000";
+  }
+  CHECK(parseSegmentList(partialPath).empty());
 }

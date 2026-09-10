@@ -10,6 +10,7 @@
 #include <array>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -268,7 +269,8 @@ TEST_CASE(
   writeTextFile(segDir / "seg_0.ts", "x");
   writeTextFile(segDir / "seg_1.ts", "x");
 
-  REQUIRE(writeConcatManifest(segDir / "list.txt", segDir, 2));
+  auto const segmentNames = std::vector<std::string>{"seg_0.ts", "seg_1.ts"};
+  REQUIRE(writeConcatManifest(segDir / "list.txt", segmentNames));
 
   auto const text = readTextFile(segDir / "list.txt");
   CHECK(text.find("file 'seg_0.ts'") != std::string::npos);
@@ -464,49 +466,4 @@ TEST_CASE(
   CAPTURE(state.subprocessCmdline.value_or("<none>"));
   CHECK(state.subprocessCmdline.has_value());
   CHECK(state.subprocessCmdline->find("-q:v 75") != std::string::npos);
-}
-
-TEST_CASE(
-  "segment end parse fallback is logged as a warning",
-  "[video-process][orchestration]"
-) {
-  ScopedStopSignalReset stopGuard;
-  TempDir temp;
-  StrayProgressGuard strayProgress;
-  auto const inputPath = temp.path / "sample.mp4";
-  auto const logDir = temp.path / "logs";
-  writeTextFile(inputPath, "fake-video");
-
-  // Suppress out_time_us= so parseSegmentEndUs fails and must fall back
-  // with a warning.
-  auto const noEndTimeEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_PROGRESS_NO_END_TIME", "1"};
-  auto const probeEnv = copyFakeProbe(temp.path);
-
-  auto config = logging::LogConfig{
-    .colorsEnabled = false,
-    .customLogDir = logDir,
-  };
-  auto const setupRes = logging::setup(config);
-  REQUIRE(setupRes.has_value());
-  auto const& logPath = setupRes.value();
-
-  auto ctx = appctx::AppContext{};
-  ctx.config.outputFormat = "mp4";
-  ctx.config.inputPath = inputPath;
-  ctx.config.yesToAll = true;
-  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
-  ctx.toolchain.ffprobePath = copyFakeTool(temp.path, "ffprobe");
-
-  auto state = appctx::EncodingState{};
-  state.inputPath = inputPath;
-  state.plannedOutputFile = temp.path / "out" / "sample.mp4";
-
-  auto const success = encodeVideo(ctx, state, {});
-  CHECK(success);
-
-  logging::shutdown();
-
-  auto const content = readTextFile(logPath);
-  CAPTURE(content);
-  CHECK(content.find("falling back to nominal duration") != std::string::npos);
 }
