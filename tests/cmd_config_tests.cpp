@@ -1,5 +1,6 @@
 #include "cmd/cmd.h"
 #include "cmd/config_command.h"
+#include "infra/terminal.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
@@ -170,7 +171,7 @@ TEST_CASE(
   auto const result = testutils::parseArgs({"encro", "-h"});
   REQUIRE_FALSE(result.error.has_value());
 
-  auto const& help = result.helpText;
+  auto const& help = result.helpText();
   // Negation flags render collapsed; bare --no-* names stay out of the help.
   CHECK(help.find("-p, --[no-]pack") != std::string::npos);
   CHECK(help.find("-y, --[no-]yes") != std::string::npos);
@@ -186,7 +187,7 @@ TEST_CASE(
 
   auto const result = testutils::parseArgs({"encro", "-h"});
   REQUIRE_FALSE(result.error.has_value());
-  auto const crfLine = testutils::findHelpLine(result.helpText, "--crf");
+  auto const crfLine = testutils::findHelpLine(result.helpText(), "--crf");
   REQUIRE(crfLine.has_value());
   CHECK(crfLine->find("(=23)") != std::string::npos);
 }
@@ -199,10 +200,10 @@ TEST_CASE(
 
   auto const result = testutils::parseArgs({"encro", "preview", "-h"});
   REQUIRE_FALSE(result.error.has_value());
-  auto const crfLine = testutils::findHelpLine(result.helpText, "--crf");
+  auto const crfLine = testutils::findHelpLine(result.helpText(), "--crf");
   REQUIRE(crfLine.has_value());
   CHECK(crfLine->find("(=23)") != std::string::npos);
-  auto const presetLine = testutils::findHelpLine(result.helpText, "--preset");
+  auto const presetLine = testutils::findHelpLine(result.helpText(), "--preset");
   REQUIRE(presetLine.has_value());
   CHECK(presetLine->find("(=p5)") != std::string::npos);
 }
@@ -246,14 +247,14 @@ TEST_CASE("config subcommand actions parse and validate arity", "[cmd][config]")
     auto const result = testutils::parseArgs({"encro", "config"});
     REQUIRE(result.config);
     CHECK(result.configVerb.empty());
-    CHECK(result.helpText.find("set <key> <value>") != std::string::npos);
+    CHECK(result.helpText().find("set <key> <value>") != std::string::npos);
   }
 
   SECTION("config -h prints the config help with success") {
     auto const result = testutils::parseArgs({"encro", "config", "-h"});
     CHECK(result.help);
-    CHECK(result.helpText.find("set <key> <value>") != std::string::npos);
-    CHECK(result.helpText.find("--verbose") == std::string::npos);  // not the main help
+    CHECK(result.helpText().find("set <key> <value>") != std::string::npos);
+    CHECK(result.helpText().find("--verbose") == std::string::npos);  // not the main help
   }
 
   SECTION("unknown action fails natively") {
@@ -404,5 +405,34 @@ TEST_CASE(
       == 1
     );
     CHECK(cmd::runConfigCommand(testutils::parseArgs({"encro", "config", "path"})) == 0);
+  }
+}
+
+TEST_CASE("config color never flows into help rendering", "[cmd][config][color]") {
+  auto const config = ScopedConfigFile{"{\"color\": \"never\"}"};
+
+  SECTION("main help") {
+    auto const result = testutils::parseArgs({"encro", "-h"});
+    REQUIRE_FALSE(result.error.has_value());
+    REQUIRE(result.color == "never");
+
+    REQUIRE_FALSE(terminal::configureFromColorString(result.color).has_value());
+    CHECK(result.helpText().find("\x1b[") == std::string::npos);
+
+    terminal::reset();
+  }
+
+  SECTION("subcommand help") {
+    for (auto const* sub: {"preview", "organize", "config", "completion"}) {
+      CAPTURE(sub);
+      auto const result = testutils::parseArgs({"encro", sub, "-h"});
+      REQUIRE_FALSE(result.error.has_value());
+      REQUIRE(result.color == "never");
+
+      REQUIRE_FALSE(terminal::configureFromColorString(result.color).has_value());
+      CHECK(result.helpText().find("\x1b[") == std::string::npos);
+    }
+
+    terminal::reset();
   }
 }

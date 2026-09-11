@@ -137,8 +137,9 @@ int runConfigCommand(CmdParseResult const& cmd) {
     return unsetAction(loaded, configPath, *cmd.configKey);
   }
 
-  // Bare `encro config`: helpText holds the config subcommand help.
-  std::cout << cmd.helpText;
+  // Bare `encro config`: render the config subcommand help (lazily, so it
+  // colors against the mode in effect here).
+  std::cout << cmd.helpText();
   return 0;
 }
 

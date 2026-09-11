@@ -58,10 +58,10 @@ TEST_CASE("completion help routing", "[completion]") {
     CHECK(result.completion);
     CHECK(result.completionShell.empty());
     CHECK(
-      result.helpText.find("encro completion <powershell|bash>") != std::string::npos
+      result.helpText().find("encro completion <powershell|bash>") != std::string::npos
     );
     CHECK(
-      result.helpText.find("print, install, or uninstall shell completion scripts")
+      result.helpText().find("print, install, or uninstall shell completion scripts")
       != std::string::npos
     );
   }
@@ -70,7 +70,7 @@ TEST_CASE("completion help routing", "[completion]") {
     auto const result = testutils::parseArgs({"encro", "completion", "-h"});
     CHECK(result.help);
     CHECK(
-      result.helpText.find("encro completion <powershell|bash>") != std::string::npos
+      result.helpText().find("encro completion <powershell|bash>") != std::string::npos
     );
   }
 }
