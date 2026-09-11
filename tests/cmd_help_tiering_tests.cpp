@@ -35,7 +35,7 @@ TEST_CASE(
   auto const result = testutils::parseArgs({"encro", "-h"});
   REQUIRE_FALSE(result.error.has_value());
 
-  auto const& help = result.helpText;
+  auto const& help = result.helpText();
   CHECK(help.find("--verbose") == std::string::npos);
   CHECK(help.find("--debug") == std::string::npos);
   CHECK(help.find("--log-json") == std::string::npos);
@@ -60,7 +60,7 @@ TEST_CASE("full help via -hh shows advanced options and no hint", "[cmd][tiering
   auto const result = testutils::parseArgs({"encro", "-hh"});
   REQUIRE_FALSE(result.error.has_value());
 
-  auto const& help = result.helpText;
+  auto const& help = result.helpText();
   CHECK(help.find("--verbose") != std::string::npos);
   CHECK(help.find("--debug") != std::string::npos);
   CHECK(help.find("echo progress detail to the terminal") != std::string::npos);
@@ -83,7 +83,7 @@ TEST_CASE("full help via -h -h matches -hh", "[cmd][tiering]") {
 
   REQUIRE_FALSE(repeated.error.has_value());
   REQUIRE_FALSE(combined.error.has_value());
-  CHECK(repeated.helpText == combined.helpText);
+  CHECK(repeated.helpText() == combined.helpText());
 }
 
 TEST_CASE("parse-error help renders the brief tier", "[cmd][tiering]") {
@@ -91,7 +91,7 @@ TEST_CASE("parse-error help renders the brief tier", "[cmd][tiering]") {
   auto const result = testutils::parseArgs({"encro", "--nope"});
 
   REQUIRE(result.error.has_value());
-  auto const& help = result.helpText;
+  auto const& help = result.helpText();
   CHECK(help.find("--verbose") == std::string::npos);
   CHECK(isLastNonEmptyLine(help, kHintLine));
 }
@@ -101,7 +101,7 @@ TEST_CASE("help advertises the tiers in usage and -h description", "[cmd][tierin
   auto const result = testutils::parseArgs({"encro", "-hh"});
   REQUIRE_FALSE(result.error.has_value());
 
-  auto const& help = result.helpText;
+  auto const& help = result.helpText();
   CHECK(help.find("encro -h | -hh | --version") != std::string::npos);
   CHECK(help.find("show help; use -hh to show all options") != std::string::npos);
 }
@@ -111,7 +111,7 @@ TEST_CASE("brief help keeps the usage section and all group headers", "[cmd][tie
   auto const result = testutils::parseArgs({"encro", "-h"});
   REQUIRE_FALSE(result.error.has_value());
 
-  auto const& help = result.helpText;
+  auto const& help = result.helpText();
   auto const usagePos = help.find("Usage:");
   auto const generalPos = help.find("General options:");
   auto const ioPos = help.find("Input/Output options:");
@@ -132,7 +132,7 @@ TEST_CASE("full help shows accurate option descriptions and defaults", "[cmd][ti
   auto const result = testutils::parseArgs({"encro", "-hh"});
   REQUIRE_FALSE(result.error.has_value());
 
-  auto const& help = result.helpText;
+  auto const& help = result.helpText();
 
   auto const resumeLine =
     testutils::findHelpLine(help, "require matching previous job state");
@@ -178,7 +178,7 @@ TEST_CASE("brief help shows the crf default", "[cmd][tiering]") {
   auto const result = testutils::parseArgs({"encro", "-h"});
   REQUIRE_FALSE(result.error.has_value());
 
-  auto const crfLine = testutils::findHelpLine(result.helpText, "--crf");
+  auto const crfLine = testutils::findHelpLine(result.helpText(), "--crf");
   REQUIRE(crfLine.has_value());
   CHECK(crfLine->find("(=28)") != std::string::npos);
 }

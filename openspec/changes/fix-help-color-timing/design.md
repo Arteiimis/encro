@@ -18,18 +18,19 @@ Help text is currently rendered to a final string inside `buildAndParse` (`src/c
 
 ## Decisions
 
-### D1: Lazy renderer on `CmdParseResult` (chosen)
+### D1: Lazy help target on `CmdParseResult` (chosen)
 
-Replace the `std::string helpText` field with a `std::function<std::string()>` stored under a distinct member name (e.g. `helpRenderer_`, following the repo's trailing-underscore member convention — a field and its accessor cannot share a name), plus a `helpText()` accessor that invokes it. The eight assignment sites in `buildAndParse` (post-parse main help; config and completion got-subcommand paths; four `CallForHelp` catch branches; `ParseError` catch) each install a lambda capturing the corresponding `CLI::App*` from that parse's `AppTree` and calling `->help()`.
+Replace the `std::string helpText` field with a `CLI::App* helpApp_` member plus a `helpText()` accessor that calls `helpApp_->help()`. `buildAndParse` default-installs the main app before the config-injection error return (so every return path yields renderable help); the eight selection sites (post-parse main help; config and completion got-subcommand paths; four `CallForHelp` catch branches; `ParseError` catch) each assign the matching `CLI::App*` from that parse's `AppTree`.
 
 - Why safe: the `CLI::App` objects are deliberately leaked and outlive the process's parse-and-dispatch flow (existing design comment in `cmd.h`); the formatter is stateless with respect to invocation order, and all config-injected defaults are already applied to the option objects before parse returns.
+- Why a raw pointer over `std::function<std::string()>`: every installed renderer has the identical shape (`sub->help()`), so the closure indirection, a factory helper, and the `<functional>` include bought nothing (leanness-review finding, accepted).
 - Why this shape: consumers keep a single call site (`cmd.helpText()`), tests keep a single field-access to update, and the rendered string is produced exactly once per process at the moment it is printed — after `prelude` has configured the color mode.
 - Alternative rejected — re-render in `prelude` after configure: `prelude` does not see the `AppTree`, and `tests/test_utils.h::parseArgs` calls `commandLineInit` directly, so the stale early-render string would remain observable to every other caller; the bug would survive outside the `prelude` path.
 - Alternative rejected — pre-configure the color mode before parse by peeking at argv/config: duplicates config loading, races the established injection design (config values become CLI11 forced defaults consumed at parse), and still special-cases one key instead of fixing the render-vs-configure ordering.
 
-### D2: Accessor keeps the rendered string materialized at most once
+### D2: No cache — help renders on each read
 
-`helpText()` caches the result after the first call. Help is printed at most once per process; the cache only guards against accidental double-render divergence if a future caller reads twice. Cost is one string copy. Test sites that compare two parses' help (e.g. `cmd_help_tiering_tests.cpp`'s brief-vs-full combination checks) call the accessor once per result and compare the returned strings, so the cache is invisible to them.
+`helpText()` renders on every call. Help is printed at most once per process in production and read at most once per result in tests, so a cache guarded only a hypothetical future double-read (leanness-review finding, accepted); dropping it removes the `mutable` member and the null-fallback branch. The default `helpApp_` install keeps every `buildAndParse` return path safe to read.
 
 ### D3: Test strategy mirrors the bug and the runner's TTY reality
 
@@ -39,6 +40,10 @@ Replace the `std::string helpText` field with a `std::function<std::string()>` s
 - always-direction: `parseArgs` first, then `configure(Always)`, then assert the accessor output DOES contain ANSI. Red today (string was rendered under piped-auto without escapes), green after the fix.
 
 The existing color-invariance test (`tests/cmd_cmd_tests.cpp`, "Help layout is color-mode invariant" section) must be restructured: with lazy rendering, deferring both accessor calls until after `terminal::reset()` would render both sides under the same mode and pass vacuously. Each side must materialize its string (call the accessor) while its own mode is still configured, then compare. Companion cases: CLI-level `--color never -h` / `--color always -h` through `parseArgs` plus `configureFromColorString(result.color)`; config-file `color = never` via the existing `ENCRO_CONFIG` override + `parseArgs` asserts the injected `result.color == "never"` and ANSI-free help after configure. Existing tests that configure the mode before `parseArgs` keep their behavior but switch to the accessor call.
+
+### D4: `--color` commits at `FirstPreHelp` callback priority (found during implementation)
+
+Lazy rendering alone is not enough for subcommand help: the subcommands carry CLI11-native help flags running at `First` priority, and `_process_help_flags` throws `CallForHelp` before `_process_callbacks(Normal)` runs — so on `preview -h`-style paths the `--color` binding (explicit CLI value or config-injected forced default alike) never committed and `result.color` stayed `auto`, leaving prelude to configure the auto mode. The fix registers the `--color` option's callback at `CallbackPriority::FirstPreHelp`, the phase CLI11 runs immediately before the help check, so the color value commits before any help flag short-circuits the parse. Side effect (accepted, consistent with the main app's existing behavior): an invalid `--color` value now errors before subcommand help prints, matching how `encro --color bogus -h` already behaved on the main app.
 
 ## Risks / Trade-offs
 
