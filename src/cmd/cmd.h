@@ -80,7 +80,14 @@ struct CmdParseResult {
   bool completionUninstall = false;
 
   // ── Help output (rendered by formatter_fn) ──────────────────────
-  std::string helpText;
+  // Help is rendered lazily: the formatter queries the terminal color mode
+  // at render time, so the string is built when it is read (after the mode
+  // is configured), not during parse. helpApp_ points at the app whose help
+  // to render; it outlives the result because the app tree is intentionally
+  // leaked (see AppTree). buildAndParse installs it on every return path.
+  CLI::App* helpApp_ = nullptr;
+
+  auto helpText() const -> std::string { return helpApp_->help(); }
 
   // ── Parse error (CLI11-native message) ─────────────────────────
   std::optional<std::string> error;

@@ -813,6 +813,12 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
     ),
   };
   registerAll(general, options);
+
+  // --color must commit before any help flag short-circuits the parse:
+  // subcommand -h flags run at First priority and throw CallForHelp before
+  // Normal callbacks, so without this the CLI/config color value never
+  // reaches the binding on help paths and prelude would configure auto.
+  app.get_option("--color")->callback_priority(CLI::CallbackPriority::FirstPreHelp);
   return helpOpt;
 }
 
@@ -1056,27 +1062,30 @@ auto buildAndParse(
 ) -> CmdParseResult {
   auto result = CmdParseResult{};
   auto tree = buildAppTree(result, introLine, injectConfig);
+  // Default help target so every return path (including the config-injection
+  // error below) yields renderable help; subcommand matches overwrite it.
+  result.helpApp_ = tree.app;
   if (result.error.has_value()) { return result; }
 
   // result is the SAME object the options were bound to at registration time
   // (bound callbacks write into it during parse).
   try {
     tree.app->parse(argc, argv);
-    result.helpText = tree.app->help();
+    result.helpApp_ = tree.app;
     if (result.debug) { result.verbosity = std::max(result.verbosity, 2); }
     result.verbosity = std::min(result.verbosity, 2);
     if (tree.app->got_subcommand(tree.previewSub)) { result.preview = true; }
     if (tree.app->got_subcommand(tree.organizeSub)) { result.organize = true; }
     if (tree.app->got_subcommand(tree.configSub)) {
       result.config = true;
-      result.helpText = tree.configSub->help();
+      result.helpApp_ = tree.configSub;
       if (auto const error = configActionArityError(result); error.has_value()) {
         result.error = *error;
       }
     }
     if (tree.app->got_subcommand(tree.completionSub)) {
       result.completion = true;
-      result.helpText = tree.completionSub->help();
+      result.helpApp_ = tree.completionSub;
     }
   } catch (CLI::CallForHelp const&) {
     // The preview/config/completion subcommands carry the native help flags
@@ -1084,17 +1093,17 @@ auto buildAndParse(
     // matched.
     result.help = true;
     if (tree.app->got_subcommand(tree.completionSub)) {
-      result.helpText = tree.completionSub->help();
+      result.helpApp_ = tree.completionSub;
     } else if (tree.app->got_subcommand(tree.configSub)) {
-      result.helpText = tree.configSub->help();
+      result.helpApp_ = tree.configSub;
     } else if (tree.app->got_subcommand(tree.organizeSub)) {
-      result.helpText = tree.organizeSub->help();
+      result.helpApp_ = tree.organizeSub;
     } else {
-      result.helpText = tree.previewSub->help();
+      result.helpApp_ = tree.previewSub;
     }
   } catch (CLI::ParseError const& ex) {
     result.error = ex.what();
-    result.helpText = tree.app->help();
+    result.helpApp_ = tree.app;
   }
   return result;
 }

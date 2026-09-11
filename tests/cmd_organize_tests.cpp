@@ -67,13 +67,13 @@ TEST_CASE("organize flags and threshold parse", "[cmd][organize]") {
 TEST_CASE("organize help states the local-only privacy line", "[cmd][organize]") {
   auto const result = testutils::parseArgs({"encro", "organize", "-h"});
   CHECK(result.help);
-  CHECK(result.helpText.find("never leaves this machine") != std::string::npos);
-  CHECK(result.helpText.find("--download-models") != std::string::npos);
+  CHECK(result.helpText().find("never leaves this machine") != std::string::npos);
+  CHECK(result.helpText().find("--download-models") != std::string::npos);
 }
 
 TEST_CASE("main help lists organize", "[cmd][organize]") {
   auto const result = testutils::parseArgs({"encro", "-h"});
-  CHECK(result.helpText.find("organize") != std::string::npos);
+  CHECK(result.helpText().find("organize") != std::string::npos);
 }
 
 TEST_CASE("model-dir config key set/get round-trips", "[cmd][organize][config]") {

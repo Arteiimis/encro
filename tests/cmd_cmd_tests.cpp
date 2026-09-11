@@ -238,14 +238,14 @@ TEST_CASE("commandLineInit caps help output to the terminal width", "[cmd]") {
     auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "200"};
 
     auto const result = testutils::parseArgs({"encro"});
-    CHECK(longestHelpLine(result.helpText) <= 120);
+    CHECK(longestHelpLine(result.helpText()) <= 120);
   }
 
   SECTION("narrow terminal caps every help line") {
     auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "72"};
 
     auto const result = testutils::parseArgs({"encro"});
-    CHECK(longestHelpLine(result.helpText) <= 72);
+    CHECK(longestHelpLine(result.helpText()) <= 72);
   }
 }
 
@@ -354,7 +354,7 @@ TEST_CASE("help text contains ANSI escape codes when color is always", "[cmd][co
   terminal::configure(terminal::ColorMode::Always);
 
   auto const result = testutils::parseArgs({"encro", "--help"});
-  auto const& help = result.helpText;
+  auto const& help = result.helpText();
 
   // After Phase 20 color injection, help text SHOULD contain ANSI escape codes
   CHECK(help.find("\x1b[") != std::string::npos);
@@ -367,7 +367,7 @@ TEST_CASE("help text contains NO ANSI codes when color is disabled", "[cmd][colo
     terminal::configure(terminal::ColorMode::Never);
 
     auto const result = testutils::parseArgs({"encro", "--help"});
-    CHECK(result.helpText.find("\x1b[") == std::string::npos);
+    CHECK(result.helpText().find("\x1b[") == std::string::npos);
 
     terminal::reset();
   }
@@ -376,7 +376,70 @@ TEST_CASE("help text contains NO ANSI codes when color is disabled", "[cmd][colo
     auto const noColorGuard = testutils::ScopedEnvVar{"NO_COLOR", "1"};
 
     auto const result = testutils::parseArgs({"encro", "--help"});
-    CHECK(result.helpText.find("\x1b[") == std::string::npos);
+    CHECK(result.helpText().find("\x1b[") == std::string::npos);
+  }
+}
+
+TEST_CASE("help honors the color mode configured after the parse", "[cmd][color]") {
+  SECTION("always during parse, never at read time") {
+    // The eager renderer bakes Always-mode escapes into the string; a lazy
+    // renderer must re-check the mode when the string is read.
+    terminal::configure(terminal::ColorMode::Always);
+    auto const result = testutils::parseArgs({"encro", "-h"});
+
+    terminal::configure(terminal::ColorMode::Never);
+    CHECK(result.helpText().find("\x1b[") == std::string::npos);
+
+    terminal::reset();
+  }
+
+  SECTION("auto during parse, always at read time") {
+    // Piped test output auto-suppresses color at parse time; reading later
+    // under Always must still produce styled text.
+    auto const result = testutils::parseArgs({"encro", "-h"});
+
+    terminal::configure(terminal::ColorMode::Always);
+    CHECK(result.helpText().find("\x1b[") != std::string::npos);
+
+    terminal::reset();
+  }
+}
+
+TEST_CASE("CLI --color decides help coloring at read time", "[cmd][color]") {
+  SECTION("--color never") {
+    auto const result = testutils::parseArgs({"encro", "--color", "never", "-h"});
+    REQUIRE_FALSE(result.error.has_value());
+    REQUIRE(result.color == "never");
+
+    REQUIRE_FALSE(terminal::configureFromColorString(result.color).has_value());
+    CHECK(result.helpText().find("\x1b[") == std::string::npos);
+
+    terminal::reset();
+  }
+
+  SECTION("--color always overrides non-TTY auto-suppression") {
+    auto const result = testutils::parseArgs({"encro", "--color", "always", "-h"});
+    REQUIRE_FALSE(result.error.has_value());
+    REQUIRE(result.color == "always");
+
+    REQUIRE_FALSE(terminal::configureFromColorString(result.color).has_value());
+    CHECK(result.helpText().find("\x1b[") != std::string::npos);
+
+    terminal::reset();
+  }
+
+  SECTION("--color never disables every subcommand help") {
+    for (auto const* sub: {"preview", "organize", "config", "completion"}) {
+      CAPTURE(sub);
+      auto const result = testutils::parseArgs({"encro", "--color", "never", sub, "-h"});
+      REQUIRE_FALSE(result.error.has_value());
+      REQUIRE(result.color == "never");
+
+      REQUIRE_FALSE(terminal::configureFromColorString(result.color).has_value());
+      CHECK(result.helpText().find("\x1b[") == std::string::npos);
+    }
+
+    terminal::reset();
   }
 }
 
@@ -412,7 +475,7 @@ TEST_CASE("help auto-fits the description column with a 3-space gap", "[cmd]") {
   SECTION("brief tier") {
     auto const result = testutils::parseArgs({"encro", "-h"});
     checkAlignment(
-      stripAnsi(result.helpText),
+      stripAnsi(result.helpText()),
       "-f, --output-format (=mp4)",
       "(=mp4)",
       "target format: mp4 or webp",
@@ -426,7 +489,7 @@ TEST_CASE("help auto-fits the description column with a 3-space gap", "[cmd]") {
   SECTION("full tier") {
     auto const result = testutils::parseArgs({"encro", "-hh"});
     checkAlignment(
-      stripAnsi(result.helpText),
+      stripAnsi(result.helpText()),
       "--force-conflict-handling (=y)",
       "(=y)",
       "same-name collisions in flat output",
@@ -442,7 +505,7 @@ TEST_CASE("help auto-fits the description column with a 3-space gap", "[cmd]") {
     auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "40"};
 
     auto const result = testutils::parseArgs({"encro", "-hh"});
-    auto const plainHelp = stripAnsi(result.helpText);
+    auto const plainHelp = stripAnsi(result.helpText());
 
     auto const widest =
       testutils::findHelpLine(plainHelp, "--force-conflict-handling (=y)");
@@ -455,7 +518,7 @@ TEST_CASE("help auto-fits the description column with a 3-space gap", "[cmd]") {
   SECTION("preview aligns to its own widest option") {
     auto const result = testutils::parseArgs({"encro", "preview", "-h"});
     checkAlignment(
-      stripAnsi(result.helpText),
+      stripAnsi(result.helpText()),
       "--video-codec (=hevc_nvenc)",
       "(=hevc_nvenc)",
       "video encoder (default hevc_nvenc",
@@ -470,7 +533,7 @@ TEST_CASE("help auto-fits the description column with a 3-space gap", "[cmd]") {
   SECTION("config aligns to its own widest option") {
     auto const result = testutils::parseArgs({"encro", "config", "-h"});
     checkAlignment(
-      stripAnsi(result.helpText),
+      stripAnsi(result.helpText()),
       "-h, --help",
       "-h, --help",
       "show config help",
@@ -484,7 +547,7 @@ TEST_CASE("help auto-fits the description column with a 3-space gap", "[cmd]") {
 TEST_CASE("main help lists subcommands in a git-style commands section", "[cmd]") {
   // The organize row wraps at the terminal width, so rows are asserted
   // individually rather than as one contiguous block.
-  auto const brief = stripAnsi(testutils::parseArgs({"encro", "-h"}).helpText);
+  auto const brief = stripAnsi(testutils::parseArgs({"encro", "-h"}).helpText());
   CHECK(brief.find("encro commands:") != std::string::npos);
   CHECK(
     brief.find(
@@ -509,7 +572,7 @@ TEST_CASE("main help lists subcommands in a git-style commands section", "[cmd]"
   );
 
   // Full tier: the same section with its three described rows.
-  auto const full = stripAnsi(testutils::parseArgs({"encro", "-hh"}).helpText);
+  auto const full = stripAnsi(testutils::parseArgs({"encro", "-hh"}).helpText());
   CHECK(full.find("encro commands:") != std::string::npos);
   CHECK(
     full.find(
@@ -529,7 +592,7 @@ TEST_CASE("main help lists subcommands in a git-style commands section", "[cmd]"
 
 TEST_CASE("main help orders usage, commands, and option groups", "[cmd]") {
   auto const result = testutils::parseArgs({"encro", "-h"});
-  auto const help = stripAnsi(result.helpText);
+  auto const help = stripAnsi(result.helpText());
 
   // Usage synopsis is present and precedes the option groups.
   auto const usagePos = help.find("Usage:");
@@ -568,20 +631,23 @@ TEST_CASE(
 ) {
   auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "120"};
 
+  // Materialize each string while its own color mode is still configured:
+  // help renders lazily, so deferring both reads past the resets would
+  // render both sides under one mode and compare auto against auto.
   terminal::configure(terminal::ColorMode::Always);
-  auto const colored = testutils::parseArgs({"encro", "-hh"});
+  auto const colored = testutils::parseArgs({"encro", "-hh"}).helpText();
   terminal::reset();
 
   terminal::configure(terminal::ColorMode::Never);
-  auto const plain = testutils::parseArgs({"encro", "-hh"});
+  auto const plain = testutils::parseArgs({"encro", "-hh"}).helpText();
   terminal::reset();
 
-  CHECK(stripAnsi(colored.helpText) == plain.helpText);
+  CHECK(stripAnsi(colored) == plain);
 }
 
 TEST_CASE("help content survives color injection", "[cmd][color]") {
   auto const result = testutils::parseArgs({"encro", "-hh"});
-  auto const& help = result.helpText;
+  auto const& help = result.helpText();
 
   // Full (-hh) tier renders every option, including the advanced ones...
   CHECK(help.find("--input") != std::string::npos);
@@ -671,9 +737,9 @@ TEST_CASE("preview -h renders preview help text", "[cmd][cli-positional]") {
   CHECK(result.help);
   CHECK_FALSE(result.error.has_value());
   CHECK(
-    result.helpText.find("encro preview <original> [<encoded>]") != std::string::npos
+    result.helpText().find("encro preview <original> [<encoded>]") != std::string::npos
   );
-  CHECK(result.helpText.find("--no-open") != std::string::npos);
+  CHECK(result.helpText().find("--no-open") != std::string::npos);
 }
 
 TEST_CASE("bare invocation with flags still falls through", "[cmd][cli-positional]") {

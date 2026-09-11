@@ -139,7 +139,7 @@ auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional
   }
 
   if (cmd.help) {
-    std::cout << cmd.helpText;
+    std::cout << cmd.helpText();
     return 0;
   }
 

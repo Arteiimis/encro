@@ -12,7 +12,7 @@ int runCompletionCommand(CmdParseResult const& cmd) {
   if (!cmd.completionInstall && !cmd.completionUninstall) {
     // Bare invocation shows the subcommand help; a shell prints its script.
     if (cmd.completionShell.empty()) {
-      std::cout << cmd.helpText;
+      std::cout << cmd.helpText();
       return 0;
     }
     auto const script = completion::scriptFor(cmd.completionShell);
