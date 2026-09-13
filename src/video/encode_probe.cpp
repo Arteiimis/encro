@@ -543,7 +543,7 @@ auto buildProbeTaskSpec(
     progress.progressCtx.setProgress(barIndex, p);
     progress.progressCtx.setPostfixText(
       barIndex,
-      std::format("Probing: {} · CQ {} {}", fileName, cq, phase)
+      std::format("Probing: {} | CQ {} {}", fileName, cq, phase)
     );
     progress.updateOverall();
   };
@@ -555,7 +555,7 @@ auto buildProbeTaskSpec(
     progress.progressCtx.setProgress(barIndex, p);
     progress.progressCtx.setPostfixText(
       barIndex,
-      std::format("Probing: {} · CQ {} scored", fileName, cq)
+      std::format("Probing: {} | CQ {} scored", fileName, cq)
     );
     progress.updateOverall();
   };

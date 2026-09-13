@@ -29,7 +29,7 @@ See proposal.md — Why. Current state that shapes the approach (verified by rea
 
 **D1 — The repaint clock moves into `ProgressContext`; the wall-clock offset stays.**
 
-`ProgressContext` starts a `std::jthread` when its first bar is added and stops it in `eraseBars()` and in member destruction; the thread wakes every 100 ms and calls `tick()` — the same cadence the encode monitor used, and the same repaint-only semantics.
+`ProgressContext` starts a `std::jthread` when its first bar is added (re-armed if a bar is added after an `eraseBars()`) and stops it in `eraseBars()` and in member destruction; the thread wakes every 100 ms and calls `tick()` — the same cadence the encode monitor used, and the same repaint-only semantics.
 
 Alternatives considered:
 - *Keep one timer per caller* (today): the probe phase has no loop at all, so it would need a new bespoke thread and lifetime, and preview/pack/picture would stay inconsistent — the same mistake that produced this bug.
@@ -38,8 +38,8 @@ Alternatives considered:
 
 **D2 — Lifetime and locking rules for the ticker.**
 
-- `ticker_` is declared after `mtx_` in the class, so member destruction order joins the thread before the mutex dies; no explicit destructor is needed.
-- `eraseBars()` stops the ticker *before* acquiring `mtx_` — joining while holding the lock could deadlock against a ticker blocked in `tick()` on the same mutex. This keeps the existing "no render after eraseBars" contract.
+- `ticker_` is declared last, after every member the clock touches (and after `mtx_`), so member destruction order joins the thread before those members die; no explicit destructor is needed.
+- `stopTicker()` takes `mtx_` only to detach the clock (move the `jthread` out) and then requests the stop and joins outside the lock — joining while holding it could deadlock against a ticker blocked in `tick()` on the same mutex. `eraseBars()` therefore keeps the existing "no render after eraseBars" contract, and a later `addBar` arms a fresh clock.
 - The loop sleeps in 100 ms chunks and exits on `stop_token`; shutdown can therefore lag up to one interval. Accepted: `eraseBars()` is followed by a phase summary or process exit, so a ≤100 ms join is invisible. A condition-variable wakeup would remove the lag at the cost of extra machinery.
 - The ticker starts even when stdout is not a terminal (so tests can observe it), but `tick()` returns before doing per-bar work when `progressBarsAllowed()` is false — the non-TTY run pays one wakeup per interval and nothing else.
 
