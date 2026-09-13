@@ -104,6 +104,54 @@ auto removeBlock(std::string const& content) -> std::string {
   return content.substr(0, begin) + content.substr(tail);
 }
 
+enum class Unwire {
+  Nothing,
+  Changed,
+  Failed,
+};
+
+// Removes the activation block from a startup/profile file. A zero-length
+// remainder carries no content to preserve, so such a file is deleted instead
+// of written back; any other content is kept exactly.
+auto unwireFile(fs::path const& path) -> Unwire {
+  auto const content = readText(path);
+  if (!content.has_value() || content->find(kBegin) == std::string::npos) {
+    return Unwire::Nothing;
+  }
+  auto const remaining = removeBlock(*content);
+  if (remaining.empty()) {
+    std::error_code ec;
+    if (!fs::remove(path, ec)) {
+      terminal::eprintln(
+        terminal::MessageKind::Error,
+        "cannot remove {}",
+        forwardSlashes(path.string())
+      );
+      return Unwire::Failed;
+    }
+    terminal::println(
+      terminal::MessageKind::Success,
+      "removed: {}",
+      forwardSlashes(path.string())
+    );
+    return Unwire::Changed;
+  }
+  if (!writeText(path, remaining)) {
+    terminal::eprintln(
+      terminal::MessageKind::Error,
+      "cannot write {}",
+      forwardSlashes(path.string())
+    );
+    return Unwire::Failed;
+  }
+  terminal::println(
+    terminal::MessageKind::Success,
+    "unwired: {}",
+    forwardSlashes(path.string())
+  );
+  return Unwire::Changed;
+}
+
 // ── Locations ───────────────────────────────────────────────────────────────
 
 // The encro user-data root follows the config-store chain (ENCRO_CONFIG >
@@ -198,13 +246,11 @@ int installPowerShell(std::string const& scriptText) {
   }
 
   auto const line = ". '" + forwardSlashes(scriptPath.string()) + "'\n";
-  auto const profiles = powerShellProfiles();
-  auto foundProfile = false;
-  for (auto const& profile: profiles) {
-    auto const content = readText(profile);
-    if (!content.has_value()) { continue; }
-    foundProfile = true;
-    if (isWiredWith(*content, line)) {
+  // A missing profile is treated as empty content: creating it is what makes a
+  // first-time install work in either PowerShell edition.
+  for (auto const& profile: powerShellProfiles()) {
+    auto const content = readText(profile).value_or("");
+    if (isWiredWith(content, line)) {
       terminal::println(
         terminal::MessageKind::Info,
         "already wired: {}",
@@ -212,7 +258,7 @@ int installPowerShell(std::string const& scriptText) {
       );
       continue;
     }
-    if (!writeText(profile, spliceBlock(*content, blockOf(line)))) {
+    if (!writeText(profile, spliceBlock(content, blockOf(line)))) {
       terminal::eprintln(
         terminal::MessageKind::Error,
         "cannot write {}",
@@ -224,23 +270,6 @@ int installPowerShell(std::string const& scriptText) {
       terminal::MessageKind::Success,
       "wired: {}",
       forwardSlashes(profile.string())
-    );
-  }
-  if (!foundProfile) {
-    // No profile anywhere: create the PowerShell 7+ one as the modern default.
-    auto const target = profiles[1];
-    if (!writeText(target, blockOf(line))) {
-      terminal::eprintln(
-        terminal::MessageKind::Error,
-        "cannot create {}",
-        forwardSlashes(target.string())
-      );
-      return 1;
-    }
-    terminal::println(
-      terminal::MessageKind::Success,
-      "wired: {}",
-      forwardSlashes(target.string())
     );
   }
 
@@ -254,23 +283,9 @@ int installPowerShell(std::string const& scriptText) {
 int uninstallPowerShell() {
   auto anything = false;
   for (auto const& profile: powerShellProfiles()) {
-    auto const content = readText(profile);
-    if (!content.has_value()) { continue; }
-    if (content->find(kBegin) == std::string::npos) { continue; }
-    if (!writeText(profile, removeBlock(*content))) {
-      terminal::eprintln(
-        terminal::MessageKind::Error,
-        "cannot write {}",
-        forwardSlashes(profile.string())
-      );
-      return 1;
-    }
-    terminal::println(
-      terminal::MessageKind::Success,
-      "unwired: {}",
-      forwardSlashes(profile.string())
-    );
-    anything = true;
+    auto const unwired = unwireFile(profile);
+    if (unwired == Unwire::Failed) { return 1; }
+    anything = anything || unwired == Unwire::Changed;
   }
   std::error_code ec;
   auto const scriptPath = userDataRoot() / "completion" / "encro.ps1";
@@ -415,24 +430,9 @@ int uninstallBash() {
     anything = true;
   }
 
-  auto const bashrc = *home / ".bashrc";
-  auto const content = readText(bashrc);
-  if (content.has_value() && content->find(kBegin) != std::string::npos) {
-    if (!writeText(bashrc, removeBlock(*content))) {
-      terminal::eprintln(
-        terminal::MessageKind::Error,
-        "cannot write {}",
-        forwardSlashes(bashrc.string())
-      );
-      return 1;
-    }
-    terminal::println(
-      terminal::MessageKind::Success,
-      "unwired: {}",
-      forwardSlashes(bashrc.string())
-    );
-    anything = true;
-  }
+  auto const unwired = unwireFile(*home / ".bashrc");
+  if (unwired == Unwire::Failed) { return 1; }
+  anything = anything || unwired == Unwire::Changed;
 
   auto const bashPath = userDataRoot() / "completion" / "encro.bash";
   if (fs::remove(bashPath, ec)) {

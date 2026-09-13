@@ -1,4 +1,5 @@
 #include "cmd/cmd.h"
+#include "cmd/completion_command.h"
 
 #include "test_utils.h"
 
@@ -6,6 +7,7 @@
 
 #include <fstream>
 #include <string>
+#include <string_view>
 
 TEST_CASE("completion parse survives a corrupt config file", "[completion]") {
   TempDir temp;
@@ -52,14 +54,17 @@ TEST_CASE("install and uninstall are mutually exclusive", "[completion]") {
 }
 
 TEST_CASE("completion help routing", "[completion]") {
+  constexpr auto kSynopsis =
+    std::string_view{"encro completion [--install | --uninstall] <powershell|bash>"};
+  constexpr auto kExample = std::string_view{"encro completion powershell --install"};
+
   SECTION("bare completion shows the subcommand help") {
     auto const result = testutils::parseArgs({"encro", "completion"});
     REQUIRE_FALSE(result.error.has_value());
     CHECK(result.completion);
     CHECK(result.completionShell.empty());
-    CHECK(
-      result.helpText().find("encro completion <powershell|bash>") != std::string::npos
-    );
+    CHECK(result.helpText().find(kSynopsis) != std::string::npos);
+    CHECK(result.helpText().find(kExample) != std::string::npos);
     CHECK(
       result.helpText().find("print, install, or uninstall shell completion scripts")
       != std::string::npos
@@ -69,8 +74,54 @@ TEST_CASE("completion help routing", "[completion]") {
   SECTION("-h routes through the help path") {
     auto const result = testutils::parseArgs({"encro", "completion", "-h"});
     CHECK(result.help);
-    CHECK(
-      result.helpText().find("encro completion <powershell|bash>") != std::string::npos
-    );
+    CHECK(result.helpText().find(kSynopsis) != std::string::npos);
+    CHECK(result.helpText().find(kExample) != std::string::npos);
   }
+
+  SECTION("--help routes through the help path") {
+    auto const result = testutils::parseArgs({"encro", "completion", "--help"});
+    CHECK(result.help);
+    CHECK(result.helpText().find(kSynopsis) != std::string::npos);
+  }
+}
+
+TEST_CASE(
+  "both completion argument orders parse to the same install request",
+  "[completion]"
+) {
+  auto const shellFirst =
+    testutils::parseArgs({"encro", "completion", "powershell", "--install"});
+  auto const flagFirst =
+    testutils::parseArgs({"encro", "completion", "--install", "powershell"});
+
+  REQUIRE_FALSE(shellFirst.error.has_value());
+  REQUIRE_FALSE(flagFirst.error.has_value());
+  CHECK(shellFirst.completionShell == "powershell");
+  CHECK(flagFirst.completionShell == "powershell");
+  CHECK(shellFirst.completionInstall);
+  CHECK(flagFirst.completionInstall);
+  CHECK_FALSE(shellFirst.completionUninstall);
+  CHECK_FALSE(flagFirst.completionUninstall);
+}
+
+TEST_CASE(
+  "completion install without a shell names the flag-first form",
+  "[completion]"
+) {
+  TempDir temp;
+  auto const errPath = temp.path / "stderr.txt";
+  auto const parsed = testutils::parseArgs({"encro", "completion", "--install"});
+  REQUIRE_FALSE(parsed.error.has_value());
+  REQUIRE(parsed.completionInstall);
+  REQUIRE(parsed.completionShell.empty());
+
+  {
+    auto capture = testutils::StderrCapture{errPath};
+    CHECK(cmd::runCompletionCommand(parsed) == 1);
+  }
+
+  auto const errText = testutils::readTextFile(errPath);
+  CHECK(
+    errText.find("encro completion --install <powershell|bash>") != std::string::npos
+  );
 }

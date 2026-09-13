@@ -41,7 +41,8 @@ Tab completion for options, enum values, and config keys is generated from the
 CLI itself, so it always matches your build.
 
 ```sh
-# PowerShell — install (adds one guarded block to your profile)
+# PowerShell — install (one guarded block per profile:
+# Windows PowerShell 5.1 and PowerShell 7)
 xmake run encro completion powershell --install
 
 # Git Bash / Linux bash — install (bash-completion lazy-load dir, or .bashrc)
