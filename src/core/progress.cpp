@@ -10,6 +10,7 @@
 #include <print>  // IWYU pragma: keep -- needed with MSVC STL; Linux libstdc++ pulls it transitively
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace progress {
@@ -68,6 +69,9 @@ constexpr auto kMsPerCol = std::uint64_t{1000 / kScrollColsPerSec};
 constexpr auto kMinScrollHeadBudget = std::size_t{12};
 constexpr auto kPostfixDelim = std::string_view{" | "};
 constexpr auto kPostfixDelimWidth = std::size_t{3};
+// Scroll animation repaint cadence: 8 cols/s at this interval moves roughly
+// one column per pass, and a pass that renders nothing costs one wakeup.
+constexpr auto kRepaintInterval = std::chrono::milliseconds{100};
 
 auto trimCopy(std::string_view text) -> std::string {
   auto begin = text.find_first_not_of(" \t");
@@ -319,6 +323,7 @@ std::size_t ProgressContext::addBar(std::string_view promptText, Tone tone) {
   auto const index = progress::addBar(manager_, bars_, tones_, promptText, tone);
   postfixes_.emplace_back(promptText);
   etas_.emplace_back();
+  ensureTicker();
   return index;
 }
 
@@ -373,9 +378,51 @@ auto ProgressContext::elapsedSeconds(
   return etas_[barIndex].elapsedSeconds(now);
 }
 
+auto ProgressContext::etaSeconds(std::size_t barIndex) const -> std::optional<float> {
+  auto lock = std::scoped_lock{mtx_};
+  return etas_[barIndex].etaSeconds(etas_[barIndex].lastProgress());
+}
+
+float ProgressContext::progressValue(std::size_t barIndex) const {
+  auto lock = std::scoped_lock{mtx_};
+  return etas_[barIndex].lastProgress();
+}
+
+std::uint64_t ProgressContext::tickCount() const {
+  auto lock = std::scoped_lock{mtx_};
+  return tickCount_;
+}
+
+void ProgressContext::ensureTicker() {
+  if (ticker_.joinable()) { return; }
+  ticker_ = std::jthread(
+    [this](
+      std::stop_token
+        stopToken  // NOLINT(performance-unnecessary-value-param): jthread callback signature is fixed
+    ) {
+      while (!stopToken.stop_requested()) {
+        std::this_thread::sleep_for(kRepaintInterval);
+        tick();
+      }
+    }
+  );
+}
+
+void ProgressContext::stopTicker() {
+  auto ticker = std::jthread{};
+  {
+    auto lock = std::scoped_lock{mtx_};
+    ticker = std::move(ticker_);
+  }
+  ticker.request_stop();  // ~jthread joins, outside the lock
+}
+
 void ProgressContext::tick() {
   auto lock = std::scoped_lock{mtx_};
-  if (bars_.empty()) { return; }
+  ++tickCount_;
+  // Repaint work is terminal-only; the counter still advances so the clock's
+  // liveness stays observable when stdout is not a TTY.
+  if (bars_.empty() || !progressBarsAllowed()) { return; }
   for (auto index = 0ull; index < bars_.size(); ++index) {
     applyBarText(index, etas_[index].lastProgress());
   }
@@ -401,6 +448,7 @@ void ProgressContext::render() {
 }
 
 void ProgressContext::eraseBars() {
+  stopTicker();
   auto lock = std::scoped_lock{mtx_};
   if (!progressBarsAllowed()) { return; }
   for (std::size_t index = 0; index < renderedBarCount_; ++index) {
