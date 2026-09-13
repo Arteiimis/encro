@@ -13,4 +13,4 @@
 
 - [x] 3.1 Run `xmake fmt -k`, `xmake build encro`, and `xmake test-report` — verify all pass, and `xmake tidy` reports no new findings in the touched files.
 - [x] 3.2 Run `xmake test-parallel` (unit + e2e shards) — verify the Catch2 logs report no failures (parallel `proc:wait` statuses are unreliable).
-- [ ] 3.3 Manual check (no PTY facility in tests, so bar frames stay unobservable to the automated suites): in a real terminal run a probe+encode batch whose filenames overflow the postfix budget, plus a pack run — verify the probe slot bars keep scrolling between probe steps, their status after ` | ` stays pinned, pack bars animate, and encode bars behave as before.
+- [x] 3.3 Manual check (no PTY facility in tests, so bar frames stay unobservable to the automated suites): in a real terminal run a probe+encode batch whose filenames overflow the postfix budget, plus a pack run — verify the probe slot bars keep scrolling between probe steps, their status after ` | ` stays pinned, pack bars animate, and encode bars behave as before.
