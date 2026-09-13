@@ -6,12 +6,13 @@
 
 ## 2. PowerShell dual-profile install
 
-- [ ] 2.1 Add failing tests in `tests/cmd_completion_install_tests.cpp`: first-time install (no profiles) creates both the WindowsPowerShell and PowerShell profile files with one guarded entry each; pre-existing profile content is preserved. Then drop the `foundProfile` branch in `installPowerShell` (`src/cmd/completion_install.cpp`) to wire both unconditionally and verify the tests pass (filesystem state and exit code; the wired-files print rides the existing install-output posture)
+- [ ] 2.1 Add failing tests in `tests/cmd_completion_install_tests.cpp` (run them with `ENCRO_TEST_COMPLETION=1`: `[install]` tests self-skip otherwise): first-time install (no profiles) creates both the WindowsPowerShell and PowerShell profile files with one guarded entry each, pre-existing profile content is preserved, and the run reports every wired file (`wired:` once per profile, per the install requirement). Then drop the `foundProfile` branch in `installPowerShell` (`src/cmd/completion_install.cpp`) to wire both unconditionally and verify `ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[install]"` passes (filesystem state and exit code; the wired-files print rides the existing install-output posture)
+- [ ] 2.2 Update the shell-completion section of `README.md` (its PowerShell install comment claims a single profile) to describe the dual-profile write
 
 ## 3. Uninstall empty-file cleanup
 
-- [ ] 3.1 Add failing tests: uninstall deletes a profile/startup file that is empty after block removal (whether install created it or it pre-existed empty) and keeps files with other content, then apply the empty-after-unwire deletion rule to `uninstallPowerShell` and `uninstallBash` and verify the tests pass
+- [ ] 3.1 Add failing tests (with `ENCRO_TEST_COMPLETION=1`): uninstall deletes a profile/startup file left empty after block removal (whether install created it or it pre-existed empty) and keeps files with other content, then apply the empty-after-unwire deletion rule to `uninstallPowerShell` and `uninstallBash` and verify `ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[install]"` passes
 
 ## 4. Verification
 
-- [ ] 4.1 Run `xmake test-parallel` and confirm no regressions across unit + e2e suites
+- [ ] 4.1 Run `xmake test-parallel` and confirm no regressions across unit + e2e suites, then run `ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[install]"` and confirm the completion install/uninstall tests execute (are not skipped) and pass
