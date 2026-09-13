@@ -31,7 +31,7 @@ int runCompletionCommand(CmdParseResult const& cmd) {
   if (cmd.completionShell.empty()) {
     terminal::eprintln(
       terminal::MessageKind::Error,
-      "specify a shell: encro completion <bash|powershell> --{}",
+      "specify a shell: encro completion --{} <powershell|bash>",
       cmd.completionInstall ? "install" : "uninstall"
     );
     return 1;
