@@ -99,3 +99,29 @@ investigation. Newest last.
   `tests/infra/crash_runtime_tests.cpp`. The crash-on-demand child keeps the
   stdout logger because its report is what the parent test reads.
 - **Impact:** CI reliability only; product code unaffected.
+
+## Flaky release-job SIGSEGV in the unit suite (heap corruption, victim test unrelated)
+
+- **Status:** open — no repro; rerunning the same commit's failed job passed
+  (run 34768754276 rerun) and the next push run was green (34771731216) ·
+  **Found:** 2026-09-13 (CI push of da34fd5, `unify-progress-scroll`)
+- **Symptom:** the `release` job's unit step exits 139. `/tmp/ut.log` ends with
+  `[CRASH] fatal signal 11` plus a symbol-less stack guarded by `#00 0x... in
+  libc.so.6`, and the JUnit report attaches `SIGSEGV - Segmentation violation
+  signal` to `known options carry completion metadata`
+  (`tests/cmd_completion_capture_tests.cpp:46`, last test of the run).
+- **Diagnosis:** that test only does registry lookups, temporary-string
+  compares and `malloc`/`free`; with the fault inside libc called from the test
+  binary it is the first allocation after heap corruption — the victim, not the
+  culprit. The capturing change (the `ProgressContext` repaint clock) never
+  touches the heap off a TTY: `progressBarsAllowed()` gates every render and
+  the ticker only bumps `tickCount_` under the mutex, so CI (no TTY) runs it
+  inert. The crashing file is unchanged since 2026-09-03. Only release is
+  affected — debug and coverage pass on the same commit — which points at a
+  release-only (LTO, no `_MSVC_STL_HARDENING`) silent out-of-bounds/UAF write
+  earlier in the suite; organize's ONNX Runtime inference and the pack cancel
+  paths are the standing candidates.
+- **Next step:** release carries no DWARF, so the captured stack cannot be
+  symbolized. Rebuild with `xmake f -m releasedbg` (ASan) and run the suite
+  repeatedly before re-reading the stack; a symbolized release job would make
+  the next occurrence self-diagnosing.
