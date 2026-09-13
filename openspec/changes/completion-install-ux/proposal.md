@@ -26,4 +26,4 @@ Two first-run traps make the completion feature look broken to new users. First,
 - `src/cmd/completion_command.cpp`: missing-shell error message reordered.
 - `src/cmd/completion_install.cpp`: `installPowerShell` wires both profiles unconditionally (the `foundProfile` branch is deleted); bash/PowerShell uninstall deletes files left empty after block removal.
 - Tests: `tests/cmd_completion_command_tests.cpp` (existing help-routing assertions pin the current synopsis substring and must be updated, plus the error-message test), `tests/cmd_completion_install_tests.cpp` (dual-profile wiring, empty-file cleanup).
-- README examples keep the positional-first form; it remains valid, so no README change is required.
+- README examples keep the positional-first form; it remains valid. The PowerShell install comment does claim a single profile, so that line is updated to describe the dual-profile write.
