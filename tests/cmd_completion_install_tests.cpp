@@ -1,5 +1,6 @@
 #include "cmd/completion_install.h"
 
+#include "cmd/completion_command.h"
 #include "infra/env.h"
 #include "test_utils.h"
 
@@ -83,6 +84,11 @@ auto readIfExists(fs::path const& path) -> std::optional<std::string> {
 
 auto pwshProfile(EnvGuard const& env) -> fs::path {
   return env.documents() / "PowerShell" / "Microsoft.PowerShell_profile.ps1";
+}
+
+// Windows PowerShell 5.1's profile lives in the sibling directory.
+auto legacyPwshProfile(EnvGuard const& env) -> fs::path {
+  return env.documents() / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1";
 }
 
 // Install/uninstall coverage writes shell startup files and is exercised
@@ -271,4 +277,118 @@ TEST_CASE(
   REQUIRE(script.has_value());
   CHECK(script->find('\r') == std::string::npos);
   CHECK_FALSE(fs::exists(env.home() / ".bashrc"));  // startup file untouched
+}
+
+TEST_CASE(
+  "first-time powershell install wires both profile editions",
+  "[completion][install]"
+) {
+  requireInstallTestingOrSkip();
+  TempDir temp;
+  EnvGuard env{temp.path};
+
+  // Pre-seed the PowerShell 7 profile; the 5.1 profile does not exist at all.
+  auto const ps7 = pwshProfile(env);
+  fs::create_directories(ps7.parent_path());
+  {
+    auto stream = std::ofstream{ps7, std::ios::binary | std::ios::trunc};
+    stream << "Set-PoshPrompt clean\n";
+  }
+  auto const ps5 = legacyPwshProfile(env);
+  REQUIRE_FALSE(fs::exists(ps5));
+
+  auto const outPath = temp.path / "stdout.txt";
+  auto const flagFirst =
+    testutils::parseArgs({"encro", "completion", "--install", "powershell"});
+  REQUIRE_FALSE(flagFirst.error.has_value());
+  {
+    auto outCapture = testutils::StdoutCapture{outPath};
+    REQUIRE(cmd::runCompletionCommand(flagFirst) == 0);
+  }
+
+  // The missing edition's profile is created; the existing one keeps its content.
+  auto const created = readIfExists(ps5);
+  REQUIRE(created.has_value());
+  CHECK(countOccurrences(*created, ">>> encro-completion >>>") == 1);
+  auto const appended = readIfExists(ps7);
+  REQUIRE(appended.has_value());
+  CHECK(countOccurrences(*appended, ">>> encro-completion >>>") == 1);
+  CHECK(appended->find("Set-PoshPrompt clean") != std::string::npos);
+
+  // Every wired profile file is reported.
+  auto const outText = readIfExists(outPath).value_or("");
+  CHECK(outText.find("installed completion script") != std::string::npos);
+  CHECK(countOccurrences(outText, "wired:") == 2);
+}
+
+TEST_CASE(
+  "powershell uninstall deletes profiles it emptied and keeps edited ones",
+  "[completion][install]"
+) {
+  requireInstallTestingOrSkip();
+  TempDir temp;
+  EnvGuard env{temp.path};
+
+  // No profiles exist: install creates both, so uninstall must delete both.
+  REQUIRE(completion::installScript("powershell") == 0);
+  auto const ps5 = legacyPwshProfile(env);
+  auto const ps7 = pwshProfile(env);
+  REQUIRE(fs::exists(ps5));
+  REQUIRE(fs::exists(ps7));
+
+  REQUIRE(completion::uninstallScript("powershell") == 0);
+  CHECK_FALSE(fs::exists(ps5));
+  CHECK_FALSE(fs::exists(ps7));
+
+  // A profile holding unrelated content keeps the file and that content.
+  fs::create_directories(ps7.parent_path());
+  {
+    auto stream = std::ofstream{ps7, std::ios::binary | std::ios::trunc};
+    stream << "Set-PoshPrompt clean\n";
+  }
+  REQUIRE(completion::installScript("powershell") == 0);
+  REQUIRE(completion::uninstallScript("powershell") == 0);
+  CHECK_FALSE(fs::exists(ps5));  // recreated by the second install, deleted again
+  auto const kept = readIfExists(ps7);
+  REQUIRE(kept.has_value());
+  CHECK(kept->find("encro-completion") == std::string::npos);
+  CHECK(kept->find("Set-PoshPrompt clean") != std::string::npos);
+
+  // A profile that already existed empty is deleted as well, no provenance
+  // tracking needed.
+  {
+    auto stream = std::ofstream{ps7, std::ios::binary | std::ios::trunc};
+    REQUIRE(stream.is_open());
+  }
+  REQUIRE(fs::exists(ps7));
+  REQUIRE(completion::installScript("powershell") == 0);
+  REQUIRE(completion::uninstallScript("powershell") == 0);
+  CHECK_FALSE(fs::exists(ps7));
+  CHECK_FALSE(fs::exists(ps5));
+
+  // A repeat uninstall is a no-op that says so.
+  auto const outPath = temp.path / "stdout.txt";
+  {
+    auto outCapture = testutils::StdoutCapture{outPath};
+    REQUIRE(completion::uninstallScript("powershell") == 0);
+  }
+  CHECK(
+    testutils::readTextFile(outPath).find("nothing installed for powershell")
+    != std::string::npos
+  );
+}
+
+TEST_CASE("bash uninstall deletes a startup file it emptied", "[completion][install]") {
+  requireInstallTestingOrSkip();
+  TempDir temp;
+  EnvGuard env{temp.path};
+
+  // No .bashrc and no bash-completion anywhere: install creates the file.
+  auto const bashrc = env.home() / ".bashrc";
+  REQUIRE_FALSE(fs::exists(bashrc));
+  REQUIRE(completion::installScript("bash") == 0);
+  REQUIRE(fs::exists(bashrc));
+
+  REQUIRE(completion::uninstallScript("bash") == 0);
+  CHECK_FALSE(fs::exists(bashrc));
 }

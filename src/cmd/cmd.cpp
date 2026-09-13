@@ -561,7 +561,8 @@ constexpr auto kConfigUsageLines = std::array{
 };
 
 constexpr auto kCompletionUsageLines = std::array{
-  "encro completion <powershell|bash> [--install | --uninstall]"sv,
+  "encro completion [--install | --uninstall] <powershell|bash>"sv,
+  "encro completion powershell --install"sv,
 };
 
 constexpr auto kOrganizeUsageLines = std::array{
