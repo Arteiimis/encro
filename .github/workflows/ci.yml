@@ -115,7 +115,7 @@ jobs:
 
       - name: Upload test reports
         # 每次 run（含成功）都把 JUnit 报告 + console 日志 + encro 运行日志（含
-        # ffmpeg stderr）+ 保留的 e2e 失败现场目录留为 artifact，由 debug-collect
+        # ffmpeg stderr）+ 保留的 e2e 失败现场目录留为 artifact，由 collect
         # 汇总成统一的 ci-run-* 包。必须放在所有测试步骤之后：原 failure() 在此处
         # 指“上一步失败”，提前放置会在 e2e 失败时错过上传；改为 always() 后始终执行。
         # include-hidden-files: 通配展开默认忽略隐藏目录——保留现场里的 .encro/
