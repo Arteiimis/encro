@@ -562,7 +562,7 @@ auto probeSingleInputPlan(
     );
     bars.progressCtx.setPostfixText(
       bars.bar,
-      std::format("Probing: {} · CQ {} {}", fileName, cq, phase)
+      std::format("Probing: {} | CQ {} {}", fileName, cq, phase)
     );
   };
   auto const onPoint = [&](std::size_t done, int cq) {
@@ -573,7 +573,7 @@ auto probeSingleInputPlan(
         / static_cast<float>(encodeprobe::kMaxProbeSteps)
     );
     bars.progressCtx
-      .setPostfixText(bars.bar, std::format("Probing: {} · CQ {} scored", fileName, cq));
+      .setPostfixText(bars.bar, std::format("Probing: {} | CQ {} scored", fileName, cq));
   };
   auto const plan =
     encodeprobe::probeSingleFile(ctx, options.original, probeRoot, 1, onPoint, onStep);

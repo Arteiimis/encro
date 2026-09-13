@@ -5,11 +5,13 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace progress {
@@ -88,14 +90,26 @@ public:
     std::chrono::steady_clock::time_point now
   ) const -> std::optional<float>;
 
-  // Repaints all bars with their current scroll state without touching
-  // progress values or ETA sampling; lets the postfix scroll animation
-  // advance on a timer of its own, decoupled from progress data updates.
+  // Remaining-time estimate for the bar's last progress sample; nullopt while
+  // the estimator is unseeded. Read-only view for diagnostics and tests.
+  auto etaSeconds(std::size_t barIndex) const -> std::optional<float>;
+
+  // Last progress value set for the bar; the value a repaint re-renders.
+  // Read-only view for diagnostics and tests.
+  float progressValue(std::size_t barIndex) const;
+
+  // Repaint passes run so far, including the ones that rendered nothing.
+  // Read-only view for diagnostics and tests.
+  std::uint64_t tickCount() const;
+
+  // Re-renders every bar from the state the setters already stored, advancing
+  // the postfix scroll window on the context's own clock; touches neither
+  // progress values nor ETA sampling.
   void tick();
 
   // Clears the rendered bar lines from the terminal. The bars stay alive in
   // the manager (it holds references to them), so no render call may follow
-  // until the context is destroyed.
+  // until a bar is added again.
   void eraseBars();
 
   auto manager() -> Manager&;
@@ -105,15 +119,25 @@ private:
   void applyBarText(std::size_t barIndex, float progress);
   void render();
 
+  // Repaint clock lifetime. ensureTicker() runs with mtx_ held (addBar);
+  // stopTicker() takes mtx_ only to detach the clock and joins outside it,
+  // since a wakeup already inside tick() may be holding the lock.
+  void ensureTicker();
+  void stopTicker();
+
   mutable std::mutex mtx_;
   Manager manager_;
   BarCollection bars_;
   std::vector<Tone> tones_;
   std::vector<std::string> postfixes_;
   std::vector<EtaEstimator> etas_;
+  std::uint64_t tickCount_ = 0;
   // Bars rendered on the last render pass; bars added but never rendered
   // (all-cache-hit probe runs) leave no lines to erase.
   std::size_t renderedBarCount_ = 0;
+  // Declared after every member the clock touches, so destruction joins it
+  // before those members die.
+  std::jthread ticker_;
 };
 
 auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string;

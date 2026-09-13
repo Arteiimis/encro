@@ -77,6 +77,67 @@ TEST_CASE("ProgressContext tick is safe on an empty context", "[progress]") {
   ctx.setPostfixText(barIndex, "done");
 }
 
+TEST_CASE("ProgressContext repaints on its own clock", "[progress]") {
+  auto ctx = progress::ProgressContext{};
+  // A bar-less context must not repaint at all.
+  CHECK(ctx.tickCount() == 0);
+
+  auto const barIndex = ctx.addBar("self-ticking", progress::Tone::Default);
+  ctx.setProgress(barIndex, 10.0f);
+
+  // No setter and no explicit tick() from here on: only the context's own
+  // clock can move the count. waitUntil polls, so no fixed sleep is needed.
+  CHECK(testutils::waitUntil([&] { return ctx.tickCount() > 0; }));
+  auto const afterFirstWakeup = ctx.tickCount();
+  CHECK(testutils::waitUntil([&] { return ctx.tickCount() > afterFirstWakeup; }));
+
+  // eraseBars() joins the clock, so no wakeup can land after it returns and a
+  // window of silence is deterministic rather than a raced negative check.
+  ctx.eraseBars();
+  auto const afterErase = ctx.tickCount();
+  CHECK_FALSE(
+    testutils::waitUntil(
+      [&] { return ctx.tickCount() != afterErase; },
+      std::chrono::milliseconds{250}
+    )
+  );
+
+  // A bar added afterwards arms a fresh clock.
+  ctx.addBar("reused", progress::Tone::Default);
+  CHECK(testutils::waitUntil([&] { return ctx.tickCount() > afterErase; }));
+}
+
+TEST_CASE("repaints leave progress and the estimate untouched", "[progress]") {
+  auto ctx = progress::ProgressContext{};
+  auto const barIndex = ctx.addBar("repaint-only", progress::Tone::Default);
+
+  // Seed the estimator: it folds at most one sample per kSampleInterval, so
+  // keep advancing progress from a poll loop until an estimate exists.
+  ctx.setProgress(barIndex, 5.0f);
+  CHECK(testutils::waitUntil([&] {
+    ctx.setProgress(barIndex, 20.0f);
+    return ctx.etaSeconds(barIndex).has_value();
+  }));
+
+  auto const estimateBefore = ctx.etaSeconds(barIndex);
+  REQUIRE(estimateBefore.has_value());
+  auto const progressBefore = ctx.progressValue(barIndex);
+  auto const elapsedBefore =
+    ctx.elapsedSeconds(barIndex, std::chrono::steady_clock::now());
+  REQUIRE(elapsedBefore.has_value());
+  auto const wakeupsBefore = ctx.tickCount();
+
+  // Repaint-only passes (progress.h: "touches neither progress values nor ETA
+  // sampling"): the value and the estimate must not move, while the elapsed
+  // clock the badge reads keeps counting.
+  CHECK(testutils::waitUntil([&] { return ctx.tickCount() > wakeupsBefore; }));
+  CHECK(ctx.progressValue(barIndex) == progressBefore);
+  CHECK(ctx.etaSeconds(barIndex) == estimateBefore);
+  auto const elapsedAfter =
+    ctx.elapsedSeconds(barIndex, std::chrono::steady_clock::now());
+  CHECK(elapsedAfter > elapsedBefore);
+}
+
 TEST_CASE("progress updates emit no frames when stdout is not a terminal", "[progress]") {
   TempDir temp;
   auto const capturePath = temp.path / "out.txt";
@@ -440,6 +501,39 @@ TEST_CASE("scrollWindow keeps CJK code points whole", "[progress]") {
     CHECK(displaytext::displayWidth(window) <= 12);
     CHECK(hasWholeCodePoints(window));
   }
+}
+
+TEST_CASE("probe postfix keeps its status pinned while the label scrolls", "[progress]") {
+  // Probe and preview bars join label and status the same way encode bars do,
+  // so the status has to stay fixed and only the label may scroll.
+  auto const head = std::string{"Probing: a_very_long_filename_that_overflows.mp4"};
+  auto const tail = std::string{"CQ 20 scoring"};
+  auto const postfix = head + " | " + tail;
+
+  auto const first = progress::fitPostfixWithEta(std::nullopt, postfix, 30);
+  CHECK(displaytext::displayWidth(first) <= 30);
+  CHECK(first.find("...") == std::string::npos);
+  auto const delimPos = first.find(" | ");
+  REQUIRE(delimPos != std::string::npos);
+  CHECK(first.substr(delimPos + 3) == tail);
+  // The scrolling part is a window of the label, never padding or a fragment
+  // of the status.
+  CHECK(head.find(first.substr(0, delimPos)) != std::string::npos);
+
+  // The window moves on the wall clock: keep sampling frames while it does and
+  // check that the status holds its place in every one of them.
+  auto heldStatus = true;
+  auto const moved = testutils::waitUntil([&] {
+    auto const frame = progress::fitPostfixWithEta(std::nullopt, postfix, 30);
+    auto const pos = frame.find(" | ");
+    heldStatus = heldStatus
+      && pos != std::string::npos
+      && frame.substr(pos + 3) == tail
+      && displaytext::displayWidth(frame) <= 30;
+    return frame != first;
+  });
+  CHECK(moved);
+  CHECK(heldStatus);
 }
 
 TEST_CASE(
