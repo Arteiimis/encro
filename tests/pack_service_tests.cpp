@@ -5,8 +5,16 @@
 
 #include <libzippp/libzippp.h>
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <format>
+#include <mutex>
+#include <optional>
+#include <set>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -15,6 +23,129 @@ namespace fs = std::filesystem;
 namespace {
 
 pack::PackService testService;
+
+constexpr auto kIndicatorMarker = std::string_view{" | Finalizing "};
+constexpr auto kPackingLabelPrefix = std::string_view{"Packing: archive "};
+constexpr auto kTwoGroupCompletionText = std::string_view{"Packed: archive 2/2 complete"};
+// Enough entries that the bulk archive is still packing while the one-entry
+// gated archive holds its finalizing window open.
+constexpr auto kBulkEntries = std::size_t{1000};
+
+// One status text as the compact run published it, with its arrival moment and
+// whether the gated finalizing window was already open.
+struct PublishedText {
+  std::string text;
+  std::chrono::steady_clock::time_point at;
+  bool inFinalizingWindow = false;
+};
+
+// Holds an archive's finalizing window open until the test releases it, so the
+// compact indicator's texts can be observed deterministically: the plan's
+// close hook signals entry and blocks the packing thread on the latch.
+class FinalizingWindow {
+public:
+  void record(std::string_view text) {
+    auto lock = std::scoped_lock{mutex_};
+    texts_.push_back(
+      PublishedText{
+        .text = std::string{text},
+        .at = std::chrono::steady_clock::now(),
+        .inFinalizingWindow = entered_.load(std::memory_order_acquire),
+      }
+    );
+  }
+
+  void hold() {
+    entered_.store(true, std::memory_order_release);
+    // Poll instead of blocking outright: a run that never publishes the awaited
+    // text must fail its assertions rather than hang this thread.
+    (void)testutils::waitUntil(
+      [this] { return released_.load(std::memory_order_acquire); },
+      std::chrono::milliseconds{5'000}
+    );
+  }
+
+  void release() { released_.store(true, std::memory_order_release); }
+
+  auto entered() const -> bool { return entered_.load(std::memory_order_acquire); }
+
+  auto snapshot() const -> std::vector<PublishedText> {
+    auto lock = std::scoped_lock{mutex_};
+    return texts_;
+  }
+
+private:
+  mutable std::mutex mutex_;
+  std::vector<PublishedText> texts_;
+  std::atomic<bool> entered_{false};
+  std::atomic<bool> released_{false};
+};
+
+// The packed-file counter of a compact status text ("... [file n/m]").
+auto packedFileCounter(std::string_view text) -> std::size_t {
+  auto const marker = text.find("[file ");
+  if (marker == std::string_view::npos) { return 0; }
+
+  auto value = std::size_t{0};
+  for (auto index = marker + 6; index < text.size(); ++index) {
+    if (text[index] < '0' || text[index] > '9') { break; }
+    value = value * 10 + static_cast<std::size_t>(text[index] - '0');
+  }
+  return value;
+}
+
+// The animation frame of a text carrying the finalizing indicator, if any.
+auto finalizingFrame(std::string_view text) -> std::optional<char> {
+  auto const marker = text.find(kIndicatorMarker);
+  if (marker == std::string_view::npos) { return std::nullopt; }
+
+  auto const frameIndex = marker + kIndicatorMarker.size();
+  if (frameIndex >= text.size()) { return std::nullopt; }
+  return text[frameIndex];
+}
+
+// Two groups: a one-entry archive whose close window the gate holds open, and a
+// bulk archive that keeps publishing packing updates into that window.
+auto makeGatedPlan(
+  fs::path const& srcDir,
+  fs::path const& outDir,
+  FinalizingWindow& window
+) -> pack::PackPlan {
+  auto const gatedFile = testutils::writeTextFile(srcDir / "gated.txt");
+
+  auto bulkEntries = std::vector<pack::PackFileEntry>{};
+  bulkEntries.reserve(kBulkEntries);
+  for (auto index = std::size_t{0}; index < kBulkEntries; ++index) {
+    auto const name = std::format("bulk{:04d}.txt", index);
+    bulkEntries.push_back(
+      pack::PackFileEntry{
+        .sourcePath = testutils::writeTextFile(srcDir / name),
+        .zipEntryName = name,
+      }
+    );
+  }
+
+  auto groups = std::vector<std::vector<pack::PackFileEntry>>{};
+  groups.push_back(
+    std::vector<pack::PackFileEntry>{
+      pack::PackFileEntry{.sourcePath = gatedFile, .zipEntryName = "gated.txt"},
+    }
+  );
+  groups.push_back(std::move(bulkEntries));
+
+  return pack::PackPlan{
+    .groups = std::move(groups),
+    .outputDir = outDir,
+    .zipNameForIndex =
+      [](std::size_t index) { return std::format("part{}.zip", index + 1); },
+    .progressCallbacks =
+      {
+        .onCompactStatusText = [&window](std::string_view text) { window.record(text); },
+      },
+    .onBeforeArchiveClose = [&window] { window.hold(); },
+    .compact = true,
+  };
+}
 
 }  // namespace
 
@@ -255,13 +386,18 @@ TEST_CASE(
   auto const result = testService.packGroups(plan);
 
   REQUIRE(result);
-  // The finalizing spinner emits "Finalizing |"-style animation frames on a
-  // 120 ms cadence; under load they interleave anywhere in the stream, not
-  // only at the tail. Filter them out: the deterministic packing sequence
-  // must then match exactly, independent of position.
+  // The finalizing indicator appends " | Finalizing <frame>" to the packing
+  // label on a 120 ms frame cadence, so its texts interleave anywhere in the
+  // stream, not only at the tail. Filter them out: the deterministic packing
+  // sequence must then match exactly, independent of position.
   auto statusFrames = std::vector<std::string>{};
+  auto indicatorTexts = std::vector<std::string>{};
   for (auto const& text: statusTexts) {
-    if (!text.starts_with("Finalizing ")) { statusFrames.push_back(text); }
+    if (text.find("| Finalizing") != std::string::npos) {
+      indicatorTexts.push_back(text);
+    } else {
+      statusFrames.push_back(text);
+    }
   }
   CHECK(
     statusFrames
@@ -274,6 +410,125 @@ TEST_CASE(
       "Packed: archive 1/1 complete",
     }
   );
+  // The indicator never replaces the label, and its archive counter still shows
+  // the archives completed so far - none of this single group's one, because the
+  // counter only advances once the archive trailer is written. This run's close
+  // is fast, so it may publish no indicator text at all.
+  CHECK(std::ranges::none_of(statusTexts, [](std::string const& text) {
+    return text.starts_with("Finalizing");
+  }));
+  CHECK(std::ranges::all_of(indicatorTexts, [](std::string const& text) {
+    return text.starts_with("Packing: archive 0/1 ");
+  }));
+}
+
+TEST_CASE(
+  "compact postfix keeps the packing label while an archive finalizes",
+  "[pack-service]"
+) {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+
+  auto window = FinalizingWindow{};
+  auto const plan = makeGatedPlan(srcDir, outDir, window);
+
+  auto result = eh::Result<std::vector<fs::path>>{};
+  auto packThread = std::jthread{[&] { result = testService.packGroups(plan); }};
+
+  // The reproduction needs a packing update published inside the window, on top
+  // of the indicator's own texts. Release on that or on the deadline, so a run
+  // that publishes neither fails the assertions instead of holding the window.
+  (void)testutils::waitUntil([&] {
+    auto const texts = window.snapshot();
+    auto const sawIndicator = std::ranges::any_of(texts, [](PublishedText const& entry) {
+      return entry.text.find(kIndicatorMarker) != std::string::npos;
+    });
+
+    auto lowestCounter = std::size_t{0};
+    auto highestCounter = std::size_t{0};
+    for (auto const& entry: texts) {
+      if (!entry.inFinalizingWindow) { continue; }
+      auto const counter = packedFileCounter(entry.text);
+      lowestCounter = lowestCounter == 0 ? counter : std::min(lowestCounter, counter);
+      highestCounter = std::max(highestCounter, counter);
+    }
+    return sawIndicator && highestCounter > lowestCounter;
+  });
+  window.release();
+  packThread.join();
+
+  REQUIRE(result);
+  auto const texts = window.snapshot();
+  REQUIRE_FALSE(texts.empty());
+
+  // The indicator is appended to the packing label, never a bare finalizing
+  // text that would take the label's place.
+  CHECK(std::ranges::none_of(texts, [](PublishedText const& entry) {
+    return entry.text.starts_with("Finalizing");
+  }));
+  CHECK(std::ranges::any_of(texts, [](PublishedText const& entry) {
+    return entry.text.find(kIndicatorMarker) != std::string::npos;
+  }));
+  CHECK(std::ranges::all_of(texts, [](PublishedText const& entry) {
+    return entry.text.starts_with(kPackingLabelPrefix)
+      || entry.text == kTwoGroupCompletionText;
+  }));
+  CHECK(texts.back().text == kTwoGroupCompletionText);
+}
+
+TEST_CASE("compact finalizing frame steps on a fixed cadence", "[pack-service]") {
+  TempDir temp;
+  auto const srcDir = temp.path / "src";
+  auto const outDir = temp.path / "out";
+  fs::create_directories(srcDir);
+
+  auto window = FinalizingWindow{};
+  auto const plan = makeGatedPlan(srcDir, outDir, window);
+
+  auto result = eh::Result<std::vector<fs::path>>{};
+  auto packThread = std::jthread{[&] { result = testService.packGroups(plan); }};
+
+  REQUIRE(testutils::waitUntil([&] { return window.entered(); }));
+  auto const windowOpenedAt = std::chrono::steady_clock::now();
+  (void)testutils::waitUntil(
+    [&] {
+      return std::chrono::steady_clock::now() - windowOpenedAt
+        >= std::chrono::milliseconds{500};
+    },
+    std::chrono::milliseconds{5'000}
+  );
+  window.release();
+  packThread.join();
+
+  REQUIRE(result);
+
+  // Frames of the texts published while the window was open, in arrival order.
+  auto frames = std::vector<std::pair<char, std::chrono::steady_clock::time_point>>{};
+  for (auto const& entry: window.snapshot()) {
+    if (!entry.inFinalizingWindow) { continue; }
+    if (auto const frame = finalizingFrame(entry.text); frame.has_value()) {
+      frames.emplace_back(frame.value(), entry.at);
+    }
+  }
+  REQUIRE(frames.size() >= 2);
+
+  auto changes = std::size_t{0};
+  auto distinct = std::set<char>{};
+  for (auto index = std::size_t{0}; index < frames.size(); ++index) {
+    distinct.insert(frames[index].first);
+    if (index > 0 && frames[index].first != frames[index - 1].first) { ++changes; }
+  }
+
+  // Frames step at 120 ms boundaries, so a span of S ms cannot hold more than
+  // S/120 + 1 steps however many packing updates land inside it.
+  auto const spanMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        frames.back().second - frames.front().second
+  )
+                        .count();
+  CHECK(changes <= static_cast<std::size_t>(spanMs) / 120 + 1);
+  CHECK(distinct.size() >= 2);
 }
 
 TEST_CASE(

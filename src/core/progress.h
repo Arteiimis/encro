@@ -107,6 +107,11 @@ public:
   // progress values nor ETA sampling.
   void tick();
 
+  // True when this context can actually paint: it holds at least one bar,
+  // stdout is a terminal, and output is not quiet. Callers use it to skip work
+  // whose output has nowhere to go.
+  bool renderable() const;
+
   // Clears the rendered bar lines from the terminal. The bars stay alive in
   // the manager (it holds references to them), so no render call may follow
   // until a bar is added again.

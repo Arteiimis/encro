@@ -171,6 +171,15 @@ TEST_CASE("progress updates emit no frames when stdout is not a terminal", "[pro
     CHECK(text.find("tick") == std::string::npos);
     CHECK(text.find("status line") != std::string::npos);
   }
+  SECTION("renderable is false without a terminal or without bars") {
+    auto capture = testutils::StdoutCapture{capturePath};
+    auto withBar = progress::ProgressContext{};
+    withBar.addBar("tick", progress::Tone::Default);
+    CHECK_FALSE(withBar.renderable());
+
+    auto withoutBars = progress::ProgressContext{};
+    CHECK_FALSE(withoutBars.renderable());
+  }
 }
 
 TEST_CASE("resolveColor maps progress tones to distinct roles", "[progress]") {

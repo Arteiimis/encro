@@ -429,6 +429,11 @@ void ProgressContext::tick() {
   render();
 }
 
+bool ProgressContext::renderable() const {
+  auto lock = std::scoped_lock{mtx_};
+  return !bars_.empty() && progressBarsAllowed();
+}
+
 void ProgressContext::setTone(std::size_t barIndex, Tone tone) {
   auto lock = std::scoped_lock{mtx_};
   if (tones_[barIndex] == tone) { return; }
