@@ -493,12 +493,7 @@ TEST_CASE(
 
   // The window opened while the bulk archive was still packing: its updates
   // advanced the label's file counter inside the window, which is the
-  // interleaving the defect needs.
-  auto const [lowestCounter, highestCounter] = windowCounterRange(texts);
-  CHECK(highestCounter > lowestCounter);
-
-  // The indicator is appended to the packing label, never a bare finalizing
-  // text that would take the label's place.
+  // interleaving the defect needs (the REQUIRE above waits for exactly that).
   CHECK(std::ranges::none_of(texts, [](PublishedText const& entry) {
     return entry.text.starts_with("Finalizing");
   }));
