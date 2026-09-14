@@ -486,7 +486,8 @@ auto pack::Packer::packFilesToZip(
   std::vector<PackFileEntry> const& entries,
   fs::path const& zipFilePath,
   PackEntryProgressCallback const& onEntryPacked,
-  std::atomic<std::size_t>* finalizingCount
+  std::atomic<std::size_t>* finalizingCount,
+  std::function<void()> const& onBeforeClose
 ) -> eh::Result<void> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());
   zip.open(libzippp::ZipArchive::New);
@@ -516,6 +517,7 @@ auto pack::Packer::packFilesToZip(
   }
 
   if (finalizingCount) { finalizingCount->fetch_add(1, std::memory_order_release); }
+  if (onBeforeClose) { onBeforeClose(); }
 
   zip.close();
 
