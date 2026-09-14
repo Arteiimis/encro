@@ -42,6 +42,14 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 
 ## Testing
 
+- **Test-value rules** (a test earns its place by the regression it names, not by the lines it covers):
+  - One `TEST_CASE` = one spec scenario or one named failure mode ("if X regresses, this goes red"); no speculative cases for imagined future needs.
+  - Assert behavior, not structure: it must go red when the behavior changes and stay green when the implementation is refactored.
+  - Test at the cheapest level that covers the contract — fake-tool unit test by default; e2e only for process boundaries, stop/resume and real-ffmpeg smoke, and never re-asserting what a unit test already covers.
+  - Negative paths: one case per equivalence class, never an exhaustive parameter/branch matrix.
+  - Reuse the existing fakes (`fake_media_tool`, fake ffmpeg/ffprobe); add no new mocks, and never mock the module under test.
+  - Coverage is a probe, not a target — no percentage gate. To raise confidence on changed lines, flip a condition and confirm a test goes red instead of adding cases.
+  - Every `TEST_CASE` must assert; an assertion-free case (hidden probe, crash-free smoke) needs a `// assert-ok: <reason>` marker above it — enforced by the `[test-utils][meta]` check.
 - Fixtures/helpers in `tests/test_utils.h`. `TempDir` keeps its directory (and prints the path to stderr) when a test fails, so state files / fake-tool logs survive for inspection. E2E subprocess failures dump child stdout/stderr via `REQUIRE_SUCCESS` (in `tests/e2e/e2e_test_utils.h`).
 - E2E: `fake_media_tool.cpp` impersonates ffmpeg/ffprobe, controlled via env vars (`ENCRO_FAKE_FFMPEG_EXIT_CODE`, ...).
 - `[real-ffmpeg]`/`[smoke]` tests auto-skip via `SKIP()` when ffmpeg not on PATH.

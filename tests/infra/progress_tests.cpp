@@ -63,6 +63,7 @@ void sampleConstantRate(
 
 }  // namespace
 
+// assert-ok: crash-free smoke — a crash or throw fails the case.
 TEST_CASE("ProgressContext tick is safe on an empty context", "[progress]") {
   // Ticks on an empty context must not crash and must keep subsequent
   // progress updates working
