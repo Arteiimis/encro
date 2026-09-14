@@ -7,12 +7,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <filesystem>
 #include <format>
+#include <limits>
 #include <mutex>
 #include <optional>
-#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -29,7 +30,7 @@ constexpr auto kPackingLabelPrefix = std::string_view{"Packing: archive "};
 constexpr auto kTwoGroupCompletionText = std::string_view{"Packed: archive 2/2 complete"};
 // Enough entries that the bulk archive is still packing while the one-entry
 // gated archive holds its finalizing window open.
-constexpr auto kBulkEntries = std::size_t{1000};
+constexpr auto kBulkEntries = std::size_t{2000};
 
 // One status text as the compact run published it, with its arrival moment and
 // whether the gated finalizing window was already open.
@@ -87,11 +88,10 @@ auto packedFileCounter(std::string_view text) -> std::size_t {
   if (marker == std::string_view::npos) { return 0; }
 
   auto value = std::size_t{0};
-  for (auto index = marker + 6; index < text.size(); ++index) {
-    if (text[index] < '0' || text[index] > '9') { break; }
-    value = value * 10 + static_cast<std::size_t>(text[index] - '0');
-  }
-  return value;
+  auto const digits = text.substr(marker + 6);
+  auto const [end, error] =
+    std::from_chars(digits.data(), digits.data() + digits.size(), value);
+  return error == std::errc{} ? value : 0;
 }
 
 // The animation frame of a text carrying the finalizing indicator, if any.
@@ -102,6 +102,46 @@ auto finalizingFrame(std::string_view text) -> std::optional<char> {
   auto const frameIndex = marker + kIndicatorMarker.size();
   if (frameIndex >= text.size()) { return std::nullopt; }
   return text[frameIndex];
+}
+
+// Counter range among the texts published while the gated window was open: a
+// gap between the two is a packing update that landed inside the window.
+auto windowCounterRange(std::vector<PublishedText> const& texts)
+  -> std::pair<std::size_t, std::size_t> {
+  auto lowest = std::numeric_limits<std::size_t>::max();
+  auto highest = std::size_t{0};
+  for (auto const& entry: texts) {
+    if (!entry.inFinalizingWindow) { continue; }
+    auto const counter = packedFileCounter(entry.text);
+    lowest = std::min(lowest, counter);
+    highest = std::max(highest, counter);
+  }
+  return {lowest, highest};
+}
+
+// Frames of the texts published while the window was open, in arrival order.
+auto windowFrames(std::vector<PublishedText> const& texts)
+  -> std::vector<std::pair<char, std::chrono::steady_clock::time_point>> {
+  auto frames = std::vector<std::pair<char, std::chrono::steady_clock::time_point>>{};
+  for (auto const& entry: texts) {
+    if (!entry.inFinalizingWindow) { continue; }
+    if (auto const frame = finalizingFrame(entry.text); frame.has_value()) {
+      frames.emplace_back(frame.value(), entry.at);
+    }
+  }
+  return frames;
+}
+
+// Steps across the frames the window observed. The indicator steps at most once
+// per 120 ms, so the frames spanning S ms cannot hold more than S/120 + 1 steps.
+auto frameStepCount(
+  std::vector<std::pair<char, std::chrono::steady_clock::time_point>> const& frames
+) -> std::size_t {
+  auto steps = std::size_t{0};
+  for (auto index = std::size_t{1}; index < frames.size(); ++index) {
+    if (frames[index].first != frames[index - 1].first) { ++steps; }
+  }
+  return steps;
 }
 
 // Two groups: a one-entry archive whose close window the gate holds open, and a
@@ -391,13 +431,8 @@ TEST_CASE(
   // stream, not only at the tail. Filter them out: the deterministic packing
   // sequence must then match exactly, independent of position.
   auto statusFrames = std::vector<std::string>{};
-  auto indicatorTexts = std::vector<std::string>{};
   for (auto const& text: statusTexts) {
-    if (text.find("| Finalizing") != std::string::npos) {
-      indicatorTexts.push_back(text);
-    } else {
-      statusFrames.push_back(text);
-    }
+    if (text.find("| Finalizing") == std::string::npos) { statusFrames.push_back(text); }
   }
   CHECK(
     statusFrames
@@ -410,15 +445,12 @@ TEST_CASE(
       "Packed: archive 1/1 complete",
     }
   );
-  // The indicator never replaces the label, and its archive counter still shows
-  // the archives completed so far - none of this single group's one, because the
-  // counter only advances once the archive trailer is written. This run's close
-  // is fast, so it may publish no indicator text at all.
+  // The indicator never replaces the label. This run's close is fast, so it may
+  // publish no indicator text at all (the gated case above owns the composed
+  // text); the archive counter reading is pinned by the expected sequence, where
+  // the label reads 0/1 until the close completes and 1/1 after it.
   CHECK(std::ranges::none_of(statusTexts, [](std::string const& text) {
     return text.starts_with("Finalizing");
-  }));
-  CHECK(std::ranges::all_of(indicatorTexts, [](std::string const& text) {
-    return text.starts_with("Packing: archive 0/1 ");
   }));
 }
 
@@ -438,24 +470,16 @@ TEST_CASE(
   auto packThread = std::jthread{[&] { result = testService.packGroups(plan); }};
 
   // The reproduction needs a packing update published inside the window, on top
-  // of the indicator's own texts. Release on that or on the deadline, so a run
-  // that publishes neither fails the assertions instead of holding the window.
-  (void)testutils::waitUntil([&] {
+  // of the indicator's own texts. Release on that, so a run that publishes
+  // neither fails the assertions instead of holding the window open.
+  REQUIRE(testutils::waitUntil([&] {
     auto const texts = window.snapshot();
     auto const sawIndicator = std::ranges::any_of(texts, [](PublishedText const& entry) {
       return entry.text.find(kIndicatorMarker) != std::string::npos;
     });
-
-    auto lowestCounter = std::size_t{0};
-    auto highestCounter = std::size_t{0};
-    for (auto const& entry: texts) {
-      if (!entry.inFinalizingWindow) { continue; }
-      auto const counter = packedFileCounter(entry.text);
-      lowestCounter = lowestCounter == 0 ? counter : std::min(lowestCounter, counter);
-      highestCounter = std::max(highestCounter, counter);
-    }
+    auto const [lowestCounter, highestCounter] = windowCounterRange(texts);
     return sawIndicator && highestCounter > lowestCounter;
-  });
+  }));
   window.release();
   packThread.join();
 
@@ -463,19 +487,39 @@ TEST_CASE(
   auto const texts = window.snapshot();
   REQUIRE_FALSE(texts.empty());
 
+  // The window opened while the bulk archive was still packing: its updates
+  // advanced the label's file counter inside the window, which is the
+  // interleaving the defect needs.
+  auto const [lowestCounter, highestCounter] = windowCounterRange(texts);
+  CHECK(highestCounter > lowestCounter);
+
   // The indicator is appended to the packing label, never a bare finalizing
   // text that would take the label's place.
   CHECK(std::ranges::none_of(texts, [](PublishedText const& entry) {
     return entry.text.starts_with("Finalizing");
-  }));
-  CHECK(std::ranges::any_of(texts, [](PublishedText const& entry) {
-    return entry.text.find(kIndicatorMarker) != std::string::npos;
   }));
   CHECK(std::ranges::all_of(texts, [](PublishedText const& entry) {
     return entry.text.starts_with(kPackingLabelPrefix)
       || entry.text == kTwoGroupCompletionText;
   }));
   CHECK(texts.back().text == kTwoGroupCompletionText);
+
+  // The label keeps the archives-completed-so-far counter: the gated archive is
+  // the first of the two to close, so its window reads 0/2 and the bulk
+  // archive's later window reads 1/2 - never the finished 2/2, which only the
+  // completion text reports.
+  auto indicatorTexts = std::vector<std::string>{};
+  for (auto const& entry: texts) {
+    if (entry.text.find(kIndicatorMarker) != std::string::npos) {
+      indicatorTexts.push_back(entry.text);
+    }
+  }
+  REQUIRE_FALSE(indicatorTexts.empty());
+  CHECK(indicatorTexts.front().starts_with("Packing: archive 0/2 "));
+  CHECK(std::ranges::all_of(indicatorTexts, [](std::string const& text) {
+    return text.starts_with("Packing: archive 0/2 ")
+      || text.starts_with("Packing: archive 1/2 ");
+  }));
 }
 
 TEST_CASE("compact finalizing frame steps on a fixed cadence", "[pack-service]") {
@@ -490,45 +534,33 @@ TEST_CASE("compact finalizing frame steps on a fixed cadence", "[pack-service]")
   auto result = eh::Result<std::vector<fs::path>>{};
   auto packThread = std::jthread{[&] { result = testService.packGroups(plan); }};
 
-  REQUIRE(testutils::waitUntil([&] { return window.entered(); }));
-  auto const windowOpenedAt = std::chrono::steady_clock::now();
-  (void)testutils::waitUntil(
-    [&] {
-      return std::chrono::steady_clock::now() - windowOpenedAt
-        >= std::chrono::milliseconds{500};
-    },
-    std::chrono::milliseconds{5'000}
-  );
+  // Wait on observable animation state, not a wall-clock dwell: four frame
+  // steps are enough to measure the cadence over a span the test actually saw
+  // (the spec's 500 ms window is this same rule with T = 500).
+  auto const sawFourSteps = testutils::waitUntil([&] {
+    return frameStepCount(windowFrames(window.snapshot())) >= 4;
+  });
   window.release();
   packThread.join();
 
   REQUIRE(result);
+  REQUIRE(sawFourSteps);
 
-  // Frames of the texts published while the window was open, in arrival order.
-  auto frames = std::vector<std::pair<char, std::chrono::steady_clock::time_point>>{};
-  for (auto const& entry: window.snapshot()) {
-    if (!entry.inFinalizingWindow) { continue; }
-    if (auto const frame = finalizingFrame(entry.text); frame.has_value()) {
-      frames.emplace_back(frame.value(), entry.at);
-    }
-  }
-  REQUIRE(frames.size() >= 2);
-
-  auto changes = std::size_t{0};
-  auto distinct = std::set<char>{};
-  for (auto index = std::size_t{0}; index < frames.size(); ++index) {
-    distinct.insert(frames[index].first);
-    if (index > 0 && frames[index].first != frames[index - 1].first) { ++changes; }
-  }
-
-  // Frames step at 120 ms boundaries, so a span of S ms cannot hold more than
-  // S/120 + 1 steps however many packing updates land inside it.
+  auto const texts = window.snapshot();
+  auto const frames = windowFrames(texts);
+  auto const steps = frameStepCount(frames);
   auto const spanMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                         frames.back().second - frames.front().second
   )
                         .count();
-  CHECK(changes <= static_cast<std::size_t>(spanMs) / 120 + 1);
-  CHECK(distinct.size() >= 2);
+  // Steps land on 120 ms boundaries, so a span of S ms cannot hold more than
+  // S/120 + 1 of them, however many packing updates land inside it.
+  CHECK(steps <= static_cast<std::size_t>(spanMs) / 120 + 1);
+
+  // The bulk archive was packing inside the same window, so its updates were
+  // published between these frames without adding steps of their own.
+  auto const [lowestCounter, highestCounter] = windowCounterRange(texts);
+  CHECK(highestCounter > lowestCounter);
 }
 
 TEST_CASE(

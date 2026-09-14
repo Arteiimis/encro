@@ -104,22 +104,21 @@ struct CompactProgressState {
     auto const initialStatus = formatCompactPackingStatus(0, archiveCount, 0, totalFiles);
     barIndex = ctx.addBar(initialStatus, progress::Tone::Packing);
     ctx.setProgress(barIndex.value(), 0.0f);
-    label = initialStatus;
-    ctx.setPostfixText(barIndex.value(), initialStatus);
+    publish(initialStatus, onCompactStatusText);
     if (onCompactProgress) { onCompactProgress(0, totalFiles); }
-    if (onCompactStatusText) { onCompactStatusText(initialStatus); }
   }
 
   // Single entry point for the compact line: the packing label is always the
   // head, and the finalizing indicator is appended as its own part while an
   // archive is writing its trailer. Both writers - packing updates and the
   // indicator - publish through here, so neither can erase the other's text.
+  // An empty label keeps the current one (indicator repaints).
   void publish(
-    std::optional<std::string> const& newLabel,
+    std::string_view newLabel,
     std::function<void(std::string_view)> const& onCompactStatusText
   ) {
     auto lock = std::scoped_lock{mutex};
-    if (newLabel.has_value()) { label = newLabel.value(); }
+    if (!newLabel.empty()) { label = newLabel; }
 
     auto const text = composeText();
     if (barIndex.has_value()) { ctx.setPostfixText(barIndex.value(), text); }
@@ -130,9 +129,8 @@ struct CompactProgressState {
   // so fall back to the normal cadence to avoid a hot spin while the spinner's
   // own exit conditions catch up.
   void waitTick() {
-    using namespace std::chrono_literals;
-    if (stopsignal::waitForStop(std::chrono::milliseconds{120})) {
-      std::this_thread::sleep_for(std::chrono::milliseconds{120});
+    if (stopsignal::waitForStop(kFrameInterval)) {
+      std::this_thread::sleep_for(kFrameInterval);
     }
   }
 
@@ -150,7 +148,7 @@ struct CompactProgressState {
           !stopToken.stop_requested() && !spinnerStop.load(std::memory_order_acquire)
         ) {
           if (finalizingCount.load(std::memory_order_acquire) > 0) {
-            publish(std::nullopt, onCompactStatusText);
+            publish({}, onCompactStatusText);
           }
           // One repaint per frame interval, rendered or not: the wait is the
           // cadence, so the frame cannot advance at repaint speed.
@@ -168,6 +166,10 @@ struct CompactProgressState {
     spinnerThread.request_stop();
     if (spinnerThread.joinable()) { spinnerThread.join(); }
     if (barIndex.has_value()) {
+      // Completion is terminal: every archive task has settled, so the
+      // finalizing counter cannot legitimately still be up and the completion
+      // text must not carry the indicator.
+      finalizingCount.store(0, std::memory_order_release);
       auto const completedStatus = formatCompactPackedStatus(archiveCount, archiveCount);
       ctx.setTone(barIndex.value(), progress::Tone::Success);
       publish(completedStatus, onCompactStatusText);
@@ -175,17 +177,15 @@ struct CompactProgressState {
   }
 
 private:
-  // Frame of the 120 ms animation cycle the elapsed clock is in right now. The
-  // clock owns the frame, so repainting more often cannot spin it faster.
-  static auto currentFrame() -> char {
-    constexpr auto kFrames = std::array{'|', '/', '-', '\\'};
-    constexpr auto kFrameIntervalMs = std::int64_t{120};
-    auto const elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                             std::chrono::steady_clock::now().time_since_epoch()
-    )
-                             .count();
-    return kFrames
-      [static_cast<std::size_t>(elapsedMs / kFrameIntervalMs) % kFrames.size()];
+  // The indicator's four frames step once per interval, on the elapsed clock:
+  // the clock owns the frame, so repainting more often cannot spin it faster.
+  static constexpr auto kFrameInterval = std::chrono::milliseconds{120};
+  static constexpr auto kFrames = std::array{'|', '/', '-', '\\'};
+
+  static char currentFrame() {
+    auto const frameTicks =
+      std::chrono::steady_clock::now().time_since_epoch() / kFrameInterval;
+    return kFrames[static_cast<std::size_t>(frameTicks) % kFrames.size()];
   }
 
   auto composeText() const -> std::string {
