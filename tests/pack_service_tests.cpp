@@ -68,8 +68,6 @@ public:
 
   void release() { released_.store(true, std::memory_order_release); }
 
-  auto entered() const -> bool { return entered_.load(std::memory_order_acquire); }
-
   auto snapshot() const -> std::vector<PublishedText> {
     auto lock = std::scoped_lock{mutex_};
     return texts_;
@@ -104,19 +102,25 @@ auto finalizingFrame(std::string_view text) -> std::optional<char> {
   return text[frameIndex];
 }
 
-// Counter range among the texts published while the gated window was open: a
-// gap between the two is a packing update that landed inside the window.
+// Counter range among the packing labels published while the gated window was
+// open: a gap between the two is a packing update that landed inside the window.
+// The completion text carries no counters and is skipped.
 auto windowCounterRange(std::vector<PublishedText> const& texts)
   -> std::pair<std::size_t, std::size_t> {
   auto lowest = std::numeric_limits<std::size_t>::max();
   auto highest = std::size_t{0};
+  auto seenLabel = false;
   for (auto const& entry: texts) {
-    if (!entry.inFinalizingWindow) { continue; }
+    if (!entry.inFinalizingWindow || !entry.text.starts_with(kPackingLabelPrefix)) {
+      continue;
+    }
     auto const counter = packedFileCounter(entry.text);
     lowest = std::min(lowest, counter);
     highest = std::max(highest, counter);
+    seenLabel = true;
   }
-  return {lowest, highest};
+  return seenLabel ? std::pair{lowest, highest}
+                   : std::pair{std::size_t{0}, std::size_t{0}};
 }
 
 // Frames of the texts published while the window was open, in arrival order.
