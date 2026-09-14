@@ -134,6 +134,7 @@ int main(int argc, char* argv[]) {
 // env gate. While Catch2's FatalConditionHandler owns the filter slot, the
 // first-chance handler must still produce a crash record that names this test
 // through the real provider installed in main.
+// assert-ok: hidden probe — a parent process test inspects the child's crash record.
 TEST_CASE("in-session hardening crash", "[.][crash-on-demand]") {
   if (!processenv::readEnvVar("ENCRO_TEST_CRASH_OOB").has_value()) { return; }
   std::vector<int> const victim{1, 2, 3};
