@@ -92,6 +92,8 @@ struct CompactProgressState {
   std::atomic<std::size_t> finalizingCount{0};
   std::atomic<bool> spinnerStop{false};
   std::jthread spinnerThread;
+  // Last packing status text; the head of every composed line.
+  std::string label;
 
   void initBar(
     std::size_t archiveCount,
@@ -102,21 +104,26 @@ struct CompactProgressState {
     auto const initialStatus = formatCompactPackingStatus(0, archiveCount, 0, totalFiles);
     barIndex = ctx.addBar(initialStatus, progress::Tone::Packing);
     ctx.setProgress(barIndex.value(), 0.0f);
+    label = initialStatus;
     ctx.setPostfixText(barIndex.value(), initialStatus);
     if (onCompactProgress) { onCompactProgress(0, totalFiles); }
     if (onCompactStatusText) { onCompactStatusText(initialStatus); }
   }
 
-  void renderFinalizingFrame(
-    std::size_t& frameIndex,
+  // Single entry point for the compact line: the packing label is always the
+  // head, and the finalizing indicator is appended as its own part while an
+  // archive is writing its trailer. Both writers - packing updates and the
+  // indicator - publish through here, so neither can erase the other's text.
+  void publish(
+    std::optional<std::string> const& newLabel,
     std::function<void(std::string_view)> const& onCompactStatusText
   ) {
-    constexpr auto frames = std::array{'|', '/', '-', '\\'};
     auto lock = std::scoped_lock{mutex};
-    auto const finalizingText = std::format("Finalizing {}", frames[frameIndex]);
-    frameIndex = (frameIndex + 1) % frames.size();
-    if (barIndex.has_value()) { ctx.setPostfixText(barIndex.value(), finalizingText); }
-    if (onCompactStatusText) { onCompactStatusText(finalizingText); }
+    if (newLabel.has_value()) { label = newLabel.value(); }
+
+    auto const text = composeText();
+    if (barIndex.has_value()) { ctx.setPostfixText(barIndex.value(), text); }
+    if (onCompactStatusText) { onCompactStatusText(text); }
   }
 
   // Wake immediately on a stop request; the manual-reset event stays signaled,
@@ -130,33 +137,27 @@ struct CompactProgressState {
   }
 
   void startSpinner(std::function<void(std::string_view)> const& onCompactStatusText) {
+    // No destination for the indicator's output: bars cannot paint and no
+    // status consumer is installed, so a timing thread would repaint nothing.
+    if (!ctx.renderable() && !onCompactStatusText) { return; }
+
     spinnerThread = std::jthread{
       [this, &onCompactStatusText](
         std::stop_token
           stopToken  // NOLINT(performance-unnecessary-value-param): jthread callback signature is fixed
       ) {
-        auto frameIndex = std::size_t{0};
         while (
           !stopToken.stop_requested() && !spinnerStop.load(std::memory_order_acquire)
         ) {
-          if (finalizingCount.load(std::memory_order_acquire) == 0) {
-            waitTick();
-            continue;
+          if (finalizingCount.load(std::memory_order_acquire) > 0) {
+            publish(std::nullopt, onCompactStatusText);
           }
-          renderFinalizingFrame(frameIndex, onCompactStatusText);
+          // One repaint per frame interval, rendered or not: the wait is the
+          // cadence, so the frame cannot advance at repaint speed.
+          waitTick();
         }
       }
     };
-  }
-
-  void tryUpdateStatus(
-    std::string_view statusText,
-    std::function<void(std::string_view)> const& onCompactStatusText
-  ) {
-    if (finalizingCount.load(std::memory_order_acquire) == 0) {
-      if (barIndex.has_value()) { ctx.setPostfixText(barIndex.value(), statusText); }
-      if (onCompactStatusText) { onCompactStatusText(statusText); }
-    }
   }
 
   void finish(
@@ -165,13 +166,31 @@ struct CompactProgressState {
   ) {
     spinnerStop.store(true, std::memory_order_release);
     spinnerThread.request_stop();
-    spinnerThread.join();
+    if (spinnerThread.joinable()) { spinnerThread.join(); }
     if (barIndex.has_value()) {
       auto const completedStatus = formatCompactPackedStatus(archiveCount, archiveCount);
       ctx.setTone(barIndex.value(), progress::Tone::Success);
-      ctx.setPostfixText(barIndex.value(), completedStatus);
-      if (onCompactStatusText) { onCompactStatusText(completedStatus); }
+      publish(completedStatus, onCompactStatusText);
     }
+  }
+
+private:
+  // Frame of the 120 ms animation cycle the elapsed clock is in right now. The
+  // clock owns the frame, so repainting more often cannot spin it faster.
+  static auto currentFrame() -> char {
+    constexpr auto kFrames = std::array{'|', '/', '-', '\\'};
+    constexpr auto kFrameIntervalMs = std::int64_t{120};
+    auto const elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now().time_since_epoch()
+    )
+                             .count();
+    return kFrames
+      [static_cast<std::size_t>(elapsedMs / kFrameIntervalMs) % kFrames.size()];
+  }
+
+  auto composeText() const -> std::string {
+    if (finalizingCount.load(std::memory_order_acquire) == 0) { return label; }
+    return std::format("{} | Finalizing {}", label, currentFrame());
   }
 };
 
@@ -193,7 +212,8 @@ struct CompactPackRunner {
       plan.groups[index],
       zipPath,
       [this](std::size_t /*fileIndex*/, std::size_t /*fileCount*/) { onEntryPacked(); },
-      &state.finalizingCount
+      &state.finalizingCount,
+      plan.onBeforeArchiveClose
     );
 
     if (!packRes) { return recorder.fail(index, zipPath, packRes); }
@@ -205,39 +225,45 @@ struct CompactPackRunner {
 
 private:
   void onEntryPacked() const {
-    auto lock = std::scoped_lock{state.mutex};
-    ++state.completedFileCount;
+    auto statusText = std::string{};
+    {
+      auto lock = std::scoped_lock{state.mutex};
+      ++state.completedFileCount;
 
-    auto const percent = totalFiles == 0 ? 100.0f
-                                         : static_cast<float>(state.completedFileCount)
-        / static_cast<float>(totalFiles)
-        * 100.0f;
-    auto const statusText = formatCompactPackingStatus(
-      state.completedArchiveCount.load(std::memory_order_acquire),
-      archiveCount,
-      state.completedFileCount,
-      totalFiles
-    );
+      auto const percent = totalFiles == 0 ? 100.0f
+                                           : static_cast<float>(state.completedFileCount)
+          / static_cast<float>(totalFiles)
+          * 100.0f;
+      statusText = formatCompactPackingStatus(
+        state.completedArchiveCount.load(std::memory_order_acquire),
+        archiveCount,
+        state.completedFileCount,
+        totalFiles
+      );
 
-    if (state.barIndex.has_value()) {
-      state.ctx.setProgress(state.barIndex.value(), percent);
+      if (state.barIndex.has_value()) {
+        state.ctx.setProgress(state.barIndex.value(), percent);
+      }
+      if (plan.progressCallbacks.onCompactProgress) {
+        plan.progressCallbacks.onCompactProgress(state.completedFileCount, totalFiles);
+      }
     }
-    if (plan.progressCallbacks.onCompactProgress) {
-      plan.progressCallbacks.onCompactProgress(state.completedFileCount, totalFiles);
-    }
-    state.tryUpdateStatus(statusText, plan.progressCallbacks.onCompactStatusText);
+    state.publish(statusText, plan.progressCallbacks.onCompactStatusText);
   }
 
   void onGroupPacked() const {
     auto const completed = state.completedArchiveCount.fetch_add(1) + 1;
-    auto lock = std::scoped_lock{state.mutex};
-    auto const statusText = formatCompactPackingStatus(
-      completed,
-      archiveCount,
-      state.completedFileCount,
-      totalFiles
-    );
-    state.tryUpdateStatus(statusText, plan.progressCallbacks.onCompactStatusText);
+    auto statusText = std::string{};
+    {
+      auto lock = std::scoped_lock{state.mutex};
+      statusText = formatCompactPackingStatus(
+        completed,
+        archiveCount,
+        state.completedFileCount,
+        totalFiles
+      );
+    }
+    state.publish(statusText, plan.progressCallbacks.onCompactStatusText);
   }
 };
 
@@ -437,6 +463,7 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
         .onCompactProgress = plan.progressCallbacks.onCompactProgress,
         .onCompactStatusText = plan.progressCallbacks.onCompactStatusText,
       },
+    .onBeforeArchiveClose = plan.onBeforeArchiveClose,
     .maxParallelJobs = plan.maxParallelJobs,
     .removeOnFailure = plan.removeOnFailure,
     .compact = plan.compact,

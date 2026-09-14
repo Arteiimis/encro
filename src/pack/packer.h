@@ -41,7 +41,8 @@ public:
     std::vector<PackFileEntry> const& entries,
     std::filesystem::path const& zipFilePath,
     pack::detail::PackEntryProgressCallback const& onEntryPacked = {},
-    std::atomic<std::size_t>* finalizingCount = nullptr
+    std::atomic<std::size_t>* finalizingCount = nullptr,
+    std::function<void()> const& onBeforeClose = {}
   ) -> eh::Result<void>;
 
   auto groupFilesBySize(
