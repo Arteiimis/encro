@@ -209,6 +209,7 @@ constexpr auto kLogProbeTag = "[.][log-probe]";
 
 // Hidden probe: the child must start with a clean logger registry, so an
 // in-process probe would read state other test cases left behind instead.
+// assert-ok: hidden probe — the parent test inspects the child's output.
 TEST_CASE("log probe", kLogProbeTag) {
   LOG_INFO("log-probe-marker");
 }
