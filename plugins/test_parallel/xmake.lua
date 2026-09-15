@@ -142,7 +142,11 @@ task("test-parallel")
     end
 
     -- Incremental build first (same execv pattern as the coverage plugin).
-    run("xmake", {"build", "tests", "e2e_tests"})
+    -- run() returns the exit code instead of raising, so check it here: a
+    -- failed build would otherwise shard the stale binaries.
+    if run("xmake", {"build", "tests", "e2e_tests"}) ~= 0 then
+      os.raise("tests build failed; refusing to shard stale binaries")
+    end
 
     local tests_bin = path.join(bin_dir, "tests" .. ext)
     local e2e_bin = path.join(bin_dir, "e2e_tests" .. ext)
