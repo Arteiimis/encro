@@ -239,3 +239,20 @@ TEST_CASE("emission is independent of stored config", "[completion]") {
 
   REQUIRE(underEnv == baseline);
 }
+
+TEST_CASE("scope model keeps a short-only option", "[completion]") {
+  // The registry is keyed by long name; an option registered without one
+  // (legal in CLI11) must still reach the model with a usable id rather than
+  // being dereferenced blindly.
+  auto app = CLI::App{"synthetic"};
+  app.add_flag("-x", "short-only flag");
+
+  auto const scope = completion::buildScope(app, "");
+
+  auto const found =
+    std::ranges::find_if(scope.options, [](completion::OptionInfo const& option) {
+      return has(option.names, "-x");
+    });
+  REQUIRE(found != scope.options.end());
+  CHECK_FALSE(found->id.empty());
+}

@@ -8,6 +8,12 @@
 #include <string>
 #include <vector>
 
+namespace CLI {
+
+class App;
+
+}  // namespace CLI
+
 namespace completion {
 
 // One completable option in a command scope.
@@ -38,6 +44,10 @@ struct CompletionModel {
 
 // Walks a fresh app tree (registered without config injection).
 auto buildCompletionModel() -> CompletionModel;
+
+// Per-scope half of buildCompletionModel: the app's own options plus those of
+// its nameless option-group children. Synthetic apps can be modeled directly.
+auto buildScope(CLI::App const& app, std::string name) -> ScopeInfo;
 
 auto emitBashScript(CompletionModel const& model) -> std::string;
 auto emitPowerShellScript(CompletionModel const& model) -> std::string;
