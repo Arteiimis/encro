@@ -587,7 +587,7 @@ auto captureEnvironmentSnapshot() -> std::string {
     if (data.subprocessCmdline.has_value()) {
       subprocessStr += fmt::format(" cmd='{}'", data.subprocessCmdline.value());
     }
-    subprocessStr += "]";
+    subprocessStr += ']';
   }
 
   return fmt::format(

@@ -46,7 +46,7 @@ auto writeFixture(
     json += std::format(R"("{}": {},)", hash, tags);
   }
   if (!entries.empty()) { json.pop_back(); }
-  json += "}";
+  json += '}';
   auto out = std::ofstream{path, std::ios::binary};
   out << json;
 }

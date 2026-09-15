@@ -219,9 +219,8 @@ auto findOnPath(fs::path const& token) -> fs::path {
 auto resolveExecutableToken(boost::process::v2::shell const& command) -> fs::path {
   auto const& rawToken = command.argv()[0];
   auto const token = fs::path{rawToken};
-  auto const raw = token.native();
-  auto const pathLike = raw.find('/') != decltype(raw)::npos
-    || raw.find(fs::path::preferred_separator) != decltype(raw)::npos;
+  auto const& raw = token.native();
+  auto const pathLike = raw.contains('/') || raw.contains(fs::path::preferred_separator);
   auto const found = boost::process::v2::environment::find_executable(rawToken);
   auto exePath = found.empty() ? fs::path{} : fs::path{found.native()};
 #if !defined(_WIN32)
@@ -299,6 +298,7 @@ auto runProcess(
   auto pipeCloseEc = boost::system::error_code{};
   // NOLINTNEXTLINE(bugprone-unused-return-value): asio close(ec) returns void via BOOST_ASIO_SYNC_OP_VOID
   pipeWriter.close(pipeCloseEc);
+  // NOLINTNEXTLINE(bugprone-unused-return-value): same asio close(ec) signature
   if (!mergeStdErr) { stderrWriter.close(pipeCloseEc); }
 
   auto pipeShared = std::make_shared<asio::readable_pipe>(std::move(pipeReader));
