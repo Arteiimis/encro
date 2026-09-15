@@ -2,7 +2,8 @@
 
 Invoked by the xmake `tidy` plugin task. Default prints warnings as text;
 `--sarif` writes build/tidy-results.sarif. `--selftest` scans a bundled
-fixture to assert the check set and header-filter behave.
+fixture to assert the check set, the header filter, and the diagnostic
+parser behave.
 """
 import concurrent.futures
 import glob
@@ -26,7 +27,7 @@ LINE_RE = re.compile(
     r'^(?P<path>.+?):(?P<line>\d+):(?P<col>\d+): '
     r'(?P<level>warning|error|note): (?P<rest>.*)$'
 )
-CHECK_RE = re.compile(r' \[(?P<check>[\w][\w.-]*)\]$')
+CHECK_RE = re.compile(r' \[(?P<check>[\w][\w.,-]*)\]$')
 PROJECT_RE = re.compile(HEADER_FILTER)
 
 
@@ -45,6 +46,11 @@ def parse_warning(line):
         'message': msg,
         'check': check,
     }
+
+
+def check_names(warning):
+    """LLVM >= 19 names every check that produced a diagnostic, comma-joined."""
+    return (warning['check'] or 'clang-tidy').split(',')
 
 
 def require_tool():
@@ -171,9 +177,27 @@ def find_deps(tu):
     return None
 
 
+def config_files(tu):
+    """Every .clang-tidy clang-tidy consults for this TU: its directory upward."""
+    out = []
+    d = os.path.dirname(os.path.abspath(tu))
+    stop = os.path.abspath(os.getcwd())
+    while True:
+        p = os.path.join(d, '.clang-tidy')
+        if os.path.isfile(p):
+            out.append(p)
+        parent = os.path.dirname(d)
+        if d == stop or parent == d:
+            break
+        d = parent
+    return out
+
+
 def cache_key(tu, flags, mode, deps, checks):
     parts = [tu, flags, mode, checks or '', clang_tidy_version()]
-    for p in ['.clang-tidy', tu]:
+    # clang-tidy resolves .clang-tidy per source directory, so a child config
+    # (tests/.clang-tidy) must invalidate the TUs it covers too.
+    for p in [*config_files(tu), tu]:
         try:
             parts.append(str(os.path.getmtime(p)))
         except OSError:
@@ -292,11 +316,11 @@ def scan_tu(tu, analyzer, flags, checks):
 
 
 def sarif_document(all_warnings):
-    rules = sorted({w['check'] for w in all_warnings if w['check']})
+    rules = sorted({c for w in all_warnings for c in check_names(w)})
     ver = clang_tidy_version()
     results = [
         {
-            'ruleId': w['check'] or 'clang-tidy',
+            'ruleId': check_names(w)[0],
             'level': 'warning',
             'message': {'text': w['message']},
             'locations': [
@@ -372,7 +396,17 @@ def selftest():
             print('--- clang-tidy output ---', file=sys.stderr)
             print(r.stdout, file=sys.stderr)
             return 1
-    print('selftest: OK (narrowing flagged, pragma-once excluded)')
+
+    # LLVM >= 19 names every check that produced a diagnostic, comma-joined.
+    parsed = parse_warning(
+        'src/a.cpp:1:2: warning: msg '
+        '[performance-faster-string-find,performance-prefer-single-char-overloads]'
+    )
+    want = 'performance-faster-string-find,performance-prefer-single-char-overloads'
+    if not parsed or parsed['check'] != want:
+        print('selftest FAIL: comma-joined check list not parsed', file=sys.stderr)
+        return 1
+    print('selftest: OK (narrowing flagged, pragma-once excluded, check list parsed)')
     return 0
 
 
