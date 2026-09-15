@@ -41,8 +41,12 @@ task("test-report")
       return status
     end
 
-    -- Incremental build first (same execv pattern as the coverage plugin)
-    run("xmake", {"build", "tests"})
+    -- Incremental build first (same execv pattern as the coverage plugin).
+    -- run() returns the exit code instead of raising, so check it here: a
+    -- failed build would otherwise run the stale binary and report a pass.
+    if run("xmake", {"build", "tests"}) ~= 0 then
+      os.raise("tests build failed; refusing to run a stale binary")
+    end
 
     if not os.exists(tests_bin) then
       os.raise(string.format("tests binary not found: %s", tests_bin))
