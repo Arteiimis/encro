@@ -25,13 +25,13 @@ task("size")
 
     local exe = path.join(builddir, platform, os.arch(), mode, target .. ext)
     if not os.exists(exe) then
-      error(string.format("binary not found: %s (build it first)", exe))
+      os.raise(string.format("binary not found: %s (build it first)", exe))
     end
 
     local function find_tool(name)
       local tool = import("lib.detect.find_tool")(name)
       if not tool then
-        error(string.format("%s not found on PATH; install LLVM or add it to PATH", name))
+        os.raise(string.format("%s not found on PATH; install LLVM or add it to PATH", name))
       end
       return tool.program
     end
@@ -39,7 +39,7 @@ task("size")
     local function run(cmd, args, opts)
       local ret = os.execv(cmd, args, table.join(opts or {}, {try = true}))
       if not ret or ret ~= 0 then
-        error(string.format("command failed: %s %s", cmd, table.concat(args, " ")))
+        os.raise(string.format("command failed: %s %s", cmd, table.concat(args, " ")))
       end
     end
 
