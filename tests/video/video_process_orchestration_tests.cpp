@@ -277,7 +277,7 @@ TEST_CASE(
   CHECK(text.find("file 'seg_1.ts'") != std::string::npos);
   // No absolute or slash-bearing paths may leak into the manifest.
   CHECK(text.find(temp.path.string()) == std::string::npos);
-  CHECK(text.find("/") == std::string::npos);
+  CHECK(text.find('/') == std::string::npos);
 }
 TEST_CASE(
   "video scan narration prints one outcome line on non-TTY output",

@@ -186,7 +186,7 @@ inline auto JsonFormatter::extractErrorContext(std::string_view payload)
 
   // Trim trailing "]"
   auto ctxContent = payload.substr(contentStart, contentEnd - contentStart);
-  if (ctxContent.ends_with("]")) { ctxContent.remove_suffix(1); }
+  if (ctxContent.ends_with(']')) { ctxContent.remove_suffix(1); }
 
   // Split by " > " into individual context frames
   auto frames = std::vector<std::string>{};
@@ -235,7 +235,7 @@ inline auto JsonFormatter::extractAttributes(std::string_view payload)
   // The suffix structure guarantees the final character is "]" (the object's
   // own closing brace belongs to the JSON). Strip it and parse the object.
   auto attrsText = payload.substr(markerPos + 9);  // strlen(" [attrs: ") == 9
-  if (!attrsText.ends_with("]")) { return {std::nullopt, std::nullopt}; }
+  if (!attrsText.ends_with(']')) { return {std::nullopt, std::nullopt}; }
   attrsText.remove_suffix(1);
 
   auto ec = boost::system::error_code{};

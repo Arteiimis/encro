@@ -502,7 +502,7 @@ auto makeHelpFormatter(
       }
 
       if (!fullTier) {
-        result += "\n";
+        result += '\n';
         result += terminal::styledText(
           terminal::Stream::Stdout,
           terminal::MessageKind::Hint,
