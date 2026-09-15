@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 BS = chr(92)
 FS = '/'
@@ -179,18 +180,11 @@ def find_deps(tu):
 
 def config_files(tu):
     """Every .clang-tidy clang-tidy consults for this TU: its directory upward."""
-    out = []
-    d = os.path.dirname(os.path.abspath(tu))
-    stop = os.path.abspath(os.getcwd())
-    while True:
-        p = os.path.join(d, '.clang-tidy')
-        if os.path.isfile(p):
-            out.append(p)
-        parent = os.path.dirname(d)
-        if d == stop or parent == d:
-            break
-        d = parent
-    return out
+    return [
+        str(p)
+        for d in Path(tu).resolve().parents
+        if (p := d / '.clang-tidy').is_file()
+    ]
 
 
 def cache_key(tu, flags, mode, deps, checks):
@@ -397,12 +391,9 @@ def selftest():
             print(r.stdout, file=sys.stderr)
             return 1
 
-    # LLVM >= 19 names every check that produced a diagnostic, comma-joined.
-    parsed = parse_warning(
-        'src/a.cpp:1:2: warning: msg '
-        '[performance-faster-string-find,performance-prefer-single-char-overloads]'
-    )
+    # The alias pair LLVM prints for one diagnostic must survive parsing.
     want = 'performance-faster-string-find,performance-prefer-single-char-overloads'
+    parsed = parse_warning(f'src/a.cpp:1:2: warning: msg [{want}]')
     if not parsed or parsed['check'] != want:
         print('selftest FAIL: comma-joined check list not parsed', file=sys.stderr)
         return 1
