@@ -46,6 +46,8 @@ auto collectOptionPtrs(CLI::App const& app) -> std::vector<CLI::Option const*> {
   return ptrs;
 }
 
+}  // namespace
+
 auto buildScope(CLI::App const& app, std::string name) -> ScopeInfo {
   auto const ptrs = collectOptionPtrs(app);
   auto namesOf = std::map<CLI::Option const*, std::vector<std::string>>{};
@@ -65,12 +67,14 @@ auto buildScope(CLI::App const& app, std::string name) -> ScopeInfo {
       scope.positionals.push_back(std::move(slot));
       continue;
     }
-    auto const longName = *cfg::captureLongName(option);
+    // Registry data is keyed by long name; a short-only option has none, so
+    // its first display name stands in as the id (unique: "-x" -> "_x").
+    auto const longName = cfg::captureLongName(option);
     auto info = OptionInfo{};
     info.names = found->second;
-    info.id = normalizedId(longName);
+    info.id = normalizedId(longName.value_or(found->second.front()));
     info.takesValue = option->get_items_expected_max() > 0;
-    if (auto const* value = valueInfoOf(longName)) {
+    if (auto const* value = longName ? valueInfoOf(*longName) : nullptr) {
       info.candidates = value->candidates;
       info.numeric = value->numeric;
     }
@@ -91,6 +95,8 @@ auto buildScope(CLI::App const& app, std::string name) -> ScopeInfo {
   std::ranges::sort(scope.options, {}, &OptionInfo::id);
   return scope;
 }
+
+namespace {
 
 auto sortedUnique(std::vector<std::string> values) -> std::vector<std::string> {
   std::ranges::sort(values);
