@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <thread>
+#include <utility>
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_STATE);
@@ -48,7 +49,7 @@ bool progressFileChanged(appctx::EncodingState& state) {
     // path, or a fresh segment has not been created yet). Reset the recorded
     // size to zero so the recreated file is detected once it grows past zero,
     // even if it later reaches the previously recorded size.
-    state.lastProgressPath = progressFilePath;
+    state.lastProgressPath = std::move(progressFilePath);
     state.lastProgressFileSize = 0;
     return false;
   }
@@ -57,7 +58,7 @@ bool progressFileChanged(appctx::EncodingState& state) {
   ) {
     return false;
   }
-  state.lastProgressPath = progressFilePath;
+  state.lastProgressPath = std::move(progressFilePath);
   state.lastProgressFileSize = fileSize;
   return true;
 }
