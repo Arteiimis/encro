@@ -16,8 +16,10 @@ namespace completion {
 
 namespace {
 
-auto normalizedId(std::string longName) -> std::string {
-  auto id = std::move(longName);  // "--no-open" -> "no_open"
+// Normalized id for a display name, used as the registry key ("--no-open" ->
+// "no_open"; a short-only option gives "-x" -> "_x").
+auto normalizedId(std::string name) -> std::string {
+  auto id = std::move(name);
   if (id.starts_with("--")) { id.erase(0, 2); }
   std::ranges::replace(id, '-', '_');
   return id;
