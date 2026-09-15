@@ -1,0 +1,6 @@
+# Test TUs only. The check cannot see through Catch2's REQUIRE/CHECK macros
+# (it knows gtest-style assert macros only), so every guarded
+# optional->value() access reads as unchecked -- ~260 false positives.
+InheritParentConfig: true
+Checks: >-
+  -bugprone-unchecked-optional-access
