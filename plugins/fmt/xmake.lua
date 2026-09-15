@@ -66,7 +66,7 @@ task("fmt")
     end
 
     if failed then
-      error(string.format("clang-format %s failed; %d file(s) processed", check and "check" or "apply", #files))
+      os.raise(string.format("clang-format %s failed; %d file(s) processed", check and "check" or "apply", #files))
     end
     print(string.format(
       check and "clang-format check passed for %d files" or "clang-format applied to %d files",
