@@ -192,12 +192,12 @@ auto styleFor(MessageKind kind) -> fmt::text_style {
     case MessageKind::Error        : return fg(tc::red);
     case MessageKind::Warning      : return fg(tc::yellow);
     case MessageKind::Success      : return fg(tc::green);
-    case MessageKind::Info         : return fg(c::steel_blue);
+    case MessageKind::Info         :
     case MessageKind::Summary      : return fg(c::steel_blue);
     case MessageKind::Hint         : return fg(c::slate_gray);
     case MessageKind::Prompt       : return fg(tc::cyan);
     case MessageKind::Heading      : return fg(c::steel_blue);
-    case MessageKind::Usage        : return {};
+    case MessageKind::Usage        :
     case MessageKind::OptionGroup  : return {};
     case MessageKind::OptionName   : return fg(tc::cyan);
     case MessageKind::OptionDefault: return fg(tc::cyan) | emphasis::faint;

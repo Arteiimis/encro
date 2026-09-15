@@ -134,7 +134,7 @@ auto buildPreviewFiltergraph(FiltergraphSpec const& spec) -> std::string {
   graph += std::format("concat=n={}:v=1:a=0[vout]", windowCount);
 
   if (spec.original.hasAudio && windowCount > 0) {
-    graph += ";";
+    graph += ';';
     for (auto index = std::size_t{}; index < windowCount; ++index) {
       graph += std::format("[{}:a]asetpts=PTS-STARTPTS[a{}];", index, index);
     }

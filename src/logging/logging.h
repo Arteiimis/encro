@@ -324,9 +324,9 @@ inline auto formatContextChain() -> std::string {
     if (i > 0) { chain += " > "; }
     chain += stack[i].stage;
     if (!stack[i].detail.empty()) {
-      chain += "(";
+      chain += '(';
       chain += stack[i].detail;
-      chain += ")";
+      chain += ')';
     }
   }
 
