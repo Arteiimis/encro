@@ -20,56 +20,6 @@
 
 namespace {
 
-template<class Fn>
-auto captureStdout(Fn&& action) -> std::string {
-  std::fflush(stdout);
-
-#if defined(_WIN32)
-  auto* tempFile = static_cast<FILE*>(nullptr);
-  REQUIRE(tmpfile_s(&tempFile) == 0);
-#else
-  auto* tempFile = std::tmpfile();
-#endif
-  REQUIRE(tempFile != nullptr);
-
-#if defined(_WIN32)
-  auto const stdoutFd = _fileno(stdout);
-  auto const originalFd = _dup(stdoutFd);
-  REQUIRE(originalFd >= 0);
-  REQUIRE(_dup2(_fileno(tempFile), stdoutFd) == 0);
-#else
-  auto const stdoutFd = fileno(stdout);
-  auto const originalFd = dup(stdoutFd);
-  REQUIRE(originalFd >= 0);
-  // POSIX dup2 returns the new fd (== stdoutFd) on success, unlike _dup2's 0
-  REQUIRE(dup2(fileno(tempFile), stdoutFd) == stdoutFd);
-#endif
-
-  action();
-
-  std::fflush(stdout);
-  std::rewind(tempFile);
-
-  auto output = std::string{};
-  auto buffer = std::array<char, 256>{};
-  for (;;) {
-    auto const bytesRead = std::fread(buffer.data(), 1, buffer.size(), tempFile);
-    if (bytesRead == 0) { break; }
-    output.append(buffer.data(), bytesRead);
-  }
-
-#if defined(_WIN32)
-  REQUIRE(_dup2(originalFd, stdoutFd) == 0);
-  _close(originalFd);
-#else
-  REQUIRE(dup2(originalFd, stdoutFd) == stdoutFd);
-  close(originalFd);
-#endif
-  std::fclose(tempFile);
-
-  return output;
-}
-
 // Spawns exec2 on a worker thread, raises the stop request as soon as the
 // child's flag file appears (its proof of having started), then joins.
 // Replaces the old sleep-then-stop requesters, which raced child startup
@@ -104,68 +54,52 @@ TEST_CASE("readUserIpt returns true when yesToAll", "[utils]") {
 
 TEST_CASE("readUserIpt renders the prompt as a plain question", "[utils]") {
   auto input = std::istringstream{"\n"};
-  auto* oldBuf = std::cin.rdbuf(input.rdbuf());
+  auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto const temp = TempDir{};
-  auto const outPath = temp.path / "stdout.txt";
-  {
-    auto capture = testutils::StdoutCapture{outPath};
-    CHECK(readUserIpt(false, "Proceed? (Y/n): "));
-  }
-  std::cin.rdbuf(oldBuf);
+  auto accepted = false;
+  auto const output =
+    testutils::captureStdout([&] { accepted = readUserIpt(false, "Proceed? (Y/n): "); });
 
   // No leading badge or severity prefix: the question text and its choice
   // marker are the whole prompt.
-  CHECK(testutils::readTextFile(outPath) == "Proceed? (Y/n): ");
+  CHECK(accepted);
+  CHECK(output == "Proceed? (Y/n): ");
 }
 
 TEST_CASE("readUserIpt reads input", "[utils]") {
   auto input = std::istringstream{"y\n"};
-  auto* oldBuf = std::cin.rdbuf(input.rdbuf());
+  auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto const result = readUserIpt(false, "");
-
-  std::cin.rdbuf(oldBuf);
-  CHECK(result);
+  CHECK(readUserIpt(false, ""));
 }
 
 TEST_CASE("readUserIpt defaults to yes on empty input", "[utils]") {
   auto input = std::istringstream{"\n"};
-  auto* oldBuf = std::cin.rdbuf(input.rdbuf());
+  auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto const result = readUserIpt(false, "");
-
-  std::cin.rdbuf(oldBuf);
-  CHECK(result);
+  CHECK(readUserIpt(false, ""));
 }
 
 TEST_CASE("readUserIpt returns false when input read is interrupted", "[utils]") {
   testutils::ScopedStopSignalReset stopGuard;
 
   auto input = std::istringstream{};
-  auto* oldBuf = std::cin.rdbuf(input.rdbuf());
+  auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto const result = readUserIpt(false, "");
-
-  std::cin.rdbuf(oldBuf);
-  std::cin.clear();
-  CHECK_FALSE(result);
+  CHECK_FALSE(readUserIpt(false, ""));
 }
 
 TEST_CASE("readUserIpt ends interrupted prompt on a new line", "[utils]") {
   testutils::ScopedStopSignalReset stopGuard;
 
   auto input = std::istringstream{};
-  auto* oldBuf = std::cin.rdbuf(input.rdbuf());
+  auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto const output = captureStdout([&] {
-    auto const result = readUserIpt(false, "confirm? (Y/n): ");
-    CHECK_FALSE(result);
-  });
+  auto accepted = false;
+  auto const output =
+    testutils::captureStdout([&] { accepted = readUserIpt(false, "confirm? (Y/n): "); });
 
-  std::cin.rdbuf(oldBuf);
-  std::cin.clear();
-
+  CHECK_FALSE(accepted);
   CHECK(output == "confirm? (Y/n): \n");
 }
 

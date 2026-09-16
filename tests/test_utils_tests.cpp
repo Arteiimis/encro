@@ -1,3 +1,6 @@
+#include "infra/terminal.h"
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 #include "test_utils.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -5,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -14,6 +18,11 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+
+// The LOG_* fallback resolves through a file-scoped loggerPtr(); this TU calls
+// LOG_INFO directly, so it needs its own DEFINE_LOGGER (same tag as the other
+// test TUs).
+DEFINE_LOGGER(logtags::TEST_INFRA);
 
 TEST_CASE("TempDir keeps its directory when destroyed during unwinding", "[test-utils]") {
   TempDir outer;
@@ -84,6 +93,71 @@ TEST_CASE("waitUntil consults the predicate once past the deadline", "[test-util
   // so a condition satisfied between polls is not reported as a timeout.
   CHECK(testutils::waitUntil([] { return true; }, std::chrono::milliseconds{0}));
   CHECK_FALSE(testutils::waitUntil([] { return false; }, std::chrono::milliseconds{0}));
+}
+
+TEST_CASE(
+  "ScopedTerminalReset restores the colour mode after an exception",
+  "[test-utils]"
+) {
+  auto const noColor = testutils::ScopedEnvVar{"NO_COLOR", "1"};
+
+  CHECK_THROWS([&] {
+    auto const guard = testutils::ScopedTerminalReset{};
+    terminal::configure(terminal::ColorMode::Always);
+    throw std::runtime_error{"boom"};
+  }());
+
+  // With the mode restored, NO_COLOR keeps styled text plain; a leaked Always
+  // ignores it and emits escapes.
+  CHECK(
+    terminal::styledText(terminal::Stream::Stdout, terminal::MessageKind::Success, "ok")
+      .find("\x1b[")
+    == std::string::npos
+  );
+}
+
+TEST_CASE("captureStdout returns what the action wrote", "[test-utils]") {
+  auto const output = testutils::captureStdout([] { std::printf("captured-line\n"); });
+  CHECK(output == "captured-line\n");
+}
+
+TEST_CASE("captureStdout rethrows what the action throws", "[test-utils]") {
+  CHECK_THROWS(testutils::captureStdout([] { throw std::runtime_error{"boom"}; }));
+}
+
+TEST_CASE("stdout capture restores the stream when its scope is left", "[test-utils]") {
+  auto temp = TempDir{};
+  auto const capturePath = temp.path / "left-by-exception.txt";
+
+  CHECK_THROWS([&] {
+    auto const capture = testutils::StdoutCapture{capturePath};
+    std::printf("inside\n");
+    throw std::runtime_error{"boom"};
+  }());
+
+  // Anything printed now must reach the real stdout, not the capture file: a
+  // redirect that outlived its scope would append the line to the file.
+  std::printf("outside-capture\n");
+  std::fflush(stdout);
+
+  CHECK(testutils::readTextFile(capturePath) == "inside\n");
+}
+
+TEST_CASE("shutdownLogging keeps the fallback off captured stderr", "[test-utils]") {
+  auto temp = TempDir{};
+  auto const errPath = temp.path / "fallback-stderr.txt";
+
+  testutils::shutdownLogging();
+
+  // After shutdown the LOG_* fallback must stay silent: without a sink-less
+  // default logger it lands on real stderr and pollutes the capture file (the
+  // narration flake in docs/backlog.md).
+  {
+    auto const capture = testutils::StderrCapture{errPath};
+    LOG_INFO("fallback after shutdown");
+  }
+
+  CHECK(testutils::readTextFile(errPath).empty());
 }
 
 TEST_CASE("test sources carry no unmarked synchronization sleeps", "[test-utils][meta]") {

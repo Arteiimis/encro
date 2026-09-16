@@ -164,6 +164,8 @@ TEST_CASE("reportUnknownException writes stacktrace section", "[crash]") {
 }
 
 TEST_CASE("crash context provider annotates crash records", "[crash]") {
+  auto const crashGuard = testutils::ScopedCrashContextReset{};
+
   TempDir temp;
   auto const logPath = temp.path / "context.log";
 
@@ -191,6 +193,38 @@ TEST_CASE("crash context provider annotates crash records", "[crash]") {
   REQUIRE(firstRecord != std::string::npos);
   REQUIRE(secondRecord != std::string::npos);
   CHECK(cleared.find("[context:", secondRecord) == std::string::npos);
+}
+
+TEST_CASE("cleared crash context provider is restored for later cases", "[crash]") {
+  auto const crashGuard = testutils::ScopedCrashContextReset{};
+
+  TempDir temp;
+  auto const logPath = temp.path / "context-restore.log";
+
+  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto logger = std::make_shared<spdlog::logger>("crash-context-restore", sink);
+  logger->set_level(spdlog::level::trace);
+  auto guard = ScopedDefaultLogger(logger);
+
+  auto const ex = std::runtime_error{"boom"};
+  {
+    // A test replaces the run's provider and clears it: while that scope holds,
+    // crash records carry no context annotation.
+    auto const innerGuard = testutils::ScopedCrashContextReset{};
+    crash::setCrashContextProvider(nullptr);
+    crash::reportCaughtException("unit-test", ex);
+    logger->flush();
+    CHECK(readText(logPath).find("[context:") == std::string::npos);
+  }
+
+  // The scope restored the run's provider, so a crash reported from a later
+  // case is still annotated with the running test's name.
+  crash::reportCaughtException("unit-test", ex);
+  logger->flush();
+  CHECK(
+    readText(logPath).find("[context: cleared crash context provider")
+    != std::string::npos
+  );
 }
 
 TEST_CASE("crash runtime handles real process crash", "[crash][integration]") {
@@ -339,7 +373,7 @@ TEST_CASE("crash reason reaches stderr when the log file is writable", "[crash]"
   CHECK(logText.find("unit-test: boom") != std::string::npos);
   CHECK(logText.find("stacktrace") != std::string::npos);
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 }
 TEST_CASE(
   "crash report falls back to stderr when logging is not initialized",

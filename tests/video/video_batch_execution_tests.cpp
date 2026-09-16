@@ -370,7 +370,7 @@ TEST_CASE(
 
   // stdin EOF: the confirmation prompt reads no answer and declines.
   auto eofInput = std::istringstream{};
-  auto* oldBuf = std::cin.rdbuf(eofInput.rdbuf());
+  auto const cinGuard = testutils::ScopedCinBuf{eofInput};
 
   auto const outcome = videobatch::runEncodingTasks(
     s.ctx,
@@ -378,9 +378,6 @@ TEST_CASE(
     1,
     0
   );
-
-  std::cin.rdbuf(oldBuf);
-  std::cin.clear();
 
   REQUIRE_FALSE(outcome.results.has_value());
   CHECK(outcome.attentionWarnings.empty());

@@ -1,5 +1,7 @@
 #include "logging/setup.h"
 
+#include "test_utils.h"
+
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <string>
@@ -21,7 +23,7 @@ TEST_CASE(
   CHECK(logging::runId() == "test-run-42");
 
   logging::setRunId("pre-shutdown-id");
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   // After shutdown the next query lazily regenerates a fresh id
   auto const fresh = logging::runId();
@@ -42,6 +44,6 @@ TEST_CASE(
   CHECK(logging::runIdSnapshot() == "snapshot-id-2");
 
   logging::setRunId("snapshot-before-shutdown");
-  logging::shutdown();
+  testutils::shutdownLogging();
   CHECK(logging::runIdSnapshot().empty());
 }
