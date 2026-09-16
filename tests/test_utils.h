@@ -398,10 +398,18 @@ inline auto listZipRegularEntryNames(fs::path const& zipPath)
 
 // Redirects a stdio stream to a file until destroyed (used to assert
 // console output). StdoutCapture/StderrCapture specialize the target stream.
+//
+// The constructor never asserts: an assertion here runs inside an enclosing
+// capture's redirect window, and a reporter that echoes successful assertions
+// (`-r console -s`) writes its own report text into the captured file. A
+// redirect that cannot be established is reported on stderr instead (same
+// idiom as TempDir's kept-directory hint) and leaves the stream untouched, so
+// the capturing test's own assertions fail on the empty file.
 struct FileCapture {
   std::FILE* stream_ = nullptr;
   fs::path file_;
   int oldFd_ = -1;
+  bool redirected_ = false;
 
   FileCapture(std::FILE* stream, fs::path const& capturePath)
     : stream_(stream), file_(capturePath) {
@@ -414,26 +422,35 @@ struct FileCapture {
     oldFd_ = dup(fileno(stream_));
     auto* cap = std::fopen(file_.string().c_str(), "w");
 #endif
-    REQUIRE(oldFd_ >= 0);
-    if (cap == nullptr) {
+    if (oldFd_ < 0 || cap == nullptr) {
+      if (cap != nullptr) { std::fclose(cap); }
+      if (oldFd_ >= 0) {
 #if defined(_WIN32)
-      _close(oldFd_);
+        _close(oldFd_);
 #else
-      close(oldFd_);
+        close(oldFd_);
 #endif
-      oldFd_ = -1;
+        oldFd_ = -1;
+      }
+      std::fprintf(stderr, "capture failed for %s\n", file_.string().c_str());
+      std::fflush(stderr);
+      return;
     }
-    REQUIRE(cap != nullptr);
 #if defined(_WIN32)
     _dup2(_fileno(cap), _fileno(stream_));
 #else
     dup2(fileno(cap), fileno(stream_));
 #endif
     std::fclose(cap);
+    redirected_ = true;
   }
 
   FileCapture(FileCapture const&) = delete;
   auto operator=(FileCapture const&) -> FileCapture& = delete;
+
+  // False when the redirect could not be established: the caller reports that
+  // after its capture scope has ended, never inside the window.
+  [[nodiscard]] auto redirected() const -> bool { return redirected_; }
 
   ~FileCapture() {
     std::fflush(stream_);
@@ -472,10 +489,14 @@ inline auto readTextFile(fs::path const& filePath) -> std::string {
 template<typename Fn>
 auto captureStdout(Fn&& action) -> std::string {
   auto const capturePath = uniqueTempPath("encro-capture-stdout");
+  auto redirected = false;
   {
     auto const capture = StdoutCapture{capturePath};
-    std::forward<Fn>(action)();
+    redirected = capture.redirected();
+    if (redirected) { std::forward<Fn>(action)(); }
   }
+
+  REQUIRE(redirected);
 
   auto const output = readTextFile(capturePath);
   auto ec = std::error_code{};
