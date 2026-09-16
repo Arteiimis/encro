@@ -24,6 +24,24 @@ namespace fs = std::filesystem;
 // test TUs).
 DEFINE_LOGGER(logtags::TEST_INFRA);
 
+TEST_CASE("TempDir names are unique per call and carry the process id", "[test-utils]") {
+  auto const first = TempDir{};
+  auto const second = TempDir{};
+  auto const third = TempDir{};
+
+  CHECK(first.path != second.path);
+  CHECK(second.path != third.path);
+
+  // Parallel shards and concurrent suites share the temporary directory, so a
+  // name has to identify the process as well as the call.
+#if defined(_WIN32)
+  auto const pid = std::format("{}", ::_getpid());
+#else
+  auto const pid = std::format("{}", ::getpid());
+#endif
+  CHECK(first.path.filename().string().find(pid) != std::string::npos);
+}
+
 TEST_CASE("TempDir keeps its directory when destroyed during unwinding", "[test-utils]") {
   TempDir outer;
   auto const errFile = outer.path / "stderr.txt";

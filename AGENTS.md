@@ -6,6 +6,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 
 - **Build system:** xmake (not CMake). Toolchain: `clang-cl` + `lld-link` on Windows. C++26. For any xmake-related question or change (xmake.lua, configuration, CLI), read the `xmake` skill first.
 - **Build:** `xmake build encro` · **Run:** `xmake run encro <args>` (e.g. `xmake run encro -h`; do NOT use `--` — it is passed through to the program and breaks CLI11 parsing)
+- **Real-model smoke:** the `[real-model]` cases read the model directory from `ENCRO_TEST_MODEL_DIR` and `SKIP()` when it is unset, so the fixture carries no machine path (`ENCRO_TEST_MODEL_DIR=<dir> xmake test-report --tag="[real-model]"`).
 - **Reporter-mode probe:** `build/windows/x64/release/tests.exe -r console -s` must report 0 failures. `-s` makes the console reporter echo successful assertions, so an assertion that runs while a stdio stream is redirected shows up as captured reporter text and fails a capture assertion — keep assertions outside redirect windows (`testutils::captureStdout` and the `FileCapture`-based captures).
 - **Tests with failure summary:** `xmake test-report` — builds + runs unit tests, writes `build/last-test-report.xml` (JUnit) and `build/last-test-console.log` (full console text), and prints a pass/fail summary instead of raw console. `--tag="[tag]"` limits to a tag filter (note: `=` form required).
 - **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)

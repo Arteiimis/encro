@@ -22,8 +22,20 @@ TEST_CASE("work_dirs: scratchDir lives under the temp encro dir", "[work-dirs]")
 }
 
 TEST_CASE("work_dirs: ensureScratchDir creates the scratch root", "[work-dirs]") {
+  // Pin the temporary root to a per-run directory instead of deleting the real
+  // application scratch root: that root is shared with the application and
+  // with any concurrently running shard.
+  auto const privateRoot = TempDir{};
+#if defined(_WIN32)
+  auto const tmpVar = testutils::ScopedEnvVar{"TMP", privateRoot.path.string()};
+  auto const tempVar = testutils::ScopedEnvVar{"TEMP", privateRoot.path.string()};
+#else
+  auto const tmpVar = testutils::ScopedEnvVar{"TMPDIR", privateRoot.path.string()};
+#endif
+
   auto const scratch = workdirs::scratchDir();
-  fs::remove_all(scratch);
+  REQUIRE(scratch == privateRoot.path / "encro" / "scratch");
+
   workdirs::ensureScratchDir();
   REQUIRE(fs::is_directory(scratch));
 }

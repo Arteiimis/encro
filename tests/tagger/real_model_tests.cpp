@@ -1,5 +1,6 @@
 // Real-model smoke (design D9 acceptance): runs the actual ONNX tagger when
 // model files are present; SKIPs otherwise so offline suites stay green.
+#include "infra/env.h"
 #include "tagger/onnx_tagger.h"
 #include "utils/utils.h"
 
@@ -14,7 +15,13 @@ TEST_CASE(
   "OnnxTagger classifies a real image with the real model",
   "[tagger][real-model]"
 ) {
-  auto const modelDir = fs::path{"C:/Users/LEGION/.encro/models"};
+  // The model directory comes from the environment so the fixture runs on any
+  // machine (see AGENTS.md - Testing).
+  auto const modelDirVar = processenv::readEnvVar("ENCRO_TEST_MODEL_DIR");
+  if (!modelDirVar.has_value()) {
+    SKIP("ENCRO_TEST_MODEL_DIR is unset; the real-model smoke needs a model dir.");
+  }
+  auto const modelDir = fs::path{*modelDirVar};
   if (
     !fs::exists(modelDir / "model.onnx") || !fs::exists(modelDir / "selected_tags.csv")
   ) {

@@ -41,15 +41,34 @@
 
 namespace fs = std::filesystem;
 
+// Unique name for a scratch file or directory: process id plus a per-process
+// counter plus the clock, so two shards or two suites started in the same tick
+// never share a path.
+inline auto uniqueTempName(std::string_view tag) -> std::string {
+  static auto counter = std::atomic<std::uint64_t>{0};
+#if defined(_WIN32)
+  auto const pid = static_cast<long long>(::_getpid());
+#else
+  auto const pid = static_cast<long long>(::getpid());
+#endif
+  return std::format(
+    "{}-{}-{}-{}",
+    tag,
+    pid,
+    counter.fetch_add(1, std::memory_order_relaxed),
+    std::chrono::steady_clock::now().time_since_epoch().count()
+  );
+}
+
+inline auto uniqueTempPath(std::string_view tag) -> fs::path {
+  return fs::temp_directory_path() / uniqueTempName(tag);
+}
+
 struct TempDir {
   fs::path path;
 
   TempDir() {
-    path = fs::temp_directory_path();
-    path /= std::format(
-      "video_encoder_tests_{}",
-      std::chrono::steady_clock::now().time_since_epoch().count()
-    );
+    path = uniqueTempPath("video_encoder_tests");
     fs::create_directories(path);
   }
 
@@ -75,29 +94,6 @@ struct ScopedStopSignalReset {
 
   ~ScopedStopSignalReset() { stopsignal::reset(); }
 };
-
-// Unique name for a scratch file or directory: process id plus a per-process
-// counter plus the clock, so two shards or two suites started in the same tick
-// never share a path.
-inline auto uniqueTempName(std::string_view tag) -> std::string {
-  static auto counter = std::atomic<std::uint64_t>{0};
-#if defined(_WIN32)
-  auto const pid = static_cast<long long>(::_getpid());
-#else
-  auto const pid = static_cast<long long>(::getpid());
-#endif
-  return std::format(
-    "{}-{}-{}-{}",
-    tag,
-    pid,
-    counter.fetch_add(1, std::memory_order_relaxed),
-    std::chrono::steady_clock::now().time_since_epoch().count()
-  );
-}
-
-inline auto uniqueTempPath(std::string_view tag) -> fs::path {
-  return fs::temp_directory_path() / uniqueTempName(tag);
-}
 
 // Sink-less default logger: the LOG_* fallback must not reach a stream a test
 // captures. test_main.cpp installs one for the whole run.

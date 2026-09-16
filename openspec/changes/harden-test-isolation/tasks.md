@@ -17,10 +17,10 @@
 
 ## 3. Per-run private fixture paths
 
-- [ ] 3.1 `tests/test_utils.h:44-45`: `TempDir` derives its name from process id, a per-process counter and the clock; cover that two fixtures created in the same tick differ and that the name contains the process id. Verify: `xmake test-report --tag="[test-utils]"` passes.
-- [ ] 3.2 `tests/pack_execute_tests.cpp:54`: use a `TempDir` instead of the shared `%TEMP%/encro_test_empty`. Verify: `xmake test-report --tag="[pack][execute]"` passes twice in a row with no leftover directory.
-- [ ] 3.3 `tests/work_dirs_tests.cpp:24-29`: pin TMP/TEMP to a private directory with `ScopedEnvVar` instead of `remove_all` on the shared application scratch root, and assert the created directory lives under the private root. Verify: `xmake test-report --tag="[work-dirs]"` passes and the shared scratch root is untouched (`Test-Path $env:TEMP\encro\scratch` unchanged before/after).
-- [ ] 3.4 `tests/tagger/real_model_tests.cpp:17`: read the model directory from a documented environment variable and `SKIP()` when it is unset, instead of hardcoding one machine's home directory. Verify: `xmake test-report --tag="[real-model]"` passes with the variable unset (reported as skipped, not passed-with-zero-assertions).
+- [x] 3.1 `tests/test_utils.h:44-45`: `TempDir` derives its name from process id, a per-process counter and the clock; cover that two fixtures created in the same tick differ and that the name contains the process id. Verify: `xmake test-report --tag="[test-utils]"` passes.
+- [x] 3.2 `tests/pack_execute_tests.cpp:54`: use a `TempDir` instead of the shared `%TEMP%/encro_test_empty`. Verify: `xmake test-report --tag="[pack][execute]"` passes twice in a row with no leftover directory.
+- [x] 3.3 `tests/work_dirs_tests.cpp:24-29`: pin TMP/TEMP to a private directory with `ScopedEnvVar` instead of `remove_all` on the shared application scratch root, and assert the created directory lives under the private root. Verify: `xmake test-report --tag="[work-dirs]"` passes and the shared scratch root is untouched (`Test-Path $env:TEMP\encro\scratch` unchanged before/after).
+- [x] 3.4 `tests/tagger/real_model_tests.cpp:17`: read the model directory from a documented environment variable and `SKIP()` when it is unset, instead of hardcoding one machine's home directory. Verify: `ENCRO_TEST_MODEL_DIR=<dir> xmake test-report --tag="[real-model]"` passes (the case then runs real inference); with the variable unset the case reports SKIPPED and Catch2 exits 4 (`no tests ran`) because it is the only matched case. `AGENTS.md` documents the variable.
 
 ## 4. Gate-based proofs and deadline margins
 
