@@ -48,10 +48,11 @@ auto makeStoreConfig(fs::path const& statePath) -> appctx::AppConfig {
 // ============================================================
 
 TEST_CASE("execute() with empty entries returns empty success", "[pack][execute]") {
+  auto const temp = TempDir{};
   pack::PackRequest req{
     .entries = {},
     .mode = pack::PackMode::Media,
-    .outputDir = fs::temp_directory_path() / "encro_test_empty",
+    .outputDir = temp.path / "empty",
   };
   fs::create_directories(req.outputDir);
 
