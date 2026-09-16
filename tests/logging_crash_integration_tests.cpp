@@ -35,7 +35,7 @@ TEST_CASE(
   // The file must exist on disk
   CHECK(fs::exists(logPath.value()));
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 }
 
 TEST_CASE(
@@ -55,7 +55,7 @@ TEST_CASE(
   // Before shutdown, path must be available
   CHECK(logging::currentLogFilePath().has_value());
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   // After shutdown, path must be cleared (crash handler detects this and falls back)
   CHECK(logging::currentLogFilePath() == std::nullopt);
@@ -79,7 +79,7 @@ TEST_CASE(
   auto const testBody = std::string{"direct write format verification"};
   CHECK(crash::writeDirectLogLine(testBody));
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   auto const content = testutils::readTextFile(logPath);
   auto const bodyPos = content.find("] [critical] [infra.crash] " + testBody);
@@ -137,7 +137,7 @@ TEST_CASE(
 #endif
   CHECK(crash::writeDirectLogLine("lands after restore"));
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   auto const content = testutils::readTextFile(logPath);
   CHECK(content.find("lands after restore") != std::string::npos);
@@ -174,7 +174,7 @@ TEST_CASE(
     logging::setRunId("crash-test-run-42");
 
     REQUIRE(crash::writeDirectLogLine("boom"));
-    logging::shutdown();
+    testutils::shutdownLogging();
 
     // .log line carries the run id
     auto const logPath = setupResult.value();
@@ -217,7 +217,7 @@ TEST_CASE(
     logging::setRunId("crash-test-nojson");
 
     REQUIRE(crash::writeDirectLogLine("boom-no-json"));
-    logging::shutdown();
+    testutils::shutdownLogging();
 
     auto const logPath = setupResult.value();
     auto const logContent = testutils::readTextFile(logPath);

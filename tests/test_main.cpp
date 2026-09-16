@@ -2,11 +2,9 @@
 
 #include "infra/crash_runtime.h"
 #include "infra/env.h"
+#include "test_utils.h"
 
-#include <catch2/catch_all.hpp>                            // IWYU pragma: keep
-#include <catch2/interfaces/catch_interfaces_capture.hpp>  // getResultCapture().getCurrentTestName()
-
-#include <spdlog/spdlog.h>
+#include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <cstdio>
 #include <cstdlib>
@@ -116,15 +114,13 @@ int main(int argc, char* argv[]) {
   // Crash records name the running test (parallel-shard logs locate the failure
   // without reproducing the crash). Outside a session (crash-child modes) this
   // throws; the crash path swallows provider failures by design.
-  crash::setCrashContextProvider([]() -> std::string {
-    return Catch::getResultCapture().getCurrentTestName();
-  });
+  testutils::restoreRunCrashContextProvider();
   isolateConfigEnv();
   // Sink-less default logger: the LOG_* fallback must not reach the stdout the
   // narration tests capture. The crash-on-demand child keeps stdout logging —
   // its crash report is what the parent test reads (see docs/backlog.md).
   if (!processenv::readEnvVar("ENCRO_TEST_CRASH_OOB").has_value()) {
-    spdlog::set_default_logger(std::make_shared<spdlog::logger>("test-null"));
+    testutils::installNullDefaultLogger();
   }
   return Catch::Session{}.run(argc, argv);
 }

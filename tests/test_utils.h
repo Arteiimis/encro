@@ -2,10 +2,14 @@
 
 #include "cmd/cmd.h"
 #include "core/job_state.h"
+#include "infra/crash_runtime.h"
 #include "infra/env.h"
 #include "infra/stop_signal.h"
+#include "infra/terminal.h"
+#include "logging/setup.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/interfaces/catch_interfaces_capture.hpp>
 #include <libzippp/libzippp.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
@@ -13,11 +17,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -68,6 +74,113 @@ struct ScopedStopSignalReset {
   ScopedStopSignalReset() { stopsignal::reset(); }
 
   ~ScopedStopSignalReset() { stopsignal::reset(); }
+};
+
+// Unique name for a scratch file or directory: process id plus a per-process
+// counter plus the clock, so two shards or two suites started in the same tick
+// never share a path.
+inline auto uniqueTempName(std::string_view tag) -> std::string {
+  static auto counter = std::atomic<std::uint64_t>{0};
+#if defined(_WIN32)
+  auto const pid = static_cast<long long>(::_getpid());
+#else
+  auto const pid = static_cast<long long>(::getpid());
+#endif
+  return std::format(
+    "{}-{}-{}-{}",
+    tag,
+    pid,
+    counter.fetch_add(1, std::memory_order_relaxed),
+    std::chrono::steady_clock::now().time_since_epoch().count()
+  );
+}
+
+inline auto uniqueTempPath(std::string_view tag) -> fs::path {
+  return fs::temp_directory_path() / uniqueTempName(tag);
+}
+
+// Sink-less default logger: the LOG_* fallback must not reach a stream a test
+// captures. test_main.cpp installs one for the whole run.
+inline void installNullDefaultLogger() {
+  spdlog::set_default_logger(std::make_shared<spdlog::logger>("test-null"));
+}
+
+// logging::shutdown() drops the run's sink-less default logger, after which a
+// LOG_* fallback writes to real stderr and every later capture assertion
+// depends on which test ran first (docs/backlog.md, narration flake). Tests
+// shut logging down through this wrapper instead of calling it directly.
+inline void shutdownLogging() {
+  logging::shutdown();
+  installNullDefaultLogger();
+}
+
+// Crash records name the running test only while a context provider is
+// installed; test_main.cpp installs that provider for the run. A test that
+// replaces or clears it guards the restore, so a crash in a later case is
+// still named (test-failure-diagnostics).
+inline void restoreRunCrashContextProvider() {
+  crash::setCrashContextProvider([]() -> std::string {
+    return Catch::getResultCapture().getCurrentTestName();
+  });
+}
+
+struct ScopedCrashContextReset {
+  ScopedCrashContextReset() { restoreRunCrashContextProvider(); }
+
+  ScopedCrashContextReset(ScopedCrashContextReset const&) = delete;
+  auto operator=(ScopedCrashContextReset const&) -> ScopedCrashContextReset& = delete;
+
+  ~ScopedCrashContextReset() { restoreRunCrashContextProvider(); }
+};
+
+// Colour mode and quiet flag are process-global: a case that leaves them set,
+// or a failing assertion that skips a trailing reset, changes what later cases
+// render, so the restore happens in a destructor.
+struct ScopedTerminalReset {
+  ScopedTerminalReset() = default;
+
+  ScopedTerminalReset(ScopedTerminalReset const&) = delete;
+  auto operator=(ScopedTerminalReset const&) -> ScopedTerminalReset& = delete;
+
+  ~ScopedTerminalReset() { terminal::reset(); }
+};
+
+#if defined(_WIN32)
+// Force-exit watchdog test hooks are process-global and destructive: an armed
+// short grace period left behind while the real ExitProcess action is
+// installed kills the test process. Declare this guard before
+// ScopedStopSignalReset so the deadline is cleared first (destruction runs in
+// reverse order).
+struct ScopedStopSignalWatchdog {
+  ScopedStopSignalWatchdog() = default;
+
+  ScopedStopSignalWatchdog(ScopedStopSignalWatchdog const&) = delete;
+  auto operator=(ScopedStopSignalWatchdog const&) -> ScopedStopSignalWatchdog& = delete;
+
+  ~ScopedStopSignalWatchdog() {
+    stopsignal::setForceExitGracePeriodForTest(std::chrono::seconds{3});
+    stopsignal::setForceExitHandlerForTest(nullptr);
+  }
+};
+#endif
+
+// Redirects std::cin to another stream's buffer for the current scope and
+// restores the original buffer and stream state on every exit path, including
+// a failing assertion or an exception.
+class ScopedCinBuf {
+public:
+  explicit ScopedCinBuf(std::istream& input): oldBuf_(std::cin.rdbuf(input.rdbuf())) { }
+
+  ScopedCinBuf(ScopedCinBuf const&) = delete;
+  auto operator=(ScopedCinBuf const&) -> ScopedCinBuf& = delete;
+
+  ~ScopedCinBuf() {
+    std::cin.rdbuf(oldBuf_);
+    std::cin.clear();
+  }
+
+private:
+  std::streambuf* oldBuf_;
 };
 
 // Polls predicate until it holds or timeout expires. The deadline is a hang
@@ -350,6 +463,24 @@ inline auto readTextFile(fs::path const& filePath) -> std::string {
   auto ifs = std::ifstream{filePath};
   REQUIRE(ifs.is_open());
   return {std::istreambuf_iterator<char>{ifs}, std::istreambuf_iterator<char>{}};
+}
+
+// Captures everything "action" writes to stdout and returns it. The captured
+// file is read and removed after the redirect has ended, so an assertion here
+// never lands in the captured text: keep CHECKs out of the action for the same
+// reason — a reporter that echoes successful assertions writes to stdout too.
+template<typename Fn>
+auto captureStdout(Fn&& action) -> std::string {
+  auto const capturePath = uniqueTempPath("encro-capture-stdout");
+  {
+    auto const capture = StdoutCapture{capturePath};
+    std::forward<Fn>(action)();
+  }
+
+  auto const output = readTextFile(capturePath);
+  auto ec = std::error_code{};
+  fs::remove(capturePath, ec);
+  return output;
 }
 
 }  // namespace testutils

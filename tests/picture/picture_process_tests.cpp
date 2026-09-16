@@ -374,9 +374,9 @@ TEST_CASE(
   ctx.config.inputPath = inputDir;
 
   auto input = std::istringstream{"n\n"};
-  auto* oldBuf = std::cin.rdbuf(input.rdbuf());
+  auto const cinGuard = testutils::ScopedCinBuf{input};
   auto const runRes = runPicturePackWorkflow(ctx, inputDir);
-  std::cin.rdbuf(oldBuf);
+
   REQUIRE(runRes);
   CHECK(runRes.value() == 0);
   CHECK_FALSE(fs::exists(inputDir / "packed"));

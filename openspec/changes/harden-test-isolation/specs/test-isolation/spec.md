@@ -6,7 +6,7 @@ Keeps the test suite's verdict independent of execution order, reporter, stdio m
 
 ### Requirement: Test cases restore every process-global they mutate
 
-A test case that mutates process-global state SHALL restore the previous state before it ends, including on failure paths. Restoring SHALL be done with a scoped guard whose destructor restores it, not with a statement at the end of the case body. The globals covered by this rule include, but are not limited to: the process-wide default logger and log level, the terminal colour and quiet modes, the stop-signal watchdog and armed deadline, and any seam that redirects process-wide behaviour for the duration of a test.
+A test case that mutates process-global state SHALL restore the previous state before it ends, including on failure paths. Restoring SHALL be done with a scoped guard whose destructor restores it, not with a statement at the end of the case body. Where a test destroys a global instead of mutating it — the process-wide default logger taken down by `logging::shutdown()` — restoring it immediately through a shared wrapper that re-installs the sink-less logger leaves nothing to restore at the end of the case and satisfies this requirement. The globals covered by this rule include, but are not limited to: the process-wide default logger and log level, the terminal colour and quiet modes, the stop-signal watchdog and armed deadline, and any seam that redirects process-wide behaviour for the duration of a test.
 
 #### Scenario: A test shuts logging down
 

@@ -100,6 +100,12 @@ TEST_CASE(
   REQUIRE(setupResult.has_value());
   auto const logPath = setupResult.value();
 
+  // Restores the real action and the default grace period when the case ends.
+  // Declared before stopGuard so its destructor runs second, after the armed
+  // deadline has been cleared.
+  auto const watchdogGuard = testutils::ScopedStopSignalWatchdog{};
+  auto const stopGuard = testutils::ScopedStopSignalReset{};
+
   // Start the watchdog (idempotent), then make it observable: short grace
   // period + a no-op exit action instead of ExitProcess.
   stopsignal::installHandler();
@@ -112,17 +118,12 @@ TEST_CASE(
   // Poll for the watchdog's forced-exit hook instead of a fixed poll loop.
   CHECK(testutils::waitUntil([] { return gExitCalled.load(); }, std::chrono::seconds{5}));
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 
-  // Clear the stop state before restoring the real force-exit action: the
-  // watchdog re-checks the armed deadline every 50 ms, and once the handler
-  // is ExitProcess again a stale armed deadline would kill the test process.
-  stopsignal::reset();
-
-  // Restore defaults so later tests are unaffected.
-  stopsignal::setForceExitGracePeriodForTest(std::chrono::seconds{3});
-  stopsignal::setForceExitHandlerForTest(nullptr);
-
+  // stopGuard clears the stop state and the armed deadline at scope exit while
+  // the no-op handler is still installed; watchdogGuard then restores the real
+  // action and grace period (a stale armed deadline with ExitProcess back in
+  // place would kill the test process).
   auto const content = testutils::readTextFile(logPath);
   CHECK(content.find("force exit") != std::string::npos);
 #else
