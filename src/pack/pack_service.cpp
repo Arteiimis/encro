@@ -468,7 +468,7 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
     .removeOnFailure = plan.removeOnFailure,
     .compact = plan.compact,
   };
-}
+}  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks): impl is owned by the returned PackPlan
 
 }  // namespace internal
 

@@ -1,3 +1,5 @@
+# optin.* checks arrive with clang-analyzer-*. Padding on CmdParseResult (70 B,
+# built once per process) is not worth scattering its documented field groups.
 Checks: >
   clang-diagnostic-*,
   clang-analyzer-*,
@@ -8,7 +10,8 @@ Checks: >
   readability-function-cognitive-complexity,
   -bugprone-easily-swappable-parameters,
   -performance-enum-size,
-  -portability-avoid-pragma-once
+  -portability-avoid-pragma-once,
+  -clang-analyzer-optin.performance.Padding
 
 CheckOptions:
   readability-function-size.LineThreshold: '80'
