@@ -1,6 +1,7 @@
 #include "e2e_test_utils.h"
 
 #include "infra/env.h"
+#include "test_utils.h"
 
 #include <boost/asio/buffer.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
@@ -20,12 +21,36 @@
   #include <boost/process/v2/windows/creation_flags.hpp>
 #else
   #include <csignal>
-  #include <cstdlib>
 #endif
+
+#include <cstdlib>
 
 namespace bp = boost::process::v2;
 
 namespace {
+
+// The e2e suites run as parallel shards sharing one user profile, so the app's
+// default log directory is shared: concurrent runs prune each other's logs
+// (retainRecentLogs keeps the newest ten) and a case reading its own run's log
+// back can see another shard's file. Point the app's log root at a private
+// per-process directory before any test runs; the cases that read logs back
+// override it per run with their own root.
+struct PrivateLogRootEnv {
+  PrivateLogRootEnv() {
+    auto const root =
+      std::filesystem::temp_directory_path() / uniqueTempName("encro-e2e-logs");
+    auto ec = std::error_code{};
+    std::filesystem::create_directories(root, ec);
+    auto const value = root.string();
+#if defined(_WIN32)
+    ::_putenv_s("LOCALAPPDATA", value.c_str());
+#else
+    ::setenv("XDG_STATE_HOME", value.c_str(), 1);
+#endif
+  }
+};
+
+auto const gPrivateLogRoot = PrivateLogRootEnv{};
 
 auto platformBinaryName(std::string_view stem) -> std::string {
 #if defined(_WIN32)

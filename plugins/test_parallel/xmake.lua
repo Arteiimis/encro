@@ -54,16 +54,21 @@ task("test-parallel")
     -- without USERPROFILE, SystemRoot, ...). TMP/TEMP are overridden per
     -- shard to isolate the shared temp roots.
     local function shard_envs(shard_dir)
-      local envs = {"TMP=" .. shard_dir, "TEMP=" .. shard_dir}
+      -- TMP/TEMP for Windows and TMPDIR for POSIX: every consumer of the
+      -- temporary root must see the shard's own directory.
+      local envs = {"TMP=" .. shard_dir, "TEMP=" .. shard_dir, "TMPDIR=" .. shard_dir}
       for k, v in pairs(os.getenvs()) do
         local key = k:upper()
-        if key ~= "TMP" and key ~= "TEMP" then envs[#envs + 1] = k .. "=" .. v end
+        if key ~= "TMP" and key ~= "TEMP" and key ~= "TMPDIR" then
+          envs[#envs + 1] = k .. "=" .. v
+        end
       end
       return envs
     end
 
     -- Spawn one process per shard without waiting: they all run concurrently,
-    -- then a single wait pass collects every exit code.
+    -- then a single wait pass collects every result. Each shard writes its own
+    -- console log (evidence) and its own JUnit report (the verdict).
     local function spawn_shards(binary, count, workdir)
       local procs = {}
       for i = 0, count - 1 do
@@ -74,53 +79,71 @@ task("test-parallel")
         -- the shard log so a loaded run's slowest cases are identifiable
         -- post-mortem; duration lines contain no verdict substrings.
         local tmp = shard_dir:gsub("\\", "/")
+        local logfile = path.join(workdir, string.format("shard-%d.log", i))
+        local report = path.join(workdir, string.format("shard-%d.xml", i)):gsub("\\", "/")
         local proc = process.openv(
           binary,
           {
             "--shard-count", tostring(count),
             "--shard-index", tostring(i),
-            "--durations", "yes"
+            "--durations", "yes",
+            "-r", "console",
+            "-r", "junit::out=" .. report
           },
-          {envs = shard_envs(tmp), stdout = path.join(workdir, string.format("shard-%d.log", i))}
+          {envs = shard_envs(tmp), stdout = logfile}
         )
         if not proc then
           os.raise(string.format("failed to spawn %s shard %d", binary, i))
         end
         -- 1-based: the wait pass below iterates with ipairs and would skip a
         -- 0-keyed entry, leaking the process and losing its result.
-        procs[#procs + 1] = proc
+        procs[#procs + 1] = {
+          proc = proc,
+          logfile = logfile,
+          report = report,
+          tmp = tmp
+        }
       end
       return procs
     end
 
-    local function shard_status(proc, logfile)
-      -- wait()'s status is unreliable when many processes run concurrently
-      -- (poller event bookkeeping under parallel waits); the Catch2 console
-      -- log is authoritative, so the return value is discarded.
-      proc:wait(-1)
-      proc:close()
-      local content = io.readfile(logfile) or ""
-      -- Success always ends with a completion marker; failures carry
-      -- FAILED/failed lines, and a crash mid-run leaves no marker at all.
-      local function passed()
-        if content:find("FAILED", 1, true) then return false end
-        local nfailed = content:match("| (%d+) failed")
-        if nfailed and tonumber(nfailed) > 0 then return false end
-        return content:find("All tests passed", 1, true) ~= nil
-          or content:find("test cases: ", 1, true) ~= nil
-          or content:find("assertions: ", 1, true) ~= nil
+    -- The shard's own JUnit report decides its verdict: log text is evidence
+    -- only, and wait() statuses are unreliable when many processes run
+    -- concurrently (poller event bookkeeping under parallel waits). A shard
+    -- that dies mid-run leaves no complete report, which counts as failed.
+    local function shard_verdict(p)
+      local content = io.readfile(p.report)
+      if not content then
+        return false, "no report written (shard died mid-run)"
       end
+      local failures = content:match('failures="(%d+)"')
+      local errors = content:match('errors="(%d+)"')
+      if not failures or not errors then
+        return false, "report unreadable"
+      end
+      if tonumber(failures) > 0 or tonumber(errors) > 0 then
+        return false, string.format("%s failure(s), %s error(s)", failures, errors)
+      end
+      return true, nil
+    end
+
+    -- Summary numbers come from the shard's console log: the JUnit tests=
+    -- attribute counts sections, not test cases, and a shard without a
+    -- readable summary simply contributes no numbers.
+    local function shard_counts(logfile)
+      local content = io.readfile(logfile) or ""
       local assertions, cases = content:match(
         "All tests passed %((%d+) assertions in (%d+) test cases%)"
       )
       if not assertions then
-        -- Skipped real-ffmpeg tests switch Catch2 to the "test cases: N | X
-        -- passed" summary; count the passed columns so skipped cases are not
-        -- reported as run. Columns are space-padded, so %s+ everywhere.
-        assertions = content:match("assertions:%s+%d+%s*|%s+(%d+)%s+passed")
-        cases = content:match("test cases:%s+%d+%s*|%s+(%d+)%s+passed")
+        -- Table form (a skipped or failed case switches Catch2 to it). Take
+        -- the total columns, not the passed ones: both summary forms have to
+        -- produce the same aggregate, and the total is what a single-process
+        -- run reports.
+        assertions = content:match("assertions:%s+(%d+)%s*|")
+        cases = content:match("test cases:%s+(%d+)%s*|")
       end
-      return passed(), assertions and tonumber(assertions), cases and tonumber(cases)
+      return assertions and tonumber(assertions) or 0, cases and tonumber(cases) or 0
     end
 
     local function cpu_count()
@@ -164,31 +187,31 @@ task("test-parallel")
     -- wait pass below only harvests results.
     local procs = {}
     local unit_procs = spawn_shards(tests_bin, unit_shards, path.join(workdir, "unit"))
-    for i, proc in ipairs(unit_procs) do
-      procs[#procs + 1] = {
-        name = string.format("unit shard %d", i - 1),
-        proc = proc,
-        logfile = path.join(workdir, "unit", string.format("shard-%d.log", i - 1))
-      }
+    for i, p in ipairs(unit_procs) do
+      p.name = string.format("unit shard %d", i - 1)
+      procs[#procs + 1] = p
     end
     local e2e_procs = spawn_shards(e2e_bin, e2e_shards, path.join(workdir, "e2e"))
-    for i, proc in ipairs(e2e_procs) do
-      procs[#procs + 1] = {
-        name = string.format("e2e shard %d", i - 1),
-        proc = proc,
-        logfile = path.join(workdir, "e2e", string.format("shard-%d.log", i - 1))
-      }
+    for i, p in ipairs(e2e_procs) do
+      p.name = string.format("e2e shard %d", i - 1)
+      procs[#procs + 1] = p
     end
 
     local passed_assertions = 0
     local passed_cases = 0
     local failures = {}
     for _, p in ipairs(procs) do
-      local passed, assertions, cases = shard_status(p.proc, p.logfile)
-      if passed and assertions then
+      -- Reap the process (its status is not trustworthy here), then judge the
+      -- shard by its own report.
+      p.proc:wait(-1)
+      p.proc:close()
+      local passed, reason = shard_verdict(p)
+      if passed then
+        local assertions, cases = shard_counts(p.logfile)
         passed_assertions = passed_assertions + assertions
-        passed_cases = passed_cases + (cases or 0)
+        passed_cases = passed_cases + cases
       else
+        p.reason = reason
         failures[#failures + 1] = p
       end
     end
@@ -200,11 +223,12 @@ task("test-parallel")
         passed_cases,
         #procs
       )
+      cprint("${dim}per-shard temp roots under %s (TMP/TEMP/TMPDIR)", workdir)
       return
     end
 
     for _, p in ipairs(failures) do
-      cprint("${red}FAILED: %s — log: %s", p.name, p.logfile)
+      cprint("${red}FAILED: %s — %s — log: %s", p.name, p.reason, p.logfile)
       local content = io.readfile(p.logfile) or ""
       local shown = 0
       for line in content:gmatch("[^\n]+") do
