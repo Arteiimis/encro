@@ -157,7 +157,6 @@ auto scalarJson(std::string const& raw, JsonKind kind) -> std::string {
     case JsonKind::Boolean: return raw == "true" ? "true" : "false";
     case JsonKind::Number : {
       auto value = double{0};
-      auto const* end = raw.data();
       auto const [ptr, ec] = std::from_chars(raw.data(), raw.data() + raw.size(), value);
       if (ec == std::errc{} && ptr == raw.data() + raw.size()) { return raw; }
       return json::serialize(json::string(raw));

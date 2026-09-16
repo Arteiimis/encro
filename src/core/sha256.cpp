@@ -185,7 +185,6 @@ auto sha256File(std::filesystem::path const& path) -> std::string {
       offset = take;
       if (pendingSize < 64) { continue; }
       processBlock(state, pending.data());
-      pendingSize = 0;
     }
     auto const full = (got - offset) / 64;
     for (auto block = std::size_t{0}; block < full; ++block) {

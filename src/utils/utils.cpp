@@ -219,11 +219,11 @@ auto findOnPath(fs::path const& token) -> fs::path {
 auto resolveExecutableToken(boost::process::v2::shell const& command) -> fs::path {
   auto const& rawToken = command.argv()[0];
   auto const token = fs::path{rawToken};
-  auto const& raw = token.native();
-  auto const pathLike = raw.contains('/') || raw.contains(fs::path::preferred_separator);
   auto const found = boost::process::v2::environment::find_executable(rawToken);
   auto exePath = found.empty() ? fs::path{} : fs::path{found.native()};
 #if !defined(_WIN32)
+  auto const& raw = token.native();
+  auto const pathLike = raw.contains('/') || raw.contains(fs::path::preferred_separator);
   if (exePath.empty() && !pathLike) { exePath = findOnPath(token); }
 #endif
   if (exePath.empty()) { exePath = token; }
