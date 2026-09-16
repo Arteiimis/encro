@@ -234,8 +234,6 @@ auto fitPostfixWithEta(
       tailPart = displaytext::truncateWithEllipsis(tailPart, availForTail);
     }
     if (tailPart.empty()) {
-      tailWidth = 0;
-      tailDelimWidth = 0;
       scrollBudget = budget >= fixedPrefixWidth ? budget - fixedPrefixWidth : 0;
     } else {
       tailWidth = displaytext::displayWidth(tailPart);
