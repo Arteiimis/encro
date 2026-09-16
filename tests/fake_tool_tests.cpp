@@ -26,6 +26,15 @@ auto runFakeTool(std::string const& args) -> ExecResult {
   return exec2(std::format("\"{}\" {}", fs::path{FAKE_TOOL_EXE_PATH}.string(), args));
 }
 
+// Same as runFakeTool, but keeps the child's stderr separate so a case can
+// assert on what the tool reported there.
+auto runFakeToolWithStderr(std::string const& args) -> ExecResult {
+  return exec2(
+    std::format("\"{}\" {}", fs::path{FAKE_TOOL_EXE_PATH}.string(), args),
+    false
+  );
+}
+
 auto encodeArg(fs::path const& filePath) -> std::string {
   return std::format("\"{}\"", filePath.string());
 }
@@ -284,6 +293,28 @@ TEST_CASE("fake tool gates every invocation without a from-call index", "[fake-t
     gate << "go";
   }
   holder.join();
+  CHECK(fs::exists(outPath));
+}
+
+TEST_CASE("fake tool names the gate file it never saw released", "[fake-tool]") {
+  TempDir temp;
+  auto const outPath = temp.path / "out.mp4";
+  auto const gateFile = temp.path / "gate";
+
+  auto const logEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const gateEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string()};
+  // Short fail-safe: the production deadline is 30 s.
+  auto const timeoutEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_TIMEOUT_MS", "250"};
+
+  auto const res =
+    runFakeToolWithStderr("-hide_banner -nostats -y " + encodeArg(outPath));
+
+  // Reaching the fail-safe has to be observable: a test whose gate nothing
+  // released cannot pass silently (portable-fake-tool).
+  CHECK(res.exitCode == 0);
+  CHECK(res.stderrText.find("was not released within") != std::string::npos);
+  CHECK(res.stderrText.find(gateFile.string()) != std::string::npos);
   CHECK(fs::exists(outPath));
 }
 

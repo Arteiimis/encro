@@ -1,8 +1,9 @@
 #include <algorithm>
 #include <array>
-#include <cstdint>
-#include <cstdlib>
 #include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -515,7 +516,9 @@ void recordCompletedInput(int argc, char* argv[]) {
 // schedule index or later, so earlier calls run to completion; without it
 // every invocation gates. An invocation without a schedule index (no count
 // file) always gates. The deadline keeps a miswired test from hanging the
-// suite.
+// suite and, on expiry, names the unreleased gate file on stderr: a test whose
+// gate nothing released must not pass silently. Tests of that report shorten
+// the deadline with ENCRO_FAKE_FFMPEG_GATE_TIMEOUT_MS.
 void waitForGateFile(int callIndex) {
   auto const gate = readEnv("ENCRO_FAKE_FFMPEG_GATE_FILE");
   if (!gate.has_value()) { return; }
@@ -528,9 +531,25 @@ void waitForGateFile(int callIndex) {
       if (callIndex < fromIndex) { return; }
     }
   }
-  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+  auto timeoutMs = std::int64_t{30'000};
+  if (auto const timeout = readEnv("ENCRO_FAKE_FFMPEG_GATE_TIMEOUT_MS"); timeout) {
+    try {
+      timeoutMs = std::stoll(timeout.value());
+    } catch (...) { }
+  }
+  auto const deadline =
+    std::chrono::steady_clock::now() + std::chrono::milliseconds{timeoutMs};
   while (!fs::exists(fs::path{gate.value()})) {
-    if (std::chrono::steady_clock::now() >= deadline) { return; }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      std::fprintf(
+        stderr,
+        "fake ffmpeg: gate file %s was not released within %lld ms; proceeding\n",
+        gate.value().c_str(),
+        static_cast<long long>(timeoutMs)
+      );
+      std::fflush(stderr);
+      return;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds{25});
   }
 }
