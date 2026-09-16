@@ -115,7 +115,7 @@ TEST_CASE("setup creates a valid timestamped log file", "[logging][file_mgmt]") 
   createFakeLogFile(testDir, collisionName);
 
   // Shutdown and re-setup to trigger collision detection
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   auto const result2 = logging::setup(config);
   REQUIRE(result2.has_value());
@@ -133,7 +133,7 @@ TEST_CASE("setup creates a valid timestamped log file", "[logging][file_mgmt]") 
   CHECK(logFilePath2 != (testDir / collisionName));
 
   // Shutdown (drains async queue, writes pending log messages)
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   // After shutdown, the log file must have non-zero size
   auto ec = std::error_code{};
@@ -174,7 +174,7 @@ TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
     CAPTURE(logFilePath.string());
 
     // Shutdown to release file handles
-    logging::shutdown();
+    testutils::shutdownLogging();
 
     // After cleanup, there should be no more than 11 files
     // (10 kept old files + 1 newly created timestamped file).
@@ -234,7 +234,7 @@ TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
     auto const result = logging::setup(config);
     REQUIRE(result.has_value());
 
-    logging::shutdown();
+    testutils::shutdownLogging();
 
     // D-05, D-18: Rotation suffix files (encro_*.log.*) must also be counted
     // and cleaned. With 15 total + 1 new file, after cleanup there should be
@@ -282,7 +282,7 @@ TEST_CASE("setup falls back when primary log dir is unwritable", "[logging][file
   CHECK(fs::exists(logFilePath));
   CHECK(isTimestampedName(logFilePath));
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -321,7 +321,7 @@ TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgm
   spdlog::default_logger()->flush();
 
   // Shutdown to flush all pending writes
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   // Read back the file content and verify our message is there
   auto ifs = std::ifstream{logFilePath};
@@ -358,7 +358,7 @@ TEST_CASE("json-only setup writes both .log and .ndjson files", "[logging][file_
   CHECK(fs::exists(logFilePath));
   CHECK(fs::exists(ndjsonPath));
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 }
 
 TEST_CASE(
@@ -395,5 +395,5 @@ TEST_CASE(
   );
   CHECK(flushed);
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 }

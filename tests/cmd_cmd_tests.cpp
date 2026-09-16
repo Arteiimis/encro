@@ -351,6 +351,7 @@ TEST_CASE("commandLineInit rejects options missing a value", "[cmd]") {
 // ── Phase 20-02: colored --help smoke tests ──
 
 TEST_CASE("help text contains ANSI escape codes when color is always", "[cmd][color]") {
+  auto const terminalGuard = testutils::ScopedTerminalReset{};
   terminal::configure(terminal::ColorMode::Always);
 
   auto const result = testutils::parseArgs({"encro", "--help"});
@@ -358,18 +359,15 @@ TEST_CASE("help text contains ANSI escape codes when color is always", "[cmd][co
 
   // After Phase 20 color injection, help text SHOULD contain ANSI escape codes
   CHECK(help.find("\x1b[") != std::string::npos);
-
-  terminal::reset();
 }
 
 TEST_CASE("help text contains NO ANSI codes when color is disabled", "[cmd][color]") {
   SECTION("color mode never") {
+    auto const terminalGuard = testutils::ScopedTerminalReset{};
     terminal::configure(terminal::ColorMode::Never);
 
     auto const result = testutils::parseArgs({"encro", "--help"});
     CHECK(result.helpText().find("\x1b[") == std::string::npos);
-
-    terminal::reset();
   }
 
   SECTION("NO_COLOR environment variable") {
@@ -382,6 +380,8 @@ TEST_CASE("help text contains NO ANSI codes when color is disabled", "[cmd][colo
 
 TEST_CASE("help honors the color mode configured after the parse", "[cmd][color]") {
   SECTION("always during parse, never at read time") {
+    auto const terminalGuard = testutils::ScopedTerminalReset{};
+
     // The eager renderer bakes Always-mode escapes into the string; a lazy
     // renderer must re-check the mode when the string is read.
     terminal::configure(terminal::ColorMode::Always);
@@ -389,23 +389,23 @@ TEST_CASE("help honors the color mode configured after the parse", "[cmd][color]
 
     terminal::configure(terminal::ColorMode::Never);
     CHECK(result.helpText().find("\x1b[") == std::string::npos);
-
-    terminal::reset();
   }
 
   SECTION("auto during parse, always at read time") {
+    auto const terminalGuard = testutils::ScopedTerminalReset{};
+
     // Piped test output auto-suppresses color at parse time; reading later
     // under Always must still produce styled text.
     auto const result = testutils::parseArgs({"encro", "-h"});
 
     terminal::configure(terminal::ColorMode::Always);
     CHECK(result.helpText().find("\x1b[") != std::string::npos);
-
-    terminal::reset();
   }
 }
 
 TEST_CASE("CLI --color decides help coloring at read time", "[cmd][color]") {
+  auto const terminalGuard = testutils::ScopedTerminalReset{};
+
   SECTION("--color never") {
     auto const result = testutils::parseArgs({"encro", "--color", "never", "-h"});
     REQUIRE_FALSE(result.error.has_value());
@@ -413,8 +413,6 @@ TEST_CASE("CLI --color decides help coloring at read time", "[cmd][color]") {
 
     REQUIRE_FALSE(terminal::configureFromColorString(result.color).has_value());
     CHECK(result.helpText().find("\x1b[") == std::string::npos);
-
-    terminal::reset();
   }
 
   SECTION("--color always overrides non-TTY auto-suppression") {
@@ -424,8 +422,6 @@ TEST_CASE("CLI --color decides help coloring at read time", "[cmd][color]") {
 
     REQUIRE_FALSE(terminal::configureFromColorString(result.color).has_value());
     CHECK(result.helpText().find("\x1b[") != std::string::npos);
-
-    terminal::reset();
   }
 
   SECTION("--color never disables every subcommand help") {
@@ -438,8 +434,6 @@ TEST_CASE("CLI --color decides help coloring at read time", "[cmd][color]") {
       REQUIRE_FALSE(terminal::configureFromColorString(result.color).has_value());
       CHECK(result.helpText().find("\x1b[") == std::string::npos);
     }
-
-    terminal::reset();
   }
 }
 
@@ -630,6 +624,7 @@ TEST_CASE(
   "[cmd][color]"
 ) {
   auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "120"};
+  auto const terminalGuard = testutils::ScopedTerminalReset{};
 
   // Materialize each string while its own color mode is still configured:
   // help renders lazily, so deferring both reads past the resets would
@@ -640,7 +635,6 @@ TEST_CASE(
 
   terminal::configure(terminal::ColorMode::Never);
   auto const plain = testutils::parseArgs({"encro", "-hh"}).helpText();
-  terminal::reset();
 
   CHECK(stripAnsi(colored) == plain);
 }

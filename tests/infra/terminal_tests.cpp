@@ -7,18 +7,7 @@
 #include <string>
 
 using testutils::countOccurrences;
-
-namespace {
-
-class ScopedTerminalReset {
-public:
-  ScopedTerminalReset() = default;
-  ScopedTerminalReset(ScopedTerminalReset const&) = delete;
-  auto operator=(ScopedTerminalReset const&) -> ScopedTerminalReset& = delete;
-  ~ScopedTerminalReset() { terminal::reset(); }
-};
-
-}  // namespace
+using testutils::ScopedTerminalReset;
 
 TEST_CASE("parseColorMode accepts supported values", "[terminal]") {
   CHECK(terminal::parseColorMode("auto") == terminal::ColorMode::Auto);

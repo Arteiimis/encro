@@ -87,7 +87,7 @@ TEST_CASE("logging::setup: registers the named loggers", "[logging][infra]") {
   CHECK(spdlog::default_logger_raw() != nullptr);
 
   // Cleanup
-  logging::shutdown();
+  testutils::shutdownLogging();
   tryRemoveAll(tempDir);
 }
 
@@ -111,7 +111,7 @@ TEST_CASE("logging::shutdown: cleans up spdlog global state", "[logging][infra]"
   CHECK(fs::exists(result.value()));
 
   // Shutdown
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   // After shutdown, loggers should no longer be accessible
   // (spdlog::shutdown() clears the registry)

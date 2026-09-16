@@ -54,7 +54,7 @@ TEST_CASE("counting sink counts per level and forwards records", "[logging][summ
   logger->warn("forwarded warning");
   logger->error("forwarded error");
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   // Records were forwarded to the file sink unchanged
   auto const content = lastLineOf(result.value());
@@ -96,7 +96,7 @@ TEST_CASE(
     }
   );
 
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   auto const ndjsonPath = result.value();
   auto ndjson = ndjsonPath;
@@ -172,7 +172,7 @@ TEST_CASE(
   syncEcho->warn(fmt::format("[{}:{}] {}", fileTag, 151, "hello warn"));
   syncEcho->debug(fmt::format("[{}:{}] {}", fileTag, 152, "hello debug"));
   syncEcho->error(fmt::format("[{}:{}] {}", fileTag, 153, "hello error"));
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   auto const echoText = echoBuffer->str();
 
@@ -211,7 +211,7 @@ TEST_CASE(
 
   syncEcho->debug("deep debug detail");
   syncEcho->error("loud error");
-  logging::shutdown();
+  testutils::shutdownLogging();
 
   auto const echoText = echoBuffer->str();
   // Full format: timestamped, with the level tag; debug records included.
