@@ -59,10 +59,11 @@ public:
   void hold() {
     entered_.store(true, std::memory_order_release);
     // Poll instead of blocking outright: a run that never publishes the awaited
-    // text must fail its assertions rather than hang this thread.
+    // text must fail its assertions rather than hang this thread. The deadline
+    // allows many packing windows (2000 entries), never fewer than three.
     (void)testutils::waitUntil(
       [this] { return released_.load(std::memory_order_acquire); },
-      std::chrono::milliseconds{5'000}
+      std::chrono::milliseconds{30'000}
     );
   }
 

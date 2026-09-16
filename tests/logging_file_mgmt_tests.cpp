@@ -391,7 +391,10 @@ TEST_CASE(
       auto const content = std::string{std::istreambuf_iterator<char>{ifs}, {}};
       return content.find(testMsg) != std::string::npos;
     },
-    std::chrono::seconds{3}
+    // The flush cadence is 1 s: allow several periods instead of the two a 3 s
+    // deadline leaves, so a loaded parallel run reports a real missing flush
+    // rather than a late one.
+    std::chrono::seconds{10}
   );
   CHECK(flushed);
 
