@@ -36,18 +36,26 @@ struct ScopedCurrentPath {
   ~ScopedCurrentPath() { fs::current_path(previous); }
 };
 
-// Watches the cwd for a stray "-progress" file: ffmpeg creates one when an
-// invocation loses its -progress value. Removes any leftover on entry and
-// fails the test if the regression reappears during the test.
+// Watches the process's working directory for a stray "-progress" file:
+// ffmpeg creates one when an invocation loses its -progress value. Each case
+// runs inside its own directory, so such a file can only come from the
+// regression under test. The check runs on scope exit and only when the case is
+// not already unwinding: an assertion from a destructor during unwinding
+// reports badly (same idiom as TempDir).
 struct StrayProgressGuard {
+  ScopedCurrentPath workingDir;
   fs::path path;
 
-  StrayProgressGuard(): path(fs::current_path() / "-progress") {
+  explicit StrayProgressGuard(fs::path const& dir)
+    : workingDir(dir), path(fs::current_path() / "-progress") {
     std::error_code ec;
     fs::remove(path, ec);
   }
 
-  ~StrayProgressGuard() { CHECK_FALSE(fs::exists(path)); }
+  ~StrayProgressGuard() {
+    if (std::uncaught_exceptions() > 0) { return; }
+    CHECK_FALSE(fs::exists(path));
+  }
 };
 
 // Fake ffmpeg = the shared e2e fake_media_tool binary (testutils::copyFakeTool).
@@ -73,7 +81,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  StrayProgressGuard strayProgress;
+  StrayProgressGuard strayProgress{temp.path};
   auto const inputPath = temp.path / "sample.mp4";
   writeTextFile(inputPath, "fake-video");
 
@@ -94,7 +102,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  StrayProgressGuard strayProgress;
+  StrayProgressGuard strayProgress{temp.path};
   auto const inputDir = temp.path / "videos";
   fs::create_directories(inputDir);
   writeTextFile(inputDir / "a.mp4", "a");
@@ -118,7 +126,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  StrayProgressGuard strayProgress;
+  StrayProgressGuard strayProgress{temp.path};
   auto const inputDir = temp.path / "videos";
   auto const stateFilePath = temp.path / "encro.job-state.json";
   fs::create_directories(inputDir);
@@ -184,7 +192,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  StrayProgressGuard strayProgress;
+  StrayProgressGuard strayProgress{temp.path};
   auto const inputPath = temp.path / "slow.mp4";
   writeTextFile(inputPath, "slow-video");
 
@@ -285,7 +293,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  StrayProgressGuard strayProgress;
+  StrayProgressGuard strayProgress{temp.path};
   auto const inputDir = temp.path / "videos";
   fs::create_directories(inputDir);
   writeTextFile(inputDir / "a.mp4", "fake-video");
@@ -316,7 +324,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  StrayProgressGuard strayProgress;
+  StrayProgressGuard strayProgress{temp.path};
   auto const inputDir = temp.path / "videos";
   fs::create_directories(inputDir);
   writeTextFile(inputDir / "a.mp4", "fake-video");
@@ -349,7 +357,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  StrayProgressGuard strayProgress;
+  StrayProgressGuard strayProgress{temp.path};
   auto const inputDir = temp.path / "videos";
   fs::create_directories(inputDir);
   writeTextFile(inputDir / "alpha.mp4", "fake-video");
@@ -384,7 +392,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  StrayProgressGuard strayProgress;
+  StrayProgressGuard strayProgress{temp.path};
   auto const missingPath = temp.path / "does-not-exist.mp4";
 
   auto ctx = appctx::AppContext{};
@@ -436,7 +444,7 @@ TEST_CASE(
 ) {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
-  StrayProgressGuard strayProgress;
+  StrayProgressGuard strayProgress{temp.path};
   auto const inputPath = temp.path / "sample.mp4";
   writeTextFile(inputPath, "fake-video");
 
