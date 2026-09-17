@@ -43,15 +43,8 @@ auto kindStyleFor(MessageKind kind) -> KindStyle {
     case MessageKind::Hint   : return {Role::Muted, StyleSite::Prefix};
     case MessageKind::Success:
     case MessageKind::Summary: return {Role::Good, StyleSite::LeadingVerb};
-    // Option and subcommand names carry their role where they are emitted: one
-    // help line mixes an accent name with a faint-accent (=default) suffix,
-    // which a single kind-wide role cannot express.
-    case MessageKind::Plain        :
-    case MessageKind::Info         :
-    case MessageKind::OptionGroup  :
-    case MessageKind::OptionName   :
-    case MessageKind::OptionDefault:
-    case MessageKind::OptionDesc   : return {Role::Default, StyleSite::None};
+    case MessageKind::Plain  :
+    case MessageKind::Info   : return {Role::Default, StyleSite::None};
   }
 
   return {Role::Default, StyleSite::None};
@@ -95,17 +88,13 @@ bool enableVirtualTerminal(Stream stream) {
 
 auto severityPrefix(MessageKind kind) -> std::string_view {
   switch (kind) {
-    case MessageKind::Plain        :
-    case MessageKind::Success      :
-    case MessageKind::Info         :
-    case MessageKind::Summary      :
-    case MessageKind::OptionGroup  :
-    case MessageKind::OptionName   :
-    case MessageKind::OptionDefault:
-    case MessageKind::OptionDesc   : return {};
-    case MessageKind::Error        : return "error:";
-    case MessageKind::Warning      : return "warning:";
-    case MessageKind::Hint         : return "hint:";
+    case MessageKind::Plain  :
+    case MessageKind::Success:
+    case MessageKind::Info   :
+    case MessageKind::Summary: return {};
+    case MessageKind::Error  : return "error:";
+    case MessageKind::Warning: return "warning:";
+    case MessageKind::Hint   : return "hint:";
   }
 
   return {};
@@ -218,17 +207,13 @@ auto accent(std::string_view text, Stream stream) -> std::string {
 
 auto streamFor(MessageKind kind) -> Stream {
   switch (kind) {
-    case MessageKind::Error        :
-    case MessageKind::Warning      :
-    case MessageKind::Hint         : return Stream::Stderr;
-    case MessageKind::Plain        :
-    case MessageKind::Success      :
-    case MessageKind::Info         :
-    case MessageKind::Summary      :
-    case MessageKind::OptionGroup  :
-    case MessageKind::OptionName   :
-    case MessageKind::OptionDefault:
-    case MessageKind::OptionDesc   : return Stream::Stdout;
+    case MessageKind::Error  :
+    case MessageKind::Warning:
+    case MessageKind::Hint   : return Stream::Stderr;
+    case MessageKind::Plain  :
+    case MessageKind::Success:
+    case MessageKind::Info   :
+    case MessageKind::Summary: return Stream::Stdout;
   }
 
   return Stream::Stdout;
