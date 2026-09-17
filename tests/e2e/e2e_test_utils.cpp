@@ -215,10 +215,11 @@ auto runEncro(
   return runProcess(encroBinaryPath(), args, workingDir, environment);
 }
 
-// The failure path prints "Log file: <path>" on stderr; dump that tail into
-// the assertion output so CI runs carry ffmpeg's stderr without a separate
-// artifact round-trip. Empty when the child produced no log line.
-auto encroLogTail(std::string const& stderrText) -> std::string {
+// The failure path prints "Log file: <path>" on stderr; every log reader here
+// starts from that line. Empty when the child produced no log line.
+namespace {
+
+auto logPathFromStderr(std::string const& stderrText) -> std::string {
   auto const marker = std::string_view{"Log file: "};
   auto const pos = stderrText.find(marker);
   if (pos == std::string::npos) { return {}; }
@@ -227,14 +228,39 @@ auto encroLogTail(std::string const& stderrText) -> std::string {
   // Windows text mode turns the line's '\n' into '\r\n'; the '\r' is not part
   // of the path.
   if (!path.empty() && path.back() == '\r') { path.pop_back(); }
-  auto in = std::ifstream{fs::path{path}};
-  if (!in) { return "\n(encro log not readable: " + path + ")\n"; }
+  return path;
+}
+
+auto readAllOf(fs::path const& path) -> std::string {
+  auto in = std::ifstream{path};
+  if (!in) { return {}; }
   auto content = std::string{};
   auto line = std::string{};
   while (std::getline(in, line)) {
     content += line;
     content += '\n';
   }
+  return content;
+}
+
+}  // namespace
+
+// Whole content of the log named on stderr: assertions about what the file
+// kept use this, never the trimmed tail below.
+auto encroLogText(std::string const& stderrText) -> std::string {
+  auto const path = logPathFromStderr(stderrText);
+  if (path.empty()) { return {}; }
+  return readAllOf(fs::path{path});
+}
+
+// Diagnostic dump for REQUIRE_SUCCESS: the log's last 8 KiB so a CI failure
+// carries ffmpeg's stderr without a separate artifact round-trip.
+auto encroLogTail(std::string const& stderrText) -> std::string {
+  auto const path = logPathFromStderr(stderrText);
+  if (path.empty()) { return {}; }
+  auto const pathObj = fs::path{path};
+  if (!fs::exists(pathObj)) { return "\n(encro log not readable: " + path + ")\n"; }
+  auto content = readAllOf(pathObj);
   if (content.size() > 8192) { content.erase(0, content.size() - 8192); }
   return "\nencro log (" + path + "):\n" + content;
 }

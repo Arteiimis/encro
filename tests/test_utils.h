@@ -472,8 +472,19 @@ struct StderrCapture: FileCapture {
     : FileCapture(stderr, capturePath) { }
 };
 
+// Reads a text file, waiting briefly for it to appear: the producer is a child
+// process (the app, ffmpeg) whose file can lag the exit of another process by a
+// scheduling quantum under parallel load, which showed up as an unreadable log
+// in a real-ffmpeg e2e case. The wait is a hang guard — a file that never
+// appears still fails here, naming the path.
 inline auto readTextFile(fs::path const& filePath) -> std::string {
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  while (!fs::exists(filePath) && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{25});
+  }
+
   auto ifs = std::ifstream{filePath};
+  INFO("readTextFile: " << filePath.string());
   REQUIRE(ifs.is_open());
   return {std::istreambuf_iterator<char>{ifs}, std::istreambuf_iterator<char>{}};
 }
