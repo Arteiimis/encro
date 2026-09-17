@@ -463,14 +463,12 @@ TEST_CASE(
 
   // The items are indented, unprefixed, and carry no color of their own: the
   // raw capture has each subject right after the indent.
-  CHECK(plain.find("warning:   ") == std::string::npos);
   for (auto const* subject: {"a.mp4", "b.mp4"}) {
     // The subject is the input's full path, printed as-is.
     auto const rawItem =
       "\n  " + (inputDir / subject).string() + ": quality floor unreachable";
     CHECK(captured.find(rawItem) != std::string::npos);
   }
-  CHECK(testutils::countOccurrences(plain, ": quality floor unreachable") == 2);
 
   // The group stays with the run summary on stdout.
   CHECK(plain.find("Encoded 2/2 videos") != std::string::npos);

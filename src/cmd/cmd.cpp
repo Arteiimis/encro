@@ -230,7 +230,7 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth, unsigned lineLe
 auto formatGroupHeader(std::string const& name) -> std::string {
   if (name.empty()) return {};
   auto const coloredName =
-    terminal::styled(terminal::Stream::Stdout, terminal::boldStyle(), name);
+    terminal::styled(terminal::Stream::Stdout, fmt::emphasis::bold, name);
   return std::format("\n{}:\n", coloredName);
 }
 
@@ -257,7 +257,7 @@ auto formatHelpSection(
   unsigned lineLength
 ) -> std::string {
   auto const coloredTitle =
-    terminal::styled(terminal::Stream::Stdout, terminal::boldStyle(), title);
+    terminal::styled(terminal::Stream::Stdout, fmt::emphasis::bold, title);
 
   auto result = std::format("{}:\n", coloredTitle);
   result += formatIndentedLines(lines, lineLength);
@@ -361,7 +361,7 @@ auto formatCommandsSection(
 
   auto result = std::format(
     "\n{}:\n",
-    terminal::styled(terminal::Stream::Stdout, terminal::boldStyle(), "encro commands")
+    terminal::styled(terminal::Stream::Stdout, fmt::emphasis::bold, "encro commands")
   );
   for (auto const* sub: subcommands) {
     auto const name = sub->get_name();

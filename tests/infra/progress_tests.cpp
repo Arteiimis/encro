@@ -190,16 +190,22 @@ TEST_CASE("progress bar colors follow the role table", "[progress]") {
   CHECK(progress::barColor(Role::Good) == Color::green);
   CHECK(progress::barColor(Role::Warn) == Color::yellow);
   CHECK(progress::barColor(Role::Bad) == Color::red);
+}
 
+TEST_CASE("no role leaves a bar uncolored in a colored frame", "[progress]") {
   // The bar library sets one foreground per bar and resets only after the
-  // whole frame, so a bar that sets no color inherits the previous bar's. No
-  // role may leave a bar in a colored frame without a foreground of its own.
+  // whole frame, so a bar that sets no color inherits the previous bar's.
   for (
     auto const role:
-    {Role::Default, Role::Muted, Role::Accent, Role::Good, Role::Warn, Role::Bad}
+    {terminal::Role::Default,
+     terminal::Role::Muted,
+     terminal::Role::Accent,
+     terminal::Role::Good,
+     terminal::Role::Warn,
+     terminal::Role::Bad}
   ) {
     CAPTURE(static_cast<int>(role));
-    CHECK(progress::barColor(role) != Color::unspecified);
+    CHECK(progress::barColor(role) != indicators::Color::unspecified);
   }
 }
 

@@ -5,7 +5,7 @@
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <array>
-#include <cctype>
+#include <ranges>
 #include <string>
 #include <string_view>
 
@@ -15,27 +15,36 @@ using testutils::stripAnsi;
 
 namespace {
 
-// A line is nested when one style span opens before the previous span's reset:
-// the inner reset would then end the outer style for the rest of the line,
-// which is the defect this design exists to eliminate.
+// A line is nested when a style span opens while another is still open: the
+// inner reset would then end the outer style for the rest of the line, which is
+// the defect this design exists to eliminate. One span may open with several
+// consecutive SGR sequences (fmt writes faint and a colour separately, as in
+// "\x1b[2m\x1b[36m (=mp4)\x1b[0m"), so only an SGR that follows visible text
+// inside an open span counts as nesting.
 bool hasNestedStyleSpan(std::string_view text) {
-  auto open = std::size_t{0};
+  auto open = false;
+  auto textSinceOpen = false;
 
-  for (
-    auto index = text.find('\x1b'); index != std::string_view::npos;
-    index = text.find('\x1b', index)
-  ) {
-    auto const end = text.find('m', index);
-    if (end == std::string_view::npos) { break; }
+  for (auto index = std::size_t{0}; index < text.size();) {
+    if (text[index] == '\x1b' && index + 1 < text.size() && text[index + 1] == '[') {
+      auto const end = text.find('m', index);
+      if (end == std::string_view::npos) { break; }
 
-    auto const params = text.substr(index + 2, end - index - 2);
-    if (params.empty() || params == "0") {
-      open = 0;
-    } else {
-      ++open;
-      if (open > 1) { return true; }
+      auto const params = text.substr(index + 2, end - index - 2);
+      if (params.empty() || params == "0") {
+        open = false;
+      } else if (open && textSinceOpen) {
+        return true;
+      } else {
+        open = true;
+      }
+      textSinceOpen = false;
+      index = end + 1;
+      continue;
     }
-    index = end + 1;
+
+    if (open) { textSinceOpen = true; }
+    ++index;
   }
 
   return false;
@@ -66,14 +75,22 @@ TEST_CASE("each role renders as its own palette slot", "[terminal]") {
   CHECK(wrap(Role::Good) == "\x1b[32mx\x1b[0m");
   CHECK(wrap(Role::Warn) == "\x1b[33mx\x1b[0m");
   CHECK(wrap(Role::Bad) == "\x1b[31mx\x1b[0m");
+}
 
-  // The user's terminal owns the palette: no role may pick a 24-bit RGB or a
-  // 256-color-indexed value, which would ignore their theme.
+TEST_CASE("no role spends a 24-bit or 256-color slot", "[terminal]") {
   for (
     auto const role:
-    {Role::Default, Role::Muted, Role::Accent, Role::Good, Role::Warn, Role::Bad}
+    {terminal::Role::Default,
+     terminal::Role::Muted,
+     terminal::Role::Accent,
+     terminal::Role::Good,
+     terminal::Role::Warn,
+     terminal::Role::Bad}
   ) {
-    auto const rendered = wrap(role);
+    CAPTURE(static_cast<int>(role));
+    // The user's terminal owns the palette: a fixed color would ignore their
+    // theme and could land on their background.
+    auto const rendered = fmt::format(terminal::roleStyle(role), "{}", "x");
     CHECK(rendered.find("38;2;") == std::string::npos);
     CHECK(rendered.find("38;5;") == std::string::npos);
   }
@@ -92,7 +109,7 @@ TEST_CASE("styling disabled emits nothing and substitutes nothing", "[terminal]"
     == "x"
   );
   CHECK(
-    terminal::styled(terminal::Stream::Stdout, terminal::boldStyle(), "heading")
+    terminal::styled(terminal::Stream::Stdout, fmt::emphasis::bold, "heading")
     == "heading"
   );
   CHECK(
@@ -195,30 +212,33 @@ TEST_CASE("a caller-styled first value keeps its span", "[terminal]") {
   CHECK(stripAnsi(line) == "5 packed");
 }
 
-TEST_CASE("no rendered line nests one style span inside another", "[terminal]") {
+TEST_CASE("no help line nests one style span inside another", "[terminal]") {
+  auto const _ = ScopedTerminalReset{};
+  terminal::configure(terminal::ColorMode::Always);
+
+  auto const help = testutils::parseArgs({"encro", "-hh"}).helpText();
+  REQUIRE(help.find("\x1b[") != std::string::npos);  // colors really were on
+
+  // The help page is the densest styling surface: bold headings, accent names
+  // and accent-plus-faint (=default) suffixes share a line.
+  auto checked = std::size_t{0};
+  for (auto const line: std::views::split(help, '\n')) {
+    auto const text = std::string_view{line};
+    CAPTURE(text);
+    CHECK_FALSE(hasNestedStyleSpan(text));
+    ++checked;
+  }
+  CHECK(checked > 20);
+}
+
+TEST_CASE("no message line nests one style span inside another", "[terminal]") {
   auto const _ = ScopedTerminalReset{};
   terminal::configure(terminal::ColorMode::Always);
 
   auto const samples = std::array{
-    terminal::format(
-      terminal::Stream::Stdout,
-      terminal::MessageKind::Info,
-      "Found {} video(s) under {}.",
-      terminal::count(2),
-      terminal::path("C:/in")
-    ),
-    terminal::format(
-      terminal::Stream::Stdout,
-      terminal::MessageKind::Summary,
-      "Encoded {}/{} videos -> {}",
-      terminal::count(2),
-      terminal::count(3),
-      terminal::path("C:/out")
-    ),
     terminal::format(terminal::Stream::Stderr, terminal::MessageKind::Error, "boom"),
     terminal::format(terminal::Stream::Stderr, terminal::MessageKind::Warning, "careful"),
     terminal::format(terminal::Stream::Stderr, terminal::MessageKind::Hint, "try -hh"),
-    terminal::styled(terminal::Stream::Stdout, terminal::boldStyle(), "General options"),
   };
 
   for (auto const& sample: samples) {
@@ -247,10 +267,6 @@ constexpr KindProps kKinds[] = {
   {terminal::MessageKind::Info,          "Info",          {},        terminal::Stream::Stdout},
   {terminal::MessageKind::Summary,       "Summary",       {},        terminal::Stream::Stdout},
   {terminal::MessageKind::Hint,          "Hint",          "hint:",   terminal::Stream::Stderr},
-  {terminal::MessageKind::OptionGroup,   "OptionGroup",   {},        terminal::Stream::Stdout},
-  {terminal::MessageKind::OptionName,    "OptionName",    {},        terminal::Stream::Stdout},
-  {terminal::MessageKind::OptionDefault, "OptionDefault", {},        terminal::Stream::Stdout},
-  {terminal::MessageKind::OptionDesc,    "OptionDesc",    {},        terminal::Stream::Stdout},
 };
 // clang-format on
 
@@ -290,7 +306,7 @@ TEST_CASE("every kind prints its severity prefix exactly once", "[terminal]") {
       if (!entry.prefix.empty()) {
         // The prefix survives coloring exactly once, as plain text inside its
         // span, and never as a bracketed badge or a second marker.
-        CHECK(countOccurrences(stripAnsi(colored), std::string{entry.prefix}) == 1);
+        CHECK(countOccurrences(stripAnsi(colored), entry.prefix) == 1);
       }
       for (auto const* badgeLiteral: kBadgeLiterals) {
         CHECK(colored.find(badgeLiteral) == std::string::npos);

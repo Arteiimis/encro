@@ -550,7 +550,7 @@ bool confirmEncodingStart(appctx::AppContext& ctx) {
     ctx.config.yesToAll,
     std::format(
       "do you want to encode the video to {} format? (Y/n): ",
-      terminal::accent("{}", ctx.config.outputFormat)
+      terminal::accent(ctx.config.outputFormat)
     )
   );
   if (!proceed) {
