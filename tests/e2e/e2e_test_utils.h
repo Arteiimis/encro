@@ -105,6 +105,11 @@ auto runEncro(
 // for REQUIRE_SUCCESS failure diagnostics.
 auto encroLogTail(std::string const& stdoutText) -> std::string;
 
+// Whole content of that log file, for assertions about what the file kept.
+// `encroLogTail` trims to the last 8 KiB — a diagnostic window an assertion
+// must not depend on, because a loaded run can end with more non-debug lines.
+auto encroLogText(std::string const& stdoutText) -> std::string;
+
 // Same as runEncro but returns a live handle for interruption tests.
 // The child is created in its own process group so console events can be
 // delivered to it without signalling the test runner.

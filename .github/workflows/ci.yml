@@ -98,8 +98,12 @@ jobs:
         if: matrix.mode != 'coverage'
         run: |
           set -o pipefail
-          # JUnit 报告：失败时输出失败测试名（非 TTY 下进度条帧已被抑制，日志干净）
-          ./build/linux/x86_64/${{ matrix.mode }}/tests -r junit -o /tmp/ut.xml > /tmp/ut.log 2>&1
+          # Console reporter alongside JUnit: the console summary carries
+          # Catch2's "Randomness seeded to: <N>" line, so an order-dependent
+          # failure in CI is reproducible with --rng-seed <N>. The JUnit report
+          # keeps feeding the failure greps below and the uploaded artifacts;
+          # non-TTY output has no progress-bar frames.
+          ./build/linux/x86_64/${{ matrix.mode }}/tests -r console -r junit::out=/tmp/ut.xml > /tmp/ut.log 2>&1
           ec=$?
           tail -20 /tmp/ut.log
           if [ $ec -ne 0 ]; then

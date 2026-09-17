@@ -128,10 +128,22 @@ task("test-parallel")
     end
 
     -- Summary numbers come from the shard's console log: the JUnit tests=
-    -- attribute counts sections, not test cases, and a shard without a
-    -- readable summary simply contributes no numbers.
+    -- attribute counts sections, not test cases. The child writes that summary
+    -- through a redirected stdout, so a read landing before the file is whole
+    -- would under-count silently; retry briefly, and report no counts at all
+    -- rather than a short total (the caller then omits the aggregate).
+    local function read_shard_log(logfile)
+      local content = nil
+      for _ = 1, 40 do
+        content = io.readfile(logfile)
+        if content and content:find("assertions", 1, true) then return content end
+        os.sleep(50)
+      end
+      return content
+    end
+
     local function shard_counts(logfile)
-      local content = io.readfile(logfile) or ""
+      local content = read_shard_log(logfile) or ""
       local assertions, cases = content:match(
         "All tests passed %((%d+) assertions in (%d+) test cases%)"
       )
@@ -199,6 +211,7 @@ task("test-parallel")
 
     local passed_assertions = 0
     local passed_cases = 0
+    local counts_complete = true
     local failures = {}
     for _, p in ipairs(procs) do
       -- Reap the process (its status is not trustworthy here), then judge the
@@ -208,6 +221,7 @@ task("test-parallel")
       local passed, reason = shard_verdict(p)
       if passed then
         local assertions, cases = shard_counts(p.logfile)
+        if assertions == 0 and cases == 0 then counts_complete = false end
         passed_assertions = passed_assertions + assertions
         passed_cases = passed_cases + cases
       else
@@ -217,12 +231,20 @@ task("test-parallel")
     end
 
     if #failures == 0 then
-      cprint(
-        "${bright green}All tests passed (%d assertions in %d test cases) across %d parallel shards",
-        passed_assertions,
-        passed_cases,
-        #procs
-      )
+      if counts_complete then
+        cprint(
+          "${bright green}All tests passed (%d assertions in %d test cases) across %d parallel shards",
+          passed_assertions,
+          passed_cases,
+          #procs
+        )
+      else
+        -- Never print a total that a missing shard summary made short.
+        cprint(
+          "${bright green}All tests passed across %d parallel shards (per-shard counts in the shard logs)",
+          #procs
+        )
+      end
       cprint("${dim}per-shard temp roots under %s (TMP/TEMP/TMPDIR)", workdir)
       return
     end
