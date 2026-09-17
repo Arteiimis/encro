@@ -190,20 +190,15 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth, unsigned lineLe
   // Column 1 = name + (=default); a type column is intentionally never
   // rendered, so binding/validator type names cannot leak into help.
   auto const defaultText = formatDefaultStr(opt);
-  auto styledDefaultText = std::string{};
-  if (!defaultText.empty()) {
-    styledDefaultText = terminal::styledText(
-      terminal::Stream::Stdout,
-      terminal::MessageKind::OptionDefault,
-      defaultText
-    );
-  }
+  auto const styledDefaultText = defaultText.empty()
+    ? std::string{}
+    : terminal::styled(
+        terminal::Stream::Stdout,
+        terminal::roleStyle(terminal::Role::Accent) | fmt::emphasis::faint,
+        defaultText
+      );
 
-  auto const coloredName = terminal::styledText(
-    terminal::Stream::Stdout,
-    terminal::MessageKind::OptionName,
-    nameStr
-  );
+  auto const coloredName = terminal::accent(nameStr);
 
   // Pad the full first column (name + default) to colWidth for alignment.
   // Layout math uses plain-text widths only, so wrapping is identical across
@@ -220,22 +215,11 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth, unsigned lineLe
   auto result = std::string{};
   for (auto lineNum = 0u; lineNum < wrappedDescription.size(); ++lineNum) {
     auto const& line = wrappedDescription[lineNum];
-    auto const coloredDesc = terminal::styledText(
-      terminal::Stream::Stdout,
-      terminal::MessageKind::OptionDesc,
-      line
-    );
     if (lineNum == 0) {
-      result += std::format(
-        "  {}{}{:<{}}{}\n",
-        coloredName,
-        styledDefaultText,
-        "",
-        gap,
-        coloredDesc
-      );
+      result +=
+        std::format("  {}{}{:<{}}{}\n", coloredName, styledDefaultText, "", gap, line);
     } else {
-      result += std::format("{}{}\n", indent, coloredDesc);
+      result += std::format("{}{}\n", indent, line);
     }
   }
 
@@ -245,11 +229,8 @@ auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth, unsigned lineLe
 
 auto formatGroupHeader(std::string const& name) -> std::string {
   if (name.empty()) return {};
-  auto const coloredName = terminal::styledText(
-    terminal::Stream::Stdout,
-    terminal::MessageKind::OptionGroup,
-    name
-  );
+  auto const coloredName =
+    terminal::styled(terminal::Stream::Stdout, terminal::boldStyle(), name);
   return std::format("\n{}:\n", coloredName);
 }
 
@@ -275,11 +256,8 @@ auto formatHelpSection(
   std::span<std::string_view const> lines,
   unsigned lineLength
 ) -> std::string {
-  auto const coloredTitle = terminal::styledText(
-    terminal::Stream::Stdout,
-    terminal::MessageKind::OptionGroup,
-    title
-  );
+  auto const coloredTitle =
+    terminal::styled(terminal::Stream::Stdout, terminal::boldStyle(), title);
 
   auto result = std::format("{}:\n", coloredTitle);
   result += formatIndentedLines(lines, lineLength);
@@ -383,11 +361,7 @@ auto formatCommandsSection(
 
   auto result = std::format(
     "\n{}:\n",
-    terminal::styledText(
-      terminal::Stream::Stdout,
-      terminal::MessageKind::OptionGroup,
-      "encro commands"
-    )
+    terminal::styled(terminal::Stream::Stdout, terminal::boldStyle(), "encro commands")
   );
   for (auto const* sub: subcommands) {
     auto const name = sub->get_name();
@@ -403,29 +377,13 @@ auto formatCommandsSection(
       if (lineNum == 0) {
         result += std::format(
           "  {}{:{}}{}\n",
-          terminal::styledText(
-            terminal::Stream::Stdout,
-            terminal::MessageKind::OptionName,
-            name
-          ),
+          terminal::accent(name),
           "",
           gap,
-          terminal::styledText(
-            terminal::Stream::Stdout,
-            terminal::MessageKind::OptionDesc,
-            wrappedDescription[lineNum]
-          )
+          wrappedDescription[lineNum]
         );
       } else {
-        result += std::format(
-          "{}{}\n",
-          indent,
-          terminal::styledText(
-            terminal::Stream::Stdout,
-            terminal::MessageKind::OptionDesc,
-            wrappedDescription[lineNum]
-          )
-        );
+        result += std::format("{}{}\n", indent, wrappedDescription[lineNum]);
       }
     }
   }
@@ -442,8 +400,7 @@ auto formatHelpPreamble(
   auto result = std::string{};
   auto const desc = app->get_description();
   if (!desc.empty()) {
-    result +=
-      terminal::styledText(terminal::Stream::Stdout, terminal::MessageKind::Usage, desc);
+    result += desc;
     result += "\n\n";
   }
   result += formatHelpSection("Usage", usageLines, layout.lineLength);
@@ -503,9 +460,9 @@ auto makeHelpFormatter(
 
       if (!fullTier) {
         result += '\n';
-        result += terminal::styledText(
+        result += terminal::styled(
           terminal::Stream::Stdout,
-          terminal::MessageKind::Hint,
+          terminal::roleStyle(terminal::Role::Muted),
           hintLine
         );
       }

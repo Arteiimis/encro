@@ -21,10 +21,59 @@ namespace {
 auto g_colorMode = std::atomic<ColorMode>{ColorMode::Auto};
 auto g_quiet = std::atomic<bool>{false};
 
-enum class TokenKind {
-  Value,
-  Path,
+// Where a kind's role lands. Prefix and LeadingVerb are the only two sites a
+// message may style: wrapping prose would nest any value the caller embedded.
+enum class StyleSite {
+  None,
+  Prefix,
+  LeadingVerb,
 };
+
+// Every kind's role. Kinds that carry no styling still appear, so adding a
+// kind cannot silently inherit a color and removing one is a compile error.
+auto roleFor(MessageKind kind) -> Role {
+  switch (kind) {
+    case MessageKind::Error        : return Role::Bad;
+    case MessageKind::Warning      : return Role::Warn;
+    case MessageKind::Hint         : return Role::Muted;
+    case MessageKind::Success      :
+    case MessageKind::Summary      : return Role::Good;
+    case MessageKind::OptionName   :
+    case MessageKind::OptionDefault: return Role::Accent;
+    case MessageKind::Plain        :
+    case MessageKind::Info         :
+    case MessageKind::Prompt       :
+    case MessageKind::Heading      :
+    case MessageKind::Usage        :
+    case MessageKind::OptionGroup  :
+    case MessageKind::OptionDesc   :
+    case MessageKind::Version      : return Role::Default;
+  }
+
+  return Role::Default;
+}
+
+auto styleSiteFor(MessageKind kind) -> StyleSite {
+  switch (kind) {
+    case MessageKind::Error        :
+    case MessageKind::Warning      :
+    case MessageKind::Hint         : return StyleSite::Prefix;
+    case MessageKind::Success      :
+    case MessageKind::Summary      : return StyleSite::LeadingVerb;
+    case MessageKind::Plain        :
+    case MessageKind::Info         :
+    case MessageKind::Prompt       :
+    case MessageKind::Heading      :
+    case MessageKind::Usage        :
+    case MessageKind::OptionGroup  :
+    case MessageKind::OptionName   :
+    case MessageKind::OptionDefault:
+    case MessageKind::OptionDesc   :
+    case MessageKind::Version      : return StyleSite::None;
+  }
+
+  return StyleSite::None;
+}
 
 auto toLowerCopy(std::string_view text) -> std::string {
   auto out = std::string{text};
@@ -82,23 +131,6 @@ auto severityPrefix(MessageKind kind) -> std::string_view {
   }
 
   return {};
-}
-
-auto styleForToken(TokenKind kind) -> fmt::text_style {
-  using fmt::fg;
-  using c = fmt::color;
-
-  switch (kind) {
-    case TokenKind::Value: return fg(c::floral_white);
-    case TokenKind::Path : return fg(c::light_sky_blue);
-  }
-
-  return {};
-}
-
-auto styleToken(Stream stream, TokenKind kind, std::string_view text) -> std::string {
-  if (!colorsEnabled(stream)) { return std::string{text}; }
-  return fmt::format(styleForToken(kind), "{}", text);
 }
 
 }  // namespace
@@ -181,31 +213,34 @@ bool colorsEnabled(Stream stream) {
 #endif
 }
 
-auto styleFor(MessageKind kind) -> fmt::text_style {
+auto roleStyle(Role role) -> fmt::text_style {
   using fmt::emphasis;
   using fmt::fg;
-  using c = fmt::color;
-  using tc = fmt::terminal_color;
+  using c = fmt::terminal_color;
 
-  switch (kind) {
-    case MessageKind::Plain        : return {};
-    case MessageKind::Error        : return fg(tc::red);
-    case MessageKind::Warning      : return fg(tc::yellow);
-    case MessageKind::Success      : return fg(tc::green);
-    case MessageKind::Info         :
-    case MessageKind::Summary      : return fg(c::steel_blue);
-    case MessageKind::Hint         : return fg(c::slate_gray);
-    case MessageKind::Prompt       : return fg(tc::cyan);
-    case MessageKind::Heading      : return fg(c::steel_blue);
-    case MessageKind::Usage        :
-    case MessageKind::OptionGroup  : return {};
-    case MessageKind::OptionName   : return fg(tc::cyan);
-    case MessageKind::OptionDefault: return fg(tc::cyan) | emphasis::faint;
-    case MessageKind::OptionDesc   :
-    case MessageKind::Version      : return {};
+  switch (role) {
+    case Role::Default: return {};
+    case Role::Muted  : return emphasis::faint;
+    case Role::Accent : return fg(c::cyan);
+    case Role::Good   : return fg(c::green);
+    case Role::Warn   : return fg(c::yellow);
+    case Role::Bad    : return fg(c::red);
   }
 
   return {};
+}
+
+auto boldStyle() -> fmt::text_style {
+  return fmt::emphasis::bold;
+}
+
+auto styled(Stream stream, fmt::text_style style, std::string_view text) -> std::string {
+  if (!colorsEnabled(stream)) { return std::string{text}; }
+  return fmt::format(style, "{}", text);
+}
+
+auto accent(std::string_view text, Stream stream) -> std::string {
+  return styled(stream, roleStyle(Role::Accent), text);
 }
 
 auto streamFor(MessageKind kind) -> Stream {
@@ -230,30 +265,39 @@ auto streamFor(MessageKind kind) -> Stream {
   return Stream::Stdout;
 }
 
-auto styledText(Stream stream, MessageKind kind, std::string_view text) -> std::string {
-  if (kind == MessageKind::Plain || !colorsEnabled(stream)) { return std::string{text}; }
-  return fmt::format(styleFor(kind), "{}", text);
-}
-
-auto value(std::string_view text, Stream stream) -> std::string {
-  return styleToken(stream, TokenKind::Value, text);
-}
-
 auto path(std::filesystem::path const& valuePath, Stream stream) -> std::string {
-  return styleToken(stream, TokenKind::Path, valuePath.string());
+  return accent(valuePath.string(), stream);
 }
 
 auto renderMessage(Stream stream, MessageKind kind, std::string_view text)
   -> std::string {
-  if (kind == MessageKind::Plain) { return std::string{text}; }
-
   auto const prefix = severityPrefix(kind);
-  if (prefix.empty()) { return styledText(stream, kind, text); }
+  auto const role = roleFor(kind);
+  auto const site = styleSiteFor(kind);
 
   // The prefix is plain text first: severity survives with colors disabled.
+  if (!colorsEnabled(stream) || role == Role::Default || site == StyleSite::None) {
+    return prefix.empty() ? std::string{text}
+                          : std::string{prefix}.append(" ").append(text);
+  }
+
   // Colors decorate the prefix only, never the message body.
-  if (!colorsEnabled(stream)) { return std::string{prefix}.append(" ").append(text); }
-  return fmt::format("{} {}", fmt::format(styleFor(kind), "{}", prefix), text);
+  if (site == StyleSite::Prefix) {
+    return std::string{styled(stream, roleStyle(role), prefix)}.append(" ").append(text);
+  }
+
+  // LeadingVerb: only the first word carries the role. A message that already
+  // opens with a caller-styled value keeps that span — wrapping it would nest
+  // one style inside another, which is what this whole design forbids.
+  if (text.starts_with('\x1b')) { return std::string{text}; }
+
+  auto const splitAt = text.find(' ');
+  if (splitAt == std::string_view::npos) { return styled(stream, roleStyle(role), text); }
+  return fmt::format(
+    "{}{}",
+    styled(stream, roleStyle(role), text.substr(0, splitAt)),
+    text.substr(splitAt)
+  );
 }
 
 void write(Stream stream, std::string_view text, bool newline) {
