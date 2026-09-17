@@ -78,7 +78,7 @@ alternatives that match nothing) or by quoting it alone (rejected as an invalid 
 quoting *and* escaping it does select the one case, as does escaping it alone - the
 escaped form is preferred because it is the minimal transformation verified end-to-end
 for all 723 unit and 47 e2e names. Today 16 of 723 unit names contain a comma and none
-contains `*`, `?`, `[`, `]`, `~` or `"`. Rejected: quoting
+contains `*`, `?`, `[`, `]`, `~`, `"` or `\`. Rejected: quoting
 (does not rescue a comma name); wildcard patterns built from comma-free slices (only
 accidentally unique).
 
@@ -87,12 +87,14 @@ must equal the count the console listing declares, catching a format change in e
 (b) An escape round-trip: the first enumerated name containing a comma is written to a
 one-line spec file, and `--list-tests -f <file>` must report exactly one matching case -
 this is what catches escaping or spec-syntax drift on a runner upgrade. (c) A
-reserved-character scan: any name containing `*`, `?`, `[`, `]`, `~` or `"` fails the
+reserved-character scan: any name containing `*`, `?`, `[`, `]`, `~`, `"` or `\` fails the
 task with the offending name, because the escaping helper does not cover those
 characters and an over-matching pattern would silently run cases in more than one shard.
-(d) The assignment must cover the enumeration exactly once, and the shard count must not
-exceed the enumerated case count (an empty spec file means "no filter" to the runner and
-would execute the whole suite in that shard). These exist because a *valid but
+(d) The assignment must cover the enumeration exactly once, no shard may be left with an
+empty assignment (checked directly: a shard count within the case count can still starve
+the tail once the recorded costs include zeros), and the shard count must not exceed the
+enumerated case count - an empty spec file means "no filter" to the runner and would
+execute the whole suite in that shard. These exist because a *valid but
 unmatched* spec line is silently skipped by the runner, so the suite would simply run
 smaller and still report success - syntactically invalid lines do fail loudly, which is
 why the round-trip probe (b) is about syntax and the assignment checks (d) about
@@ -103,7 +105,7 @@ with the `--durations yes` table (`<seconds> s: <name>`), which also contains ro
 sections, so costs are folded by exact name match against the enumeration (a section row
 whose name equals some case name is indistinguishable today; there are no such
 collisions, and the fold is only a heuristic). The model is persisted per suite outside
-the wiped work directory (`build/.test-costs-<suite>.txt`) and *reused* on later runs; a
+the wiped work directory (`build/.test-cost-<suite>.txt`) and *reused* on later runs; a
 name with no recorded cost gets the median of the known costs, and a model that is
 absent or entirely stale degrades to an equal split by case count. Rejected: a dedicated
 timing pass (doubles the suite cost); using assert counts as the cost proxy (ignores the
@@ -153,7 +155,7 @@ binaries and runs in seconds.
   does.
 - [Spec-file encoding] -> files are written UTF-8; the count checks (D4d, D7) catch any
   name that fails to round-trip, whatever the cause.
-- [Plugin state outside the work directory] -> `build/.test-costs-*.txt` is optional
+- [Plugin state outside the work directory] -> `build/.test-cost-*.txt` is optional
   cache: deleting it costs balance for one run, never correctness.
 
 ## Migration Plan
