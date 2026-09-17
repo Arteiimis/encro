@@ -115,7 +115,7 @@ private:
         std::min(completedBeforeStart, totalTasks),
         totalTasks
       ),
-      progress::Tone::Overall
+      terminal::Role::Accent
     )};
   }
 
@@ -130,7 +130,7 @@ private:
     for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
       barIndexes[slot] =
         progressCtx
-          .addBar(std::format("Encoding: [idle-{}]", slot + 1), progress::Tone::Idle);
+          .addBar(std::format("Encoding: [idle-{}]", slot + 1), terminal::Role::Accent);
     }
     return barIndexes;
   }
@@ -202,7 +202,7 @@ struct EncodingExecutionContext {
   ) {
     if (!vidState.barIndex.has_value()) { return; }
     auto const index = vidState.barIndex.value();
-    progress().setTone(index, progress::Tone::Active);
+    progress().setRole(index, terminal::Role::Accent);
     progress().resetEta(
       index,
       std::chrono::duration_cast<std::chrono::duration<float>>(elapsedBase).count()
@@ -218,13 +218,13 @@ struct EncodingExecutionContext {
   ) {
     if (!vidState.barIndex.has_value()) { return; }
     auto const index = vidState.barIndex.value();
-    progress().setTone(index, progress::Tone::Active);
+    progress().setRole(index, terminal::Role::Accent);
     progress().setPostfixText(index, std::format("Encoding: {} | {}", fileLabel, status));
   }
 
   void barIdle(std::optional<std::size_t> barIndex, std::size_t slot) {
     if (!barIndex.has_value()) { return; }
-    progress().setTone(barIndex.value(), progress::Tone::Idle);
+    progress().setRole(barIndex.value(), terminal::Role::Accent);
     progress().setProgress(barIndex.value(), 0.0f);
     progress()
       .setPostfixText(barIndex.value(), std::format("Encoding: [idle-{}]", slot + 1));
@@ -236,10 +236,8 @@ struct EncodingExecutionContext {
     std::string_view fileLabel
   ) {
     if (!barIndex.has_value()) { return; }
-    progress().setTone(
-      barIndex.value(),
-      success ? progress::Tone::Success : progress::Tone::Failure
-    );
+    progress()
+      .setRole(barIndex.value(), success ? terminal::Role::Good : terminal::Role::Bad);
     if (success) { progress().setProgress(barIndex.value(), 100.0f); }
     progress().setPostfixText(
       barIndex.value(),

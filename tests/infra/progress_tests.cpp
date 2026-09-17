@@ -71,7 +71,7 @@ TEST_CASE("ProgressContext tick is safe on an empty context", "[progress]") {
   ctx.tick();
   ctx.tick();
 
-  auto const barIndex = ctx.addBar("tick", progress::Tone::Default);
+  auto const barIndex = ctx.addBar("tick", terminal::Role::Accent);
   ctx.setProgress(barIndex, 10.0f);
   for (auto i = 0; i < 5; ++i) { ctx.tick(); }
   ctx.setProgress(barIndex, 100.0f);
@@ -83,7 +83,7 @@ TEST_CASE("ProgressContext repaints on its own clock", "[progress]") {
   // A bar-less context must not repaint at all.
   CHECK(ctx.tickCount() == 0);
 
-  auto const barIndex = ctx.addBar("self-ticking", progress::Tone::Default);
+  auto const barIndex = ctx.addBar("self-ticking", terminal::Role::Accent);
   ctx.setProgress(barIndex, 10.0f);
 
   // No setter and no explicit tick() from here on: only the context's own
@@ -104,13 +104,13 @@ TEST_CASE("ProgressContext repaints on its own clock", "[progress]") {
   );
 
   // A bar added afterwards arms a fresh clock.
-  ctx.addBar("reused", progress::Tone::Default);
+  ctx.addBar("reused", terminal::Role::Accent);
   CHECK(testutils::waitUntil([&] { return ctx.tickCount() > afterErase; }));
 }
 
 TEST_CASE("repaints leave progress and the estimate untouched", "[progress]") {
   auto ctx = progress::ProgressContext{};
-  auto const barIndex = ctx.addBar("repaint-only", progress::Tone::Default);
+  auto const barIndex = ctx.addBar("repaint-only", terminal::Role::Accent);
 
   // Seed the estimator: it folds at most one sample per kSampleInterval, so
   // keep advancing progress from a poll loop until an estimate exists.
@@ -147,7 +147,7 @@ TEST_CASE("progress updates emit no frames when stdout is not a terminal", "[pro
     {
       auto capture = testutils::StdoutCapture{capturePath};
       auto ctx = progress::ProgressContext{};
-      auto const barIndex = ctx.addBar("tick", progress::Tone::Default);
+      auto const barIndex = ctx.addBar("tick", terminal::Role::Accent);
       ctx.setProgress(barIndex, 0.5f);
       terminal::write(terminal::Stream::Stdout, "status line", true);
     }
@@ -161,7 +161,7 @@ TEST_CASE("progress updates emit no frames when stdout is not a terminal", "[pro
     {
       auto capture = testutils::StdoutCapture{capturePath};
       auto ctx = progress::ProgressContext{};
-      auto const barIndex = ctx.addBar("tick", progress::Tone::Default);
+      auto const barIndex = ctx.addBar("tick", terminal::Role::Accent);
       ctx.setProgress(barIndex, 0.5f);
       ctx.tick();
       terminal::write(terminal::Stream::Stdout, "status line", true);
@@ -174,7 +174,7 @@ TEST_CASE("progress updates emit no frames when stdout is not a terminal", "[pro
   SECTION("renderable is false without a terminal or without bars") {
     auto capture = testutils::StdoutCapture{capturePath};
     auto withBar = progress::ProgressContext{};
-    withBar.addBar("tick", progress::Tone::Default);
+    withBar.addBar("tick", terminal::Role::Accent);
     CHECK_FALSE(withBar.renderable());
 
     auto withoutBars = progress::ProgressContext{};
@@ -182,27 +182,39 @@ TEST_CASE("progress updates emit no frames when stdout is not a terminal", "[pro
   }
 }
 
-TEST_CASE("resolveColor maps progress tones to distinct roles", "[progress]") {
+TEST_CASE("progress bar colors follow the role table", "[progress]") {
   using indicators::Color;
-  using progress::Tone;
+  using terminal::Role;
 
-  CHECK(progress::resolveColor(Tone::Default) == Color::cyan);
-  CHECK(progress::resolveColor(Tone::Overall) == Color::blue);
-  CHECK(progress::resolveColor(Tone::Active) == Color::cyan);
-  CHECK(progress::resolveColor(Tone::Idle) == Color::white);
-  CHECK(progress::resolveColor(Tone::Packing) == Color::yellow);
-  CHECK(progress::resolveColor(Tone::Finalizing) == Color::yellow);
-  CHECK(progress::resolveColor(Tone::Success) == Color::green);
-  CHECK(progress::resolveColor(Tone::Failure) == Color::red);
+  CHECK(progress::barColor(Role::Accent) == Color::cyan);
+  CHECK(progress::barColor(Role::Good) == Color::green);
+  CHECK(progress::barColor(Role::Warn) == Color::yellow);
+  CHECK(progress::barColor(Role::Bad) == Color::red);
+
+  // The bar library sets one foreground per bar and resets only after the
+  // whole frame, so a bar that sets no color inherits the previous bar's. No
+  // role may leave a bar in a colored frame without a foreground of its own.
+  for (
+    auto const role:
+    {Role::Default, Role::Muted, Role::Accent, Role::Good, Role::Warn, Role::Bad}
+  ) {
+    CAPTURE(static_cast<int>(role));
+    CHECK(progress::barColor(role) != Color::unspecified);
+  }
 }
 
-TEST_CASE("resolveColor falls back to white when colors are disabled", "[progress]") {
-  CHECK(
-    progress::resolveColor(progress::Tone::Overall, false) == indicators::Color::white
-  );
-  CHECK(
-    progress::resolveColor(progress::Tone::Failure, false) == indicators::Color::white
-  );
+TEST_CASE("disabled colors leave every bar uncolored", "[progress]") {
+  using terminal::Role;
+
+  // Setting no foreground is what keeps the frame in the terminal's own
+  // foreground; forcing a fixed color would vanish on a light background.
+  for (
+    auto const role:
+    {Role::Default, Role::Muted, Role::Accent, Role::Good, Role::Warn, Role::Bad}
+  ) {
+    CAPTURE(static_cast<int>(role));
+    CHECK(progress::barColor(role, false) == indicators::Color::unspecified);
+  }
 }
 
 TEST_CASE("EtaEstimator has no eta before rate is established", "[progress]") {

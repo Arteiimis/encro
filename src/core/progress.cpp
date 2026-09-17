@@ -24,23 +24,25 @@ bool progressBarsAllowed() {
 
 }  // namespace
 
-auto resolveColor(Tone tone, bool colorsEnabled) -> indicators::Color {
+auto barColor(terminal::Role role, bool colorsEnabled) -> indicators::Color {
   using indicators::Color;
 
-  if (!colorsEnabled) { return Color::white; }
+  // `unspecified` sets no foreground at all. That is only safe because with
+  // colors disabled every bar in the frame resolves this way, so the frame
+  // stays in the terminal's own foreground; a lone colorless bar among colored
+  // ones would inherit its neighbour's (see barColor's declaration).
+  if (!colorsEnabled) { return Color::unspecified; }
 
-  switch (tone) {
-    case Tone::Default   :
-    case Tone::Active    : return Color::cyan;
-    case Tone::Overall   : return Color::blue;
-    case Tone::Idle      : return Color::white;
-    case Tone::Packing   :
-    case Tone::Finalizing: return Color::yellow;
-    case Tone::Success   : return Color::green;
-    case Tone::Failure   : return Color::red;
+  switch (role) {
+    case terminal::Role::Default:
+    case terminal::Role::Muted  :
+    case terminal::Role::Accent : return Color::cyan;
+    case terminal::Role::Good   : return Color::green;
+    case terminal::Role::Warn   : return Color::yellow;
+    case terminal::Role::Bad    : return Color::red;
   }
 
-  return Color::white;
+  return Color::cyan;
 }
 
 namespace {
@@ -113,9 +115,9 @@ auto resolveLayout(std::size_t columns) -> ProgressLayout {
   return {barWidth, postfixBudget};
 }
 
-void applyTone(indicators::ProgressBar& bar, Tone tone) {
+void applyRole(indicators::ProgressBar& bar, terminal::Role role) {
   bar.set_option(
-    indicators::option::ForegroundColor{resolveColor(tone, terminal::colorsEnabled())}
+    indicators::option::ForegroundColor{barColor(role, terminal::colorsEnabled())}
   );
 }
 
@@ -132,14 +134,14 @@ auto formatDurationPart(float seconds) -> std::string {
 // Internal bar plumbing; ProgressContext::addBar is the public entry point.
 namespace {
 
-auto makeBar(std::string_view promptText, Tone tone) -> BarPtr;
+auto makeBar(std::string_view promptText, terminal::Role role) -> BarPtr;
 
 std::size_t addBar(
   Manager& manager,
   BarCollection& bars,
-  std::vector<Tone>& tones,
+  std::vector<terminal::Role>& roles,
   std::string_view promptText,
-  Tone tone
+  terminal::Role role
 );
 
 }  // namespace
@@ -316,9 +318,9 @@ float EtaEstimator::lastProgress() const {
   return lastProgress_;
 }
 
-std::size_t ProgressContext::addBar(std::string_view promptText, Tone tone) {
+std::size_t ProgressContext::addBar(std::string_view promptText, terminal::Role role) {
   auto lock = std::scoped_lock{mtx_};
-  auto const index = progress::addBar(manager_, bars_, tones_, promptText, tone);
+  auto const index = progress::addBar(manager_, bars_, roles_, promptText, role);
   postfixes_.emplace_back(promptText);
   etas_.emplace_back();
   ensureTicker();
@@ -432,12 +434,12 @@ bool ProgressContext::renderable() const {
   return !bars_.empty() && progressBarsAllowed();
 }
 
-void ProgressContext::setTone(std::size_t barIndex, Tone tone) {
+void ProgressContext::setRole(std::size_t barIndex, terminal::Role role) {
   auto lock = std::scoped_lock{mtx_};
-  if (tones_[barIndex] == tone) { return; }
+  if (roles_[barIndex] == role) { return; }
 
-  tones_[barIndex] = tone;
-  applyTone(*bars_[barIndex], tone);
+  roles_[barIndex] = role;
+  applyRole(*bars_[barIndex], role);
   render();
 }
 
@@ -472,7 +474,7 @@ auto ProgressContext::manager() const -> Manager const& {
 
 namespace {
 
-auto makeBar(std::string_view promptText, Tone tone) -> BarPtr {
+auto makeBar(std::string_view promptText, terminal::Role role) -> BarPtr {
   using namespace indicators;
 
   auto const layout = resolveLayout(
@@ -487,7 +489,7 @@ auto makeBar(std::string_view promptText, Tone tone) -> BarPtr {
     option::Start{"["},
     option::End{"]"},
     option::PostfixText{fitPostfixText(promptText, layout.postfixBudget)},
-    option::ForegroundColor{resolveColor(tone, terminal::colorsEnabled())},
+    option::ForegroundColor{barColor(role, terminal::colorsEnabled())},
     option::ShowRemainingTime{false},
     option::MaxProgress{100},
     option::Stream{barOutputStream()}
@@ -497,12 +499,12 @@ auto makeBar(std::string_view promptText, Tone tone) -> BarPtr {
 std::size_t addBar(
   Manager& manager,
   BarCollection& bars,
-  std::vector<Tone>& tones,
+  std::vector<terminal::Role>& roles,
   std::string_view promptText,
-  Tone tone
+  terminal::Role role
 ) {
-  bars.emplace_back(makeBar(promptText, tone));
-  tones.push_back(tone);
+  bars.emplace_back(makeBar(promptText, role));
+  roles.push_back(role);
   return manager.push_back(*bars.back());
 }
 

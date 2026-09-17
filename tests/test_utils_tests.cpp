@@ -196,11 +196,7 @@ TEST_CASE(
 
   // With the mode restored, NO_COLOR keeps styled text plain; a leaked Always
   // ignores it and emits escapes.
-  CHECK(
-    terminal::styledText(terminal::Stream::Stdout, terminal::MessageKind::Success, "ok")
-      .find("\x1b[")
-    == std::string::npos
-  );
+  CHECK(terminal::accent("ok").find("\x1b[") == std::string::npos);
 }
 
 TEST_CASE("captureStdout returns what the action wrote", "[test-utils]") {

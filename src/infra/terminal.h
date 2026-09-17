@@ -21,6 +21,21 @@ enum class ColorMode {
   Never,
 };
 
+// The one styling vocabulary. Every console surface draws its foreground from
+// these roles: a message's severity prefix or leading verb, help text, values
+// embedded in a message, and progress bars. Each role resolves to the
+// terminal's own default foreground or to one of its 16 palette slots, never
+// to a 24-bit RGB value, so legibility follows the user's terminal theme
+// instead of a color this program chose.
+enum class Role {
+  Default,
+  Muted,
+  Accent,
+  Good,
+  Warn,
+  Bad,
+};
+
 enum class MessageKind {
   Plain,
   Error,
@@ -65,30 +80,38 @@ auto configureFromColorString(std::string_view colorValue) -> std::optional<std:
 
 bool colorsEnabled(Stream stream = Stream::Stdout);
 
-auto styleFor(MessageKind kind) -> fmt::text_style;
+// The only source of a foreground style. An unsupported attribute (faint on a
+// terminal that ignores SGR 2) degrades to plain text, never to another color.
+auto roleStyle(Role role) -> fmt::text_style;
 
-auto streamFor(MessageKind kind) -> Stream;
+// Help section headings carry structure by weight, so they spend no role.
+auto boldStyle() -> fmt::text_style;
 
-auto styledText(Stream stream, MessageKind kind, std::string_view text) -> std::string;
+// The only place text is wrapped in a style. Styling disabled, an empty
+// Default style, and an unstyled target all return the text unchanged.
+auto styled(Stream stream, fmt::text_style style, std::string_view text) -> std::string;
 
-auto value(std::string_view text, Stream stream = Stream::Stdout) -> std::string;
+// Accents a value embedded in a message (a path, a count, a pre-formatted
+// string). Terminates its own span so the surrounding prose is untouched.
+auto accent(std::string_view text, Stream stream = Stream::Stdout) -> std::string;
 
 auto path(std::filesystem::path const& value, Stream stream = Stream::Stdout)
   -> std::string;
+
+auto streamFor(MessageKind kind) -> Stream;
 
 auto renderMessage(Stream stream, MessageKind kind, std::string_view text) -> std::string;
 
 void write(Stream stream, std::string_view text, bool newline);
 
 template<class... Tys>
-auto value(fmt::format_string<Tys...> fmtText, Tys&&... args) -> std::string {
-  return value(fmt::format(fmtText, std::forward<Tys>(args)...));
+auto accent(fmt::format_string<Tys...> fmtText, Tys&&... args) -> std::string {
+  return accent(fmt::format(fmtText, std::forward<Tys>(args)...));
 }
 
 template<class Ty>
 auto count(Ty const& number, Stream stream = Stream::Stdout) -> std::string {
-  if (!colorsEnabled(stream)) { return fmt::format("{}", number); }
-  return fmt::format(fmt::fg(fmt::color::golden_rod), "{}", number);
+  return accent(fmt::format("{}", number), stream);
 }
 
 template<class... Tys>

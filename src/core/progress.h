@@ -3,6 +3,8 @@
 #include <indicators/dynamic_progress.hpp>
 #include <indicators/progress_bar.hpp>
 
+#include "infra/terminal.h"
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -16,18 +18,15 @@
 
 namespace progress {
 
-enum class Tone {
-  Default,
-  Overall,
-  Active,
-  Idle,
-  Packing,
-  Finalizing,
-  Success,
-  Failure,
-};
-
-auto resolveColor(Tone tone, bool colorsEnabled = true) -> indicators::Color;
+// The bar path's role mapper, kept beside the bar library rather than in
+// terminal.h so that the styling module stays free of the indicators
+// dependency. It carries no font style: a bar's role is its foreground alone.
+//
+// `Role::Default` must not reach a bar in a colored frame: the bar library
+// sets one foreground per bar and resets only after the whole frame, so a bar
+// that sets no color keeps the previous bar's. Every role taken here resolves
+// to a real color whenever colors are enabled.
+auto barColor(terminal::Role role, bool colorsEnabled = true) -> indicators::Color;
 
 using Manager = indicators::DynamicProgress<indicators::ProgressBar>;
 using BarPtr = std::unique_ptr<indicators::ProgressBar>;
@@ -77,10 +76,11 @@ private:
 
 class ProgressContext {
 public:
-  std::size_t addBar(std::string_view promptText, Tone tone = Tone::Default);
+  std::size_t
+  addBar(std::string_view promptText, terminal::Role role = terminal::Role::Accent);
   void setPostfixText(std::size_t barIndex, std::string_view promptText);
   void setProgress(std::size_t barIndex, float progress);
-  void setTone(std::size_t barIndex, Tone tone);
+  void setRole(std::size_t barIndex, terminal::Role role);
   void resetEta(std::size_t barIndex, float elapsedBaseSec = 0.0f);
   // Real seconds spent on the bar's current task (base + time since the
   // encoding anchor); nullopt before the anchor. Read-only view for
@@ -133,7 +133,7 @@ private:
   mutable std::mutex mtx_;
   Manager manager_;
   BarCollection bars_;
-  std::vector<Tone> tones_;
+  std::vector<terminal::Role> roles_;
   std::vector<std::string> postfixes_;
   std::vector<EtaEstimator> etas_;
   std::uint64_t tickCount_ = 0;

@@ -29,31 +29,9 @@ std::size_t longestHelpLine(std::string_view text) {
   return longest;
 }
 
-auto stripAnsi(std::string_view text) -> std::string {
-  auto result = std::string{};
-  result.reserve(text.size());
-
-  auto index = std::size_t{0};
-  while (index < text.size()) {
-    if (text[index] == '\x1b' && index + 1 < text.size() && text[index + 1] == '[') {
-      index += 2;
-      while (
-        index < text.size() && !std::isalpha(static_cast<unsigned char>(text[index]))
-      ) {
-        ++index;
-      }
-      if (index < text.size()) { ++index; }
-      continue;
-    }
-
-    result += text[index];
-    ++index;
-  }
-
-  return result;
-}
-
 }  // namespace
+
+using testutils::stripAnsi;
 
 TEST_CASE("commandLineInit counts -v occurrences and clamps verbosity", "[cmd]") {
   auto const single = testutils::parseArgs({"encro", "-v"});
