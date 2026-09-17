@@ -31,7 +31,7 @@ The parallel test task SHALL decide each shard's verdict from that shard's own t
 
 #### Scenario: A shard fails a test case
 
-- **WHEN** a shard process exits non-zero and its report contains a failed test case
+- **WHEN** a shard's report records a failed test case
 - **THEN** the parallel task reports that shard as failed, naming the failed case and the shard's log file
 
 #### Scenario: A shard log contains the word FAILED without a failure
