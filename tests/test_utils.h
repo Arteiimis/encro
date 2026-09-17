@@ -35,6 +35,7 @@
 #include <vector>
 #if defined(_WIN32)
   #include <io.h>
+  #include <process.h>
 #else
   #include <unistd.h>
 #endif
@@ -433,11 +434,25 @@ struct FileCapture {
       return;
     }
 #if defined(_WIN32)
-    _dup2(_fileno(cap), _fileno(stream_));
+    auto const redirected = _dup2(_fileno(cap), _fileno(stream_)) == 0;
 #else
-    dup2(fileno(cap), fileno(stream_));
+    auto const redirected = dup2(fileno(cap), fileno(stream_)) == fileno(stream_);
 #endif
     std::fclose(cap);
+    if (!redirected) {
+      // Reported through stderr like the failures above: the stream stays as
+      // it was, so the capture file stays empty and the test's own assertions
+      // fail on the empty content.
+#if defined(_WIN32)
+      _close(oldFd_);
+#else
+      close(oldFd_);
+#endif
+      oldFd_ = -1;
+      std::fprintf(stderr, "capture redirect failed for %s\n", file_.string().c_str());
+      std::fflush(stderr);
+      return;
+    }
     redirected_ = true;
   }
 
@@ -446,7 +461,7 @@ struct FileCapture {
 
   // False when the redirect could not be established: the caller reports that
   // after its capture scope has ended, never inside the window.
-  [[nodiscard]] auto redirected() const -> bool { return redirected_; }
+  [[nodiscard]] bool redirected() const { return redirected_; }
 
   ~FileCapture() {
     std::fflush(stream_);
@@ -475,13 +490,10 @@ struct StderrCapture: FileCapture {
 // Reads a text file, waiting briefly for it to appear: the producer is a child
 // process (the app, ffmpeg) whose file can lag the exit of another process by a
 // scheduling quantum under parallel load, which showed up as an unreadable log
-// in a real-ffmpeg e2e case. The wait is a hang guard — a file that never
+// in a real-ffmpeg e2e case. The deadline is a hang guard — a file that never
 // appears still fails here, naming the path.
 inline auto readTextFile(fs::path const& filePath) -> std::string {
-  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
-  while (!fs::exists(filePath) && std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds{25});
-  }
+  (void)waitUntil([&] { return fs::exists(filePath); }, std::chrono::seconds{10});
 
   auto ifs = std::ifstream{filePath};
   INFO("readTextFile: " << filePath.string());
@@ -493,14 +505,14 @@ inline auto readTextFile(fs::path const& filePath) -> std::string {
 // file is read and removed after the redirect has ended, so an assertion here
 // never lands in the captured text: keep CHECKs out of the action for the same
 // reason — a reporter that echoes successful assertions writes to stdout too.
-template<typename Fn>
-auto captureStdout(Fn&& action) -> std::string {
+template<typename Ty>
+auto captureStdout(Ty&& action) -> std::string {
   auto const capturePath = uniqueTempPath("encro-capture-stdout");
   auto redirected = false;
   {
     auto const capture = StdoutCapture{capturePath};
     redirected = capture.redirected();
-    if (redirected) { std::forward<Fn>(action)(); }
+    if (redirected) { std::forward<Ty>(action)(); }
   }
 
   REQUIRE(redirected);

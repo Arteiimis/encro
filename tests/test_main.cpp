@@ -31,9 +31,11 @@ void isolateConfigEnv() {
   auto const path =
     (std::filesystem::temp_directory_path() / "encro-unit-tests" / "missing-config.json")
       .string();
+  // isolation-ok: the test binary pins its own config path before Catch2 runs.
 #if defined(_WIN32)
   ::_putenv_s("ENCRO_CONFIG", path.c_str());
 #else
+  // isolation-ok: the same pinned config path, POSIX spelling.
   ::setenv("ENCRO_CONFIG", path.c_str(), 1);
 #endif
 }
