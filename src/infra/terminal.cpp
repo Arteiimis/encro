@@ -29,42 +29,32 @@ enum class StyleSite {
   LeadingVerb,
 };
 
-// Every kind's role. Kinds that carry no styling still appear, so adding a
-// kind cannot silently inherit a color and removing one is a compile error.
-auto roleFor(MessageKind kind) -> Role {
-  switch (kind) {
-    case MessageKind::Error        : return Role::Bad;
-    case MessageKind::Warning      : return Role::Warn;
-    case MessageKind::Hint         : return Role::Muted;
-    case MessageKind::Success      :
-    case MessageKind::Summary      : return Role::Good;
-    case MessageKind::OptionName   :
-    case MessageKind::OptionDefault: return Role::Accent;
-    case MessageKind::Plain        :
-    case MessageKind::Info         :
-    case MessageKind::OptionGroup  :
-    case MessageKind::OptionDesc   : return Role::Default;
-  }
+struct KindStyle {
+  Role role;
+  StyleSite site;
+};
 
-  return Role::Default;
-}
-
-auto styleSiteFor(MessageKind kind) -> StyleSite {
+// Every kind appears explicitly, so adding one makes -Wswitch fire rather than
+// quietly taking a default.
+auto kindStyleFor(MessageKind kind) -> KindStyle {
   switch (kind) {
-    case MessageKind::Error        :
-    case MessageKind::Warning      :
-    case MessageKind::Hint         : return StyleSite::Prefix;
-    case MessageKind::Success      :
-    case MessageKind::Summary      : return StyleSite::LeadingVerb;
+    case MessageKind::Error  : return {Role::Bad, StyleSite::Prefix};
+    case MessageKind::Warning: return {Role::Warn, StyleSite::Prefix};
+    case MessageKind::Hint   : return {Role::Muted, StyleSite::Prefix};
+    case MessageKind::Success:
+    case MessageKind::Summary: return {Role::Good, StyleSite::LeadingVerb};
+    // Option and subcommand names carry their role where they are emitted: one
+    // help line mixes an accent name with a faint-accent (=default) suffix,
+    // which a single kind-wide role cannot express.
     case MessageKind::Plain        :
     case MessageKind::Info         :
     case MessageKind::OptionGroup  :
     case MessageKind::OptionName   :
     case MessageKind::OptionDefault:
-    case MessageKind::OptionDesc   : return StyleSite::None;
+    case MessageKind::OptionDesc   : return {Role::Default, StyleSite::None};
   }
 
-  return StyleSite::None;
+  return {Role::Default, StyleSite::None};
 }
 
 auto toLowerCopy(std::string_view text) -> std::string {
@@ -217,10 +207,6 @@ auto roleStyle(Role role) -> fmt::text_style {
   return {};
 }
 
-auto boldStyle() -> fmt::text_style {
-  return fmt::emphasis::bold;
-}
-
 auto styled(Stream stream, fmt::text_style style, std::string_view text) -> std::string {
   if (!colorsEnabled(stream)) { return std::string{text}; }
   return fmt::format(style, "{}", text);
@@ -255,11 +241,10 @@ auto path(std::filesystem::path const& valuePath, Stream stream) -> std::string 
 auto renderMessage(Stream stream, MessageKind kind, std::string_view text)
   -> std::string {
   auto const prefix = severityPrefix(kind);
-  auto const role = roleFor(kind);
-  auto const site = styleSiteFor(kind);
+  auto const [role, site] = kindStyleFor(kind);
 
   // The prefix is plain text first: severity survives with colors disabled.
-  if (!colorsEnabled(stream) || role == Role::Default || site == StyleSite::None) {
+  if (!colorsEnabled(stream) || site == StyleSite::None) {
     return prefix.empty() ? std::string{text}
                           : std::string{prefix}.append(" ").append(text);
   }

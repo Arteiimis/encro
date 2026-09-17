@@ -57,10 +57,10 @@ bool streamIsTerminal(Stream stream);
 
 void configure(ColorMode mode);
 
-// Quiet mode (--quiet): narration lines (Info/Success) are suppressed at the
-// kind-dispatched entry points; severity diagnostics (error/warning/hint), run
-// summaries, failure lists, product output (Plain), prompts, help, and version
-// bypass the gate.
+// Quiet mode (--quiet) suppresses the narration kinds (Info, Success) at the
+// kind-dispatched entry points. Severity diagnostics, run summaries, product
+// output, prompts, help and the version line all bypass the gate; the prompt
+// and version line print through Plain.
 void setQuiet(bool quiet);
 bool quiet();
 
@@ -80,9 +80,6 @@ bool colorsEnabled(Stream stream = Stream::Stdout);
 // terminal that ignores SGR 2) degrades to plain text, never to another color.
 auto roleStyle(Role role) -> fmt::text_style;
 
-// Help section headings carry structure by weight, so they spend no role.
-auto boldStyle() -> fmt::text_style;
-
 // The only place text is wrapped in a style. Styling disabled, an empty
 // Default style, and an unstyled target all return the text unchanged.
 auto styled(Stream stream, fmt::text_style style, std::string_view text) -> std::string;
@@ -99,11 +96,6 @@ auto streamFor(MessageKind kind) -> Stream;
 auto renderMessage(Stream stream, MessageKind kind, std::string_view text) -> std::string;
 
 void write(Stream stream, std::string_view text, bool newline);
-
-template<class... Tys>
-auto accent(fmt::format_string<Tys...> fmtText, Tys&&... args) -> std::string {
-  return accent(fmt::format(fmtText, std::forward<Tys>(args)...));
-}
 
 template<class Ty>
 auto count(Ty const& number, Stream stream = Stream::Stdout) -> std::string {
