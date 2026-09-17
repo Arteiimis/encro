@@ -497,7 +497,7 @@ TEST_CASE(
   );
   REQUIRE(failedRun.exitCode == 1);
   CAPTURE(failedRun.stderrText, e2e::encroLogTail(failedRun.stderrText));
-  CHECK(e2e::encroLogTail(failedRun.stderrText).find("[debug]") != std::string::npos);
+  CHECK(e2e::encroLogText(failedRun.stderrText).find("[debug]") != std::string::npos);
 }
 
 TEST_CASE(
@@ -556,7 +556,7 @@ TEST_CASE(
   );
   REQUIRE(failedRun.exitCode == 1);
   CAPTURE(failedRun.stderrText, e2e::encroLogTail(failedRun.stderrText));
-  CHECK(e2e::encroLogTail(failedRun.stderrText).find("[debug]") != std::string::npos);
+  CHECK(e2e::encroLogText(failedRun.stderrText).find("[debug]") != std::string::npos);
 }
 
 TEST_CASE(
@@ -636,7 +636,7 @@ TEST_CASE(
     CHECK(result.stdoutText.find("Option fake not found.") != std::string::npos);
     // So does the log hint, and the log file keeps the debug set.
     CHECK(result.stderrText.find("Log file:") != std::string::npos);
-    CHECK(e2e::encroLogTail(result.stderrText).find("[debug]") != std::string::npos);
+    CHECK(e2e::encroLogText(result.stderrText).find("[debug]") != std::string::npos);
 
     // Quiet does not change exit codes: the same run without --quiet also
     // exits 1.

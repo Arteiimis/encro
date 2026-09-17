@@ -125,3 +125,21 @@ investigation. Newest last.
   symbolized. Rebuild with `xmake f -m releasedbg` (ASan) and run the suite
   repeatedly before re-reading the stack; a symbolized release job would make
   the next occurrence self-diagnosing.
+
+## test-report assertion count vs the console summary (cosmetic)
+
+`xmake test-report` falls back to the JUnit `tests=` attribute when the console
+log has no `All tests passed (...) in (...) test cases` line, and the two
+reporters disagree: the JUnit reporter emits one `<testcase>` per Catch2
+section, so its `tests=` counts sections (850 for 713 cases at the time of
+writing) and its total differs from the console assertion count (31837 vs 31827
+on one and the same run). Verdicts are unaffected — the JUnit `failures=` and
+`errors=` attributes agree with the console failures — and the parallel-shard
+plugin takes its counts from the console summaries. Recorded so a future reader
+does not chase it; the honest fix, if it ever matters, is to print the console
+summary whenever it exists.
+
+- **Deferred:** a second fixed-seed shuffled CI pass per mode. A fixed seed only
+  permutes whatever order the build happened to register, so it repeats one
+  permutation forever; the seed printed in `ut.log` already makes any failure
+  reproducible, and every shuffled run explores new orders for free.

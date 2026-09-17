@@ -24,6 +24,67 @@ namespace fs = std::filesystem;
 // test TUs).
 DEFINE_LOGGER(logtags::TEST_INFRA);
 
+namespace {
+
+// Test files may redirect stdio directly only where the redirection is the
+// implementation under test; everything else goes through the scoped guards in
+// tests/test_utils.h (see AGENTS.md Testing). Shared with a synthetic-probe
+// case so the scan itself stays exercised.
+auto rawRedirectOffenders(fs::path const& sourceDir) -> std::vector<std::string> {
+  // Needles assembled from pieces so this file's own source does not trip the
+  // scan it implements.
+  auto const needles = std::array<std::string, 4>{
+    std::string{"dup"} + "2(",
+    std::string{"fre"} + "open(",
+    std::string{"std::cin."} + "rdbuf(",
+    std::string{"std::cout."} + "rdbuf(",
+  };
+  auto const marker = std::string_view{"isolation-ok"};
+
+  auto offenders = std::vector<std::string>{};
+  for (auto const& entry: fs::recursive_directory_iterator{sourceDir}) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".cpp") { continue; }
+
+    auto in = std::ifstream{entry.path()};
+    REQUIRE(in.is_open());
+    auto lines = std::vector<std::string>{};
+    for (auto line = std::string{}; std::getline(in, line);) { lines.push_back(line); }
+
+    // The marker may sit within three lines: pre-commit clang-format reflows
+    // long statements, moving a trailing comment off the statement's line.
+    for (auto i = std::size_t{0}; i < lines.size(); ++i) {
+      auto const hit = std::ranges::find_if(needles, [&](std::string const& needle) {
+        return lines[i].find(needle) != std::string::npos;
+      });
+      if (hit == needles.end()) { continue; }
+
+      auto marked = false;
+      auto const windowStart = i >= 3 ? i - 3 : 0;
+      auto const windowEnd = std::min(i + 3, lines.size() - 1);
+      for (auto j = windowStart; j <= windowEnd; ++j) {
+        if (lines[j].find(marker) != std::string_view::npos) {
+          marked = true;
+          break;
+        }
+      }
+      if (marked) { continue; }
+
+      offenders.push_back(
+        std::format(
+          "{}:{}: raw stdio redirection — use the scoped guards in "
+          "tests/test_utils.h, or add a `// {} <reason>` marker nearby",
+          entry.path().string(),
+          i + 1,
+          marker
+        )
+      );
+    }
+  }
+  return offenders;
+}
+
+}  // namespace
+
 TEST_CASE("TempDir names are unique per call and carry the process id", "[test-utils]") {
   auto const first = TempDir{};
   auto const second = TempDir{};
@@ -240,6 +301,39 @@ TEST_CASE("test sources carry no unmarked synchronization sleeps", "[test-utils]
     INFO(offender);
   }
   CHECK(offenders.empty());
+}
+
+TEST_CASE(
+  "test sources redirect stdio only through the shared guards",
+  "[test-utils][meta]"
+) {
+  auto const sourceDir = fs::path{ENCRO_TEST_SOURCE_DIR};
+  REQUIRE(fs::exists(sourceDir));
+
+  auto const offenders = rawRedirectOffenders(sourceDir);
+  for (auto const& offender: offenders) {
+    std::fprintf(stderr, "ISOLATION-OFFENDER: %s\n", offender.c_str());
+    std::fflush(stderr);
+    INFO(offender);
+  }
+  CHECK(offenders.empty());
+}
+
+TEST_CASE("the raw-redirection scan flags an unmarked probe", "[test-utils][meta]") {
+  auto temp = TempDir{};
+
+  // Assembled from pieces: the joined literal must not appear in this file,
+  // which the scan over the real source tree visits.
+  auto const probe = std::string{"  auto fd = "} + "dup" + "2(1, 2);\n";
+  testutils::writeTextFile(temp.path / "unmarked.cpp", probe);
+  testutils::writeTextFile(
+    temp.path / "marked.cpp",
+    "  // isolation-ok: synthetic probe\n" + probe
+  );
+
+  auto const offenders = rawRedirectOffenders(temp.path);
+  REQUIRE(offenders.size() == 1);
+  CHECK(offenders.front().find("unmarked.cpp") != std::string::npos);
 }
 
 TEST_CASE("test cases assert something", "[test-utils][meta]") {
