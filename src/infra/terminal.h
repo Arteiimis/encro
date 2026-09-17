@@ -44,15 +44,11 @@ enum class MessageKind {
   Info,
   Summary,
   Hint,
-  Prompt,
-  Heading,
   // ── Phase 20 additions ──
-  Usage,
   OptionGroup,
   OptionName,
   OptionDefault,
   OptionDesc,
-  Version,
 };
 
 auto parseColorMode(std::string_view text) -> std::optional<ColorMode>;
@@ -61,10 +57,10 @@ bool streamIsTerminal(Stream stream);
 
 void configure(ColorMode mode);
 
-// Quiet mode (--quiet): narration lines (Info/Success/Heading) are suppressed
-// at the kind-dispatched entry points; severity diagnostics
-// (error/warning/hint), run summaries, failure lists, product output (Plain),
-// prompts, help, and version bypass the gate.
+// Quiet mode (--quiet): narration lines (Info/Success) are suppressed at the
+// kind-dispatched entry points; severity diagnostics (error/warning/hint), run
+// summaries, failure lists, product output (Plain), prompts, help, and version
+// bypass the gate.
 void setQuiet(bool quiet);
 bool quiet();
 

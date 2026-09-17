@@ -144,7 +144,7 @@ auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional
   }
 
   if (cmd.version) {
-    terminal::println(Version, "encro v1.6 (build: {})", compileTimestamp());
+    terminal::println(Plain, "encro v1.6 (build: {})", compileTimestamp());
     return 0;
   }
 
