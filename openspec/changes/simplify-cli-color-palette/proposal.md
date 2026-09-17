@@ -46,8 +46,11 @@ exactly once.
   values all use `Accent`. The string-accenting helper keeps its role (renamed, since it
   no longer means "value style") and the `completion` installer's path arguments are
   routed through it, so paths are accented there too rather than only everywhere else.
-- Remove the message kinds with no live callers: `Heading` (0 call sites) and `Usage`,
-  `Version`, `Prompt` (1 each).
+- Remove the message kinds with no live callers. Four were already dead or single-use
+  (`Heading` 0, `Usage`, `Version`, `Prompt` 1 each); four more (`OptionGroup`,
+  `OptionName`, `OptionDefault`, `OptionDesc`) are left dead by collapsing the
+  kind-keyed styling entry point onto the help formatter's own call sites. The enum ends
+  at the seven kinds that still have callers.
 - Fix progress-bar coloring when colors are disabled: `--color never` currently forces
   bars to `Color::white`, which is unreadable on a light background. With styling
   disabled every bar must resolve to no color, which leaves the whole frame in the
