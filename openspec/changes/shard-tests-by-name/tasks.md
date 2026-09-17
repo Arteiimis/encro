@@ -12,8 +12,8 @@
   singular form for one match). Verify: `--selftest` covers the helper, and a run prints
   the probe result and aborts naming the offending name when the probe does not report
   exactly one match.
-- [x] 1.3 Add the reserved-character scan: a name containing `*`, `?`, `[`, `]`, `~` or
-  `"` fails the task with that name, because the escaping helper does not cover those
+- [x] 1.3 Add the reserved-character scan: a name containing `*`, `?`, `[`, `]`, `~`, `"`
+  or `\` fails the task with that name, because the escaping helper does not cover those
   characters and an over-matching pattern would run a case in more than one shard.
   Verify: `--selftest` rejects a fixture name containing each reserved character and
   accepts the current suite's names.
@@ -29,14 +29,15 @@
 
 - [x] 2.1 Parse the `--durations yes` table from a run's shard logs into a name → seconds
   map, folding section rows by exact name match against the enumeration, persist it per
-  suite outside the wiped work directory (`build/.test-costs-<suite>.txt`), load it on the
+  suite outside the wiped work directory (`build/.test-cost-<suite>.txt`), load it on the
   next run, and fall back to the median of known costs (or an equal split when nothing is
   known) for unlisted names. Verify: `--selftest` parses a fixture table containing both
   case rows and section rows, folds them onto the case, round-trips the model through a
   temporary file, and yields the median for an unknown name.
 - [x] 2.2 Partition by LPT over the costs (descending, ties broken by name) into the
   requested shard count, deterministically for identical inputs, and print each shard's
-  case count and cost plus the max/mean ratio per suite. Verify: `--selftest` shows
+  case count plus the max/mean cost ratio per suite (the ratio is the balance evidence;
+  the per-shard costs themselves live in the model file). Verify: `--selftest` shows
   exactly-once coverage, identical output for identical inputs, and a max/mean ratio below
   1.3 on a synthetic cost set containing one dominant case.
 - [x] 2.3 Spawn each shard with its spec file (`-f <suite>/shard-<i>.specs.txt`) instead
