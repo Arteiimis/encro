@@ -33,17 +33,25 @@ namespace {
 auto rawRedirectOffenders(fs::path const& sourceDir) -> std::vector<std::string> {
   // Needles assembled from pieces so this file's own source does not trip the
   // scan it implements.
-  auto const needles = std::array<std::string, 4>{
+  auto const needles = std::array<std::string, 6>{
     std::string{"dup"} + "2(",
     std::string{"fre"} + "open(",
     std::string{"std::cin."} + "rdbuf(",
     std::string{"std::cout."} + "rdbuf(",
+    std::string{"put"} + "env",
+    std::string{"set"} + "env(",
   };
   auto const marker = std::string_view{"isolation-ok"};
+  // tests/test_utils.h is where the shared guards live: a raw redirect or
+  // environment write there IS the implementation under test.
+  auto const exempt = std::array<fs::path, 1>{sourceDir / "test_utils.h"};
 
   auto offenders = std::vector<std::string>{};
   for (auto const& entry: fs::recursive_directory_iterator{sourceDir}) {
-    if (!entry.is_regular_file() || entry.path().extension() != ".cpp") { continue; }
+    auto const extension = entry.path().extension();
+    if (!entry.is_regular_file()) { continue; }
+    if (extension != ".cpp" && extension != ".h") { continue; }
+    if (std::ranges::find(exempt, entry.path()) != exempt.end()) { continue; }
 
     auto in = std::ifstream{entry.path()};
     REQUIRE(in.is_open());
@@ -71,8 +79,8 @@ auto rawRedirectOffenders(fs::path const& sourceDir) -> std::vector<std::string>
 
       offenders.push_back(
         std::format(
-          "{}:{}: raw stdio redirection — use the scoped guards in "
-          "tests/test_utils.h, or add a `// {} <reason>` marker nearby",
+          "{}:{}: raw stdio redirection or environment write — use the scoped "
+          "guards in tests/test_utils.h, or add a `// {} <reason>` marker nearby",
           entry.path().string(),
           i + 1,
           marker

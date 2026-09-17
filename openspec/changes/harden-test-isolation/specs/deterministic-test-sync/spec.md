@@ -27,7 +27,7 @@ A test that must prove two activities overlapped SHALL prove it by holding one a
 
 ### Requirement: Parallel shard verdicts come from the shard's own report
 
-The parallel test task SHALL decide each shard's verdict from that shard's own test report and exit status, not from the text of its log. Each shard SHALL write a machine-readable report of its own; a shard whose report is missing or unparsable, or whose process status is non-zero, SHALL be reported as failed. Shard log text MAY be quoted as supporting evidence, but a log that merely contains a failure word SHALL NOT by itself fail a shard, and a shard that dies mid-run SHALL be reported as failed even though it prints no summary.
+The parallel test task SHALL decide each shard's verdict from that shard's own test report, not from the text of its log nor from the process status the harness reports back — that status is unreliable when many processes are waited on concurrently. Each shard SHALL write a machine-readable report of its own; a shard whose report is missing, whose report is unparsable, or whose report records any failure or error SHALL be reported as failed. Shard log text MAY be quoted as supporting evidence, but a log that merely contains a failure word SHALL NOT by itself fail a shard, and a shard that dies mid-run SHALL be reported as failed even though it prints no summary.
 
 #### Scenario: A shard fails a test case
 

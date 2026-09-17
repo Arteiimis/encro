@@ -341,20 +341,24 @@ TEST_CASE(
     auto setResult = testutils::parseArgs({"encro", "config", "set", "crf", "20"});
     REQUIRE(cmd::runConfigCommand(setResult) == 0);
 
+    auto getExit = -1;
     {
       auto capture = testutils::StdoutCapture{temp.path / "stdout.txt"};
       auto getResult = testutils::parseArgs({"encro", "config", "get", "crf"});
-      CHECK(cmd::runConfigCommand(getResult) == 0);
+      getExit = cmd::runConfigCommand(getResult);
     }
+    CHECK(getExit == 0);
     CHECK(
       testutils::readTextFile(temp.path / "stdout.txt").find("20") != std::string::npos
     );
 
+    auto listExit = -1;
     {
       auto capture = testutils::StdoutCapture{temp.path / "stdout-list.txt"};
       auto listResult = testutils::parseArgs({"encro", "config", "list"});
-      CHECK(cmd::runConfigCommand(listResult) == 0);
+      listExit = cmd::runConfigCommand(listResult);
     }
+    CHECK(listExit == 0);
     auto const listText = testutils::readTextFile(temp.path / "stdout-list.txt");
     CHECK(listText.find("crf") != std::string::npos);
     CHECK(listText.find("(default)") != std::string::npos);
@@ -379,11 +383,13 @@ TEST_CASE(
   SECTION("path prints the resolved location without reading the file") {
     testutils::writeTextFile(configPath, "{ broken");
 
+    auto pathExit = -1;
     {
       auto capture = testutils::StdoutCapture{temp.path / "stdout-path.txt"};
       auto pathResult = testutils::parseArgs({"encro", "config", "path"});
-      CHECK(cmd::runConfigCommand(pathResult) == 0);
+      pathExit = cmd::runConfigCommand(pathResult);
     }
+    CHECK(pathExit == 0);
     CHECK(
       testutils::readTextFile(temp.path / "stdout-path.txt").find(configPath.string())
       != std::string::npos
