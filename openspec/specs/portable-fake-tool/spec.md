@@ -62,7 +62,7 @@ Helpers that set environment variables for a test case SHALL restore the previou
 
 ### Requirement: Invocations can be held at a gate file until released
 
-The fake ffmpeg SHALL support invocation gating for mid-flight synchronization: when a gate file is configured, a gated invocation appends its invocation-log entry first and then blocks until the gate file exists, so the log entry proves the invocation started while it is being held. A fail-safe deadline SHALL end the block so a miswired test cannot hang the suite. A call-index variable SHALL designate the first gated invocation N (using the same invocation counter as the per-call schedule mechanism): invocations with index >= N are gated, invocations with index < N proceed normally; when the index variable is unset, every invocation is gated. Gating SHALL NOT apply to the ffprobe role, and `-version` probes SHALL neither be gated nor consume an invocation index.
+The fake ffmpeg SHALL support invocation gating for mid-flight synchronization: when a gate file is configured, a gated invocation appends its invocation-log entry first and then blocks until the gate file exists, so the log entry proves the invocation started while it is being held. A fail-safe deadline SHALL end the block so a miswired test cannot hang the suite, and reaching that deadline SHALL be observable: the tool SHALL report the unreleased gate file on stderr before proceeding, so a test whose gate was never released cannot pass silently. A call-index variable SHALL designate the first gated invocation N (using the same invocation counter as the per-call schedule mechanism): invocations with index >= N are gated, invocations with index < N proceed normally; when the index variable is unset, every invocation is gated. Gating SHALL NOT apply to the ffprobe role, and `-version` probes SHALL neither be gated nor consume an invocation index.
 
 #### Scenario: Later invocation held while earlier ones complete
 
@@ -80,6 +80,7 @@ The fake ffmpeg SHALL support invocation gating for mid-flight synchronization: 
 
 - **WHEN** a gated invocation is never released by its test
 - **THEN** the invocation exits at the fail-safe deadline instead of hanging forever
+- **AND** it names the unreleased gate file on stderr before it proceeds
 
 #### Scenario: Version probes bypass gating
 
