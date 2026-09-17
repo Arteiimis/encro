@@ -111,11 +111,11 @@
 - [x] 6.1 Self-verify the change: `xmake test-parallel --selftest` green, `xmake
   test-parallel` green twice, `xmake test-report` green and `xmake run e2e_tests` green.
   Verify: every command's exit status and counts recorded.
-- [ ] 6.2 Run the `code-review` skill over the change with the spec path
+- [x] 6.2 Run the `code-review` skill over the change with the spec path
   (`openspec/changes/shard-tests-by-name`), triage its Standards/Spec/Leanness findings,
   fix the accepted ones, and close the loop with a fresh verification sub-agent. Verify:
   the reviewer's per-finding verdicts, with any rejected finding justified.
-- [ ] 6.3 Archive the change and sync the delta specs into
+- [x] 6.3 Archive the change and sync the delta specs into
   `openspec/specs/deterministic-test-sync/spec.md`. Verify: `openspec validate
   shard-tests-by-name --strict` exits 0 before archiving and `openspec validate --specs`
   exits 0 after the sync.
