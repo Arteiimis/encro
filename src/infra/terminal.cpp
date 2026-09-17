@@ -42,12 +42,8 @@ auto roleFor(MessageKind kind) -> Role {
     case MessageKind::OptionDefault: return Role::Accent;
     case MessageKind::Plain        :
     case MessageKind::Info         :
-    case MessageKind::Prompt       :
-    case MessageKind::Heading      :
-    case MessageKind::Usage        :
     case MessageKind::OptionGroup  :
-    case MessageKind::OptionDesc   :
-    case MessageKind::Version      : return Role::Default;
+    case MessageKind::OptionDesc   : return Role::Default;
   }
 
   return Role::Default;
@@ -62,14 +58,10 @@ auto styleSiteFor(MessageKind kind) -> StyleSite {
     case MessageKind::Summary      : return StyleSite::LeadingVerb;
     case MessageKind::Plain        :
     case MessageKind::Info         :
-    case MessageKind::Prompt       :
-    case MessageKind::Heading      :
-    case MessageKind::Usage        :
     case MessageKind::OptionGroup  :
     case MessageKind::OptionName   :
     case MessageKind::OptionDefault:
-    case MessageKind::OptionDesc   :
-    case MessageKind::Version      : return StyleSite::None;
+    case MessageKind::OptionDesc   : return StyleSite::None;
   }
 
   return StyleSite::None;
@@ -117,14 +109,10 @@ auto severityPrefix(MessageKind kind) -> std::string_view {
     case MessageKind::Success      :
     case MessageKind::Info         :
     case MessageKind::Summary      :
-    case MessageKind::Prompt       :
-    case MessageKind::Heading      :
-    case MessageKind::Usage        :
     case MessageKind::OptionGroup  :
     case MessageKind::OptionName   :
     case MessageKind::OptionDefault:
-    case MessageKind::OptionDesc   :
-    case MessageKind::Version      : return {};
+    case MessageKind::OptionDesc   : return {};
     case MessageKind::Error        : return "error:";
     case MessageKind::Warning      : return "warning:";
     case MessageKind::Hint         : return "hint:";
@@ -173,8 +161,7 @@ bool quiet() {
 bool suppressedByQuiet(MessageKind kind) {
   switch (kind) {
     case MessageKind::Info   :
-    case MessageKind::Success:
-    case MessageKind::Heading: return true;
+    case MessageKind::Success: return true;
     default                  : return false;
   }
 }
@@ -252,14 +239,10 @@ auto streamFor(MessageKind kind) -> Stream {
     case MessageKind::Success      :
     case MessageKind::Info         :
     case MessageKind::Summary      :
-    case MessageKind::Prompt       :
-    case MessageKind::Heading      :
-    case MessageKind::Usage        :
     case MessageKind::OptionGroup  :
     case MessageKind::OptionName   :
     case MessageKind::OptionDefault:
-    case MessageKind::OptionDesc   :
-    case MessageKind::Version      : return Stream::Stdout;
+    case MessageKind::OptionDesc   : return Stream::Stdout;
   }
 
   return Stream::Stdout;
