@@ -21,12 +21,14 @@ approach:
   comma escaped selects exactly that one case - quoting *and* escaping it also works, and
   the escaped form alone is preferred as the minimal transformation.
 - The suite's per-case assert counts are not all deterministic: the unit suite's total is
-  stable across runs (15594 measured on four runs with different orders and one loaded
-  run), while some e2e cases assert once per observed event and their totals vary by a
-  handful of assertions between measurements (712-717 observed). That is why the
-  count-equality claim in the spec is scoped to suites whose cases assert deterministic
-  counts, and why this change claims *coverage* (each case exactly once, visible in the
-  output) for both suites.
+  stable across runs (15594 measured on three parallel runs, four differently ordered
+  single-process runs and one loaded run), while some e2e cases assert per observed
+  condition, so their totals move with how the suite is executed at all - a single-process
+  run reports 719-729, and the sharded runs 769-815 for the same 47 cases, with the
+  shard's private `TMP`/`TEMP` alone worth about 11 assertions when one shard's spec file
+  is replayed (220 against 231). That is why the count-equality claim in the spec is
+  scoped to suites whose cases assert deterministic counts, and why this change claims
+  *coverage* (each case exactly once, visible in the output) for both suites.
 
 ## Goals / Non-Goals
 
