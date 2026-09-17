@@ -464,7 +464,7 @@ bool readUserIpt(bool yesToAll, std::string_view prompt) {
   if (yesToAll) { return true; }
 
   auto const promptShown = !prompt.empty();
-  if (promptShown) { terminal::print(Prompt, "{}", prompt); }
+  if (promptShown) { terminal::print(Plain, "{}", prompt); }
 
   auto response = 'y';
   auto input = std::string{};

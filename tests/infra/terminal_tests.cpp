@@ -247,14 +247,10 @@ constexpr KindProps kKinds[] = {
   {terminal::MessageKind::Info,          "Info",          {},        terminal::Stream::Stdout},
   {terminal::MessageKind::Summary,       "Summary",       {},        terminal::Stream::Stdout},
   {terminal::MessageKind::Hint,          "Hint",          "hint:",   terminal::Stream::Stderr},
-  {terminal::MessageKind::Prompt,        "Prompt",        {},        terminal::Stream::Stdout},
-  {terminal::MessageKind::Heading,       "Heading",       {},        terminal::Stream::Stdout},
-  {terminal::MessageKind::Usage,         "Usage",         {},        terminal::Stream::Stdout},
   {terminal::MessageKind::OptionGroup,   "OptionGroup",   {},        terminal::Stream::Stdout},
   {terminal::MessageKind::OptionName,    "OptionName",    {},        terminal::Stream::Stdout},
   {terminal::MessageKind::OptionDefault, "OptionDefault", {},        terminal::Stream::Stdout},
   {terminal::MessageKind::OptionDesc,    "OptionDesc",    {},        terminal::Stream::Stdout},
-  {terminal::MessageKind::Version,       "Version",       {},        terminal::Stream::Stdout},
 };
 // clang-format on
 
