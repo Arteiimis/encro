@@ -6,12 +6,12 @@ Defines the semantic color roles every console surface draws from — messages, 
 
 ### Requirement: One semantic role palette
 
-Console styling SHALL be expressed through exactly six semantic roles: `Default`, `Muted`, `Accent`, `Good`, `Warn`, and `Bad`. Every role's foreground SHALL resolve either to the terminal's own default foreground or to one of its 16 palette slots. No console output path SHALL emit a 24-bit RGB foreground sequence or a 256-color-indexed foreground sequence, so that legibility on a light or dark background is determined by the user's terminal theme rather than by a value the application chose. The verbose echo stream (`-v`, `-vv`) is exempt: its level colors are defined by `logging-behavior`, not this capability.
+Console styling SHALL be expressed through exactly six semantic roles: `Default`, `Muted`, `Accent`, `Good`, `Warn`, and `Bad`. Every role's foreground SHALL resolve either to the terminal's own default foreground or to one of its 16 palette slots. No output path SHALL select a 24-bit RGB or a 256-color-indexed foreground value, whether it emits an escape sequence or sets a console attribute — progress bars color through the console attribute API on Windows, so a requirement phrased only in terms of escape sequences would be vacuous there. Legibility on a light or dark background therefore depends on the user's terminal theme and never on a value the application chose. The verbose echo stream (`-v`, `-vv`) is exempt: its level tags and their colors come from the logging echo sink's own configuration, not from this capability.
 
-#### Scenario: Only ANSI-16 foreground sequences are emitted
+#### Scenario: Only palette-slot foregrounds are selected
 
 - **WHEN** any console output — messages, help, or progress bars — is produced with colors forced on
-- **THEN** every foreground escape sequence it emits selects an ANSI-16 slot, and no 24-bit RGB or 256-color-indexed foreground sequence appears
+- **THEN** every foreground it selects is either the terminal's default foreground or one of its 16 palette slots, and no 24-bit RGB or 256-color-indexed value appears on either the escape-sequence path or the console-attribute path
 
 #### Scenario: Every product-channel surface draws from the same role set
 
@@ -22,14 +22,16 @@ Console styling SHALL be expressed through exactly six semantic roles: `Default`
 
 Each role SHALL have one assigned meaning and one fixed rendering:
 
-- `Muted` — the terminal's default foreground, with faint emphasis in text: hint diagnostics and idle progress bars.
-- `Accent` — the terminal's cyan slot: values embedded in message text (paths, counts), option and subcommand names, their `(=default)` suffixes, and active and overall progress bars.
+- `Muted` — the terminal's default foreground with faint emphasis: hint diagnostics. This role is text-only; no progress bar uses it.
+- `Accent` — the terminal's cyan slot: values embedded in message text (paths, counts), option and subcommand names, their `(=default)` suffixes, and idle, active and overall progress bars.
 - `Good` — the terminal's green slot: the leading verb of success and run-result lines, and completed progress bars.
 - `Warn` — the terminal's yellow slot: warning diagnostics, and packing and finalizing progress bars.
 - `Bad` — the terminal's red slot: error diagnostics and failed progress bars.
 - `Default` — no styling: message prose, plain product output, help descriptions, usage lines, version text, and anything not assigned above. Help section headings are not in this list; they are styled by weight (below).
 
-`Muted` deliberately spends no palette slot. Themes exist whose bright-black slot is their background (Solarized Dark maps it to base02), which would render hints invisible; faint dims whichever foreground the user chose and degrades to "not dimmed" at worst. Emphasis is applied where the surface can express it: a progress bar carries `Muted`'s foreground without the dim, because the progress-bar library reaches dim only through a code path that is a no-op on the primary build platform, and a platform-divergent idle bar is worse than an undimmed one.
+`Muted` deliberately spends no palette slot. Themes exist whose bright-black slot is their background (Solarized Dark maps it to base02), which would render hints invisible; faint dims whichever foreground the user chose and degrades to "not dimmed" at worst.
+
+Progress bars use `Accent` whether they are idle or active. A bar cannot carry `Muted`: the bar library colors a frame by setting a foreground before each bar and resetting once after the whole frame, so a bar left with no color of its own inherits the preceding bar's — inside a frame that also holds an `Accent` bar, "no color" renders accent, not the default foreground. The library cannot express a per-bar default inside a multi-bar frame, and the idle slot bars already name themselves (`Encoding: [idle-3]`) at zero progress, so a color of their own would be redundant rather than informative.
 
 #### Scenario: Hint diagnostics are muted
 
@@ -41,10 +43,10 @@ Each role SHALL have one assigned meaning and one fixed rendering:
 - **WHEN** a message body names a path and a count with colors enabled
 - **THEN** both use the terminal's cyan slot and the prose around them is unstyled
 
-#### Scenario: Idle bars stay in the default foreground
+#### Scenario: Idle bars share the active color
 
-- **WHEN** idle, active, packing, completed, and failed progress bars render with colors enabled
-- **THEN** the idle bar renders in the terminal's default foreground and selects no palette slot, and the others use the cyan, yellow, green, and red slots respectively
+- **WHEN** idle, active, packing, completed, and failed progress bars render together in one frame with colors enabled
+- **THEN** the idle bar and the active bar both use the cyan slot, and the packing, completed and failed bars use the yellow, green and red slots respectively, with no bar left to inherit a neighbour's color
 
 #### Scenario: Unstyled elements carry no styling
 
@@ -96,17 +98,17 @@ Help section headings SHALL render with bold emphasis and SHALL NOT consume a co
 
 ### Requirement: Disabled styling emits nothing and substitutes nothing
 
-When styling is disabled — by `--color never`, a `NO_COLOR` value, a non-TTY stream, or `TERM=dumb` — no styling escape sequence SHALL be emitted, and no role SHALL be replaced by a fixed color. Every element, including progress bars, SHALL fall back to the terminal's default foreground so that legibility never depends on which background the user has.
+When styling is disabled — by `--color never`, a `NO_COLOR` value, a non-TTY stream, or `TERM=dumb` — no styling escape sequence SHALL be emitted, and no role SHALL be replaced by a fixed color. Every element SHALL fall back to the terminal's default foreground so that legibility never depends on which background the user has.
 
 #### Scenario: Disabled colors emit no styling sequences
 
 - **WHEN** any console output, help text, or progress bar renders with colors disabled
 - **THEN** it contains no styling escape sequence
 
-#### Scenario: Progress bars keep the default foreground
+#### Scenario: Every bar in a disabled frame resolves to no color
 
-- **WHEN** a progress bar renders with colors disabled
-- **THEN** its tone resolves to no color rather than to a fixed color such as white
+- **WHEN** a frame of progress bars renders with colors disabled
+- **THEN** every bar's role resolves to no color rather than to a fixed color such as white, so that no bar sets a foreground and the whole frame stays in the terminal's default foreground
 
 #### Scenario: Bold is suppressed with styling
 
