@@ -1,9 +1,9 @@
 #pragma once
 
+#include "infra/terminal.h"
+
 #include <indicators/dynamic_progress.hpp>
 #include <indicators/progress_bar.hpp>
-
-#include "infra/terminal.h"
 
 #include <chrono>
 #include <cstddef>

@@ -4,7 +4,6 @@
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
-#include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
