@@ -70,11 +70,14 @@ running the binary:
 ### D1: A `Role` enum is the single styling vocabulary
 
 `enum class Role { Default, Muted, Accent, Good, Warn, Bad }` lives in
-`src/infra/terminal.h`, next to two functions: one mapping a role to
-`fmt::text_style` for the message and help paths, and one mapping a role to
-`indicators::Color` for the progress-bar path (plus the "no color" answer when styling
-is disabled). The bar mapper deliberately sets no font style — see D6. Nothing else in
-the codebase emits a foreground SGR sequence.
+`src/infra/terminal.h`, next to `roleStyle(Role)`, which maps a role to
+`fmt::text_style` for the message and help paths. Help headings pass
+`fmt::emphasis::bold` straight to `styled`, so no accessor wraps bold.
+The progress-bar mapper (`progress::barColor`) lives in `src/core/progress.h` instead:
+`src/core` already depends on `infra`, and putting an `indicators`-typed function in
+`terminal.h` would drag the bar library into every translation unit that prints. The bar
+mapper deliberately sets no font style — see D6. Nothing else in the codebase emits a
+foreground SGR sequence.
 
 Alternatives: keeping `MessageKind`, `Tone`, and the token enum separate and fixing only
 their colors leaves four mapping tables producing eight visual outcomes from fifteen
@@ -84,24 +87,25 @@ encro.
 
 `MessageKind` stays. It is not a color concept: it drives the stream, the quiet gate,
 and the printed prefix text, and those behaviors are specified independently. What
-disappears is `styleFor(MessageKind)`; `roleFor(MessageKind)` and `styleSiteFor(MessageKind)`
-replace it.
+disappears is `styleFor(MessageKind)`; `kindStyleFor(MessageKind)` replaces it.
 
 ### D2: Styling lands on the prefix or the leading verb, never the body
 
-`styleSiteFor(kind)` returns one of three sites:
+`kindStyleFor(kind)` returns one of three sites:
 
 | Site | Behavior | Kinds |
 | --- | --- | --- |
-| `None` | no styling at all | `Plain`, `Info`, `Usage`, `Version`, `OptionDesc`, `Prompt`, `Heading` |
+| `None` | no styling at all | `Plain`, `Info` |
 | `Prefix` | the `error:` / `warning:` / `hint:` text carries the role; body untouched | `Error`, `Warning`, `Hint` |
 | `LeadingVerb` | the message's first word carries the role; the rest is untouched | `Success`, `Summary` |
 
-`OptionName` and `OptionDefault` are styled at their call sites, as they are today, and
-map to `Accent` and `Accent` + faint respectively. `OptionGroup` maps to `Default` and is
-rendered bold by the help formatter (D5). That is all fifteen kinds; `Prompt` and
-`Heading` appear here as `None` even though commit 2 deletes them, so the table stays
-exhaustive for commit 1.
+Seven kinds, and the two tables (`roleFor` and `styleSiteFor`) are one switch returning a
+`KindStyle{role, site}` pair, because the two values always travel together. Every kind
+appears explicitly and no arm has a `default`, so adding one makes `-Wswitch` fire.
+Option and subcommand names, their `(=default)` suffixes and help headings carry their
+styling where they are emitted, not through a kind: one help line mixes a bold heading, an
+accent name and a faint-accent suffix, which no single kind-wide role can express (D5,
+D11).
 
 Alternatives: keeping whole-body styling and repairing it by re-emitting the enclosing
 SGR after every embedded reset was rejected — it is string surgery that requires
@@ -118,11 +122,14 @@ result line a color anchor without spending a color on prose.
 ```text
 renderMessage(stream, kind, text):
   prefix = severityPrefix(kind)
-  if !colorsEnabled(stream) or roleFor(kind) == Default:
+  {role, site} = kindStyleFor(kind)
+  if !colorsEnabled(stream) or site == None:
       return prefix.empty() ? text : prefix + " " + text
-  switch styleSiteFor(kind):
-    Prefix      -> styled(prefix) + " " + text
-    LeadingVerb -> styled(firstWord(text)) + restOf(text)
+  if site == Prefix:
+      return styled(role, prefix) + " " + text
+  if text starts with ESC:
+      return text          # the caller's value span stands
+  return styled(role, firstWord(text)) + restOf(text)
 ```
 
 `firstWord` splits at the first space. If `text` already begins with an escape
@@ -150,8 +157,8 @@ requirement, which is what the old palette got wrong.
 
 ### D5: Help structure uses bold
 
-`MessageKind::OptionGroup` is rendered with `fmt::emphasis::bold` and no color, in
-`formatHelpSection`, `formatGroupHeader`, and the commands section of `formatCommandsSection`.
+`formatHelpSection`, `formatGroupHeader` and the commands section of
+`formatCommandsSection` render each heading with `fmt::emphasis::bold` and no color.
 Headings are the help's skeleton; spending the accent slot on them made them compete
 with the option names they introduce. Bold is an attribute, so `--color never` must
 suppress it too (see `terminal-color-palette` — Disabled styling).
@@ -202,11 +209,6 @@ which no bar sets one stays entirely in the terminal default. It would not be so
 a single colorless bar among colored ones — hence D6's rule that no role leaves a bar
 uncolored in an otherwise colored frame.
 
-With colors disabled the role resolves to `indicators::Color::unspecified` plus no font
-style, replacing today's `Color::white`. `unspecified` is what
-`progress_bar.hpp` checks before calling `set_stream_color`, so the bar keeps the
-terminal's own foreground.
-
 ### D8: One accent helper serves paths, counts, and pre-formatted strings
 
 `terminal::path()`, `terminal::count()` and `terminal::value()` collapse onto one accent
@@ -221,35 +223,50 @@ accented everywhere instead of everywhere except that file.
 What disappears is the `value` **style** — the floral-white near-white — not the ability
 to accent a string.
 
-### D9: Two commits, one change
+### D9: Three commits, one change
 
 Commit 1 converges the palette: roles, both role mappers, the message table (with the
-kinds that commit 2 will delete already mapped to `Default` + `None`), the token-helper
-collapse and rename, the tone-to-role mapping, the help heading weight, the
+kinds that commits 2 and 3 will delete already mapped to `Default` + `None`), the
+token-helper collapse and rename, the tone-to-role mapping, the help heading weight, the
 `unspecified` fix, the completion-installer path styling, and the run-summary grouping.
-Commit 2 removes the dead enum surface: `Heading`, `Usage`, `Version`, and `Prompt`,
-with their switch entries.
+Commit 2 removes the kinds that were already dead: `Heading`, `Usage`, `Version` and
+`Prompt`.
 
-They are separate functional areas — a revert of commit 2 restores the old enum surface
-without touching the palette, and a revert of commit 1 restores the old palette without
-touching the surface. Committing them together would make either revert all-or-nothing.
-Both commits are independently buildable and green, and each checks off only the tasks
-it completes. Keep the split legible: the rename of `terminal::value()` and the removal
-of `styleForToken` belong to commit 1 because commit 1 introduces the helper that
+Commit 3 removes `OptionGroup`, `OptionName`, `OptionDefault` and `OptionDesc`, which
+commit 1 makes dead: they reached the screen only through the kind-keyed `styledText`
+that commit 1 deletes, and the help formatter now styles at its own call sites.
+Leaving them would leave the enum claiming eleven kinds with callers when only seven
+have any, and would leave task group 5's verification ("the surviving kind set is
+exactly the kinds with live call sites") false.
+
+They are separate functional areas — a revert of commit 2 or 3 restores the old enum
+surface without touching the palette, and a revert of commit 1 restores the old palette
+without touching the surface. Committing them together would make either revert
+all-or-nothing. All three are independently buildable and green, and each checks off only
+the tasks it completes. Keep the split legible: the rename of `terminal::value()` and the
+removal of `styleForToken` belong to commit 1 because commit 1 introduces the helper that
 replaces them — putting them in commit 2 would leave commit 1 calling a helper it had
 already deleted. Planning artifacts (`proposal.md`, `specs/`, `design.md`) go in their
 own `docs:` commit first, per the repository's commit discipline.
 
-### D10: The per-kind expectation table is replaced by behavior assertions
+### D10: The per-kind style expectation column is replaced by behavior assertions
 
-`tests/infra/terminal_tests.cpp` currently asserts a fixture table of `{kind, styled?,
+`tests/infra/terminal_tests.cpp` used to assert a fixture table of `{kind, styled?,
 prefix, stream}` — a structural assertion that goes red on any enum edit and stays green
-when rendering breaks. It is replaced by assertions on behavior that can regress: the
-severity prefix text survives `--color never`; a styled line contains exactly one
-severity marker; every span in a rendered line is disjoint; prose outside a value span
-renders in the default foreground; a leading verb is not styled when the message
-already starts with a styled value (D3). That last set is what makes the truncation
-defect impossible to reintroduce.
+when rendering breaks. The `styled?` column and the per-kind style probing are gone,
+replaced by assertions on behavior that can regress: each role renders as its own slot;
+no role spends a 24-bit or 256-color slot; the severity prefix text survives
+`--color never`; a styled line contains exactly one severity marker; every span in a
+rendered line is disjoint; prose outside a value span renders in the default
+foreground; a leading verb is not styled when the message already starts with a styled
+value (D3). That last set is what makes the truncation defect impossible to
+reintroduce.
+
+The `{kind, prefix, stream}` half of the table survives, because those two columns are
+the contract (`console-output-conventions`: severity is carried by an always-printed
+text prefix, and the kind decides the stream) rather than a description of the
+implementation. Deleting `styleFor` in commit 1 forced this rewrite then, so commits 2
+and 3 only drop the removed kinds from the surviving table.
 
 ### D11: `styledText` becomes one primitive over named styles
 
@@ -260,15 +277,17 @@ accessors:
 
 - `styled(Stream, fmt::text_style, text)` — the only place that wraps text in a style
   and checks `colorsEnabled`.
-- `roleStyle(Role)` and `boldStyle()` — the only sources of a `fmt::text_style`.
+- `roleStyle(Role)` — the only source of a role's `fmt::text_style`. Help headings pass
+  `fmt::emphasis::bold` straight through, so no accessor wraps it.
 - `accent(text, Stream)` — the token helper from D8, expressed as
-  `styled(stream, roleStyle(Role::Accent), text)`.
+  `styled(stream, roleStyle(Role::Accent), text)`. It takes a string; a caller with a
+  value to format writes `accent(fmt::format(...))`.
 
 The eleven `cmd.cpp` call sites then read: option and subcommand names as `accent(...)`,
 option defaults as `styled(stream, roleStyle(Role::Accent) | emphasis::faint, ...)`,
-section headings as `styled(stream, boldStyle(), ...)`, the brief-tier hint as
-`styled(stream, roleStyle(Role::Muted), ...)`, and the three sites that pass text through
-unstyled (`OptionDesc`, the app description line) collapse to the plain string. The two
+section headings as `styled(stream, fmt::emphasis::bold, ...)`, the brief-tier hint as
+`styled(stream, roleStyle(Role::Muted), ...)`, and the sites that pass text through
+unstyled (option descriptions, the app description line) collapse to the plain string. The two
 `styledText` tests in `tests/infra/terminal_tests.cpp` and the one in
 `tests/test_utils_tests.cpp` move to `styled`.
 
@@ -305,15 +324,16 @@ that produced fifteen kinds for eight visual outcomes.
 - **The attention-group wording change is user-visible text** → it is a spec delta
   (`console-output-conventions`), not a silent edit, and it keeps the group on stdout so
   the existing redirection scenario stays true.
-- **Two commits for one change** → each is green on its own and checks off only its own
+- **Three commits for one change** → each is green on its own and checks off only its own
   tasks, so no intermediate state has code absent while its tasks read complete.
 
 ## Migration Plan
 
 No data or configuration migration: the change touches neither the job-state file nor
 any user-config key, and `--color` keeps its three values and its precedence. Rollback
-is `git revert` of commit 2 (restores the removed kinds and helpers) or of commit 1
-(restores the previous palette), in that order if both are needed.
+is `git revert` of commit 3 (restores the four help kinds), commit 2 (restores the four
+kinds commit 1 left dead) or commit 1 (restores the previous palette), in reverse order
+if several are needed.
 
 Verification for the release: the reviewer-facing check is that
 `encro -hh --color always | grep -c '38;2;'` is zero and that a run whose stdout is
