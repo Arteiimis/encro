@@ -18,8 +18,17 @@ running the binary:
 - `indicators` bundles `termcolor`, which autodetects `TERMCOLOR_USE_WINDOWS_API` on
   Windows (nothing in `xmake.lua` overrides it). Progress bars therefore color through
   `SetConsoleTextAttribute` on the primary platform and through ANSI SGR everywhere
-  else, and `indicators::Color` has no bright variants — `Color::grey` is ANSI 30, not
-  90. No progress-bar tone can express bright-black.
+  else — so no progress-bar behavior can be specified in terms of escape sequences — and
+  `indicators::Color` has no bright variants: `Color::grey` is ANSI 30, not 90.
+- `indicators` sets one foreground per bar and emits a single `termcolor::reset` after
+  the whole frame (`dynamic_progress.hpp`), never around an individual bar. A bar left
+  with `ForegroundColor::unspecified` therefore inherits whichever bar preceded it in the
+  same frame rather than falling back to the terminal default. `unspecified` means "do
+  not change the current color", not "use the default color".
+- `terminal::styledText(Stream, MessageKind, text)` is the second styling entry point
+  after `format`/`renderMessage`: eleven call sites in `src/cmd/cmd.cpp` (option names
+  and defaults, section headings, the commands section, the app description line, and
+  the whole-line brief-tier hint) plus three test uses.
 - `resolveColor(tone, colorsEnabled = false)` returns `Color::white`, and
   `progress_bar.hpp` only skips coloring when the option is `Color::unspecified`. With
   `--color never` on a TTY the bar is forced to a fixed foreground.
@@ -147,10 +156,11 @@ Headings are the help's skeleton; spending the accent slot on them made them com
 with the option names they introduce. Bold is an attribute, so `--color never` must
 suppress it too (see `terminal-color-palette` — Disabled styling).
 
-### D6: `Muted` is faint on the default foreground in text, plain in bars
+### D6: `Muted` is a text-only role
 
-The palette spec assigns `Muted` to the terminal's default foreground rather than to a
-bright-black slot, and text renders it with faint emphasis (SGR 2). Two reasons:
+The palette spec assigns `Muted` to the terminal's default foreground with faint
+emphasis (SGR 2), and no progress bar uses it. Two reasons for the slot choice, then one
+for the text-only scope:
 
 1. Themes exist where bright-black equals the background — Solarized Dark sets
    brightBlack to base02, which is its background. `hint: ` would vanish there. Faint
@@ -158,16 +168,16 @@ bright-black slot, and text renders it with faint emphasis (SGR 2). Two reasons:
    not "invisible".
 2. It resolves no palette slot, so it cannot be mistaken for a surface that picked its
    own color.
+3. A bar cannot carry `Muted` at all. `indicators` sets a foreground before each bar and
+   resets once after the whole frame, so a bar with `ForegroundColor::unspecified` keeps
+   the preceding bar's color instead of returning to the terminal default. Since a frame
+   normally holds an `Accent` overall bar before its slot bars, "idle bar in the default
+   foreground" is not expressible — it would render accent by accident. The honest
+   answer is to say so and give idle bars `Accent` deliberately (D7).
 
-Progress bars carry `Muted`'s foreground without the dim. The bar library reaches dim
-only through `FontStyle::dark`, and `termcolor`'s Windows branch for `dark` is empty
-while nothing in `xmake.lua` overrides the autodetected implementation — so the same
-code would render a dimmed idle bar on POSIX and an undimmed one on the primary
-platform. An undimmed idle bar in the default foreground is the honest uniform answer:
-an idle bar is a placeholder, and "same as surrounding text" is the right affordance.
-
-This is why D1's bar mapper carries no font style. A role-to-font-style path for bars
-would be dead code on Windows and would reintroduce platform divergence.
+This is also why D1's bar mapper carries no font style: a role-to-font-style path for
+bars would be dead on Windows (`termcolor`'s `dark` has an empty `TERMCOLOR_USE_WINDOWS_
+API` branch) and would reintroduce platform divergence.
 
 ### D7: `Tone` is deleted; progress bars take a `Role`
 
@@ -179,10 +189,18 @@ an active bar, so a mechanical rename to `Role::Default` would silently strip it
 and contradict the spec's "active bars use Accent". The other bars that pass
 `Tone::Overall` do so explicitly and map to `Accent` anyway.
 
-Mapping: `Default`/`Active`/`Overall` → `Accent`, `Idle` → `Muted`,
-`Packing`/`Finalizing` → `Warn`, `Success` → `Good`, `Failure` → `Bad`. `Tone::Default`
-existed only as `addBar`'s default argument and was already the same color as `Active`;
-`Overall` was a fourth blue for a bar that is already distinguished by its label.
+Mapping: `Default`/`Active`/`Overall`/`Idle` → `Accent`, `Packing`/`Finalizing` →
+`Warn`, `Success` → `Good`, `Failure` → `Bad`. `Tone::Default` existed only as
+`addBar`'s default argument and was already the same color as `Active`; `Overall` was a
+fourth blue for a bar that is already distinguished by its label; and `Idle`'s white is
+what the light-background defect was made of (D6).
+
+With colors disabled the role resolves to `indicators::Color::unspecified` plus no font
+style, replacing today's `Color::white`. That is sound *because every bar in the frame
+resolves the same way*: `unspecified` means "do not set a foreground", so a frame in
+which no bar sets one stays entirely in the terminal default. It would not be sound for
+a single colorless bar among colored ones — hence D6's rule that no role leaves a bar
+uncolored in an otherwise colored frame.
 
 With colors disabled the role resolves to `indicators::Color::unspecified` plus no font
 style, replacing today's `Color::white`. `unspecified` is what
@@ -233,13 +251,42 @@ renders in the default foreground; a leading verb is not styled when the message
 already starts with a styled value (D3). That last set is what makes the truncation
 defect impossible to reintroduce.
 
+### D11: `styledText` becomes one primitive over named styles
+
+`terminal::styledText(Stream, MessageKind, text)` cannot survive the role table: it keys
+off a message kind, and its callers style things that are not messages (option names,
+section headings, a whole-line hint). It is replaced by one primitive plus named
+accessors:
+
+- `styled(Stream, fmt::text_style, text)` — the only place that wraps text in a style
+  and checks `colorsEnabled`.
+- `roleStyle(Role)` and `boldStyle()` — the only sources of a `fmt::text_style`.
+- `accent(text, Stream)` — the token helper from D8, expressed as
+  `styled(stream, roleStyle(Role::Accent), text)`.
+
+The eleven `cmd.cpp` call sites then read: option and subcommand names as `accent(...)`,
+option defaults as `styled(stream, roleStyle(Role::Accent) | emphasis::faint, ...)`,
+section headings as `styled(stream, boldStyle(), ...)`, the brief-tier hint as
+`styled(stream, roleStyle(Role::Muted), ...)`, and the three sites that pass text through
+unstyled (`OptionDesc`, the app description line) collapse to the plain string. The two
+`styledText` tests in `tests/infra/terminal_tests.cpp` and the one in
+`tests/test_utils_tests.cpp` move to `styled`.
+
+Alternatives: keeping a kind-keyed `styledText` alongside the role table leaves a second
+mapping from kinds to colors, which is the duplication this change removes; adding a
+second attribute parameter to it would make every caller pass an attribute it does not
+have. Using the message kind to mean "the help's name style" is exactly the conflation
+that produced fifteen kinds for eight visual outcomes.
+
 ## Risks / Trade-offs
 
 - **Faint (SGR 2) is a no-op in some terminals** → `hint: ` renders as normal
   foreground. Hierarchy is lost, legibility is not. Accepted explicitly over the
   bright-black slot, which has an invisible failure mode on real themes (D6).
-- **An idle bar is undimmed on every platform** → intentional (D6); the alternative is
-  dimmed on POSIX and plain on Windows.
+- **An idle bar is no longer visually distinct from an active one** → intentional
+  (D6/D7): the bar library cannot express a per-bar default inside a colored frame, and
+  an idle slot already names itself (`Encoding: [idle-3]`) at zero progress. The
+  alternative, today's fixed white, is what the light-background defect was made of.
 - **The leading-verb guard is one branch on an input the current call sites never
   produce** → kept deliberately: the spec requires disjoint spans for any console line,
   and the guard is that requirement's enforcement, not a feature (D3).

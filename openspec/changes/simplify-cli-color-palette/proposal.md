@@ -20,12 +20,20 @@ exactly once.
   truecolor value (`steel_blue`, `slate_gray`, `light_sky_blue`, `golden_rod`,
   `floral_white`) is removed, so the palette follows the user's terminal theme and stays
   legible on light and dark backgrounds alike. The verbose echo stream is exempt, as it
-  already is for the severity-prefix convention; its level colors belong to
-  `logging-behavior`.
+  already is for the severity-prefix convention; its level colors come from the echo
+  sink's own configuration.
 - Move styling from whole message bodies onto tokens: a status line's leading verb,
   paths, counts, and option names carry a role; the surrounding prose stays in the
-  terminal's default foreground. The four progress-bar tones that exist only to be
-  distinct names for the same color collapse onto the shared roles.
+  terminal's default foreground. The progress-bar tones that exist only as separate
+  names for one color collapse, and idle bars take the active color instead of a fixed
+  white — the bar library cannot leave one bar uncolored inside a colored frame, so a
+  per-bar default was never available and today's white is what breaks on a light
+  background.
+- Collapse the two styling entry points (`format`/`renderMessage` by message kind, and
+  `styledText` by message kind) into one primitive over named styles: a role-to-style
+  mapper, a bold style for help headings, and the accent helper, with the eleven help
+  call sites rewritten against them. No code outside that module emits a foreground
+  style.
 - State the structural invariant that makes the truncation class of bug impossible:
   a styled token is never nested inside a styled message body.
 - Render help group headings with bold instead of color, so help structure stops
@@ -41,9 +49,9 @@ exactly once.
 - Remove the message kinds with no live callers: `Heading` (0 call sites) and `Usage`,
   `Version`, `Prompt` (1 each).
 - Fix progress-bar coloring when colors are disabled: `--color never` currently forces
-  bars to `Color::white`, which is unreadable on a light background. Disabled colors
-  must leave the bar in the terminal's default foreground. An idle bar stays in the
-  default foreground with colors enabled too, so it renders the same on every platform.
+  bars to `Color::white`, which is unreadable on a light background. With styling
+  disabled every bar must resolve to no color, which leaves the whole frame in the
+  terminal's default foreground.
 
 ## Capabilities
 
@@ -60,14 +68,20 @@ exactly once.
   color decorates the prefix only. Under the new palette a message body may also contain
   role-styled tokens (paths, counts), so that requirement is restated as "the prefix is
   role-styled and survives color disabling; embedded tokens are role-styled and never
-  nested". The capability also gains the diagnostic-grouping requirement that retires the
-  repeated `warning:` marker.
+  nested". The stream-routing requirement is restated to name the attention block
+  generically, since the change retires its `Needs attention:` label. The capability also
+  gains the diagnostic-grouping requirement that retires the repeated `warning:` marker.
+- `plan-output-formatting`: the post-encode-summary requirement names the
+  `"Needs attention"` list and its scenarios quote that literal. It is restated to refer
+  to the attention block defined by `console-output-conventions`, so archiving does not
+  leave two main specs naming the same output differently.
 
 ## Impact
 
-- **Console rendering**: `src/infra/terminal.{h,cpp}` (role table, token styling,
-  `renderMessage`, `severityPrefix`, the message-kind switches), `src/cmd/cmd.cpp`
-  (help option tables and group headings).
+- **Console rendering**: `src/infra/terminal.{h,cpp}` (role table, the two role mappers,
+  token styling, `renderMessage`, `severityPrefix`, the message-kind switches, and the
+  `styledText` → `styled`-plus-named-styles replacement), `src/cmd/cmd.cpp` (help option
+  tables, group headings, the commands section, and the whole-line brief-tier hint).
 - **Progress bars**: `src/core/progress.{h,cpp}` (tone-to-role mapping, the
   colors-disabled fallback, the `addBar` default role).
 - **Run summary**: `src/video/video_process.cpp` (the attention block's announcement and
@@ -78,10 +92,13 @@ exactly once.
   `src/organize/*`, and `src/cmd/completion_install.cpp` (path arguments routed through
   the accent helper).
 - **Tests**: `tests/infra/terminal_tests.cpp` (the per-kind expectation table is replaced
-  by behavior assertions), `tests/infra/progress_tests.cpp` (the colors-disabled
-  expectation flips), plus any test asserting on a removed kind.
+  by behavior assertions, and the `styledText` cases move to `styled`),
+  `tests/infra/progress_tests.cpp` (the colors-disabled expectation flips), the one
+  `styledText` use in `tests/test_utils_tests.cpp`, plus any test asserting on a removed
+  kind.
 - **Specs**: new `openspec/specs/terminal-color-palette/`, modified
-  `openspec/specs/console-output-conventions/`.
+  `openspec/specs/console-output-conventions/` and
+  `openspec/specs/plan-output-formatting/`.
 - **Not affected**: the `--color auto|always|never` CLI surface, the `color` user-config
   key, `NO_COLOR`, stdout/stderr routing, `--quiet` gating, help column layout, and log
   file contents.
