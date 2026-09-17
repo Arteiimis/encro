@@ -1691,6 +1691,35 @@ auto latestNdjsonLines(fs::path const& logRoot) -> std::vector<std::string> {
   return lines;
 }
 
+// Last record of the newest ndjson log under a test log root, or nullopt while
+// the log is still being written. Tolerant by design: it runs inside waitUntil
+// predicates, where a REQUIRE would abort the poll instead of retrying.
+auto lastNdjsonRecord(fs::path const& logRoot) -> std::optional<boost::json::object> {
+  auto const logDir = logRoot / "encro" / "logs";
+  auto newest = fs::path{};
+  auto ec = std::error_code{};
+  for (auto const& entry: fs::directory_iterator{logDir, ec}) {
+    if (entry.is_regular_file() && entry.path().extension() == ".ndjson") {
+      if (newest.empty() || entry.path() > newest) { newest = entry.path(); }
+    }
+  }
+  if (newest.empty()) { return std::nullopt; }
+
+  auto in = std::ifstream{newest};
+  if (!in.is_open()) { return std::nullopt; }
+  auto lastLine = std::string{};
+  for (auto line = std::string{}; std::getline(in, line);) {
+    if (!line.empty()) { lastLine = line; }
+  }
+  if (lastLine.empty()) { return std::nullopt; }
+
+  try {
+    auto const parsed = boost::json::parse(lastLine);
+    if (!parsed.is_object()) { return std::nullopt; }
+    return parsed.as_object();
+  } catch (...) { return std::nullopt; }
+}
+
 }  // namespace
 
 TEST_CASE(
@@ -1746,14 +1775,22 @@ TEST_CASE(
   REQUIRE(fs::exists(statePath));
 
   SECTION("ndjson log ends with summary status interrupted") {
-    auto const lines = latestNdjsonLines(logRoot);
-    REQUIRE_FALSE(lines.empty());
-    auto const last = boost::json::parse(lines.back());
-    REQUIRE(last.is_object());
-    CHECK(last.as_object().contains("summary"));
-    CHECK(
-      last.as_object().at("summary").as_object().at("status").as_string() == "interrupted"
+    // The summary record is written during shutdown, which can trail the
+    // process exit by a scheduling quantum under parallel load: poll for it
+    // instead of reading the log once.
+    auto summaryStatus = std::optional<std::string>{};
+    auto const summarized = testutils::waitUntil(
+      [&] {
+        auto const record = lastNdjsonRecord(logRoot);
+        if (!record.has_value() || !record->contains("summary")) { return false; }
+        summaryStatus =
+          std::string{record->at("summary").as_object().at("status").as_string().c_str()};
+        return true;
+      },
+      std::chrono::seconds{30}
     );
+    REQUIRE(summarized);
+    CHECK(summaryStatus == "interrupted");
   }
 
   auto const resume = e2e::runEncro(baseArgs, std::nullopt, {});
