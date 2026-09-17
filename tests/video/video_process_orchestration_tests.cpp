@@ -39,9 +39,8 @@ struct ScopedCurrentPath {
 // Watches the process's working directory for a stray "-progress" file:
 // ffmpeg creates one when an invocation loses its -progress value. Each case
 // runs inside its own directory, so such a file can only come from the
-// regression under test. The check runs on scope exit and only when the case is
-// not already unwinding: an assertion from a destructor during unwinding
-// reports badly (same idiom as TempDir).
+// regression under test; the case checks `path` itself, because a destructor
+// assertion would run during unwinding when the case already failed.
 struct StrayProgressGuard {
   ScopedCurrentPath workingDir;
   fs::path path;
@@ -52,10 +51,7 @@ struct StrayProgressGuard {
     fs::remove(path, ec);
   }
 
-  ~StrayProgressGuard() {
-    if (std::uncaught_exceptions() > 0) { return; }
-    CHECK_FALSE(fs::exists(path));
-  }
+  ~StrayProgressGuard() = default;
 };
 
 // Fake ffmpeg = the shared e2e fake_media_tool binary (testutils::copyFakeTool).
@@ -94,6 +90,7 @@ TEST_CASE(
   CHECK(result == 0);
   REQUIRE(encodedFiles.size() == 1);
   CHECK(encodedFiles.front().extension() == ".webp");
+  CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
 TEST_CASE(
@@ -118,6 +115,7 @@ TEST_CASE(
   REQUIRE(packedFiles.size() == 1);
   CHECK(packedFiles.front().extension() == ".zip");
   CHECK(packedFiles.front().filename().string().starts_with("videos_part1["));
+  CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
 TEST_CASE(
@@ -184,6 +182,7 @@ TEST_CASE(
       return task.kind == jobstate::kBuildArchiveKind;
     });
   CHECK(archiveTaskCount == 1);
+  CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
 TEST_CASE(
@@ -204,6 +203,7 @@ TEST_CASE(
 
   CHECK(result == stopsignal::kCanceledExitCode);
   CHECK_FALSE(fs::exists(temp.path / "encoded_webp" / "slow.webp"));
+  CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
 TEST_CASE(
@@ -316,6 +316,7 @@ TEST_CASE(
   CHECK(captured.find("Found 2 video(s) under") != std::string::npos);
   CHECK(captured.find("Scanning") == std::string::npos);
   CHECK(captured.find("candidate") == std::string::npos);
+  CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
 TEST_CASE(
@@ -349,6 +350,7 @@ TEST_CASE(
   CHECK(captured.find("Summary:") == std::string::npos);
   CHECK(captured.find("Total videos found") == std::string::npos);
   CHECK(captured.find("Needs attention") == std::string::npos);
+  CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
 TEST_CASE(
@@ -384,6 +386,7 @@ TEST_CASE(
   // The succeeded file still gets its preview hint.
   CHECK(captured.find("Compare:") != std::string::npos);
   CHECK(captured.find("alpha.mp4") != std::string::npos);
+  CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
 TEST_CASE(
@@ -409,6 +412,7 @@ TEST_CASE(
   auto const captured = readTextFile(errPath);
   CHECK(captured.find("error: Failed to scan input videos") != std::string::npos);
   CHECK(captured.find("Error:") == std::string::npos);
+  CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
 TEST_CASE(
@@ -474,4 +478,5 @@ TEST_CASE(
   CAPTURE(state.subprocessCmdline.value_or("<none>"));
   CHECK(state.subprocessCmdline.has_value());
   CHECK(state.subprocessCmdline->find("-q:v 75") != std::string::npos);
+  CHECK_FALSE(fs::exists(strayProgress.path));
 }

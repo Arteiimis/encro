@@ -42,9 +42,12 @@ struct PrivateLogRootEnv {
     auto ec = std::error_code{};
     std::filesystem::create_directories(root, ec);
     auto const value = root.string();
+    // isolation-ok: the test process sets its own log root once, before any
+    // test runs; no test case depends on the surrounding environment here.
 #if defined(_WIN32)
     ::_putenv_s("LOCALAPPDATA", value.c_str());
 #else
+    // isolation-ok: same per-process log root, POSIX spelling.
     ::setenv("XDG_STATE_HOME", value.c_str(), 1);
 #endif
   }
@@ -81,9 +84,11 @@ void setEnvVar(std::string const& key, std::optional<std::string> const& value) 
 #if defined(_WIN32)
   ::SetEnvironmentVariableA(key.c_str(), value.has_value() ? value->c_str() : nullptr);
 #else
+  // isolation-ok: helper for the child-process environment of one invocation.
   if (value.has_value()) {
     setenv(key.c_str(), value->c_str(), 1);
   } else {
+    // isolation-ok: same helper, unset branch.
     unsetenv(key.c_str());
   }
 #endif
@@ -232,15 +237,8 @@ auto logPathFromStderr(std::string const& stderrText) -> std::string {
 }
 
 auto readAllOf(fs::path const& path) -> std::string {
-  auto in = std::ifstream{path};
-  if (!in) { return {}; }
-  auto content = std::string{};
-  auto line = std::string{};
-  while (std::getline(in, line)) {
-    content += line;
-    content += '\n';
-  }
-  return content;
+  if (!fs::exists(path)) { return {}; }
+  return testutils::readTextFile(path);
 }
 
 }  // namespace

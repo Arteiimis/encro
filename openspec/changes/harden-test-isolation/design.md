@@ -41,9 +41,9 @@ Extend the existing meta-check family in `tests/test_utils_tests.cpp` with a sou
 
 Alternatives: relying on review (rejected - the analogous `sleep_for` problem regressed until a check existed); a runtime instrumentation hook (rejected - cannot observe a failure path from outside the process that owns the fd).
 
-### D4 - Parallel shard verdicts from the shard's own JUnit report plus its exit status
+### D4 - Parallel shard verdicts from the shard's own JUnit report
 
-`plugins/test_parallel/xmake.lua:96-121` currently reads shard log text and discards the process status. Each shard is launched with Catch2's JUnit reporter into a per-shard report file (`-r console -r junit::out=<shard>.xml`), and the verdict is: failed when the process status is non-zero, failed when the report is missing or unparsable (a shard that died mid-run), otherwise passed when the report shows no `<failure>`/`<error>` entries. Log text stays as supporting evidence for the printed summary only. This mirrors the existing `test-report` plugin's JUnit idiom, works on both platforms, and does not depend on `proc:wait()`'s status reliability under many concurrent waits.
+`plugins/test_parallel/xmake.lua:96-121` currently reads shard log text and discards the process status. Each shard is launched with Catch2's JUnit reporter into a per-shard report file (`-r console -r junit::out=<shard>.xml`), and the verdict is: failed when the report is missing or unparsable (a shard that died mid-run), failed when the report records any failure or error, otherwise passed. Log text stays as supporting evidence for the printed summary only, and the harness-reported process status is not consulted at all: trusting it would trade a false-green risk for a false-red one. This mirrors the existing `test-report` plugin's JUnit idiom and works on both platforms.
 
 Alternatives: trusting `proc:wait()` statuses (rejected - the plugin's own comment documents them as unreliable with 12 concurrent waits); deriving the verdict from a summary line in the log (rejected - the `FAILED` substring hazard remains, and a mid-run crash is indistinguishable from a completed run); a shell wrapper writing the exit code to a file (rejected - platform-divergent quoting for no gain).
 

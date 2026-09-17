@@ -69,7 +69,7 @@ task("test-parallel")
     -- Spawn one process per shard without waiting: they all run concurrently,
     -- then a single wait pass collects every result. Each shard writes its own
     -- console log (evidence) and its own JUnit report (the verdict).
-    local function spawn_shards(binary, count, workdir)
+    local function spawn_shards(binary, count, workdir, label)
       local procs = {}
       for i = 0, count - 1 do
         local shard_dir = path.join(workdir, string.format("%d", i))
@@ -98,10 +98,10 @@ task("test-parallel")
         -- 1-based: the wait pass below iterates with ipairs and would skip a
         -- 0-keyed entry, leaking the process and losing its result.
         procs[#procs + 1] = {
+          name = string.format("%s shard %d", label, i),
           proc = proc,
           logfile = logfile,
-          report = report,
-          tmp = tmp
+          report = report
         }
       end
       return procs
@@ -127,23 +127,16 @@ task("test-parallel")
       return true, nil
     end
 
-    -- Summary numbers come from the shard's console log: the JUnit tests=
-    -- attribute counts sections, not test cases. The child writes that summary
-    -- through a redirected stdout, so a read landing before the file is whole
-    -- would under-count silently; retry briefly, and report no counts at all
-    -- rather than a short total (the caller then omits the aggregate).
-    local function read_shard_log(logfile)
-      local content = nil
+    local function shard_counts(logfile)
+      -- The child writes its console summary through a redirected stdout, so a
+      -- read landing before the file is whole would under-count silently;
+      -- retry briefly, then let the caller omit the aggregate.
+      local content = ""
       for _ = 1, 40 do
-        content = io.readfile(logfile)
-        if content and content:find("assertions", 1, true) then return content end
+        content = io.readfile(logfile) or ""
+        if content:find("assertions", 1, true) then break end
         os.sleep(50)
       end
-      return content
-    end
-
-    local function shard_counts(logfile)
-      local content = read_shard_log(logfile) or ""
       local assertions, cases = content:match(
         "All tests passed %((%d+) assertions in (%d+) test cases%)"
       )
@@ -197,15 +190,8 @@ task("test-parallel")
 
     -- All shards spawn up front; processes run as they are created, so the
     -- wait pass below only harvests results.
-    local procs = {}
-    local unit_procs = spawn_shards(tests_bin, unit_shards, path.join(workdir, "unit"))
-    for i, p in ipairs(unit_procs) do
-      p.name = string.format("unit shard %d", i - 1)
-      procs[#procs + 1] = p
-    end
-    local e2e_procs = spawn_shards(e2e_bin, e2e_shards, path.join(workdir, "e2e"))
-    for i, p in ipairs(e2e_procs) do
-      p.name = string.format("e2e shard %d", i - 1)
+    local procs = spawn_shards(tests_bin, unit_shards, path.join(workdir, "unit"), "unit")
+    for _, p in ipairs(spawn_shards(e2e_bin, e2e_shards, path.join(workdir, "e2e"), "e2e")) do
       procs[#procs + 1] = p
     end
 
