@@ -211,7 +211,7 @@ void retryFailedTasks(
 
   auto const retryBarIndex =
     progressCtx
-      .addBar(std::format("Retrying: 0/{}", failedTasks.size()), progress::Tone::Active);
+      .addBar(std::format("Retrying: 0/{}", failedTasks.size()), terminal::Role::Accent);
 
   auto recovered = std::size_t{0};
   for (std::size_t i = 0; i < failedTasks.size(); ++i) {
@@ -240,7 +240,7 @@ void retryFailedTasks(
     );
   }
 
-  progressCtx.setTone(retryBarIndex, progress::Tone::Success);
+  progressCtx.setRole(retryBarIndex, terminal::Role::Good);
   progressCtx.setPostfixText(
     retryBarIndex,
     std::format("Retried: {}/{}", recovered, failedTasks.size())
@@ -277,7 +277,7 @@ auto compressImageBatch(
   auto completed = std::atomic_size_t{0};
 
   auto const barIndex =
-    progressCtx.addBar(std::format("Compressing: 0/{}", total), progress::Tone::Active);
+    progressCtx.addBar(std::format("Compressing: 0/{}", total), terminal::Role::Accent);
 
   auto results = std::vector<CompressResult>{};
   results.reserve(total);
@@ -313,7 +313,7 @@ auto compressImageBatch(
   });
 
   if (runState.canceled) {
-    progressCtx.setTone(barIndex, progress::Tone::Failure);
+    progressCtx.setRole(barIndex, terminal::Role::Bad);
     progressCtx
       .setPostfixText(barIndex, std::format("Canceled: {}/{}", results.size(), total));
     LOG_INFO(
@@ -324,7 +324,7 @@ auto compressImageBatch(
     return results;
   }
 
-  progressCtx.setTone(barIndex, progress::Tone::Success);
+  progressCtx.setRole(barIndex, terminal::Role::Good);
   progressCtx
     .setPostfixText(barIndex, std::format("Compressed: {}/{}", results.size(), total));
 

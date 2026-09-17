@@ -530,12 +530,12 @@ auto renderAndReportSingleInput(
   auto const renderResult =
     renderPreview(ctx, options, options.original, segments, spec, outputPath);
   if (!renderResult) {
-    bars.progressCtx.setTone(bars.bar, progress::Tone::Failure);
+    bars.progressCtx.setRole(bars.bar, terminal::Role::Bad);
     bars.progressCtx.setPostfixText(bars.bar, "Preview generation failed");
     return renderResult;
   }
   bars.progressCtx.setProgress(bars.bar, 100.0f);
-  bars.progressCtx.setTone(bars.bar, progress::Tone::Success);
+  bars.progressCtx.setRole(bars.bar, terminal::Role::Good);
   bars.progressCtx.setPostfixText(bars.bar, "Preview complete");
 
   // Summary output only after the render finished.
@@ -621,7 +621,7 @@ auto runSingleInput(
   auto const fileName = options.original.filename().string();
   // One bar spans the whole pipeline: probe 0-40%, windows 40-85%, render 85-100%.
   auto const bar =
-    progressCtx.addBar(std::format("Previewing: {}", fileName), progress::Tone::Active);
+    progressCtx.addBar(std::format("Previewing: {}", fileName), terminal::Role::Accent);
   auto const probeSlot = BarSlot{progressCtx, bar, 0.0f};
   auto const [plan, windowBase] =
     probeSingleInputPlan(ctx, options, *probeRoot, probeSlot, fileName);
@@ -648,7 +648,7 @@ auto runSingleInput(
     windowEncodeFailed
   );
   if (windowEncodeFailed.load()) {
-    progressCtx.setTone(bar, progress::Tone::Failure);
+    progressCtx.setRole(bar, terminal::Role::Bad);
     progressCtx.setPostfixText(bar, "Window encode failed");
     return eh::makeError("Preview window encode failed.");
   }
@@ -784,7 +784,7 @@ auto runTwoInput(
   auto cursorGuard = progress::CursorGuard{};
   auto const fileName = options.original.filename().string();
   auto const bar =
-    progressCtx.addBar(std::format("Previewing: {}", fileName), progress::Tone::Active);
+    progressCtx.addBar(std::format("Previewing: {}", fileName), terminal::Role::Accent);
 
   // run() dispatched here only after validating both inputs exist.
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
@@ -837,12 +837,12 @@ auto runTwoInput(
   auto const renderResult =
     renderPreview(ctx, options, options.original, {encodedPath}, spec, outputPath);
   if (!renderResult) {
-    progressCtx.setTone(bar, progress::Tone::Failure);
+    progressCtx.setRole(bar, terminal::Role::Bad);
     progressCtx.setPostfixText(bar, "Preview generation failed");
     return renderResult;
   }
   progressCtx.setProgress(bar, 100.0f);
-  progressCtx.setTone(bar, progress::Tone::Success);
+  progressCtx.setRole(bar, terminal::Role::Good);
   progressCtx.setPostfixText(bar, "Preview complete");
 
   printWindows(windows, worstIndex);

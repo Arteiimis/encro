@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -571,6 +572,32 @@ inline auto countOccurrences(std::string_view text, std::string_view needle)
     pos = text.find(needle, pos + 1);
   }
   return count;
+}
+
+// Drops ANSI escape sequences, so a test can assert on the text a user reads
+// regardless of the color mode that produced it.
+inline auto stripAnsi(std::string_view text) -> std::string {
+  auto result = std::string{};
+  result.reserve(text.size());
+
+  auto index = std::size_t{0};
+  while (index < text.size()) {
+    if (text[index] == '\x1b' && index + 1 < text.size() && text[index + 1] == '[') {
+      index += 2;
+      while (
+        index < text.size() && !std::isalpha(static_cast<unsigned char>(text[index]))
+      ) {
+        ++index;
+      }
+      if (index < text.size()) { ++index; }
+      continue;
+    }
+
+    result += text[index];
+    ++index;
+  }
+
+  return result;
 }
 
 // Finds the first line in "text" containing "needle" (help-text assertions).

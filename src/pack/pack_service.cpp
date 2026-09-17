@@ -102,7 +102,7 @@ struct CompactProgressState {
     std::function<void(std::string_view)> const& onCompactStatusText
   ) {
     auto const initialStatus = formatCompactPackingStatus(0, archiveCount, 0, totalFiles);
-    barIndex = ctx.addBar(initialStatus, progress::Tone::Packing);
+    barIndex = ctx.addBar(initialStatus, terminal::Role::Warn);
     ctx.setProgress(barIndex.value(), 0.0f);
     publish(initialStatus, onCompactStatusText);
     if (onCompactProgress) { onCompactProgress(0, totalFiles); }
@@ -171,7 +171,7 @@ struct CompactProgressState {
       // text must not carry the indicator.
       finalizingCount.store(0, std::memory_order_release);
       auto const completedStatus = formatCompactPackedStatus(archiveCount, archiveCount);
-      ctx.setTone(barIndex.value(), progress::Tone::Success);
+      ctx.setRole(barIndex.value(), terminal::Role::Good);
       publish(completedStatus, onCompactStatusText);
     }
   }

@@ -143,13 +143,13 @@ void renderStalled(
     auto const fileLabel =
       displaytext::pathToUtf8String(activeState.inputPath.filename());
     if (lastError.has_value()) {
-      executionCtx.progress().setTone(barIndex.value(), progress::Tone::Failure);
+      executionCtx.progress().setRole(barIndex.value(), terminal::Role::Bad);
       executionCtx.progress().setPostfixText(
         barIndex.value(),
         std::format("Encoding: {} | {}", fileLabel, lastError.value())
       );
     } else if (lastStatus.has_value()) {
-      executionCtx.progress().setTone(barIndex.value(), progress::Tone::Active);
+      executionCtx.progress().setRole(barIndex.value(), terminal::Role::Accent);
       executionCtx.progress().setPostfixText(
         barIndex.value(),
         std::format("Encoding: {} | {}", fileLabel, lastStatus.value())
@@ -182,7 +182,7 @@ void renderProgress(
   }
 
   if (barIndex.has_value()) {
-    executionCtx.progress().setTone(barIndex.value(), progress::Tone::Active);
+    executionCtx.progress().setRole(barIndex.value(), terminal::Role::Accent);
     executionCtx.progress().setProgress(barIndex.value(), progressValue);
   }
 

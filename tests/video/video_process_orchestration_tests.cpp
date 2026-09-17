@@ -349,7 +349,7 @@ TEST_CASE(
   CHECK(captured.find("All encoding tasks completed.") == std::string::npos);
   CHECK(captured.find("Summary:") == std::string::npos);
   CHECK(captured.find("Total videos found") == std::string::npos);
-  CHECK(captured.find("Needs attention") == std::string::npos);
+  CHECK(captured.find("need attention") == std::string::npos);
   CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
@@ -377,11 +377,11 @@ TEST_CASE(
 
   auto const captured = readTextFile(outPath);
   // The count line names the failure; the failed file is listed as a plain
-  // path; no empty "Needs attention" section and no legacy headers.
+  // path; no empty attention group and no legacy headers.
   CHECK(captured.find("Encoded 1/2 videos") != std::string::npos);
   CHECK(captured.find("beta.mp4") != std::string::npos);
   CHECK(captured.find("Videos that failed to encode") == std::string::npos);
-  CHECK(captured.find("Needs attention") == std::string::npos);
+  CHECK(captured.find("need attention") == std::string::npos);
   CHECK(captured.find("All encoding tasks completed.") == std::string::npos);
   // The succeeded file still gets its preview hint.
   CHECK(captured.find("Compare:") != std::string::npos);
@@ -412,6 +412,68 @@ TEST_CASE(
   auto const captured = readTextFile(errPath);
   CHECK(captured.find("error: Failed to scan input videos") != std::string::npos);
   CHECK(captured.find("Error:") == std::string::npos);
+  CHECK_FALSE(fs::exists(strayProgress.path));
+}
+
+TEST_CASE(
+  "attention group prints one severity marker and unprefixed items",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  StrayProgressGuard strayProgress{temp.path};
+  auto const inputDir = temp.path / "videos";
+  fs::create_directories(inputDir);
+  // Sized sources and a long duration: the probe skips videos too short to
+  // pick scoring windows, and a skipped video never reaches the floor check.
+  testutils::writeSizedFile(inputDir / "a.mp4", 1'048'576);
+  testutils::writeSizedFile(inputDir / "b.mp4", 1'048'576);
+
+  auto const durationEnv = ScopedEnvVar{"ENCRO_FAKE_FFPROBE_DURATION_SECS", "100.0"};
+  auto const vmafEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_WRITE_VMAF", "1"};
+  // Both files bottom out below the floor, so both land in one group.
+  auto const scoresEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_VMAF_SCORES", "93.0"};
+
+  auto ctx = appctx::AppContext{};
+  configureVideoContext(ctx, temp.path, inputDir);
+  ctx.toolchain.ffprobePath = copyFakeTool(temp.path, "ffprobe");
+  // The probe stage runs for mp4 output without an explicit crf; a skipped
+  // probe never reaches the floor check.
+  ctx.config.outputFormat = "mp4";
+  ctx.config.minVmaf = 95;
+
+  // Colors forced on, so an item that picked up a role would show up in the
+  // raw capture instead of hiding behind a non-TTY fallback.
+  auto const resetGuard = testutils::ScopedTerminalReset{};
+  terminal::configure(terminal::ColorMode::Always);
+
+  auto const outPath = temp.path / "stdout.txt";
+  {
+    auto capture = StdoutCapture{outPath};
+    CHECK(handlePathEncoding(ctx, inputDir) == 0);
+  }
+
+  auto const captured = readTextFile(outPath);
+  auto const plain = testutils::stripAnsi(captured);
+
+  // One marker for the group, and it reads as a sentence naming the count
+  // rather than as a label ending in a colon.
+  CHECK(testutils::countOccurrences(plain, "warning: ") == 1);
+  CHECK(plain.find("warning: 2 item(s) need attention\n") != std::string::npos);
+
+  // The items are indented, unprefixed, and carry no color of their own: the
+  // raw capture has each subject right after the indent.
+  CHECK(plain.find("warning:   ") == std::string::npos);
+  for (auto const* subject: {"a.mp4", "b.mp4"}) {
+    // The subject is the input's full path, printed as-is.
+    auto const rawItem =
+      "\n  " + (inputDir / subject).string() + ": quality floor unreachable";
+    CHECK(captured.find(rawItem) != std::string::npos);
+  }
+  CHECK(testutils::countOccurrences(plain, ": quality floor unreachable") == 2);
+
+  // The group stays with the run summary on stdout.
+  CHECK(plain.find("Encoded 2/2 videos") != std::string::npos);
   CHECK_FALSE(fs::exists(strayProgress.path));
 }
 

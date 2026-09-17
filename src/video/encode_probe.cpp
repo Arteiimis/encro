@@ -504,7 +504,7 @@ auto initSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCoun
   for (auto slot = std::size_t{}; slot < workerCount; ++slot) {
     slotBars[slot] =
       progressCtx
-        .addBar(std::format("Probing: [idle-{}]", slot + 1), progress::Tone::Idle);
+        .addBar(std::format("Probing: [idle-{}]", slot + 1), terminal::Role::Accent);
   }
   return slotBars;
 }
@@ -530,7 +530,7 @@ auto buildProbeTaskSpec(
   taskexec::TaskContext& taskCtx) -> eh::Result<void> {
   auto const slot = taskCtx.slot;
   auto const barIndex = progress.slotBars[slot];
-  progress.progressCtx.setTone(barIndex, progress::Tone::Active);
+  progress.progressCtx.setRole(barIndex, terminal::Role::Accent);
   progress.progressCtx.resetEta(barIndex);
   progress.progressCtx.setProgress(barIndex, 0.0f);
   progress.progressCtx.setPostfixText(barIndex, std::format("Probing: {}", fileName));
@@ -564,13 +564,13 @@ auto buildProbeTaskSpec(
   auto const& plan = plans[index];
   if (plan.probed) {
     progress.progressCtx.setProgress(barIndex, 100.0f);
-    progress.progressCtx.setTone(barIndex, progress::Tone::Success);
+    progress.progressCtx.setRole(barIndex, terminal::Role::Good);
     progress.progressCtx.setPostfixText(
       barIndex,
       std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
     );
   } else {
-    progress.progressCtx.setTone(barIndex, progress::Tone::Idle);
+    progress.progressCtx.setRole(barIndex, terminal::Role::Accent);
     progress.progressCtx.setPostfixText(
       barIndex,
       std::format("Skipped: {} (default CQ {})", fileName, kDefaultCq)
@@ -805,7 +805,7 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   auto const overallBar = vids.size() > workerCount
     ? std::optional<std::size_t>{progressCtx.addBar(
         std::format("Probing: 0/{} files", vids.size()),
-        progress::Tone::Overall
+        terminal::Role::Accent
       )}
     : std::nullopt;
   // Slot bars mirror the encode bars: one per actual worker, reused across

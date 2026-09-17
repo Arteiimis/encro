@@ -414,7 +414,7 @@ auto pack::Packer::packFilesToZip(
 ) -> eh::Result<void> try {
   auto zip = libzippp::ZipArchive(zipFilePath.string());
   auto fileCount = entries.size();
-  auto const progressBarIndex = progressCtx.addBar(progressText, progress::Tone::Packing);
+  auto const progressBarIndex = progressCtx.addBar(progressText, terminal::Role::Warn);
   auto usedEntryNames = std::unordered_set<std::string>{};
 
   zip.open(libzippp::ZipArchive::New);
@@ -447,7 +447,7 @@ auto pack::Packer::packFilesToZip(
   }
 
   progressCtx.setProgress(progressBarIndex, 100.0f);
-  progressCtx.setTone(progressBarIndex, progress::Tone::Finalizing);
+  progressCtx.setRole(progressBarIndex, terminal::Role::Warn);
 
   std::atomic<bool> finalizing{true};
   auto spinnerThread = std::jthread(
@@ -469,7 +469,7 @@ auto pack::Packer::packFilesToZip(
 
   finalizing.store(false, std::memory_order_release);
   spinnerThread.join();
-  progressCtx.setTone(progressBarIndex, progress::Tone::Success);
+  progressCtx.setRole(progressBarIndex, terminal::Role::Good);
   progressCtx.setPostfixText(progressBarIndex, progressText);
 
   return {};

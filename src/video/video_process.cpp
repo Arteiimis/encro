@@ -529,9 +529,16 @@ void printEncodingSummary(
   }
 
   if (!attentionWarnings.empty()) {
-    terminal::println(Warning, "Needs attention:");
+    // One severity marker for the whole group: the announcement names the
+    // count, and each item is indented, unprefixed, and unstyled. Repeating
+    // `warning: ` on every item read as a label followed by another label.
+    terminal::println(
+      Warning,
+      "{} item(s) need attention",
+      terminal::count(attentionWarnings.size())
+    );
     for (auto const& warning: attentionWarnings) {
-      terminal::println(Warning, "  {}", warning);
+      terminal::println(Plain, "  {}", warning);
     }
   }
 

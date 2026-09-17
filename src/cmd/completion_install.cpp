@@ -125,14 +125,14 @@ auto unwireFile(fs::path const& path) -> Unwire {
       terminal::eprintln(
         terminal::MessageKind::Error,
         "cannot remove {}",
-        forwardSlashes(path.string())
+        terminal::accent(forwardSlashes(path.string()))
       );
       return Unwire::Failed;
     }
     terminal::println(
       terminal::MessageKind::Success,
       "removed: {}",
-      forwardSlashes(path.string())
+      terminal::accent(forwardSlashes(path.string()))
     );
     return Unwire::Changed;
   }
@@ -140,14 +140,14 @@ auto unwireFile(fs::path const& path) -> Unwire {
     terminal::eprintln(
       terminal::MessageKind::Error,
       "cannot write {}",
-      forwardSlashes(path.string())
+      terminal::accent(forwardSlashes(path.string()))
     );
     return Unwire::Failed;
   }
   terminal::println(
     terminal::MessageKind::Success,
     "unwired: {}",
-    forwardSlashes(path.string())
+    terminal::accent(forwardSlashes(path.string()))
   );
   return Unwire::Changed;
 }
@@ -227,7 +227,7 @@ int installPowerShell(std::string const& scriptText) {
     terminal::eprintln(
       terminal::MessageKind::Error,
       "cannot write {}",
-      forwardSlashes(scriptPath.string())
+      terminal::accent(forwardSlashes(scriptPath.string()))
     );
     return 1;
   }
@@ -235,13 +235,13 @@ int installPowerShell(std::string const& scriptText) {
     terminal::println(
       terminal::MessageKind::Info,
       "completion script already current: {}",
-      forwardSlashes(scriptPath.string())
+      terminal::accent(forwardSlashes(scriptPath.string()))
     );
   } else {
     terminal::println(
       terminal::MessageKind::Success,
       "installed completion script: {}",
-      forwardSlashes(scriptPath.string())
+      terminal::accent(forwardSlashes(scriptPath.string()))
     );
   }
 
@@ -254,7 +254,7 @@ int installPowerShell(std::string const& scriptText) {
       terminal::println(
         terminal::MessageKind::Info,
         "already wired: {}",
-        forwardSlashes(profile.string())
+        terminal::accent(forwardSlashes(profile.string()))
       );
       continue;
     }
@@ -262,14 +262,14 @@ int installPowerShell(std::string const& scriptText) {
       terminal::eprintln(
         terminal::MessageKind::Error,
         "cannot write {}",
-        forwardSlashes(profile.string())
+        terminal::accent(forwardSlashes(profile.string()))
       );
       return 1;
     }
     terminal::println(
       terminal::MessageKind::Success,
       "wired: {}",
-      forwardSlashes(profile.string())
+      terminal::accent(forwardSlashes(profile.string()))
     );
   }
 
@@ -293,7 +293,7 @@ int uninstallPowerShell() {
     terminal::println(
       terminal::MessageKind::Success,
       "removed: {}",
-      forwardSlashes(scriptPath.string())
+      terminal::accent(forwardSlashes(scriptPath.string()))
     );
     anything = true;
   }
@@ -327,7 +327,7 @@ int installBash(std::string const& scriptText) {
       terminal::eprintln(
         terminal::MessageKind::Error,
         "cannot write {}",
-        forwardSlashes(target.string())
+        terminal::accent(forwardSlashes(target.string()))
       );
       return 1;
     }
@@ -335,13 +335,13 @@ int installBash(std::string const& scriptText) {
       terminal::println(
         terminal::MessageKind::Info,
         "completion script already current: {}",
-        forwardSlashes(target.string())
+        terminal::accent(forwardSlashes(target.string()))
       );
     } else {
       terminal::println(
         terminal::MessageKind::Success,
         "installed completion script: {}",
-        forwardSlashes(target.string())
+        terminal::accent(forwardSlashes(target.string()))
       );
     }
     terminal::messageln(
@@ -358,7 +358,7 @@ int installBash(std::string const& scriptText) {
     terminal::eprintln(
       terminal::MessageKind::Error,
       "cannot write {}",
-      forwardSlashes(bashPath.string())
+      terminal::accent(forwardSlashes(bashPath.string()))
     );
     return 1;
   }
@@ -366,13 +366,13 @@ int installBash(std::string const& scriptText) {
     terminal::println(
       terminal::MessageKind::Success,
       "installed completion script: {}",
-      forwardSlashes(bashPath.string())
+      terminal::accent(forwardSlashes(bashPath.string()))
     );
   } else {
     terminal::println(
       terminal::MessageKind::Info,
       "completion script already current: {}",
-      forwardSlashes(bashPath.string())
+      terminal::accent(forwardSlashes(bashPath.string()))
     );
   }
 
@@ -383,7 +383,7 @@ int installBash(std::string const& scriptText) {
     terminal::println(
       terminal::MessageKind::Info,
       "already wired: {}",
-      forwardSlashes(bashrc.string())
+      terminal::accent(forwardSlashes(bashrc.string()))
     );
     return 0;
   }
@@ -391,14 +391,14 @@ int installBash(std::string const& scriptText) {
     terminal::eprintln(
       terminal::MessageKind::Error,
       "cannot write {}",
-      forwardSlashes(bashrc.string())
+      terminal::accent(forwardSlashes(bashrc.string()))
     );
     return 1;
   }
   terminal::println(
     terminal::MessageKind::Success,
     "wired: {}",
-    forwardSlashes(bashrc.string())
+    terminal::accent(forwardSlashes(bashrc.string()))
   );
   terminal::messageln(
     terminal::MessageKind::Hint,
@@ -425,7 +425,7 @@ int uninstallBash() {
     terminal::println(
       terminal::MessageKind::Success,
       "removed: {}",
-      forwardSlashes(lazy.string())
+      terminal::accent(forwardSlashes(lazy.string()))
     );
     anything = true;
   }
@@ -439,7 +439,7 @@ int uninstallBash() {
     terminal::println(
       terminal::MessageKind::Success,
       "removed: {}",
-      forwardSlashes(bashPath.string())
+      terminal::accent(forwardSlashes(bashPath.string()))
     );
     anything = true;
   }
