@@ -1,24 +1,10 @@
--- test-parallel: run the unit and e2e suites in parallel shards, each with an
--- explicit case-name assignment and its own isolated temp root so shared
--- scratch/log/TempDir state (all rooted at fs::temp_directory_path()) never
--- collides across shards.
---
--- Membership is a function of the enumerated case list and a recorded per-case
--- cost model, not of Catch2's randomised run order: each suite is enumerated
--- with `--list-tests -r xml`, packed by measured case cost, and handed to its
--- shards as spec files (`-f`). Every enumerated case therefore runs exactly
--- once, and each suite's printed aggregate is the sum of what actually ran; a
--- shard that executes a different number of cases than it was assigned fails
--- instead of shrinking the total.
---
--- See openspec/specs/deterministic-test-sync/spec.md for the contract.
---
--- Measured on 16 cores: the unit suite (723 cases, 15594 assertions) splits into
--- 8 shards and the e2e suite (47 cases) into 4, both suites in parallel landing
--- around 13-20 s wall clock. The unit aggregate equals a single-process run's
--- total; the e2e aggregate is the sum of what ran but is not conserved, because
--- its cases assert per observed condition and a shard's private temp root changes
--- those conditions (see docs/backlog.md).
+-- test-parallel: run the unit and e2e suites in parallel shards, partitioned by
+-- enumerated case name (spec files, cost-packed) instead of by the runner's
+-- randomised order, each shard with its own temp root so shared scratch/log state
+-- never collides. A shard that executes fewer cases than it was assigned, or that
+-- prints no countable summary, fails; each suite prints the sum of its shards' own
+-- totals, so the unit number equals a single-process run's. See
+-- openspec/specs/deterministic-test-sync/spec.md.
 task("test-parallel")
   set_category("plugin")
   set_menu({
@@ -56,8 +42,7 @@ task("test-parallel")
     local function parse_durations(content)
       local costs = {}
       for line in content:gmatch("[^\n]+") do
-        local seconds, raw = line:match("^%s*(%d+%.?%d*) s:%s*(.+)$")
-        local name = raw and raw:gsub("%s+$", "") or nil
+        local seconds, name = line:match("^%s*(%d+%.?%d*) s:%s*(.-)%s*$")
         if seconds and name ~= "" and not costs[name] then
           costs[name] = tonumber(seconds)
         end
@@ -103,10 +88,11 @@ task("test-parallel")
       return count
     end
 
-    -- Catch2 test specs treat these characters specially. The suite uses only
-    -- the comma today, so the comma is escaped and the rest are rejected by
-    -- name rather than silently allowed to over-match.
-    local kReserved = {"?", "*", "[", "]", "~", '"'}
+    -- Catch2 test specs treat these characters specially: it consumes the
+    -- backslash as an escape, the comma as an OR. The suite uses only the comma
+    -- today, so the comma is escaped and the rest are rejected by name rather
+    -- than silently allowed to over-match or to select the wrong case.
+    local kReserved = {"?", "*", "[", "]", "~", '"', "\\"}
 
     local function escape_spec(name)
       return (name:gsub(",", "\\,"))
@@ -126,7 +112,10 @@ task("test-parallel")
       if #names == 0 then
         return "the listing contained no test cases"
       end
-      if declared and declared ~= #names then
+      if not declared then
+        return "the console listing declared no case count, so the two listings cannot be cross-checked"
+      end
+      if declared ~= #names then
         return string.format("the listings disagree: %d case(s) in the XML listing, %d declared by the console listing", #names, declared)
       end
       local seen = {}
@@ -200,7 +189,14 @@ task("test-parallel")
     -- assignment would silently run less (or more) than the suite holds.
     local function assignment_error(names, shards)
       if #shards > #names then
-        return string.format("shard count %d exceeds the %d enumerated case(s); an empty spec file means 'run everything'", #shards, #names)
+        return string.format("shard count %d exceeds the %d enumerated case(s); lower it so every shard gets a case", #shards, #names)
+      end
+      for i, shard in ipairs(shards) do
+        if #shard.names == 0 then
+          -- An empty spec file is 'no filter' to the runner, which would run
+          -- the whole suite in that shard.
+          return string.format("shard %d has no assigned case(s)", i - 1)
+        end
       end
       local seen = {}
       local lines = 0
@@ -341,7 +337,8 @@ task("test-parallel")
         end
       end
       if not probe then
-        return -- nothing to escape in this suite
+        print(string.format("%s: no case name needs escaping", suite))
+        return
       end
       local spec = path.join(workdir, string.format("%s-escape-probe.txt", suite))
       local listing = path.join(workdir, string.format("%s-escape-probe.log", suite))
@@ -356,6 +353,7 @@ task("test-parallel")
           matched or "no"
         ))
       end
+      print(string.format("%s: escaped name %q selects 1 case", suite, probe))
     end
 
     -- One spec file per shard: the runner reads one spec per line and skips a
@@ -366,23 +364,21 @@ task("test-parallel")
       if err then
         os.raise(string.format("%s: %s", suite, err))
       end
-      local paths = {}
       for i, shard in ipairs(shards) do
-        local spec = path.join(suite_dir, string.format("shard-%d.specs.txt", i - 1))
+        shard.spec = path.join(suite_dir, string.format("shard-%d.specs.txt", i - 1))
         local lines = {}
         for _, name in ipairs(shard.names) do
           lines[#lines + 1] = escape_spec(name)
         end
-        io.writefile(spec, table.concat(lines, "\n") .. "\n")
-        paths[i] = spec
+        io.writefile(shard.spec, table.concat(lines, "\n") .. "\n")
       end
-      return shards, paths
+      return shards
     end
 
     -- Spawn one process per shard without waiting: they all run concurrently,
     -- then a single wait pass collects every result. Each shard writes its own
     -- console log (evidence and counts) and its own JUnit report (the verdict).
-    local function spawn_shards(binary, shards, spec_paths, workdir, label)
+    local function spawn_shards(binary, shards, workdir, suite)
       local procs = {}
       for i, shard in ipairs(shards) do
         local shard_dir = path.join(workdir, string.format("%d", i - 1))
@@ -397,7 +393,7 @@ task("test-parallel")
         local proc = process.openv(
           binary,
           {
-            "-f", spec_paths[i],
+            "-f", shard.spec,
             "--durations", "yes",
             "-r", "console",
             "-r", "junit::out=" .. report
@@ -410,7 +406,8 @@ task("test-parallel")
         -- 1-based: the wait pass below iterates with ipairs and would skip a
         -- 0-keyed entry, leaking the process and losing its result.
         procs[#procs + 1] = {
-          name = string.format("%s shard %d", label, i - 1),
+          name = string.format("%s shard %d", suite, i - 1),
+          suite = suite,
           proc = proc,
           logfile = logfile,
           report = report,
@@ -476,7 +473,7 @@ task("test-parallel")
         if not ok then
           failed = failed + 1
         end
-        print(string.format("  %s %s%s", ok and "ok  " or "FAIL", label, detail and (" — " .. detail) or ""))
+        print(string.format("  %s %s%s", ok and "ok  " or "FAIL", label, detail and (" - " .. detail) or ""))
       end
 
       local xml = "<MatchingTests>\n  <TestCase>\n    <Name>plain name</Name>\n  </TestCase>\n"
@@ -492,15 +489,16 @@ task("test-parallel")
       check("comma escaped", escape_spec("a, b") == "a\\, b", escape_spec("a, b"))
       check("plain name untouched", escape_spec("plain name") == "plain name")
       check(
-        "reserved characters found",
-        reserved_in("tag [x]") == "[" and reserved_in("star*") == "*" and reserved_in('q"') == '"'
-          and reserved_in("plain, name") == nil
+        "every reserved character is found",
+        reserved_in("q?") == "?" and reserved_in("star*") == "*" and reserved_in("br[") == "["
+          and reserved_in("br]") == "]" and reserved_in("tilde~") == "~" and reserved_in('quote"') == '"'
+          and reserved_in("back\\slash") == "\\" and reserved_in("plain, name") == nil
       )
       check(
         "sound enumeration accepted",
         enumeration_error({"a, b", "c"}, 2) == nil and enumeration_error({}, 0) ~= nil
-          and enumeration_error({"a"}, 2) ~= nil and enumeration_error({"a", "a"}, 2) ~= nil
-          and enumeration_error({"star*"}, 1) ~= nil
+          and enumeration_error({"a"}, 2) ~= nil and enumeration_error({"a"}, nil) ~= nil
+          and enumeration_error({"a", "a"}, 2) ~= nil and enumeration_error({"star*"}, 1) ~= nil
       )
 
       local costs = parse_durations("1.250 s: alpha\n0.500 s:   indented section\n2 s: beta\n")
@@ -526,10 +524,7 @@ task("test-parallel")
       save_costs(model, {alpha = 1.25, beta = 2, ["com,ma"] = 0.5})
       local loaded = load_costs(model)
       os.rm(model)
-      local loaded_size = 0
-      for _ in pairs(loaded) do
-        loaded_size = loaded_size + 1
-      end
+      local loaded_size = #table.keys(loaded)
       check(
         "cost model round trip",
         loaded.alpha == 1.25 and loaded.beta == 2 and loaded["com,ma"] == 0.5,
@@ -570,6 +565,7 @@ task("test-parallel")
         assignment_error({"a", "b"}, {{names = {"a"}}}) ~= nil
           and assignment_error({"a", "b"}, {{names = {"a", "b"}}, {names = {"a"}}}) ~= nil
           and assignment_error({"a"}, {{names = {}}, {names = {}}}) ~= nil
+          and assignment_error({"a", "b"}, {{names = {"a", "b"}}, {names = {}}}) ~= nil
       )
 
       if failed > 0 then
@@ -617,9 +613,8 @@ task("test-parallel")
       {name = "e2e", binary = e2e_bin, shards = e2e_shards}
     }
 
-    -- All shards spawn up front; processes run as they are created, so the
-    -- wait pass below only harvests results.
-    local procs = {}
+    -- Plan every suite first - enumeration, escaping, cost model, assignment -
+    -- so no shard starts before the whole run can be accounted for.
     local plans = {}
     for _, suite in ipairs(suites) do
       local suite_dir = path.join(workdir, suite.name)
@@ -627,21 +622,14 @@ task("test-parallel")
       local names = enumerate(suite.binary, workdir, suite.name)
       preflight_escaping(suite.binary, names, workdir, suite.name)
       local costs = load_costs(cost_model_path(builddir, suite.name))
-      local model_size = 0
-      for _ in pairs(costs) do
-        model_size = model_size + 1
-      end
-      local shards, spec_paths = write_specs(names, suite_dir, suite.name, suite.shards, costs)
       plans[#plans + 1] = {
         name = suite.name,
+        binary = suite.binary,
+        dir = suite_dir,
         names = names,
-        shards = shards,
-        model_size = model_size,
-        enumerated = #names
+        model_size = #table.keys(costs),
+        shards = write_specs(names, suite_dir, suite.name, suite.shards, costs)
       }
-      for _, p in ipairs(spawn_shards(suite.binary, shards, spec_paths, suite_dir, suite.name)) do
-        procs[#procs + 1] = p
-      end
     end
 
     for _, plan in ipairs(plans) do
@@ -662,9 +650,18 @@ task("test-parallel")
       )
     end
 
+    -- All shards spawn up front; processes run as they are created, so the
+    -- wait pass below only harvests results.
+    local procs = {}
+    for _, plan in ipairs(plans) do
+      for _, p in ipairs(spawn_shards(plan.binary, plan.shards, plan.dir, plan.name)) do
+        procs[#procs + 1] = p
+      end
+    end
+
     local totals = {}
     for _, plan in ipairs(plans) do
-      totals[plan.name] = {assertions = 0, cases = 0, enumerated = plan.enumerated}
+      totals[plan.name] = {assertions = 0, cases = 0, enumerated = #plan.names}
     end
     local failures = {}
     for _, p in ipairs(procs) do
@@ -681,9 +678,8 @@ task("test-parallel")
           passed, reason = false,
             string.format("executed %d case(s) of the %d assigned", cases, p.assigned)
         else
-          local suite = p.name:match("^(%S+) shard")
-          totals[suite].assertions = totals[suite].assertions + assertions
-          totals[suite].cases = totals[suite].cases + cases
+          totals[p.suite].assertions = totals[p.suite].assertions + assertions
+          totals[p.suite].cases = totals[p.suite].cases + cases
         end
       end
       if not passed then
@@ -716,10 +712,11 @@ task("test-parallel")
       for _, plan in ipairs(plans) do
         local t = totals[plan.name]
         cprint(
-          "${bright green}%s: all tests passed (%d assertions in %d test cases)",
+          "${bright green}%s: all tests passed (%d assertions in %d/%d test cases)",
           plan.name,
           t.assertions,
-          t.cases
+          t.cases,
+          t.enumerated
         )
       end
       cprint("${dim}per-shard temp roots under %s (TMP/TEMP/TMPDIR)", workdir)
@@ -727,7 +724,7 @@ task("test-parallel")
     end
 
     for _, p in ipairs(failures) do
-      cprint("${red}FAILED: %s — %s — log: %s", p.name, p.reason, p.logfile)
+      cprint("${red}FAILED: %s - %s - log: %s", p.name, p.reason, p.logfile)
       local content = readcontent(p.logfile) or ""
       local shown = 0
       for line in content:gmatch("[^\n]+") do
