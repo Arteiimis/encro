@@ -47,4 +47,4 @@
 
 - [x] 7.1 Run the full unit suite four times, recording the seed each run prints, and compare the executed assertion locations and counts between runs; confirm zero differences apart from order. Verify: all four runs exit 0 with identical assertion counts and identical assertion-location multisets.
 - [x] 7.2 Run `xmake test-parallel` (real-ffmpeg tests included) twice and confirm both runs pass with the new shard verdicts. Verify: both runs report pass, with no shard reported failed and no shard touching another shard's paths in the logs.
-- [ ] 7.3 Run the full CI matrix once on the change's commits (debug/release/coverage) and confirm all jobs pass with the seed visible in the uploaded logs. Verify: all four jobs succeed and each uploaded `ut.log` shows the shuffled seed line.
+- [x] 7.3 Run the full CI matrix once on the change's commits (debug/release/coverage) and confirm all jobs pass with the seed visible in the uploaded logs. Verify: all four jobs succeed and each uploaded `ut.log` shows the shuffled seed line.
