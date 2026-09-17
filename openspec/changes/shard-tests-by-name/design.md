@@ -106,8 +106,11 @@ sections, so costs are folded by exact name match against the enumeration (a sec
 whose name equals some case name is indistinguishable today; there are no such
 collisions, and the fold is only a heuristic). The model is persisted per suite outside
 the wiped work directory (`build/.test-cost-<suite>.txt`) and *reused* on later runs; a
-name with no recorded cost gets the median of the known costs, and a model that is
-absent or entirely stale degrades to an equal split by case count. Rejected: a dedicated
+name with no recorded cost, or one the durations report as sub-millisecond (`0.000 s`,
+which Catch2's millisecond rounding produces for most trivial cases), is priced at the
+median of the positive costs, so a near-free case cannot make a shard look empty while
+it still pays that case's setup time; a model that is absent or entirely stale degrades
+to an equal split by case count. Rejected: a dedicated
 timing pass (doubles the suite cost); using assert counts as the cost proxy (ignores the
 I/O- and process-heavy cases, which are exactly the real-ffmpeg ones).
 

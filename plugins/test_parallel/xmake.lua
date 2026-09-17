@@ -146,19 +146,25 @@ task("test-parallel")
 
     -- Longest-processing-time-first: heaviest case into the currently lightest
     -- shard, with ties broken by name so the same enumeration and cost model
-    -- always produce the same assignment. A case with no recorded cost gets
-    -- the median of the known ones, or 1 for a first run with no model at all.
+    -- always produce the same assignment. A case with no recorded cost, or one
+    -- the durations report as sub-millisecond (0.000 s, which Catch2's rounding
+    -- produces for most trivial cases), is priced at the median of the positive
+    -- costs instead of at zero: a free case would let a shard look empty while
+    -- it still pays that case's setup time, and the near-free cases would pile
+    -- onto one shard.
     local function partition(names, costs, shard_count)
       local known = {}
       for _, name in ipairs(names) do
-        if costs[name] then
-          known[#known + 1] = costs[name]
+        local cost = costs[name]
+        if cost and cost > 0 then
+          known[#known + 1] = cost
         end
       end
       local fallback = median(known) or 1
       local items = {}
       for _, name in ipairs(names) do
-        items[#items + 1] = {name = name, cost = costs[name] or fallback}
+        local cost = costs[name]
+        items[#items + 1] = {name = name, cost = (cost and cost > 0) and cost or fallback}
       end
       table.sort(items, function(a, b)
         if a.cost == b.cost then
@@ -560,6 +566,29 @@ task("test-parallel")
       check("partition covers every case once", assignment_error(many, shards_a) == nil, string.format("%d cases", #flat_a))
       check("partition balances a dominant case", ratio <= 1.3, string.format("max/mean %.2f", ratio))
       check("cost model fallback", fallback == 1.0, tostring(fallback))
+
+      -- Sub-millisecond rows are the common case (Catch2 rounds durations to
+      -- milliseconds), so a zero cost must not make a shard look free: those
+      -- cases are priced at the median of the positive costs like any unknown.
+      local mixed, mixed_costs = {}, {}
+      for i = 1, 40 do
+        local name = string.format("case %02d", i)
+        mixed[#mixed + 1] = name
+        mixed_costs[name] = (i % 4 == 0) and 0 or 1.0
+      end
+      local mixed_shards = partition(mixed, mixed_costs, 4)
+      local mixed_counts, mixed_ratio, mixed_worst, mixed_total = {}, 0, 0, 0
+      for i, shard in ipairs(mixed_shards) do
+        mixed_counts[i] = #shard.names
+        mixed_worst = math.max(mixed_worst, shard.cost)
+        mixed_total = mixed_total + shard.cost
+      end
+      mixed_ratio = mixed_total > 0 and mixed_worst / (mixed_total / 4) or 0
+      check(
+        "zero costs are priced like unknown ones",
+        mixed_shards[1].cost == 10.0 and mixed_ratio <= 1.3,
+        string.format("cases %s, max/mean %.2f", table.concat(mixed_counts, "/"), mixed_ratio)
+      )
       check(
         "unsound assignments rejected",
         assignment_error({"a", "b"}, {{names = {"a"}}}) ~= nil
