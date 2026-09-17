@@ -143,3 +143,32 @@ summary whenever it exists.
   permutes whatever order the build happened to register, so it repeats one
   permutation forever; the seed printed in `ut.log` already makes any failure
   reproducible, and every shuffled run explores new orders for free.
+
+## Parallel-shard assert totals: resolved for membership, residue for e2e counts
+
+`xmake test-parallel` used to let Catch2 partition the suite
+(`--shard-count`/`--shard-index`, which slice the *randomised execution order*),
+so shard membership changed every run, one shard could draw every heavy case
+(measured 7364 assertions in one shard against 702 in another) and the printed
+aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
+17973 assertions against 16306 in a single process.
+
+- **Resolved:** shards are now partitioned by enumerated case name (spec files,
+  LPT over a recorded per-case cost model), preflight rejects an unsound
+  enumeration or assignment, and each shard's executed case count must equal what
+  it was assigned. The unit suite's printed aggregate now equals its
+  single-process total exactly (15594 assertions in 723 test cases on three
+  consecutive runs), and the case count is stable because every enumerated case
+  runs exactly once.
+- **Residue:** the e2e suite's assertion count is not conserved, and cannot be:
+  its cases assert per observed condition, and the shard's *private* temp root
+  changes those conditions. Replaying one shard's spec file with an inherited
+  temp root gives 220 assertions against 231 with a private `TMP`/`TEMP`, a
+  single-process run reports 719-729, and sharded runs report 769-815 for the
+  same 47 cases. The per-site diff between a single-process run and the four
+  spec-file replays localises the movers to per-invocation helper sites
+  (`tests/test_utils.h(500)`, `tests/e2e/encro_e2e_tests.cpp(71)`).
+- **Next step:** nothing, unless the e2e number ever needs to be a metric — that
+  would mean making those cases assert once per case instead of once per temp-dir
+  entry. The harness's own contract (coverage exact, aggregate = sum of what ran)
+  holds regardless.
