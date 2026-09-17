@@ -20,7 +20,7 @@ Doing this now is cheap: the findings are already verified with file:line eviden
 ## What Changes
 
 - Introduce the `test-isolation` capability: tests restore every process-global they mutate; stdio capture is RAII and no assertion runs while a stream is redirected; a run's verdict and assertion count do not depend on execution order, reporter, stdio mode, or shard count; fixtures use only per-run private paths.
-- Extend `deterministic-test-sync`: in-flight proofs use gates and polling instead of fixed windows; poll deadlines stay a multiple of the producer's cadence; the parallel task's shard verdicts come from each shard's own test report and exit status, with log text only as evidence.
+- Extend `deterministic-test-sync`: in-flight proofs use gates and polling instead of fixed windows; poll deadlines stay a multiple of the producer's cadence; the parallel task's shard verdicts come from each shard's own test report, with log text only as evidence.
 - Extend `portable-fake-tool`: a gate deadline expiring without release becomes observable instead of silently letting the invocation proceed.
 - Extend `test-failure-diagnostics`: a test that replaces the crash-context provider restores it, so crash records keep naming the running test for the rest of the run.
 - CI keeps the shuffled order Catch2 already applies, but makes it observable: the unit invocation gains the console reporter alongside the JUnit report so the run's seed reaches the uploaded log (`-r console -r junit::out=/tmp/ut.xml`), and the reproduction line is documented. Without that, an order-dependent failure in CI is a dead end: the current JUnit-only invocation prints no seed.
@@ -41,7 +41,7 @@ Non-goals:
 
 ### Modified Capabilities
 
-- `deterministic-test-sync`: replace window-based in-flight proofs with gate/poll proofs, require poll deadlines sized to the producer's cadence, and derive parallel-shard verdicts from each shard's own report and status instead of log text.
+- `deterministic-test-sync`: replace window-based in-flight proofs with gate/poll proofs, require poll deadlines sized to the producer's cadence, and derive parallel-shard verdicts from each shard's own report instead of log text.
 - `portable-fake-tool`: make a gate deadline expiry observable so a miswired gate cannot silently pass.
 - `test-failure-diagnostics`: require restoration of the crash-context provider after a test replaces it, so crash records keep naming the running test.
 
