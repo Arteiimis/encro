@@ -738,7 +738,10 @@ auto collectProbeResults(
   // the explicit mapping) and keep only files that were measured or probed.
   auto measured = std::vector<char>(vids.size(), 0);
   for (auto taskIndex = std::size_t{0}; taskIndex < taskVids.size(); ++taskIndex) {
-    if (runState.attempted.size() > taskIndex && runState.attempted[taskIndex] != 0) {
+    if (
+      runState.outcomes.size() > taskIndex
+      && runState.outcomes[taskIndex].state != taskexec::TaskState::Skipped
+    ) {
       measured[taskVids[taskIndex]] = 1;
     }
   }
