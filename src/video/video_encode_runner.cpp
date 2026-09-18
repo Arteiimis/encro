@@ -671,12 +671,11 @@ bool runSegmentedEncoding(
   }
 
   LOG_DEBUG(
-    "Encoding segment series: input={} resume={}us completed={}/{} startNumber={}",
+    "Encoding segment series: input={} resume={}us completed={}/{}",
     state.inputPath.string(),
     resumeUs,
     startNumber,
-    segmentTotal,
-    startNumber
+    segmentTotal
   );
   if (statusUpdater) {
     statusUpdater(std::format("segment {}/{}", startNumber + 1, segmentTotal));

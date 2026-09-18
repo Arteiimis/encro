@@ -23,11 +23,6 @@ auto cachedVidInfo(
 
 }  // namespace videoinfo
 
-auto getVidInfo(
-  appctx::ToolchainPaths const& toolchain,
-  std::filesystem::path const& videoPath
-) -> boost::json::value;
-
 auto getVidTotalFrames(
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
