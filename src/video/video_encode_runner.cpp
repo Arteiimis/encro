@@ -9,6 +9,7 @@
 #include "utils/utils.h"
 #include "video/encode_config.h"
 #include "video/segment_dir.h"
+#include "video/segment_plan.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -377,50 +378,16 @@ struct SegmentListWatch {
 };
 
 void markCompletedSegments(SegmentListWatch& watch) {
-  auto const entries = parseSegmentList(watch.listPath);
-  auto const total = watch.startNumber + static_cast<std::uint64_t>(entries.size());
+  auto const total = videoseg::closedSegments(watch.listPath, watch.startNumber);
   if (total <= watch.completedSegments.load(std::memory_order_acquire)) { return; }
 
   watch.completedSegments.store(total, std::memory_order_release);
   if (watch.store != nullptr) {
-    watch.store->markSegmentProgress(watch.taskId, total, total * kSegmentDurationUs);
+    watch.store->markSegmentProgress(watch.taskId, total, videoseg::segmentMarkUs(total));
   }
   if (watch.statusUpdater) {
     watch.statusUpdater(std::format("segment {}/{}", total, watch.segmentTotal));
   }
-}
-
-// Segments an earlier attempt already finished, in order. The recorded count is
-// the authority: the muxer rewrites its list for every attempt, so the list only
-// ever describes the last one, while job state accumulates the total. Names are
-// derived from the index because the muxer updates list rows in place and may
-// pad a name with spaces, while the files follow the naming pattern.
-auto reusableSegments(fs::path const& segmentDir, std::uint64_t storedSegments)
-  -> std::vector<std::string> {
-  auto reusable = std::vector<std::string>{};
-  for (auto index = std::uint64_t{0}; index < storedSegments; ++index) {
-    auto const name = segmentFileName(index);
-    if (!fs::exists(segmentDir / name)) { break; }
-    reusable.push_back(name);
-  }
-  return reusable;
-}
-
-// True when the encoder has nothing left to do: every segment mark is already on
-// disk, or the muxer's cut cadence produced fewer segments than the duration
-// implies and its list reaches the end of the timeline. Listed times carry the
-// encoder's reorder delay, so a complete list ends at or just past the duration
-// while a run that died with a segment in flight stops a whole segment short.
-auto encodeComplete(
-  std::uint64_t completed,
-  std::uint64_t segmentTotal,
-  std::span<SegmentListEntry const> listedSegments,
-  std::uint64_t totalDurationUs
-) -> bool {
-  if (completed >= segmentTotal) { return true; }
-  return !listedSegments.empty()
-    && completed >= listedSegments.size()
-    && listedSegments.back().endUs >= totalDurationUs;
 }
 
 void watchSegmentList(SegmentListWatch& watch, std::stop_token const& stopToken) {
@@ -609,11 +576,6 @@ bool runSegmentedEncoding(
   }
   videoseg::createSegmentDir(segmentDir);
 
-  // Which earlier segments are reusable: see reusableSegments for the naming
-  // and verification rules.
-  auto const previousEntries = parseSegmentList(listPath);
-  auto completedNames = reusableSegments(segmentDir, storedSegments);
-
   auto const durationRes =
     getVidTotalDurationUs(ctx.toolchain, ctx.runtime, state.inputPath);
   if (!durationRes) { return failEncoding(state, durationRes.error()); }
@@ -624,14 +586,25 @@ bool runSegmentedEncoding(
       std::format("Cannot segment video with zero duration: {}", state.inputPath.string())
     );
   }
-  auto const segmentTotal =
-    (totalDurationUs + kSegmentDurationUs - 1) / kSegmentDurationUs;
-  auto const completed = static_cast<std::uint64_t>(completedNames.size());
-  auto const resumeUs = completed * kSegmentDurationUs;
-
   auto const audioRes = ensureAudioFile(ctx, state, segmentDir, statusUpdater);
   if (!audioRes) { return failEncoding(state, audioRes.error()); }
   auto const& audioPath = audioRes.value();
+
+  auto totalFrames = std::int64_t{0};
+  if (
+    auto const framesRes = getVidTotalFrames(ctx.toolchain, ctx.runtime, state.inputPath);
+    framesRes.has_value()
+  ) {
+    totalFrames = framesRes.value();
+  }
+
+  // Which earlier segments are reusable, where this attempt resumes and whether
+  // anything is left to encode: see segment_plan.h for the rules.
+  auto segmentPlan =
+    videoseg::planSegments(totalDurationUs, storedSegments, segmentDir, totalFrames);
+  auto const startNumber = segmentPlan.startNumber();
+  auto const resumeUs = segmentPlan.resumeUs;
+  auto const segmentTotal = segmentPlan.segmentTotal;
 
   auto const assemble = [&](std::vector<std::string> names) {
     auto const assembly = SegmentAssemblySpec{
@@ -647,28 +620,20 @@ bool runSegmentedEncoding(
   // Nothing left to encode: every segment is on disk already (a run interrupted
   // during assembly), or the muxer's cut cadence produced fewer segments than
   // the duration implies and its list covers the whole timeline.
-  if (encodeComplete(completed, segmentTotal, previousEntries, totalDurationUs)) {
+  if (segmentPlan.complete) {
     LOG_DEBUG(
       "All {} segment(s) already encoded; assembling only: input={}",
-      completed,
+      startNumber,
       state.inputPath.string()
     );
-    return assemble(std::move(completedNames));
+    return assemble(std::move(segmentPlan.reusableNames));
   }
 
-  auto totalFrames = std::int64_t{0};
-  if (
-    auto const framesRes = getVidTotalFrames(ctx.toolchain, ctx.runtime, state.inputPath);
-    framesRes.has_value()
-  ) {
-    totalFrames = framesRes.value();
-  }
   {
     // One continuous progress counter spans the whole run, so only the resumed
     // prefix needs an offset.
     auto lock = std::scoped_lock{state.mtx};
-    state.baseFrameOffset =
-      segmentBaseFrameOffset(resumeUs, totalFrames, totalDurationUs);
+    state.baseFrameOffset = segmentPlan.baseFrameOffset;
   }
 
   auto const settings = resolveInputEncodeSettings(
@@ -682,7 +647,7 @@ bool runSegmentedEncoding(
     state.inputPath,
     SegmentSeries{
       .segmentDir = segmentDir,
-      .startNumber = completed,
+      .startNumber = startNumber,
       .resumeUs = resumeUs,
     },
     EncodeProfile{
@@ -709,38 +674,38 @@ bool runSegmentedEncoding(
     "Encoding segment series: input={} resume={}us completed={}/{} startNumber={}",
     state.inputPath.string(),
     resumeUs,
-    completed,
+    startNumber,
     segmentTotal,
-    completed
+    startNumber
   );
   if (statusUpdater) {
-    statusUpdater(std::format("segment {}/{}", completed + 1, segmentTotal));
+    statusUpdater(std::format("segment {}/{}", startNumber + 1, segmentTotal));
   }
 
   // ffmpeg rewrites the list, so the poller must not read the previous
-  // attempt's rows; those are already captured in completedNames.
+  // attempt's rows; those are already captured in the plan.
   auto ec = std::error_code{};
   fs::remove(listPath, ec);
 
   auto watch = SegmentListWatch{
     .listPath = listPath,
     .taskId = taskId,
-    .startNumber = completed,
+    .startNumber = startNumber,
     .segmentTotal = segmentTotal,
     .store = store.get(),
     .statusUpdater = statusUpdater,
-    .completedSegments = completed,
+    .completedSegments = startNumber,
   };
   if (!runEncoderSeries(state, watch, cfg)) { return false; }
   if (stopsignal::isStopRequested()) { return false; }
 
   // This run's segments continue the numbering after the resumed prefix.
-  auto names = std::move(completedNames);
-  auto const runSegments = parseSegmentList(listPath).size();
+  auto names = std::move(segmentPlan.reusableNames);
+  auto const runSegments = videoseg::closedSegments(listPath, 0);
   for (auto index = std::size_t{0}; index < runSegments; ++index) {
-    names.push_back(segmentFileName(completed + static_cast<std::uint64_t>(index)));
+    names.push_back(segmentFileName(startNumber + static_cast<std::uint64_t>(index)));
   }
-  if (names.size() <= completed) {
+  if (names.size() <= startNumber) {
     return failEncoding(
       state,
       std::format("Segment encode produced no segments: {}", state.inputPath.string())
