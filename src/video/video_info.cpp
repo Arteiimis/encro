@@ -160,20 +160,6 @@ bool keepScannedVideoCandidate(
   return keepsWebpInputSizeLimit(config, filePath);
 }
 
-auto loadCachedOrProbeVideoInfo(
-  appctx::ToolchainPaths const& toolchain,
-  appctx::RuntimeContext& runtime,
-  fs::path const& videoPath
-) -> boost::json::value {
-  if (auto const cached = runtime.videoInfoCache.find(videoPath); cached.has_value()) {
-    return cached.value();
-  }
-
-  auto const vidInfo = getVidInfo(toolchain, videoPath);
-  runtime.videoInfoCache.set(videoPath, vidInfo);
-  return vidInfo;
-}
-
 auto finalizeVideoList(
   appctx::AppConfig const& config,
   appctx::ToolchainPaths const& toolchain,
@@ -268,6 +254,20 @@ void prewarmWebpVideoInfoCache(
 
 }  // namespace
 
+auto videoinfo::cachedVidInfo(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  fs::path const& videoPath
+) -> boost::json::value {
+  if (auto const cached = runtime.videoInfoCache.find(videoPath); cached.has_value()) {
+    return cached.value();
+  }
+
+  auto const vidInfo = getVidInfo(toolchain, videoPath);
+  runtime.videoInfoCache.set(videoPath, vidInfo);
+  return vidInfo;
+}
+
 auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPath)
   -> boost::json::value {
   namespace json = boost::json;
@@ -304,7 +304,7 @@ auto getVidTotalFrames(
   appctx::RuntimeContext& runtime,
   fs::path const& videoPath
 ) -> eh::Result<int64_t> {
-  auto const vidInfo = loadCachedOrProbeVideoInfo(toolchain, runtime, videoPath);
+  auto const vidInfo = videoinfo::cachedVidInfo(toolchain, runtime, videoPath);
 
   if (!vidInfo.is_object()) { return eh::makeError("Invalid video info"); }
 
@@ -393,7 +393,7 @@ auto getVidTotalDurationUs(
   appctx::RuntimeContext& runtime,
   fs::path const& videoPath
 ) -> eh::Result<std::uint64_t> {
-  auto const vidInfo = loadCachedOrProbeVideoInfo(toolchain, runtime, videoPath);
+  auto const vidInfo = videoinfo::cachedVidInfo(toolchain, runtime, videoPath);
 
   if (!vidInfo.is_object()) { return eh::makeError("Invalid video info"); }
 
@@ -415,7 +415,7 @@ auto getVidHasAudio(
   appctx::RuntimeContext& runtime,
   fs::path const& videoPath
 ) -> eh::Result<bool> {
-  auto const vidInfo = loadCachedOrProbeVideoInfo(toolchain, runtime, videoPath);
+  auto const vidInfo = videoinfo::cachedVidInfo(toolchain, runtime, videoPath);
 
   if (!vidInfo.is_object()) { return eh::makeError("Invalid video info"); }
 
@@ -446,7 +446,7 @@ auto getVidDimensions(
   appctx::RuntimeContext& runtime,
   fs::path const& videoPath
 ) -> eh::Result<std::pair<int, int>> {
-  auto const vidInfo = loadCachedOrProbeVideoInfo(toolchain, runtime, videoPath);
+  auto const vidInfo = videoinfo::cachedVidInfo(toolchain, runtime, videoPath);
 
   if (!vidInfo.is_object()) { return eh::makeError("Invalid video info"); }
 

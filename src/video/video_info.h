@@ -10,6 +10,19 @@
 #include <utility>
 #include <vector>
 
+namespace videoinfo {
+
+// Whole-json read of the process-scoped video info cache: the cached value
+// when present, otherwise one ffprobe whose result is cached. This module owns
+// the cache; other modules read metadata through this function.
+auto cachedVidInfo(
+  appctx::ToolchainPaths const& toolchain,
+  appctx::RuntimeContext& runtime,
+  std::filesystem::path const& videoPath
+) -> boost::json::value;
+
+}  // namespace videoinfo
+
 auto getVidInfo(
   appctx::ToolchainPaths const& toolchain,
   std::filesystem::path const& videoPath
