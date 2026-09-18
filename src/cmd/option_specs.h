@@ -150,18 +150,52 @@ struct Needs {
   void operator()(CLI::Option*) const { }  // handled declaratively in applyDeps
 };
 
-// Marks the option as the CLI surface of a config key: the option pointer is
-// captured into the config-key registry (validators + built-in default) so
-// `encro config set` validates candidate values with the exact CLI rules.
+// Marks the option as the CLI surface of a config key: registerOne records the
+// key's table entry (kind, long name, built-in default, validators) while the
+// option is registered. The token carries the name only (design D2).
 struct ConfigKey {
   std::string_view name;
-  void operator()(CLI::Option* option) const {
-    configstore::captureConfigKey(name, option);
-    if (auto const longName = captureLongName(option)) {
-      completion::recordConfigKey(name, *longName);
-    }
-  }
+  void operator()(CLI::Option*) const { }
 };
+
+// JSON kind of a binding type (design D2): a flag is a boolean (checked first,
+// std::is_arithmetic_v<bool> is true), arithmetic types and std::optional of
+// one are numbers, everything else is a string.
+template<typename Ty>
+struct IsArithmeticBinding: std::is_arithmetic<std::remove_cvref_t<Ty>> { };
+
+template<typename Ty>
+struct IsArithmeticBinding<std::optional<Ty>>: std::is_arithmetic<Ty> { };
+
+template<typename Ty>
+constexpr auto jsonKindFor() -> configstore::JsonKind {
+  using Value = std::remove_cvref_t<Ty>;
+  if constexpr (std::is_same_v<Value, bool>) {
+    return configstore::JsonKind::Boolean;
+  } else if constexpr (IsArithmeticBinding<Ty>::value) {
+    return configstore::JsonKind::Number;
+  } else {
+    return configstore::JsonKind::String;
+  }
+}
+
+// Name of the spec's cfg::ConfigKey token, empty when it carries none.
+template<typename... Cfg>
+constexpr auto configKeyName(std::tuple<Cfg...> const& cfg) -> std::string_view {
+  auto name = std::string_view{};
+  std::apply(
+    [&name](auto const&... cfgItems) {
+      auto const take = [&name](auto const& item) {
+        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(item)>, ConfigKey>) {
+          name = item.name;
+        }
+      };
+      (take(cfgItems), ...);
+    },
+    cfg
+  );
+  return name;
+}
 
 }  // namespace cfg
 
@@ -180,10 +214,29 @@ auto opt(std::string name, Ty* binding, std::string desc, Cfg... cfg)
   return {std::move(name), binding, std::move(desc), std::make_tuple(std::move(cfg)...)};
 }
 
+// Copy of the option's validator chain in run order (CLI11 inserts transforms
+// at the front, appends checks). `validators_` is protected with no public
+// getter, so the walk goes through get_validator(index) until it reports
+// OptionNotFound. The copies are self-contained -- that is what lets a table
+// entry outlive the option tree (design D1).
+inline void appendValidators(CLI::Option* option, std::vector<CLI::Validator>& out) {
+  for (auto index = 0;; ++index) {
+    try {
+      out.push_back(*option->get_validator(index));
+    } catch (CLI::OptionNotFound const&) { return; }
+  }
+}
+
 // Phase 1: register and configure one option. bool bindings are flags,
-// everything else takes a value.
+// everything else takes a value. A cfg::ConfigKey token also records the
+// option's table entry, after the whole cfg tuple has run: the validators the
+// spec's later tokens add are part of the key's contract.
 template<typename Spec>
-auto registerOne(CLI::App* app, Spec const& spec) -> CLI::Option* {
+auto registerOne(
+  CLI::App* app,
+  Spec const& spec,
+  std::vector<configstore::KeyDef>& entries
+) -> CLI::Option* {
   auto* option = [&]() -> CLI::Option* {
     if constexpr (
       std::is_same_v<std::remove_cvref_t<typename Spec::binding_type>, bool>
@@ -194,6 +247,17 @@ auto registerOne(CLI::App* app, Spec const& spec) -> CLI::Option* {
     }
   }();
   std::apply([&](auto const&... cfgItems) { (cfgItems(option), ...); }, spec.cfg);
+
+  if (auto const key = cfg::configKeyName(spec.cfg); !key.empty()) {
+    auto def = configstore::KeyDef{
+      .key = key,
+      .kind = cfg::jsonKindFor<typename Spec::binding_type>(),
+      .longName = cfg::captureLongName(option).value_or(std::string{}),
+      .builtinDefault = option->get_default_str(),
+    };
+    appendValidators(option, def.validators);
+    entries.push_back(std::move(def));
+  }
   return option;
 }
 
@@ -225,10 +289,15 @@ void applyDeps(CLI::App* app, CLI::Option* self, Spec const& spec) {
 
 // Both phases over a tuple of specs, in registration order.
 template<typename... Specs>
-void registerAll(CLI::App* app, std::tuple<Specs...> const& specs) {
+void registerAll(
+  CLI::App* app,
+  std::tuple<Specs...> const& specs,
+  std::vector<configstore::KeyDef>& entries
+) {
   [&]<std::size_t... I>(std::index_sequence<I...>) {
-    auto const options =
-      std::array<CLI::Option*, sizeof...(Specs)>{registerOne(app, std::get<I>(specs))...};
+    auto const options = std::array<CLI::Option*, sizeof...(Specs)>{
+      registerOne(app, std::get<I>(specs), entries)...
+    };
     (applyDeps(app, options[I], std::get<I>(specs)), ...);
   }(std::index_sequence_for<Specs...>{});
 }
