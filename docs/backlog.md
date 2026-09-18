@@ -256,3 +256,51 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
 - **Next step:** move the block into `src/cmd/help_layout.{h,cpp}` behind
   `(app, layout) -> std::string`. Sequence after `unify-config-key-table`, which
   edits the registration half of the same file and `option_specs.h`.
+
+## Duplicate lines in the human-readable log file
+
+- **Status:** open — found 2026-09-19 while verifying `unify-run-teardown`; pre-existing
+  and unrelated to that change.
+- The counting sink both wraps a sink and is inserted beside it:
+  `src/logging/setup.cpp:462-466` builds `LevelCountingSink(sinks.front())` and then
+  inserts it at the head of the same vector, while the pass-through class (`:50-56`)
+  forwards every record to `next_`. A logger fans one record out to every sink it holds,
+  so the wrapped sink receives it twice — once directly, once forwarded.
+- The wrapped sink is the human-readable rotating file sink (pushed first at `:396`), so
+  every line appears twice in the `.log`. Console and ndjson output are unaffected, and
+  `level_counts` still counts each record once.
+- **Next step:** make `LevelCountingSink` count-only (drop `next_` plus the `flush` and
+  `set_pattern` delegation — the vector already delivers the record to every sink), or
+  replace the head instead of inserting alongside it. Pin it with a case that logs one
+  record against a temp log root and asserts exactly one matching line.
+
+## Shared scratch root makes concurrent suites interfere
+
+- **Status:** open — observed 2026-09-19 by four worktree agents running their suites in
+  parallel; environmental, not a defect of any single change.
+- `workdirs::scratchDir()` is `fs::temp_directory_path() / "encro" / kScratchDirName`
+  (`src/core/work_dirs.cpp:11-13`): machine-global, no per-process component, swept only
+  after 24h (`:19-25`).
+- Any "the root is empty" assertion therefore races with a sibling process's live files:
+  `CHECK(leftoverProbeDirs().empty())` (`tests/video/encode_probe_tests.cpp:499,529,927,943`,
+  helper at `:458`), `CHECK_FALSE(leftover)` (`tests/preview/preview_process_tests.cpp:279`)
+  and the `sweepScratchDir` case (`tests/work_dirs_tests.cpp:249`, call at `:272`) each
+  failed once while another `tests.exe` was mid-run and passed on rerun with no code
+  change.
+- **Next step:** give the scratch root a per-process component (pid or a per-run suffix)
+  and keep the 24h sweep over the parent, so the emptiness assertions hold by
+  construction.
+
+## Scalar trailing returns drift from the documented convention
+
+- **Status:** open — pre-existing; `AGENTS.md:25` pins prefix returns for scalars and
+  `void`, and the codebase has eight counter-examples in `src`
+  (`cmd/completion_install.cpp:92,197`, `organize/cluster.h:57`, `organize/cache.cpp:70`,
+  `organize/assign.h:75`, `organize/scan.cpp:23`, `core/sha256.cpp:30`,
+  `tagger/onnx_tagger.cpp:87`) plus seven files under `tests/`.
+- Effect: new code that follows the rule sits next to neighbours that do not, so a
+  reviewer has to decide per file; the `segment_plan.{h,cpp}` helpers introduced by
+  `extract-segment-plan` were brought into line in `203aa8a`.
+- **Next step:** one mechanical sweep converting scalar `auto f(...) -> T` to prefix
+  style, in its own commit (no behavior change) — or relax `AGENTS.md:25` if trailing is
+  the intended house style after all.
