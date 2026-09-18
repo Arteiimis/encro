@@ -1,5 +1,7 @@
 #pragma once
 
+#include "cmd/config_store.h"
+
 #include <CLI/CLI.hpp>
 
 #include <cstddef>
@@ -79,6 +81,14 @@ struct CmdParseResult {
   bool completionInstall = false;
   bool completionUninstall = false;
 
+  // ── Config-key table (design D4/D5) ────────────────────────────
+  // keyEntries holds the registration-time drafts (registration order),
+  // consumed once by the assemble step in buildAppTree; every registrar
+  // already receives this object, so no extra plumbing. keyTable is the
+  // assembled table every config reader goes through.
+  std::vector<configstore::KeyDef> keyEntries;
+  configstore::KeyTable keyTable;
+
   // ── Help output (rendered by formatter_fn) ──────────────────────
   // Help is rendered lazily: the formatter queries the terminal color mode
   // at render time, so the string is built when it is read (after the mode
@@ -94,8 +104,8 @@ struct CmdParseResult {
 };
 
 // Registered CLI tree shared by the parse path and the completion emitter.
-// The app is intentionally leaked: the config-key registry keeps option
-// pointers for the process lifetime (see buildAppTree).
+// The app is intentionally leaked: the completion registry keeps positional
+// option pointers for the process lifetime (see buildAppTree).
 struct AppTree {
   CLI::App* app = nullptr;
   CLI::App* previewSub = nullptr;

@@ -1,5 +1,6 @@
 #include "cmd/cmd.h"
 
+#include "cmd/completion_registry.h"
 #include "cmd/config_store.h"
 #include "cmd/option_specs.h"
 
@@ -565,7 +566,7 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
     opt("--dry-run", &result.dryRun, "classify and print the plan; copy nothing"),
     opt("--recluster", &result.organizeRecluster, "discard cached analysis and redo it"),
   };
-  registerAll(sub, options);
+  registerAll(sub, options, result.keyEntries);
   sub->formatter_fn(makeSubcommandHelpFormatter(sub, kOrganizeUsageLines));
   return sub;
 }
@@ -634,7 +635,7 @@ auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::Ap
       cfg::DefaultValue{"hevc_nvenc"}
     ),
   };
-  registerAll(sub, options);
+  registerAll(sub, options, result.keyEntries);
   sub->formatter_fn(makeSubcommandHelpFormatter(sub, kPreviewUsageLines));
   return sub;
 }
@@ -656,7 +657,7 @@ auto registerConfigSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App
     opt("key", &result.configKey, "config key (get/set/unset)"),
     opt("value", &result.configValue, "value to persist (set)"),
   };
-  registerAll(sub, options);
+  registerAll(sub, options, result.keyEntries);
   sub->formatter_fn(makeSubcommandHelpFormatter(sub, kConfigUsageLines));
   return sub;
 }
@@ -711,7 +712,7 @@ auto registerCompletionSubcommand(CLI::App& app, CmdParseResult& result) -> CLI:
       cfg::Excludes{"--install"}
     ),
   };
-  registerAll(sub, options);
+  registerAll(sub, options, result.keyEntries);
   sub->formatter_fn(makeSubcommandHelpFormatter(sub, kCompletionUsageLines));
   return sub;
 }
@@ -770,7 +771,7 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
       cfg::ConfigKey{"yes"}
     ),
   };
-  registerAll(general, options);
+  registerAll(general, options, result.keyEntries);
 
   // --color must commit before any help flag short-circuits the parse:
   // subcommand -h flags run at First priority and throw CallForHelp before
@@ -842,7 +843,7 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
       cfg::ConfigKey{"recursive"}
     ),
   };
-  registerAll(io, options);
+  registerAll(io, options, result.keyEntries);
   auto const positional = std::tuple{
     opt(
       "input-paths",
@@ -853,7 +854,7 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
       cfg::Excludes{"--inputs"}
     ),
   };
-  registerAll(io, positional);
+  registerAll(io, positional, result.keyEntries);
 }
 
 void registerProcessingFlags(
@@ -944,7 +945,7 @@ void registerProcessingFlags(
       cfg::ConfigKey{"video-codec"}
     ),
   };
-  registerAll(processing, options);
+  registerAll(processing, options, result.keyEntries);
 }
 
 void registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) {
@@ -963,14 +964,16 @@ void registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) {
     ),
     opt("-w,--overwrite", &result.overwrite, "overwrite existing files without prompt"),
   };
-  registerAll(fileop, options);
+  registerAll(fileop, options, result.keyEntries);
 }
 
 // Loads the user config and applies each stored value as a forced option
-// default (design D1). Returns a load-error message, or nullopt.
-auto injectConfigDefaults(CLI::App& app) -> std::optional<std::string> {
+// default (design D1). The table supplies the known-key set. Returns a
+// load-error message, or nullopt.
+auto injectConfigDefaults(CLI::App& app, configstore::KeyTable const& table)
+  -> std::optional<std::string> {
   auto const configPath = configstore::resolveConfigPath();
-  auto const loaded = configstore::load(configPath);
+  auto const loaded = configstore::load(configPath, table);
   if (loaded.error) { return loaded.error; }
 
   configstore::warnUnknownKeys(loaded, configPath);
@@ -1070,9 +1073,9 @@ auto buildAndParse(
 
 auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool injectConfig)
   -> AppTree {
-  // Leaked on purpose (never freed): the config-command registry keeps
-  // pointers to the registered options (design D3), so the app must outlive
-  // this call. One small allocation per parse keeps them process-lifetime.
+  // Leaked on purpose (never freed): the completion registry keeps pointers to
+  // positional options (design D2), so the app must outlive this call. One
+  // small allocation per parse keeps them process-lifetime.
   auto* app = new CLI::App{"Allowed options"};
   app->description(introLine);
   app->set_help_flag("");
@@ -1118,11 +1121,30 @@ auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool inj
     std::span{*commandSubs}
   ));
 
+  // ── Config-key table (design D1/D3): assembled once after the last
+  // registration, so a token that drifts from the canonical order fails the
+  // run here instead of silently changing `config list`.
+  auto const table =
+    configstore::assembleKeyTable(configstore::canonicalKeyOrder(), result.keyEntries);
+  if (table.has_value()) {
+    result.keyTable = *table;
+    // Completion reads the same table (design D6): its key -> long-name map is
+    // a projection of the assembled key set.
+    for (auto const& def: result.keyTable.keys) {
+      completion::recordConfigKey(def.key, def.longName);
+    }
+  } else {
+    result.error = table.error();
+  }
+
   // ── Config injection (design D1): config values become forced option
   // defaults, so CLI values win, validators run on applied defaults, and the
-  // help (=default) display shows effective defaults.
-  if (injectConfig) {
-    if (auto const error = injectConfigDefaults(*app); error.has_value()) {
+  // help (=default) display shows effective defaults. A failed table already
+  // failed the run, so it skips injection.
+  if (injectConfig && !result.error.has_value()) {
+    if (
+      auto const error = injectConfigDefaults(*app, result.keyTable); error.has_value()
+    ) {
       result.error = *error;
     }
   }

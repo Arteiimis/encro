@@ -1,5 +1,6 @@
 // Executes `encro config` subcommand actions (design D4). Requires
-// commandLineInit to have run first so the config-key registry is populated.
+// commandLineInit to have run first so the parse result carries the assembled
+// config-key table.
 #pragma once
 
 #include "cmd/cmd.h"
