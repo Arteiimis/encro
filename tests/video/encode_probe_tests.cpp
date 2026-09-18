@@ -1,8 +1,10 @@
 #include "core/display_text.h"
 #include "core/work_dirs.h"
+#include "preview/preview_process.h"
 #include "video/encode_probe.h"
 #include "video/encode_config.h"
 #include "video/video_batch_execution.h"
+#include "video/video_info.h"
 #include "video/video_quality.h"
 
 #include "test_utils.h"
@@ -1071,4 +1073,170 @@ TEST_CASE(
   // Each row renders in its own metric's units.
   CHECK(text.find("41.05 dB") != std::string::npos);
   CHECK(text.find("0.982") != std::string::npos);
+}
+
+TEST_CASE(
+  "measureWindow returns scored frames, metric and bytes and reports its steps",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.mp4";
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillProbeContext(ctx, temp.path, inputPath, "100.0", "90.0,100.0", envs);
+  envs
+    .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "2048"));
+
+  auto phases = std::vector<std::string>{};
+  auto const result = encodeprobe::measureWindow(
+    ctx,
+    encodeprobe::WindowMeasureRequest{
+      .inputPath = inputPath,
+      .segFile = temp.path / "win0.ts",
+      .window = encodeprobe::ProbeWindow{25'000'000, 10'000'000},
+      .cq = 28,
+      .workerCount = 1,
+      .settings = resolveInputEncodeSettings(
+        ctx.toolchain,
+        ctx.runtime,
+        inputPath,
+        ctx.config.nvencPreset
+      ),
+      .onStep = [&](std::string_view phase) { phases.emplace_back(phase); },
+    }
+  );
+  REQUIRE(result.has_value());
+  REQUIRE(result->has_value());
+  CHECK(result->value().metric == videoquality::QualityMetric::Vmaf);
+  CHECK(result->value().frameScores == std::vector<double>{90.0, 100.0});
+  CHECK(result->value().bytes == 2048);
+  // Two phases per window: the seam reports the encode, then the scoring.
+  CHECK(phases == std::vector<std::string>{"encode", "score"});
+}
+
+TEST_CASE(
+  "measureWindow maps encode failure to the outer error, scoring to nullopt",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.mp4";
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
+  auto const settings = resolveInputEncodeSettings(
+    ctx.toolchain,
+    ctx.runtime,
+    inputPath,
+    ctx.config.nvencPreset
+  );
+  auto const measure = [&](fs::path const& segFile) {
+    return encodeprobe::measureWindow(
+      ctx,
+      encodeprobe::WindowMeasureRequest{
+        .inputPath = inputPath,
+        .segFile = segFile,
+        .window = encodeprobe::ProbeWindow{25'000'000, 10'000'000},
+        .cq = 28,
+        .workerCount = 1,
+        .settings = settings,
+      }
+    );
+  };
+
+  SECTION("a scoring failure is the inner nullopt") {
+    auto const failScoring =
+      ScopedEnvVar{"ENCRO_FAKE_FFMPEG_SCORING_FAIL_MATCH", "log_path="};
+    auto const result = measure(temp.path / "scored.ts");
+    REQUIRE(result.has_value());
+    CHECK_FALSE(result->has_value());
+  }
+
+  SECTION("an encode failure is the outer error") {
+    auto const failEncode = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_EXIT_CODE", "3"};
+    auto const result = measure(temp.path / "encoded.ts");
+    REQUIRE_FALSE(result.has_value());
+  }
+}
+
+TEST_CASE(
+  "measureWindow hands back each window's own metric without agreement policy",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "sample.mp4";
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillProbeContext(ctx, temp.path, inputPath, "100.0", "96.0", envs);
+  envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_WRITE_XPSNR", "1"));
+  envs
+    .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_XPSNR_SCORES", "40.5"));
+  // The first window's VMAF attempt (its segment name, no stats_file=) fails,
+  // so its XPSNR retry scores it; the second window keeps VMAF.
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SCORING_FAIL_MATCH", "_0.ts")
+  );
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_SCORING_FAIL_UNLESS", "stats_file=")
+  );
+  auto const settings = resolveInputEncodeSettings(
+    ctx.toolchain,
+    ctx.runtime,
+    inputPath,
+    ctx.config.nvencPreset
+  );
+  auto const measure = [&](fs::path const& segFile) {
+    return encodeprobe::measureWindow(
+      ctx,
+      encodeprobe::WindowMeasureRequest{
+        .inputPath = inputPath,
+        .segFile = segFile,
+        .window = encodeprobe::ProbeWindow{25'000'000, 10'000'000},
+        .cq = 28,
+        .workerCount = 1,
+        .settings = settings,
+      }
+    );
+  };
+
+  auto const first = measure(temp.path / "cq28_0.ts");
+  auto const second = measure(temp.path / "cq28_1.ts");
+  REQUIRE(first.has_value());
+  REQUIRE(first->has_value());
+  REQUIRE(second.has_value());
+  REQUIRE(second->has_value());
+  CHECK(first->value().metric == videoquality::QualityMetric::Xpsnr);
+  CHECK(second->value().metric == videoquality::QualityMetric::Vmaf);
+}
+
+TEST_CASE(
+  "preview reuses the cached video info instead of reprobing a warm path",
+  "[encode-probe]"
+) {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  fillProbeContext(ctx, temp.path, original, "100.0", "96.0", envs);
+  auto const logPath = temp.path / "invocations.log";
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+  );
+
+  // Warm the process cache through the module-owned reader: one ffprobe.
+  (void)videoinfo::cachedVidInfo(ctx.toolchain, ctx.runtime, original);
+
+  auto const result = [&]() -> eh::Result<int> {
+    auto capture = testutils::StdoutCapture{temp.path / "stdout.txt"};
+    return preview::run(
+      ctx,
+      preview::PreviewOptions{.original = original, .noOpen = true}
+    );
+  }();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // probeVideo is file-local, so the reuse is observed through the fake
+  // tool's invocation log: the already-probed path costs no second ffprobe.
+  auto const log = testutils::readTextFile(logPath);
+  CHECK(testutils::countOccurrences(log, "ffprobe\t") == 1);
 }
