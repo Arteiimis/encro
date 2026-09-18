@@ -441,11 +441,11 @@ auto collectEncodingResults(
 ) -> videobatch::EncodeResultsMap {
   auto results = videobatch::EncodeResultsMap{};
   for (auto taskIndex = std::size_t{0}; taskIndex < vids.size(); ++taskIndex) {
-    if (runState.attempted[taskIndex] == 0) { continue; }
-    results.emplace(vids[taskIndex], runState.results[taskIndex].has_value());
-    if (!runState.results[taskIndex].has_value()) {
-      auto const& error = runState.results[taskIndex].error();
-      if (!error.empty()) { failureReasons.emplace(vids[taskIndex], error); }
+    auto const& outcome = runState.outcomes[taskIndex];
+    if (outcome.state == taskexec::TaskState::Skipped) { continue; }
+    results.emplace(vids[taskIndex], outcome.state == taskexec::TaskState::Succeeded);
+    if (outcome.state == taskexec::TaskState::Failed && !outcome.error.empty()) {
+      failureReasons.emplace(vids[taskIndex], outcome.error);
     }
   }
   return results;

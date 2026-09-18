@@ -302,17 +302,16 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
     .hideCursor = true,
   });
 
-  if (runRes.canceled && runRes.attemptedCount < plan.groups.size()) {
+  if (runRes.canceled && runRes.skippedCount() > 0) {
     return eh::makeError("Packing canceled by user.");
   }
 
   for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
-    if (runRes.attempted[index] == 0) { continue; }
+    auto const& outcome = runRes.outcomes[index];
+    if (outcome.state == taskexec::TaskState::Skipped) { continue; }
     if (!packResults[index]) { return eh::makeError("{}", packResults[index].error()); }
-    // A task that threw was caught by the executor with its packResults entry
-    // left default-constructed (success) — never report such a run as success.
-    if (!runRes.results[index]) {
-      return eh::makeError("{}", runRes.results[index].error());
+    if (outcome.state == taskexec::TaskState::Failed) {
+      return eh::makeError("{}", outcome.error);
     }
   }
 

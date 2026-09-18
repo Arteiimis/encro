@@ -32,11 +32,25 @@ struct TaskPlan {
   bool hideCursor = false;
 };
 
+// Default = not attempted, so a slot the stop signal skipped can never be
+// mistaken for a success.
+enum class TaskState {
+  Skipped,
+  Succeeded,
+  Failed
+};
+
+struct TaskOutcome {
+  TaskState state = TaskState::Skipped;
+  std::string error;
+};
+
 struct TaskRunResult {
-  std::vector<eh::Result<void>> results;
-  std::vector<char> attempted;
+  std::vector<TaskOutcome> outcomes;
   std::size_t attemptedCount = 0;
   bool canceled = false;
+
+  auto skippedCount() const -> std::size_t { return outcomes.size() - attemptedCount; }
 };
 
 std::size_t resolveWorkerCount(std::size_t taskCount, std::size_t maxConcurrency);
