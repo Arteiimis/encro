@@ -33,12 +33,12 @@ auto reusableSegments(fs::path const& segmentDir, std::uint64_t storedSegments)
 // implies and its list reaches the end of the timeline. Listed times carry the
 // encoder's reorder delay, so a complete list ends at or just past the duration
 // while a run that died with a segment in flight stops a whole segment short.
-auto encodeComplete(
+bool encodeComplete(
   std::uint64_t completed,
   std::uint64_t segmentTotal,
   std::span<SegmentListEntry const> listedSegments,
   std::uint64_t totalDurationUs
-) -> bool {
+) {
   if (completed >= segmentTotal) { return true; }
   return !listedSegments.empty()
     && completed >= listedSegments.size()
@@ -47,12 +47,11 @@ auto encodeComplete(
 
 }  // namespace
 
-auto segmentMarkUs(std::uint64_t segmentCount) -> std::uint64_t {
+std::uint64_t segmentMarkUs(std::uint64_t segmentCount) {
   return segmentCount * kSegmentDurationUs;
 }
 
-auto closedSegments(fs::path const& listPath, std::uint64_t startNumber)
-  -> std::uint64_t {
+std::uint64_t closedSegments(fs::path const& listPath, std::uint64_t startNumber) {
   return startNumber + static_cast<std::uint64_t>(parseSegmentList(listPath).size());
 }
 

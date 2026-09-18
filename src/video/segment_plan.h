@@ -18,17 +18,17 @@ struct SegmentPlan {
   std::uint64_t segmentTotal = 0;          // marks the timeline implies
   bool complete = false;                   // list covers the timeline: assemble only
   std::uint64_t baseFrameOffset = 0;       // frames the bar already counts
-  auto startNumber() const -> std::uint64_t {
+  std::uint64_t startNumber() const {
     return static_cast<std::uint64_t>(reusableNames.size());
   }
 };
 
 // The one segment-mark arithmetic, shared by the entry and exit directions.
-auto segmentMarkUs(std::uint64_t segmentCount) -> std::uint64_t;
+std::uint64_t segmentMarkUs(std::uint64_t segmentCount);
 
 // Exit direction: how many segments the encoder has closed so far, counting the
 // prefix an earlier attempt recorded. Reads no state of its own.
-auto closedSegments(fs::path const& listPath, std::uint64_t startNumber) -> std::uint64_t;
+std::uint64_t closedSegments(fs::path const& listPath, std::uint64_t startNumber);
 
 // Entry direction: duration plus recorded progress, the segment directory, and
 // the probed frame count. Reads and computes; it does not write, spawn or lock.
