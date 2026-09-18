@@ -68,75 +68,60 @@ auto measurePoint(
   auto const vidKey = fs::hash_value(inputPath);
   auto const segA = probeDir / std::format("cq{}_{}_{}.ts", vidKey, cq, 0);
   auto const segB = probeDir / std::format("cq{}_{}_{}.ts", vidKey, cq, 1);
-  if (onStep) { onStep(cq, "encode 1/2"); }
-  if (!runProbeEncode(ctx, inputPath, settings, segA, cq, windows.first, workerCount)) {
-    return std::nullopt;
-  }
-  if (onStep) { onStep(cq, "encode 2/2"); }
-  if (!runProbeEncode(ctx, inputPath, settings, segB, cq, windows.second, workerCount)) {
-    return std::nullopt;
-  }
+  // The seam reports one phase per step ("encode", then "score"); the bars
+  // count four steps per point, so each window's phase carries its index.
+  auto const measureOne =
+    [&](fs::path const& segFile, ProbeWindow const& window, int index) {
+      return measureWindow(
+        ctx,
+        WindowMeasureRequest{
+          .inputPath = inputPath,
+          .segFile = segFile,
+          .window = window,
+          .cq = cq,
+          .workerCount = workerCount,
+          .settings = settings,
+          .onStep = [&, index](std::string_view phase) {
+            if (onStep) { onStep(cq, std::format("{} {}/2", phase, index)); }
+          },
+        }
+      );
+    };
 
-  auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
-  auto const info =
-    ctx.runtime.videoInfoCache.find(inputPath).value_or(boost::json::value{});
-  if (onStep) { onStep(cq, "score 1/2"); }
-  auto const scoresA = videoquality::measureSegmentQuality(
-    videoquality::QualityRequest{
-      .ffmpegPath = ffmpeg,
-      .originalPath = inputPath,
-      .encodedPath = segA,
-      .startUs = windows.first.startUs,
-      .durationUs = windows.first.durationUs,
-      .originalVideoInfo = info,
-      .encodedHasLocalPts = true,  // probe segments carry segment-local PTS
-    }
-  );
-  if (onStep) { onStep(cq, "score 2/2"); }
-  auto const scoresB = videoquality::measureSegmentQuality(
-    videoquality::QualityRequest{
-      .ffmpegPath = ffmpeg,
-      .originalPath = inputPath,
-      .encodedPath = segB,
-      .startUs = windows.second.startUs,
-      .durationUs = windows.second.durationUs,
-      .originalVideoInfo = info,
-      .encodedHasLocalPts = true,  // probe segments carry segment-local PTS
-    }
-  );
-  if (!scoresA.has_value() || !scoresB.has_value()) {
-    LOG_WARN(
-      "Probe scoring failed for {} at cq={}: {}",
-      inputPath.string(),
-      cq,
-      scoresA.has_value() ? scoresB.error() : scoresA.error()
-    );
-    return std::nullopt;
-  }
+  auto const first = measureOne(segA, windows.first, 1);
+  if (!first.has_value() || !first->has_value()) { return std::nullopt; }
+  auto const second = measureOne(segB, windows.second, 2);
+  if (!second.has_value() || !second->has_value()) { return std::nullopt; }
 
   // The two windows pool into one percentile: mixing scales (e.g. one window
   // degraded XPSNR→VMAF asymmetrically) is meaningless, so discard the point.
-  if (scoresA->metric != scoresB->metric) {
+  if (first->value().metric != second->value().metric) {
     LOG_WARN(
       "Probe windows scored with different metrics for {} at cq={} ({}/{}); discarding "
       "point",
       inputPath.string(),
       cq,
-      videoquality::metricName(scoresA->metric),
-      videoquality::metricName(scoresB->metric)
+      videoquality::metricName(first->value().metric),
+      videoquality::metricName(second->value().metric)
     );
     return std::nullopt;
   }
 
-  auto allFrames = scoresA->frameScores;
-  allFrames
-    .insert(allFrames.end(), scoresB->frameScores.begin(), scoresB->frameScores.end());
+  auto allFrames = first->value().frameScores;
+  allFrames.insert(
+    allFrames.end(),
+    second->value().frameScores.begin(),
+    second->value().frameScores.end()
+  );
   auto const p5 = videoquality::percentile(allFrames, 5.0);
   if (!p5.has_value()) { return std::nullopt; }
 
-  auto ec = std::error_code{};
-  auto const bytes = fs::file_size(segA, ec) + fs::file_size(segB, ec);
-  return ProbePoint{cq, p5.value(), scoresA->metric, bytes};
+  return ProbePoint{
+    cq,
+    p5.value(),
+    first->value().metric,
+    first->value().bytes + second->value().bytes,
+  };
 }
 
 double audioBitrateBps(boost::json::value const& vidInfo) {
@@ -201,8 +186,7 @@ auto probeSingleFile(
   );
   // Used for the bitrate estimate below; measurePoint re-resolves it from the
   // same cache when scoring.
-  auto const info =
-    ctx.runtime.videoInfoCache.find(inputPath).value_or(boost::json::value{});
+  auto const info = videoinfo::cachedVidInfo(ctx.toolchain, ctx.runtime, inputPath);
 
   auto const points = probeCqSequence(
     [&](int cq) -> std::optional<ProbePoint> {
@@ -295,6 +279,57 @@ bool runProbeEncode(
     return false;
   }
   return true;
+}
+
+auto measureWindow(appctx::AppContext& ctx, WindowMeasureRequest const& request)
+  -> eh::Result<std::optional<WindowMeasurement>> {
+  if (request.onStep) { request.onStep("encode"); }
+  if (!runProbeEncode(
+        ctx,
+        request.inputPath,
+        request.settings,
+        request.segFile,
+        request.cq,
+        request.window,
+        request.workerCount
+      )) {
+    return eh::makeError(
+      "Window encode failed at {}us of {} (cq={})",
+      request.window.startUs,
+      request.inputPath.string(),
+      request.cq
+    );
+  }
+
+  if (request.onStep) { request.onStep("score"); }
+  auto const scores = videoquality::measureSegmentQuality(
+    videoquality::QualityRequest{
+      .ffmpegPath = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"}),
+      .originalPath = request.inputPath,
+      .encodedPath = request.segFile,
+      .startUs = request.window.startUs,
+      .durationUs = request.window.durationUs,
+      .originalVideoInfo =
+        videoinfo::cachedVidInfo(ctx.toolchain, ctx.runtime, request.inputPath),
+      .encodedHasLocalPts = true,  // probe segments carry segment-local PTS
+    }
+  );
+  if (!scores.has_value()) {
+    LOG_WARN(
+      "Window scoring failed for {} at cq={}: {}",
+      request.inputPath.string(),
+      request.cq,
+      scores.error()
+    );
+    return std::optional<WindowMeasurement>{};
+  }
+
+  auto ec = std::error_code{};
+  return WindowMeasurement{
+    .metric = scores->metric,
+    .frameScores = scores->frameScores,
+    .bytes = static_cast<std::uint64_t>(fs::file_size(request.segFile, ec)),
+  };
 }
 
 auto pickProbeWindows(std::uint64_t totalDurationUs)
@@ -617,10 +652,9 @@ auto cacheKeyForInput(appctx::AppContext& ctx, fs::path const& inputPath)
   );
   if (!settings.nvencPreset.has_value()) { return std::nullopt; }
 
-  auto const vidInfo = ctx.runtime.videoInfoCache.find(inputPath);
-  auto const metric = videoquality::isHdrVideo(vidInfo.value_or(boost::json::value{}))
-    ? std::string_view{"SSIM"}
-    : std::string_view{"XPSNR"};
+  auto const vidInfo = videoinfo::cachedVidInfo(ctx.toolchain, ctx.runtime, inputPath);
+  auto const metric = videoquality::isHdrVideo(vidInfo) ? std::string_view{"SSIM"}
+                                                        : std::string_view{"XPSNR"};
 
   return probecache::probeCacheKey(
     inputPath,

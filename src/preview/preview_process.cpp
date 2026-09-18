@@ -171,8 +171,7 @@ auto probeVideo(
   appctx::RuntimeContext& runtime,
   fs::path const& path
 ) -> eh::Result<VideoProbe> {
-  auto const info = getVidInfo(toolchain, path);
-  runtime.videoInfoCache.set(path, info);
+  auto const info = videoinfo::cachedVidInfo(toolchain, runtime, path);
   if (!info.is_object()) {
     return eh::makeError("Failed to probe video: {}", path.string());
   }
@@ -377,16 +376,18 @@ auto encodeAndScoreWindow(
   std::size_t workers,
   std::atomic_bool& windowEncodeFailed
 ) -> eh::Result<WindowOutcome> {
-  auto const ok = encodeprobe::runProbeEncode(
+  auto const measured = encodeprobe::measureWindow(
     ctx,
-    original,
-    settings,
-    segFile,
-    windowCq,
-    encodeprobe::ProbeWindow{window.startUs, window.durationUs},
-    workers
+    encodeprobe::WindowMeasureRequest{
+      .inputPath = original,
+      .segFile = segFile,
+      .window = encodeprobe::ProbeWindow{window.startUs, window.durationUs},
+      .cq = windowCq,
+      .workerCount = workers,
+      .settings = settings,
+    }
   );
-  if (!ok) {
+  if (!measured.has_value()) {
     windowEncodeFailed.store(true);
     return eh::makeError(
       "Preview window encode failed at {}us of {}",
@@ -394,31 +395,11 @@ auto encodeAndScoreWindow(
       original.string()
     );
   }
-  auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
-  auto const info =
-    ctx.runtime.videoInfoCache.find(original).value_or(boost::json::value{});
-  auto const scores = videoquality::measureSegmentQuality(
-    videoquality::QualityRequest{
-      .ffmpegPath = ffmpeg,
-      .originalPath = original,
-      .encodedPath = segFile,
-      .startUs = window.startUs,
-      .durationUs = window.durationUs,
-      .originalVideoInfo = info,
-      .encodedHasLocalPts = true,  // segments carry segment-local PTS
-    }
-  );
-  if (!scores.has_value()) {
-    LOG_WARN(
-      "Preview scoring failed for window {}us: {}",
-      window.startUs,
-      scores.error()
-    );
-    return WindowOutcome{};
-  }
+  if (!measured->has_value()) { return WindowOutcome{}; }
+
   auto outcome = WindowOutcome{};
-  outcome.metric = scores->metric;
-  outcome.score = videoquality::percentile(scores->frameScores, 5.0);
+  outcome.metric = measured->value().metric;
+  outcome.score = videoquality::percentile(measured->value().frameScores, 5.0);
   return outcome;
 }
 
@@ -719,7 +700,7 @@ auto scoreComparisonWindows(
 ) -> std::optional<std::size_t> {
   auto const ffmpeg = ctx.toolchain.ffmpegPath.value_or(fs::path{"ffmpeg"});
   auto const info =
-    ctx.runtime.videoInfoCache.find(options.original).value_or(boost::json::value{});
+    videoinfo::cachedVidInfo(ctx.toolchain, ctx.runtime, options.original);
   auto worstIndex = std::optional<std::size_t>{};
   auto worstScore = std::optional<double>{};
   for (auto index = std::size_t{}; index < windows.size(); ++index) {

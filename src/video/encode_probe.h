@@ -103,6 +103,32 @@ bool runProbeEncode(
   std::size_t workerCount
 );
 
+// One encoded window's raw measurement: the caller owns the reduction
+// (probe pools windows into one percentile; preview reduces a single window).
+struct WindowMeasurement {
+  videoquality::QualityMetric metric;
+  std::vector<double> frameScores;  // as scored
+  std::uint64_t bytes = 0;          // size of the encoded segment this call produced
+};
+
+struct WindowMeasureRequest {
+  fs::path inputPath;
+  fs::path segFile;
+  ProbeWindow window;
+  int cq = 0;
+  std::size_t workerCount = 0;
+  EncodeInputSettings settings;
+  // Fired before each step the seam performs: "encode", then "score".
+  // Optional; the caller owns the per-window label (D8).
+  std::function<void(std::string_view phase)> onStep = {};
+};
+
+// Encodes one window and scores it against the original. The outer error is
+// the window encode failing; the inner nullopt is the scoring failing.
+// Shared by probe's measurePoint and preview's encodeAndScoreWindow.
+auto measureWindow(appctx::AppContext& ctx, WindowMeasureRequest const& request)
+  -> eh::Result<std::optional<WindowMeasurement>>;
+
 struct ProbePlan {
   fs::path inputPath;
   int chosenCq = kDefaultCq;
