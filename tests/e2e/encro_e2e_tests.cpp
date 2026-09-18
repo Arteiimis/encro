@@ -2280,6 +2280,36 @@ TEST_CASE(
   }
 }
 
+TEST_CASE("a subcommand run ends with a summary record", "[e2e][logging][config]") {
+  TempDir temp;
+  auto const configPath = temp.path / "user-config.json";
+  auto const logRoot = temp.path / "logroot";
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_CONFIG", configPath.string()},
+    logRootEnv(logRoot),
+  };
+
+  auto const result =
+    e2e::runEncro({"--log-json", "config", "set", "crf", "23"}, std::nullopt, env);
+  REQUIRE_SUCCESS(result);
+
+  // The summary record is written during shutdown, which can trail the
+  // process exit by a scheduling quantum under parallel load: poll for it.
+  auto summaryStatus = std::optional<std::string>{};
+  auto const summarized = testutils::waitUntil(
+    [&] {
+      auto const record = lastNdjsonRecord(logRoot);
+      if (!record.has_value() || !record->contains("summary")) { return false; }
+      summaryStatus =
+        std::string{record->at("summary").as_object().at("status").as_string().c_str()};
+      return true;
+    },
+    std::chrono::seconds{30}
+  );
+  REQUIRE(summarized);
+  CHECK(summaryStatus == "success");
+}
+
 // ── Encode probing (probe → plan → prompt) ────────────────────────────────
 
 auto extractPlanCq(std::string const& stdoutText) -> std::optional<int> {
