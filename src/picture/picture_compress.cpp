@@ -329,8 +329,8 @@ auto compressImageBatch(
     .setPostfixText(barIndex, std::format("Compressed: {}/{}", results.size(), total));
 
   auto const succeeded =
-    std::ranges::count_if(runState.results, [](eh::Result<void> const& result) {
-      return result.has_value();
+    std::ranges::count_if(runState.outcomes, [](taskexec::TaskOutcome const& outcome) {
+      return outcome.state == taskexec::TaskState::Succeeded;
     });
   LOG_INFO("Image compression batch completed: {}/{} succeeded", succeeded, total);
 
