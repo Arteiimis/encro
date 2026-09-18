@@ -44,12 +44,12 @@
 
 ## 7. Verification and review
 
-- [ ] 7.1 Run the full unit suite and confirm no failures: `xmake test-report`.
-- [ ] 7.2 Run the reporter-mode probe and confirm zero failures: `build/windows/x64/release/tests.exe -r console -s`.
-- [ ] 7.3 Run the parallel shard suite and confirm every shard's coverage check passes: `xmake test-parallel`.
-- [ ] 7.4 Confirm the change set validates before archive: `openspec validate simplify-cli-color-palette --strict`.
-- [ ] 7.5 Check the light-background contract on a real terminal: switch the terminal to a light theme, run `-h`, a `-z` pack run, an encode run with `-F` progress, and an organize run, and confirm no text is invisible or below roughly 3:1 against the background.
-- [ ] 7.6 Confirm redirection invariance: a run's stdout with `--color always` and with `--color never` is line-identical after stripping escape sequences.
-- [ ] 7.7 Run formatting and static analysis clean: `xmake fmt -k` and `xmake tidy`.
-- [ ] 7.8 Run the `code-review` skill against this change, passing `openspec/changes/simplify-cli-color-palette/` as the spec path, with a third leanness sub-agent briefed with the `ponytail-review` tag rules verbatim; triage the findings, apply the accepted ones, and run the fix-verify loop (max two rounds).
-- [ ] 7.9 Archive the change with the specs sync step, so the new `terminal-color-palette` capability lands in the main specs and `console-output-conventions` and `plan-output-formatting` pick up their modified requirements.
+- [x] 7.1 Run the full unit suite and confirm no failures: `xmake test-report`.
+- [x] 7.2 Run the reporter-mode probe and confirm zero failures: `build/windows/x64/release/tests.exe -r console -s`.
+- [x] 7.3 Run the parallel shard suite and confirm every shard's coverage check passes: `xmake test-parallel`.
+- [x] 7.4 Confirm the change set validates before archive: `openspec validate simplify-cli-color-palette --strict`.
+- [ ] 7.5 (Skipped by user decision: light-mode verification is out of scope for this change.) Check the light-background contract on a real terminal: switch the terminal to a light theme, run `-h`, a `-z` pack run, an encode run with `-F` progress, and an organize run, and confirm no text is invisible or below roughly 3:1 against the background.
+- [x] 7.6 Confirm redirection invariance: a run's stdout with `--color always` and with `--color never` is line-identical after stripping escape sequences.
+- [x] 7.7 Run formatting and static analysis clean: `xmake fmt -k` and `xmake tidy`.
+- [x] 7.8 Run the `code-review` skill against this change, passing `openspec/changes/simplify-cli-color-palette/` as the spec path, with a third leanness sub-agent briefed with the `ponytail-review` tag rules verbatim; triage the findings, apply the accepted ones, and run the fix-verify loop (max two rounds).
+- [x] 7.9 Archive the change with the specs sync step, so the new `terminal-color-palette` capability lands in the main specs and `console-output-conventions` and `plan-output-formatting` pick up their modified requirements.
