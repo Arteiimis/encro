@@ -78,14 +78,12 @@ TEST_CASE(
   });
 
   REQUIRE(result.attemptedCount == 6);
-  REQUIRE(result.results.size() == 6);
+  REQUIRE(result.outcomes.size() == 6);
   CHECK_FALSE(result.canceled);
+  CHECK(result.skippedCount() == 0);
   CHECK(peak.load(std::memory_order_acquire) <= 2);
-  CHECK(std::ranges::all_of(result.attempted, [](char attempted) {
-    return attempted == 1;
-  }));
-  CHECK(std::ranges::all_of(result.results, [](auto const& item) {
-    return item.has_value();
+  CHECK(std::ranges::all_of(result.outcomes, [](taskexec::TaskOutcome const& outcome) {
+    return outcome.state == taskexec::TaskState::Succeeded;
   }));
   CHECK(std::ranges::all_of(seenSlots, [](std::size_t slot) { return slot < 2; }));
 }
@@ -121,11 +119,11 @@ TEST_CASE("runTasks preserves task failures", "[task-executor]") {
   });
 
   REQUIRE(result.attemptedCount == 3);
-  REQUIRE(result.results.size() == 3);
-  CHECK(result.results[0]);
-  REQUIRE_FALSE(result.results[1]);
-  CHECK(result.results[1].error() == "expected failure");
-  CHECK(result.results[2]);
+  REQUIRE(result.outcomes.size() == 3);
+  CHECK(result.outcomes[0].state == taskexec::TaskState::Succeeded);
+  REQUIRE(result.outcomes[1].state == taskexec::TaskState::Failed);
+  CHECK(result.outcomes[1].error == "expected failure");
+  CHECK(result.outcomes[2].state == taskexec::TaskState::Succeeded);
 }
 
 TEST_CASE(
@@ -158,12 +156,12 @@ TEST_CASE(
     .hideCursor = false,
   });
 
-  REQUIRE(result.results.size() == 2);
-  REQUIRE_FALSE(result.results[0]);
+  REQUIRE(result.outcomes.size() == 2);
+  REQUIRE(result.outcomes[0].state == taskexec::TaskState::Failed);
   // The exception message must be part of the recorded failure, not a
   // generic placeholder.
-  CHECK(result.results[0].error().find("boom detail") != std::string::npos);
-  CHECK(result.results[1]);
+  CHECK(result.outcomes[0].error.find("boom detail") != std::string::npos);
+  CHECK(result.outcomes[1].state == taskexec::TaskState::Succeeded);
 
   // The exception must also reach the log with the task id.
   logger->flush();
@@ -175,6 +173,49 @@ TEST_CASE(
   // Cleanup: remove the test logger so later logging::setup() calls (in other
   // test cases) can re-register the full named-logger set without conflicts.
   spdlog::drop(logtags::CORE_TASK);
+}
+
+// The stop signal leaves later slots unattempted; a skipped slot must not be
+// readable as a success — the trap the outcome shape exists to remove.
+TEST_CASE("a slot the stop signal skipped is not a success", "[task-executor]") {
+  auto const stopGuard = testutils::ScopedStopSignalReset{};
+
+  auto bodiesStarted = std::atomic_size_t{0};
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(3);
+  for (auto index = std::size_t{0}; index < 3; ++index) {
+    tasks.push_back({
+      .id = std::format("task-{}", index),
+      .label = std::format("Task {}", index),
+      .run = [&](taskexec::TaskContext&) -> eh::Result<void> {
+        bodiesStarted.fetch_add(1, std::memory_order_acq_rel);
+        // maxConcurrency = 1 pins the stop to the gap between the first task
+        // and the second: the single worker re-checks the flag before it
+        // takes another slot, so tasks 1 and 2 are never attempted.
+        stopsignal::requestStop();
+        return {};
+      },
+    });
+  }
+
+  auto const result = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = 1,
+    .progress = nullptr,
+    .hideCursor = false,
+  });
+
+  CAPTURE(bodiesStarted.load(std::memory_order_acquire));
+  REQUIRE(testutils::waitUntil([&] {
+    return bodiesStarted.load(std::memory_order_acquire) == 1;
+  }));
+  REQUIRE(result.outcomes.size() == 3);
+  CHECK(result.outcomes[0].state == taskexec::TaskState::Succeeded);
+  CHECK(result.outcomes[1].state == taskexec::TaskState::Skipped);
+  CHECK(result.outcomes[2].state == taskexec::TaskState::Skipped);
+  CHECK(result.attemptedCount == 1);
+  CHECK(result.skippedCount() == 2);
+  CHECK(result.canceled);
 }
 
 // ── RED 3.2 — tasks with an input stamp task_id/input on records ────────────
@@ -202,8 +243,8 @@ TEST_CASE(
     .maxConcurrency = 1,
   };
   auto const result = taskexec::runTasks(plan);
-  REQUIRE(result.results.size() == 1);
-  REQUIRE(result.results[0]);
+  REQUIRE(result.outcomes.size() == 1);
+  REQUIRE(result.outcomes[0].state == taskexec::TaskState::Succeeded);
 
   logger->flush();
   auto const output = oss->str();
@@ -235,8 +276,8 @@ TEST_CASE(
     .maxConcurrency = 1,
   };
   auto const result = taskexec::runTasks(plan);
-  REQUIRE(result.results.size() == 1);
-  REQUIRE(result.results[0]);
+  REQUIRE(result.outcomes.size() == 1);
+  REQUIRE(result.outcomes[0].state == taskexec::TaskState::Succeeded);
 
   logger->flush();
   auto const output = oss->str();
@@ -278,7 +319,7 @@ TEST_CASE(
     .maxConcurrency = 1,
   };
   auto const result = taskexec::runTasks(plan);
-  REQUIRE(result.results.size() == 2);
+  REQUIRE(result.outcomes.size() == 2);
 
   logger->flush();
   auto const output = oss->str();

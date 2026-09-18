@@ -25,7 +25,7 @@ auto makeTaskError(std::string message) -> eh::Result<void> {
 }
 
 // Runs a single task with correlation attributes and exception conversion;
-// the worker loop owns the results slot and the attempted marker.
+// the worker loop owns the outcome slot.
 auto runOneTask(
   TaskSpec const& task,
   std::size_t slot,
@@ -70,14 +70,12 @@ std::size_t resolveWorkerCount(std::size_t taskCount, std::size_t maxConcurrency
 }
 
 auto runTasks(TaskPlan const& plan) -> TaskRunResult {
-  auto results = std::vector<eh::Result<void>>(plan.tasks.size());
-  auto attempted = std::vector<char>(plan.tasks.size(), 0);
+  auto outcomes = std::vector<TaskOutcome>(plan.tasks.size());
   auto attemptedCount = std::atomic_size_t{0};
 
   if (plan.tasks.empty()) {
     return TaskRunResult{
-      .results = std::move(results),
-      .attempted = std::move(attempted),
+      .outcomes = std::move(outcomes),
       .attemptedCount = 0,
       .canceled = false,
     };
@@ -100,10 +98,14 @@ auto runTasks(TaskPlan const& plan) -> TaskRunResult {
         auto const taskIndex = nextIndex.fetch_add(1, std::memory_order_acq_rel);
         if (taskIndex >= plan.tasks.size()) { break; }
 
-        attempted[taskIndex] = 1;
         attemptedCount.fetch_add(1, std::memory_order_release);
 
-        results[taskIndex] = runOneTask(plan.tasks[taskIndex], slot, progressCtx);
+        auto const result = runOneTask(plan.tasks[taskIndex], slot, progressCtx);
+        // A slot no worker reached stays Skipped: there is no success value
+        // for a stop-skipped task to be misread from.
+        outcomes[taskIndex] = result.has_value()
+          ? TaskOutcome{.state = TaskState::Succeeded}
+          : TaskOutcome{.state = TaskState::Failed, .error = result.error()};
       }
     });
   }
@@ -111,8 +113,7 @@ auto runTasks(TaskPlan const& plan) -> TaskRunResult {
   pool.wait();
 
   return TaskRunResult{
-    .results = std::move(results),
-    .attempted = std::move(attempted),
+    .outcomes = std::move(outcomes),
     .attemptedCount = attemptedCount.load(std::memory_order_acquire),
     .canceled = stopsignal::isStopRequested(),
   };
