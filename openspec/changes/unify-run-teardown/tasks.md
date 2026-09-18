@@ -22,6 +22,6 @@
 
 - [x] 4.1 Run `xmake test-report` (full unit suite) and confirm zero failures
 - [x] 4.2 Run `xmake build e2e_tests && xmake run e2e_tests` and confirm the stop/resume and summary flows behave
-- [ ] 4.3 Run `xmake test-parallel` and confirm every shard reports its assigned case count
+- [x] 4.3 Run `xmake test-parallel` and confirm every shard reports its assigned case count
 - [x] 4.4 Run `xmake fmt` before committing
 - [x] 4.5 Commit the planning artifacts first as their own `docs:` commit (proposal, design, tasks, `.openspec.yaml`), then implementation + tests + ticked `tasks.md` in one commit (`fix:`, since the change corrects a spec violation and its declared status behavior; English, conventional, subject < 72 chars, body wrapped at 80); verify with `git log --oneline -2` that the split is docs-then-change

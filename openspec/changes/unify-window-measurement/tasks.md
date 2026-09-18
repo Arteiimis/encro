@@ -23,5 +23,5 @@
 ## 5. Verification & commits
 
 - [x] 5.1 Run `xmake test-report` (full unit suite) and confirm zero failures
-- [ ] 5.2 Run `xmake test-parallel` and confirm every shard reports its assigned case count
+- [x] 5.2 Run `xmake test-parallel` and confirm every shard reports its assigned case count
 - [x] 5.3 Commit the planning artifacts first as their own `docs:` commit, then implementation + tests + the ticked `tasks.md` in one `refactor:` commit; verify with `git log --oneline -2` that the split is docs-then-refactor
