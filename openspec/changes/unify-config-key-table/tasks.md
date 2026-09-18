@@ -25,6 +25,6 @@
 ## 5. Verification & commits
 
 - [x] 5.1 Run `xmake test-report` (full unit suite) and confirm zero failures
-- [ ] 5.2 Run `xmake test-parallel` and confirm every shard reports its assigned case count
+- [x] 5.2 Run `xmake test-parallel` and confirm every shard reports its assigned case count
 - [x] 5.3 Run `xmake fmt` before committing; verify a second run produces no further changes
 - [x] 5.4 Commit the planning artifacts first as their own `docs:` commit (proposal, design, tasks, `.openspec.yaml`), then implementation + tests + ticked `tasks.md` in one `refactor:` commit (English, conventional, subject < 72 chars, body wrapped at 80)

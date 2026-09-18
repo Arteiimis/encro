@@ -17,6 +17,6 @@
 
 - [x] 3.1 Run `xmake test-report` (full unit suite) and confirm zero failures, including the `[run_id]` attribute cases that read task states
 - [x] 3.2 Run `xmake build e2e_tests && xmake run e2e_tests` and confirm the stop/resume end-to-end flows still behave (cancellation paths exercise `Skipped`)
-- [ ] 3.3 Run `xmake test-parallel` and confirm every shard reports its assigned case count
+- [x] 3.3 Run `xmake test-parallel` and confirm every shard reports its assigned case count
 - [x] 3.4 Run `xmake fmt` before committing; verify a second run produces no further changes
 - [x] 3.5 Commit the planning artifacts first as their own `docs:` commit (proposal, design, tasks, `.openspec.yaml`), then implementation + tests + ticked `tasks.md` in one `refactor:` commit (English, conventional, subject < 72 chars, body wrapped at 80); verify with `git log --oneline -2` that the split is docs-then-refactor
