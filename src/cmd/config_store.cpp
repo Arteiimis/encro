@@ -51,8 +51,7 @@ auto canonicalKeyOrder() -> std::span<std::string_view const> {
 }
 
 auto KeyTable::find(std::string_view key) const -> KeyDef const* {
-  auto const it =
-    std::ranges::find_if(keys, [key](KeyDef const& def) { return def.key == key; });
+  auto const it = std::ranges::find(keys, key, &KeyDef::key);
   return it == keys.end() ? nullptr : &*it;
 }
 
@@ -64,17 +63,11 @@ auto assembleKeyTable(
   table.keys.reserve(order.size());
 
   for (auto const& key: order) {
-    auto const* entry = static_cast<KeyDef const*>(nullptr);
-    auto matches = 0;
-    for (auto const& candidate: entries) {
-      if (candidate.key != key) { continue; }
-      ++matches;
-      entry = &candidate;
-    }
-    if (matches == 0) {
+    auto const entry = std::ranges::find(entries, key, &KeyDef::key);
+    if (entry == entries.end()) {
       return eh::makeError("config key table: no option registers key '{}'", key);
     }
-    if (matches > 1) {
+    if (std::ranges::count(entries, key, &KeyDef::key) > 1) {
       return eh::makeError(
         "config key table: key '{}' is registered more than once",
         key
@@ -83,23 +76,18 @@ auto assembleKeyTable(
     table.keys.push_back(*entry);
   }
 
-  for (auto const& entry: entries) {
-    if (std::ranges::find(order, entry.key) == order.end()) {
-      return eh::makeError(
-        "config key table: key '{}' is missing from the canonical order",
-        entry.key
-      );
-    }
+  auto const missingKey = std::ranges::find_if(entries, [&](KeyDef const& def) {
+    return !std::ranges::contains(order, def.key);
+  });
+  if (missingKey != entries.end()) {
+    return eh::makeError(
+      "config key table: key '{}' is missing from the canonical order",
+      missingKey->key
+    );
   }
   return table;
 }
 
-// Applies the copied validators to `value` in place (transformers may
-// canonicalize it); returns the first validation error, or nullopt when valid.
-// After the option's own validators, boolean/number keys get a type check on
-// the final value: flag options carry no validators, and the CLI would reject
-// a non-integer at conversion time. Requires a key present in the table
-// (design D7): every caller rejects unknown keys first.
 auto KeyTable::validate(std::string_view key, std::string& value) const
   -> std::optional<std::string> {
   auto const* def = find(key);
