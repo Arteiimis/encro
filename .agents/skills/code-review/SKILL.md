@@ -72,7 +72,7 @@ Briefs must be self-contained: a sub-agent starts with a fresh context, no skill
 - The path or fetched contents of the spec.
 - The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
 
-**Leanness sub-agent prompt** — required by `AGENTS.md` unless the change is exempt (typos, docs-only, one-liner or mechanical refactor; if exempt, skip this axis and say so in the report). Include:
+**Leanness sub-agent prompt** — required unless the change is exempt (typos, docs-only, one-liner or mechanical refactor; if exempt, skip this axis and say so in the report). Include:
 
 - The diff command and commit list.
 - The tag rules from the `ponytail-review` skill pasted verbatim — sub-agents inherit neither skills nor ponytail mode, and the tags are the whole output format.
@@ -85,6 +85,10 @@ If the spec is missing, skip the Spec sub-agent and note this in the final repor
 Present the reports under `## Standards`, `## Spec`, and `## Leanness` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings — the axes are deliberately separate (see _Why separate axes_).
 
 End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes — that's the reranking the separation exists to prevent.
+
+### 6. Converge on the findings
+
+The author of a fix never grades it alone. After triaging and fixing the accepted findings — proposal reviews of planning artifacts included — spawn a fresh verification sub-agent with the findings list and the fix diff; it returns a per-finding verdict: resolved / not resolved / regressed (the fix broke something else). Loop until every finding resolves; hard cap 2 fix→verify rounds, then stop and hand the unresolved findings — plus anything rejected during triage, with its justification — to the user.
 
 ## Why separate axes
 
