@@ -39,14 +39,21 @@ auto initStartup(int argc, char* argv[], std::string const& introLine) -> Startu
 
   // Log even on failed runs whose cmd.error was set after parse (e.g. invalid
   // --color with -h), so the failure lands in the log file, not stderr only.
-  if ((!cmd.help && !cmd.version) || cmd.error.has_value()) { setupLogging(cmd); }
+  auto loggingActive = false;
+  if ((!cmd.help && !cmd.version) || cmd.error.has_value()) {
+    setupLogging(cmd);
+    loggingActive = true;
+  }
 
   // Reclaim leftovers from crashed runs: stale per-run scratch entries older
   // than 24h are removed (design D3). Fresh files belong to live runs and are
   // never touched.
   workdirs::sweepScratchDir();
 
-  return StartupContext{std::move(cmd)};
+  return StartupContext{
+    .cmd = std::move(cmd),
+    .loggingActive = loggingActive,
+  };
 }
 
 void logConfigSummary(appctx::AppConfig const& config) {

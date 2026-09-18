@@ -112,21 +112,13 @@ void printHelpHint() {
   terminal::messageln(Hint, "Run encro -h for help (or -hh for all options).");
 }
 
-int failWithHint(
-  std::string const& message,
-  bool showHelpHint = false,
-  appctx::AppContext* ctx = nullptr
-) {
+// Reports a failure and returns its exit code; the caller's `run` funnel does
+// the teardown (log hint, summary, drain).
+int failRun(std::string const& message, bool showHelpHint = false) {
   // The clean error line prints in every verbosity mode; the echo never
   // replaces it (verbose-levels D4).
   terminal::messageln(Error, "{}", message);
   LOG_ERROR("{}", message);
-  logging::printLogHint();
-  // End-of-run summary before the drain below, so it lands in the log.
-  logging::logRunSummary(buildSummary(ctx, "failed"));
-  // Drain the async queue so the error reaches the console echo and the log file
-  // before the process exits.
-  logging::shutdown();
   if (showHelpHint) { printHelpHint(); }
   return 1;
 }
@@ -135,7 +127,7 @@ auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional
   auto const& cmd = startup.cmd;
 
   if (cmd.error.has_value()) {
-    return failWithHint(std::format("Invalid arguments: {}", cmd.error.value()), true);
+    return failRun(std::format("Invalid arguments: {}", cmd.error.value()), true);
   }
 
   if (cmd.help) {
@@ -155,7 +147,7 @@ auto buildAppConfig(prelude::StartupContext const& startup)
   -> std::optional<appctx::AppConfig> {
   auto configRes = cmd::buildConfig(startup.cmd);
   if (!configRes) {
-    failWithHint(configRes.error(), true);
+    failRun(configRes.error(), true);
     return std::nullopt;
   }
 
@@ -172,7 +164,7 @@ bool ensureToolchainReady(
 
   auto const toolRes = toolchain::resolve(ctx.config, ctx.toolchain);
   if (!toolRes) {
-    failWithHint(std::format("Tool check failed: {}", toolRes.error()), false, &ctx);
+    failRun(std::format("Tool check failed: {}", toolRes.error()), false);
     return false;
   }
 
@@ -192,11 +184,7 @@ int runPreview(prelude::StartupContext const& startup) {
   if (cmd.previewOriginal.has_value()) { cmd.input = cmd.previewOriginal; }
   auto const configRes = cmd::buildConfig(cmd);
   if (!configRes) {
-    return failWithHint(
-      std::format("Preview failed: {}", configRes.error()),
-      false,
-      &ctx
-    );
+    return failRun(std::format("Preview failed: {}", configRes.error()), false);
   }
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access): guarded by the !configRes check above; expected's operator bool is not recognized
   ctx.config = *configRes;
@@ -226,38 +214,18 @@ int runPreview(prelude::StartupContext const& startup) {
 
   auto const runRes = preview::run(ctx, options);
   if (!runRes) {
-    return failWithHint(std::format("Preview failed: {}", runRes.error()), false, &ctx);
+    return failRun(std::format("Preview failed: {}", runRes.error()), false);
   }
 
-  auto const exitCode = runRes.value();
-  if (exitCode != 0 && exitCode != stopsignal::kCanceledExitCode) {
-    logging::printLogHint();
-  }
-  auto const status = exitCode == 0 ? "success" : "failed";
-  logging::logRunSummary(buildSummary(&ctx, status));
-  logging::shutdown();
-  return exitCode;
+  return runRes.value();
 }
 
 int runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& startup) {
   auto runRes = pipeline::run(ctx);
   if (!runRes) {
-    return failWithHint(std::format("Pipeline failed: {}", runRes.error()), false, &ctx);
+    return failRun(std::format("Pipeline failed: {}", runRes.error()), false);
   }
 
-  // Success, Ctrl-C, or any other non-zero pipeline exit all reach here; today
-  // these paths return without draining, so the summary must be followed by an
-  // explicit shutdown.
-  auto const exitCode = runRes.value();
-  if (exitCode != 0 && exitCode != stopsignal::kCanceledExitCode) {
-    logging::printLogHint();
-  }
-  auto const status = [exitCode] {
-    if (exitCode == stopsignal::kCanceledExitCode) { return "interrupted"; }
-    return exitCode == 0 ? "success" : "failed";
-  }();
-  logging::logRunSummary(buildSummary(&ctx, status));
-  logging::shutdown();
   return runRes.value();
 }
 
@@ -272,6 +240,17 @@ auto helpIntroLine() -> std::string {
   );
 }
 
+// `0` stays "success" even when a stop arrives in the last instant; any other
+// non-zero exit is "interrupted" while a stop is pending (preview reports its
+// cancel as an error, exit 1, not 130) and "failed" otherwise.
+auto runStatus(int exitCode, bool stopRequested) -> std::string {
+  if (exitCode == 0) { return "success"; }
+  if (exitCode == stopsignal::kCanceledExitCode || stopRequested) {
+    return "interrupted";
+  }
+  return "failed";
+}
+
 int run(int argc, char* argv[]) {
   stopsignal::installHandler();
   stopsignal::reset();
@@ -281,39 +260,38 @@ int run(int argc, char* argv[]) {
   auto const introLine = helpIntroLine();
   auto const startup = prelude::initStartup(argc, argv, introLine);
 
+  auto ctx = appctx::AppContext{};
+  auto exitCode = 0;
+
   if (auto const earlyExit = handleParseAndHelp(startup); earlyExit.has_value()) {
-    return earlyExit.value();
+    exitCode = earlyExit.value();
+  } else if (startup.cmd.preview) {
+    exitCode = runPreview(startup);
+  } else if (startup.cmd.organize) {
+    exitCode = organize::runOrganizeCommand(startup.cmd);
+  } else if (startup.cmd.config) {
+    exitCode = cmd::runConfigCommand(startup.cmd);
+  } else if (startup.cmd.completion) {
+    exitCode = cmd::runCompletionCommand(startup.cmd);
+  } else if (auto config = buildAppConfig(startup); config.has_value()) {
+    ctx.config = std::move(config.value());
+    exitCode = ensureToolchainReady(ctx, startup) ? runAppPipeline(ctx, startup) : 1;
+  } else {
+    exitCode = 1;
   }
 
-  if (startup.cmd.preview) { return runPreview(startup); }
-
-  if (startup.cmd.organize) {
-    auto const exitCode = organize::runOrganizeCommand(startup.cmd);
-    if (exitCode != 0) { logging::printLogHint(); }
-    return exitCode;
+  // The single teardown funnel: every dispatch branch above falls through here.
+  if (startup.loggingActive) {
+    if (exitCode != 0 && exitCode != stopsignal::kCanceledExitCode) {
+      logging::printLogHint();
+    }
+    logging::logRunSummary(
+      buildSummary(&ctx, runStatus(exitCode, stopsignal::isStopRequested()))
+    );
+    logging::shutdown();
   }
 
-  // Subcommand bodies report their own errors and return non-zero; they bypass
-  // failWithHint, so the log hint is attached here on failure.
-  if (startup.cmd.config) {
-    auto const exitCode = cmd::runConfigCommand(startup.cmd);
-    if (exitCode != 0) { logging::printLogHint(); }
-    return exitCode;
-  }
-  if (startup.cmd.completion) {
-    auto const exitCode = cmd::runCompletionCommand(startup.cmd);
-    if (exitCode != 0) { logging::printLogHint(); }
-    return exitCode;
-  }
-
-  auto config = buildAppConfig(startup);
-  if (!config.has_value()) { return 1; }
-
-  auto ctx = appctx::AppContext{.config = std::move(config.value())};
-
-  if (!ensureToolchainReady(ctx, startup)) { return 1; }
-
-  return runAppPipeline(ctx, startup);
+  return exitCode;
 }
 
 }  // namespace appentry
