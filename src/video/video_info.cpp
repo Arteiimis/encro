@@ -160,6 +160,36 @@ bool keepScannedVideoCandidate(
   return keepsWebpInputSizeLimit(config, filePath);
 }
 
+auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPath)
+  -> boost::json::value {
+  namespace json = boost::json;
+
+  auto const cmd = quoteToolPath(toolchain.ffprobePath.value_or("ffprobe"))
+    + " -v quiet -print_format json -show_format -show_streams \""
+    + videoPath.string()
+    + "\"";
+
+  auto const [exitCode, output, pid, stderrText] = exec2(cmd, false);
+
+  if (exitCode != 0) {
+    LOG_DEBUG(
+      "ffprobe exit code {} for {} (output bytes: {}, stderr bytes: {})",
+      exitCode,
+      videoPath.string(),
+      output.size(),
+      stderrText.size()
+    );
+    return json::object{};
+  }
+
+  try {
+    return json::parse(output);
+  } catch (std::exception const& ex) {
+    LOG_DEBUG("Failed to parse ffprobe output for {}: {}", videoPath.string(), ex.what());
+    return json::object{};
+  }
+}
+
 auto finalizeVideoList(
   appctx::AppConfig const& config,
   appctx::ToolchainPaths const& toolchain,
@@ -266,36 +296,6 @@ auto videoinfo::cachedVidInfo(
   auto const vidInfo = getVidInfo(toolchain, videoPath);
   runtime.videoInfoCache.set(videoPath, vidInfo);
   return vidInfo;
-}
-
-auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPath)
-  -> boost::json::value {
-  namespace json = boost::json;
-
-  auto const cmd = quoteToolPath(toolchain.ffprobePath.value_or("ffprobe"))
-    + " -v quiet -print_format json -show_format -show_streams \""
-    + videoPath.string()
-    + "\"";
-
-  auto const [exitCode, output, pid, stderrText] = exec2(cmd, false);
-
-  if (exitCode != 0) {
-    LOG_DEBUG(
-      "ffprobe exit code {} for {} (output bytes: {}, stderr bytes: {})",
-      exitCode,
-      videoPath.string(),
-      output.size(),
-      stderrText.size()
-    );
-    return json::object{};
-  }
-
-  try {
-    return json::parse(output);
-  } catch (std::exception const& ex) {
-    LOG_DEBUG("Failed to parse ffprobe output for {}: {}", videoPath.string(), ex.what());
-    return json::object{};
-  }
 }
 
 // NOLINTNEXTLINE(readability-function-size): linear ffprobe fallback chain

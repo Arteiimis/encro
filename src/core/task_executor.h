@@ -50,7 +50,7 @@ struct TaskRunResult {
   std::size_t attemptedCount = 0;
   bool canceled = false;
 
-  auto skippedCount() const -> std::size_t { return outcomes.size() - attemptedCount; }
+  std::size_t skippedCount() const { return outcomes.size() - attemptedCount; }
 };
 
 std::size_t resolveWorkerCount(std::size_t taskCount, std::size_t maxConcurrency);
