@@ -106,7 +106,7 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
     auto lock = std::scoped_lock{state.mtx};
     progressFilePath = state.progressFilePath;
     baseFrameOffset = state.baseFrameOffset;
-    totalFrames = state.totalFrames.value_or(0);
+    totalFrames = state.totalFrames.value();
   }
   if (!progressFilePath.has_value()) { return std::nullopt; }
 

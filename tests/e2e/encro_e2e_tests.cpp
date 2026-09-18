@@ -1720,6 +1720,25 @@ auto lastNdjsonRecord(fs::path const& logRoot) -> std::optional<boost::json::obj
   } catch (...) { return std::nullopt; }
 }
 
+// Status of the shutdown summary record in the newest ndjson log. The record is
+// written during shutdown, which can trail the process exit by a scheduling
+// quantum under parallel load, so poll for it instead of reading the log once.
+auto waitForSummaryStatus(fs::path const& logRoot) -> std::optional<std::string> {
+  auto summaryStatus = std::optional<std::string>{};
+  auto const summarized = testutils::waitUntil(
+    [&] {
+      auto const record = lastNdjsonRecord(logRoot);
+      if (!record.has_value() || !record->contains("summary")) { return false; }
+      summaryStatus =
+        std::string{record->at("summary").as_object().at("status").as_string().c_str()};
+      return true;
+    },
+    std::chrono::seconds{30}
+  );
+  REQUIRE(summarized);
+  return summaryStatus;
+}
+
 }  // namespace
 
 TEST_CASE(
@@ -1775,22 +1794,7 @@ TEST_CASE(
   REQUIRE(fs::exists(statePath));
 
   SECTION("ndjson log ends with summary status interrupted") {
-    // The summary record is written during shutdown, which can trail the
-    // process exit by a scheduling quantum under parallel load: poll for it
-    // instead of reading the log once.
-    auto summaryStatus = std::optional<std::string>{};
-    auto const summarized = testutils::waitUntil(
-      [&] {
-        auto const record = lastNdjsonRecord(logRoot);
-        if (!record.has_value() || !record->contains("summary")) { return false; }
-        summaryStatus =
-          std::string{record->at("summary").as_object().at("status").as_string().c_str()};
-        return true;
-      },
-      std::chrono::seconds{30}
-    );
-    REQUIRE(summarized);
-    CHECK(summaryStatus == "interrupted");
+    CHECK(waitForSummaryStatus(logRoot) == "interrupted");
   }
 
   auto const resume = e2e::runEncro(baseArgs, std::nullopt, {});
@@ -2293,21 +2297,7 @@ TEST_CASE("a subcommand run ends with a summary record", "[e2e][logging][config]
     e2e::runEncro({"--log-json", "config", "set", "crf", "23"}, std::nullopt, env);
   REQUIRE_SUCCESS(result);
 
-  // The summary record is written during shutdown, which can trail the
-  // process exit by a scheduling quantum under parallel load: poll for it.
-  auto summaryStatus = std::optional<std::string>{};
-  auto const summarized = testutils::waitUntil(
-    [&] {
-      auto const record = lastNdjsonRecord(logRoot);
-      if (!record.has_value() || !record->contains("summary")) { return false; }
-      summaryStatus =
-        std::string{record->at("summary").as_object().at("status").as_string().c_str()};
-      return true;
-    },
-    std::chrono::seconds{30}
-  );
-  REQUIRE(summarized);
-  CHECK(summaryStatus == "success");
+  CHECK(waitForSummaryStatus(logRoot) == "success");
 }
 
 // ── Encode probing (probe → plan → prompt) ────────────────────────────────

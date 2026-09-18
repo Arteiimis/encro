@@ -40,7 +40,6 @@ auto formatCompactPackedStatus(std::size_t archiveIndex, std::size_t archiveCoun
 
 struct PackTaskRecorder {
   PackPlan const& plan;
-  std::vector<eh::Result<void>>& packResults;
   std::vector<fs::path>& zippedFiles;
 
   void notifyGroupStart(std::size_t index) const {
@@ -59,7 +58,6 @@ struct PackTaskRecorder {
       fs::remove(zipPath, ec);
     }
 
-    packResults[index] = packRes;
     if (plan.progressCallbacks.onGroupFailure) {
       plan.progressCallbacks.onGroupFailure(index, packRes.error());
     }
@@ -67,7 +65,6 @@ struct PackTaskRecorder {
   }
 
   void succeed(std::size_t index, fs::path const& zipPath) const {
-    packResults[index] = {};
     zippedFiles[index] = zipPath;
     if (plan.progressCallbacks.onGroupSuccess) {
       plan.progressCallbacks.onGroupSuccess(index, zipPath);
@@ -271,9 +268,8 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
   -> eh::Result<std::vector<fs::path>> {
   auto const maxParallelJobs =
     std::max<std::size_t>(1, plan.maxParallelJobs.value_or(plan.groups.size()));
-  auto packResults = std::vector<eh::Result<void>>(plan.groups.size());
   auto zippedFiles = std::vector<fs::path>(plan.groups.size());
-  auto recorder = PackTaskRecorder{plan, packResults, zippedFiles};
+  auto recorder = PackTaskRecorder{plan, zippedFiles};
   auto tasks = std::vector<taskexec::TaskSpec>{};
   tasks.reserve(plan.groups.size());
 
@@ -306,10 +302,9 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
     return eh::makeError("Packing canceled by user.");
   }
 
-  for (auto index = std::size_t{0}; index < packResults.size(); ++index) {
+  for (auto index = std::size_t{0}; index < runRes.outcomes.size(); ++index) {
     auto const& outcome = runRes.outcomes[index];
     if (outcome.state == taskexec::TaskState::Skipped) { continue; }
-    if (!packResults[index]) { return eh::makeError("{}", packResults[index].error()); }
     if (outcome.state == taskexec::TaskState::Failed) {
       return eh::makeError("{}", outcome.error);
     }
