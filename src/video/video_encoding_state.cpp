@@ -13,6 +13,7 @@
 #include "logging/setup.h"
 
 #include <chrono>
+#include <cstdint>
 #include <thread>
 #include <utility>
 
@@ -97,9 +98,15 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
   }
 
   auto progressFilePath = std::optional<fs::path>{};
+  auto baseFrameOffset = std::uint64_t{0};
+  auto totalFrames = std::int64_t{0};
   {
+    // One snapshot: the encoder thread writes baseFrameOffset under this lock,
+    // and the offset must be read together with the frame count it divides.
     auto lock = std::scoped_lock{state.mtx};
     progressFilePath = state.progressFilePath;
+    baseFrameOffset = state.baseFrameOffset;
+    totalFrames = state.totalFrames.value_or(0);
   }
   if (!progressFilePath.has_value()) { return std::nullopt; }
 
@@ -111,11 +118,7 @@ auto getEncodingProgress(appctx::AppContext& ctx, appctx::EncodingState& state)
     state.lastFrameCount = progressData->frameCount;
   }
 
-  return progressPercent(
-    progressData->frameCount,
-    state.baseFrameOffset,
-    state.totalFrames.value()
-  );
+  return progressPercent(progressData->frameCount, baseFrameOffset, totalFrames);
 }
 
 bool stateFinished(appctx::EncodingState& state) {
