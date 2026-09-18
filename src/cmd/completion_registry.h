@@ -4,7 +4,7 @@
 // validators, and config keys map to their options' long names. Path options
 // are long-name keyed; positional candidates are keyed by option pointer
 // (positionals have no long name; the app tree is leaked on purpose so the
-// pointers stay valid, mirroring the config-store capture).
+// pointers stay valid).
 #pragma once
 
 #include <map>
