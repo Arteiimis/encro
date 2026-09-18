@@ -20,87 +20,99 @@ using enum terminal::MessageKind;
 
 namespace configstore {
 
-// ── Key table ───────────────────────────────────────────────────────────────
+// ── Key table (design D1/D3) ────────────────────────────────────────────────
 // Canonical order mirrors the CLI help groups (General / IO / Processing /
-// FileOp); save() writes keys in this order so the file is diff-stable.
+// FileOp); save() writes keys in this order so the file is diff-stable. The
+// order is a contract, not a derivation of registration order: `model-dir` is
+// registered inside the organize subcommand yet written last.
 
-inline constexpr auto kKeys = std::array<KeyDef, 17>{{
-  {"color", JsonKind::String},
-  {"yes", JsonKind::Boolean},
-  {"output-format", JsonKind::String},
-  {"keep", JsonKind::Boolean},
-  {"force-conflict-handling", JsonKind::String},
-  {"folder-summary", JsonKind::Boolean},
-  {"recursive", JsonKind::Boolean},
-  {"jobs", JsonKind::Number},
-  {"ffmpeg-path", JsonKind::String},
-  {"compress", JsonKind::Boolean},
-  {"image-quality", JsonKind::Number},
-  {"crf", JsonKind::Number},
-  {"min-vmaf", JsonKind::Number},
-  {"preset", JsonKind::String},
-  {"video-codec", JsonKind::String},
-  {"pack", JsonKind::Boolean},
-  {"model-dir", JsonKind::String},
-}};
+inline constexpr auto kCanonicalKeyOrder = std::to_array<std::string_view>({
+  "color",
+  "yes",
+  "output-format",
+  "keep",
+  "force-conflict-handling",
+  "folder-summary",
+  "recursive",
+  "jobs",
+  "ffmpeg-path",
+  "compress",
+  "image-quality",
+  "crf",
+  "min-vmaf",
+  "preset",
+  "video-codec",
+  "pack",
+  "model-dir",
+});
 
-auto keys() -> std::span<KeyDef const> {
-  return kKeys;
+auto canonicalKeyOrder() -> std::span<std::string_view const> {
+  return kCanonicalKeyOrder;
 }
 
-bool isKnownKey(std::string_view key) {
-  return std::ranges::any_of(kKeys, [key](KeyDef const& def) { return def.key == key; });
-}
-
-auto jsonKindOf(std::string_view key) -> std::optional<JsonKind> {
+auto KeyTable::find(std::string_view key) const -> KeyDef const* {
   auto const it =
-    std::ranges::find_if(kKeys, [key](KeyDef const& def) { return def.key == key; });
-  return it == kKeys.end() ? std::nullopt : std::optional{it->kind};
+    std::ranges::find_if(keys, [key](KeyDef const& def) { return def.key == key; });
+  return it == keys.end() ? nullptr : &*it;
 }
 
-// ── Validator registry (design D3) ─────────────────────────────────────────
-// Filled during CLI registration (cfg::ConfigKey tokens). The option pointers
-// are owned by the CLI app allocated in commandLineInit, which intentionally
-// outlives the call (leaked, process lifetime) so config-command actions can
-// still reach the validators and built-in defaults after parsing.
+auto assembleKeyTable(
+  std::span<std::string_view const> order,
+  std::span<KeyDef const> entries
+) -> eh::Result<KeyTable> {
+  auto table = KeyTable{};
+  table.keys.reserve(order.size());
 
-auto configKeyRegistry() -> std::map<std::string, CLI::Option*>& {
-  static auto registry = std::map<std::string, CLI::Option*>{};
-  return registry;
-}
-
-void captureConfigKey(std::string_view key, CLI::Option* option) {
-  configKeyRegistry().insert_or_assign(std::string{key}, option);
-}
-
-// Applies the registered validators to `value` in place (transformers may
-// canonicalize it); returns the first validation error, or empty when valid.
-// After the option's own validators, boolean/number keys get a type check on
-// the final value: flag options carry no validators, and the CLI would reject
-// a non-integer at conversion time.
-auto validateValue(std::string_view key, std::string& value)
-  -> std::optional<std::string> {
-  auto const kind = jsonKindOf(key);
-  auto const& registry = configKeyRegistry();
-  auto const it = registry.find(std::string{key});
-  if (it == registry.end()) { return std::nullopt; }
-
-  for (auto index = 0;; ++index) {
-    auto* validator = [&]() -> CLI::Validator* {
-      try {
-        return it->second->get_validator(index);
-      } catch (CLI::OptionNotFound const&) { return nullptr; }
-    }();
-    if (validator == nullptr) { break; }
-
-    if (auto error = (*validator)(value); !error.empty()) { return error; }
+  for (auto const& key: order) {
+    auto const* entry = static_cast<KeyDef const*>(nullptr);
+    auto matches = 0;
+    for (auto const& candidate: entries) {
+      if (candidate.key != key) { continue; }
+      ++matches;
+      entry = &candidate;
+    }
+    if (matches == 0) {
+      return eh::makeError("config key table: no option registers key '{}'", key);
+    }
+    if (matches > 1) {
+      return eh::makeError(
+        "config key table: key '{}' is registered more than once",
+        key
+      );
+    }
+    table.keys.push_back(*entry);
   }
 
-  if (kind == JsonKind::Boolean) {
+  for (auto const& entry: entries) {
+    if (std::ranges::find(order, entry.key) == order.end()) {
+      return eh::makeError(
+        "config key table: key '{}' is missing from the canonical order",
+        entry.key
+      );
+    }
+  }
+  return table;
+}
+
+// Applies the copied validators to `value` in place (transformers may
+// canonicalize it); returns the first validation error, or nullopt when valid.
+// After the option's own validators, boolean/number keys get a type check on
+// the final value: flag options carry no validators, and the CLI would reject
+// a non-integer at conversion time. Requires a key present in the table
+// (design D7): every caller rejects unknown keys first.
+auto KeyTable::validate(std::string_view key, std::string& value) const
+  -> std::optional<std::string> {
+  auto const* def = find(key);
+
+  for (auto const& validator: def->validators) {
+    if (auto error = validator(value); !error.empty()) { return error; }
+  }
+
+  if (def->kind == JsonKind::Boolean) {
     if (value != "true" && value != "false") {
       return std::format("expected true or false, got '{}'", value);
     }
-  } else if (kind == JsonKind::Number) {
+  } else if (def->kind == JsonKind::Number) {
     long long parsed = 0;
     auto const [ptr, ec] =
       std::from_chars(value.data(), value.data() + value.size(), parsed);
@@ -179,7 +191,7 @@ void warnUnknownKeys(LoadResult const& loaded, fs::path const& path) {
   }
 }
 
-auto load(fs::path const& path) -> LoadResult {
+auto load(fs::path const& path, KeyTable const& table) -> LoadResult {
   auto result = LoadResult{};
 
   auto ec = std::error_code{};
@@ -208,7 +220,7 @@ auto load(fs::path const& path) -> LoadResult {
   }
 
   for (auto const& entry: parsed.as_object()) {
-    if (!isKnownKey(entry.key())) {
+    if (table.find(entry.key()) == nullptr) {
       result.unknownKeys.emplace_back(entry.key());
       continue;
     }
@@ -226,8 +238,11 @@ auto load(fs::path const& path) -> LoadResult {
   return result;
 }
 
-auto save(fs::path const& path, std::map<std::string, std::string> const& values)
-  -> std::optional<std::string> {
+auto save(
+  fs::path const& path,
+  std::map<std::string, std::string> const& values,
+  KeyTable const& table
+) -> std::optional<std::string> {
   auto ec = std::error_code{};
   if (path.has_parent_path()) {
     fs::create_directories(path.parent_path(), ec);
@@ -249,7 +264,7 @@ auto save(fs::path const& path, std::map<std::string, std::string> const& values
   // order. Deterministic output keeps the file hand-editable and diff-stable.
   out << "{\n";
   auto first = true;
-  for (auto const& def: kKeys) {
+  for (auto const& def: table.keys) {
     auto const it = values.find(std::string{def.key});
     if (it == values.end()) { continue; }
     if (!first) { out << ",\n"; }
