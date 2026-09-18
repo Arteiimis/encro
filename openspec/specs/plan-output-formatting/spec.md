@@ -66,7 +66,7 @@ The table SHALL size the file-name column from the detected terminal width minus
 - **THEN** each file prints its name on one line and its metrics indented on the following line
 
 ### Requirement: Post-encode summary uses the same formatting language
-The post-encode summary SHALL render conditionally. When every encode succeeded, it SHALL be the count line carrying the encoded count and the output location (`Encoded 2/2 videos → out`) followed by the existing one-line preview hint. When any encode failed, it SHALL print the count line with the failing count, followed by the failed-file list, the existing "Needs attention" list, and `Compare:` hint lines, each only when it applies. Counts, lists, and any ratios SHALL keep the same alignment and signed-percentage conventions as the probe plan table; the `All encoding tasks completed.` and `Summary:` header lines SHALL NOT print.
+The post-encode summary SHALL render conditionally. When every encode succeeded, it SHALL be the count line carrying the encoded count and the output location (`Encoded 2/2 videos → out`) followed by the existing one-line preview hint. When any encode failed, it SHALL print the count line with the failing count, followed by the failed-file list, the attention block, and `Compare:` hint lines, each only when it applies. The attention block is defined by `console-output-conventions`: one severity-marked announcement naming the item count, then its items indented beneath it. Counts, lists, and any ratios SHALL keep the same alignment and signed-percentage conventions as the probe plan table; the `All encoding tasks completed.` and `Summary:` header lines SHALL NOT print.
 
 #### Scenario: Summary matches plan style
 
@@ -81,10 +81,10 @@ The post-encode summary SHALL render conditionally. When every encode succeeded,
 #### Scenario: Failures print the count and the failed list
 
 - **WHEN** an encode run completes with 1 of 2 files failed
-- **THEN** the count line names the failure, the failed file is listed, and no empty "Needs attention" section prints
+- **THEN** the count line names the failure, the failed file is listed, and no empty attention block prints
 
 #### Scenario: Attention list appears only when present
 
 - **WHEN** an encode succeeds everywhere but a file could not reach the quality floor
-- **THEN** the "Needs attention" entry prints under the count line, with the preview `Compare:` hint attached
+- **THEN** the attention announcement and its item print under the count line, with the preview `Compare:` hint attached
 
