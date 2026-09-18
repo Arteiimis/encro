@@ -6,34 +6,23 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 
 - **Build system:** xmake (not CMake). Toolchain: `clang-cl` + `lld-link` on Windows. C++26. For any xmake-related question or change (xmake.lua, configuration, CLI), read the `xmake` skill first.
 - **Build:** `xmake build encro` · **Run:** `xmake run encro <args>` (e.g. `xmake run encro -h`; do NOT use `--` — it is passed through to the program and breaks CLI11 parsing)
-- **Order-dependent failure:** a unit run shuffles the cases (Catch2 v3.15 randomises the order by default) and its console log names the seed (`Randomness seeded to: <N>`), so reproduce with `build/windows/x64/release/tests.exe --rng-seed <N>`.
+- **Order-dependent failure:** Catch2 randomises case order, and the failing run's console log names its seed (`Randomness seeded to: <N>`) — reproduce with `build/windows/x64/release/tests.exe --rng-seed <N>`.
 - **Real-model smoke:** the `[real-model]` cases read the model directory from `ENCRO_TEST_MODEL_DIR` and `SKIP()` when it is unset, so the fixture carries no machine path (`ENCRO_TEST_MODEL_DIR=<dir> xmake test-report --tag="[real-model]"`).
-- **Reporter-mode probe:** `build/windows/x64/release/tests.exe -r console -s` must report 0 failures. `-s` makes the console reporter echo successful assertions, so an assertion that runs while a stdio stream is redirected shows up as captured reporter text and fails a capture assertion — keep assertions outside redirect windows (`testutils::captureStdout` and the `FileCapture`-based captures).
-- **Tests with failure summary:** `xmake test-report` — builds + runs unit tests, writes `build/last-test-report.xml` (JUnit) and `build/last-test-console.log` (full console text), and prints a pass/fail summary instead of raw console. `--tag="[tag]"` limits to a tag filter (note: `=` form required).
-- **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + `encro_e2e_tool` fake ffmpeg/ffprobe built first)
-- **Tests (parallel):** `xmake test-parallel` — unit + e2e suites in parallel shards (real-ffmpeg tests included; `--unit-shards=N` / `--e2e-shards=N` override shard counts; `xmake test-parallel --selftest` checks the partitioning helpers on fixtures without building anything). Shards are partitioned **by case name**: each suite is enumerated with `--list-tests -r xml`, packed by a recorded per-case cost model (`build/.test-cost-<suite>.txt`, from the previous run's `--durations` output), and each shard is handed a spec file (`-f`) of escaped names — the comma is escaped, and a name containing `* ? [ ] ~ " \` fails the task instead of over-matching. Before spawning, the task checks both listings against each other, round-trips an escaped name through the runner, and requires the assignment to cover every case exactly once. Each shard writes its own Catch2 JUnit report and console log; the verdict comes from the report (a missing or unreadable report, or a non-zero `failures`/`errors` count, fails the shard), while log text is evidence and `proc:wait` statuses stay untrusted. Coverage is checked after the run — a shard that executes fewer cases than it was assigned, or prints no summary at all, fails — and each suite prints one aggregate that is the sum of its shards' own totals (the unit number equals its single-process total; the e2e number is not conserved — see `docs/backlog.md`). Failed shard logs and reports land under `build/.test-parallel/`.
-- **Format:** `xmake fmt` (apply) / `xmake fmt -k` (check only, no CI gate). Default style `file:D:/clangformat/.clang-format` (not in repo); `--style` overrides it.
-- **Static analysis:** `xmake tidy` — report-only clang-tidy over `src/`+`tests/` (`.clang-tidy` config, function-length/cognitive-complexity guardrails); needs `build/compile_commands.json` (build first).
-- **Coverage:** `xmake coverage` runs tests under coverage with an instrumentation self-check, then restores release; needs `llvm-profdata` + `llvm-cov` on PATH.
-- **Size:** `xmake size` prints section sizes (llvm-size); `-d` adds per-object breakdown via PDB (auto-rebuilds with debug info if missing).
+- **Reporter-mode probe:** `build/windows/x64/release/tests.exe -r console -s` must report 0 failures. `-s` echoes successful assertions, so an assertion inside a redirect window is captured as reporter text and fails a capture assertion — keep assertions outside `testutils::captureStdout` / `FileCapture` windows.
+- **Tests with failure summary:** `xmake test-report` — builds + runs unit tests, writes `build/last-test-report.xml` (JUnit) and `build/last-test-console.log`, prints a pass/fail summary instead of raw console. `--tag="[tag]"` filters (the `=` form is required).
+- **Tests (e2e):** `xmake build e2e_tests && xmake run e2e_tests` (needs `encro` + the `encro_e2e_tool` fake ffmpeg/ffprobe built first).
+- **Tests (parallel):** `xmake test-parallel` shards both suites by case name (`--unit-shards` / `--e2e-shards` override the counts, `--selftest` checks the partitioning helpers on fixtures). A shard's JUnit report decides pass/fail, and a shard that runs fewer cases than assigned fails — so green means every case ran; artifacts land in `build/.test-parallel/`.
+- **Tooling tasks:** `fmt` (clang-format) / `tidy` (report-only clang-tidy) / `coverage` / `size` / `include-cleaner` live in `plugins/*/xmake.lua` — `xmake <task> --help` lists the options.
 - **ASan:** `xmake f -m releasedbg && xmake build encro` (config then build; `xmake f` alone only reconfigures)
 - **Dependency headers:** read `build/compile_commands.json` for absolute include paths — they live there, not in the repo (never search `~/.xmake`).
+- **Modes:** `debug` / `release` / `releasedbg` / `coverage`; per-mode flags live in `xmake.lua` (top) and `plugins/coverage`.
 
-### Build Modes
-
-| Mode         | Flags                                                  |
-| ------------ | ------------------------------------------------------ |
-| `debug`      | ASan off; all log levels kept                          |
-| `release`    | LTO; TRACE/DEBUG stripped (`SPDLOG_ACTIVE_LEVEL`)      |
-| `releasedbg` | Optimized + debug info + ASan                          |
-| `coverage`   | `-fprofile-instr-generate -fcoverage-mapping`          |
-
-## Code Conventions (clang-format enforces layout)
+## Code Conventions (repo-specific — observed by hand, only layout is tooling-checked)
 
 | Item           | Rule                                                                 |
 | -------------- | -------------------------------------------------------------------- |
 | East const     | `std::string const&`                                                 |
-| Trailing return| Simple scalar types and `void` use prefix style (`bool f()`, `int main()`); trailing `auto f(...) -> T` for complex/derived types only. Lambdas keep explicit return types when deduction would change them (e.g. mixed `return 0;`/`uint64_t`). |
+| Trailing return| Prefix style (`bool f()`) for scalars and `void`; trailing `auto f(...) -> T` for complex/derived types only; lambdas keep an explicit return type when deduction would change it. |
 | Naming         | Files `snake_case` · Types `PascalCase` · Functions `camelCase`      |
 | Members        | `camelCase` + trailing `_` (e.g., `stateFilePath_`)                  |
 | Constants      | `k` + `PascalCase` (e.g., `kEncodeVideoKind`)                        |
@@ -47,18 +36,17 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 
 - **Test-value rules** (a test earns its place by the regression it names, not by the lines it covers):
   - One `TEST_CASE` = one spec scenario or one named failure mode ("if X regresses, this goes red"); no speculative cases for imagined future needs.
-  - Assert behavior, not structure: it must go red when the behavior changes and stay green when the implementation is refactored.
+  - Assert behavior, not structure — it must go red when the behavior changes and stay green when the implementation is refactored; coverage is a probe, not a target (to raise confidence on changed lines, flip a condition and confirm a test goes red instead of adding cases).
   - Test at the cheapest level that covers the contract — fake-tool unit test by default; e2e only for process boundaries, stop/resume and real-ffmpeg smoke, and never re-asserting what a unit test already covers.
   - Negative paths: one case per equivalence class, never an exhaustive parameter/branch matrix.
   - Reuse the existing fakes (`fake_media_tool`, fake ffmpeg/ffprobe); add no new mocks, and never mock the module under test.
-  - Coverage is a probe, not a target — no percentage gate. To raise confidence on changed lines, flip a condition and confirm a test goes red instead of adding cases.
   - Every `TEST_CASE` must assert; an assertion-free case (hidden probe, crash-free smoke) needs a `// assert-ok: <reason>` marker above it — enforced by the `[test-utils][meta]` check.
 - Fixtures/helpers in `tests/test_utils.h`. `TempDir` keeps its directory (and prints the path to stderr) when a test fails, so state files / fake-tool logs survive for inspection. E2E subprocess failures dump child stdout/stderr via `REQUIRE_SUCCESS` (in `tests/e2e/e2e_test_utils.h`).
 - E2E: `fake_media_tool.cpp` impersonates ffmpeg/ffprobe, controlled via env vars (`ENCRO_FAKE_FFMPEG_EXIT_CODE`, ...).
 - `[real-ffmpeg]`/`[smoke]` tests auto-skip via `SKIP()` when ffmpeg not on PATH.
-- `[install]`/`[smoke]` completion tests (install/uninstall writes shell startup files; smoke spawns real bash/PowerShell) are opt-in: skipped unless `ENCRO_TEST_COMPLETION=1`; run manually with `ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[completion]"`.
+- `[install]`/`[smoke]` completion tests (they write shell startup files / spawn real bash + PowerShell) are opt-in: skipped unless `ENCRO_TEST_COMPLETION=1` (`ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[completion]"`).
 - Tests carry tags for `--tag=` filtering — see the `[...]` annotations in `tests/`.
-- **Sync convention:** tests synchronize by polling observable state via `testutils::waitUntil` (invocation logs, gate files, mutex-guarded fields) — never fixed sleeps, and no negative assertions that race async effects. Any `sleep_for` in `tests/**.cpp` needs a `// sleep-ok: <reason>` marker within 3 lines (pre-commit clang-format reflows long lines); enforced by the `[test-utils][meta]` check in `tests/test_utils_tests.cpp`. Exempt: `tests/e2e/fake_media_tool.cpp`, `tests/e2e/e2e_test_utils.cpp`. Fake-tool holds: `ENCRO_FAKE_FFMPEG_GATE_FILE` (+ `ENCRO_FAKE_FFMPEG_GATE_FROM_CALL=N` to gate only the Nth-and-later invocation); job-state elapsed tests drive `testutils::ScopedSyntheticJobClock` instead of the wall clock.
+- **Sync convention:** tests synchronize by polling observable state via `testutils::waitUntil` (invocation logs, gate files, mutex-guarded fields) — never fixed sleeps, and no negative assertions that race async effects; elapsed-time tests drive `testutils::ScopedSyntheticJobClock`, not the wall clock. Any `sleep_for` in `tests/**.cpp` needs a `// sleep-ok: <reason>` marker within 3 lines (pre-commit clang-format reflows long lines); the `[test-utils][meta]` check in `tests/test_utils_tests.cpp` enforces both markers. Fake-tool gating lives in `tests/e2e/fake_media_tool.cpp`.
 
 ## Communication
 
@@ -68,15 +56,14 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 
 - **OpenSpec:** features follow proposal → specs → design → tasks → implementation via the `openspec-*` skills (artifacts in `openspec/changes/`). Every skill lives once in `.agents/skills/`, which all harnesses read — never fork a copy per tool. **Before starting any OpenSpec step, read the corresponding skill first (`.agents/skills/openspec-<step>/SKILL.md`) and follow its workflow exactly — never run an OpenSpec step from memory.** Every feature needs ≥1 test; spec documents are written in English (see Communication).
 - **OpenSpec explore trigger:** when the user's request is exploratory — "探索下"/"explore", feasibility or options discussion, or similar exploratory intent — automatically start with the `openspec-explore` skill (read `.agents/skills/openspec-explore/SKILL.md` and enter explore mode) instead of answering or implementing directly.
-- **OpenSpec review timing:** write all planning artifacts (proposal → specs → design → tasks) before reviewing the proposal against the complete set — a proposal review without its specs/design/tasks cannot validate the contract between them. Run the proposal review as a fresh sub-agent against the written artifacts (not the author's intent), then apply the review fix loop below.
-- **OpenSpec archive auto-sync:** when archiving a change whose delta specs are not yet applied to the main specs, run the sync step automatically (inline, as the archive skill prescribes) without prompting; never archive with stale main specs. Skip the sync only when the user explicitly says so.
+- **OpenSpec review timing:** write all planning artifacts (proposal → specs → design → tasks) before reviewing the proposal against the complete set — a proposal review without its specs/design/tasks cannot validate the contract between them. Run the proposal review as a fresh sub-agent against the written artifacts (not the author's intent), then converge through the fix loop in the `code-review` skill.
+- **OpenSpec archive auto-sync:** when archiving a change whose delta specs are not yet applied to the main specs, run the sync step automatically (inline, as the archive skill prescribes) without prompting; never archive with stale main specs. Skip the sync only when the user explicitly says so. This overrides the archive skill's sync prompt and stays here on purpose — an openspec skill update would drop it from the skill.
 - **TDD:** never write implementation before tests; test + implementation go in the same commit.
-- **Post-Change Review:** after self-verification, unless trivial (typos, docs-only, one-liner or mechanical refactor), run the `code-review` skill (spec from `openspec/changes/`; pass the spec path in, the skill takes it as an argument) with a third leanness sub-agent alongside Standards/Spec, using ponytail-review criteria (correctness/security/performance out of scope — other axes own those; never flag the mandated test or tooling-enforced rules). Sub-agents start without the repo skills and without the author's ponytail mode — paste the tag rules from the `ponytail-review` skill verbatim into its brief. For large multi-area changes add ≤1 sub-agent per functional area for edge cases only; report severity + file:line findings, triage, fix, re-verify per the review fix loop below.
-- **Review fix loop** (proposal review and code review alike): the agent that wrote the fix never grades it alone. After fixing the accepted findings, spawn a fresh verification sub-agent with the findings list + the fix diff; it returns a per-finding verdict — resolved / not resolved / regressed (the fix broke something else). Loop until every finding resolves; hard cap 2 fix→verify rounds, then stop and hand unresolved findings — plus anything rejected during triage, with justification — to the user instead of looping.
+- **Post-Change Review:** after self-verification, unless trivial (typos, docs-only, one-liner or mechanical refactor), run the `code-review` skill, passing the spec path in as its argument — it runs the Standards / Spec / Leanness axes and the review fix loop. For large multi-area changes add ≤1 sub-agent per functional area, edge cases only.
 
 ## Platform & Git
 
-- **Platform:** primary Windows clang-cl (`NOMINMAX`, `WIN32_LEAN_AND_MEAN`, `_MSVC_STL_HARDENING=1`); POSIX paths via `generic_string()` in `src/core/collision_naming.h`, `src/pack`, `src/picture`. External ffmpeg/ffprobe discovered via PATH or `--ffmpeg-path`.
+- **Platform:** primary Windows clang-cl; POSIX paths go through `generic_string()` wherever they are compared or serialized. External ffmpeg/ffprobe come from PATH or `--ffmpeg-path`.
 - **Commits:** English only (no CJK in git metadata); conventional commits (`feat:`/`fix:`/`docs:`/`test:`/`refactor:`/`chore:`), subject <72 chars, body wrapped at 72 columns (hard ceiling 80); batch large working trees by functional area.
   - OpenSpec planning artifacts (proposal/specs/design) are committed before implementation, as their own `docs:` commit — they describe what will be built, not the build itself.
   - Implementation + its tests + the change's `tasks.md` checkboxes go in one commit (atomic: `git revert` removes the feature and its completion state together; no "code gone but tasks still checked" intermediate state).
