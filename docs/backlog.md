@@ -172,3 +172,87 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
   would mean making those cases assert once per case instead of once per temp-dir
   entry. The harness's own contract (coverage exact, aggregate = sum of what ran)
   holds regardless.
+
+## Batch progress in `runTasks`: narrower than the review card claimed (deferred)
+
+- **Status:** open — fact-checked 2026-09-19, scope reduced, deliberately not
+  scheduled until `unify-task-outcome` lands.
+- **Original candidate:** "move batch counting, rate, cursor and ETA into
+  `runTasks`" (architecture-review card 7) — the executor knows how many tasks
+  finished but offers no completion hook, so each caller re-wraps every task to
+  count for itself.
+- **Why the broad version does not hold:** the units are not tasks. Five sites
+  count five different things with four different formulas — tasks
+  (`src/organize/pipeline.cpp:150-190`, `done/total` plus an `img/s` rate),
+  windows mapped onto a shared bar (`src/preview/preview_process.cpp:455-470`,
+  `windowBase + (85-windowBase)*done/size`), the four step phases of one probe
+  point (`src/video/encode_probe.cpp:535-574`, `kStepsPerProbePoint`), files
+  inside one packer invocation (`src/pack/packer.cpp:438-449`), and encoded
+  frames (`src/video/video_encoding_state.cpp:186`). The executor cannot own a
+  unit it is never told.
+- **`hideCursor` is not derivable from `TaskPlan::progress`:** pack passes
+  `progress = nullptr` with `hideCursor = true`
+  (`src/pack/pack_service.cpp:298-303`) because its bar is drawn through a
+  different `ProgressContext` (`CompactStatus::initBar`). The real rule — "a bar
+  is being drawn during this batch, by whichever context draws it" — is the
+  caller's knowledge, so the field stays; only its rationale belongs on the
+  field instead of in organize's call-site comment.
+- **ETA is already owned:** `progress::ProgressContext::etaSeconds` and
+  `formatEtaBadge` are the ETA home, pinned by the `progress-eta-badge` spec.
+- **What survives (the narrow version):** an optional completion hook on
+  `TaskPlan` — `onTaskFinished(done, total)` — so the three sites that wrap every
+  task or carry their own atomic (organize's counting wrapper, preview's
+  `windowsCompleted`, picture's `BatchState::completed`) read one counter from
+  the executor instead; plus moving the cursor rationale onto
+  `TaskPlan::hideCursor`. Narration text stays byte-identical; the saving is
+  roughly 20 lines in organize and one atomic in each of preview and picture.
+- **Sequencing:** same call sites and same result loops as
+  `unify-task-outcome`, so do it after that change lands rather than touching the
+  same nine sites twice.
+
+## Pack's test-only surface: two of three items hold, the third is a recorded decision
+
+- **Status:** open — fact-checked 2026-09-19; the size-default half is blocked by a
+  prior decision, and the rest is deferred for sequencing.
+- **What holds (test-only public surface):** the paths overload of
+  `Packer::packFilesToZip` (`src/pack/packer.h:25`, definition
+  `src/pack/packer.cpp:387`) has no production caller — production uses the
+  entries+progress overload (`src/pack/pack_service.cpp:397`) and the
+  entries+callbacks overload (`:211`), while the paths form is called only from
+  `tests/packer_tests.cpp:218,260,304,347,487`. `PackRequest::entryNameForFile`
+  (`src/pack/pack.h:92`) is never set in production either, so
+  `applyEntryNameOverrides` (`src/pack/pack.cpp:263-275`) is dead there; its only
+  producer is `tests/pack_execute_tests.cpp:521`.
+- **What is blocked, not forgotten:** the 490 MB defaults in `packer.h:50,56`
+  versus the 500 MB `kDefaultMaxArchiveGroupSize` (`pack_types.h:95`, used by
+  `packer.h:71`). `reduce-over-engineering` recorded the rejection — "490*1024*1024
+  vs 500 MB are genuinely different defaults — merging would silently change
+  behavior". Reopen only if a decision says the two grouping entry points should
+  share one limit.
+- **What to keep:** `PackPlan::onBeforeArchiveClose` (`pack_plan_internal.h:26`).
+  Production passes it through (`pack_service.cpp:216,466`) and
+  `tests/pack_service_tests.cpp:190` uses it to hold a group open mid-close for the
+  finalizing indicator; deleting it would force that test onto a different gate for
+  no behavioral gain.
+- **Next step:** delete the paths overload and the entry-name override, and
+  re-point the five `packFilesToZip` cases plus the `entryNameForFile` case at the
+  entries API — they cover real behavior (archiving, duplicate entry-name
+  disambiguation, summary entry names, multi-entry) rather than the seam. Sequence
+  after `unify-task-outcome`, whose nine call sites include this pack loop.
+
+## Help renderer inside `cmd.cpp`
+
+- **Status:** open — fact-checked 2026-09-19; deferred for sequencing only, the
+  split itself is sound.
+- The help-layout block is `src/cmd/cmd.cpp:32-530` (about 500 of the file's 1144
+  lines): layout resolution, cell and description formatting, column widths, section
+  and command rendering, `makeHelpFormatter`, `makeSubcommandHelpFormatter`.
+  Registration starts at `registerOrganizeSubcommand` (`:532`) and the formatters are
+  wired at `:569,638,660,715,1111`.
+- No external caller touches the internals: everything goes through
+  `CmdParseResult::helpText()` (`src/cmd/cmd.h:90`), including every assertion in
+  `tests/cmd_cmd_tests.cpp:218-463`. An extraction therefore needs no test edits —
+  only the wiring moves.
+- **Next step:** move the block into `src/cmd/help_layout.{h,cpp}` behind
+  `(app, layout) -> std::string`. Sequence after `unify-config-key-table`, which
+  edits the registration half of the same file and `option_specs.h`.
