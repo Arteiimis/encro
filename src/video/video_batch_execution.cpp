@@ -231,6 +231,7 @@ auto runEncodingTask(
   auto const result = encodeVideo(
     executionCtx.app,
     *vidState,
+    executionCtx.app.config.outputFormat,
     [&](std::string const& status) {
       reportEncodingStatus(executionCtx, *vidState, fileLabel, status);
     },
@@ -313,7 +314,7 @@ auto runEncodingWithoutProgress(
     );
     markRunningNoProgress(ctx, state.actionId);
 
-    auto const success = encodeVideo(ctx, state, {});
+    auto const success = encodeVideo(ctx, state, ctx.config.outputFormat, {});
     if (state.progressFilePath.has_value()) {
       auto ec = std::error_code{};
       fs::remove(state.progressFilePath.value(), ec);

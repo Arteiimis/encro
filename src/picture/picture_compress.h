@@ -35,7 +35,8 @@ struct CompressResult {
 
 // Temp path keeps the target media extension (<stem>.partial.<ext>) so the
 // encoder infers the container; renamed atomically to outputPath on success.
-auto compressionTempPath(fs::path const& outputPath) -> fs::path;
+// Shared by the picture workflow's compression and its video conversion.
+auto partialTempPath(fs::path const& outputPath) -> fs::path;
 
 bool compressImage(
   appctx::AppContext const& ctx,
