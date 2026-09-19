@@ -6,10 +6,11 @@ encro is a batch media processing CLI built on top of ffmpeg. Point it at a
 directory of videos and it transcodes them to HEVC/H.264 in parallel, with
 per-file progress bars and a job store that lets you resume an interrupted
 run where it stopped (`--resume`). In picture mode it converts images to
-WebP or recompresses JPEGs (quality 2–31, lower is better), and either mode
-can pack its results into ZIP archives — or pack any directory directly with
-`--pack-only`. Output lands as structured NDJSON logs (`--log-json`) or
-human-readable progress bars, whichever fits your pipeline.
+WebP or recompresses JPEGs (quality 2–31, lower is better), turns any videos
+mixed into the image set into animated WebP (`--video-webp`) and packs them
+together, and either mode can pack its results into ZIP archives — or pack any
+directory directly with `--pack-only`. Output lands as structured NDJSON logs
+(`--log-json`) or human-readable progress bars, whichever fits your pipeline.
 
 ## Quick start
 
@@ -24,6 +25,10 @@ xmake run encro -t video -i ./videos -o ./out
 
 # Convert photos to WebP
 xmake run encro -t picture -f webp -i ./photos -o ./out
+
+# Pack a mixed set: recompress the images, convert the clips to animated WebP,
+# and put both in the same archives
+xmake run encro -t picture --video-webp -c -i ./photos
 
 # Zip everything in a directory
 xmake run encro -z -i ./assets -o ./out
@@ -63,10 +68,11 @@ During a run, encro writes intermediates to three places:
 
 - `<work-root>\.encro\` — the hidden work directory at the output root (or
   the inputs' common ancestor, or `--output` when given): per-task video
-  segments (`segments\`), the picture compression cache (`compress_q<N>\`)
-  and the job-state file (`job-state.json`). On success the per-task segment
-  dirs and the compression cache are removed; the directory itself is kept so
-  an interrupted run can be continued with `--resume`. Dot-prefixed names
+  segments (`segments\`), the picture compression cache (`compress_q<N>\`),
+  the picture run's converted videos (`webp\`) and the job-state file
+  (`job-state.json`). On success the per-task segment dirs and the two picture
+  caches are removed; the directory itself is kept so an interrupted run can be
+  continued with `--resume`. Dot-prefixed names
   keep it invisible on POSIX; on Windows it carries the Hidden attribute.
 - `%TEMP%\encro\scratch\` — per-run transient files (probe segments,
   VMAF/SSIM logs, progress files). Entries untouched for over 24 hours are
@@ -88,6 +94,7 @@ During a run, encro writes intermediates to three places:
 | `-o, --output PATH` | output directory (`+` = input root, `=` = common root) |
 | `-f, --output-format mp4\|webp` | target format (default `mp4`) |
 | `-c, --compress` | JPEG compression in picture mode (`-q 2..31`, lower = better) |
+| `--video-webp` | convert videos in a picture input to animated WebP |
 | `-p, --pack` / `-z, --pack-only` | pack encoded outputs / pack without encoding |
 | `-j, --jobs N` | max parallel jobs (default 10) |
 | `--resume` / `--restart` | continue a previous job / discard state and start fresh |
