@@ -47,8 +47,7 @@ struct WebpScaffold {
 
   auto run() { return encodeVideo(ctx, state, {}); }
 
-  static auto qualityAttempts(std::string const& log, std::string const& q)
-    -> std::size_t {
+  static std::size_t qualityAttempts(std::string const& log, std::string const& q) {
     return testutils::countOccurrences(log, "-q:v " + q)
       + testutils::countOccurrences(log, "-q:v\t" + q);
   }

@@ -84,13 +84,13 @@ auto registryEnvironmentValue(std::wstring const& name) -> std::string {
 #endif
 }
 
-auto containsCudart(fs::path const& dir) -> bool {
+bool containsCudart(fs::path const& dir) {
   auto ec = std::error_code{};
   if (dir.empty() || !fs::exists(dir, ec) || ec) { return false; }
   return fs::exists(dir / "cudart64_12.dll", ec) && !ec;
 }
 
-auto ensureGpuRuntimePaths(fs::path const& modelDir) -> void {
+void ensureGpuRuntimePaths(fs::path const& modelDir) {
 #if defined(_WIN32)
   auto const libDir = []() -> fs::path {
     auto const localAppData = processenv::readEnvVar("LOCALAPPDATA");

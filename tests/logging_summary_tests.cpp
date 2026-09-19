@@ -30,11 +30,25 @@ auto parseLine(std::string const& line) -> boost::json::object {
   return val.as_object();
 }
 
+std::size_t countOccurrences(std::string const& haystack, std::string const& needle) {
+  auto count = std::size_t{0};
+  for (
+    auto pos = haystack.find(needle); pos != std::string::npos;
+    pos = haystack.find(needle, pos + needle.size())
+  ) {
+    ++count;
+  }
+  return count;
+}
+
 }  // namespace
 
-// ── RED 5.1 — pass-through counting sink ────────────────────────────────────
+// ── RED 5.1 — count-only counting sink ──────────────────────────────────────
 
-TEST_CASE("counting sink counts per level and forwards records", "[logging][summary]") {
+TEST_CASE(
+  "counting sink counts per level while the chain writes records",
+  "[logging][summary]"
+) {
   TempDir const temp;
   auto const& testDir = temp.path;
 
@@ -56,7 +70,7 @@ TEST_CASE("counting sink counts per level and forwards records", "[logging][summ
 
   testutils::shutdownLogging();
 
-  // Records were forwarded to the file sink unchanged
+  // The rest of the chain still writes records to the file sink unchanged
   auto const content = lastLineOf(result.value());
   CHECK(content.find("forwarded error") != std::string::npos);
 
@@ -65,6 +79,35 @@ TEST_CASE("counting sink counts per level and forwards records", "[logging][summ
   CHECK(counts.at("info") == 1);
   CHECK(counts.at("warning") == 1);
   CHECK(counts.at("error") == 1);
+}
+
+TEST_CASE(
+  "counting sink does not duplicate records in the human-readable log",
+  "[logging][summary]"
+) {
+  // Regression: the counting sink used to forward every record to the sink it
+  // wrapped while sitting next to it in the same sink vector, so the file sink
+  // received each record twice and every line appeared twice in the .log.
+  TempDir const temp;
+  auto const config = logging::LogConfig{
+    .echoLevel = 0,
+    .jsonEnabled = false,
+    .colorsEnabled = false,
+    .customLogDir = temp.path,
+  };
+
+  auto const result = logging::setup(config);
+  REQUIRE(result.has_value());
+
+  auto* logger = spdlog::default_logger_raw();
+  REQUIRE(logger != nullptr);
+  logger->info("one marker line");
+
+  testutils::shutdownLogging();
+
+  auto const content = testutils::readTextFile(result.value());
+  CAPTURE(content);
+  CHECK(countOccurrences(content, "one marker line") == 1);
 }
 
 // ── RED 5.3 — logRunSummary emits the summary record ────────────────────────
