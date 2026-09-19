@@ -8,9 +8,11 @@
 #include <fstream>
 #include <format>
 #include <filesystem>
+#include <iterator>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -219,6 +221,40 @@ auto probeFormatComment(fs::path const& mediaPath) -> std::string {
   auto const& tags = format.at("tags").as_object();
   if (tags.if_contains("comment") == nullptr) { return {}; }
   return std::string{tags.at("comment").as_string().c_str()};
+}
+
+// Counts the frame chunks of a WebP by walking its RIFF container.
+// ffprobe only grew an animated-WebP demuxer in ffmpeg 9.0 (`webp_anim`);
+// older ffmpeg falls back to `webp_pipe`, which reports the whole animation as
+// a single packet, so a packet count is not portable across the ffmpeg versions
+// this suite runs on. The container is.
+std::size_t countWebpFrameChunks(fs::path const& webpPath) {
+  auto ifs = std::ifstream{webpPath, std::ios::binary};
+  INFO("countWebpFrameChunks: " << webpPath.string());
+  REQUIRE(ifs.is_open());
+  auto const bytes = std::vector<char>{
+    std::istreambuf_iterator<char>{ifs},
+    std::istreambuf_iterator<char>{}
+  };
+  REQUIRE(bytes.size() >= 12);
+  REQUIRE(std::string_view{bytes.data(), 4} == "RIFF");
+  REQUIRE(std::string_view{bytes.data() + 8, 4} == "WEBP");
+
+  auto count = std::size_t{0};
+  auto offset = std::size_t{12};
+  while (offset + 8 <= bytes.size()) {
+    auto const tag = std::string_view{bytes.data() + offset, 4};
+    auto const chunkSize = static_cast<std::size_t>(
+      static_cast<unsigned char>(bytes[offset + 4])
+      | (static_cast<unsigned char>(bytes[offset + 5]) << 8)
+      | (static_cast<unsigned char>(bytes[offset + 6]) << 16)
+      | (static_cast<unsigned char>(bytes[offset + 7]) << 24)
+    );
+    if (tag == "ANMF") { ++count; }
+    // Chunks are padded to an even length.
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+  return count;
 }
 
 auto listFilesWithExtension(fs::path const& dir, std::string_view extension)
@@ -930,10 +966,9 @@ TEST_CASE(
   }
   REQUIRE(fs::exists(extracted));
   CHECK(probePrimaryCodecName(extracted) == "webp");
-  // An animated WebP carries one packet per frame; a still conversion shows 1.
-  auto const probed = probeJson(extracted, {"-show_packets", "-select_streams", "v"});
-  auto const& packets = probed.at("packets").as_array();
-  CHECK(packets.size() > 1);
+  // An animated WebP carries one ANMF frame chunk per frame; a still
+  // conversion carries none.
+  CHECK(countWebpFrameChunks(extracted) > 1);
 }
 
 TEST_CASE(
