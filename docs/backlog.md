@@ -259,8 +259,8 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
 
 ## Duplicate lines in the human-readable log file
 
-- **Status:** open — found 2026-09-19 while verifying `unify-run-teardown`; pre-existing
-  and unrelated to that change.
+- **Status:** resolved — fixed in 9ba5187 — found 2026-09-19 while verifying
+  `unify-run-teardown`; pre-existing and unrelated to that change.
 - The counting sink both wraps a sink and is inserted beside it:
   `src/logging/setup.cpp:462-466` builds `LevelCountingSink(sinks.front())` and then
   inserts it at the head of the same vector, while the pass-through class (`:50-56`)
@@ -276,8 +276,9 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
 
 ## Shared scratch root makes concurrent suites interfere
 
-- **Status:** open — observed 2026-09-19 by four worktree agents running their suites in
-  parallel; environmental, not a defect of any single change.
+- **Status:** resolved — fixed in af6ee6a — observed 2026-09-19 by four worktree
+  agents running their suites in parallel; environmental, not a defect of any single
+  change.
 - `workdirs::scratchDir()` is `fs::temp_directory_path() / "encro" / kScratchDirName`
   (`src/core/work_dirs.cpp:11-13`): machine-global, no per-process component, swept only
   after 24h (`:19-25`).
@@ -293,8 +294,8 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
 
 ## Scalar trailing returns drift from the documented convention
 
-- **Status:** open — pre-existing; `AGENTS.md:25` pins prefix returns for scalars and
-  `void`, and the codebase has eight counter-examples in `src`
+- **Status:** resolved — fixed in 93ff533 — pre-existing; `AGENTS.md:25` pins prefix returns
+  for scalars and `void`, and the codebase has eight counter-examples in `src`
   (`cmd/completion_install.cpp:92,197`, `organize/cluster.h:57`, `organize/cache.cpp:70`,
   `organize/assign.h:75`, `organize/scan.cpp:23`, `core/sha256.cpp:30`,
   `tagger/onnx_tagger.cpp:87`) plus seven files under `tests/`.
