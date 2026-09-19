@@ -77,7 +77,7 @@ auto runCapture(std::string const& commandLine) -> std::pair<int, std::string> {
   return {exitCode, output};
 }
 
-auto shellAvailable(std::string const& probeCommandLine) -> bool {
+bool shellAvailable(std::string const& probeCommandLine) {
   auto stream = popenText(probeCommandLine.c_str());
   if (stream == nullptr) { return false; }
   std::array<char, 256> buffer{};

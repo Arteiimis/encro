@@ -27,7 +27,7 @@ constexpr auto kRoundConstants = std::array<std::uint32_t, 64>{
   0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u,
 };
 
-auto rotr(std::uint32_t value, unsigned bits) -> std::uint32_t {
+std::uint32_t rotr(std::uint32_t value, unsigned bits) {
   return (value >> bits) | (value << (32 - bits));
 }
 

@@ -20,7 +20,7 @@ auto fileHash(fs::path const& path) -> std::string {
 
 // The output tree lives at <root>/organized and must never re-enter the scan
 // (recursive runs would otherwise ingest previous results).
-auto isInsideOutputTree(fs::path const& candidate, fs::path const& root) -> bool {
+bool isInsideOutputTree(fs::path const& candidate, fs::path const& root) {
   auto const outputRoot = std::filesystem::weakly_canonical(root / "organized");
   auto const normalized = std::filesystem::weakly_canonical(candidate);
   auto const [mismatch, _] = std::mismatch(

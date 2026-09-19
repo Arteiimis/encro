@@ -30,8 +30,7 @@ auto parseLine(std::string const& line) -> boost::json::object {
   return val.as_object();
 }
 
-auto countOccurrences(std::string const& haystack, std::string const& needle)
-  -> std::size_t {
+std::size_t countOccurrences(std::string const& haystack, std::string const& needle) {
   auto count = std::size_t{0};
   for (
     auto pos = haystack.find(needle); pos != std::string::npos;
