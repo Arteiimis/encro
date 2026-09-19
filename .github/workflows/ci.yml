@@ -132,7 +132,7 @@ jobs:
             /tmp/ut.xml
             /tmp/ut.log
             ~/.local/state/encro/logs/
-            /tmp/video_encoder_tests_*
+            /tmp/video_encoder_tests*
           include-hidden-files: true
           if-no-files-found: warn
 
