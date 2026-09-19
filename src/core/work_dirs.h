@@ -17,11 +17,15 @@ namespace workdirs {
 namespace fs = std::filesystem;
 
 inline constexpr auto kEncroDirName = ".encro";
+// Parent of the per-process scratch roots; the sweep target.
 inline constexpr auto kScratchDirName = "scratch";
 inline constexpr auto kSegmentsDirName = "segments";
 
-// Per-run transient scratch root on the OS temp volume. Swept at startup;
-// see design D2/D3.
+// This process's transient scratch root on the OS temp volume:
+// `<temp>\encro\scratch\<pid>-<nonce>\`. Per-process so concurrent runs (two
+// suites, two app instances) never share a root, and stable for the whole run
+// so every writer lands in the directory ensureScratchDir() created.
+// See design D2/D3.
 auto scratchDir() -> fs::path;
 
 // Creates the scratch root if missing. Best-effort: writers create it lazily
@@ -70,9 +74,10 @@ auto compressCacheDir(fs::path const& workRoot, int quality) -> fs::path;
 // `<workRoot>\.encro\job-state.json` — default job-state file location.
 auto jobStateFile(fs::path const& workRoot) -> fs::path;
 
-// Deletes stale entries under the scratch dir older than 24 hours. Best-effort:
-// failures are ignored, and fresh files (written by live runs) are never
-// touched because ffmpeg/probe writers keep updating mtimes continuously.
+// Deletes entries under the scratch parent (`<temp>\encro\scratch\*`) whose own
+// mtime is older than 24 hours, i.e. per-process roots left behind by earlier
+// runs. Best-effort: failures are ignored, and a live run's own root is never
+// touched because its writer keeps updating mtimes.
 void sweepScratchDir();
 
 // Resolves the work root (the directory holding `.encro\`) from the run
