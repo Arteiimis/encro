@@ -107,7 +107,7 @@ private:
     std::size_t workerCount,
     bool compact
   ) -> std::optional<std::size_t> {
-    bool const showOverall = compact ? (totalTasks > 1) : (totalTasks > workerCount);
+    bool const showOverall = progress::showsOverallBar(totalTasks, workerCount, compact);
     if (!showOverall) { return std::optional<std::size_t>{}; }
     return std::optional<std::size_t>{progressCtx.addBar(
       std::format(
@@ -125,7 +125,7 @@ private:
     bool compact,
     std::size_t totalTasks
   ) {
-    if (compact && totalTasks > 1) { return {}; }
+    if (!progress::showsSlotBars(totalTasks, compact)) { return {}; }
     auto barIndexes = std::vector<std::size_t>(workerCount);
     for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
       barIndexes[slot] =
