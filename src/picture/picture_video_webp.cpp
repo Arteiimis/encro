@@ -4,6 +4,7 @@
 #include "core/task_executor.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
+#include "picture/picture_compress.h"
 #include "video/video_encode_runner.h"
 
 #include <algorithm>
@@ -31,12 +32,9 @@ namespace {
 constexpr auto kVideoConversionMaxParallel = std::size_t{2};
 
 // The encoder writes here and the phase renames on success, so a file at the
-// final cached path is always a complete output. Mirrors the picture
-// compression temp naming (recognizable media extension, `.partial` marker).
-auto conversionTempPath(fs::path const& outputPath) -> fs::path {
-  return outputPath.parent_path()
-    / (outputPath.stem().string() + ".partial" + outputPath.extension().string());
-}
+// final cached path is always a complete output. Same rule as the picture
+// workflow's compression temp (recognizable media extension, `.partial`), so
+// both share partialTempPath.
 
 auto conversionActionId(picturewebp::ConversionTask const& task) -> std::string {
   return jobstate::makeEncodeTask(task.sourcePath, task.outputPath).id;
@@ -58,13 +56,13 @@ bool cacheBackedByState(jobstate::Store* store, jobstate::TaskRecord const& plan
 void dropCachedOutput(fs::path const& outputPath) {
   auto ec = std::error_code{};
   fs::remove(outputPath, ec);
-  fs::remove(conversionTempPath(outputPath), ec);
+  fs::remove(partialTempPath(outputPath), ec);
 }
 
 // Renames the finished encode onto its final cached name. A failure here is a
 // failed conversion: the temp file is never packed.
 bool finalizeConvertedOutput(fs::path const& outputPath) {
-  auto const tempPath = conversionTempPath(outputPath);
+  auto const tempPath = partialTempPath(outputPath);
   if (!fs::exists(tempPath)) { return false; }
 
   auto ec = std::error_code{};
@@ -128,7 +126,7 @@ auto runConversionTask(
   encodingState.actionId = actionId;
   // The encoder writes the temp path; the final cached name appears only after
   // the encoder exited successfully.
-  encodingState.plannedOutputFile = conversionTempPath(task.outputPath);
+  encodingState.plannedOutputFile = partialTempPath(task.outputPath);
 
   auto const statusUpdater = [&state](std::string const& status) {
     state.progressCtx->setPostfixText(
