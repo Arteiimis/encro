@@ -14,6 +14,9 @@ auto readAllPics(appctx::AppConfig const& config, std::filesystem::path const& d
 // videos: the archive entry name per the picture naming scheme, the cached
 // WebP path, and the conversion cache's lifecycle for this run. Empty when the
 // flag is off or the input holds no videos.
+//
+// Both picture workflows call it, and tests call it to drive the conversion
+// phase on its own (a run that converted and stopped before packing).
 auto planPictureVideoConversions(
   appctx::AppContext& ctx,
   std::filesystem::path const& dirPath

@@ -5,7 +5,7 @@
 
 ## 2. Video scan for picture runs
 
-- [x] 2.1 Expose the video extension list and a probe-free, size-gated scan for conversion from `src/video/video_info.{h,cpp}` (move the extension list out of the anonymous namespace so it stays single-sourced; apply the 32MB WebP input gate here). Verify with a unit test over a temp directory asserting the scan returns the recognized video extensions, honors recursion, skips a clip above the size gate with a warning, and does **not** skip an already-HEVC clip.
+- [x] 2.1 Expose a probe-free, size-gated scan for conversion from `src/video/video_info.{h,cpp}` (keep the video extension list and the 32MB WebP input limit module-private there, and apply both in the scan). Verify with a unit test over a temp directory asserting the scan returns the recognized video extensions, honors recursion, skips a clip above the size gate with a warning, and does **not** skip an already-HEVC clip.
 
 ## 3. Shared WebP encoder entry point
 
