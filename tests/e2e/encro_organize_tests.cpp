@@ -21,17 +21,17 @@ auto sha256Of(std::string_view bytes) -> std::string {
   return core::sha256Hex(bytes);
 }
 
-auto writeImage(fs::path const& path, std::string_view bytes) -> void {
+void writeImage(fs::path const& path, std::string_view bytes) {
   auto out = std::ofstream{path, std::ios::binary};
   out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 }
 
 // Fixture: content hash -> tags for the fake engine.
-auto writeFixture(
+void writeFixture(
   fs::path const& path,
   std::map<std::string, std::pair<std::string, double>> const& characterTags,
   std::map<std::string, std::pair<std::string, double>> const& generalTags
-) -> void {
+) {
   auto entries = std::map<std::string, std::string>{};
   for (auto const& [name, tag]: characterTags) {
     entries[sha256Of(name)] =

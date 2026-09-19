@@ -346,7 +346,7 @@ struct BatchScaffold {
 // deadline (the REQUIRE surfaces it, no silent pass). Raw ifstream
 // predicate: the log does not exist until the first invocation, and
 // testutils::readTextFile asserts on unopenable files.
-auto waitUntilLogContains(fs::path const& logPath, std::string_view needle) -> bool {
+bool waitUntilLogContains(fs::path const& logPath, std::string_view needle) {
   return testutils::waitUntil(
     [&] {
       auto log = std::ifstream{logPath, std::ios::binary};
