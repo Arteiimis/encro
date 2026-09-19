@@ -97,7 +97,7 @@ auto ImageCompressConfig::buildCMD() const -> std::string {
   return cmd;
 }
 
-auto compressionTempPath(fs::path const& outputPath) -> fs::path {
+auto partialTempPath(fs::path const& outputPath) -> fs::path {
   return outputPath.parent_path()
     / (outputPath.stem().string() + ".partial" + outputPath.extension().string());
 }
@@ -109,7 +109,7 @@ bool compressImage(
   int quality,
   std::string* failureReason
 ) {
-  auto const partialPath = compressionTempPath(outputPath);
+  auto const partialPath = partialTempPath(outputPath);
 
   auto const cfg = ImageCompressConfig{
     .ffmpegPath = ctx.toolchain.ffmpegPath,

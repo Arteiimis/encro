@@ -28,9 +28,9 @@ void configureCompressContext(
 }  // namespace
 
 TEST_CASE("compression temp path keeps the target media extension", "[picture]") {
-  CHECK(compressionTempPath("out/name.jpg") == fs::path{"out/name.partial.jpg"});
-  CHECK(compressionTempPath("out/pic.webp") == fs::path{"out/pic.partial.webp"});
-  CHECK(compressionTempPath("bare.png") == fs::path{"bare.partial.png"});
+  CHECK(partialTempPath("out/name.jpg") == fs::path{"out/name.partial.jpg"});
+  CHECK(partialTempPath("out/pic.webp") == fs::path{"out/pic.partial.webp"});
+  CHECK(partialTempPath("bare.png") == fs::path{"bare.partial.png"});
 }
 TEST_CASE(
   "ImageCompressConfig::buildCMD produces a valid command",
@@ -127,7 +127,7 @@ TEST_CASE(
   CHECK(result == false);
   CHECK_FALSE(fs::exists(outputPath));
   // The temp file keeps the target media extension (muxer inference).
-  CHECK(fs::exists(compressionTempPath(outputPath)));
+  CHECK(fs::exists(partialTempPath(outputPath)));
 }
 
 TEST_CASE(

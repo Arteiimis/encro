@@ -5,31 +5,13 @@
 
 #include <boost/json.hpp>
 
-#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <span>
-#include <string_view>
 #include <utility>
 #include <vector>
 
-using namespace std::literals;
-
 namespace videoinfo {
-
-// Video input extensions both workflows recognize. Single source for the video
-// scan and for the picture run's conversion scan.
-inline constexpr auto kVideoExtensions = std::array{
-  ".mp4"sv,
-  ".mkv"sv,
-  ".avi"sv,
-  ".mov"sv,
-  ".flv"sv,
-  ".wmv"sv,
-};
-
-// WebP input size limit: inputs at or above it are not converted.
-inline constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 
 // Probe-free scan for the picture run's video→WebP conversion: the video
 // extension set plus the WebP input size limit, with no ffprobe and no codec

@@ -142,7 +142,7 @@ auto runConversionTask(
     );
   };
 
-  auto const encoded = ::encodeVideoAsWebp(*state.ctx, encodingState, statusUpdater);
+  auto const encoded = encodeVideo(*state.ctx, encodingState, "webp", statusUpdater);
   auto const completed = encoded && finalizeConvertedOutput(task.outputPath);
   std::optional<std::string> failureReason;
   if (!completed) {
@@ -215,21 +215,6 @@ auto planPendingConversions(
 }
 
 }  // namespace
-
-void picturewebp::prepareConversionCacheDir(
-  fs::path const& cacheDir,
-  bool jobStateMatched
-) {
-  auto ec = std::error_code{};
-  if (jobStateMatched && fs::exists(cacheDir, ec) && !ec) { return; }
-
-  fs::remove_all(cacheDir, ec);
-}
-
-void picturewebp::clearConversionCache(fs::path const& cacheDir) {
-  auto ec = std::error_code{};
-  fs::remove_all(cacheDir, ec);
-}
 
 auto picturewebp::runConversionPhase(
   appctx::AppContext& ctx,

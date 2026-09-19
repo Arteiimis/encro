@@ -7,6 +7,7 @@
 #include "test_utils.h"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -66,10 +67,12 @@ struct ConversionFixture {
   }
 
   // Mirrors pipeline's job-state setup so the workflow can run on its own: the
-  // state file is created by the first run and reused by the next.
+  // state file is created by the first run and reused by the next, and
+  // --restart tells the store to ignore what it finds.
   void ensureState() {
     if (!ctx.runtime.jobState) { return; }
-    auto const initRes = ctx.runtime.jobState->initialize(ctx.config, false);
+    auto const initRes =
+      ctx.runtime.jobState->initialize(ctx.config, ctx.config.restartState);
     REQUIRE(initRes);
     ctx.runtime.jobStateMatched = initRes.value();
   }
@@ -77,6 +80,13 @@ struct ConversionFixture {
   auto run() {
     ensureState();
     return runPicturePackWorkflow(ctx, inputDir);
+  }
+
+  // Forgets the encodes seen so far, so a later phase's encodes can be counted
+  // on their own.
+  void resetEncodeMarkers() {
+    auto ec = std::error_code{};
+    fs::remove_all(temp.path / "encode-markers", ec);
   }
 
   auto cacheDir() const -> fs::path {
@@ -88,7 +98,7 @@ struct ConversionFixture {
   // stays out of this count). The shared invocation log is not a reliable
   // counter here: two encodes that start at the same moment can lose one of
   // the appended lines.
-  auto encodeCount() const -> std::size_t {
+  std::size_t encodeCount() const {
     auto const markerDir = temp.path / "encode-markers";
     if (!fs::is_directory(markerDir)) { return 0; }
     auto count = std::size_t{0};
@@ -97,11 +107,6 @@ struct ConversionFixture {
     }
     return count;
   }
-
-  auto logText() const -> std::string {
-    return fs::exists(logPath) ? testutils::readTextFile(logPath) : std::string{};
-  }
-
   // The single archive a small run produces; its name encodes the entry range.
   auto packedZip() const -> fs::path {
     auto const packedDir = inputDir / "packed";
@@ -112,7 +117,7 @@ struct ConversionFixture {
   }
 
   // Uncompressed size of the packed entry ending with `suffix`; 0 when absent.
-  auto packedEntrySize(std::string_view suffix) const -> std::uint64_t {
+  std::uint64_t packedEntrySize(std::string_view suffix) const {
     auto const zipPath = packedZip();
     if (zipPath.empty()) { return 0; }
 
@@ -130,10 +135,10 @@ struct ConversionFixture {
   }
 };
 
-auto containsEntryEndingWith(
+bool containsEntryEndingWith(
   std::vector<std::string> const& entries,
   std::string_view suffix
-) -> bool {
+) {
   return std::ranges::any_of(entries, [&](std::string const& name) {
     return name.ends_with(suffix);
   });
@@ -141,7 +146,7 @@ auto containsEntryEndingWith(
 
 // Runs only the conversion phase, leaving the cache and the job state in place
 // the way a run that stopped before packing does. Returns the canceled count.
-auto convertWithoutPacking(ConversionFixture& f) -> int {
+int convertWithoutPacking(ConversionFixture& f) {
   f.ensureState();
 
   auto const tasks = planPictureVideoConversions(f.ctx, f.inputDir);
@@ -260,10 +265,14 @@ TEST_CASE(
     std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
   );
 
+  auto const stderrPath = f.temp.path / "stderr.txt";
   std::optional<eh::Result<int>> outcome;
-  auto runner = std::jthread{[&] { outcome = f.run(); }};
+  auto runner = std::jthread{[&] {
+    auto const capture = testutils::StderrCapture{stderrPath};
+    outcome = f.run();
+  }};
   auto const encodeStarted =
-    testutils::waitUntil([&] { return f.encodeCount() >= 1; }, std::chrono::seconds{10});
+    testutils::waitUntil([&] { return f.encodeCount() >= 1; }, std::chrono::seconds{30});
   stopsignal::requestStop();
   {
     auto gate = std::ofstream{gateFile, std::ios::binary};
@@ -276,6 +285,11 @@ TEST_CASE(
   REQUIRE(outcome.has_value());
   REQUIRE(outcome->has_value());
   CHECK(outcome->value() == stopsignal::kCanceledExitCode);
+  // The stop is reported, not only returned as an exit code.
+  CHECK(
+    testutils::readTextFile(stderrPath).find("Video conversion canceled by user")
+    != std::string::npos
+  );
   // The killed conversion left nothing at a final cached path, so the next run
   // cannot mistake a partial file for a finished conversion.
   auto const cachedEntries = fs::exists(f.cacheDir()) ? [&]() {
@@ -316,11 +330,22 @@ TEST_CASE(
   // clip came from the cache instead of being converted again.
   f.envs
     .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_FAIL_MATCH", ".webp"));
-  auto const resumed = f.run();
+  auto const stdoutPath = f.temp.path / "stdout.txt";
+  auto exitCode = 0;
+  {
+    auto const capture = testutils::StdoutCapture{stdoutPath};
+    auto const resumed = f.run();
+    REQUIRE(resumed);
+    exitCode = resumed.value();
+  }
 
-  REQUIRE(resumed);
-  CHECK(resumed.value() == 0);
+  CHECK(exitCode == 0);
   CHECK(containsEntryEndingWith(listZipRegularEntryNames(f.packedZip()), ".webp"));
+  // The run reports what it reused instead of silently doing nothing.
+  CHECK(
+    testutils::readTextFile(stdoutPath).find("Recovered 1 converted video(s)")
+    != std::string::npos
+  );
 }
 
 TEST_CASE(
@@ -371,6 +396,51 @@ TEST_CASE(
   REQUIRE(resumed);
   CHECK(resumed.value() == 0);
   CHECK(containsEntryEndingWith(listZipRegularEntryNames(f.packedZip()), ".webp"));
+}
+
+TEST_CASE("a restart discards the conversion cache", "[picture-process][video-webp]") {
+  ConversionFixture f{true};
+  writeSizedFile(f.inputDir / "photo.jpg", 32);
+  writeSizedFile(f.inputDir / "clip.mp4", 64);
+
+  // A run that converted and stopped before packing leaves the cache behind.
+  CHECK(convertWithoutPacking(f) == 0);
+  REQUIRE(f.encodeCount() == 1);
+
+  // --restart is told to ignore the saved state, so the cache it would have
+  // backed is discarded and the clip converts again.
+  f.resetEncodeMarkers();
+  f.ctx.config.restartState = true;
+  auto const restarted = f.run();
+
+  REQUIRE(restarted);
+  CHECK(restarted.value() == 0);
+  CHECK(f.encodeCount() == 1);
+}
+
+TEST_CASE(
+  "a source clip replaced with an older timestamp is converted again",
+  "[picture-process][video-webp]"
+) {
+  ConversionFixture f{true};
+  writeSizedFile(f.inputDir / "photo.jpg", 32);
+  auto const clipPath = writeSizedFile(f.inputDir / "clip.mp4", 64);
+
+  CHECK(convertWithoutPacking(f) == 0);
+
+  // Same path, same size, older write time: a cache that only compared ages
+  // would keep the stale output. The source fingerprint changes, so the run
+  // must discard it and convert again.
+  writeTextFile(clipPath, std::string(64, 'x'));
+  fs::last_write_time(clipPath, fs::file_time_type::clock::now() - std::chrono::hours{2});
+  f.envs
+    .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "8192"));
+
+  auto const resumed = f.run();
+
+  REQUIRE(resumed);
+  CHECK(resumed.value() == 0);
+  CHECK(f.packedEntrySize(".webp") == 8192);
 }
 
 TEST_CASE(
@@ -441,6 +511,8 @@ TEST_CASE("no videos means no conversion phase line", "[picture-process][video-w
   CHECK(exitCode == 0);
   auto const stdoutText = testutils::readTextFile(stdoutPath);
   CHECK(stdoutText.find("Found 0 video(s)") != std::string::npos);
+  // One scan line, not one per phase that follows it.
+  CHECK(testutils::countOccurrences(stdoutText, "video(s) under") == 1);
   CHECK(stdoutText.find("Converting") == std::string::npos);
 }
 

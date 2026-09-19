@@ -45,7 +45,7 @@ struct WebpScaffold {
     );
   }
 
-  auto run() { return encodeVideo(ctx, state, {}); }
+  auto run() { return encodeVideo(ctx, state, ctx.config.outputFormat, {}); }
 
   static std::size_t qualityAttempts(std::string const& log, std::string const& q) {
     return testutils::countOccurrences(log, "-q:v " + q)
@@ -79,12 +79,12 @@ TEST_CASE(
   videoSide.state.progressFilePath = videoSide.temp.path / "progress.txt";
   CHECK(videoSide.run());
 
-  // Conversion caller: a picture run keeps the config at mp4 and asks for the
-  // webp entry point explicitly.
+  // Conversion caller: a picture run keeps the config at mp4 and names the
+  // webp recipe explicitly.
   auto conversionSide = WebpScaffold{};
   conversionSide.ctx.config.outputFormat = "mp4";
   conversionSide.state.progressFilePath = conversionSide.temp.path / "progress.txt";
-  CHECK(encodeVideoAsWebp(conversionSide.ctx, conversionSide.state, {}));
+  CHECK(encodeVideo(conversionSide.ctx, conversionSide.state, "webp", {}));
 
   // Same invocation, modulo the temp roots: the encoder, filter chain, loop
   // setting, starting quality and size target all come from one recipe.
@@ -254,7 +254,7 @@ struct SegmentScaffold {
     );
   }
 
-  auto run() { return encodeVideo(ctx, state, {}); }
+  auto run() { return encodeVideo(ctx, state, ctx.config.outputFormat, {}); }
 };
 
 }  // namespace

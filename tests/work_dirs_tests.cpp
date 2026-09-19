@@ -62,8 +62,6 @@ TEST_CASE(
   );
   REQUIRE(workdirs::compressCacheDir(root, 90) == root / ".encro" / "compress_q90");
   REQUIRE(workdirs::webpCacheDir(root) == root / ".encro" / "webp");
-  // The conversion cache is one directory whatever the picture quality is.
-  REQUIRE(workdirs::webpCacheDir(root) == workdirs::webpCacheDir(root));
   REQUIRE(
     workdirs::webpCacheDir(root).filename()
     != workdirs::compressCacheDir(root, 90).filename()
