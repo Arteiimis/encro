@@ -41,7 +41,7 @@ auto encodeArg(fs::path const& filePath) -> std::string {
 
 // Counts ffmpeg-role lines in the fake tool's invocation log; a missing log
 // counts as zero (waitUntil predicates must not abort on absent files).
-auto countFfmpegInvocations(fs::path const& logPath) -> int {
+int countFfmpegInvocations(fs::path const& logPath) {
   auto log = std::ifstream{logPath, std::ios::binary};
   if (!log.is_open()) { return 0; }
   auto const content = std::string{std::istreambuf_iterator<char>{log}, {}};

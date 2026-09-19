@@ -31,11 +31,11 @@ auto findScope(completion::CompletionModel const& model, std::string const& name
   return nullptr;
 }
 
-auto has(std::vector<std::string> const& values, std::string const& needle) -> bool {
+bool has(std::vector<std::string> const& values, std::string const& needle) {
   return std::find(values.begin(), values.end(), needle) != values.end();
 }
 
-auto contains(std::string const& haystack, std::string const& needle) -> bool {
+bool contains(std::string const& haystack, std::string const& needle) {
   return haystack.find(needle) != std::string::npos;
 }
 
