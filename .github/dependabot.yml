@@ -1,0 +1,16 @@
+# Action pins drift because nothing watches them: CI reports a runtime
+# deprecation only as a run annotation, and the job breaks outright once the
+# old runtime is removed (upload-artifact@v5 and download-artifact@v5 had
+# drifted that far). Dependabot opens a PR when a `uses:` reference has a
+# newer version, and that PR branch trips this repo's full CI workflow, so
+# every bump arrives already verified.
+# groups: fold one round of action bumps into a single PR instead of one each.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
