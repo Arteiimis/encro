@@ -45,6 +45,14 @@ auto barColor(terminal::Role role, bool colorsEnabled) -> indicators::Color {
   return Color::cyan;
 }
 
+bool showsOverallBar(std::size_t totalTasks, std::size_t workerCount, bool compact) {
+  return compact ? totalTasks > 1 : totalTasks > workerCount;
+}
+
+bool showsSlotBars(std::size_t totalTasks, bool compact) {
+  return !(compact && totalTasks > 1);
+}
+
 namespace {
 
 constexpr auto kMinConsoleColumns = std::size_t{60};
@@ -391,6 +399,11 @@ float ProgressContext::progressValue(std::size_t barIndex) const {
 std::uint64_t ProgressContext::tickCount() const {
   auto lock = std::scoped_lock{mtx_};
   return tickCount_;
+}
+
+std::size_t ProgressContext::barCount() const {
+  auto lock = std::scoped_lock{mtx_};
+  return bars_.size();
 }
 
 void ProgressContext::ensureTicker() {

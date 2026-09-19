@@ -28,6 +28,13 @@ namespace progress {
 // to a real color whenever colors are enabled.
 auto barColor(terminal::Role role, bool colorsEnabled = true) -> indicators::Color;
 
+// Which bars a multi-bar phase creates is one rule shared by the encoding and
+// probe phases: compact progress shows the Overall bar alone above one task,
+// full progress shows one bar per worker slot and an Overall bar above the
+// worker count. A one-task batch keeps its single slot bar in both modes.
+bool showsOverallBar(std::size_t totalTasks, std::size_t workerCount, bool compact);
+bool showsSlotBars(std::size_t totalTasks, bool compact);
+
 using Manager = indicators::DynamicProgress<indicators::ProgressBar>;
 using BarPtr = std::unique_ptr<indicators::ProgressBar>;
 using BarCollection = std::vector<BarPtr>;
@@ -101,6 +108,10 @@ public:
   // Repaint passes run so far, including the ones that rendered nothing.
   // Read-only view for diagnostics and tests.
   std::uint64_t tickCount() const;
+
+  // Bars created on this context, rendered or not. Read-only view for
+  // diagnostics and tests.
+  std::size_t barCount() const;
 
   // Re-renders every bar from the state the setters already stored, advancing
   // the postfix scroll window on the context's own clock; touches neither

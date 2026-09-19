@@ -544,6 +544,25 @@ auto initSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCoun
   return slotBars;
 }
 
+auto createProbeBars(
+  progress::ProgressContext& progressCtx,
+  std::size_t fileCount,
+  std::size_t workerCount,
+  std::size_t slotCount,
+  bool compact
+) -> ProbeBars {
+  auto bars = ProbeBars{};
+  if (progress::showsOverallBar(fileCount, workerCount, compact)) {
+    bars.overallBar =
+      progressCtx
+        .addBar(std::format("Probing: 0/{} files", fileCount), terminal::Role::Accent);
+  }
+  if (progress::showsSlotBars(fileCount, compact)) {
+    bars.slotBars = initSlotBars(progressCtx, slotCount);
+  }
+  return bars;
+}
+
 auto buildProbeTaskSpec(
   appctx::AppContext& ctx,
   std::span<fs::path const> vids,
@@ -564,50 +583,65 @@ auto buildProbeTaskSpec(
   // as vids below; workerCount is a value parameter living in this frame)
   taskexec::TaskContext& taskCtx) -> eh::Result<void> {
   auto const slot = taskCtx.slot;
-  auto const barIndex = progress.slotBars[slot];
-  progress.progressCtx.setRole(barIndex, terminal::Role::Accent);
-  progress.progressCtx.resetEta(barIndex);
-  progress.progressCtx.setProgress(barIndex, 0.0f);
-  progress.progressCtx.setPostfixText(barIndex, std::format("Probing: {}", fileName));
+  // Compact mode creates no slot bars for a multi-file batch: the per-task
+  // updates then only feed slotProgress, which the Overall bar reads.
+  auto const slotBar = progress.slotBars.empty()
+    ? std::optional<std::size_t>{}
+    : std::optional<std::size_t>{progress.slotBars[slot]};
+  if (slotBar.has_value()) {
+    progress.progressCtx.setRole(slotBar.value(), terminal::Role::Accent);
+    progress.progressCtx.resetEta(slotBar.value());
+    progress.progressCtx.setProgress(slotBar.value(), 0.0f);
+    progress.progressCtx.setPostfixText(
+      slotBar.value(),
+      std::format("Probing: {}", fileName)
+    );
+  }
   auto step = std::size_t{0};
-  auto const onStep = [&, barIndex, slot](int cq, std::string_view phase) {
+  auto const onStep = [&, slotBar, slot](int cq, std::string_view phase) {
     ++step;
     auto const p =
       100.0f * static_cast<float>(step) / static_cast<float>(kMaxProbeSteps);
     progress.slotProgress[slot].store(p);
-    progress.progressCtx.setProgress(barIndex, p);
-    progress.progressCtx.setPostfixText(
-      barIndex,
-      std::format("Probing: {} | CQ {} {}", fileName, cq, phase)
-    );
+    if (slotBar.has_value()) {
+      progress.progressCtx.setProgress(slotBar.value(), p);
+      progress.progressCtx.setPostfixText(
+        slotBar.value(),
+        std::format("Probing: {} | CQ {} {}", fileName, cq, phase)
+      );
+    }
     progress.updateOverall();
   };
-  auto const onPoint = [&, barIndex, slot](std::size_t done, int cq) {
+  auto const onPoint = [&, slotBar, slot](std::size_t done, int cq) {
     auto const p = 100.0f
       * static_cast<float>(done * kStepsPerProbePoint)
       / static_cast<float>(kMaxProbeSteps);
     progress.slotProgress[slot].store(p);
-    progress.progressCtx.setProgress(barIndex, p);
-    progress.progressCtx.setPostfixText(
-      barIndex,
-      std::format("Probing: {} | CQ {} scored", fileName, cq)
-    );
+    if (slotBar.has_value()) {
+      progress.progressCtx.setProgress(slotBar.value(), p);
+      progress.progressCtx.setPostfixText(
+        slotBar.value(),
+        std::format("Probing: {} | CQ {} scored", fileName, cq)
+      );
+    }
     progress.updateOverall();
   };
   plans[index] =
     probeSingleFile(ctx, vids[index], probeRoot, workerCount, onPoint, onStep);
   auto const& plan = plans[index];
   if (plan.probed) {
-    progress.progressCtx.setProgress(barIndex, 100.0f);
-    progress.progressCtx.setRole(barIndex, terminal::Role::Good);
+    if (slotBar.has_value()) {
+      progress.progressCtx.setProgress(slotBar.value(), 100.0f);
+      progress.progressCtx.setRole(slotBar.value(), terminal::Role::Good);
+      progress.progressCtx.setPostfixText(
+        slotBar.value(),
+        std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
+      );
+    }
+  } else if (slotBar.has_value()) {
+    progress.progressCtx.setRole(slotBar.value(), terminal::Role::Accent);
     progress.progressCtx.setPostfixText(
-      barIndex,
-      std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
-    );
-  } else {
-    progress.progressCtx.setRole(barIndex, terminal::Role::Accent);
-    progress.progressCtx.setPostfixText(
-      barIndex,
+      slotBar.value(),
       std::format("Skipped: {} (default CQ {})", fileName, kDefaultCq)
     );
   }
@@ -822,8 +856,11 @@ auto buildProbeTasks(
 }  // namespace
 
 // NOLINTNEXTLINE(readability-function-size): cache scan + slot bars + task run; phases delimit blocks
-auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
-  -> eh::Result<ProbePhaseResult> {
+auto runProbePhase(
+  appctx::AppContext& ctx,
+  std::span<fs::path const> vids,
+  progress::ProgressContext* externalProgress
+) -> eh::Result<ProbePhaseResult> {
   auto result = ProbePhaseResult{};
   if (vids.empty()) { return result; }
 
@@ -838,43 +875,39 @@ auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
   auto plans = std::vector<ProbePlan>(vids.size());
   auto const workerCount =
     std::max<std::size_t>(1, ctx.config.maxParallelJobs.value_or(4));
-  auto progressCtx = progress::ProgressContext{};
-  auto const overallBar = vids.size() > workerCount
-    ? std::optional<std::size_t>{progressCtx.addBar(
-        std::format("Probing: 0/{} files", vids.size()),
-        terminal::Role::Accent
-      )}
-    : std::nullopt;
+  auto localProgressCtx = progress::ProgressContext{};
+  auto& progressCtx = externalProgress != nullptr ? *externalProgress : localProgressCtx;
   // Slot bars mirror the encode bars: one per actual worker, reused across
   // tasks. Sized after the cache scan so fewer files than workers do not
   // leave idle bars on screen for the whole phase.
   auto taskVids = std::vector<std::size_t>{};
   scanProbeCache(ctx, vids, cached, plans, taskVids);
   auto const slotCount = taskexec::resolveWorkerCount(taskVids.size(), workerCount);
-  auto const slotBars = initSlotBars(progressCtx, slotCount);
+  auto const compact = !ctx.config.fullProgress;
+  auto bars = createProbeBars(progressCtx, vids.size(), workerCount, slotCount, compact);
   auto slotProgress = std::vector<std::atomic<float>>(slotCount);
   auto completed = std::atomic_size_t{0};
   auto const updateOverall = [&] {
-    if (!overallBar.has_value()) { return; }
+    if (!bars.overallBar.has_value()) { return; }
     auto activeSum = 0.0f;
     for (auto const& slotProg: slotProgress) { activeSum += slotProg.load() / 100.0f; }
     auto const done = completed.load();
     progressCtx.setProgress(
-      overallBar.value(),
+      bars.overallBar.value(),
       std::min(
         100.0f,
         (static_cast<float>(done) + activeSum) / static_cast<float>(vids.size()) * 100.0f
       )
     );
     progressCtx.setPostfixText(
-      overallBar.value(),
+      bars.overallBar.value(),
       std::format("Probing: {}/{} files", done, vids.size())
     );
   };
 
   ProbeProgress const progress{
     .progressCtx = progressCtx,
-    .slotBars = slotBars,
+    .slotBars = bars.slotBars,
     .slotProgress = slotProgress,
     .completed = completed,
     .updateOverall = updateOverall,
