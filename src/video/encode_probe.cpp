@@ -39,7 +39,7 @@ namespace encodeprobe {
 
 namespace {
 
-auto floorForMetric(videoquality::QualityMetric metric, int vmafFloor) -> double {
+double floorForMetric(videoquality::QualityMetric metric, int vmafFloor) {
   using enum videoquality::QualityMetric;
   switch (metric) {
     case Vmaf : return static_cast<double>(vmafFloor);

@@ -30,11 +30,11 @@ auto cachePathFor(Options const& options) -> fs::path {
 
 // Assigns an item to the folder for `tag`, honoring folder ownership
 // (a teaching folder that claims the tag keeps images under its own name).
-auto fileByCharacter(
+void fileByCharacter(
   std::string const& tag,
   ImageItem& item,
   std::vector<FolderReference> const& references
-) -> void {
+) {
   if (auto const* owner = owningFolder(references, tag); owner != nullptr) {
     item.folderName = owner->name;
     item.folderSource = FolderSource::FolderMatch;
@@ -51,14 +51,14 @@ auto fileByCharacter(
 // pending. A lone weak candidate (above the zero-evidence floor, below the
 // strong threshold) still claims the image — a second subject with no
 // identity signal does not make the image ownerless.
-auto routeConfident(
+void routeConfident(
   ImageItem& item,
   std::size_t index,
   double minConfidence,
   std::vector<FolderReference> const& references,
   std::map<std::string, std::size_t> const& characterDf,
   std::vector<std::size_t>& pending
-) -> void {
+) {
   if (!item.analysis.has_value()) {
     pending.push_back(index);
     return;
@@ -101,8 +101,7 @@ auto routeConfident(
 }
 
 // Loads cached analyses into the items; returns how many were covered.
-auto applyCachedAnalyses(std::vector<ImageItem>& items, AnalysisCache& cache)
-  -> std::size_t {
+std::size_t applyCachedAnalyses(std::vector<ImageItem>& items, AnalysisCache& cache) {
   auto cacheHits = std::size_t{0};
   for (auto index = std::size_t{0}; index < items.size(); ++index) {
     auto const cached = cache.get(items[index].contentHash);
@@ -116,13 +115,13 @@ auto applyCachedAnalyses(std::vector<ImageItem>& items, AnalysisCache& cache)
 // Analyzes everything the cache does not cover; identical content dedupes
 // through the cache on the fly. Failures cache an empty result so re-runs
 // never re-pay for a deterministic decode failure. Returns false on cancel.
-auto analyzeMissing(
+bool analyzeMissing(
   std::vector<ImageItem>& items,
   tagger::TaggerEngine& engine,
   AnalysisCache& cache,
   Options const& options,
   progress::ProgressContext* progress
-) -> bool {
+) {
   auto analysisTasks = std::vector<taskexec::TaskSpec>{};
   auto cacheMutex = std::mutex{};
   for (auto index = std::size_t{0}; index < items.size(); ++index) {
@@ -233,11 +232,11 @@ auto sourceWorkKey(fs::path const& path) -> std::string {
 
 // Folder-match: a cluster whose appearance resembles an existing folder
 // joins it (teaching).
-auto assignFolderMatches(
+void assignFolderMatches(
   std::vector<ImageItem>& items,
   std::vector<Cluster> const& clusters,
   std::vector<FolderReference> const& references
-) -> void {
+) {
   for (auto const& cluster: clusters) {
     auto matched = static_cast<FolderReference const*>(nullptr);
     auto bestScore = kFolderTau;
@@ -287,13 +286,13 @@ auto groupSingletonsByWork(
   return workNames;
 }
 
-auto clusterRemainder(
+void clusterRemainder(
   std::vector<ImageItem>& items,
   std::vector<std::size_t> const& pending,
   double minConfidence,
   std::vector<FolderReference> const& references,
   CorpusTraits const& traits
-) -> void {
+) {
   auto const clusters = clusterPending(items, pending, traits);
   auto usedNames = std::set<std::string>{};
   for (auto const& item: items) {

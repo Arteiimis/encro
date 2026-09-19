@@ -69,7 +69,7 @@ bool isIdentityTag(std::string const& tag) {
   });
 }
 
-auto l2Norm(std::map<std::string, double> const& vector) -> double {
+double l2Norm(std::map<std::string, double> const& vector) {
   auto sum = 0.0;
   for (auto const& [_, value]: vector) { sum += value * value; }
   return std::sqrt(sum);
@@ -91,7 +91,7 @@ double cosineSimilarity(
   return dot / (normA * normB);
 }
 
-auto CorpusTraits::inTraitBand(std::string const& tag) const -> bool {
+bool CorpusTraits::inTraitBand(std::string const& tag) const {
   // No corpus statistics (tests, single-image runs): no band filtering.
   if (df.empty()) { return true; }
   auto const it = df.find(tag);

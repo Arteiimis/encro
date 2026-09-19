@@ -54,7 +54,7 @@ struct CorpusTraits {
   std::map<std::string, std::size_t> df;
   std::size_t corpus = 0;
 
-  auto inTraitBand(std::string const& tag) const -> bool;
+  bool inTraitBand(std::string const& tag) const;
 };
 
 // Builds corpus traits from every analyzed item's general tags (count tags

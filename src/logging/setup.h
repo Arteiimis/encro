@@ -41,7 +41,7 @@ struct SummaryData {
 
 void logRunSummary(SummaryData const& data);
 
-// Level name -> record count, accumulated by the pass-through counting sink.
+// Level name -> record count, accumulated by the count-only counting sink.
 [[nodiscard]] auto levelCounts() -> std::map<std::string, std::uint64_t>;
 
 // Current .ndjson companion path (present only when JSON logging is active),

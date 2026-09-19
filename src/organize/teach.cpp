@@ -13,7 +13,7 @@ namespace organize {
 
 namespace {
 
-auto l2Norm(std::map<std::string, double> const& vector) -> double {
+double l2Norm(std::map<std::string, double> const& vector) {
   auto sum = 0.0;
   for (auto const& [_, value]: vector) { sum += value * value; }
   return std::sqrt(sum);
