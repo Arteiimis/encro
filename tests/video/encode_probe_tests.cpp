@@ -1,4 +1,5 @@
 #include "core/display_text.h"
+#include "core/progress.h"
 #include "core/work_dirs.h"
 #include "preview/preview_process.h"
 #include "video/encode_probe.h"
@@ -469,6 +470,85 @@ auto leftoverProbeDirs() -> std::vector<fs::path> {
 }
 
 }  // namespace
+
+TEST_CASE(
+  "probe bar layout follows the compact and worker-count rules",
+  "[encode-probe]"
+) {
+  // 8 files across 4 probed slots: compact renders the Overall bar alone, full
+  // adds one bar per created slot.
+  auto compactCtx = progress::ProgressContext{};
+  auto const compactBars = encodeprobe::createProbeBars(compactCtx, 8, 4, 4, true);
+  CHECK(compactCtx.barCount() == 1);
+  CHECK(compactBars.overallBar.has_value());
+  CHECK(compactBars.slotBars.empty());
+
+  auto fullCtx = progress::ProgressContext{};
+  auto const fullBars = encodeprobe::createProbeBars(fullCtx, 8, 4, 4, false);
+  CHECK(fullCtx.barCount() == 5);
+  CHECK(fullBars.overallBar.has_value());
+  CHECK(fullBars.slotBars.size() == 4);
+
+  // A batch whose files are all cache hits has no probed slot to size bars
+  // from, so no slot bars appear while the Overall bar still does.
+  auto cachedCtx = progress::ProgressContext{};
+  auto const cachedBars = encodeprobe::createProbeBars(cachedCtx, 8, 4, 0, true);
+  CHECK(cachedCtx.barCount() == 1);
+  CHECK(cachedBars.slotBars.empty());
+
+  // Full mode's Overall bar needs more files than workers.
+  auto equalCtx = progress::ProgressContext{};
+  auto const equalBars = encodeprobe::createProbeBars(equalCtx, 4, 4, 4, false);
+  CHECK(equalCtx.barCount() == 4);
+  CHECK_FALSE(equalBars.overallBar.has_value());
+
+  // A one-file batch keeps one slot bar and no Overall bar in both modes.
+  auto singleCompactCtx = progress::ProgressContext{};
+  auto const singleCompactBars =
+    encodeprobe::createProbeBars(singleCompactCtx, 1, 4, 1, true);
+  CHECK(singleCompactCtx.barCount() == 1);
+  CHECK_FALSE(singleCompactBars.overallBar.has_value());
+  CHECK(singleCompactBars.slotBars.size() == 1);
+
+  auto singleFullCtx = progress::ProgressContext{};
+  auto const singleFullBars = encodeprobe::createProbeBars(singleFullCtx, 1, 4, 1, false);
+  CHECK(singleFullCtx.barCount() == 1);
+  CHECK_FALSE(singleFullBars.overallBar.has_value());
+  CHECK(singleFullBars.slotBars.size() == 1);
+}
+
+TEST_CASE("runProbePhase derives its bar layout from full-progress", "[encode-probe]") {
+  TempDir temp;
+  auto const first = temp.path / "one.mp4";
+  auto const second = temp.path / "two.mp4";
+  auto const third = temp.path / "three.mp4";
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  // Short videos (below the probe budget) skip measurement: the case pays for
+  // the per-file duration probe only, and a skipped plan writes no cache entry,
+  // so the second run sees the same batch the first one did.
+  fillProbeContext(ctx, temp.path, first, "30.0", "96.0", envs);
+  testutils::writeTextFile(second);
+  testutils::writeTextFile(third);
+  ctx.config.maxParallelJobs = 2;
+
+  auto const inputs = std::vector<fs::path>{first, second, third};
+
+  auto compactProgress = progress::ProgressContext{};
+  ctx.config.fullProgress = false;
+  auto const compactResult = encodeprobe::runProbePhase(ctx, inputs, &compactProgress);
+  REQUIRE(compactResult.has_value());
+
+  auto fullProgress = progress::ProgressContext{};
+  ctx.config.fullProgress = true;
+  auto const fullResult = encodeprobe::runProbePhase(ctx, inputs, &fullProgress);
+  REQUIRE(fullResult.has_value());
+
+  // Compact multi-file probing shows the Overall bar alone; full progress adds
+  // one bar per slot (3 files on 2 workers) beside it.
+  CHECK(compactProgress.barCount() == 1);
+  CHECK(fullProgress.barCount() == 3);
+}
 
 TEST_CASE("runProbePhase probes and decides with fake tools", "[encode-probe]") {
   TempDir temp;

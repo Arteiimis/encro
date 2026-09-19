@@ -54,6 +54,18 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "compact encoding state keeps no slot bars and creates the Overall bar",
+  "[video-batch-execution]"
+) {
+  // Compact multi-task runs show the Overall bar alone; the slot-bar layout is
+  // the encoding phase's rule, which the probe phase mirrors.
+  auto const progressState = videobatch::detail::EncodingProgressState{4, 4, 0, 4, true};
+
+  CHECK(progressState.slots.barIndexes.empty());
+  CHECK(progressState.counters.overallBarIndex.has_value());
+}
+
+TEST_CASE(
   "barEncodingStart seeds the elapsed clock with the persisted base",
   "[video-batch-execution]"
 ) {

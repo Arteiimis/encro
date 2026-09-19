@@ -2,6 +2,7 @@
 
 #include "core/app_context.h"
 #include "core/error_handle.h"
+#include "core/progress.h"
 #include "video/encode_config.h"
 #include "video/video_quality.h"
 
@@ -149,12 +150,37 @@ struct
   std::vector<std::string> attentionWarnings;
 };
 
+// The probe phase's bars: the Overall bar when the batch calls for one
+// (cache hits included), then one slot bar per probed slot. A fully cached
+// batch creates no slot bars while still showing the Overall bar.
+struct ProbeBars {
+  std::optional<std::size_t> overallBar;
+  std::vector<std::size_t> slotBars;
+};
+
+// Creates the probe phase's bars and returns their indices. slotCount sizes
+// the slot bars that get created; the layout decision itself reads fileCount,
+// the whole batch.
+auto createProbeBars(
+  progress::ProgressContext& progressCtx,
+  std::size_t fileCount,
+  std::size_t workerCount,
+  std::size_t slotCount,
+  bool compact
+) -> ProbeBars;
+
 // Probes every video in parallel (MP4 only, called with --crf absent), probe
 // artifacts in a per-run temp dir cleaned up after use. Per-file measurement
 // failures degrade to the default CQ; a stop request aborts the whole phase.
-// Shows one progress bar per file (plus an overall bar for many files).
-auto runProbePhase(appctx::AppContext& ctx, std::span<fs::path const> vids)
-  -> eh::Result<ProbePhaseResult>;
+// Shows one bar per worker slot plus an Overall bar, per the shared layout
+// rule (showsOverallBar/showsSlotBars): compact mode drops the slot bars for a
+// multi-file batch. externalProgress is the caller's context when one is
+// injected (tests), a local context otherwise.
+auto runProbePhase(
+  appctx::AppContext& ctx,
+  std::span<fs::path const> vids,
+  progress::ProgressContext* externalProgress = nullptr
+) -> eh::Result<ProbePhaseResult>;
 
 // Probes one file (skips and returns the default-CQ plan for short videos or
 // measurement failures); onPoint/onStep feed progress bars.
