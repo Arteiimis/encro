@@ -42,34 +42,31 @@ static auto gPoolInitMutex = std::mutex{};
 
 constexpr auto kLogPattern = "[%Y-%m-%dT%H:%M:%S.%e%z] [%^%l%$] [%n] %v";
 
-// ── Pass-through counting sink (D6: level_counts for the summary) ──────────
-// Sits at the head of the sink chain, increments an atomic per level, forwards
-// the record unchanged. One instance shared by all loggers (they all receive
+// ── Count-only sink (D6: level_counts for the summary) ────────────────────
+// One more sink in the vector: it increments an atomic per level and writes
+// nothing else, because the vector already delivers every record to every
+// other sink in the chain. One instance shared by all loggers (they all receive
 // the same sink vector), so counts are global for the run.
 
 class LevelCountingSink final: public spdlog::sinks::sink {
 public:
-  explicit LevelCountingSink(spdlog::sink_ptr next): next_(std::move(next)) { }
-
   void log(spdlog::details::log_msg const& msg) override {
     ++counts_[static_cast<std::size_t>(msg.level)];
-    next_->log(msg);
   }
 
-  void flush() override { next_->flush(); }
+  // spdlog's sink interface is pure virtual, but this sink owns no formatter
+  // and no output, so the three hooks below have nothing to do.
+  void flush() override { }
 
-  void set_pattern(std::string const& pattern) override { next_->set_pattern(pattern); }
+  void set_pattern(std::string const&) override { }
 
-  void set_formatter(std::unique_ptr<spdlog::formatter> sinkFormatter) override {
-    next_->set_formatter(std::move(sinkFormatter));
-  }
+  void set_formatter(std::unique_ptr<spdlog::formatter>) override { }
 
   std::uint64_t count(std::size_t level) const {
     return counts_[level].load(std::memory_order_relaxed);
   }
 
 private:
-  spdlog::sink_ptr next_;
   std::array<std::atomic<std::uint64_t>, spdlog::level::n_levels> counts_{};
 };
 
@@ -461,7 +458,7 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
 
   // 5b. Counting sink at the head of the chain (shared by all loggers)
   if (!sinks.empty()) {
-    gCountingSink = std::make_shared<LevelCountingSink>(sinks.front());
+    gCountingSink = std::make_shared<LevelCountingSink>();
     sinks.insert(sinks.begin(), gCountingSink);
   } else {
     gCountingSink = nullptr;
