@@ -56,7 +56,7 @@ private:
   std::vector<std::unique_ptr<testutils::ScopedEnvVar>> envs_;
 };
 
-auto countOccurrences(std::string const& text, std::string const& needle) -> std::size_t {
+std::size_t countOccurrences(std::string const& text, std::string const& needle) {
   auto count = std::size_t{0};
   for (
     auto pos = text.find(needle); pos != std::string::npos;

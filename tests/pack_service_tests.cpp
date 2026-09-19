@@ -82,7 +82,7 @@ private:
 };
 
 // The packed-file counter of a compact status text ("... [file n/m]").
-auto packedFileCounter(std::string_view text) -> std::size_t {
+std::size_t packedFileCounter(std::string_view text) {
   auto const marker = text.find("[file ");
   if (marker == std::string_view::npos) { return 0; }
 
@@ -139,9 +139,9 @@ auto windowFrames(std::vector<PublishedText> const& texts)
 
 // Steps across the frames the window observed. The indicator steps at most once
 // per 120 ms, so the frames spanning S ms cannot hold more than S/120 + 1 steps.
-auto frameStepCount(
+std::size_t frameStepCount(
   std::vector<std::pair<char, std::chrono::steady_clock::time_point>> const& frames
-) -> std::size_t {
+) {
   auto steps = std::size_t{0};
   for (auto index = std::size_t{1}; index < frames.size(); ++index) {
     if (frames[index].first != frames[index - 1].first) { ++steps; }

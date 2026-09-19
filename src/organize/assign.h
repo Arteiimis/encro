@@ -65,14 +65,14 @@ auto buildCharacterDf(std::vector<ImageItem> const& items)
 
 // A candidate is credible on its own confidence, or on cross-image
 // agreement at the weaker confidence level.
-auto isCredibleCandidate(
+bool isCredibleCandidate(
   TagScore const& candidate,
   std::map<std::string, std::size_t> const& characterDf
-) -> bool;
+);
 
 // True when a subject-count tag is asserted at or above
 // kSubjectCountConfidence (a strong multi-subject assertion).
-auto hasStrongCountTag(AnalysisResult const& analysis) -> bool;
+bool hasStrongCountTag(AnalysisResult const& analysis);
 
 // True when a subject-count tag (general category) is present.
 bool isMultiSubject(AnalysisResult const& analysis);

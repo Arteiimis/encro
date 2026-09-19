@@ -123,7 +123,7 @@ constexpr auto kFlagOnlyOptions = std::array{
   std::string_view{"-version"},
 };
 
-auto isFlagOnlyOption(std::string_view arg) -> bool {
+bool isFlagOnlyOption(std::string_view arg) {
   return std::ranges::find(kFlagOnlyOptions, arg) != kFlagOnlyOptions.end();
 }
 
@@ -344,7 +344,7 @@ void writeFakeSsimStats(int argc, char* argv[]) {
   }
 }
 
-auto scoringFailureRequested(int argc, char* argv[]) -> bool {
+bool scoringFailureRequested(int argc, char* argv[]) {
   auto const match = readEnv("ENCRO_FAKE_FFMPEG_SCORING_FAIL_MATCH");
   if (!match.has_value()) { return false; }
   auto const unless = readEnv("ENCRO_FAKE_FFMPEG_SCORING_FAIL_UNLESS");
@@ -361,7 +361,7 @@ auto scoringFailureRequested(int argc, char* argv[]) -> bool {
 // Scoring invocations (-f null -) write no output file. Optionally emulate
 // libvmaf/xpsnr/ssim (see writeFake*); off by default so probing
 // deterministically falls back to the default CQ. Returns the exit code.
-auto runScoringInvocation(int argc, char* argv[]) -> int {
+int runScoringInvocation(int argc, char* argv[]) {
   if (scoringFailureRequested(argc, argv)) {
     return readEnvInt("ENCRO_FAKE_FFMPEG_EXIT_CODE", 1);
   }
@@ -377,7 +377,7 @@ auto runScoringInvocation(int argc, char* argv[]) -> int {
   return 0;
 }
 
-auto countFrameLines(fs::path const& path) -> std::size_t {
+std::size_t countFrameLines(fs::path const& path) {
   auto const content = readTextFile(path);
   if (!content.has_value()) { return 0; }
   return static_cast<std::size_t>(std::count(content->begin(), content->end(), '\n'));

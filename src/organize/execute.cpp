@@ -16,11 +16,11 @@ namespace {
 // Copies via a staging file outside the visible output tree (organized/
 // .cache/tmp), so an interrupted copy never leaves a partial image behind;
 // the final rename is atomic within the same volume.
-auto copySafely(
+bool copySafely(
   fs::path const& source,
   fs::path const& stagingDir,
   fs::path const& destination
-) -> bool {
+) {
   auto ec = std::error_code{};
   auto const tempPath =
     stagingDir / std::format("{}.part", destination.filename().string());

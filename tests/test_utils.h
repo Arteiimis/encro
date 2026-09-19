@@ -563,8 +563,7 @@ inline auto registerCapturingLogger(char const* name)
 }
 
 // Counts (possibly overlapping) occurrences of "needle" in "text".
-inline auto countOccurrences(std::string_view text, std::string_view needle)
-  -> std::size_t {
+inline std::size_t countOccurrences(std::string_view text, std::string_view needle) {
   auto count = std::size_t{0};
   auto pos = text.find(needle);
   while (pos != std::string_view::npos) {

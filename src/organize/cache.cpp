@@ -67,7 +67,7 @@ auto resultFromJson(json::value const& value) -> AnalysisResult {
   return result;
 }
 
-auto aboveFloor(TagScore const& tag, double floor) -> bool {
+bool aboveFloor(TagScore const& tag, double floor) {
   return tag.confidence >= floor;
 }
 

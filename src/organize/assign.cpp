@@ -47,10 +47,10 @@ auto buildCharacterDf(std::vector<ImageItem> const& items)
   return df;
 }
 
-auto isCredibleCandidate(
+bool isCredibleCandidate(
   TagScore const& candidate,
   std::map<std::string, std::size_t> const& characterDf
-) -> bool {
+) {
   if (candidate.confidence >= kCharacterConfidence) { return true; }
   auto const it = characterDf.find(candidate.tag);
   return candidate.confidence >= kWeakConfidence

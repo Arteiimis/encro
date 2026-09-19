@@ -89,7 +89,7 @@ auto spliceBlock(std::string const& content, std::string const& block) -> std::s
   return result;
 }
 
-auto isWiredWith(std::string const& content, std::string const& line) -> bool {
+bool isWiredWith(std::string const& content, std::string const& line) {
   return content.find(kBegin) != std::string::npos
     && content.find(line) != std::string::npos;
 }
@@ -194,7 +194,7 @@ auto homeDir() -> std::optional<fs::path> {
 // bash-completion framework present? Checks the user lazy-load directory plus
 // a few known Git-for-Windows layouts (design D5; MSYS HOME redirection is a
 // documented limitation, install targets USERPROFILE).
-auto bashCompletionDetected(fs::path const& userCompletions) -> bool {
+bool bashCompletionDetected(fs::path const& userCompletions) {
   std::error_code ec;
   if (fs::exists(userCompletions, ec)) { return true; }
   auto candidates = std::array<fs::path, 2>{

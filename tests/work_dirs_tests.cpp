@@ -12,16 +12,26 @@
 
 namespace fs = std::filesystem;
 
-TEST_CASE("work_dirs: scratchDir lives under the temp encro dir", "[work-dirs]") {
+TEST_CASE(
+  "work_dirs: scratchDir is a per-process root under the temp encro dir",
+  "[work-dirs]"
+) {
   auto const dir = workdirs::scratchDir();
-  REQUIRE(dir.filename() == "scratch");
+  auto const parent = dir.parent_path();
   // Compare against the joined path instead of temp_directory_path() directly:
   // the latter carries a trailing separator on Windows that component-wise
   // equality rejects.
-  REQUIRE(dir.parent_path() == fs::temp_directory_path() / "encro");
+  REQUIRE(parent == fs::temp_directory_path() / "encro" / "scratch");
+  // The root carries a per-process component (concurrent runs never share one)
+  // and is stable within the run (writers land where ensureScratchDir() did).
+  REQUIRE(dir != parent);
+  REQUIRE(dir == workdirs::scratchDir());
 }
 
-TEST_CASE("work_dirs: ensureScratchDir creates the scratch root", "[work-dirs]") {
+TEST_CASE(
+  "work_dirs: ensureScratchDir creates the per-process scratch root",
+  "[work-dirs]"
+) {
   // Pin the temporary root to a per-run directory instead of deleting the real
   // application scratch root: that root is shared with the application and
   // with any concurrently running shard.
@@ -34,7 +44,8 @@ TEST_CASE("work_dirs: ensureScratchDir creates the scratch root", "[work-dirs]")
 #endif
 
   auto const scratch = workdirs::scratchDir();
-  REQUIRE(scratch == privateRoot.path / "encro" / "scratch");
+  REQUIRE(scratch.parent_path() == privateRoot.path / "encro" / "scratch");
+  REQUIRE_FALSE(fs::exists(scratch));
 
   workdirs::ensureScratchDir();
   REQUIRE(fs::is_directory(scratch));
@@ -249,13 +260,24 @@ TEST_CASE(
   "work_dirs: sweepScratchDir removes stale entries but keeps fresh ones",
   "[work-dirs]"
 ) {
-  auto const scratch = workdirs::scratchDir();
-  fs::remove_all(scratch);
-  fs::create_directories(scratch);
-  auto const stale = scratch / "stale.txt";
-  auto const fresh = scratch / "fresh.txt";
-  std::ofstream{stale}.close();
-  std::ofstream{fresh}.close();
+  // The sweep targets the machine-global scratch parent, so pin the temp root:
+  // a concurrently running shard shares the real one.
+  auto const privateRoot = TempDir{};
+#if defined(_WIN32)
+  auto const tmpVar = testutils::ScopedEnvVar{"TMP", privateRoot.path.string()};
+  auto const tempVar = testutils::ScopedEnvVar{"TEMP", privateRoot.path.string()};
+#else
+  auto const tmpVar = testutils::ScopedEnvVar{"TMPDIR", privateRoot.path.string()};
+#endif
+
+  auto const parent = workdirs::scratchDir().parent_path();
+  auto const stale = parent / "stale-run";
+  auto const fresh = parent / "fresh-run";
+  fs::create_directories(stale);
+  fs::create_directories(fresh);
+  // This process's own root is live and must survive the sweep.
+  workdirs::ensureScratchDir();
+  auto const live = workdirs::scratchDir();
   auto const now = fs::file_time_type::clock::now();
   fs::last_write_time(stale, now - std::chrono::hours(30));
   fs::last_write_time(fresh, now - std::chrono::hours(1));
@@ -272,5 +294,6 @@ TEST_CASE(
   workdirs::sweepScratchDir();
   REQUIRE_FALSE(fs::exists(stale));
   REQUIRE(fs::exists(fresh));
+  REQUIRE(fs::is_directory(live));
   REQUIRE(fs::exists(segmentFile));
 }
