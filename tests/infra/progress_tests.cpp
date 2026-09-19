@@ -182,6 +182,41 @@ TEST_CASE("progress updates emit no frames when stdout is not a terminal", "[pro
   }
 }
 
+TEST_CASE("bar layout follows the compact and worker-count rules", "[progress]") {
+  // Slot bars are a full-progress affordance: compact keeps them only for a
+  // one-file batch, whose bar is the single task's own bar.
+  CHECK(progress::showsSlotBars(1, true));
+  CHECK_FALSE(progress::showsSlotBars(2, true));
+  CHECK_FALSE(progress::showsSlotBars(5, true));
+  CHECK(progress::showsSlotBars(1, false));
+  CHECK(progress::showsSlotBars(2, false));
+  CHECK(progress::showsSlotBars(5, false));
+
+  // The Overall bar needs more than one file in compact mode, and more files
+  // than workers in full mode. A one-file batch shows no Overall bar in
+  // either mode.
+  CHECK_FALSE(progress::showsOverallBar(1, 1, true));
+  CHECK_FALSE(progress::showsOverallBar(1, 4, true));
+  CHECK(progress::showsOverallBar(4, 4, true));
+  CHECK(progress::showsOverallBar(8, 4, true));
+  CHECK_FALSE(progress::showsOverallBar(1, 1, false));
+  CHECK_FALSE(progress::showsOverallBar(1, 4, false));
+  CHECK_FALSE(progress::showsOverallBar(4, 4, false));
+  CHECK(progress::showsOverallBar(8, 4, false));
+}
+
+TEST_CASE("barCount reports the bars a context has created", "[progress]") {
+  auto ctx = progress::ProgressContext{};
+  CHECK(ctx.barCount() == 0);
+
+  // Bars are counted on creation; the count keeps them after the render lines
+  // are gone, so it is the layout's ledger rather than the screen's.
+  ctx.addBar("first", terminal::Role::Accent);
+  CHECK(ctx.barCount() == 1);
+  ctx.addBar("second", terminal::Role::Accent);
+  CHECK(ctx.barCount() == 2);
+}
+
 TEST_CASE("progress bar colors follow the role table", "[progress]") {
   using indicators::Color;
   using terminal::Role;
