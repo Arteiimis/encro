@@ -28,10 +28,6 @@ struct ConversionOutcome {
   std::vector<ConversionTask> ready;
 };
 
-// Clears the conversion cache unless a matching saved state makes it
-// resumable, mirroring the picture compression cache's rule.
-void prepareConversionCacheDir(fs::path const& cacheDir, bool jobStateMatched);
-
 // Converts the videos a picture run has queued: drops cached outputs the saved
 // state does not back, registers one job-state task per clip, encodes what is
 // missing through the shared video WebP recipe, and reports which clips may be
@@ -41,9 +37,5 @@ auto runConversionPhase(
   std::span<ConversionTask const> tasks,
   std::size_t maxParallel
 ) -> eh::Result<ConversionOutcome>;
-
-// Removes the cache of a run that finished; a stopped run keeps it so the next
-// one resumes from it.
-void clearConversionCache(fs::path const& cacheDir);
 
 }  // namespace picturewebp

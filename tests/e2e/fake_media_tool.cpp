@@ -94,6 +94,8 @@ auto openLogForAppend(fs::path const& logPath) -> std::ofstream {
   for (auto attempt = 0; attempt < kOpenAttempts; ++attempt) {
     auto out = std::ofstream{logPath, std::ios::app};
     if (out.is_open()) { return out; }
+    // sleep-ok: backoff between retries of a file open that another process
+    // holds; the alternative is dropping the record under parallel encodes
     std::this_thread::sleep_for(std::chrono::milliseconds{5});
   }
   return {};

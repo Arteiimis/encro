@@ -42,4 +42,4 @@ The job-state config snapshot SHALL record whether video conversion is enabled, 
 #### Scenario: Matching conversion flag resumes
 
 - **WHEN** a picture run with `--video-webp` saved a state and the same command runs again
-- **THEN** the saved state is matched and the already-converted videos are not converted again
+- **THEN** the saved state is matched and the run resumes from it, treating the saved conversion records as its own rather than discarding them

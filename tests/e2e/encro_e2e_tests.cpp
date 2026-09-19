@@ -259,15 +259,6 @@ std::size_t countMarkerFiles(fs::path const& markerDir) {
   );
 }
 
-// Last call index the fake tool consumed (0 when it never ran). Sequential
-// encodes share this counter, so it counts encodes across runs.
-int readCallIndex(fs::path const& countPath) {
-  auto in = std::ifstream{countPath};
-  auto index = 0;
-  if (in.is_open()) { in >> index; }
-  return index;
-}
-
 auto findOutputMp4(fs::path const& searchRoot, fs::path const& excluded = {})
   -> std::optional<fs::path> {
   if (!fs::exists(searchRoot)) { return std::nullopt; }
@@ -1926,6 +1917,9 @@ TEST_CASE(
   auto const logPath = temp.path / "fake-tool.log";
   auto const countPath = temp.path / "call-count.txt";
   auto const markerDir = temp.path / "encode-markers";
+  // The resume run gets its own marker directory, so its encodes can be counted
+  // apart from the canceled run's.
+  auto const resumeMarkerDir = temp.path / "resume-markers";
   // Sequential conversions (-j 1); the second one sleeps long enough for the
   // stop to land inside it, so exactly one clip finishes first.
   auto const env = std::map<std::string, std::string>{
@@ -1968,13 +1962,14 @@ TEST_CASE(
   }
   REQUIRE(cachedWebps.size() == 1);
 
-  auto const resumed = e2e::runEncro(baseArgs, std::nullopt, env);
+  auto resumeEnv = env;
+  resumeEnv["ENCRO_FAKE_FFMPEG_MARKER_DIR"] = resumeMarkerDir.string();
+  auto const resumed = e2e::runEncro(baseArgs, std::nullopt, resumeEnv);
   REQUIRE_SUCCESS(resumed);
 
-  // Only the unfinished clip was encoded again: the call counter advanced by
-  // exactly one across the resume, and both clips now have a marker.
-  CHECK(readCallIndex(countPath) == 3);
-  CHECK(countMarkerFiles(markerDir) == 2);
+  // The resume encoded only the unfinished clip; the finished one came from the
+  // cache, so it contributes no marker in this run's own directory.
+  CHECK(countMarkerFiles(resumeMarkerDir) == 1);
   auto const zips = listFilesWithExtension(inputDir / "packed", ".zip");
   REQUIRE(zips.size() == 1);
   auto const entries = testutils::listZipRegularEntryNames(zips.front());

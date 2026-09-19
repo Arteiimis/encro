@@ -529,7 +529,7 @@ TEST_CASE(
   state.plannedOutputFile = temp.path / "out" / "sample.webp";
 
   // q=80 succeeds but overshoots the 20MB target; the retry tier (q=75) fails.
-  auto const success = encodeVideo(ctx, state, {});
+  auto const success = encodeVideo(ctx, state, ctx.config.outputFormat, {});
   CHECK_FALSE(success);
 
   // The state's snapshot command must reflect the failing retry tier, not the
