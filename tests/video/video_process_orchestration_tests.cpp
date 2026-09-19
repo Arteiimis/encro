@@ -84,12 +84,21 @@ TEST_CASE(
   auto ctx = appctx::AppContext{};
   configureVideoContext(ctx, temp.path, inputPath);
 
-  auto const result = handlePathEncoding(ctx, inputPath);
+  auto const outPath = temp.path / "stdout.txt";
+  auto result = 0;
+  {
+    auto capture = StdoutCapture{outPath};
+    result = handlePathEncoding(ctx, inputPath);
+  }
+
   auto const encodedFiles = listRegularFiles(temp.path / "encoded_webp");
+  auto const captured = readTextFile(outPath);
 
   CHECK(result == 0);
   REQUIRE(encodedFiles.size() == 1);
   CHECK(encodedFiles.front().extension() == ".webp");
+  // The single-file path is the one the hint is meant for.
+  CHECK(captured.find("Compare:") != std::string::npos);
   CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
@@ -182,6 +191,71 @@ TEST_CASE(
       return task.kind == jobstate::kBuildArchiveKind;
     });
   CHECK(archiveTaskCount == 1);
+  CHECK_FALSE(fs::exists(strayProgress.path));
+}
+
+TEST_CASE(
+  "resumed run prints the preview hint for a single recovered task",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  StrayProgressGuard strayProgress{temp.path};
+  auto const inputDir = temp.path / "videos";
+  auto const stateFilePath = temp.path / "encro.job-state.json";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.mp4", "a");
+
+  auto ctx = appctx::AppContext{};
+  configureVideoContext(ctx, temp.path, inputDir);
+  ctx.config.stateFilePath = stateFilePath;
+  ctx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
+  auto const initRes = ctx.runtime.jobState->initialize(ctx.config, false);
+  REQUIRE(initRes);
+  REQUIRE(handlePathEncoding(ctx, inputDir) == 0);
+
+  auto const encodeTaskBefore = [&]() {
+    auto const tasks = ctx.runtime.jobState->tasks();
+    auto const it = std::ranges::find_if(tasks, [](jobstate::TaskRecord const& task) {
+      return task.kind == jobstate::kEncodeVideoKind && task.label == "a.mp4";
+    });
+    REQUIRE(it != tasks.end());
+    return *it;
+  }();
+  REQUIRE(encodeTaskBefore.status == jobstate::TaskStatus::Succeeded);
+
+  // Resume: the only task is already complete, so this run recovers exactly
+  // one success and encodes nothing new (design D1).
+  auto resumeCtx = appctx::AppContext{};
+  configureVideoContext(resumeCtx, temp.path, inputDir);
+  resumeCtx.config.stateFilePath = stateFilePath;
+  resumeCtx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
+  auto const resumeRes = resumeCtx.runtime.jobState->initialize(resumeCtx.config, false);
+  REQUIRE(resumeRes);
+  REQUIRE(resumeRes.value());
+
+  auto const outPath = temp.path / "stdout.txt";
+  auto result = 0;
+  {
+    auto capture = StdoutCapture{outPath};
+    result = handlePathEncoding(resumeCtx, inputDir);
+  }
+
+  auto const captured = readTextFile(outPath);
+  CHECK(result == 0);
+  // The run recovered instead of re-encoding, so the one success the summary
+  // counts comes from saved state rather than from this process's work.
+  auto const tasks = resumeCtx.runtime.jobState->tasks();
+  auto const encodeTaskAfter =
+    std::ranges::find_if(tasks, [](jobstate::TaskRecord const& task) {
+      return task.kind == jobstate::kEncodeVideoKind && task.label == "a.mp4";
+    });
+  REQUIRE(encodeTaskAfter != tasks.end());
+  CHECK(encodeTaskAfter->attemptCount == 1);
+  CHECK(captured.find("Encoded 1/1 videos") != std::string::npos);
+  // The recovered task is the summary's one success, so its hint still prints.
+  CHECK(captured.find("Compare:") != std::string::npos);
+  CHECK(captured.find("a.mp4") != std::string::npos);
   CHECK_FALSE(fs::exists(strayProgress.path));
 }
 
@@ -320,7 +394,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "post-encode summary is the count line plus preview hints on success",
+  "post-encode summary is the count line alone when multiple files succeed",
   "[video-process][orchestration]"
 ) {
   ScopedStopSignalReset stopGuard;
@@ -342,10 +416,11 @@ TEST_CASE(
 
   auto const captured = readTextFile(outPath);
   // The count line carries the encoded count and the resolved output
-  // directory; the preview hints follow. No headers, no count table.
+  // directory; with more than one success no preview hint follows. No
+  // headers, no count table.
   CHECK(captured.find("Encoded 2/2 videos") != std::string::npos);
   CHECK(captured.find("encoded_webp") != std::string::npos);
-  CHECK(captured.find("Compare:") != std::string::npos);
+  CHECK(captured.find("Compare:") == std::string::npos);
   CHECK(captured.find("All encoding tasks completed.") == std::string::npos);
   CHECK(captured.find("Summary:") == std::string::npos);
   CHECK(captured.find("Total videos found") == std::string::npos);
