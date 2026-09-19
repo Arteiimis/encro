@@ -542,6 +542,11 @@ void printEncodingSummary(
     }
   }
 
+  // One hint per encoded file buried the summary on large batches. The anchor
+  // is the summary's own success count, so a resumed run that recovered a
+  // single completed task still hints.
+  if (successCount != 1) { return; }
+
   for (auto const& [vidPath, success]: vidsRunRes) {
     if (!success) { continue; }
     auto const outFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
