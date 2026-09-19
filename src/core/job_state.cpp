@@ -249,6 +249,7 @@ auto toJson(ConfigSnapshot const& config) -> json::object {
   object["recursive"] = config.recursive;
   object["forceNameConflictHandling"] = config.forceNameConflictHandling;
   object["pictureFolderSummary"] = config.pictureFolderSummary;
+  object["videoWebp"] = config.videoWebp;
   object["inputPaths"] = pathsToJson(config.inputPaths);
   object["outputPath"] = pathToJson(config.outputPath);
   return object;
@@ -266,6 +267,7 @@ auto fromJsonConfig(json::object const& object) -> ConfigSnapshot {
       || object.at("forceNameConflictHandling").as_bool(),
     .pictureFolderSummary = object.if_contains("pictureFolderSummary")
       && object.at("pictureFolderSummary").as_bool(),
+    .videoWebp = object.if_contains("videoWebp") && object.at("videoWebp").as_bool(),
     .inputPaths = optionalStringArrayFrom(object, "inputPaths"),
     .outputPath = optionalPathFrom(object, "outputPath"),
   };
@@ -551,6 +553,7 @@ auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot {
     .recursive = config.recursive,
     .forceNameConflictHandling = config.forceNameConflictHandling,
     .pictureFolderSummary = config.pictureFolderSummary,
+    .videoWebp = config.videoWebp,
     .inputPaths = std::move(inputPaths),
     .outputPath = config.outputPath,
   };
@@ -565,6 +568,7 @@ bool configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) {
     && lhs.recursive == rhs.recursive
     && lhs.forceNameConflictHandling == rhs.forceNameConflictHandling
     && lhs.pictureFolderSummary == rhs.pictureFolderSummary
+    && lhs.videoWebp == rhs.videoWebp
     && lhs.inputPaths == rhs.inputPaths
     && lhs.outputPath == rhs.outputPath;
 }

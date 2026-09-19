@@ -40,6 +40,7 @@ struct CmdParseResult {
   bool restart = false;
   std::optional<std::string> ffmpegPath;
   bool compress = false;
+  bool videoWebp = false;
   std::optional<int> imageQuality;
   std::optional<int> crf;
   int minVmaf = 95;

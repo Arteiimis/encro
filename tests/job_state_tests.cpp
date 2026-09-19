@@ -716,6 +716,45 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "job state reports discarded mismatch when the picture conversion flag changes",
+  "[job-state][video-webp]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const clipPath = inputDir / "clip.mp4";
+  auto const convertedPath = temp.path / ".encro" / "webp" / "clip.webp";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeTextFile(clipPath, "fake-video");
+  writeTextFile(convertedPath, "fake-webp");
+
+  auto flaggedConfig = makeConfig(inputDir, statePath);
+  flaggedConfig.processType = "picture";
+  flaggedConfig.videoWebp = true;
+
+  // A conversion run saves its per-video task; the same command matches.
+  auto store = jobstate::Store{statePath};
+  REQUIRE(store.initialize(flaggedConfig, false));
+  store.mergeTasks(std::array{jobstate::makeEncodeTask(clipPath, convertedPath)});
+
+  auto matchingStore = jobstate::Store{statePath};
+  auto const matchRes = matchingStore.initialize(flaggedConfig, false);
+  REQUIRE(matchRes);
+  CHECK(matchRes.value());
+
+  // Dropping the flag is a different job: the saved state must not be reused.
+  auto plainConfig = flaggedConfig;
+  plainConfig.videoWebp = false;
+
+  auto mismatchedStore = jobstate::Store{statePath};
+  auto discardedMismatched = false;
+  auto const mismatchRes =
+    mismatchedStore.initialize(plainConfig, false, &discardedMismatched);
+  REQUIRE(mismatchRes);
+  CHECK_FALSE(mismatchRes.value());
+  CHECK(discardedMismatched);
+}
+
+TEST_CASE(
   "job state does not report discarded mismatch without a state file",
   "[job-state]"
 ) {

@@ -2,6 +2,7 @@
 
 #include "core/media_scanner.h"
 #include "core/task_executor.h"
+#include "infra/terminal.h"
 #include "utils/utils.h"
 #include "video/video_workflow_utils.h"
 
@@ -23,16 +24,6 @@ namespace fs = std::filesystem;
 using namespace std::literals;
 
 namespace {
-
-constexpr auto kVideoTypes = std::array{
-  ".mp4"sv,
-  ".mkv"sv,
-  ".avi"sv,
-  ".mov"sv,
-  ".flv"sv,
-  ".wmv"sv,
-};
-constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 
 auto jsonValToString(boost::json::value const& val) -> std::string {
   if (val.is_string()) { return std::string{val.as_string()}; }
@@ -107,7 +98,7 @@ bool isKnownVideoExtension(fs::path const& filePath) {
   namespace rng = std::ranges;
 
   auto const vidsExt = filePath.extension().string();
-  return rng::contains(kVideoTypes, vidsExt);
+  return rng::contains(videoinfo::kVideoExtensions, vidsExt);
 }
 
 auto tryReadFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t> {
@@ -128,7 +119,7 @@ bool keepsWebpInputSizeLimit(appctx::AppConfig const& config, fs::path const& fi
 
   auto const fileSize = tryReadFileSize(filePath);
   if (!fileSize.has_value()) { return false; }
-  if (fileSize.value() < kWebpInputMaxSize) { return true; }
+  if (fileSize.value() < videoinfo::kWebpInputMaxSize) { return true; }
 
   LOG_DEBUG(
     "Skipping large video file for webp output: {} ({} bytes)",
@@ -283,6 +274,49 @@ void prewarmWebpVideoInfoCache(
 }
 
 }  // namespace
+
+// Probe-free, size-gated video scan for the picture run's WebP conversion.
+// Oversized clips warn: a picture run that silently dropped a clip the user
+// asked to convert would look like the flag did nothing for it.
+auto videoinfo::scanVideosForConversion(fs::path const& dirPath, bool recursive)
+  -> eh::Result<std::vector<fs::path>> {
+  if (!fs::is_directory(dirPath)) {
+    return eh::makeError("Provided path is not a directory: {}", dirPath.string());
+  }
+
+  auto const scanRes =
+    media::scanByExtensions(dirPath, videoinfo::kVideoExtensions, recursive);
+  if (!scanRes) { return eh::makeError("{}", scanRes.error()); }
+  for (auto const& warning: scanRes->warnings) { LOG_WARN("{}", warning); }
+
+  auto vids = std::vector<fs::path>{};
+  vids.reserve(scanRes->matches.size());
+  for (auto const& candidate: scanRes->matches) {
+    auto const fileSize = tryReadFileSize(candidate);
+    if (!fileSize.has_value()) {
+      terminal::messageln(
+        terminal::MessageKind::Warning,
+        "Skipping video with unreadable size for WebP conversion: {}",
+        terminal::path(candidate)
+      );
+      continue;
+    }
+
+    if (fileSize.value() >= videoinfo::kWebpInputMaxSize) {
+      terminal::messageln(
+        terminal::MessageKind::Warning,
+        "Skipping oversized video for WebP conversion: {} ({})",
+        terminal::path(candidate),
+        terminal::count(fileSize.value())
+      );
+      continue;
+    }
+
+    vids.emplace_back(candidate);
+  }
+
+  return vids;
+}
 
 auto videoinfo::cachedVidInfo(
   appctx::ToolchainPaths const& toolchain,
@@ -531,7 +565,8 @@ auto readAllVids(
       vids.emplace_back(collected.value());
     }
   } else {
-    auto const scanRes = media::scanByExtensions(dirPath, kVideoTypes, config.recursive);
+    auto const scanRes =
+      media::scanByExtensions(dirPath, videoinfo::kVideoExtensions, config.recursive);
     if (!scanRes) { return eh::makeError("{}", scanRes.error()); }
     for (auto const& warning: scanRes->warnings) { LOG_WARN("{}", warning); }
 

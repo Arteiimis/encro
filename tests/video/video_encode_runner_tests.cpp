@@ -69,6 +69,51 @@ TEST_CASE("webp target size met on the first attempt", "[video-encode-runner]") 
 }
 
 TEST_CASE(
+  "conversion and video webp output share one recipe",
+  "[video-encode-runner][video-webp]"
+) {
+  auto stopGuard = testutils::ScopedStopSignalReset{};
+
+  // Video caller: the config selects webp through the normal -f option.
+  auto videoSide = WebpScaffold{};
+  videoSide.state.progressFilePath = videoSide.temp.path / "progress.txt";
+  CHECK(videoSide.run());
+
+  // Conversion caller: a picture run keeps the config at mp4 and asks for the
+  // webp entry point explicitly.
+  auto conversionSide = WebpScaffold{};
+  conversionSide.ctx.config.outputFormat = "mp4";
+  conversionSide.state.progressFilePath = conversionSide.temp.path / "progress.txt";
+  CHECK(encodeVideoAsWebp(conversionSide.ctx, conversionSide.state, {}));
+
+  // Same invocation, modulo the temp roots: the encoder, filter chain, loop
+  // setting, starting quality and size target all come from one recipe.
+  auto const scrubRoot = [](std::string text, fs::path const& root) {
+    auto const rootText = root.string();
+    for (
+      auto pos = text.find(rootText); pos != std::string::npos;
+      pos = text.find(rootText, pos)
+    ) {
+      text.replace(pos, rootText.size(), "<tmp>");
+    }
+    return text;
+  };
+  auto const videoLog =
+    scrubRoot(testutils::readTextFile(videoSide.logPath), videoSide.temp.path);
+  auto const conversionLog =
+    scrubRoot(testutils::readTextFile(conversionSide.logPath), conversionSide.temp.path);
+
+  CHECK(conversionLog.find("-c:v\tlibwebp") != std::string::npos);
+  CHECK(conversionLog.find("-loop\t0") != std::string::npos);
+  CHECK(conversionLog.find("-q:v\t80") != std::string::npos);
+  CHECK(
+    conversionLog.find("scale=-2:960:force_original_aspect_ratio=decrease")
+    != std::string::npos
+  );
+  CHECK(conversionLog == videoLog);
+}
+
+TEST_CASE(
   "webp min-quality fallback engages after the quality ladder exhausts",
   "[video-encode-runner]"
 ) {

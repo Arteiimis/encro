@@ -239,6 +239,10 @@ auto applyMediaOptionValidations(appctx::AppConfig& config, CmdParseResult const
     return eh::makeError("--compress is only supported with --type picture.");
   }
 
+  if (config.processType != "picture" && config.videoWebp) {
+    return eh::makeError("--video-webp is only supported with --type picture.");
+  }
+
   // Value checks for -q/--crf/--min-vmaf moved to parse time (CLI::Range);
   // --image-quality requires --compress moved to Option::needs().
   config.imageQuality = result.imageQuality;
@@ -324,6 +328,7 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
   config.pictureFolderSummary = result.folderSummary;
 
   config.compressImages = result.compress;
+  config.videoWebp = result.videoWebp;
   if (auto const applied = applyMediaOptionValidations(config, result); !applied) {
     return eh::makeError("{}", applied.error());
   }

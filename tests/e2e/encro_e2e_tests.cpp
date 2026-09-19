@@ -250,6 +250,24 @@ std::size_t countLogLines(fs::path const& logPath, std::string_view needle) {
   return count;
 }
 
+// Counts the fake tool's per-encode marker files. Concurrent appends to the
+// shared invocation log can lose a line, so encode counts read this instead.
+std::size_t countMarkerFiles(fs::path const& markerDir) {
+  if (!fs::is_directory(markerDir)) { return 0; }
+  return static_cast<std::size_t>(
+    std::distance(fs::directory_iterator{markerDir}, fs::directory_iterator{})
+  );
+}
+
+// Last call index the fake tool consumed (0 when it never ran). Sequential
+// encodes share this counter, so it counts encodes across runs.
+int readCallIndex(fs::path const& countPath) {
+  auto in = std::ifstream{countPath};
+  auto index = 0;
+  if (in.is_open()) { in >> index; }
+  return index;
+}
+
 auto findOutputMp4(fs::path const& searchRoot, fs::path const& excluded = {})
   -> std::optional<fs::path> {
   if (!fs::exists(searchRoot)) { return std::nullopt; }
@@ -738,6 +756,96 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "encro picture run converts clips into the same archives",
+  "[e2e][picture][video-webp][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  testutils::writeSizedFile(inputDir / "photo.jpg", 64);
+  testutils::writeSizedFile(inputDir / "clip.mp4", 128);
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+  };
+
+  auto const result = e2e::runEncro(
+    {"-y",
+     "--type",
+     "picture",
+     "--video-webp",
+     "-i",
+     inputDir.string(),
+     "-j",
+     "1",
+     "--ffmpeg-path",
+     toolchain.root.string()},
+    std::nullopt,
+    env
+  );
+  REQUIRE_SUCCESS(result);
+
+  auto const zips = listFilesWithExtension(inputDir / "packed", ".zip");
+  REQUIRE(zips.size() == 1);
+  auto const entries = testutils::listZipRegularEntryNames(zips.front());
+  REQUIRE(entries.size() == 2);
+  CHECK(std::ranges::any_of(entries, [](std::string const& name) {
+    return name.ends_with(".webp");
+  }));
+  CHECK(std::ranges::any_of(entries, [](std::string const& name) {
+    return name.ends_with(".jpg");
+  }));
+  // The converted clip was encoded with the video workflow's WebP recipe.
+  auto const log = testutils::readTextFile(logPath);
+  CHECK(log.find("libwebp") != std::string::npos);
+  CHECK(log.find("-loop") != std::string::npos);
+  // A finished run leaves no conversion cache behind.
+  CHECK_FALSE(fs::exists(inputDir / ".encro" / "webp"));
+}
+
+TEST_CASE(
+  "encro picture run without the flag never invokes the encoder",
+  "[e2e][picture][video-webp][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  testutils::writeSizedFile(inputDir / "photo.jpg", 64);
+  testutils::writeSizedFile(inputDir / "clip.mp4", 128);
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+  };
+
+  auto const result = e2e::runEncro(
+    {"-y",
+     "--type",
+     "picture",
+     "-i",
+     inputDir.string(),
+     "-j",
+     "1",
+     "--ffmpeg-path",
+     toolchain.root.string()},
+    std::nullopt,
+    env
+  );
+  REQUIRE_SUCCESS(result);
+
+  // The toolchain probes report their version; no conversion may run.
+  CHECK(countLogLines(logPath, "libwebp") == 0);
+  CHECK(countLogLines(logPath, "clip.mp4") == 0);
+  auto const zips = listFilesWithExtension(inputDir / "packed", ".zip");
+  REQUIRE(zips.size() == 1);
+  auto const entries = testutils::listZipRegularEntryNames(zips.front());
+  REQUIRE(entries.size() == 1);
+  CHECK(entries.front().ends_with(".jpg"));
+}
+TEST_CASE(
   "encro real ffmpeg compresses a png through the temp extension",
   "[e2e][smoke][real-ffmpeg][picture]"
 ) {
@@ -775,6 +883,66 @@ TEST_CASE(
   REQUIRE(entries.size() == 1);
   // Zip entries carry the picture stem (extension-less by naming design).
   CHECK(entries.front().find("picture") != std::string::npos);
+}
+
+TEST_CASE(
+  "encro real ffmpeg converts a clip into an animated webp entry",
+  "[e2e][smoke][real-ffmpeg][picture][video-webp]"
+) {
+  requireRealToolchainOrSkip();
+
+  TempDir temp;
+  auto const clip = createRealSmokeVideo(temp.path / "clip.mp4");
+  auto const png = temp.path / "picture.png";
+  REQUIRE_SUCCESS(
+    e2e::runProcess(
+      systemToolPath("ffmpeg"),
+      {"-y",
+       "-f",
+       "lavfi",
+       "-i",
+       "color=c=red:s=32x32:d=1",
+       "-frames:v",
+       "1",
+       png.string()}
+    )
+  );
+
+  auto const result = e2e::runEncro(
+    {"-y", "--type", "picture", "--video-webp", "-i", temp.path.string(), "-j", "1"},
+    temp.path
+  );
+  CAPTURE(result.stdoutText, result.stderrText);
+  REQUIRE(result.exitCode == 0);
+
+  auto const zips = listFilesWithExtension(temp.path / "packed", ".zip");
+  REQUIRE(zips.size() == 1);
+  auto const entries = testutils::listZipRegularEntryNames(zips.front());
+  REQUIRE(entries.size() == 2);
+  auto const webpEntry = std::ranges::find_if(entries, [](std::string const& name) {
+    return name.ends_with(".webp");
+  });
+  REQUIRE(webpEntry != entries.end());
+
+  // Extract the packed conversion and probe it: an animated WebP keeps every
+  // frame, so the entry is a real conversion and not a still or a stub.
+  auto const extracted = temp.path / "entry.webp";
+  {
+    libzippp::ZipArchive zip{zips.front().string()};
+    zip.open(libzippp::ZipArchive::ReadOnly);
+    auto const entry = zip.getEntry(*webpEntry);
+    REQUIRE_FALSE(entry.isNull());
+    auto out = std::ofstream{extracted, std::ios::binary};
+    REQUIRE(out.is_open());
+    REQUIRE(entry.readContent(out) == LIBZIPPP_OK);
+    zip.close();
+  }
+  REQUIRE(fs::exists(extracted));
+  CHECK(probePrimaryCodecName(extracted) == "webp");
+  // An animated WebP carries one packet per frame; a still conversion shows 1.
+  auto const probed = probeJson(extracted, {"-show_packets", "-select_streams", "v"});
+  auto const& packets = probed.at("packets").as_array();
+  CHECK(packets.size() > 1);
 }
 
 TEST_CASE(
@@ -1740,6 +1908,86 @@ auto waitForSummaryStatus(fs::path const& logRoot) -> std::optional<std::string>
 }
 
 }  // namespace
+
+TEST_CASE(
+  "encro resumes a canceled picture conversion without re-encoding",
+  "[e2e][picture][video-webp][interrupt][fake-toolchain]"
+) {
+  requireConsoleCtrlOrSkip();
+
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  testutils::writeSizedFile(inputDir / "photo.jpg", 64);
+  testutils::writeSizedFile(inputDir / "clip0.mp4", 128);
+  testutils::writeSizedFile(inputDir / "clip1.mp4", 128);
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const logPath = temp.path / "fake-tool.log";
+  auto const countPath = temp.path / "call-count.txt";
+  auto const markerDir = temp.path / "encode-markers";
+  // Sequential conversions (-j 1); the second one sleeps long enough for the
+  // stop to land inside it, so exactly one clip finishes first.
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countPath.string()},
+    {"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2:15000:0"},
+    {"ENCRO_FAKE_FFMPEG_MARKER_DIR", markerDir.string()},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "-y",
+    "--type",
+    "picture",
+    "--video-webp",
+    "-i",
+    inputDir.string(),
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, env);
+  auto const secondStarted = testutils::waitUntil(
+    [&] { return countMarkerFiles(markerDir) >= 2; },
+    std::chrono::seconds{20}
+  );
+  CHECK(proc.sendCtrlC());
+  auto const interrupted = proc.wait(std::chrono::seconds{20});
+  REQUIRE(secondStarted);
+  REQUIRE(interrupted.has_value());
+  CHECK(interrupted->exitCode == stopsignal::kCanceledExitCode);
+
+  // The finished conversion survives the stop; the interrupted one left no
+  // output at a final cached path.
+  auto cachedWebps = std::vector<std::string>{};
+  for (auto const& entry: fs::directory_iterator{inputDir / ".encro" / "webp"}) {
+    if (entry.path().extension() == ".webp") {
+      cachedWebps.push_back(entry.path().filename().string());
+    }
+  }
+  REQUIRE(cachedWebps.size() == 1);
+
+  auto const resumed = e2e::runEncro(baseArgs, std::nullopt, env);
+  REQUIRE_SUCCESS(resumed);
+
+  // Only the unfinished clip was encoded again: the call counter advanced by
+  // exactly one across the resume, and both clips now have a marker.
+  CHECK(readCallIndex(countPath) == 3);
+  CHECK(countMarkerFiles(markerDir) == 2);
+  auto const zips = listFilesWithExtension(inputDir / "packed", ".zip");
+  REQUIRE(zips.size() == 1);
+  auto const entries = testutils::listZipRegularEntryNames(zips.front());
+  REQUIRE(entries.size() == 3);
+  CHECK(
+    std::ranges::count_if(
+      entries,
+      [](std::string const& name) { return name.ends_with(".webp"); }
+    )
+    == 2
+  );
+  CHECK_FALSE(fs::exists(inputDir / ".encro" / "webp"));
+}
 
 TEST_CASE(
   "encro exits 130 and saves resumable state on Ctrl+C mid-encode",
