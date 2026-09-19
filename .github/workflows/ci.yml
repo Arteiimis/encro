@@ -24,7 +24,7 @@ concurrency:
 jobs:
   linux:
     name: ${{ matrix.mode }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # xmake 检测到 CI 环境会默认禁用 ccache（见 xmake modules/private/cache/build_cache.lua
     # 的 is_enabled：CI=true 时除非 XMAKE_ACTION_BUILD_CACHE 非空）。置 1 恢复
     # 内置内容寻址编译缓存，否则 build/.build_cache 永远零写入、缓存形同虚设。
@@ -129,7 +129,7 @@ jobs:
         # tests/e2e/e2e_test_utils.cpp 的 PrivateLogRootEnv），所以那里才是 encro
         # 日志和 probe-cache.json 的实际落点。
         if: always() && matrix.mode != 'coverage'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: test-reports-${{ matrix.mode }}
           path: |
@@ -175,7 +175,7 @@ jobs:
       - name: Upload coverage report
         # always(): 测试失败也留报告；插件早期失败时 html 不存在 → warn 不报错
         if: always() && matrix.mode == 'coverage'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: |
@@ -206,19 +206,19 @@ jobs:
     # 子目录按来源区分，ut.xml 等同名文件不冲突）。
     needs: linux
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Timestamp
         id: ts
         run: echo "ts=$(date -u +%Y%m%dT%H%M%SZ)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           path: collect
           # 不带 merge-multiple：保留下载物各自子目录（test-reports-debug/ 等）
           pattern: '*'
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           # run_id 尾缀保证同秒多次 run 的名字唯一（同名 artifact 会被 GitHub 合并）
           name: ci-run-${{ steps.ts.outputs.ts }}-r${{ github.run_id }}
