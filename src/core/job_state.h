@@ -40,6 +40,9 @@ struct ConfigSnapshot {
   bool recursive = false;
   bool forceNameConflictHandling = true;
   bool pictureFolderSummary = false;
+  // Whether the picture run converts videos to WebP; part of the job identity
+  // because the conversion is resumable per video.
+  bool videoWebp = false;
   std::vector<fs::path> inputPaths;
   std::optional<fs::path> outputPath;
 };

@@ -36,7 +36,9 @@ auto toNamingStrategy(appctx::AppConfig const& config) -> pack::NamingStrategy {
 bool shouldEnableJobState(appctx::AppConfig const& config) {
   if (config.dryRun) { return false; }  // dry-run leaves no state behind
   if (config.processType == "video" && !config.packOnly) { return true; }
-  if (config.processType == "picture" && config.compressImages) { return true; }
+  if (config.processType == "picture" && (config.compressImages || config.videoWebp)) {
+    return true;
+  }
 
   return config.resumeState || config.restartState || config.stateFilePath.has_value();
 }

@@ -100,6 +100,10 @@ auto compressCacheDir(fs::path const& workRoot, int quality) -> fs::path {
   return workRoot / kEncroDirName / std::format("compress_q{}", quality);
 }
 
+auto webpCacheDir(fs::path const& workRoot) -> fs::path {
+  return workRoot / kEncroDirName / "webp";
+}
+
 auto jobStateFile(fs::path const& workRoot) -> fs::path {
   return workRoot / kEncroDirName / "job-state.json";
 }

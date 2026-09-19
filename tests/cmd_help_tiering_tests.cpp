@@ -173,6 +173,44 @@ TEST_CASE("full help shows accurate option descriptions and defaults", "[cmd][ti
   }
 }
 
+TEST_CASE(
+  "help lists --video-webp in the processing group at both tiers",
+  "[cmd][tiering][video-webp]"
+) {
+  auto const colorGuard = ScopedColorNever{};
+
+  for (
+    auto const& args:
+    {std::vector<std::string>{"encro", "-h"}, std::vector<std::string>{"encro", "-hh"}}
+  ) {
+    auto const result = testutils::parseArgs(args);
+    REQUIRE_FALSE(result.error.has_value());
+
+    auto const& help = result.helpText();
+    auto const optionLine =
+      testutils::findHelpLine(help, "convert videos found in a picture input");
+    REQUIRE(optionLine.has_value());
+    CHECK(optionLine->find("--video-webp") != std::string::npos);
+
+    auto const processingHeader = help.find("Processing options:");
+    auto const fileopHeader = help.find("File operation options:");
+    auto const optionPos = help.find(optionLine.value());
+    REQUIRE(processingHeader != std::string::npos);
+    REQUIRE(fileopHeader != std::string::npos);
+    CHECK(processingHeader < optionPos);
+    CHECK(optionPos < fileopHeader);
+  }
+
+  // The picture run's synopsis advertises the flag.
+  auto const brief = testutils::parseArgs({"encro", "-h"});
+  REQUIRE_FALSE(brief.error.has_value());
+  CHECK(
+    brief.helpText()
+      .find("encro -t picture <input> [-c [-q <n>]] [--video-webp] [-s] [-p]")
+    != std::string::npos
+  );
+}
+
 TEST_CASE("brief help shows the crf default", "[cmd][tiering]") {
   auto const colorGuard = ScopedColorNever{};
   auto const result = testutils::parseArgs({"encro", "-h"});
