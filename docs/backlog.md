@@ -270,9 +270,10 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
   every line appears twice in the `.log`. Console and ndjson output are unaffected, and
   `level_counts` still counts each record once.
 - **Next step:** make `LevelCountingSink` count-only (drop `next_` plus the `flush` and
-  `set_pattern` delegation — the vector already delivers the record to every sink), or
-  replace the head instead of inserting alongside it. Pin it with a case that logs one
-  record against a temp log root and asserts exactly one matching line.
+  `set_pattern` delegation — the vector already delivers the record to every sink).
+  Replacing the head instead of inserting alongside it does not work: the head *is* the
+  human-readable file sink, so that would drop the log entirely. Pin it with a case that
+  logs one record against a temp log root and asserts exactly one matching line.
 
 ## Shared scratch root makes concurrent suites interfere
 
