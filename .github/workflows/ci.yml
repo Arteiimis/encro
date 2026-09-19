@@ -35,13 +35,13 @@ jobs:
       matrix:
         mode: ${{ github.event_name == 'workflow_dispatch' && fromJSON(inputs.modes) || fromJSON('["debug","release","coverage"]') }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
 
-      - uses: actions/cache/restore@v5
+      - uses: actions/cache/restore@v6
         id: xmake-cache
         with:
           # 包目录内部按 mode/buildhash 分区，一个 key 覆盖三模式产物
@@ -58,7 +58,7 @@ jobs:
         timeout-minutes: 10
         run: bash scripts/setup-linux-env.sh
 
-      - uses: actions/cache/restore@v5
+      - uses: actions/cache/restore@v6
         id: xmake-ccache
         # coverage 模式幂等性要求禁用 ccache（xmake.lua），不缓存它
         if: matrix.mode != 'coverage'
@@ -186,7 +186,7 @@ jobs:
       - name: Save xmake packages cache
         # 显式保存（job 失败也保存，否则每次 miss 全量重编 boost）；命中时跳过避免重复 key
         if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: ~/.xmake/packages
           key: xmake-packages-${{ hashFiles('xmake.lua') }}
@@ -195,7 +195,7 @@ jobs:
         # 同 packages：失败也保存；命中时跳过（内容寻址缓存无跨代漂移，无需
         # 更新缓存条目）。coverage 模式无缓存可存。
         if: always() && matrix.mode != 'coverage' && steps.xmake-ccache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: build/.build_cache
           key: xmake-ccache-${{ matrix.mode }}-${{ hashFiles('xmake.lua', 'scripts/setup-linux-env.sh') }}
