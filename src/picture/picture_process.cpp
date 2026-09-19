@@ -1,6 +1,7 @@
 #include "picture/picture_process.h"
 
 #include "picture/picture_compress.h"
+#include "picture/picture_video_webp.h"
 
 #include "core/collision_naming.h"
 #include "core/job_state.h"
@@ -10,6 +11,7 @@
 #include "infra/terminal.h"
 #include "pack/pack.h"
 #include "utils/utils.h"
+#include "video/video_info.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -19,6 +21,8 @@
 #include <filesystem>
 #include <memory>
 #include <map>
+#include <span>
+#include <string>
 #include <unordered_map>
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
@@ -75,6 +79,12 @@ auto toJpgEntryName(std::string const& entryName) -> std::string {
   return entryName + ".jpg";
 }
 
+auto toWebpEntryName(std::string const& entryName) -> std::string {
+  auto const stemEnd = entryName.rfind('.');
+  if (stemEnd != std::string::npos) { return entryName.substr(0, stemEnd) + ".webp"; }
+  return entryName + ".webp";
+}
+
 auto planPictureZipEntryNames(
   appctx::AppConfig const& config,
   fs::path const& dirPath,
@@ -119,6 +129,38 @@ auto planPictureZipEntryNames(
   }
 
   return plannedEntries;
+}
+
+// Video entries follow the picture naming scheme, with the WebP extension the
+// conversion produces: the same layout and conflict rules, so a clip lands
+// beside the pictures of its own directory and never clobbers an entry.
+auto planVideoConversionTasks(
+  appctx::AppConfig const& config,
+  fs::path const& dirPath,
+  fs::path const& cacheDir,
+  std::span<fs::path const> videoPaths
+) -> std::vector<picturewebp::ConversionTask> {
+  auto const plannedEntryNames = planPictureZipEntryNames(config, dirPath, videoPaths);
+
+  auto tasks = std::vector<picturewebp::ConversionTask>{};
+  tasks.reserve(videoPaths.size());
+  for (auto const& videoPath: videoPaths) {
+    auto const plannedIt = plannedEntryNames.find(videoPath);
+    auto const entryName = plannedIt != plannedEntryNames.end()
+      ? plannedIt->second
+      : videoPath.filename().generic_string();
+    auto const webpEntryName = toWebpEntryName(entryName);
+    tasks.push_back(
+      picturewebp::ConversionTask{
+        .sourcePath = videoPath,
+        // Flat entry names carry the conflict-handling suffix, so they are
+        // unique within a cache directory.
+        .outputPath = cacheDir / webpEntryName,
+        .entryName = webpEntryName,
+      }
+    );
+  }
+  return tasks;
 }
 
 auto collectFolderSummaryPictures(
@@ -286,6 +328,92 @@ auto scanPictures(appctx::AppContext& ctx, fs::path const& dirPath)
   return scannedPics.value();
 }
 
+// The conversion cache of a run that converts videos; nullopt when the flag is
+// off, so the callers stay free of the flag check.
+auto conversionCacheDirFor(appctx::AppContext& ctx) -> std::optional<fs::path> {
+  if (!ctx.config.videoWebp) { return std::nullopt; }
+  auto const workRootRes = workdirs::resolveWorkRoot(ctx.config);
+  if (!workRootRes) { return std::nullopt; }
+  return workdirs::webpCacheDir(*workRootRes);
+}
+
+// Scans the input for clips and plans their entries when conversion is on; an
+// empty plan otherwise, so the workflow's later steps are unconditional.
+auto planVideoConversions(appctx::AppContext& ctx, fs::path const& dirPath)
+  -> eh::Result<std::vector<picturewebp::ConversionTask>> {
+  if (!ctx.config.videoWebp) { return std::vector<picturewebp::ConversionTask>{}; }
+
+  auto const scannedVids =
+    videoinfo::scanVideosForConversion(dirPath, ctx.config.recursive);
+  if (!scannedVids) { return eh::makeError("{}", scannedVids.error()); }
+
+  terminal::println(
+    Info,
+    "Found {} video(s) under {}.",
+    terminal::count(scannedVids->size()),
+    terminal::path(dirPath)
+  );
+
+  if (scannedVids->empty()) { return std::vector<picturewebp::ConversionTask>{}; }
+
+  auto const cacheDirRes = workdirs::resolveWorkRoot(ctx.config);
+  if (!cacheDirRes) { return eh::makeError("{}", cacheDirRes.error()); }
+  auto const cacheDir = workdirs::webpCacheDir(*cacheDirRes);
+  picturewebp::prepareConversionCacheDir(cacheDir, ctx.runtime.jobStateMatched);
+
+  return planVideoConversionTasks(ctx.config, dirPath, cacheDir, *scannedVids);
+}
+
+struct ConversionPhaseResult {
+  int exitCode = 0;  // 0 on success, the canceled exit code when stopped
+  std::vector<picturewebp::ConversionTask> ready;
+};
+
+// Runs the conversion phase. On success the result carries only the clips whose
+// cached output exists, which is what the pack step must use; a clip whose
+// conversion failed is absent, never packed as its source.
+auto runVideoConversionPhase(
+  appctx::AppContext& ctx,
+  std::vector<picturewebp::ConversionTask> const& tasks
+) -> eh::Result<ConversionPhaseResult> {
+  if (tasks.empty()) { return ConversionPhaseResult{}; }
+
+  auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
+  auto const outcome = picturewebp::runConversionPhase(ctx, tasks, maxParallel);
+  if (!outcome) { return eh::makeError("{}", outcome.error()); }
+
+  return ConversionPhaseResult{
+    .exitCode = outcome.value().canceled ? stopsignal::kCanceledExitCode : 0,
+    .ready = outcome.value().ready,
+  };
+}
+
+// Adds the converted videos to the pack inputs. Each entry carries the clip's
+// own directory as its grouping key, so it stays in the archive that holds the
+// pictures of that directory instead of splitting into one of its own. The
+// cached output is the packed source, so only clips whose conversion exists
+// may reach this point.
+auto appendVideoPackInputs(
+  std::vector<pack::PackEntryInput>& packInputs,
+  std::vector<picturewebp::ConversionTask> const& convertedTasks
+) {
+  for (auto const& task: convertedTasks) {
+    auto const sourceDir = task.sourcePath.parent_path();
+    packInputs.emplace_back(
+      pack::PackEntryInput{
+        .entry =
+          pack::PackFileEntry{
+            .sourcePath = task.outputPath,
+            .zipEntryName = task.entryName,
+          },
+        .sourceDir = sourceDir,
+        .sourceKey = naming::stablePathString(sourceDir),
+        .fileKey = naming::stablePathString(task.sourcePath),
+      }
+    );
+  }
+}
+
 auto executeDirectPackWorkflow(
   appctx::AppContext& ctx,
   fs::path const& dirPath,
@@ -302,10 +430,17 @@ auto executeDirectPackWorkflow(
     terminal::path(dirPath)
   );
 
+  auto conversion = planVideoConversions(ctx, dirPath);
+  if (!conversion) { return eh::makeError("{}", conversion.error()); }
+
   if (!confirmPicturePack(ctx.config)) {
     terminal::messageln(Warning, "Packing task canceled by user.");
     return canceledExitCodeForPromptAbort();
   }
+
+  auto const converted = runVideoConversionPhase(ctx, conversion.value());
+  if (!converted) { return eh::makeError("{}", converted.error()); }
+  if (converted.value().exitCode != 0) { return converted.value().exitCode; }
 
   auto const plannedEntryNames = planPictureZipEntryNames(ctx.config, dirPath, pics);
 
@@ -321,6 +456,7 @@ auto executeDirectPackWorkflow(
 
   auto packInputs =
     buildPackEntryInputs(summaryPics, pics, plannedEntryNames, dirPath, resolveSource);
+  appendVideoPackInputs(packInputs, converted.value().ready);
 
   auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
@@ -332,6 +468,10 @@ auto executeDirectPackWorkflow(
   }();
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
   if (packRes->exitCode != 0) { return packRes->exitCode; }
+
+  if (auto const cacheDir = conversionCacheDirFor(ctx); cacheDir.has_value()) {
+    picturewebp::clearConversionCache(cacheDir.value());
+  }
 
   terminal::println(
     Summary,
@@ -508,6 +648,10 @@ auto executePicturePack(
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
+  if (auto const cacheDir = conversionCacheDirFor(ctx); cacheDir.has_value()) {
+    picturewebp::clearConversionCache(cacheDir.value());
+  }
+
   terminal::println(
     Summary,
     "All pictures packed successfully to: {}",
@@ -566,6 +710,9 @@ auto executeCompressPackWorkflow(
     terminal::path(dirPath)
   );
 
+  auto conversion = planVideoConversions(ctx, dirPath);
+  if (!conversion) { return eh::makeError("{}", conversion.error()); }
+
   if (!confirmPicturePack(ctx.config)) {
     terminal::messageln(Warning, "Packing task canceled by user.");
     return canceledExitCodeForPromptAbort();
@@ -596,6 +743,10 @@ auto executeCompressPackWorkflow(
   if (!compressPhase) { return eh::makeError("{}", compressPhase.error()); }
   if (compressPhase.value() != 0) { return compressPhase.value(); }
 
+  auto const converted = runVideoConversionPhase(ctx, conversion.value());
+  if (!converted) { return eh::makeError("{}", converted.error()); }
+  if (converted.value().exitCode != 0) { return converted.value().exitCode; }
+
   auto packInputs = buildPackEntryInputs(
     summaryPics,
     scannedPics,
@@ -606,6 +757,7 @@ auto executeCompressPackWorkflow(
       return resolveCompressedSource(picPath, entryName, tempDir);
     }
   );
+  appendVideoPackInputs(packInputs, converted.value().ready);
 
   if (packInputs.empty()) {
     fs::remove_all(tempDir, ec);
@@ -643,4 +795,9 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
     return executeCompressPackWorkflow(ctx, dirPath, outputDir);
   }
   return executeDirectPackWorkflow(ctx, dirPath, outputDir);
+}
+
+auto planPictureVideoConversions(appctx::AppContext& ctx, fs::path const& dirPath)
+  -> eh::Result<std::vector<picturewebp::ConversionTask>> {
+  return planVideoConversions(ctx, dirPath);
 }

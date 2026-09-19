@@ -429,7 +429,7 @@ auto makeHelpFormatter(
       // section below carries them with one-line descriptions.
       constexpr auto usageLines = std::array{
         "encro [<input>... | -i <input> | -I <file>...] [-o <output>] [-f mp4|webp] [-r] [-j <n>] [-p] [--resume|--restart]"sv,
-        "encro -t picture <input> [-c [-q <n>]] [-s] [-p]"sv,
+        "encro -t picture <input> [-c [-q <n>]] [--video-webp] [-s] [-p]"sv,
         "encro -z <input> [-o <output>]"sv,
         "encro -h | -hh | --version"sv,
       };
@@ -897,6 +897,11 @@ void registerProcessingFlags(
       &result.compress,
       "enable JPEG compression during picture processing",
       cfg::ConfigKey{"compress"}
+    ),
+    opt(
+      "--video-webp",
+      &result.videoWebp,
+      "convert videos found in a picture input to animated WebP"
     ),
     opt(
       "-q,--image-quality",

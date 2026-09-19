@@ -71,6 +71,11 @@ auto segmentsDir(fs::path const& workRoot, std::string_view taskHash) -> fs::pat
 // `<workRoot>\.encro\compress_q<N>\` — picture compression cache.
 auto compressCacheDir(fs::path const& workRoot, int quality) -> fs::path;
 
+// `<workRoot>\.encro\webp\` — cache of the picture run's converted videos.
+// Not keyed by the picture compression quality: the WebP recipe has no quality
+// input, and the conversion runs with compression off too.
+auto webpCacheDir(fs::path const& workRoot) -> fs::path;
+
 // `<workRoot>\.encro\job-state.json` — default job-state file location.
 auto jobStateFile(fs::path const& workRoot) -> fs::path;
 

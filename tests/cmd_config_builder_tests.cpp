@@ -52,6 +52,7 @@ auto makeResult(
     else if (flag == "verbose") result.verbosity = 1;
     else if (flag == "debug") result.verbosity = 2;
     else if (flag == "compress") result.compress = true;
+    else if (flag == "video-webp") result.videoWebp = true;
     else if (flag == "full-progress") result.fullProgress = true;
     else if (flag == "overwrite") result.overwrite = true;
     else if (flag == "help") result.help = true;
@@ -674,6 +675,62 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
   CHECK(config.maxParallelJobs.value() == 4);
   REQUIRE(config.imageQuality.has_value());
   CHECK(config.imageQuality.value() == 10);
+}
+
+TEST_CASE(
+  "buildConfig enables videoWebp with --video-webp in picture mode",
+  "[cmd][config][video-webp]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "pics";
+  fs::create_directories(inputPath);
+
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "picture",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"video-webp"}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE(configRes);
+  CHECK(configRes->videoWebp == true);
+  CHECK_FALSE(configRes->compressImages);
+}
+
+TEST_CASE(
+  "buildConfig rejects --video-webp without picture type",
+  "[cmd][config][video-webp]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  writeTextFile(inputPath);
+
+  auto const result = makeResult(
+    inputPath.string(),
+    std::nullopt,
+    std::nullopt,
+    std::nullopt,
+    "video",
+    "mp4",
+    "y",
+    "auto",
+    std::nullopt,
+    {"video-webp"}
+  );
+  auto const configRes = cmd::buildConfig(result);
+
+  REQUIRE_FALSE(configRes);
+  CHECK(
+    configRes.error().find("--video-webp is only supported with --type picture")
+    != std::string::npos
+  );
 }
 
 TEST_CASE("buildConfig enables compressImages with --compress", "[cmd][config]") {

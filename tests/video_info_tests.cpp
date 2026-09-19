@@ -2,6 +2,9 @@
 #include "test_utils.h"
 #include "video/video_info.h"
 
+#include <algorithm>
+#include <vector>
+
 using testutils::copyFakeProbe;
 using testutils::copyFakeTool;
 
@@ -109,6 +112,72 @@ TEST_CASE("readAllVids keeps only <32MB videos for webp in directory", "[video-i
   REQUIRE(vids);
   REQUIRE(vids->size() == 1);
   CHECK(vids->front() == smallVideo);
+}
+
+TEST_CASE(
+  "scanVideosForConversion keeps videos without probing them",
+  "[video-info][video-webp]"
+) {
+  TempDir temp;
+  auto const root = temp.path / "pics";
+  auto const clip = testutils::writeSizedFile(root / "clip.mp4", 1024ULL);
+  auto const nestedClip = testutils::writeSizedFile(root / "sub" / "nested.mkv", 1024ULL);
+  testutils::writeTextFile(root / "photo.jpg");
+
+  // A probe would call this clip HEVC-encoded; the conversion scan must never
+  // ask, so the clip survives the scan whatever the codec is.
+  auto const hevcJson = temp.path / "fake-ffprobe-hevc.json";
+  testutils::writeTextFile(
+    hevcJson,
+    R"({"streams":[{"codec_type":"video","codec_name":"hevc"}]})"
+  );
+  auto const probeEnv =
+    testutils::ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", hevcJson.string()};
+  auto const toolLogPath = temp.path / "probe-invocations.log";
+  auto const toolLogEnv =
+    testutils::ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", toolLogPath.string()};
+
+  auto const flat = videoinfo::scanVideosForConversion(root, false);
+  REQUIRE(flat);
+  CHECK(*flat == std::vector<fs::path>{clip});
+
+  auto const recursive = videoinfo::scanVideosForConversion(root, true);
+  REQUIRE(recursive);
+  CHECK(recursive->size() == 2);
+  CHECK(std::ranges::find(*recursive, clip) != recursive->end());
+  CHECK(std::ranges::find(*recursive, nestedClip) != recursive->end());
+  CHECK_FALSE(fs::exists(toolLogPath));
+}
+
+TEST_CASE(
+  "scanVideosForConversion skips oversized videos with a warning",
+  "[video-info][video-webp]"
+) {
+  TempDir temp;
+  auto const root = temp.path / "pics";
+  auto const oversized =
+    testutils::writeSizedFile(root / "huge.mp4", 32ULL * 1024ULL * 1024ULL);
+  auto const boundary =
+    testutils::writeSizedFile(root / "boundary.mp4", 32ULL * 1024ULL * 1024ULL - 1ULL);
+
+  auto const stderrPath = temp.path / "stderr.txt";
+  auto scanned = std::vector<fs::path>{};
+  auto scanOk = false;
+  {
+    auto const capture = testutils::StderrCapture{stderrPath};
+    auto const vids = videoinfo::scanVideosForConversion(root, false);
+    scanOk = vids.has_value();
+    if (scanOk) { scanned = vids.value(); }
+  }
+
+  REQUIRE(scanOk);
+  CHECK(scanned == std::vector<fs::path>{boundary});
+
+  auto const stderrText = testutils::readTextFile(stderrPath);
+  CHECK(stderrText.find("huge.mp4") != std::string::npos);
+  CHECK(
+    stderrText.find("Skipping oversized video for WebP conversion") != std::string::npos
+  );
 }
 
 TEST_CASE("getVidTotalFrames reads cached info from shared cache", "[video-info]") {

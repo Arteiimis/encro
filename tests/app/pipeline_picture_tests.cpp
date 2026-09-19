@@ -86,6 +86,29 @@ TEST_CASE("picture pipeline skips job state by default", "[pipeline]") {
 }
 
 TEST_CASE(
+  "picture pipeline enables job state for a conversion-only run",
+  "[pipeline][video-webp]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.jpg");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.videoWebp = true;  // no -c: conversion alone must enable state
+  ctx.config.inputPath = inputDir;
+
+  auto const stateFilePath = jobstate::buildDefaultStateFilePath(ctx.config).value();
+  auto const runRes = pipeline::run(ctx);
+
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+  CHECK(fs::exists(stateFilePath));
+}
+
+TEST_CASE(
   "picture pipeline removes empty state file when canceled before packing starts",
   "[pipeline]"
 ) {

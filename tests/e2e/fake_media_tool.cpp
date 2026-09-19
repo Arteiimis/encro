@@ -79,14 +79,31 @@ auto readTextFile(fs::path const& path) -> std::optional<std::string> {
   if (!input.is_open()) { return std::nullopt; }
   return std::string{std::istreambuf_iterator<char>{input}, {}};
 }
+// Appends to a shared log file. Concurrent fake-tool processes (parallel
+// encodes) can collide on the open: Windows refuses the second writer while
+// the first holds the file, and a dropped line would silently hide an
+// invocation from every test that counts them. Retries instead, then gives up
+// (the caller has no recovery path either way).
+auto openLogForAppend(fs::path const& logPath) -> std::ofstream {
+  if (!logPath.parent_path().empty()) {
+    auto ec = std::error_code{};
+    fs::create_directories(logPath.parent_path(), ec);
+  }
+
+  constexpr auto kOpenAttempts = 40;
+  for (auto attempt = 0; attempt < kOpenAttempts; ++attempt) {
+    auto out = std::ofstream{logPath, std::ios::app};
+    if (out.is_open()) { return out; }
+    std::this_thread::sleep_for(std::chrono::milliseconds{5});
+  }
+  return {};
+}
+
 void appendInvocationLog(std::string_view toolName, int argc, char* argv[]) {
   auto const logFile = readEnv("ENCRO_FAKE_TOOL_LOG_FILE");
   if (!logFile.has_value()) { return; }
 
-  auto const logPath = fs::path{logFile.value()};
-  if (!logPath.parent_path().empty()) { fs::create_directories(logPath.parent_path()); }
-
-  auto out = std::ofstream{logPath, std::ios::app};
+  auto out = openLogForAppend(fs::path{logFile.value()});
   if (!out.is_open()) { return; }
 
   out << toolName;
@@ -487,11 +504,7 @@ void recordCompletedInput(int argc, char* argv[]) {
   if (!inputPath.has_value()) { return; }
 
   auto const logPath = fs::path{dest.value()};
-  if (!logPath.parent_path().empty()) {
-    auto ec = std::error_code{};
-    fs::create_directories(logPath.parent_path(), ec);
-  }
-  auto out = std::ofstream{logPath, std::ios::app};
+  auto out = openLogForAppend(logPath);
   if (!out.is_open()) { return; }
   out << inputPath.value() << '\n';
 }
@@ -664,9 +677,43 @@ int runFakeSegmentSeries(FfmpegInvocation const& invocation) {
   return 0;
 }
 
+// Optional per-invocation start markers (ENCRO_FAKE_FFMPEG_MARKER_DIR): one
+// empty file per encode, named after the invocation's output file. A parent
+// counting calls in flight cannot poll the shared invocation log reliably
+// under load, while distinct file names in one directory never collide.
+void writeInvocationMarker(int argc, char* argv[]) {
+  auto const markerDir = readEnv("ENCRO_FAKE_FFMPEG_MARKER_DIR");
+  if (!markerDir.has_value()) { return; }
+
+  // The output path is the last bare argument; the progress file that the
+  // command appends after it is a flag value, not the output.
+  auto outputFile = std::optional<fs::path>{};
+  auto skipNext = false;
+  for (auto index = 1; index < argc; ++index) {
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    auto const arg = std::string_view{argv[index]};
+    if (arg == "-progress") {
+      skipNext = true;
+      continue;
+    }
+    if (!arg.empty() && arg.front() != '-') { outputFile = fs::path{argv[index]}; }
+  }
+  if (!outputFile.has_value()) { return; }
+
+  auto ec = std::error_code{};
+  auto const dir = fs::path{markerDir.value()};
+  fs::create_directories(dir, ec);
+  std::ofstream{dir / outputFile->filename()}.close();
+}
+
 int runFakeFfmpeg(int argc, char* argv[]) {
   appendInvocationLog("ffmpeg", argc, argv);
   if (hasArg(argc, argv, "-version")) { return emitVersion("ffmpeg"); }
+
+  writeInvocationMarker(argc, argv);
 
   // Resolve the schedule index before the gate: index-aware gating needs the
   // call number, and a gated-then-blocked invocation consumes its index.

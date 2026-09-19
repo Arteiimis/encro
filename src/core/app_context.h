@@ -43,6 +43,7 @@ struct AppConfig {
   bool forceNameConflictHandling = true;
   bool pictureFolderSummary = false;
   bool compressImages = false;
+  bool videoWebp = false;
   std::optional<int> imageQuality;
   std::optional<int> crf;
   int minVmaf = 95;

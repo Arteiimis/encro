@@ -47,6 +47,9 @@ struct WebpEncodeContext {
   fs::path inputVidPath;
   fs::path outputFilePath;
   fs::path progressFilePath;
+  // Named by the caller: the picture run's conversion keeps the config's own
+  // output format (mp4), so this path cannot read it from there.
+  std::string outputFormat;
   std::function<void(std::string const&)> statusUpdater;
   // Keeps the forensic snapshot's subprocessCmdline in sync with the quality
   // tier actually being attempted.
@@ -154,7 +157,7 @@ auto runWebpEncodingStep(
     .ffmpegPath = appCtx.toolchain.ffmpegPath,
     .inputPath = encodeCtx.inputVidPath,
     .outputFilePath = outputFile,
-    .outputFormat = appCtx.config.outputFormat,
+    .outputFormat = encodeCtx.outputFormat,
     .webpQuality = quality,
     .progressFilePath = encodeCtx.progressFilePath
   };
@@ -731,12 +734,52 @@ bool writeConcatManifest(
   return true;
 }
 
+bool encodeVideoAsWebp(
+  appctx::AppContext& ctx,
+  appctx::EncodingState& state,
+  function_ref statusUpdater
+) {
+  auto const executionPlanRes = prepareEncodeExecution(state);
+  if (!executionPlanRes) { return failEncoding(state, executionPlanRes.error()); }
+
+  auto const& executionPlan = executionPlanRes.value();
+  logging::ScopedErrorContext scopedCtx("video.encode.webp", state.inputPath.string());
+
+  LOG_DEBUG(
+    "Encoding video to webp: input={} output-file={} progress-file={}",
+    state.inputPath.string(),
+    executionPlan.outputFilePath.string(),
+    executionPlan.progressFilePath.string()
+  );
+
+  return encodeWebpWithTargetSize(
+    ctx,
+    WebpEncodeContext{
+      .inputVidPath = state.inputPath,
+      .outputFilePath = executionPlan.outputFilePath,
+      .progressFilePath = executionPlan.progressFilePath,
+      .outputFormat = "webp",
+      .statusUpdater = statusUpdater,
+      .cmdlineUpdater =
+        [&state](std::string const& cmd) {
+          auto lock = std::scoped_lock{state.mtx};
+          state.subprocessCmdline = cmd;
+        },
+      .state = state,
+    }
+  );
+}
+
 bool encodeVideo(
   appctx::AppContext& ctx,
   appctx::EncodingState& state,
   function_ref statusUpdater,
   std::size_t workerCount
 ) {
+  if (ctx.config.outputFormat == "webp") {
+    return encodeVideoAsWebp(ctx, state, statusUpdater);
+  }
+
   auto const executionPlanRes = prepareEncodeExecution(state);
   if (!executionPlanRes) { return failEncoding(state, executionPlanRes.error()); }
 
@@ -751,24 +794,6 @@ bool encodeVideo(
     executionPlan.outputFilePath.string(),
     executionPlan.progressFilePath.string()
   );
-
-  if (ctx.config.outputFormat == "webp") {
-    return encodeWebpWithTargetSize(
-      ctx,
-      WebpEncodeContext{
-        .inputVidPath = state.inputPath,
-        .outputFilePath = executionPlan.outputFilePath,
-        .progressFilePath = executionPlan.progressFilePath,
-        .statusUpdater = statusUpdater,
-        .cmdlineUpdater =
-          [&state](std::string const& cmd) {
-            auto lock = std::scoped_lock{state.mtx};
-            state.subprocessCmdline = cmd;
-          },
-        .state = state,
-      }
-    );
-  }
 
   return runSegmentedEncoding(ctx, state, executionPlan, statusUpdater, workerCount);
 }
