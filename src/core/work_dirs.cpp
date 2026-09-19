@@ -2,14 +2,52 @@
 
 #include "core/path_roots.h"
 
+#if defined(_WIN32)
+  #include <process.h>
+#else
+  #include <unistd.h>
+#endif
+
+#include <chrono>
+#include <format>
 #include <span>
+#include <string>
+#include <system_error>
 
 namespace workdirs {
 
 namespace fs = std::filesystem;
 
-auto scratchDir() -> fs::path {
+namespace {
+
+// Path component naming this process's scratch root. The pid alone is not
+// enough (a reused pid would inherit a previous run's leftovers), so the tag
+// also carries a clock reading taken once per process. The static keeps the
+// value stable for the whole run: every caller of scratchDir() must land in the
+// directory that ensureScratchDir() created.
+// ponytail: pid+clock nonce; add a boot-time seed if pid reuse ever collides.
+auto scratchRunTag() -> std::string {
+  static auto const tag = [] {
+#if defined(_WIN32)
+    auto const pid = static_cast<long long>(::_getpid());
+#else
+    auto const pid = static_cast<long long>(::getpid());
+#endif
+    auto const startedAt = std::chrono::system_clock::now().time_since_epoch().count();
+    return std::format("{}-{}", pid, startedAt);
+  }();
+  return tag;
+}
+
+// Parent of every per-process scratch root; the sweep target.
+auto scratchParentDir() -> fs::path {
   return fs::temp_directory_path() / "encro" / kScratchDirName;
+}
+
+}  // namespace
+
+auto scratchDir() -> fs::path {
+  return scratchParentDir() / scratchRunTag();
 }
 
 void ensureScratchDir() {
@@ -20,7 +58,7 @@ void ensureScratchDir() {
 void sweepScratchDir() {
   using namespace std::chrono;
   constexpr auto kStaleAfter = 24h;
-  auto const dir = scratchDir();
+  auto const dir = scratchParentDir();
   auto ec = std::error_code{};
   if (!fs::is_directory(dir, ec) || ec) { return; }
   auto const now = fs::file_time_type::clock::now();
