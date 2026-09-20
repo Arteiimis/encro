@@ -118,11 +118,12 @@ TEST_CASE("a cleared context is finished and never renders again", "[progress]")
   CHECK(ctx.cleared());
   CHECK_FALSE(ctx.renderable());
 
-  // A straggling update from the finished phase must not paint. Non-TTY stdout
-  // renders nothing either way, so `cleared()` is the observable that survives
-  // this environment; the calls below are the paths a late update takes.
+  // A straggling update from the finished phase must not paint, and adding a
+  // bar must not un-finish the context: the bar library's cursor bookkeeping
+  // cannot be reset, so a phase that wants bars again starts a fresh context.
   ctx.setProgress(barIndex, 100.0f);
   ctx.setPostfixText(barIndex, "Done");
+  ctx.addBar("straggler", terminal::Role::Accent);
   ctx.tick();
 
   CHECK(ctx.cleared());

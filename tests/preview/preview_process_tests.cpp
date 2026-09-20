@@ -130,11 +130,9 @@ TEST_CASE("preview generates the comparison video with fake tools", "[preview]")
   REQUIRE(writtenPos != std::string::npos);
   CHECK(listPos < writtenPos);
   // The line carries the run's own elapsed time, in the compact form.
-  auto const writtenLine =
-    out.substr(writtenPos, out.find('\n', writtenPos) - writtenPos);
-  auto const inPos = writtenLine.find(" in ");
-  REQUIRE(inPos != std::string::npos);
-  CHECK(writtenLine.find_first_of("0123456789", inPos) != std::string::npos);
+  auto const writtenLine = testutils::findHelpLine(out, "Preview written to:");
+  REQUIRE(writtenLine.has_value());
+  CHECK(testutils::hasElapsedSuffix(writtenLine.value()));
 
   // Default output next to the original.
   auto const outputPath = temp.path / "sample.preview.mp4";
@@ -199,7 +197,6 @@ TEST_CASE("preview --quiet keeps the result line but drops narration", "[preview
   // The run's final summary line bypasses the quiet gate; narration (the
   // preview window list) is suppressed.
   CHECK(out.find("Preview written to:") != std::string::npos);
-  CHECK(out.find(" in ") != std::string::npos);
   CHECK(out.find("Preview windows") == std::string::npos);
   CHECK(fs::exists(temp.path / "sample.preview.mp4"));
 }

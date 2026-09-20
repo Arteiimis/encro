@@ -99,13 +99,15 @@ inline auto outcomeVerbRole(std::size_t failed, std::size_t skipped) -> Role {
 // The count core of a phase summary line: `<succeeded>/<total> <noun>`, plus
 // one parenthesized segment naming the failure and skip classes that actually
 // occurred, each in its own role. The succeeded count is good, the total is
-// accented, and the surrounding prose is unstyled.
+// accented, and the surrounding prose is unstyled. `skippedLabel` names the
+// skip class in that class's own words (probing calls it "not probed").
 auto summaryCounts(
   std::size_t succeeded,
   std::size_t total,
   std::string_view noun,
   std::size_t failed,
-  std::size_t skipped
+  std::size_t skipped,
+  std::string_view skippedLabel = "skipped"
 ) -> std::string;
 
 auto path(std::filesystem::path const& value, Stream stream = Stream::Stdout)

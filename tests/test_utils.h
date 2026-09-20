@@ -617,6 +617,20 @@ inline auto findHelpLine(std::string_view text, std::string_view needle)
   return std::nullopt;
 }
 
+// True when a phase summary line ends with its elapsed time: the narration
+// duration form after " in " ("24s", "12m:34s", "1h:05m").
+inline bool hasElapsedSuffix(std::string_view line) {
+  auto const inPos = line.find(" in ");
+  if (inPos == std::string_view::npos) { return false; }
+  auto const elapsed = line.substr(inPos + 4);
+  auto const trimmed = elapsed.substr(0, elapsed.find_last_not_of(" \r\n") + 1);
+  if (trimmed.empty() || !std::isdigit(static_cast<unsigned char>(trimmed.front()))) {
+    return false;
+  }
+  if (trimmed.ends_with('s')) { return true; }
+  return trimmed.ends_with('m') && trimmed.find(':') != std::string_view::npos;
+}
+
 // Parses the given argument vector through the real commandLineInit entry
 // point (CLI11 owns argv[] storage, so the strings are kept alive here).
 inline auto parseArgs(std::vector<std::string> const& args) -> CmdParseResult {

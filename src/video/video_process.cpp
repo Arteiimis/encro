@@ -490,9 +490,7 @@ int packEncodedVideos(
     .maxParallelJobs = ctx.config.maxParallelJobs,
     .jobState = ctx.runtime.jobState.get(),
   });
-  auto const packElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::steady_clock::now() - packStartedAt
-  );
+  auto const packElapsed = displaytext::elapsedSince(packStartedAt);
 
   if (!packRes) {
     LOG_ERROR("Failed to pack encoded videos: {}", packRes.error());
