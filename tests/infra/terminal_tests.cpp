@@ -156,6 +156,25 @@ TEST_CASE("accent styles paths, counts, and pre-formatted strings alike", "[term
   CHECK(styledCount.find("\x1b[1m") == std::string::npos);
 }
 
+TEST_CASE("a role span styles its value and vanishes when colors are off", "[terminal]") {
+  auto const _ = ScopedTerminalReset{};
+
+  terminal::configure(terminal::ColorMode::Always);
+  CHECK(terminal::withRole(terminal::Role::Good, "5/8") == "\x1b[32m5/8\x1b[0m");
+  CHECK(
+    terminal::withRole(terminal::Role::Bad, "(2 failed)") == "\x1b[31m(2 failed)\x1b[0m"
+  );
+  CHECK(
+    terminal::withRole(terminal::Role::Warn, "(1 skipped)")
+    == "\x1b[33m(1 skipped)\x1b[0m"
+  );
+
+  terminal::configure(terminal::ColorMode::Never);
+  auto const plain = terminal::withRole(terminal::Role::Bad, "(2 failed)");
+  CHECK(plain == "(2 failed)");
+  CHECK(plain.find('\x1b') == std::string::npos);
+}
+
 // The defect this pins: styling the message body used to be truncated by the
 // first embedded value's reset, leaving the rest of the line unstyled.
 TEST_CASE("a status line styles its embedded values and nothing else", "[terminal]") {

@@ -83,6 +83,11 @@ auto styled(Stream stream, fmt::text_style style, std::string_view text) -> std:
 // string). Terminates its own span so the surrounding prose is untouched.
 auto accent(std::string_view text, Stream stream = Stream::Stdout) -> std::string;
 
+// Wraps a value that carries a semantic role of its own (a succeeded count, a
+// failed or skipped segment, a duration). Same span contract as accent().
+auto withRole(Role role, std::string_view text, Stream stream = Stream::Stdout)
+  -> std::string;
+
 auto path(std::filesystem::path const& value, Stream stream = Stream::Stdout)
   -> std::string;
 

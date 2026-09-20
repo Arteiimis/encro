@@ -113,19 +113,24 @@ public:
   // diagnostics and tests.
   std::size_t barCount() const;
 
+  // True once the context's bars were cleared; a cleared context never renders
+  // again. Read-only view for diagnostics and tests.
+  bool cleared() const;
+
   // Re-renders every bar from the state the setters already stored, advancing
   // the postfix scroll window on the context's own clock; touches neither
   // progress values nor ETA sampling.
   void tick();
 
-  // True when this context can actually paint: it holds at least one bar,
-  // stdout is a terminal, and output is not quiet. Callers use it to skip work
-  // whose output has nowhere to go.
+  // True when this context can actually paint: it holds at least one bar, was
+  // not cleared, stdout is a terminal, and output is not quiet. Callers use it
+  // to skip work whose output has nowhere to go.
   bool renderable() const;
 
-  // Clears the rendered bar lines from the terminal. The bars stay alive in
-  // the manager (it holds references to them), so no render call may follow
-  // until a bar is added again.
+  // Clears the rendered bar lines from the terminal and finishes the context:
+  // no render may follow, and a phase that wants bars again creates a fresh
+  // context. Bars added afterwards stay invisible, because the bar library's
+  // cursor bookkeeping cannot be reset.
   void eraseBars();
 
   auto manager() -> Manager&;
@@ -151,6 +156,9 @@ private:
   // Bars rendered on the last render pass; bars added but never rendered
   // (all-cache-hit probe runs) leave no lines to erase.
   std::size_t renderedBarCount_ = 0;
+  // Set by eraseBars(); addBar() deliberately does not reset it, so a context
+  // that was cleared stays finished even if more bars are pushed into it.
+  bool cleared_ = false;
   // Declared after every member the clock touches, so destruction joins it
   // before those members die.
   std::jthread ticker_;

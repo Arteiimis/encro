@@ -3,6 +3,7 @@
 #include <indicators/display_width.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -132,6 +133,17 @@ inline auto formatSizeBytes(std::uintmax_t bytes) -> std::string {
 inline auto formatSizeBytes(std::optional<std::uintmax_t> bytes) -> std::string {
   if (!bytes.has_value()) { return "\xE2\x80\x94"; }  // U+2014 em dash
   return formatSizeBytes(bytes.value());
+}
+
+// Compact duration form for narration and summary lines: "24s" below a
+// minute, "12m:34s" below an hour, "1h:05m" from an hour. Progress-bar badges
+// keep their own fixed-width zero-padded form (progress::formatEtaBadge), so
+// this deliberately does not serve them.
+inline auto formatDuration(std::chrono::milliseconds total) -> std::string {
+  auto const seconds = std::max<std::int64_t>(0, total.count() / 1000);
+  if (seconds < 60) { return std::format("{}s", seconds); }
+  if (seconds < 3600) { return std::format("{}m:{:02d}s", seconds / 60, seconds % 60); }
+  return std::format("{}h:{:02d}m", seconds / 3600, (seconds % 3600) / 60);
 }
 
 inline auto truncateMiddle(std::string_view text, std::size_t maxWidth) -> std::string {

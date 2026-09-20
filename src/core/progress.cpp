@@ -406,6 +406,11 @@ std::size_t ProgressContext::barCount() const {
   return bars_.size();
 }
 
+bool ProgressContext::cleared() const {
+  auto lock = std::scoped_lock{mtx_};
+  return cleared_;
+}
+
 void ProgressContext::ensureTicker() {
   if (ticker_.joinable()) { return; }
   ticker_ = std::jthread(
@@ -435,7 +440,7 @@ void ProgressContext::tick() {
   ++tickCount_;
   // Repaint work is terminal-only; the counter still advances so the clock's
   // liveness stays observable when stdout is not a TTY.
-  if (bars_.empty() || !progressBarsAllowed()) { return; }
+  if (cleared_ || bars_.empty() || !progressBarsAllowed()) { return; }
   for (auto index = 0ull; index < bars_.size(); ++index) {
     applyBarText(index, etas_[index].lastProgress());
   }
@@ -444,7 +449,7 @@ void ProgressContext::tick() {
 
 bool ProgressContext::renderable() const {
   auto lock = std::scoped_lock{mtx_};
-  return !bars_.empty() && progressBarsAllowed();
+  return !cleared_ && !bars_.empty() && progressBarsAllowed();
 }
 
 void ProgressContext::setRole(std::size_t barIndex, terminal::Role role) {
@@ -457,6 +462,9 @@ void ProgressContext::setRole(std::size_t barIndex, terminal::Role role) {
 }
 
 void ProgressContext::render() {
+  // A cleared context is finished: painting again would move the cursor over
+  // output written below the cleared block.
+  if (cleared_) { return; }
   // Non-TTY stdout: skip the render pass entirely. This gate is load-bearing
   // even with the null sink above — DynamicProgress::print_progress writes
   // newlines/cursor escapes directly to std::cout, bypassing per-bar streams.
@@ -468,6 +476,7 @@ void ProgressContext::render() {
 void ProgressContext::eraseBars() {
   stopTicker();
   auto lock = std::scoped_lock{mtx_};
+  cleared_ = true;
   if (!progressBarsAllowed()) { return; }
   for (std::size_t index = 0; index < renderedBarCount_; ++index) {
     indicators::move_up(1);

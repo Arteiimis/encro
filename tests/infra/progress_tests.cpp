@@ -108,6 +108,27 @@ TEST_CASE("ProgressContext repaints on its own clock", "[progress]") {
   CHECK(testutils::waitUntil([&] { return ctx.tickCount() > afterErase; }));
 }
 
+TEST_CASE("a cleared context is finished and never renders again", "[progress]") {
+  auto ctx = progress::ProgressContext{};
+  auto const barIndex = ctx.addBar("phase", terminal::Role::Accent);
+  CHECK_FALSE(ctx.cleared());
+
+  ctx.eraseBars();
+
+  CHECK(ctx.cleared());
+  CHECK_FALSE(ctx.renderable());
+
+  // A straggling update from the finished phase must not paint. Non-TTY stdout
+  // renders nothing either way, so `cleared()` is the observable that survives
+  // this environment; the calls below are the paths a late update takes.
+  ctx.setProgress(barIndex, 100.0f);
+  ctx.setPostfixText(barIndex, "Done");
+  ctx.tick();
+
+  CHECK(ctx.cleared());
+  CHECK_FALSE(ctx.renderable());
+}
+
 TEST_CASE("repaints leave progress and the estimate untouched", "[progress]") {
   auto ctx = progress::ProgressContext{};
   auto const barIndex = ctx.addBar("repaint-only", terminal::Role::Accent);
