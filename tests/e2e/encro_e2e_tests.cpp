@@ -659,12 +659,10 @@ TEST_CASE(
 
     CHECK(result.stdoutText.find("Encoded 1/1 videos") != std::string::npos);
     // The phase summary keeps its elapsed time under quiet.
-    auto const encodedLinePos = result.stdoutText.find("Encoded 1/1 videos");
-    auto const encodedLine = result.stdoutText.substr(
-      encodedLinePos,
-      result.stdoutText.find('\n', encodedLinePos) - encodedLinePos
-    );
-    CHECK(encodedLine.find(" in ") != std::string::npos);
+    auto const encodedLine =
+      testutils::findHelpLine(result.stdoutText, "Encoded 1/1 videos");
+    REQUIRE(encodedLine.has_value());
+    CHECK(testutils::hasElapsedSuffix(encodedLine.value()));
     CHECK(result.stdoutText.find("Found 1 video(s)") == std::string::npos);
     CHECK(result.stdoutText.find("Scanning") == std::string::npos);
     CHECK(result.stdoutText.find("Scheduling") == std::string::npos);
