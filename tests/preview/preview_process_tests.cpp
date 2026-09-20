@@ -196,7 +196,9 @@ TEST_CASE("preview --quiet keeps the result line but drops narration", "[preview
 
   // The run's final summary line bypasses the quiet gate; narration (the
   // preview window list) is suppressed.
-  CHECK(out.find("Preview written to:") != std::string::npos);
+  auto const writtenLine = testutils::findHelpLine(out, "Preview written to:");
+  REQUIRE(writtenLine.has_value());
+  CHECK(testutils::hasElapsedSuffix(writtenLine.value()));
   CHECK(out.find("Preview windows") == std::string::npos);
   CHECK(fs::exists(temp.path / "sample.preview.mp4"));
 }

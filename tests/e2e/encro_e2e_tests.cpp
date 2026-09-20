@@ -823,16 +823,14 @@ TEST_CASE(
 
   // The conversion phase and the packing step each report themselves once,
   // with their own elapsed time.
-  CHECK(result.stdoutText.find("Converted 1/1 videos to WebP in ") != std::string::npos);
-  auto const packedLinePos =
-    result.stdoutText.find("All pictures packed successfully to: ");
-  REQUIRE(packedLinePos != std::string::npos);
+  auto const convertedLine =
+    testutils::findHelpLine(result.stdoutText, "Converted 1/1 videos to WebP");
+  REQUIRE(convertedLine.has_value());
+  CHECK(testutils::hasElapsedSuffix(convertedLine.value()));
   auto const packedLine =
-    result.stdoutText
-      .substr(packedLinePos, result.stdoutText.find('\n', packedLinePos) - packedLinePos);
-  auto const packedInPos = packedLine.find(" in ");
-  REQUIRE(packedInPos != std::string::npos);
-  CHECK(packedLine.find_first_of("0123456789", packedInPos) != std::string::npos);
+    testutils::findHelpLine(result.stdoutText, "All pictures packed successfully to: ");
+  REQUIRE(packedLine.has_value());
+  CHECK(testutils::hasElapsedSuffix(packedLine.value()));
 
   auto const zips = listFilesWithExtension(inputDir / "packed", ".zip");
   REQUIRE(zips.size() == 1);
