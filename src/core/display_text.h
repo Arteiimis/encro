@@ -135,6 +135,15 @@ inline auto formatSizeBytes(std::optional<std::uintmax_t> bytes) -> std::string 
   return formatSizeBytes(bytes.value());
 }
 
+// Wall time since a phase started: the measurement every phase summary line
+// reports, taken with one idiom so the anchor is uniform across phases.
+inline auto elapsedSince(std::chrono::steady_clock::time_point startedAt)
+  -> std::chrono::milliseconds {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - startedAt
+  );
+}
+
 // Compact duration form for narration and summary lines: "24s" below a
 // minute, "12m:34s" below an hour, "1h:05m" from an hour. Progress-bar badges
 // keep their own fixed-width zero-padded form (progress::formatEtaBadge), so
@@ -144,6 +153,12 @@ inline auto formatDuration(std::chrono::milliseconds total) -> std::string {
   if (seconds < 60) { return std::format("{}s", seconds); }
   if (seconds < 3600) { return std::format("{}m:{:02d}s", seconds / 60, seconds % 60); }
   return std::format("{}h:{:02d}m", seconds / 3600, (seconds % 3600) / 60);
+}
+
+// The elapsed-time text a phase summary line ends with.
+inline auto formatElapsedSince(std::chrono::steady_clock::time_point startedAt)
+  -> std::string {
+  return formatDuration(elapsedSince(startedAt));
 }
 
 inline auto truncateMiddle(std::string_view text, std::size_t maxWidth) -> std::string {

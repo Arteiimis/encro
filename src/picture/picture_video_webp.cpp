@@ -294,14 +294,14 @@ auto picturewebp::runConversionPhase(
     return ConversionOutcome{.canceled = true, .ready = std::move(ready)};
   }
 
-  auto const collected = [&]() {
+  auto const [failedCount, convertedTasks] = [&]() {
     auto const lock = std::scoped_lock{state.mtx};  // NOLINT(bugprone-unused-raii)
     for (auto const& [path, reason]: state.failureReasons) {
       terminal::println(Plain, "  {}: {}", terminal::path(path), reason);
     }
     return std::pair{state.failureReasons.size(), state.converted};
   }();
-  for (auto const& task: collected.second) { ready.push_back(task); }
+  for (auto const& task: convertedTasks) { ready.push_back(task); }
 
   progressCtx.setRole(state.barIndex, terminal::Role::Good);
   progressCtx.setPostfixText(
@@ -310,7 +310,7 @@ auto picturewebp::runConversionPhase(
       "Converted: {}/{}{}",
       ready.size(),
       tasks.size(),
-      collected.first > 0 ? " (some failed)" : ""
+      failedCount > 0 ? " (some failed)" : ""
     )
   );
 
@@ -323,6 +323,6 @@ auto picturewebp::runConversionPhase(
   return ConversionOutcome{
     .canceled = false,
     .ready = std::move(ready),
-    .failedCount = collected.first,
+    .failedCount = failedCount,
   };
 }

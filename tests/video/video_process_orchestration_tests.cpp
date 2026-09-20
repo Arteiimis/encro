@@ -141,11 +141,9 @@ TEST_CASE(
   CHECK(encodedPos < packedPos);
 
   // The packing line carries its own elapsed time.
-  auto const packedLine =
-    captured.substr(packedPos, captured.find('\n', packedPos) - packedPos);
-  auto const inPos = packedLine.find(" in ");
-  REQUIRE(inPos != std::string::npos);
-  CHECK(packedLine.find_first_of("0123456789", inPos) != std::string::npos);
+  auto const packedLine = testutils::findHelpLine(captured, "Packed 1 archive(s)");
+  REQUIRE(packedLine.has_value());
+  CHECK(testutils::hasElapsedSuffix(packedLine.value()));
 }
 
 TEST_CASE(

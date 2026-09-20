@@ -371,9 +371,7 @@ auto runProbeStage(
 
   auto const probeStartedAt = std::chrono::steady_clock::now();
   auto probeRes = encodeprobe::runProbePhase(ctx, vids);
-  auto const probeElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::steady_clock::now() - probeStartedAt
-  );
+  auto const probeElapsed = displaytext::elapsedSince(probeStartedAt);
   if (stopsignal::isStopRequested()) {
     noteStopRequest(ctx);
     return ProbeStageStatus::Aborted;
@@ -602,9 +600,7 @@ auto videobatch::runEncodingTasks(
   // user is not encode time.
   auto const encodeStartedAt = std::chrono::steady_clock::now();
   auto const encodeElapsedNow = [&] {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now() - encodeStartedAt
-    );
+    return displaytext::elapsedSince(encodeStartedAt);
   };
 
   // Skipped (too-large estimate) files count as completed up front so the

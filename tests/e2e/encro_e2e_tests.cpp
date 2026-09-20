@@ -886,11 +886,9 @@ TEST_CASE(
   CHECK(encodedPos < packedPos);
 
   auto const packedLine =
-    result.stdoutText
-      .substr(packedPos, result.stdoutText.find('\n', packedPos) - packedPos);
-  auto const inPos = packedLine.find(" in ");
-  REQUIRE(inPos != std::string::npos);
-  CHECK(packedLine.find_first_of("0123456789", inPos) != std::string::npos);
+    testutils::findHelpLine(result.stdoutText, "Packed 1 archive(s)");
+  REQUIRE(packedLine.has_value());
+  CHECK(testutils::hasElapsedSuffix(packedLine.value()));
   CHECK(fs::exists(inputDir / "packed"));
 
   // Piped stdout: no styling escape reaches the product output.

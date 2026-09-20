@@ -369,9 +369,7 @@ auto runVideoConversionPhase(
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
   auto const startedAt = std::chrono::steady_clock::now();
   auto const outcome = picturewebp::runConversionPhase(ctx, tasks, maxParallel);
-  auto const elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::steady_clock::now() - startedAt
-  );
+  auto const elapsed = displaytext::elapsedSince(startedAt);
   if (!outcome) { return eh::makeError("{}", outcome.error()); }
 
   if (!outcome.value().canceled) {
@@ -488,9 +486,7 @@ auto executeDirectPackWorkflow(
     logging::ScopedErrorContext scopedCtx("picture.pack", packLabel);
     return pack::execute(request);
   }();
-  auto const packElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::steady_clock::now() - packStartedAt
-  );
+  auto const packElapsed = displaytext::elapsedSince(packStartedAt);
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
@@ -599,9 +595,7 @@ auto runCompressionPhase(
     }
     return results;
   }();
-  auto const elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::steady_clock::now() - startedAt
-  );
+  auto const elapsed = displaytext::elapsedSince(startedAt);
 
   if (stopsignal::isStopRequested()) {
     if (auto* store = ctx.runtime.jobState.get(); store != nullptr) {
@@ -688,9 +682,7 @@ auto executePicturePack(
     logging::ScopedErrorContext scopedCtx("picture.pack", packLabel);
     return pack::execute(request);
   }();
-  auto const packElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::steady_clock::now() - packStartedAt
-  );
+  auto const packElapsed = displaytext::elapsedSince(packStartedAt);
   if (!stopsignal::isStopRequested()) { fs::remove_all(tempDir, ec); }
 
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }

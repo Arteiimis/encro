@@ -211,14 +211,15 @@ auto summaryCounts(
   std::size_t total,
   std::string_view noun,
   std::size_t failed,
-  std::size_t skipped
+  std::size_t skipped,
+  std::string_view skippedLabel
 ) -> std::string {
   auto classes = std::vector<std::string>{};
   if (failed > 0) {
     classes.push_back(withRole(Role::Bad, fmt::format("{} failed", failed)));
   }
   if (skipped > 0) {
-    classes.push_back(withRole(Role::Warn, fmt::format("{} skipped", skipped)));
+    classes.push_back(withRole(Role::Warn, fmt::format("{} {}", skipped, skippedLabel)));
   }
 
   auto out = fmt::format(
