@@ -223,9 +223,8 @@ auto summaryCounts(
   }
 
   auto out = fmt::format(
-    "{}/{} {}",
-    withRole(Role::Good, fmt::format("{}", succeeded)),
-    withRole(Role::Accent, fmt::format("{}", total)),
+    "{} {}",
+    withRole(Role::Accent, fmt::format("{}/{}", succeeded, total)),
     noun
   );
   if (classes.empty()) { return out; }

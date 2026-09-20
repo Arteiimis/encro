@@ -26,7 +26,7 @@
 
 ## 4. Outcome colouring
 
-- [x] 4.1 Build the phase summary lines from explicitly styled tokens, with the verb's role derived from the phase outcome (`Good` full success, `Bad` any failure, `Warn` skips only), printing them as `Plain` so the caller's spans stand and the quiet gate does not swallow them (design D5) — verify with `terminal::configure(Always)` capture cases asserting the expected role sequences on the succeeded count, `(n failed)`, `(n skipped)`/`(n not probed)`, destination and duration tokens, and no span over the prose.
+- [x] 4.1 Build the phase summary lines from explicitly styled tokens, with the verb's role derived from the phase outcome (`Good` full success, `Bad` any failure, `Warn` skips only), printing them as `Plain` so the caller's spans stand and the quiet gate does not swallow them (design D5) — verify with `terminal::configure(Always)` capture cases asserting the expected role sequences on the count ratio, `(n failed)`, `(n skipped)`/`(n not probed)`, destination and duration tokens, and no span over the prose.
 - [x] 4.2 Assert the coloured path emits nothing when styling is disabled (`--color never`, piped stdout) — verify with a case asserting no escape sequence in the captured output of a phase summary line.
 - [x] 4.3 Assert a `--quiet` run still prints the phase result lines while dropping narration, matching the existing plan block / encode count line / preview written-to line behavior (`logging-behavior`) — verify with a `[preview]`/e2e case comparing quiet and normal stdout for the summary line.
 
