@@ -26,6 +26,9 @@ struct ConversionOutcome {
   bool canceled = false;
   // Videos whose cached output exists and may be packed.
   std::vector<ConversionTask> ready;
+  // Clips whose conversion failed; they are absent from `ready`, so the
+  // phase's summary needs the count to report a total the classes add up to.
+  std::size_t failedCount = 0;
 };
 
 // Converts the videos a picture run has queued: drops cached outputs the saved

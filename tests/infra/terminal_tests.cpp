@@ -156,6 +156,33 @@ TEST_CASE("accent styles paths, counts, and pre-formatted strings alike", "[term
   CHECK(styledCount.find("\x1b[1m") == std::string::npos);
 }
 
+TEST_CASE("phase summary counts carry their outcome roles", "[terminal]") {
+  auto const _ = ScopedTerminalReset{};
+  terminal::configure(terminal::ColorMode::Always);
+
+  CHECK(
+    terminal::summaryCounts(8, 8, "videos", 0, 0)
+    == "\x1b[32m8\x1b[0m/\x1b[36m8\x1b[0m videos"
+  );
+  CHECK(
+    terminal::summaryCounts(5, 8, "videos", 2, 1)
+    == "\x1b[32m5\x1b[0m/\x1b[36m8\x1b[0m videos (\x1b[31m2 failed\x1b[0m, "
+       "\x1b[33m1 skipped\x1b[0m)"
+  );
+
+  // The verb takes the worst outcome the phase had.
+  CHECK(terminal::outcomeVerbRole(0, 0) == terminal::Role::Good);
+  CHECK(terminal::outcomeVerbRole(0, 1) == terminal::Role::Warn);
+  CHECK(terminal::outcomeVerbRole(1, 0) == terminal::Role::Bad);
+  CHECK(terminal::outcomeVerbRole(1, 1) == terminal::Role::Bad);
+
+  // Colors off: no escape sequence, no substitute role.
+  terminal::configure(terminal::ColorMode::Never);
+  CHECK(
+    terminal::summaryCounts(5, 8, "videos", 2, 1) == "5/8 videos (2 failed, 1 skipped)"
+  );
+}
+
 TEST_CASE("a role span styles its value and vanishes when colors are off", "[terminal]") {
   auto const _ = ScopedTerminalReset{};
 

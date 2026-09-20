@@ -992,10 +992,16 @@ auto collectPlanStats(std::span<ProbePlan const> plans) -> PlanStats {
 constexpr auto kSkippedSuffix = std::string_view{" (skipped: est. > source)"};
 constexpr auto kRuleFixedWidth =
   std::size_t{34};  // sum of the fixed numeric column widths
+// No plan row may exceed this many display columns, whatever the terminal
+// offers: a wide terminal must not stretch the table across the screen.
+constexpr auto kMaxPlanRowWidth = std::size_t{85};
+// The ratio column's " ↑" growth marker renders wider than its 6-column
+// header budget, so the name column yields that much to keep the row in cap.
+constexpr auto kRatioMarkerSlack = std::size_t{2};
 
 // The name column never needs to be wider than the longest file name in
 // this batch; cap it so a very wide terminal does not pad short names
-// across the screen.
+// across the screen, and so the whole row stays within kMaxPlanRowWidth.
 auto resolvePlanNameWidth(
   std::span<ProbePlan const> plans,
   std::optional<displaytext::TableLayout> const& layout
@@ -1008,7 +1014,8 @@ auto resolvePlanNameWidth(
       displaytext::displayWidth(displaytext::pathToUtf8String(plan.inputPath.filename()))
     );
   }
-  return std::min(layout.value().nameWidth, std::max(maxName, std::size_t{20}));
+  auto const rowCap = kMaxPlanRowWidth - kRuleFixedWidth - kRatioMarkerSlack;
+  return std::min({layout.value().nameWidth, std::max(maxName, std::size_t{20}), rowCap});
 }
 
 // marker is the warning glyph ("\xE2\x9A\xA0 ") or empty; the two-space
@@ -1056,11 +1063,22 @@ auto formatProbePlanRow(
   );
 }
 
-void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) {
+void printProbePlan(
+  std::span<ProbePlan const> plans,
+  int minVmafFloor,
+  std::chrono::milliseconds elapsed
+) {
   if (plans.empty()) { return; }
+  auto const durationText =
+    terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(elapsed));
+  auto const probedCount =
+    static_cast<std::size_t>(std::ranges::count_if(plans, &ProbePlan::probed));
+  auto const notProbed = plans.size() - probedCount;
+
   // No pending file carries measured data: the plan collapses to the single
   // outcome line naming the count, the CQ in effect, and the skip reason.
-  if (std::ranges::none_of(plans, &ProbePlan::probed)) {
+  // That line is this phase's summary line, so no separate probe line prints.
+  if (probedCount == 0) {
     auto reasons = std::vector<std::string_view>{};
     for (auto const& plan: plans) {
       if (std::ranges::find(reasons, plan.skipReason) == reasons.end()) {
@@ -1074,13 +1092,36 @@ void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) {
       joined == "short video" ? std::string{"short videos"} : joined;
     terminal::println(
       Plain,
-      "{} video(s) to encode at CQ {} (probing skipped: {})",
-      plans.size(),
+      "{} video(s) to encode at CQ {} (probing skipped: {}) in {}",
+      terminal::withRole(terminal::Role::Accent, std::format("{}", plans.size())),
       plans.front().chosenCq,
-      reasonText
+      reasonText,
+      durationText
     );
     return;
   }
+
+  // The phase's summary line opens the block; the table below it is the
+  // phase's product output, not a second summary line.
+  terminal::println(
+    Plain,
+    "{} {}/{} videos{} in {}",
+    terminal::withRole(
+      notProbed == 0 ? terminal::Role::Good : terminal::Role::Warn,
+      "Probed"
+    ),
+    terminal::withRole(terminal::Role::Good, std::format("{}", probedCount)),
+    terminal::withRole(terminal::Role::Accent, std::format("{}", plans.size())),
+    notProbed == 0 ? std::string{}
+                   : std::format(
+                       " ({})",
+                       terminal::withRole(
+                         terminal::Role::Warn,
+                         std::format("{} not probed", notProbed)
+                       )
+                     ),
+    durationText
+  );
 
   auto const layout = displaytext::layoutColumns(consolewidth::resolveColumns());
   auto const nameWidth = resolvePlanNameWidth(plans, layout);
@@ -1130,6 +1171,7 @@ void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor) {
     auto const ratio = stats.totalSource > 0
       ? static_cast<double>(stats.totalEst) / static_cast<double>(stats.totalSource)
       : 0.0;
+    terminal::println(Plain, "");
     terminal::println(
       Plain,
       "  Total: {} file(s), est. {}, source {} ({})",

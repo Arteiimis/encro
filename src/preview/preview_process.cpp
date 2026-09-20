@@ -3,6 +3,7 @@
 #include "infra/open_file.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
+#include "core/display_text.h"
 #include "core/progress.h"
 #include "core/task_executor.h"
 #include "utils/utils.h"
@@ -320,9 +321,18 @@ auto renderPreview(
   return 0;
 }
 
-void reportAndOpen(PreviewOptions const& options, fs::path const& outputPath) {
+void reportAndOpen(
+  PreviewOptions const& options,
+  fs::path const& outputPath,
+  std::chrono::milliseconds elapsed
+) {
   // The run's final summary line bypasses the quiet gate (verbose-levels).
-  terminal::println(Summary, "Preview written to: {}", terminal::path(outputPath));
+  terminal::println(
+    Summary,
+    "Preview written to: {} in {}",
+    terminal::path(outputPath),
+    terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(elapsed))
+  );
   if (!options.noOpen) {
     if (openfile::openWithDefaultApp(outputPath)) {
       terminal::println(Info, "Opened in the default player.");
@@ -500,7 +510,8 @@ auto renderAndReportSingleInput(
   std::vector<fs::path> const& segments,
   fs::path const& outputPath,
   BarSlot const& bars,
-  std::optional<std::size_t> worstIndex
+  std::optional<std::size_t> worstIndex,
+  std::chrono::steady_clock::time_point startedAt
 ) -> eh::Result<int> {
   auto const spec = FiltergraphSpec{
     .original = original,
@@ -524,7 +535,13 @@ auto renderAndReportSingleInput(
   // gone: the phase clears its own bars before it prints.
   bars.progressCtx.eraseBars();
   printWindows(windows, worstIndex);
-  reportAndOpen(options, outputPath);
+  reportAndOpen(
+    options,
+    outputPath,
+    std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - startedAt
+    )
+  );
   return renderResult;
 }
 
@@ -606,6 +623,7 @@ auto runSingleInput(
   // One bar spans the whole pipeline: probe 0-40%, windows 40-85%, render 85-100%.
   auto const bar =
     progressCtx.addBar(std::format("Previewing: {}", fileName), terminal::Role::Accent);
+  auto const startedAt = std::chrono::steady_clock::now();
   auto const probeSlot = BarSlot{progressCtx, bar, 0.0f};
   auto const [plan, windowBase] =
     probeSingleInputPlan(ctx, options, *probeRoot, probeSlot, fileName);
@@ -659,7 +677,8 @@ auto runSingleInput(
     windowBatch.segments,
     outputPath,
     windowBars,
-    worstIndex
+    worstIndex,
+    startedAt
   );
   return renderResult;
 }
@@ -771,6 +790,7 @@ auto runTwoInput(
   auto const fileName = options.original.filename().string();
   auto const bar =
     progressCtx.addBar(std::format("Previewing: {}", fileName), terminal::Role::Accent);
+  auto const startedAt = std::chrono::steady_clock::now();
 
   // run() dispatched here only after validating both inputs exist.
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
@@ -845,7 +865,13 @@ auto runTwoInput(
 
   progressCtx.eraseBars();
   printWindows(windows, worstIndex);
-  reportAndOpen(options, outputPath);
+  reportAndOpen(
+    options,
+    outputPath,
+    std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - startedAt
+    )
+  );
   return 0;
 }
 

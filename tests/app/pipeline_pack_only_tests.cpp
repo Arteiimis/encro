@@ -64,6 +64,37 @@ TEST_CASE("pack-only pipeline skips job state by default", "[pipeline]") {
 }
 
 TEST_CASE(
+  "pack-only pipeline reports the packing step with its elapsed time",
+  "[pipeline]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.bin");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.packOnly = true;
+  ctx.config.processType = "video";
+  ctx.config.inputPath = inputDir;
+
+  auto const outPath = temp.path / "stdout.txt";
+  {
+    auto capture = StdoutCapture{outPath};
+    auto const runRes = pipeline::run(ctx);
+    REQUIRE(runRes);
+    CHECK(runRes.value() == 0);
+  }
+
+  auto const captured = readTextFile(outPath);
+  auto const linePos = captured.find("All files packed successfully to: ");
+  REQUIRE(linePos != std::string::npos);
+  auto const line = captured.substr(linePos, captured.find('\n', linePos) - linePos);
+  auto const inPos = line.find(" in ");
+  REQUIRE(inPos != std::string::npos);
+  CHECK(line.find_first_of("0123456789", inPos) != std::string::npos);
+}
+
+TEST_CASE(
   "pack-only pipeline marks pending archive task interrupted when canceled with job "
   "state",
   "[pipeline]"
