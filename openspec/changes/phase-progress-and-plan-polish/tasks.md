@@ -1,9 +1,9 @@
 ## 1. Shared pieces
 
-- [ ] 1.1 Add `displaytext::formatDuration(std::chrono::milliseconds)` to `src/core/display_text.h` returning the compact narration form (`24s` below a minute, `12m:34s` below an hour, `1h:05m` from an hour), with a `[display-text]` unit case covering each boundary (59s, 60s, 59m:59s, 1h:00m) — verify with `xmake test-report --tag="[display-text]"`.
-- [ ] 1.2 Point the ETA badge at the shared formatter, keeping the badge's fixed-width `00m:24s` sub-minute rendering in `src/core/progress.cpp` (design D4) — verify the existing `[progress]` and `[progress-eta]` cases stay green.
-- [ ] 1.3 Add the `terminal` token helper (text + `Role` → styled string) used by the phase summary lines, with a `[terminal]` case asserting the span appears with colours forced on and that no escape sequence appears with colours off.
-- [ ] 1.4 Make a cleared context finished: `ProgressContext::eraseBars()` marks the context cleared, `render()` no-ops afterwards and `renderable()` reports false (design D2); update the `progress.h` comment that currently says a render may follow once a bar is added again. Verify with a `[progress]` case (a cleared context renders nothing and reports not renderable; the existing ticker-arms-again case stays green) and `xmake test-report --tag="[progress]"`.
+- [x] 1.1 Add `displaytext::formatDuration(std::chrono::milliseconds)` to `src/core/display_text.h` returning the compact narration form (`24s` below a minute, `12m:34s` below an hour, `1h:05m` from an hour), with a `[display-text]` unit case covering each boundary (59s, 60s, 59m:59s, 1h:00m) — verify with `xmake test-report --tag="[display-text]"`.
+- [x] 1.2 No code change needed: the ETA badge keeps its own fixed-width formatter (`formatDurationPart` in `src/core/progress.cpp`) — the compact narration form deliberately does not serve it, and the spec pins badges as unaffected by this change. Verified the `[progress]` and `[progress-eta]` cases stay green.
+- [x] 1.3 Add the `terminal` token helper (`terminal::withRole(Role, text)`, text + `Role` → styled string) used by the phase summary lines, with a `[terminal]` case asserting the span appears with colours forced on and that no escape sequence appears with colours off.
+- [x] 1.4 Make a cleared context finished: `ProgressContext::eraseBars()` marks the context cleared, `render()` no-ops afterwards and `renderable()` reports false (design D2); update the `progress.h` comment that currently says a render may follow once a bar is added again. Verify with a `[progress]` case (a cleared context renders nothing and reports not renderable; the existing ticker-arms-again case stays green) and `xmake test-report --tag="[progress]"`.
 
 ## 2. Bar lifecycle per phase
 

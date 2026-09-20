@@ -201,8 +201,12 @@ auto styled(Stream stream, fmt::text_style style, std::string_view text) -> std:
   return fmt::format(style, "{}", text);
 }
 
+auto withRole(Role role, std::string_view text, Stream stream) -> std::string {
+  return styled(stream, roleStyle(role), text);
+}
+
 auto accent(std::string_view text, Stream stream) -> std::string {
-  return styled(stream, roleStyle(Role::Accent), text);
+  return withRole(Role::Accent, text, stream);
 }
 
 auto streamFor(MessageKind kind) -> Stream {

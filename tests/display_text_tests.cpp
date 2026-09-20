@@ -122,6 +122,19 @@ TEST_CASE("formatSizeBytes auto-scales MB and GB", "[display-text]") {
   CHECK(displaytext::formatSizeBytes(std::optional<std::uintmax_t>{}) == "\xE2\x80\x94");
 }
 
+TEST_CASE("formatDuration renders the compact narration form", "[display-text]") {
+  using namespace std::chrono_literals;
+
+  CHECK(displaytext::formatDuration(0ms) == "0s");
+  CHECK(displaytext::formatDuration(24s) == "24s");
+  CHECK(displaytext::formatDuration(59'999ms) == "59s");
+  CHECK(displaytext::formatDuration(60s) == "1m:00s");
+  CHECK(displaytext::formatDuration(12min + 34s) == "12m:34s");
+  CHECK(displaytext::formatDuration(59min + 59s) == "59m:59s");
+  CHECK(displaytext::formatDuration(1h) == "1h:00m");
+  CHECK(displaytext::formatDuration(1h + 5min) == "1h:05m");
+}
+
 TEST_CASE("truncateMiddle keeps the extension and stays within width", "[display-text]") {
   auto const name = std::string{"35e5a22dece198d78d9815c6056ef21e.mp4"};
   CHECK(displaytext::displayWidth(name) == 36);
