@@ -4,6 +4,7 @@
 #include "picture/picture_video_webp.h"
 
 #include "core/collision_naming.h"
+#include "core/display_text.h"
 #include "core/job_state.h"
 #include "core/media_scanner.h"
 #include "core/work_dirs.h"
@@ -18,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <map>
@@ -365,8 +367,31 @@ auto runVideoConversionPhase(
   std::vector<picturewebp::ConversionTask> const& tasks
 ) -> eh::Result<ConversionPhaseResult> {
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
+  auto const startedAt = std::chrono::steady_clock::now();
   auto const outcome = picturewebp::runConversionPhase(ctx, tasks, maxParallel);
+  auto const elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - startedAt
+  );
   if (!outcome) { return eh::makeError("{}", outcome.error()); }
+
+  if (!outcome.value().canceled) {
+    terminal::println(
+      Plain,
+      "{} {} in {}",
+      terminal::withRole(
+        terminal::outcomeVerbRole(outcome.value().failedCount, 0),
+        "Converted"
+      ),
+      terminal::summaryCounts(
+        outcome.value().ready.size(),
+        tasks.size(),
+        "videos to WebP",
+        outcome.value().failedCount,
+        0
+      ),
+      terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(elapsed))
+    );
+  }
 
   return ConversionPhaseResult{
     .exitCode = outcome.value().canceled ? stopsignal::kCanceledExitCode : 0,
@@ -456,12 +481,16 @@ auto executeDirectPackWorkflow(
 
   auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
+  auto const packStartedAt = std::chrono::steady_clock::now();
   auto const packRes = [&]() {
     logging::ScopedTimer timer("picture.pack");
     auto const packLabel = std::format("{} picture(s)", pics.size());
     logging::ScopedErrorContext scopedCtx("picture.pack", packLabel);
     return pack::execute(request);
   }();
+  auto const packElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - packStartedAt
+  );
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
@@ -469,8 +498,9 @@ auto executeDirectPackWorkflow(
 
   terminal::println(
     Summary,
-    "All pictures packed successfully to: {}",
-    terminal::path(outputDir)
+    "All pictures packed successfully to: {} in {}",
+    terminal::path(outputDir),
+    terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(packElapsed))
   );
   return 0;
 }
@@ -555,6 +585,7 @@ auto runCompressionPhase(
     store->markRunning(jobstate::kCompressPhaseTaskId);
   }
 
+  auto const startedAt = std::chrono::steady_clock::now();
   auto const compressResults = [&]() {
     logging::ScopedTimer timer("picture.compress");
     auto const compressLabel =
@@ -568,6 +599,9 @@ auto runCompressionPhase(
     }
     return results;
   }();
+  auto const elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - startedAt
+  );
 
   if (stopsignal::isStopRequested()) {
     if (auto* store = ctx.runtime.jobState.get(); store != nullptr) {
@@ -588,6 +622,22 @@ auto runCompressionPhase(
   if (auto* store = ctx.runtime.jobState.get(); store != nullptr) {
     store->markSucceeded(jobstate::kCompressPhaseTaskId);
   }
+
+  auto const failedCount = compressTasks.size() - compressResults.size();
+  terminal::println(
+    Plain,
+    "{} {} in {}",
+    terminal::withRole(terminal::outcomeVerbRole(failedCount, 0), "Compressed"),
+    terminal::summaryCounts(
+      compressResults.size(),
+      compressTasks.size(),
+      "pictures",
+      failedCount,
+      0
+    ),
+    terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(elapsed))
+  );
+
   return CompressPhaseOutcome{.canceled = false, .results = compressResults};
 }
 
@@ -631,12 +681,16 @@ auto executePicturePack(
   auto const packInputCount = packInputs.size();
   auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
+  auto const packStartedAt = std::chrono::steady_clock::now();
   auto const packRes = [&]() {
     logging::ScopedTimer timer("picture.pack");
     auto const packLabel = std::format("{} entry(s)", packInputCount);
     logging::ScopedErrorContext scopedCtx("picture.pack", packLabel);
     return pack::execute(request);
   }();
+  auto const packElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - packStartedAt
+  );
   if (!stopsignal::isStopRequested()) { fs::remove_all(tempDir, ec); }
 
   if (!packRes) { return eh::makeError("Failed to pack pictures: {}", packRes.error()); }
@@ -646,8 +700,9 @@ auto executePicturePack(
 
   terminal::println(
     Summary,
-    "All pictures packed successfully to: {}",
-    terminal::path(outputDir)
+    "All pictures packed successfully to: {} in {}",
+    terminal::path(outputDir),
+    terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(packElapsed))
   );
   return 0;
 }

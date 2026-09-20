@@ -658,6 +658,13 @@ TEST_CASE(
     CAPTURE(result.stdoutText, result.stderrText);
 
     CHECK(result.stdoutText.find("Encoded 1/1 videos") != std::string::npos);
+    // The phase summary keeps its elapsed time under quiet.
+    auto const encodedLinePos = result.stdoutText.find("Encoded 1/1 videos");
+    auto const encodedLine = result.stdoutText.substr(
+      encodedLinePos,
+      result.stdoutText.find('\n', encodedLinePos) - encodedLinePos
+    );
+    CHECK(encodedLine.find(" in ") != std::string::npos);
     CHECK(result.stdoutText.find("Found 1 video(s)") == std::string::npos);
     CHECK(result.stdoutText.find("Scanning") == std::string::npos);
     CHECK(result.stdoutText.find("Scheduling") == std::string::npos);
@@ -814,6 +821,19 @@ TEST_CASE(
   );
   REQUIRE_SUCCESS(result);
 
+  // The conversion phase and the packing step each report themselves once,
+  // with their own elapsed time.
+  CHECK(result.stdoutText.find("Converted 1/1 videos to WebP in ") != std::string::npos);
+  auto const packedLinePos =
+    result.stdoutText.find("All pictures packed successfully to: ");
+  REQUIRE(packedLinePos != std::string::npos);
+  auto const packedLine =
+    result.stdoutText
+      .substr(packedLinePos, result.stdoutText.find('\n', packedLinePos) - packedLinePos);
+  auto const packedInPos = packedLine.find(" in ");
+  REQUIRE(packedInPos != std::string::npos);
+  CHECK(packedLine.find_first_of("0123456789", packedInPos) != std::string::npos);
+
   auto const zips = listFilesWithExtension(inputDir / "packed", ".zip");
   REQUIRE(zips.size() == 1);
   auto const entries = testutils::listZipRegularEntryNames(zips.front());
@@ -830,6 +850,51 @@ TEST_CASE(
   CHECK(log.find("-loop") != std::string::npos);
   // A finished run leaves no conversion cache behind.
   CHECK_FALSE(fs::exists(inputDir / ".encro" / "webp"));
+}
+
+TEST_CASE(
+  "encro packs encoded outputs and reports the packing step last",
+  "[e2e][video][pack][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "videos";
+  fs::create_directories(inputDir);
+  testutils::writeTextFile(inputDir / "clip.avi", "fake-video");
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+
+  auto const result = e2e::runEncro({
+    "-y",
+    "-p",
+    "-i",
+    inputDir.string(),
+    "-f",
+    "webp",
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+  REQUIRE_SUCCESS(result);
+  CAPTURE(result.stdoutText);
+
+  // The encode summary prints first, the packing result last: the console
+  // order matches the order the work ran in.
+  auto const encodedPos = result.stdoutText.find("Encoded 1/1 videos");
+  auto const packedPos = result.stdoutText.find("Packed 1 archive(s)");
+  REQUIRE(encodedPos != std::string::npos);
+  REQUIRE(packedPos != std::string::npos);
+  CHECK(encodedPos < packedPos);
+
+  auto const packedLine =
+    result.stdoutText
+      .substr(packedPos, result.stdoutText.find('\n', packedPos) - packedPos);
+  auto const inPos = packedLine.find(" in ");
+  REQUIRE(inPos != std::string::npos);
+  CHECK(packedLine.find_first_of("0123456789", inPos) != std::string::npos);
+  CHECK(fs::exists(inputDir / "packed"));
+
+  // Piped stdout: no styling escape reaches the product output.
+  CHECK(result.stdoutText.find('\x1b') == std::string::npos);
 }
 
 TEST_CASE(

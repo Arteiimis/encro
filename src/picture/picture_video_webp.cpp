@@ -320,5 +320,9 @@ auto picturewebp::runConversionPhase(
   }
 
   progressCtx.eraseBars();
-  return ConversionOutcome{.canceled = false, .ready = std::move(ready)};
+  return ConversionOutcome{
+    .canceled = false,
+    .ready = std::move(ready),
+    .failedCount = collected.first,
+  };
 }

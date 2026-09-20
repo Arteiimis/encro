@@ -3,6 +3,7 @@
 #include <fmt/color.h>
 #include <fmt/format.h>
 
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -87,6 +88,25 @@ auto accent(std::string_view text, Stream stream = Stream::Stdout) -> std::strin
 // failed or skipped segment, a duration). Same span contract as accent().
 auto withRole(Role role, std::string_view text, Stream stream = Stream::Stdout)
   -> std::string;
+
+// The role a phase summary line's leading verb takes from its outcome: bad
+// when anything failed, warn when work was only skipped, good otherwise.
+inline auto outcomeVerbRole(std::size_t failed, std::size_t skipped) -> Role {
+  if (failed > 0) { return Role::Bad; }
+  return skipped > 0 ? Role::Warn : Role::Good;
+}
+
+// The count core of a phase summary line: `<succeeded>/<total> <noun>`, plus
+// one parenthesized segment naming the failure and skip classes that actually
+// occurred, each in its own role. The succeeded count is good, the total is
+// accented, and the surrounding prose is unstyled.
+auto summaryCounts(
+  std::size_t succeeded,
+  std::size_t total,
+  std::string_view noun,
+  std::size_t failed,
+  std::size_t skipped
+) -> std::string;
 
 auto path(std::filesystem::path const& value, Stream stream = Stream::Stdout)
   -> std::string;

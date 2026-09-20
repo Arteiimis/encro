@@ -31,6 +31,13 @@ struct EncodingBatchOutcome {
   bool dryRun = false;  // probe plan printed; exit without encoding
   // input -> child diagnostic line for failed encodes
   std::map<fs::path, std::string> failureReasons;
+  // Files dropped before encoding (estimated output larger than the source);
+  // they are absent from `results`, so the summary needs them to report a
+  // total that the outcome classes add up to.
+  std::size_t skippedCount = 0;
+  // Wall time the encode batch itself took, excluding the probe stage and the
+  // confirmation prompt.
+  std::chrono::milliseconds encodeElapsed{};
 };
 
 // Batch job description threaded through the encode pipeline: the files to

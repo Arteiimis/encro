@@ -13,11 +13,13 @@
 #include "pack/pack_internal.h"
 #include "pack/packer.h"
 #include "core/collision_naming.h"
+#include "core/display_text.h"
 #include "core/job_state.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <functional>
 #include <memory>
@@ -484,14 +486,19 @@ auto execute(PackRequest const& request) -> eh::Result<PackRunResult> {
   }
 
   // --- Execute: resumable or non-resumable ---
+  auto const packStartedAt = std::chrono::steady_clock::now();
   auto const result = execute(plan, request.jobState);
+  auto const packElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - packStartedAt
+  );
 
   // For Directory mode, print success message after resumable completion too
   if (result && result->exitCode == 0 && request.mode == PackMode::Directory) {
     terminal::println(
-      terminal::MessageKind::Success,
-      "All files packed successfully to: {}",
-      terminal::path(request.outputDir)
+      terminal::MessageKind::Summary,
+      "All files packed successfully to: {} in {}",
+      terminal::path(request.outputDir),
+      terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(packElapsed))
     );
   }
 

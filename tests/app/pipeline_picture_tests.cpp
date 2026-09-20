@@ -312,6 +312,11 @@ TEST_CASE(
   CHECK(captured.find("will be compressed") == std::string::npos);
   CHECK(captured.find("grouping into") == std::string::npos);
   CHECK(captured.find("preparing pack plan") == std::string::npos);
+
+  // The phase's summary line: counts plus the phase's own elapsed time.
+  auto const summaryPos = captured.find("Compressed 2/2 pictures in ");
+  REQUIRE(summaryPos != std::string::npos);
+  CHECK(captured.find_first_of("0123456789", summaryPos) != std::string::npos);
 }
 
 TEST_CASE(

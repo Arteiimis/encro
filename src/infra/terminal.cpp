@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cstdio>
 #include <format>
+#include <vector>
 
 #if defined(_WIN32) || defined(_WIN64)
   #include <windows.h>  // IWYU pragma: keep -- Windows-only (guarded by _WIN32)
@@ -203,6 +204,38 @@ auto styled(Stream stream, fmt::text_style style, std::string_view text) -> std:
 
 auto withRole(Role role, std::string_view text, Stream stream) -> std::string {
   return styled(stream, roleStyle(role), text);
+}
+
+auto summaryCounts(
+  std::size_t succeeded,
+  std::size_t total,
+  std::string_view noun,
+  std::size_t failed,
+  std::size_t skipped
+) -> std::string {
+  auto classes = std::vector<std::string>{};
+  if (failed > 0) {
+    classes.push_back(withRole(Role::Bad, fmt::format("{} failed", failed)));
+  }
+  if (skipped > 0) {
+    classes.push_back(withRole(Role::Warn, fmt::format("{} skipped", skipped)));
+  }
+
+  auto out = fmt::format(
+    "{}/{} {}",
+    withRole(Role::Good, fmt::format("{}", succeeded)),
+    withRole(Role::Accent, fmt::format("{}", total)),
+    noun
+  );
+  if (classes.empty()) { return out; }
+
+  auto joined = std::string{};
+  for (auto const& part: classes) {
+    if (!joined.empty()) { joined += ", "; }
+    joined += part;
+  }
+  out += fmt::format(" ({})", joined);
+  return out;
 }
 
 auto accent(std::string_view text, Stream stream) -> std::string {
