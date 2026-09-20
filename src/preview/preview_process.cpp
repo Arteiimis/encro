@@ -513,13 +513,16 @@ auto renderAndReportSingleInput(
   if (!renderResult) {
     bars.progressCtx.setRole(bars.bar, terminal::Role::Bad);
     bars.progressCtx.setPostfixText(bars.bar, "Preview generation failed");
+    bars.progressCtx.eraseBars();
     return renderResult;
   }
   bars.progressCtx.setProgress(bars.bar, 100.0f);
   bars.progressCtx.setRole(bars.bar, terminal::Role::Good);
   bars.progressCtx.setPostfixText(bars.bar, "Preview complete");
 
-  // Summary output only after the render finished.
+  // Summary output only after the render finished, and only once the bar is
+  // gone: the phase clears its own bars before it prints.
+  bars.progressCtx.eraseBars();
   printWindows(windows, worstIndex);
   reportAndOpen(options, outputPath);
   return renderResult;
@@ -631,6 +634,7 @@ auto runSingleInput(
   if (windowEncodeFailed.load()) {
     progressCtx.setRole(bar, terminal::Role::Bad);
     progressCtx.setPostfixText(bar, "Window encode failed");
+    progressCtx.eraseBars();
     return eh::makeError("Preview window encode failed.");
   }
   progressCtx.setPostfixText(
@@ -639,6 +643,7 @@ auto runSingleInput(
   );
 
   if (stopsignal::isStopRequested()) {
+    progressCtx.eraseBars();
     return eh::makeError("Preview canceled by user.");
   }
 
@@ -773,9 +778,13 @@ auto runTwoInput(
 
   progressCtx.setPostfixText(bar, std::format("Probing: {}", fileName));
   auto const originalRes = probeVideo(ctx.toolchain, ctx.runtime, options.original);
-  if (!originalRes) { return eh::makeError("{}", originalRes.error()); }
+  if (!originalRes) {
+    progressCtx.eraseBars();
+    return eh::makeError("{}", originalRes.error());
+  }
   auto const& original = originalRes.value();
   if (original.durationUs == 0) {
+    progressCtx.eraseBars();
     return eh::makeError(
       "Cannot preview a video with zero duration: {}",
       options.original.string()
@@ -786,9 +795,13 @@ auto runTwoInput(
   progressCtx.setProgress(bar, 5.0f);
   progressCtx.setPostfixText(bar, std::format("Probing: {}", encodedName));
   auto const encodedRes = probeVideo(ctx.toolchain, ctx.runtime, encodedPath);
-  if (!encodedRes) { return eh::makeError("{}", encodedRes.error()); }
+  if (!encodedRes) {
+    progressCtx.eraseBars();
+    return eh::makeError("{}", encodedRes.error());
+  }
   auto const& encoded = encodedRes.value();
   if (encoded.durationUs == 0) {
+    progressCtx.eraseBars();
     return eh::makeError(
       "Cannot preview a video with zero duration: {}",
       encodedPath.string()
@@ -799,7 +812,10 @@ auto runTwoInput(
   auto const manualRange = resolveManualRange(options);
   auto windowsRes =
     pickPreviewWindows(std::min(original.durationUs, encoded.durationUs), manualRange);
-  if (!windowsRes) { return eh::makeError("{}", windowsRes.error()); }
+  if (!windowsRes) {
+    progressCtx.eraseBars();
+    return eh::makeError("{}", windowsRes.error());
+  }
   auto windows = std::move(windowsRes.value());
 
   auto worstIndex = std::optional<std::size_t>{};
@@ -820,12 +836,14 @@ auto runTwoInput(
   if (!renderResult) {
     progressCtx.setRole(bar, terminal::Role::Bad);
     progressCtx.setPostfixText(bar, "Preview generation failed");
+    progressCtx.eraseBars();
     return renderResult;
   }
   progressCtx.setProgress(bar, 100.0f);
   progressCtx.setRole(bar, terminal::Role::Good);
   progressCtx.setPostfixText(bar, "Preview complete");
 
+  progressCtx.eraseBars();
   printWindows(windows, worstIndex);
   reportAndOpen(options, outputPath);
   return 0;

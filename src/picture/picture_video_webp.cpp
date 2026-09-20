@@ -289,6 +289,7 @@ auto picturewebp::runConversionPhase(
       state.barIndex,
       std::format("Canceled: {}/{}", converted, pending.size())
     );
+    progressCtx.eraseBars();
     terminal::messageln(Warning, "Video conversion canceled by user.");
     return ConversionOutcome{.canceled = true, .ready = std::move(ready)};
   }
@@ -313,7 +314,11 @@ auto picturewebp::runConversionPhase(
     )
   );
 
-  if (ready.empty()) { return eh::makeError("All video conversions failed."); }
+  if (ready.empty()) {
+    progressCtx.eraseBars();
+    return eh::makeError("All video conversions failed.");
+  }
 
+  progressCtx.eraseBars();
   return ConversionOutcome{.canceled = false, .ready = std::move(ready)};
 }

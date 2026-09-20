@@ -321,6 +321,7 @@ auto compressImageBatch(
       results.size(),
       total
     );
+    progressCtx.eraseBars();
     return results;
   }
 
@@ -347,5 +348,6 @@ auto compressImageBatch(
   auto const finalSucceeded = results.size();
   LOG_INFO("Image compression final: {}/{} images compressed", finalSucceeded, total);
 
+  progressCtx.eraseBars();
   return results;
 }

@@ -637,6 +637,10 @@ auto videobatch::runEncodingTasks(
 
   execution.monitorThread.join();
 
+  // The batch is over on every path (success, cancel, failure): the phase
+  // clears its own bars before anything else prints.
+  execution.progressState->progressCtx.eraseBars();
+
   std::map<fs::path, std::string> failureReasons;
   auto const results =
     collectEncodingResults(encodableJob.vids, runState, failureReasons);
