@@ -534,14 +534,9 @@ auto renderAndReportSingleInput(
   // Summary output only after the render finished, and only once the bar is
   // gone: the phase clears its own bars before it prints.
   bars.progressCtx.eraseBars();
+  auto const elapsed = displaytext::elapsedSince(startedAt);
   printWindows(windows, worstIndex);
-  reportAndOpen(
-    options,
-    outputPath,
-    std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now() - startedAt
-    )
-  );
+  reportAndOpen(options, outputPath, elapsed);
   return renderResult;
 }
 
@@ -864,14 +859,9 @@ auto runTwoInput(
   progressCtx.setPostfixText(bar, "Preview complete");
 
   progressCtx.eraseBars();
+  auto const elapsed = displaytext::elapsedSince(startedAt);
   printWindows(windows, worstIndex);
-  reportAndOpen(
-    options,
-    outputPath,
-    std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now() - startedAt
-    )
-  );
+  reportAndOpen(options, outputPath, elapsed);
   return 0;
 }
 

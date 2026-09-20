@@ -1105,21 +1105,16 @@ void printProbePlan(
   // phase's product output, not a second summary line.
   terminal::println(
     Plain,
-    "{} {}/{} videos{} in {}",
-    terminal::withRole(
-      notProbed == 0 ? terminal::Role::Good : terminal::Role::Warn,
-      "Probed"
+    "{} {} in {}",
+    terminal::withRole(terminal::outcomeVerbRole(0, notProbed), "Probed"),
+    terminal::summaryCounts(
+      probedCount,
+      plans.size(),
+      "videos",
+      0,
+      notProbed,
+      "not probed"
     ),
-    terminal::withRole(terminal::Role::Good, std::format("{}", probedCount)),
-    terminal::withRole(terminal::Role::Accent, std::format("{}", plans.size())),
-    notProbed == 0 ? std::string{}
-                   : std::format(
-                       " ({})",
-                       terminal::withRole(
-                         terminal::Role::Warn,
-                         std::format("{} not probed", notProbed)
-                       )
-                     ),
     durationText
   );
 

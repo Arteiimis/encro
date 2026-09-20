@@ -314,9 +314,9 @@ TEST_CASE(
   CHECK(captured.find("preparing pack plan") == std::string::npos);
 
   // The phase's summary line: counts plus the phase's own elapsed time.
-  auto const summaryPos = captured.find("Compressed 2/2 pictures in ");
-  REQUIRE(summaryPos != std::string::npos);
-  CHECK(captured.find_first_of("0123456789", summaryPos) != std::string::npos);
+  auto const summaryLine = testutils::findHelpLine(captured, "Compressed 2/2 pictures");
+  REQUIRE(summaryLine.has_value());
+  CHECK(testutils::hasElapsedSuffix(summaryLine.value()));
 }
 
 TEST_CASE(

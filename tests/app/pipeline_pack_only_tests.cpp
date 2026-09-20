@@ -86,12 +86,10 @@ TEST_CASE(
   }
 
   auto const captured = readTextFile(outPath);
-  auto const linePos = captured.find("All files packed successfully to: ");
-  REQUIRE(linePos != std::string::npos);
-  auto const line = captured.substr(linePos, captured.find('\n', linePos) - linePos);
-  auto const inPos = line.find(" in ");
-  REQUIRE(inPos != std::string::npos);
-  CHECK(line.find_first_of("0123456789", inPos) != std::string::npos);
+  auto const line =
+    testutils::findHelpLine(captured, "All files packed successfully to: ");
+  REQUIRE(line.has_value());
+  CHECK(testutils::hasElapsedSuffix(line.value()));
 }
 
 TEST_CASE(
