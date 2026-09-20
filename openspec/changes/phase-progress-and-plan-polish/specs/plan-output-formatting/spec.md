@@ -2,7 +2,7 @@
 
 ### Requirement: Probe plan renders as an aligned table
 
-The probe plan SHALL render one row per pending file with column headers: file name, chosen CQ, measured p5 score (one decimal), estimated size (auto-scaled to GB/MB), and ratio as a signed percentage. Numeric columns SHALL be right-aligned; the table body SHALL carry no per-line `[info]` badge prefix. The per-file `est. size:` / `ratio:` continuation lines of the current format SHALL be removed. The block SHALL open with the probe phase's summary line (`pipeline-narration`) above its opening rule, and the totals line SHALL be separated from the table body by exactly one blank line. The table's header row, file rows and totals line SHALL keep the styling they have today: this change adds no emphasis to any of them. When no pending file carries measured probe data, the plan SHALL instead render as a single line naming the file count, the CQ in effect, and the reason no measurements are shown (for example `2 video(s) to encode at CQ 28 (probing skipped: short videos) in 2s`), without table headers or rule lines — that line is the phase's summary line, so no separate probe summary line prints; rows for files without measurements in a mixed batch SHALL state the skip reason in the row.
+The probe plan SHALL render one row per pending file with column headers: file name, chosen CQ, measured p5 score (one decimal), estimated size (auto-scaled to GB/MB), and ratio as a signed percentage. Numeric columns SHALL be right-aligned; the table body SHALL carry no per-line `[info]` badge prefix. The per-file `est. size:` / `ratio:` continuation lines of the current format SHALL be removed. The block SHALL open with the probe phase's summary line (`pipeline-narration`) above its opening rule, and the totals line SHALL be separated from the table body by exactly one blank line. The block SHALL print as one unit: the unreachable-floor count line, being a diagnostic on stderr (`console-output-conventions`), SHALL print before the block rather than inside it. The table's header row, file rows and totals line SHALL keep the styling they have today: this change adds no emphasis to any of them. When no pending file carries measured probe data, the plan SHALL instead render as a single line naming the file count, the CQ in effect, and the reason no measurements are shown (for example `2 video(s) to encode at CQ 28 (probing skipped: short videos) in 2s`), without table headers or rule lines — that line is the phase's summary line, so no separate probe summary line prints; rows for files without measurements in a mixed batch SHALL state the skip reason in the row.
 
 #### Scenario: Batch plan shows one row per file
 
@@ -13,6 +13,11 @@ The probe plan SHALL render one row per pending file with column headers: file n
 
 - **WHEN** probing completes with measurements for the batch
 - **THEN** the phase summary line prints above the opening rule, and the rule, title, header row and file rows follow it
+
+#### Scenario: Unreachable-floor count stays out of the block
+
+- **WHEN** some probed files cannot reach the quality floor
+- **THEN** the count line prints on stderr before the block, and the block prints as one contiguous unit from its opening rule to its closing rule
 
 #### Scenario: Totals are set off from the table
 
