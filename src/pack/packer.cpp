@@ -753,11 +753,7 @@ auto pack::Packer::buildDirectoryPackPlan(
   }
 
   if (terminal::streamIsTerminal(terminal::Stream::Stdout)) {
-    terminal::println(
-      Info,
-      "Scanning input path for files: {} ...",
-      terminal::path(dirPath)
-    );
+    terminal::println(Info, "Scanning for files...");
   }
 
   auto const allFiles =

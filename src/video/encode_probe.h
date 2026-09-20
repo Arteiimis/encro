@@ -7,6 +7,7 @@
 #include "video/video_quality.h"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -193,7 +194,14 @@ auto probeSingleFile(
   ProbeStepCallback const& onStep = {}
 ) -> ProbePlan;
 
-void printProbePlan(std::span<ProbePlan const> plans, int minVmafFloor);
+// Renders the probe phase's summary line and, unless nothing was measured,
+// the plan block that follows it. `elapsed` is the probe phase's own wall
+// time, measured by the caller.
+void printProbePlan(
+  std::span<ProbePlan const> plans,
+  int minVmafFloor,
+  std::chrono::milliseconds elapsed
+);
 
 // One-line summary hint pointing at the comparison tool.
 inline auto previewHint(fs::path const& original, fs::path const& encoded)

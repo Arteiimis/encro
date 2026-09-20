@@ -5,6 +5,7 @@
 #include "video/video_output_planning.h"
 #include "video/video_workflow_utils.h"
 
+#include "core/display_text.h"
 #include "core/job_state.h"
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
@@ -17,6 +18,7 @@
 
 #include <algorithm>
 #include <boost/lambda2.hpp>  // IWYU pragma: keep
+#include <chrono>
 #include <cstdint>
 #include <map>
 
@@ -55,7 +57,9 @@ void printEncodingSummary(
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes,
   std::map<fs::path, std::string> const& failureReasons,
-  std::span<std::string const> attentionWarnings
+  std::span<std::string const> attentionWarnings,
+  std::size_t skippedCount,
+  std::chrono::milliseconds elapsed
 );
 
 bool hasEncodingFailures(EncodeResultsMap const& vidsRunRes);
@@ -167,11 +171,7 @@ auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
   auto const scanPathStr = inputPath.string();
   logging::ScopedErrorContext scopedCtx("video.scan", scanPathStr);
   if (terminal::streamIsTerminal(terminal::Stream::Stdout)) {
-    terminal::println(
-      Info,
-      "Scanning input path for videos: {} ...",
-      terminal::path(inputPath)
-    );
+    terminal::println(Info, "Scanning for videos...");
   }
   LOG_INFO("Scanning input path: {}", inputPath.string());
   auto vids = readAllVids(ctx.config, ctx.toolchain, ctx.runtime, inputPath);
@@ -196,7 +196,7 @@ auto scanInputVideosFromFiles(
   if (terminal::streamIsTerminal(terminal::Stream::Stdout)) {
     terminal::println(
       Info,
-      "Scanning input files for videos: {} file(s) ...",
+      "Scanning for videos in {} file(s)...",
       terminal::count(inputPaths.size())
     );
   }
@@ -324,6 +324,8 @@ int runScannedEncodingWorkflow(
   auto vidsRunRes = EncodeResultsMap{};
   auto attentionWarnings = std::vector<std::string>{};
   auto failureReasons = std::map<fs::path, std::string>{};
+  auto encodeElapsed = std::chrono::milliseconds{0};
+  auto skippedCount = std::size_t{0};
   {
     logging::ScopedTimer timer("video.encode");
     auto const encodeLabel = std::format("{} video(s)", vids.size());
@@ -346,6 +348,8 @@ int runScannedEncodingWorkflow(
     }
     attentionWarnings = std::move(outcome.attentionWarnings);
     failureReasons = std::move(outcome.failureReasons);
+    encodeElapsed = outcome.encodeElapsed;
+    skippedCount = outcome.skippedCount;
     vidsRunRes = mergeEncodeResults(prepared.initialResults, outcome.results.value());
   }
 
@@ -371,19 +375,24 @@ int runScannedEncodingWorkflow(
     }
   }
 
+  // The encode summary prints before packing, matching the order the work ran
+  // in, so the packing result stays the run's last product line.
+  printEncodingSummary(
+    summaryOutputDir(ctx.config, planningRootDir, plannedOutputFiles),
+    plannedOutputFiles,
+    vidsRunRes,
+    failureReasons,
+    attentionWarnings,
+    skippedCount,
+    encodeElapsed
+  );
+
   auto const packRes =
     maybePackWorkflowOutputs(ctx, packInputPath, plannedOutputFiles, vidsRunRes);
   if (packRes != 0) { return packRes; }
 
   withJobState(ctx, [](jobstate::Store& store) { store.setStage("completed"); });
 
-  printEncodingSummary(
-    summaryOutputDir(ctx.config, planningRootDir, plannedOutputFiles),
-    plannedOutputFiles,
-    vidsRunRes,
-    failureReasons,
-    attentionWarnings
-  );
   if (onCompleted) { onCompleted(); }
 
   return hasEncodingFailures(vidsRunRes) ? 1 : 0;
@@ -467,6 +476,7 @@ int packEncodedVideos(
     zipOutputDir.string()
   );
 
+  auto const packStartedAt = std::chrono::steady_clock::now();
   auto const packRes = pack::execute({
     .entries = std::move(filePaths),
     .mode = pack::PackMode::Media,
@@ -480,6 +490,9 @@ int packEncodedVideos(
     .maxParallelJobs = ctx.config.maxParallelJobs,
     .jobState = ctx.runtime.jobState.get(),
   });
+  auto const packElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - packStartedAt
+  );
 
   if (!packRes) {
     LOG_ERROR("Failed to pack encoded videos: {}", packRes.error());
@@ -488,6 +501,20 @@ int packEncodedVideos(
   if (packRes->exitCode != 0) { return packRes->exitCode; }
 
   LOG_INFO("Packing completed: archive-count={}", packRes->zippedFiles.size());
+
+  // Media mode has no line of its own otherwise: the compact bar is cleared
+  // and this is the packing step's one piece of console output.
+  terminal::println(
+    Plain,
+    "{} {} archive(s) \xE2\x86\x92 {} in {}",
+    terminal::withRole(terminal::Role::Good, "Packed"),
+    terminal::withRole(
+      terminal::Role::Good,
+      std::format("{}", packRes->zippedFiles.size())
+    ),
+    terminal::path(zipOutputDir),
+    terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(packElapsed))
+  );
   return 0;
 }
 
@@ -496,24 +523,37 @@ void printEncodingSummary(
   appctx::path_map<fs::path> const& plannedOutputFiles,
   EncodeResultsMap const& vidsRunRes,
   std::map<fs::path, std::string> const& failureReasons,
-  std::span<std::string const> attentionWarnings
+  std::span<std::string const> attentionWarnings,
+  std::size_t skippedCount,
+  std::chrono::milliseconds elapsed
 ) {
   auto const successCount = std::ranges::count_if(vidsRunRes, _1->*second);
   auto const failureCount = vidsRunRes.size() - static_cast<std::size_t>(successCount);
+  auto const totalCount = vidsRunRes.size() + skippedCount;
 
   LOG_INFO(
-    "Encoding summary: total={} success={} failed={}",
-    vidsRunRes.size(),
+    "Encoding summary: total={} success={} failed={} skipped={}",
+    totalCount,
     successCount,
-    failureCount
+    failureCount,
+    skippedCount
   );
 
+  // Outcome classes print only when they occurred, and the leading verb takes
+  // the worst outcome the batch had.
   terminal::println(
-    Summary,
-    "Encoded {}/{} videos \xE2\x86\x92 {}",
-    terminal::count(successCount),
-    terminal::count(vidsRunRes.size()),
-    terminal::path(outputDir)
+    Plain,
+    "{} {} \xE2\x86\x92 {} in {}",
+    terminal::withRole(terminal::outcomeVerbRole(failureCount, skippedCount), "Encoded"),
+    terminal::summaryCounts(
+      successCount,
+      totalCount,
+      "videos",
+      failureCount,
+      skippedCount
+    ),
+    terminal::path(outputDir),
+    terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(elapsed))
   );
 
   if (failureCount > 0) {

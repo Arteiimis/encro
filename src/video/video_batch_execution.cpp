@@ -369,7 +369,11 @@ auto runProbeStage(
     return ProbeStageStatus::Proceed;
   }
 
+  auto const probeStartedAt = std::chrono::steady_clock::now();
   auto probeRes = encodeprobe::runProbePhase(ctx, vids);
+  auto const probeElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - probeStartedAt
+  );
   if (stopsignal::isStopRequested()) {
     noteStopRequest(ctx);
     return ProbeStageStatus::Aborted;
@@ -399,7 +403,7 @@ auto runProbeStage(
       plans.push_back(it->second);
     }
   }
-  encodeprobe::printProbePlan(plans, ctx.config.minVmaf);
+  encodeprobe::printProbePlan(plans, ctx.config.minVmaf, probeElapsed);
 
   if (ctx.config.dryRun) {
     LOG_INFO("Dry run: probe plan printed; exiting without encoding.");
@@ -594,6 +598,15 @@ auto videobatch::runEncodingTasks(
     return EncodingBatchOutcome{.results = std::nullopt};
   }
 
+  // The encode phase's own clock starts after the prompt: waiting for the
+  // user is not encode time.
+  auto const encodeStartedAt = std::chrono::steady_clock::now();
+  auto const encodeElapsedNow = [&] {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - encodeStartedAt
+    );
+  };
+
   // Skipped (too-large estimate) files count as completed up front so the
   // overall bar reaches its total when the remaining encodes finish.
   auto const skippedBeforeStart = job.vids.size() - encodableVids.size();
@@ -610,6 +623,8 @@ auto videobatch::runEncodingTasks(
       .results = std::move(results),
       .attentionWarnings = std::move(attentionWarnings),
       .failureReasons = std::move(failureReasons),
+      .skippedCount = skippedBeforeStart,
+      .encodeElapsed = encodeElapsedNow(),
     };
   }
 
@@ -617,6 +632,8 @@ auto videobatch::runEncodingTasks(
     return EncodingBatchOutcome{
       .results = EncodeResultsMap{},
       .attentionWarnings = std::move(attentionWarnings),
+      .skippedCount = skippedBeforeStart,
+      .encodeElapsed = encodeElapsedNow(),
     };
   }
 
@@ -655,5 +672,7 @@ auto videobatch::runEncodingTasks(
     .results = results,
     .attentionWarnings = std::move(attentionWarnings),
     .failureReasons = std::move(failureReasons),
+    .skippedCount = skippedBeforeStart,
+    .encodeElapsed = encodeElapsedNow(),
   };
 }

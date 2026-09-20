@@ -117,14 +117,35 @@ TEST_CASE(
   auto ctx = appctx::AppContext{};
   configureVideoContext(ctx, temp.path, inputDir, true);
 
-  auto const result = handlePathEncoding(ctx, inputDir);
+  auto const outPath = temp.path / "stdout.txt";
+  auto result = 0;
+  {
+    auto capture = StdoutCapture{outPath};
+    result = handlePathEncoding(ctx, inputDir);
+  }
   auto const packedFiles = listRegularFiles(inputDir / "packed");
+  auto const captured = readTextFile(outPath);
 
   CHECK(result == 0);
   REQUIRE(packedFiles.size() == 1);
   CHECK(packedFiles.front().extension() == ".zip");
   CHECK(packedFiles.front().filename().string().starts_with("videos_part1["));
   CHECK_FALSE(fs::exists(strayProgress.path));
+
+  // The encode summary prints before the packing result, matching the order
+  // the work ran in.
+  auto const encodedPos = captured.find("Encoded 2/2 videos");
+  auto const packedPos = captured.find("Packed 1 archive(s)");
+  REQUIRE(encodedPos != std::string::npos);
+  REQUIRE(packedPos != std::string::npos);
+  CHECK(encodedPos < packedPos);
+
+  // The packing line carries its own elapsed time.
+  auto const packedLine =
+    captured.substr(packedPos, captured.find('\n', packedPos) - packedPos);
+  auto const inPos = packedLine.find(" in ");
+  REQUIRE(inPos != std::string::npos);
+  CHECK(packedLine.find_first_of("0123456789", inPos) != std::string::npos);
 }
 
 TEST_CASE(

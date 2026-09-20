@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -704,10 +705,15 @@ TEST_CASE(
     ScopedEnvVar columns("COLUMNS", "80");
     auto errCapture = testutils::StderrCapture{err};
     auto capture = testutils::StdoutCapture{out};
-    encodeprobe::printProbePlan(plans, 95);
+    encodeprobe::printProbePlan(plans, 95, std::chrono::milliseconds{24'000});
   }
   auto const text = testutils::readTextFile(out);
   auto const warnings = testutils::readTextFile(err);
+
+  // The probe phase's summary line opens the block, ahead of the opening rule.
+  auto const summaryPos = text.find("Probed 3/3 videos in 24s");
+  REQUIRE(summaryPos != std::string::npos);
+  CHECK(summaryPos < text.find("\xE2\x94\x80"));
 
   // Header with aligned columns.
   CHECK(text.find("  File") != std::string::npos);
@@ -780,6 +786,10 @@ TEST_CASE(
     text.find("Total: 3 file(s), est. 3.5 MB, source 3.0 MB (+17% \xE2\x86\x91)")
     != std::string::npos
   );
+  // Exactly one blank line separates the table body from the totals line.
+  auto const beforeTotal = text.substr(0, text.find("  Total: "));
+  CHECK(beforeTotal.ends_with("\n\n"));
+  CHECK_FALSE(beforeTotal.ends_with("\n\n\n"));
 }
 
 TEST_CASE("printProbePlan keeps the table form on tiny terminals", "[encode-probe]") {
@@ -799,7 +809,7 @@ TEST_CASE("printProbePlan keeps the table form on tiny terminals", "[encode-prob
   {
     ScopedEnvVar columns("COLUMNS", "40");
     auto capture = testutils::StdoutCapture{out};
-    encodeprobe::printProbePlan(plans, 95);
+    encodeprobe::printProbePlan(plans, 95, std::chrono::milliseconds{1'000});
   }
   auto const text = testutils::readTextFile(out);
   // The per-file continuation-line form is gone: the aligned table renders
@@ -822,13 +832,17 @@ TEST_CASE(
   auto const out = temp.path / "stdout.txt";
   {
     auto capture = testutils::StdoutCapture{out};
-    encodeprobe::printProbePlan(plans, 95);
+    encodeprobe::printProbePlan(plans, 95, std::chrono::milliseconds{2'000});
   }
   auto const text = testutils::readTextFile(out);
+  // The collapsed line is itself the phase's summary line: it carries the
+  // phase's elapsed time and no second "Probed ..." line prints.
   CHECK(
-    text.find("2 video(s) to encode at CQ 28 (probing skipped: short videos)")
+    text.find("2 video(s) to encode at CQ 28 (probing skipped: short videos) in 2s")
     != std::string::npos
   );
+  CHECK(text.find("Probed ") == std::string::npos);
+  CHECK(std::ranges::count(text, '\n') == 1);
   // No table furniture and no per-file rows on the collapsed form.
   CHECK(text.find("\xE2\x94\x80") == std::string::npos);  // rule lines
   CHECK(text.find("Encoding plan") == std::string::npos);
@@ -852,10 +866,12 @@ TEST_CASE("printProbePlan states the skip reason on unprobed rows", "[encode-pro
   auto const out = temp.path / "stdout.txt";
   {
     auto capture = testutils::StdoutCapture{out};
-    encodeprobe::printProbePlan(plans, 95);
+    encodeprobe::printProbePlan(plans, 95, std::chrono::milliseconds{3'000});
   }
   auto const text = testutils::readTextFile(out);
-  // The table stays; the unprobed row carries its reason.
+  // The table stays; the unprobed row carries its reason, and the summary
+  // line counts it as not probed.
+  CHECK(text.find("Probed 1/2 videos (1 not probed) in 3s") != std::string::npos);
   CHECK(text.find("beta.mp4") != std::string::npos);
   CHECK(text.find("(not probed: scoring failed)") != std::string::npos);
   // The probed row still carries measurements and totals still print.
@@ -880,12 +896,14 @@ TEST_CASE("printProbePlan omits totals when no estimates exist", "[encode-probe]
   auto const out = temp.path / "stdout.txt";
   {
     auto capture = testutils::StdoutCapture{out};
-    encodeprobe::printProbePlan(plans, 95);
+    encodeprobe::printProbePlan(plans, 95, std::chrono::milliseconds{4'000});
   }
   auto const text = testutils::readTextFile(out);
   // Measured p5 keeps the table, but no totals line and no ratio computed
   // against an empty estimate.
   CHECK(text.find("Total:") == std::string::npos);
+  // With no totals line there is no separator blank line either.
+  CHECK_FALSE(text.contains("\n\n"));
   CHECK(
     text.find(
       "\xE2\x88\x92"
@@ -900,8 +918,11 @@ TEST_CASE("printProbePlan caps the name column on wide terminals", "[encode-prob
   auto const kMegabyte = std::uintmax_t{1'048'576};
   auto const first = temp.path / "alpha.mp4";
   auto const second = temp.path / "beta.mp4";
+  auto const longName =
+    temp.path / "mimu 26.02 - 08 - [GroupTag] 1080p HEVC x265 - a very long name.mp4";
   testutils::writeSizedFile(first, kMegabyte);
   testutils::writeSizedFile(second, kMegabyte);
+  testutils::writeSizedFile(longName, kMegabyte);
   auto plans = std::vector<encodeprobe::ProbePlan>{
     {.inputPath = first,
      .chosenCq = 26,
@@ -915,20 +936,30 @@ TEST_CASE("printProbePlan caps the name column on wide terminals", "[encode-prob
      .p5 = 96.0,
      .estimatedBytes = kMegabyte / 2,
      .probed = true},
+    {.inputPath = longName,
+     .chosenCq = 27,
+     .metric = videoquality::QualityMetric::Vmaf,
+     .p5 = 95.5,
+     .estimatedBytes = kMegabyte,
+     .probed = true},
   };
   auto const out = temp.path / "stdout.txt";
   {
     ScopedEnvVar columns("COLUMNS", "250");
     auto capture = testutils::StdoutCapture{out};
-    encodeprobe::printProbePlan(plans, 95);
+    encodeprobe::printProbePlan(plans, 95, std::chrono::milliseconds{5'000});
   }
   auto const text = testutils::readTextFile(out);
-  // The name column is capped at the longest file name (min 20), so no row
-  // approaches the 250-column terminal width.
+  // No table row exceeds 85 display columns, whatever the terminal offers
+  // (trailing skip/cache annotations are not part of the table).
   auto in = std::istringstream{text};
   for (std::string line; std::getline(in, line);) {
-    if (line.starts_with("  ")) { CHECK(line.size() <= 64); }
+    CHECK(displaytext::displayWidth(line) <= 85);
   }
+  // The over-long name is truncated mid-string and keeps its extension.
+  CHECK(text.find("\xE2\x80\xA6") != std::string::npos);
+  CHECK(text.find(".mp4") != std::string::npos);
+  CHECK(text.find("a very long name.mp4") == std::string::npos);
 }
 
 TEST_CASE(
@@ -1144,7 +1175,7 @@ TEST_CASE(
   {
     ScopedEnvVar columns("COLUMNS", "80");
     auto capture = testutils::StdoutCapture{out};
-    encodeprobe::printProbePlan(plans, 95);
+    encodeprobe::printProbePlan(plans, 95, std::chrono::milliseconds{6'000});
   }
   auto const text = testutils::readTextFile(out);
   // The header describes the floor in its VMAF-scale meaning, not the lead
