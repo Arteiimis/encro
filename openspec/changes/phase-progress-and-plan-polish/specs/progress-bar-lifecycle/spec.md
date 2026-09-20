@@ -21,12 +21,12 @@ Every phase that renders progress bars SHALL clear all of its bars the moment it
 #### Scenario: Canceled phase clears its bars
 
 - **WHEN** a phase's work is interrupted by a stop request after its bars rendered
-- **THEN** its bars are removed before the interruption notice prints, and no bar line survives into a later phase
+- **THEN** its bars are removed before any later output, and no bar line survives into a later phase
 
 #### Scenario: Failing phase clears its bars
 
 - **WHEN** a phase fails after its bars rendered
-- **THEN** its bars are removed before the failure diagnostic prints
+- **THEN** its bars are removed before the failure diagnostic or any other later output prints
 
 ### Requirement: Cleared bars are never drawn again
 
