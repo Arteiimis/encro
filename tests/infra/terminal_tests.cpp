@@ -160,13 +160,10 @@ TEST_CASE("phase summary counts carry their outcome roles", "[terminal]") {
   auto const _ = ScopedTerminalReset{};
   terminal::configure(terminal::ColorMode::Always);
 
-  CHECK(
-    terminal::summaryCounts(8, 8, "videos", 0, 0)
-    == "\x1b[32m8\x1b[0m/\x1b[36m8\x1b[0m videos"
-  );
+  CHECK(terminal::summaryCounts(8, 8, "videos", 0, 0) == "\x1b[36m8/8\x1b[0m videos");
   CHECK(
     terminal::summaryCounts(5, 8, "videos", 2, 1)
-    == "\x1b[32m5\x1b[0m/\x1b[36m8\x1b[0m videos (\x1b[31m2 failed\x1b[0m, "
+    == "\x1b[36m5/8\x1b[0m videos (\x1b[31m2 failed\x1b[0m, "
        "\x1b[33m1 skipped\x1b[0m)"
   );
 

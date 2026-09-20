@@ -1123,11 +1123,11 @@ void printProbePlan(
   auto const width = nameWidth.value_or(std::size_t{40});
   auto const ruleWidth = width + kRuleFixedWidth;
 
-  terminal::println(Plain, "{}", displaytext::boxRule(ruleWidth));
-  terminal::println(Plain, "Encoding plan (min p5-VMAF-equivalent {}):", minVmafFloor);
-
   auto const stats = collectPlanStats(plans);
 
+  // The unreachable-floor count is a diagnostic on stderr, so it prints ahead
+  // of the block rather than inside it: the block below is one write and reads
+  // as one unit on the terminal.
   if (!stats.warnings.empty()) {
     terminal::messageln(
       Warning,
@@ -1138,7 +1138,10 @@ void printProbePlan(
   }
 
   auto lines = std::vector<std::string>{};
-  lines.reserve(plans.size() + 1);
+  lines.reserve(plans.size() + 6);
+  lines.push_back(displaytext::boxRule(ruleWidth));
+  lines
+    .push_back(std::format("Encoding plan (min p5-VMAF-equivalent {}):", minVmafFloor));
   lines.push_back(
     std::format(
       "  {}  {:>3}  {:>6}  {:>9}  {:<6}",
@@ -1155,28 +1158,30 @@ void printProbePlan(
   for (auto const* plan: stats.warnings) {
     lines.push_back(formatProbePlanRow(*plan, "\xE2\x9A\xA0 ", width));
   }
-  terminal::write(
-    terminal::Stream::Stdout,
-    std::ranges::to<std::string>(lines | std::views::join_with('\n')),
-    true
-  );
 
   // Totals need estimates; no ratio is computed against an empty estimate.
   if (stats.estCount > 0) {
     auto const ratio = stats.totalSource > 0
       ? static_cast<double>(stats.totalEst) / static_cast<double>(stats.totalSource)
       : 0.0;
-    terminal::println(Plain, "");
-    terminal::println(
-      Plain,
-      "  Total: {} file(s), est. {}, source {} ({})",
-      plans.size(),
-      displaytext::formatSizeBytes(std::optional{stats.totalEst}),
-      displaytext::formatSizeBytes(stats.totalSource),
-      displaytext::formatSignedPercent(ratio)
+    lines.emplace_back();
+    lines.push_back(
+      std::format(
+        "  Total: {} file(s), est. {}, source {} ({})",
+        plans.size(),
+        displaytext::formatSizeBytes(std::optional{stats.totalEst}),
+        displaytext::formatSizeBytes(stats.totalSource),
+        displaytext::formatSignedPercent(ratio)
+      )
     );
   }
-  terminal::println(Plain, "{}", displaytext::boxRule(ruleWidth));
+  lines.push_back(displaytext::boxRule(ruleWidth));
+
+  terminal::write(
+    terminal::Stream::Stdout,
+    std::ranges::to<std::string>(lines | std::views::join_with('\n')),
+    true
+  );
 }
 
 }  // namespace encodeprobe
