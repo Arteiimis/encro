@@ -7,11 +7,11 @@
 
 ## 2. Bar lifecycle per phase
 
-- [ ] 2.1 Clear the encode batch's bars in `runEncodingTasks` after `execution.monitorThread.join()`, so success, failure, and cancel exits all clear (design D1) — verify `xmake test-report --tag="[video-batch-execution]"` stays green and the TTY check in 7.3 shows no bar surviving the phase.
-- [ ] 2.2 Clear the packing bars on every exit path: `packGroupsCompact` clears as soon as `runPackTaskPlan` returns (before its failure early-return), and for full progress give `runPackTaskPlan` a `ProgressContext*` parameter that `packGroupsFull` fills with its own context and clears once the plan returns — replacing the hard-coded `progress = nullptr`; verify `[pack]` and `[pack-service]` cases stay green plus the TTY checks in 7.3 (including a failed and a canceled pack).
-- [ ] 2.3 Clear the picture-compression bars at every exit of `compressImageBatch`, where the bars' context lives (success, cancel, and the retry path) — verify `[picture]` and `[picture-compress]` cases stay green plus the TTY check in 7.3.
-- [ ] 2.4 Clear the preview bar in both input modes before the window list and the written-to line print, including the render-failure exit — verify `[preview]` cases stay green plus the TTY check in 7.3.
-- [ ] 2.5 Clear the video-to-WebP conversion bars at every exit of `picturewebp::runConversionPhase`, whose context is local to it and whose cancel branch currently leaves the bar on screen — verify `[picture]` cases stay green plus the TTY check in 7.3.
+- [x] 2.1 Clear the encode batch's bars in `runEncodingTasks` after `execution.monitorThread.join()`, so success, failure, and cancel exits all clear (design D1) — verify `xmake test-report --tag="[video-batch-execution]"` stays green and the TTY check in 7.3 shows no bar surviving the phase.
+- [x] 2.2 Clear the packing bars on every exit path: `packGroupsCompact` clears as soon as `runPackTaskPlan` returns (before its failure early-return), and for full progress give `runPackTaskPlan` a `ProgressContext*` parameter that `packGroupsFull` fills with its own context and clears once the plan returns — replacing the hard-coded `progress = nullptr`; verify `[pack]` and `[pack-service]` cases stay green plus the TTY checks in 7.3 (including a failed and a canceled pack).
+- [x] 2.3 Clear the picture-compression bars at every exit of `compressImageBatch`, where the bars' context lives (success, cancel, and the retry path) — verify `[picture]` and `[picture-compress]` cases stay green plus the TTY check in 7.3.
+- [x] 2.4 Clear the preview bar in both input modes before the window list and the written-to line print, including the render-failure exit — verify `[preview]` cases stay green plus the TTY check in 7.3.
+- [x] 2.5 Clear the video-to-WebP conversion bars at every exit of `picturewebp::runConversionPhase`, whose context is local to it and whose cancel branch currently leaves the bar on screen — verify `[picture]` cases stay green plus the TTY check in 7.3.
 
 ## 3. Phase summary lines
 

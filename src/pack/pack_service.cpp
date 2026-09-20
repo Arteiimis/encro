@@ -159,9 +159,7 @@ struct CompactProgressState {
     std::size_t archiveCount,
     std::function<void(std::string_view)> const& onCompactStatusText
   ) {
-    spinnerStop.store(true, std::memory_order_release);
-    spinnerThread.request_stop();
-    if (spinnerThread.joinable()) { spinnerThread.join(); }
+    stopSpinner();
     if (barIndex.has_value()) {
       // Completion is terminal: every archive task has settled, so the
       // finalizing counter cannot legitimately still be up and the completion
@@ -173,7 +171,19 @@ struct CompactProgressState {
     }
   }
 
+  // The phase is over: stop the indicator clock and take the bar off screen.
+  // Every exit path calls this, including the ones that never reach finish().
+  void clearBars() {
+    stopSpinner();
+    ctx.eraseBars();
+  }
+
 private:
+  void stopSpinner() {
+    spinnerStop.store(true, std::memory_order_release);
+    spinnerThread.request_stop();
+    if (spinnerThread.joinable()) { spinnerThread.join(); }
+  }
   // The indicator's four frames step once per interval, on the elapsed clock:
   // the clock owns the frame, so repainting more often cannot spin it faster.
   static constexpr auto kFrameInterval = std::chrono::milliseconds{120};
@@ -264,8 +274,11 @@ private:
   }
 };
 
-auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
-  -> eh::Result<std::vector<fs::path>> {
+auto runPackTaskPlan(
+  PackPlan const& plan,
+  PackGroupTaskRunner const& runGroup,
+  progress::ProgressContext* progressCtx = nullptr
+) -> eh::Result<std::vector<fs::path>> {
   auto const maxParallelJobs =
     std::max<std::size_t>(1, plan.maxParallelJobs.value_or(plan.groups.size()));
   auto zippedFiles = std::vector<fs::path>(plan.groups.size());
@@ -294,7 +307,7 @@ auto runPackTaskPlan(PackPlan const& plan, PackGroupTaskRunner const& runGroup)
   auto const runRes = taskexec::runTasks({
     .tasks = std::move(tasks),
     .maxConcurrency = maxParallelJobs,
-    .progress = nullptr,
+    .progress = progressCtx,
     .hideCursor = true,
   });
 
@@ -367,9 +380,12 @@ auto PackService::packGroupsCompact(PackPlan const& plan)
       .archiveCount = archiveCount,
     }
   );
+  if (runRes) { state.finish(archiveCount, plan.progressCallbacks.onCompactStatusText); }
+  // Clearing before the error branch: a failed or canceled pack leaves no bar
+  // on screen either.
+  state.clearBars();
   if (!runRes) { return eh::makeError("{}", runRes.error()); }
 
-  state.finish(archiveCount, plan.progressCallbacks.onCompactStatusText);
   return runRes.value();
 }
 
@@ -378,7 +394,10 @@ auto PackService::packGroupsFull(PackPlan const& plan)
   if (plan.groups.empty()) { return std::vector<fs::path>{}; }
   fs::create_directories(plan.outputDir);
 
-  return runPackTaskPlan(
+  // The phase owns the bars its archives render (packer adds one per archive
+  // to this context), so it is the one that clears them when the plan ends.
+  auto progressCtx = progress::ProgressContext{};
+  auto const runRes = runPackTaskPlan(
     plan,
     [this, &plan](
       std::size_t index,
@@ -393,8 +412,11 @@ auto PackService::packGroupsFull(PackPlan const& plan)
 
       recorder.succeed(index, zipPath);
       return {};
-    }
+    },
+    &progressCtx
   );
+  progressCtx.eraseBars();
+  return runRes;
 }
 
 namespace internal {
