@@ -1,0 +1,46 @@
+## 1. Shared pieces
+
+- [ ] 1.1 Add `displaytext::formatDuration(std::chrono::milliseconds)` to `src/core/display_text.h` returning the compact narration form (`24s` below a minute, `12m:34s` below an hour, `1h:05m` from an hour), with a `[display-text]` unit case covering each boundary (59s, 60s, 59m:59s, 1h:00m) — verify with `xmake test-report --tag="[display-text]"`.
+- [ ] 1.2 Point the ETA badge at the shared formatter, keeping the badge's fixed-width `00m:24s` sub-minute rendering in `src/core/progress.cpp` (design D4) — verify the existing `[progress]` and `[progress-eta]` cases stay green.
+- [ ] 1.3 Add the `terminal` token helper (text + `Role` → styled string) used by the phase summary lines, with a `[terminal]` case asserting the span appears with colours forced on and that no escape sequence appears with colours off.
+- [ ] 1.4 Make a cleared context finished: `ProgressContext::eraseBars()` marks the context cleared, `render()` no-ops afterwards and `renderable()` reports false (design D2); update the `progress.h` comment that currently says a render may follow once a bar is added again. Verify with a `[progress]` case (a cleared context renders nothing and reports not renderable; the existing ticker-arms-again case stays green) and `xmake test-report --tag="[progress]"`.
+
+## 2. Bar lifecycle per phase
+
+- [ ] 2.1 Clear the encode batch's bars in `runEncodingTasks` after `execution.monitorThread.join()`, so success, failure, and cancel exits all clear (design D1) — verify `xmake test-report --tag="[video-batch-execution]"` stays green and the TTY check in 7.3 shows no bar surviving the phase.
+- [ ] 2.2 Clear the packing bars on every exit path: `packGroupsCompact` clears as soon as `runPackTaskPlan` returns (before its failure early-return), and for full progress give `runPackTaskPlan` a `ProgressContext*` parameter that `packGroupsFull` fills with its own context and clears once the plan returns — replacing the hard-coded `progress = nullptr`; verify `[pack]` and `[pack-service]` cases stay green plus the TTY checks in 7.3 (including a failed and a canceled pack).
+- [ ] 2.3 Clear the picture-compression bars at every exit of `compressImageBatch`, where the bars' context lives (success, cancel, and the retry path) — verify `[picture]` and `[picture-compress]` cases stay green plus the TTY check in 7.3.
+- [ ] 2.4 Clear the preview bar in both input modes before the window list and the written-to line print, including the render-failure exit — verify `[preview]` cases stay green plus the TTY check in 7.3.
+- [ ] 2.5 Clear the video-to-WebP conversion bars at every exit of `picturewebp::runConversionPhase`, whose context is local to it and whose cancel branch currently leaves the bar on screen — verify `[picture]` cases stay green plus the TTY check in 7.3.
+
+## 3. Phase summary lines
+
+- [ ] 3.1 Print the probe phase's summary line above the plan block: time the probe phase in `runProbeStage`, pass the elapsed value and the probed/not-probed counts into `printProbePlan`, and render `Probed 8/8 videos in 24s` (or `Probed 7/8 videos (1 not probed) in 24s`). In the collapsed all-skipped form that line is the plan line itself — it carries the elapsed time and no separate probe line prints — verify with `[encode-probe]` cases asserting the exact text for a fixed injected elapsed in both forms, and that the collapsed form prints exactly one line.
+- [ ] 3.2 Cap the plan table's row at 85 display columns (`resolvePlanNameWidth` takes `85 - kRuleFixedWidth` as its third bound, design D7) and print one blank line before the totals line (design D8) — verify with an `[encode-probe]` case using `COLUMNS=250` and a 120-column file name (every row ≤ 85 display columns, extension preserved) and a case asserting exactly one blank line before `Total:`.
+- [ ] 3.3 Give the encode phase its elapsed time and skipped count (`EncodingBatchOutcome.encodeElapsed`, `skippedCount`) and render the count line as `Encoded 5/8 videos (2 failed, 1 skipped) → <out> in 12m:34s`, where the total is the results map plus the skipped count (so the classes add up to it) and class segments print only when non-empty — verify with `[video-process]`/`[encode-probe]` cases for the all-success, failure, and skipped-file shapes plus an e2e assertion on the `in ` suffix shape.
+- [ ] 3.4 Print the packing phase's summary line with its elapsed time: media mode gains `Packed 1 archive(s) → <dir> in 14s`, directory and picture pack lines keep their wording plus the elapsed time — verify with `[pack]`/e2e cases asserting the media-mode line on stdout.
+- [ ] 3.5 Print the picture-compression phase's summary line, which does not exist today: `Compressed 12/12 pictures in 8s` — verify with a `[picture-compress]` case asserting the line and its elapsed shape on stdout.
+- [ ] 3.6 Print the video-to-WebP conversion phase's summary line, which does not exist today: `Converted 12/12 videos to WebP in 42s` — verify with a `[picture]` case asserting the line and its elapsed shape on stdout.
+- [ ] 3.7 Append the run's elapsed time to the preview written-to line (`Preview written to: <path> in 35s`) in both input modes — verify with `[preview]` cases for single-input and two-input runs.
+- [ ] 3.8 Move `printEncodingSummary(...)` before `maybePackWorkflowOutputs(...)` in `runScannedEncodingWorkflow`, leaving `setStage("completed")` after packing (design D6) — verify with an e2e case asserting stdout prints `Encoded ` before `Packed ` in a run that packs.
+
+## 4. Outcome colouring
+
+- [ ] 4.1 Build the phase summary lines from explicitly styled tokens, with the verb's role derived from the phase outcome (`Good` full success, `Bad` any failure, `Warn` skips only), printing them as `Plain` so the caller's spans stand and the quiet gate does not swallow them (design D5) — verify with `terminal::configure(Always)` capture cases asserting the expected role sequences on the succeeded count, `(n failed)`, `(n skipped)`/`(n not probed)`, destination and duration tokens, and no span over the prose.
+- [ ] 4.2 Assert the coloured path emits nothing when styling is disabled (`--color never`, piped stdout) — verify with a case asserting no escape sequence in the captured output of a phase summary line.
+- [ ] 4.3 Assert a `--quiet` run still prints the phase result lines while dropping narration, matching the existing plan block / encode count line / preview written-to line behavior (`logging-behavior`) — verify with a `[preview]`/e2e case comparing quiet and normal stdout for the summary line.
+
+## 5. Scan narration
+
+- [ ] 5.1 Drop the input root from the terminal-only scan start lines (`Scanning for videos...`, `Scanning for files...`) and align the multi-file variant's wording (design D9) — verify the existing non-TTY narration cases stay green (`xmake test-report --tag="[video-process]"`, `--tag="[packer]"`) and the TTY check in 7.3 shows the root only in the completion line.
+
+## 6. Spec coherence
+
+- [ ] 6.1 Confirm no main spec still contradicts the new lines: grep `openspec/specs/` for the old wording (`No standalone probing-completion line`, `00m:`, `Encoded 2/2 videos`) and check each hit is covered by this change's delta — verify by reading the deltas against the hits and recording the result in the change's `tasks.md`.
+
+## 7. Verification
+
+- [ ] 7.1 `xmake test-report` reports no failures; `xmake build e2e_tests && xmake run e2e_tests` passes.
+- [ ] 7.2 Reporter-mode probe: `build/windows/x64/release/tests.exe -r console -s` reports 0 failures.
+- [ ] 7.3 Manual TTY check on a real terminal (the bars and the scan start line are invisible to the pipe-based suite): run the video batch used in the proposal's preview and confirm no bar line survives any phase, exactly one summary line per phase with its elapsed time, the plan block within 85 columns with the blank line before `Total:`, the outcome colours on failures and skips, and `Scanning for videos...` without the root. Repeat with `--full-progress`; with a stop request mid-encode, mid-pack, and mid-WebP-conversion; with a pack that fails (unwritable destination); and with a confirmation prompt left unanswered for a minute (the encode line's elapsed time must not include that wait).
+- [ ] 7.4 Commits: planning artifacts (proposal/specs/design) as their own `docs:` commit before implementation; then implementation + tests + checked tasks in atomic commits per functional area.
