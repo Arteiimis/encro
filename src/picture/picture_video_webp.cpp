@@ -13,7 +13,7 @@
 #include <format>
 #include <mutex>
 #include <string>
-#include <unordered_set>
+#include <unordered_map>
 #include <vector>
 
 #include "logging/log_tags.h"
@@ -151,28 +151,23 @@ void closeCanceledConversion(
     store->markIncompleteInterrupted(pendingIds, "canceled by user");
   }
 
-  progressCtx.setRole(barIndex, terminal::Role::Bad);
-  progressCtx.setPostfixText(
-    barIndex,
-    std::format("Canceled: {}/{}", converted, pendingIds.size())
-  );
-  progressCtx.eraseBars();
+  mediaitem::closeCanceledStage(progressCtx, barIndex, converted, pendingIds.size());
   terminal::messageln(Warning, "Video conversion canceled by user.");
 }
 
 // Closes the bar on the success path, printing the failures first - while the
 // bar is still on screen, which is where this flow has always printed them.
-// Returns how many clips the pack step may use: a cache hit is Skipped and a
+// `ready` is how many clips the pack step may use: a cache hit is Skipped and a
 // conversion is Succeeded, and both have a cached output.
-auto closeConvertedConversion(
+void closeConvertedConversion(
   std::span<MediaItem> items,
   mediaitem::StageResult const& result,
+  std::size_t ready,
   progress::ProgressContext& progressCtx,
   std::size_t barIndex
-) -> std::size_t {
-  mediaitem::printFailures(std::span<MediaItem const>{items});
+) {
+  mediaitem::printFailures(items);
 
-  auto const ready = result.succeeded + result.skipped;
   progressCtx.setRole(barIndex, terminal::Role::Good);
   progressCtx.setPostfixText(
     barIndex,
@@ -184,7 +179,27 @@ auto closeConvertedConversion(
     )
   );
   progressCtx.eraseBars();
-  return ready;
+}
+
+// Splits the clips into the ids that must be encoded and the already-done
+// decision the stage filters by, keyed on item address: an id-keyed set could
+// let two items that share a source share one decision, since a conversion's id
+// derives from its source path alone. `cacheBackedByState(nullptr, ...)` is
+// false, which makes every clip pending when there is no store.
+auto splitConversions(
+  jobstate::Store* store,
+  std::span<MediaItem const> items,
+  std::span<jobstate::TaskRecord const> records
+) -> std::pair<std::vector<std::string>, std::unordered_map<MediaItem const*, bool>> {
+  auto pendingIds = std::vector<std::string>{};
+  auto backedByItem = std::unordered_map<MediaItem const*, bool>{};
+  backedByItem.reserve(items.size());
+  for (auto index = std::size_t{0}; index < items.size(); ++index) {
+    auto const backed = cacheBackedByState(store, records[index]);
+    backedByItem.emplace(&items[index], backed);
+    if (!backed) { pendingIds.push_back(records[index].id); }
+  }
+  return {std::move(pendingIds), std::move(backedByItem)};
 }
 
 }  // namespace
@@ -199,18 +214,7 @@ auto picturewebp::runConversionPhase(
   auto* store = ctx.runtime.jobState.get();
   auto const records = planConversionRecords(store, items);
 
-  // The runner filters by item, so the decision is keyed by the item's own
-  // job-state id. `cacheBackedByState(nullptr, ...)` is false, which makes
-  // every clip pending when there is no store.
-  auto backedIds = std::unordered_set<std::string>{};
-  auto pendingIds = std::vector<std::string>{};
-  for (auto index = std::size_t{0}; index < items.size(); ++index) {
-    if (cacheBackedByState(store, records[index])) {
-      backedIds.insert(records[index].id);
-    } else {
-      pendingIds.push_back(records[index].id);
-    }
-  }
+  auto const [pendingIds, backedByItem] = splitConversions(store, items, records);
 
   if (pendingIds.empty()) {
     // Nothing to encode: every clip is a cache-backed conversion already, and
@@ -247,7 +251,6 @@ auto picturewebp::runConversionPhase(
       .verb = "Converting videos",
       .maxConcurrency =
         std::max(std::size_t{1}, std::min(maxParallel, kVideoConversionMaxParallel)),
-      .hideCursor = true,
       .postfix =
         [&completed](std::size_t done, std::size_t total, double) {
           completed.store(done, std::memory_order_release);
@@ -255,7 +258,7 @@ auto picturewebp::runConversionPhase(
         },
     },
     items,
-    [&backedIds](MediaItem const& item) { return backedIds.contains(item.id()); },
+    [&backedByItem](MediaItem const& item) { return backedByItem.at(&item); },
     [&](MediaItem& item, taskexec::TaskContext&) -> eh::Result<void> {
       auto const statusUpdater = [&](std::string const& status) {
         progressCtx.setPostfixText(
@@ -277,9 +280,9 @@ auto picturewebp::runConversionPhase(
     return ConversionOutcome{.canceled = true};
   }
 
-  if (closeConvertedConversion(items, result, progressCtx, barIndex) == 0) {
-    return eh::makeError("All video conversions failed.");
-  }
+  auto const ready = result.succeeded + result.skipped;
+  closeConvertedConversion(items, result, ready, progressCtx, barIndex);
+  if (ready == 0) { return eh::makeError("All video conversions failed."); }
 
   return ConversionOutcome{.canceled = false, .failedCount = result.failed};
 }

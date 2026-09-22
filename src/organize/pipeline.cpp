@@ -146,9 +146,6 @@ bool analyzeMissing(
       .progress = progress,
       .barIndex = barIndex,
       .maxConcurrency = options.maxJobs,
-      // Per-image bar redraws flicker unless the cursor stays hidden for the
-      // whole run (same as the encode/pack/picture pipelines).
-      .hideCursor = true,
       // The bar shows the rate instead of "{verb}: {done}/{total}"; `total` is
       // the stage's own count, i.e. the uncached remainder.
       .postfix =
@@ -331,17 +328,6 @@ void clusterRemainder(
   }
 }
 
-// Fills every item's planned destination once routing is final, in the shape
-// the copy stage derives (<root>/organized/<folder>/<filename>); the copy stage
-// still owns collision suffixing, which depends on what is on disk.
-void planTargets(std::vector<ImageItem>& items, fs::path const& root) {
-  for (auto& item: items) {
-    auto const folder =
-      item.folderName.empty() ? fs::path{kUncategorizedFolder} : item.folderName;
-    item.targetPath = root / "organized" / folder / item.path.filename();
-  }
-}
-
 }  // namespace
 
 auto runOrganize(
@@ -376,7 +362,6 @@ auto runOrganize(
     buildFolderReferences(options.root, cache, options.minConfidence, traits);
   auto const pending = routeItems(items, options.minConfidence, references, characterDf);
   clusterRemainder(items, pending, options.minConfidence, references, traits);
-  planTargets(items, options.root);
 
   auto const stats = executeOrganize(options.root, items, options.dryRun);
   return ReportData{
