@@ -70,14 +70,27 @@ This is the decision that keeps the abstraction from becoming a god-function, so
 | the skip filter loop | the skip predicate itself (`alreadyDone`) |
 | `TaskSpec` construction from `id`/`label`/`source` | the per-item work (`runOne`) |
 | the `TaskPlan` and its concurrency | the concurrency value |
-| the `ProgressContext` bar: `addBar` / `eraseBars` / `CursorGuard` | the bar's verb and unit text |
+| the bar's per-completion update: `setProgress` and the counter text | the bar itself — `addBar` with the stage's own prompt, the closing text, `eraseBars` |
 | the completion counter (via D3) | any percentage formula or postfix text |
 | `outcome` write-back onto the items | — |
-| failure collection and the `"  <path>: <reason>"` print loop | — |
+| failure collection, and `printFailures`, which the flow calls at the point its current print sits | — |
 | the `StageResult` counts | the summary sentence, built from `StageResult` |
 | — | the order in which its output is consumed, when that order is load-bearing |
 
-The runner iterates the item vector in **input order and never sorts**. A flow whose *output* order is part of a persisted artifact or of the printed output sorts explicitly at its own boundary. Video is the case that matters: its failure list and its archive member order come from a path-sorted map today, and `migrate-video-to-media-items` carries that contract.
+The runner iterates the item vector in **input order and never sorts**. A flow whose *output* order is part of a persisted artifact or of the printed output sorts explicitly at its own boundary. Video is the case that matters: its failure list and its archive member order come from a path-sorted map today, and `migrate-video-to-media-items` carries that contract. The one order the runner does impose is on the failure list it hands to `printFailures`, which stays in path order because that is what the flows' `std::map<fs::path, string>` failure maps produced.
+
+**Three refinements the migration forced, each to keep output byte-identical.**
+The bar is created by the *flow*, not by the runner: picture's conversion phase
+paints a live status line (`"Converting videos: 3/12 [encoding]"`) into the same
+bar from inside its per-item work, so the flow needs the handle *before* the run
+starts, and only `addBar` can give it. The flow also keeps the closing text and
+`eraseBars`, because `setPostfixText` renders (`progress.cpp:365`) and the
+existing order is closing text and then erase - a runner that erased its own bar
+would swallow that frame. And the failure *print* is a helper
+(`mediaitem::printFailures`) rather than part of `runStage`: the two picture
+flows print at different points (conversion before its closing text, compress
+after its sequential retry pass) and moving either would change the
+interleaving, while `printFailures` still single-sources the format string.
 
 If a stage needs a new callback beyond `alreadyDone` / `runOne` / the `StageSpec` text fields, it is not uniform and that stage stays out of the runner. Recorded so the next stage does not quietly add a sixth parameter.
 
@@ -87,7 +100,16 @@ If a stage needs a new callback beyond `alreadyDone` / `runOne` / the `StageSpec
 
 Thread-safety: the callback runs on worker threads. It is invoked outside the outcome write and must be cheap. `runStage`'s callback only touches the bar through `ProgressContext`, which is already mutex-guarded (`progress.h:141-167`), so no new lock is introduced. `done` is passed rather than left to the callback to increment, so the executor's atomic stays the single counter.
 
-**The hook must not throw.** The worker loop routes every task through `runOneTask`'s try/catch (`task_executor.cpp:103`), but a hook invoked after the outcome write runs bare on a pool thread, and an exception escaping it terminates the process. It is therefore invoked inside a `try`/`catch (...)` that logs and swallows: the task's outcome is already recorded, and a failing progress callback must not lose it.
+`done` counts tasks that have **finished**, so the executor increments that counter
+after the outcome write instead of on entry to the task. A count of started tasks
+would report the total before anything finished and make a caller's rate
+(`done / elapsed`) wrong from the first completion, which organize's four workers
+hit immediately. Nothing reads the counter before the pool drains, so its final
+value - and therefore `TaskRunResult::attemptedCount` and `skippedCount()` - is
+unchanged; a concurrent case in `tests/task_executor_tests.cpp` pins exactly that,
+because a sequential one cannot tell the two semantics apart.
+
+**The hook must not throw.** The worker loop routes every task through `runOneTask`'s try/catch (`task_executor.cpp:103`), but a hook invoked after the outcome write runs bare on a pool thread, and an exception escaping it terminates the process. It is therefore invoked inside a `try`/`catch (...)` that logs and swallows: the task's outcome is already recorded, and a failing progress callback must not lose it. That invocation lives in a free function (`notifyTaskFinished`) rather than inline in the worker loop, because the log fallback's `__FUNCTION__` expands to the enclosing lambda's name and the loop's cognitive complexity otherwise crosses clang-tidy's threshold.
 
 Alternatives considered: have `runTasks` own the bar and the rate (rejected — `docs/backlog.md` records five different units and the `hideCursor`-without-`progress` case, where `runPackTaskPlan` reaches the executor with `progressCtx` defaulted to `nullptr` at `pack_service.cpp:280` while still passing `hideCursor = true` at `:307-312`, so the executor cannot own a unit it is never told); an `std::atomic_size_t` per caller (this is what exists today, and is what the hook removes).
 
@@ -146,7 +168,7 @@ struct MediaItem {              // new file: src/picture/picture_types.h
   fs::path outputPath;          // the temp/cache artifact, not the archive entry
   std::string entryName;
   std::string originalEntryName;
-  mediaitem::ItemOutcome outcome;
+  mediaitem::ItemOutcome result;   // not `outcome`: that name is the accessor
 
   auto id() const -> std::string;      // stablePathString-based
   auto label() const -> std::string;   // filename
@@ -171,11 +193,12 @@ A bar has **one** text slot: `addBar` seeds it and `setPostfixText` replaces it 
 | organize | `"Analyzing"` (`pipeline.cpp:149`) | `"3/5 - 12 img/s"` (`pipeline.cpp:172-175`) |
 | probe (later) | `"Probing: 0/N files"` (`encode_probe.cpp:558`) | same shape |
 
-So `StageSpec` carries:
+So `StageSpec` carries the *bar the flow created* plus the text to write into it:
 
 ```cpp
 struct StageSpec {
-  std::string prompt;      // the bar's initial text, passed to addBar verbatim
+  progress::ProgressContext* progress = nullptr;  // null: draw no bar of my own
+  std::size_t barIndex = 0;        // the bar the flow created with addBar
   std::string verb;        // used only by the default counter text
   std::string unit;        // "" or e.g. "files" -> "{verb}: {done}/{total} {unit}"
   std::size_t maxConcurrency = 1;
@@ -187,6 +210,11 @@ struct StageSpec {
 };
 ```
 
+An earlier draft gave `StageSpec` a `prompt` field for the runner's own `addBar`
+call. The migration dropped it: the flow has to call `addBar` itself (see D2, the
+live-status case) with exactly the string it uses today, so a `prompt` field would
+be the same text in two places.
+
 With no `postfix` the runner formats `"{verb}: {done}/{total}"` (+ unit); with one it calls it, and the prompt text is gone from that point on — exactly today's behaviour. Organize supplies `prompt = "Analyzing"` and a `postfix` returning `"{done}/{total} - {rate:.0f} img/s"`.
 
 An earlier draft of this design claimed `"{verb}: {done}/{total}"` reproduced all four stages and called organize's rate "the `postfix` callback". Both cannot hold at once: a runner that formats `"Analyzing: 3/5"` never shows the rate, and one that calls the postfix never shows `"Analyzing"`. The `prompt` + `postfix` pair is what makes organize's output byte-identical.
@@ -197,13 +225,15 @@ The **summary sentence is not the runner's**: the four sites differ in prose ("E
 
 `StageSpec` also accepts "draw no bar of my own" (`progress = nullptr`), because preview already runs a batch that way while painting through a captured `BarSlot` (`preview_process.cpp:453-462,468`) and because video's slot-bar layout ("Overall: i/N" plus one bar per worker slot, `video_batch_execution.h:84-144`) is not the single-bar shape the runner produces. A flow in that mode keeps its own `ProgressContext` and gets only the bookkeeping from the runner.
 
+The bar-text contract needed one accessor to become observable at all: `ProgressContext::postfixText(barIndex)`, alongside the `progressValue` / `tickCount` / `barCount` / `cleared` views that already exist "for diagnostics and tests". Nothing else could read a bar's text (`postfixes_` is private), which is why no test in the repo asserted any bar text before this change - the contract was held by reading the code.
+
 ### D9: The migrated wrappers are deleted, not kept
 
 `BatchState` (`picture_compress.cpp:29-36,275-351`), `ConversionBatchState` (`picture_video_webp.cpp:82-92,242-322`) and the inline block (`organize/pipeline.cpp:149-187`) are deleted. `CompactProgressState` (`pack_service.cpp:83-202`), `EncodingProgressState` (`video_batch_execution.h:84-144`) and `ProbeProgress` (`encode_probe.cpp:528-563`) stay, because pack, video and probe are not migrated here.
 
 ## Risks / Trade-offs
 
-- **The callback count is the cost.** A migrated stage call site is ~15 lines of callbacks against a shared body of ~60. Net saving across the three deleted wrappers is on the order of 150-200 lines, not 400. If review judges the callbacks to cost more than they buy, D2's table is the thing to revisit — not the item contract, which is what the later video migration needs.
+- **The callback count is the cost, and it does not pay for itself yet.** A migrated stage call site is ~15 lines of callbacks against a shared body of ~60, and the measured result is that migrating **two of four flows costs +95 source lines** (media_item.h +201, the picture and organize migrations -129, `db2f...`/`efc451a`): the three deleted wrappers save ~46 lines, which the runner's own 201 does not recoup. The tests add ~470 more. The design's earlier "150-200 lines saved" was wrong for this step; the payoff is the flows the abstraction was built for - video's five path-keyed maps and its two bundle types (`migrate-video-to-media-items`), which is also why D2's table is the piece to revisit if review judges the callbacks not worth it, and not the item contract, which video needs.
 - **The runner could drift into a god-function.** → D2 states the rule explicitly and D9 lists what stays out; a sixth callback means the stage is not uniform.
 - **Byte-identical console output is load-bearing, but the picture test files are not untouched.** `tests/picture/picture_process_tests.cpp` and `tests/picture/picture_compress_tests.cpp` assert on bar and summary text **and** construct `CompressTask`/`ConversionTask`/`CompressResult`, so D7's collapse necessarily edits their scaffolding. The rule is therefore: those files' asserted **strings** must not change (`git diff` shows no string-literal edits), while construction sites may. `tests/organize/pipeline_tests.cpp`, `tests/organize/stage_tests.cpp` and `tests/infra/progress_tests.cpp` stay unmodified.
 - **`onTaskFinished` runs on worker threads and must not throw.** → invoked outside the outcome write, `done` supplied by the executor's atomic, invoked under a `try`/`catch (...)` that logs and swallows, and the only state it touches is already mutex-guarded (D3).
@@ -221,6 +251,14 @@ The **summary sentence is not the runner's**: the four sites differ in prose ("E
 5. `CompressTask`/`ConversionTask` collapse into `MediaItem`; delete `CompressResult` and `BatchState`/`ConversionBatchState`.
 6. Organize's analysis phase migrates; `ImageItem` gains `id()`/`label()`/`source()`/`target()`/`outcome()`; the inline counting block is deleted.
 7. Full unit suite, e2e, `test-parallel`, `fmt`, `tidy`.
+
+Landed as two commits rather than one, per `AGENTS.md`'s "batch large working
+trees by functional area": the completion hook and the runner first (`db2ffb1`,
+additive, no caller migrated), then the two flow migrations (`efc451a`). The
+planning artifacts were committed before either, as their own `docs:` commit,
+and this design was reconciled with what shipped afterwards, because the
+migration is what revealed the three refinements in D2 and the measured cost in
+Risks.
 
 Rollback: steps 1-2 are additive; 3-6 are independent per flow and revertable.
 
