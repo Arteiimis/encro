@@ -21,6 +21,12 @@ inline auto stablePathString(fs::path const& path) -> std::string {
   return normalized;
 }
 
+// Case-folded path ordering — the sort every conflict-grouped naming site
+// shares, so they cannot drift apart.
+inline bool stablePathLess(fs::path const& lhs, fs::path const& rhs) {
+  return stablePathString(lhs) < stablePathString(rhs);
+}
+
 inline std::uint32_t fnv1a32(std::string_view text) {
   auto hash = std::uint32_t{2166136261u};
   for (auto const ch: text) {
