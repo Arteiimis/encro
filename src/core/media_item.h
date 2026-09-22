@@ -89,11 +89,10 @@ struct StageResult {
 };
 
 // Runs one stage: filters what the flow says is already done, runs the rest
-// through the shared executor, writes each outcome back onto its item, prints
-// the failures and counts the result. It never reorders `items`; the one order
-// it does impose is on the printed failure list, which stays in path order
-// because that is the order the flows' std::map<fs::path, string> failure maps
-// produced and the print is part of their output.
+// through the shared executor, writes each outcome back onto its item and
+// counts the result. It never reorders `items`, and it prints nothing: the
+// failure list belongs to the flow, which prints it at its own point through
+// printFailures.
 //
 // The bar is left in place for the flow to finish: the flow writes the text
 // that closes the stage and erases the bar, on the cancel path as well as on
@@ -163,7 +162,6 @@ auto runStage(
     },
   });
 
-  auto failures = std::vector<std::pair<fs::path, std::string>>{};
   for (auto index = std::size_t{0}; index < pending.size(); ++index) {
     auto& outcome = pending[index]->outcome();
     switch (runState.outcomes[index].state) {
@@ -175,7 +173,6 @@ auto runStage(
         outcome.state = ItemState::Failed;
         outcome.failureReason = runState.outcomes[index].error;
         ++result.failed;
-        failures.emplace_back(pending[index]->source(), outcome.failureReason);
         break;
       case taskexec::TaskState::Skipped:
         // A slot the stop signal never reached: the item stays Pending.
@@ -184,6 +181,22 @@ auto runStage(
   }
   result.attempted = runState.attemptedCount;
   result.canceled = runState.canceled;
+
+  return result;
+}
+
+// Prints one "  <source>: <reason>" line per failed item, in path order: the
+// flows printed from a std::map<fs::path, string>, so path order is part of
+// their output. An item that failed without a reason has no line to print,
+// which is how the flows' failure maps behaved too.
+template<Item Ty>
+void printFailures(std::span<Ty const> items) {
+  auto failures = std::vector<std::pair<fs::path, std::string>>{};
+  for (auto const& item: items) {
+    auto const& outcome = item.outcome();
+    if (outcome.state != ItemState::Failed || outcome.failureReason.empty()) { continue; }
+    failures.emplace_back(item.source(), outcome.failureReason);
+  }
 
   std::ranges::sort(failures, {}, &std::pair<fs::path, std::string>::first);
   for (auto const& [source, reason]: failures) {
@@ -194,8 +207,6 @@ auto runStage(
       reason
     );
   }
-
-  return result;
 }
 
 }  // namespace mediaitem
