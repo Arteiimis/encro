@@ -7,6 +7,7 @@
 #include "core/display_text.h"
 #include "core/job_state.h"
 #include "core/media_scanner.h"
+#include "core/naming_plan.h"
 #include "core/work_dirs.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
@@ -90,10 +91,9 @@ auto planPictureZipEntryNames(
   fs::path const& dirPath,
   std::span<fs::path const> filePaths
 ) -> PictureEntryPlan {
-  auto plannedEntries = PictureEntryPlan{};
-  plannedEntries.reserve(filePaths.size());
-
   if (config.outputLayout == appctx::OutputLayout::Keep) {
+    auto plannedEntries = PictureEntryPlan{};
+    plannedEntries.reserve(filePaths.size());
     for (auto const& filePath: filePaths) {
       auto const relativePath = filePath.lexically_relative(dirPath);
       plannedEntries[filePath] = (relativePath.empty() || relativePath == fs::path{"."})
@@ -103,32 +103,19 @@ auto planPictureZipEntryNames(
     return plannedEntries;
   }
 
-  auto groupedCandidates = std::unordered_map<std::string, std::vector<fs::path>>{};
-  groupedCandidates.reserve(filePaths.size());
-  auto const forceConflictNaming = shouldForcePictureConflictNaming(config);
-  for (auto const& filePath: filePaths) {
-    groupedCandidates[filePath.filename().generic_string()].push_back(filePath);
-  }
-
-  for (auto const& [fileName, groupedPaths]: groupedCandidates) {
-    if (groupedPaths.size() == 1 && !forceConflictNaming) {
-      plannedEntries[groupedPaths.front()] = buildFlatPictureEntryName(fileName);
-      continue;
-    }
-
-    auto sortedPaths = groupedPaths;
-    std::ranges::sort(sortedPaths, [](fs::path const& lhs, fs::path const& rhs) {
-      return naming::stablePathString(lhs) < naming::stablePathString(rhs);
-    });
-
-    for (auto const& filePath: sortedPaths) {
-      plannedEntries[filePath] = buildFlatPictureEntryName(
+  return core::planNamesByCandidate<std::string>(
+    filePaths,
+    [](fs::path const& filePath) -> fs::path { return filePath.filename(); },
+    shouldForcePictureConflictNaming(config),
+    [](fs::path const&, fs::path const& candidate) -> std::string {
+      return buildFlatPictureEntryName(candidate.generic_string());
+    },
+    [&dirPath](fs::path const& filePath, fs::path const&) -> std::string {
+      return buildFlatPictureEntryName(
         buildConflictHandledPictureEntryName(dirPath, filePath)
       );
     }
-  }
-
-  return plannedEntries;
+  );
 }
 
 // Video entries follow the picture naming scheme, with the WebP extension the

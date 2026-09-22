@@ -4,19 +4,10 @@
 #include "core/sha256.h"
 
 #include <algorithm>
-#include <fstream>
-#include <iterator>
 
 namespace organize {
 
 namespace {
-
-auto fileHash(fs::path const& path) -> std::string {
-  auto file = std::ifstream{path, std::ios::binary};
-  if (!file.is_open()) { return {}; }
-  auto const bytes = std::string{std::istreambuf_iterator<char>{file}, {}};
-  return core::sha256Hex(bytes);
-}
 
 // The output tree lives at <root>/organized and must never re-enter the scan
 // (recursive runs would otherwise ingest previous results).
@@ -43,7 +34,7 @@ auto scanImages(fs::path const& root, bool recursive)
   items.reserve(scanRes->matches.size());
   for (auto const& path: scanRes->matches) {
     if (isInsideOutputTree(path, root)) { continue; }
-    items.push_back(ImageItem{.path = path, .contentHash = fileHash(path)});
+    items.push_back(ImageItem{.path = path, .contentHash = core::sha256File(path)});
   }
   return items;
 }

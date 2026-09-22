@@ -5,8 +5,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <fstream>
-#include <iterator>
 #include <system_error>
 
 namespace organize {
@@ -55,10 +53,12 @@ auto buildReference(
   auto ec = std::error_code{};
   for (auto const& member: fs::directory_iterator{folderDir, ec}) {
     if (!member.is_regular_file()) { continue; }
-    auto file = std::ifstream{member.path(), std::ios::binary};
-    if (!file.is_open()) { continue; }
-    auto const bytes = std::string{std::istreambuf_iterator<char>{file}, {}};
-    auto const cached = cache.get(core::sha256Hex(bytes));
+    auto const digest = core::sha256File(member.path());
+    // An unreadable file hashes to "", which is also a reachable cache key:
+    // the analysis stage stores under whatever scan computed. Skip instead of
+    // looking it up, so an unrelated analysis never joins the reference.
+    if (digest.empty()) { continue; }
+    auto const cached = cache.get(digest);
     if (!cached.has_value()) { continue; }
     accumulateMember(reference, *cached, minConfidence, traits);
   }

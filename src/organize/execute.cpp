@@ -4,8 +4,6 @@
 
 #include <algorithm>
 #include <format>
-#include <fstream>
-#include <iterator>
 #include <optional>
 #include <system_error>
 
@@ -34,17 +32,6 @@ bool copySafely(
   return true;
 }
 
-auto fileHashOf(fs::path const& path) -> std::string {
-  auto file = std::ifstream{path, std::ios::binary};
-  if (!file.is_open()) { return {}; }
-  auto const bytes = std::string{std::istreambuf_iterator<char>{file}, {}};
-  return core::sha256Hex(bytes);
-}
-
-}  // namespace
-
-namespace {
-
 // How many copies of "<stem><ext>" already exist in the folder; the next
 // free slot for a different-content collision is stem_<n><ext>.
 auto resolveDestination(fs::path const& folderDir, ImageItem const& item, bool dryRun)
@@ -55,7 +42,7 @@ auto resolveDestination(fs::path const& folderDir, ImageItem const& item, bool d
 
   // Same-named file already there: identical content is a no-op, a
   // different one keeps both via a numeric suffix.
-  auto const existingHash = fileHashOf(destination);
+  auto const existingHash = core::sha256File(destination);
   if (!existingHash.empty() && existingHash == item.contentHash) { return std::nullopt; }
   auto const stem = item.path.stem().string();
   auto const extension = item.path.extension().string();
