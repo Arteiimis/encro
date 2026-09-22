@@ -539,10 +539,7 @@ auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot {
   if (inputPaths.empty() && !config.inputPath.empty()) {
     inputPaths.push_back(config.inputPath);
   }
-  std::ranges::sort(inputPaths, [](fs::path const& lhs, fs::path const& rhs) {
-    return collisionnaming::stablePathString(lhs)
-      < collisionnaming::stablePathString(rhs);
-  });
+  std::ranges::sort(inputPaths, collisionnaming::stablePathLess);
 
   return ConfigSnapshot{
     .processType = config.processType,

@@ -1,14 +1,15 @@
 #include "video/video_output_planning.h"
 
 #include "core/collision_naming.h"
-#include "core/naming_plan.h"
 
 #include "video/encode_config.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
+#include <algorithm>
 #include <format>
+#include <ranges>
 
 namespace fs = std::filesystem;
 namespace naming = collisionnaming;
@@ -105,7 +106,10 @@ auto planVideoOutputFiles(
   std::span<fs::path const> inputPaths,
   std::optional<fs::path> const& sourceRootDir
 ) -> eh::Result<appctx::path_map<fs::path>> {
-  if (inputPaths.empty()) { return appctx::path_map<fs::path>{}; }
+  auto plannedOutputFiles = appctx::path_map<fs::path>{};
+  plannedOutputFiles.reserve(inputPaths.size());
+
+  if (inputPaths.empty()) { return plannedOutputFiles; }
 
   auto const outputRootDir = resolveOutputRootDir(config, sourceRootDir);
   auto const usesSharedOutputRoot = outputRootDir.has_value();
@@ -120,19 +124,33 @@ auto planVideoOutputFiles(
     );
   }
 
-  auto plannedOutputFiles = core::planNamesByCandidate<fs::path>(
-    inputPaths,
-    [&](fs::path const& inputPath) -> fs::path {
-      return resolvePlannedOutputDir(config, inputPath, sourceRootDir, outputRootDir)
-        / EncodeConfig{.inputPath = inputPath, .outputFormat = config.outputFormat}
-            .buildOutputFileName();
-    },
-    shouldForceConflictNaming(config),
-    [](fs::path const&, fs::path const& candidate) -> fs::path { return candidate; },
-    [&sourceRootDir](fs::path const& inputPath, fs::path const& candidate) -> fs::path {
-      return buildConflictHandledOutputPath(sourceRootDir, inputPath, candidate);
+  auto groupedCandidates = appctx::path_map<std::vector<fs::path>>{};
+  groupedCandidates.reserve(inputPaths.size());
+  auto const forceConflictNaming = shouldForceConflictNaming(config);
+
+  for (auto const& inputPath: inputPaths) {
+    auto const outputDir =
+      resolvePlannedOutputDir(config, inputPath, sourceRootDir, outputRootDir);
+    auto const fileName =
+      EncodeConfig{.inputPath = inputPath, .outputFormat = config.outputFormat}
+        .buildOutputFileName();
+    groupedCandidates[outputDir / fileName].push_back(inputPath);
+  }
+
+  for (auto const& [candidatePath, groupedInputs]: groupedCandidates) {
+    if (groupedInputs.size() == 1 && !forceConflictNaming) {
+      plannedOutputFiles[groupedInputs.front()] = candidatePath;
+      continue;
     }
-  );
+
+    auto sortedInputs = groupedInputs;
+    std::ranges::sort(sortedInputs, naming::stablePathLess);
+
+    for (auto const& inputPath: sortedInputs) {
+      plannedOutputFiles[inputPath] =
+        buildConflictHandledOutputPath(sourceRootDir, inputPath, candidatePath);
+    }
+  }
 
   ensureUniqueOutputPaths(plannedOutputFiles);
 
