@@ -335,3 +335,32 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
   user simply cannot tell why. Independent of the planned refactors:
   `unify-media-item-and-stages` deliberately leaves `src/organize/execute.cpp` untouched
   (it migrates only the analysis phase), so this is not a prerequisite for it.
+
+## `summaryOutputDir` names an arbitrary directory from an unordered map
+
+- **Status:** open — found 2026-09-22 while reviewing `reuse-hash-and-naming-helpers`
+  (pre-existing; the review had to rule out that the change perturbed it).
+- **Symptom:** the summary line of a video run names an output directory that depends
+  on unordered-map iteration order. With `--keep`, inputs under several subdirectories
+  and no explicit output path, the directory reported is whichever element iteration
+  happens to reach first, so the same inputs can report a different directory after an
+  unrelated code change.
+- **Root cause:** `summaryOutputDir` (`src/video/video_process.cpp:272-286`) falls back
+  to `plannedOutputFiles.begin()->second.parent_path()` at `:281` when
+  `resolveOutputRootDir` has no answer. `plannedOutputFiles` is an
+  `appctx::path_map<fs::path>`, i.e. a `std::unordered_map`
+  (`src/core/app_context.h:29`), whose iteration order is unspecified and depends on
+  hashing plus insertion history.
+- **Not a planning bug:** every planned name is a pure function of its own input and the
+  plan is keyed by input, so no output file lands in the wrong place — only the
+  *reported* directory is arbitrary. `planVideoOutputFiles` sorts each colliding group by
+  `collisionnaming::stablePathString` before inserting, which fixes insertion order but
+  not the bucket layout, so that sort cannot rescue this.
+- **Fix direction:** derive the summary directory from the inputs — `planningRootDir`, or
+  the common parent of the plan's values — instead of from an arbitrary element; or take
+  the first entry of a `std::map`-ordered view if "first" is meant to be deterministic.
+  Pin it with a case that runs `--keep` over nested inputs under two subdirectories.
+- **Impact:** cosmetic in the common case — a flat run puts every output in one
+  directory, so any element's parent is the same — and wrong only when the plan spans
+  directories. Until it is fixed, "which directory does the summary name" cannot be
+  pinned by a test.
