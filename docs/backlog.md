@@ -306,3 +306,32 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
 - **Next step:** one mechanical sweep converting scalar `auto f(...) -> T` to prefix
   style, in its own commit (no behavior change) — or relax `AGENTS.md:25` if trailing is
   the intended house style after all.
+
+## organize copy failures are collected and then dropped
+
+- **Status:** open — found 2026-09-22 while auditing the per-item abstraction for
+  `unify-media-item-and-stages` (pre-existing, unrelated to that change).
+- **Symptom:** when a copy fails during `encro organize`, the run prints no explanation
+  for the missing image. The summary line (`src/organize/report.cpp:73-74`) reports
+  `copied N` against `scanned M` with nothing naming the difference, and the exit code is
+  unaffected.
+- **Root cause:** `executeOrganize` records every failure —
+  `stats.errors.push_back(std::format("copy failed: {} -> {}", ...))`
+  (`src/organize/execute.cpp:104-106`) — but the caller builds `ReportData` without that
+  field: `src/organize/pipeline.cpp:383-389` sets `folders`, `scanned`, `copied`,
+  `skippedExisting` and `cacheHits`, and never `.copyErrors`. `ReportData::copyErrors`
+  therefore stays empty and the renderer's loop (`report.cpp:79`) iterates nothing.
+  `ExecuteStats::errors` has exactly one consumer and it drops the vector at its single
+  call site, so no test can observe the loss through the public path.
+- **Not a deliberate omission:** the field's own declaration says it is
+  "per-file copy failures; visible in report" (`src/organize/report.h:25`), so the
+  renderer and the field were written to surface it and only the wiring is missing.
+- **Fix direction:** assign `.copyErrors = stats.errors` in the `ReportData` aggregate
+  (`pipeline.cpp:383-389`), then pin it with a case where one copy fails and the rendered
+  report names it. The failure text already exists at `execute.cpp:104-106`, so this is
+  wiring, not new logic. `ReportData::copyErrors` and the render loop are dead code until
+  then.
+- **Impact:** diagnostics only — the copy already failed and nothing is corrupted; the
+  user simply cannot tell why. Independent of the planned refactors:
+  `unify-media-item-and-stages` deliberately leaves `src/organize/execute.cpp` untouched
+  (it migrates only the analysis phase), so this is not a prerequisite for it.
