@@ -1,6 +1,7 @@
 #include "picture/picture_compress.h"
 
 #include "core/display_text.h"
+#include "core/media_item.h"
 #include "core/progress.h"
 #include "core/task_executor.h"
 #include "infra/stop_signal.h"
@@ -10,10 +11,7 @@
 #include "logging/logging.h"
 
 #include <algorithm>
-#include <atomic>
 #include <format>
-#include <mutex>
-#include <vector>
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::PICTURE_COMPRESS);
@@ -24,66 +22,6 @@ namespace {
 
 auto truncateForLabel(std::string const& text, std::size_t maxLen = 48) -> std::string {
   return displaytext::truncateWithEllipsis(text, maxLen);
-}
-
-struct BatchState {
-  appctx::AppContext const& ctx;
-  std::atomic_size_t& completed;
-  std::vector<CompressResult>& results;
-  std::map<fs::path, std::string>& failureReasons;
-  std::mutex& resultsMutex;
-  progress::ProgressContext& progressCtx;
-};
-
-void recordCompressSuccess(
-  CompressTask const& task,
-  std::vector<CompressResult>& results,
-  std::mutex& resultsMutex
-) {
-  auto lock = std::scoped_lock{resultsMutex};
-  results.push_back({
-    .originalPath = task.inputPath,
-    .compressedPath = task.outputPath,
-    .entryName = task.entryName,
-    .originalEntryName = task.originalEntryName,
-  });
-}
-
-auto compressImageTask(
-  CompressTask const& task,
-  BatchState const& state,
-  int quality,
-  std::size_t total,
-  std::size_t barIndex
-) -> eh::Result<void> {
-  if (stopsignal::isStopRequested()) {
-    return eh::makeError("Compression canceled by user.");
-  }
-
-  std::string failureReason;
-  auto const success =
-    compressImage(state.ctx, task.inputPath, task.outputPath, quality, &failureReason);
-  if (success) {
-    recordCompressSuccess(task, state.results, state.resultsMutex);
-  } else {
-    auto lock = std::scoped_lock{state.resultsMutex};
-    if (!failureReason.empty()) {
-      state.failureReasons.emplace(task.inputPath, failureReason);
-    }
-  }
-
-  auto const done = state.completed.fetch_add(1, std::memory_order_release) + 1;
-
-  auto const percent = static_cast<float>(done) / static_cast<float>(total) * 100.0f;
-  state.progressCtx.setProgress(barIndex, percent);
-  state.progressCtx
-    .setPostfixText(barIndex, std::format("Compressing: {}/{}", done, total));
-
-  if (!success) {
-    return eh::makeError("Failed to compress image: {}", task.inputPath.string());
-  }
-
-  return {};
 }
 
 }  // namespace
@@ -168,11 +106,11 @@ bool compressImage(
 
 namespace {
 
-std::uintmax_t probeMaxFileSize(std::span<CompressTask const> tasks) {
+std::uintmax_t probeMaxFileSize(std::span<MediaItem const> items) {
   auto maxSize = std::uintmax_t{0};
-  for (auto const& task: tasks) {
+  for (auto const& item: items) {
     auto ec = std::error_code{};
-    auto const size = fs::file_size(task.inputPath, ec);
+    auto const size = fs::file_size(item.sourcePath, ec);
     if (!ec && size > maxSize) { maxSize = size; }
   }
   return maxSize;
@@ -190,78 +128,70 @@ capConcurrencyByFileSize(std::uintmax_t maxFileSize, std::size_t maxParallel) {
 
 void retryFailedTasks(
   appctx::AppContext const& ctx,
-  std::span<CompressTask const> allTasks,
-  std::vector<CompressResult>& results,
-  std::map<fs::path, std::string>& failureReasons,
-  std::mutex& resultsMutex,
+  std::span<MediaItem> items,
   int quality,
   progress::ProgressContext& progressCtx
 ) {
-  auto failedTasks = std::vector<CompressTask>{};
-  for (auto const& task: allTasks) {
-    auto const found = std::ranges::any_of(results, [&](CompressResult const& r) {
-      return r.originalPath == task.inputPath && r.entryName == task.entryName;
-    });
-    if (!found) { failedTasks.push_back(task); }
+  auto failedItems = std::vector<MediaItem*>{};
+  for (auto& item: items) {
+    if (item.outcome().state != mediaitem::ItemState::Succeeded) {
+      failedItems.push_back(&item);
+    }
   }
 
-  if (failedTasks.empty()) { return; }
+  if (failedItems.empty()) { return; }
 
-  LOG_INFO("Retrying {} failed compression(s) sequentially...", failedTasks.size());
+  LOG_INFO("Retrying {} failed compression(s) sequentially...", failedItems.size());
 
   auto const retryBarIndex =
     progressCtx
-      .addBar(std::format("Retrying: 0/{}", failedTasks.size()), terminal::Role::Accent);
+      .addBar(std::format("Retrying: 0/{}", failedItems.size()), terminal::Role::Accent);
 
   auto recovered = std::size_t{0};
-  for (std::size_t i = 0; i < failedTasks.size(); ++i) {
+  for (std::size_t i = 0; i < failedItems.size(); ++i) {
     if (stopsignal::isStopRequested()) { break; }
 
-    auto const& task = failedTasks[i];
+    auto& item = *failedItems[i];
     std::string failureReason;
-    auto const success =
-      compressImage(ctx, task.inputPath, task.outputPath, quality, &failureReason);
-    if (success) {
-      recordCompressSuccess(task, results, resultsMutex);
+    if (compressImage(ctx, item.sourcePath, item.outputPath, quality, &failureReason)) {
+      // The retry pass runs after the stage, so its write-back is its own.
+      item.outcome().state = mediaitem::ItemState::Succeeded;
       ++recovered;
-    } else {
-      auto lock = std::scoped_lock{resultsMutex};
-      if (!failureReason.empty()) {
-        failureReasons.emplace(task.inputPath, failureReason);
-      }
+    } else if (!failureReason.empty() && item.outcome().failureReason.empty()) {
+      // The first reason wins, as the flows' failure maps did.
+      item.outcome().failureReason = failureReason;
     }
 
     auto const percent =
-      static_cast<float>(i + 1) / static_cast<float>(failedTasks.size()) * 100.0f;
+      static_cast<float>(i + 1) / static_cast<float>(failedItems.size()) * 100.0f;
     progressCtx.setProgress(retryBarIndex, percent);
     progressCtx.setPostfixText(
       retryBarIndex,
-      std::format("Retrying: {}/{}", i + 1, failedTasks.size())
+      std::format("Retrying: {}/{}", i + 1, failedItems.size())
     );
   }
 
   progressCtx.setRole(retryBarIndex, terminal::Role::Good);
   progressCtx.setPostfixText(
     retryBarIndex,
-    std::format("Retried: {}/{}", recovered, failedTasks.size())
+    std::format("Retried: {}/{}", recovered, failedItems.size())
   );
 
-  LOG_INFO("Retry completed: {}/{} recovered", recovered, failedTasks.size());
+  LOG_INFO("Retry completed: {}/{} recovered", recovered, failedItems.size());
 }
 
 }  // namespace
 
-// NOLINTNEXTLINE(readability-function-size): linear orchestration; task and retry helpers already extracted
+// NOLINTNEXTLINE(readability-function-size): linear orchestration; the retry helper is extracted
 auto compressImageBatch(
   appctx::AppContext& ctx,
-  std::span<CompressTask const> tasks,
+  std::span<MediaItem> items,
   int quality,
-  std::size_t maxParallel,
-  std::map<fs::path, std::string>& failureReasons
-) -> std::vector<CompressResult> {
-  if (tasks.empty()) { return {}; }
+  std::size_t maxParallel
+) -> mediaitem::StageResult {
+  if (items.empty()) { return {}; }
 
-  auto const maxFileSize = probeMaxFileSize(tasks);
+  auto const maxFileSize = probeMaxFileSize(items);
   auto const effectiveMaxParallel = capConcurrencyByFileSize(maxFileSize, maxParallel);
   if (effectiveMaxParallel != maxParallel) {
     LOG_INFO(
@@ -273,81 +203,60 @@ auto compressImageBatch(
   }
 
   auto progressCtx = progress::ProgressContext{};
-  auto const total = tasks.size();
-  auto completed = std::atomic_size_t{0};
+  auto const total = items.size();
 
   auto const barIndex =
     progressCtx.addBar(std::format("Compressing: 0/{}", total), terminal::Role::Accent);
 
-  auto results = std::vector<CompressResult>{};
-  results.reserve(total);
-  auto resultsMutex = std::mutex{};
+  auto const result = mediaitem::runStage(
+    mediaitem::StageSpec{
+      .progress = &progressCtx,
+      .barIndex = barIndex,
+      .verb = "Compressing",
+      .maxConcurrency = effectiveMaxParallel,
+      .hideCursor = true,
+    },
+    items,
+    [](MediaItem const&) { return false; },
+    [&ctx, quality](MediaItem& item, taskexec::TaskContext&) -> eh::Result<void> {
+      if (stopsignal::isStopRequested()) {
+        // A task that starts after the stop fails with no reason to print: the
+        // flow's cancel path reports the stop itself.
+        return eh::makeError("");
+      }
+      std::string failureReason;
+      if (compressImage(ctx, item.sourcePath, item.outputPath, quality, &failureReason)) {
+        return {};
+      }
+      return eh::makeError("{}", failureReason);
+    }
+  );
 
-  auto const state = BatchState{
-    .ctx = ctx,
-    .completed = completed,
-    .results = results,
-    .failureReasons = failureReasons,
-    .resultsMutex = resultsMutex,
-    .progressCtx = progressCtx,
-  };
-
-  auto taskSpecs = std::vector<taskexec::TaskSpec>{};
-  taskSpecs.reserve(total);
-  for (auto const& task: tasks) {
-    taskSpecs.push_back({
-      .id = std::format("compress:{}", task.outputPath.string()),
-      .label = task.inputPath.filename().string(),
-      .input = task.inputPath.string(),
-      .run = [&state, &task, quality, total, barIndex](taskexec::TaskContext& _) {
-        return compressImageTask(task, state, quality, total, barIndex);
-      },
-    });
-  }
-
-  auto const runState = taskexec::runTasks({
-    .tasks = std::move(taskSpecs),
-    .maxConcurrency = effectiveMaxParallel,
-    .progress = &progressCtx,
-    .hideCursor = true,
-  });
-
-  if (runState.canceled) {
+  if (result.canceled) {
     progressCtx.setRole(barIndex, terminal::Role::Bad);
     progressCtx
-      .setPostfixText(barIndex, std::format("Canceled: {}/{}", results.size(), total));
+      .setPostfixText(barIndex, std::format("Canceled: {}/{}", result.succeeded, total));
     LOG_INFO(
       "Image compression batch canceled: {}/{} succeeded before stop",
-      results.size(),
+      result.succeeded,
       total
     );
     progressCtx.eraseBars();
-    return results;
+    return result;
   }
 
   progressCtx.setRole(barIndex, terminal::Role::Good);
   progressCtx
-    .setPostfixText(barIndex, std::format("Compressed: {}/{}", results.size(), total));
+    .setPostfixText(barIndex, std::format("Compressed: {}/{}", result.succeeded, total));
+  LOG_INFO("Image compression batch completed: {}/{} succeeded", result.succeeded, total);
 
-  auto const succeeded =
-    std::ranges::count_if(runState.outcomes, [](taskexec::TaskOutcome const& outcome) {
-      return outcome.state == taskexec::TaskState::Succeeded;
-    });
-  LOG_INFO("Image compression batch completed: {}/{} succeeded", succeeded, total);
+  retryFailedTasks(ctx, items, quality, progressCtx);
 
-  retryFailedTasks(
-    ctx,
-    tasks,
-    results,
-    failureReasons,
-    resultsMutex,
-    quality,
-    progressCtx
-  );
-
-  auto const finalSucceeded = results.size();
+  auto const finalSucceeded = std::ranges::count_if(items, [](MediaItem const& item) {
+    return item.outcome().state == mediaitem::ItemState::Succeeded;
+  });
   LOG_INFO("Image compression final: {}/{} images compressed", finalSucceeded, total);
 
   progressCtx.eraseBars();
-  return results;
+  return result;
 }
