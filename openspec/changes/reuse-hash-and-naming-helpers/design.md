@@ -2,10 +2,10 @@
 
 See `proposal.md` — Why for the four hash wrappers and the two naming planners.
 
-Constraints that shape the extraction:
+Constraints that shaped the design:
 
 - `core::collision_naming.h` is included by ten translation units under `src/` (nine directly; `video_encode_runner.cpp` through `segment_dir.h`) and by three test files, and currently carries only light headers (`<algorithm>`, `<cctype>`, `<cstdint>`, `<filesystem>`, `<format>`, `<optional>`, `<string>`, `<string_view>`). A container-based planner added there would put `<unordered_map>` and `<vector>` into all of them.
-- House style for callbacks is `std::function<...> const&` — `src/video/video_encode_runner.h:14` defines `using function_ref = std::function<void(std::string const&)> const&;`. `std::function_ref` is not used anywhere in the repo.
+- House style for callbacks is `std::function<...> const&` — `src/video/video_encode_runner.h:14` defines `using function_ref = std::function<void(std::string const&)> const&;`. `std::function_ref` is not used anywhere in the repo. This mattered only to the reverted helper (`D3`); nothing in the shipped change takes a callback.
 - Project language level is C++26 (`xmake.lua:5`), toolchain `clang-cl` on Windows.
 
 The two planners are **not** the same function with one varying callback. They differ in *both* branches:
@@ -13,7 +13,7 @@ The two planners are **not** the same function with one varying callback. They d
 | | unique branch (`size()==1 && !force`) | conflict branch |
 | --- | --- | --- |
 | video (`video_output_planning.cpp:142`) | raw `candidatePath` | `candidate.parent_path() / buildConflictHandledFlatName(sourceRootDir, input, stem, ext)` (`:28-39`) |
-| picture (`picture_process.cpp:113-116`) | `"1000__" + fileName` | `"1000__" + buildConflictHandledFlatName(dirPath, input, stem, ext)` (`:66-73`) |
+| picture (`picture_process.cpp:113-116`) | `"1000__" + fileName` | `"1000__" + buildConflictHandledFlatName(dirPath, input, stem, ext)` (`:66-76`) |
 
 Picture wraps the unique case too; video does not. A single "name builder" callback would silently change one of the two.
 
@@ -22,8 +22,8 @@ Picture wraps the unique case too; video does not. A single "name builder" callb
 **Goals:**
 
 - One file-hash helper used by every site that hashes a file's contents.
-- One implementation of "group inputs by candidate name, then conflict-handle the colliding groups", so the sort key and the group/unique dispatch are stated once.
-- Existing planner tests pass **unmodified** — that is the correctness evidence for the extraction.
+- One implementation of the case-folded path ordering every conflict-naming site sorts by, so that rule is stated once. The broader goal — one implementation of the whole "group inputs by candidate name, then conflict-handle the colliding groups" loop — was measured and reverted; see `D3`.
+- Existing planner, picture and job-state tests pass **unmodified** — that is the correctness evidence for both swaps.
 
 **Non-Goals:**
 
@@ -40,76 +40,71 @@ Call `core::sha256File` at each site and delete `fileHash` / `fileHashOf` / the 
 
 `sha256File` returns `{}` on `!is_open()` (`src/core/sha256.cpp:155-157`), and **three of the four sites already treat `""` as unreadable** — they need no new branch:
 
-- `src/organize/scan.cpp:46` stores the digest as the item's `contentHash`, where `""` simply never matches anything
-- `src/organize/execute.cpp:59` guards on `!existingHash.empty()` before comparing, so `""` means "not identical content"
-- `src/tagger/model_store.cpp:183` compares the digest against an expected value, so `""` fails the comparison as it should
+- `src/organize/scan.cpp:37` stores the digest as the item's `contentHash`, where `""` simply never matches anything
+- `src/organize/execute.cpp:46` guards on `!existingHash.empty()` before comparing, so `""` means "not identical content"
+- `src/tagger/model_store.cpp:176` compares the digest against an expected value, so `""` fails the comparison as it should
 
-**`src/organize/teach.cpp:59` is not one of those three.** Its unreadable path is `continue`, not an `""` hash, so the replacement must keep an explicit guard. The guard is load-bearing rather than cosmetic because `""` is a *reachable* cache key: `analysisMissing` calls `cache.put(items[index].contentHash, outcome)` (`pipeline.cpp:141`) with whatever `scan.cpp:14-19` produced, and `AnalysisCache::put` has no empty-key rejection (`cache.cpp:138-149`). So an item that was readable at scan and unreadable at analysis stores a result under `""`, and an unreadable member during teaching would then match that entry and contribute an unrelated analysis to the folder reference instead of being skipped.
+**`src/organize/teach.cpp:60` is not one of those three.** Its unreadable path is `continue`, not an `""` hash, so the replacement must keep an explicit guard. The guard is load-bearing rather than cosmetic because `""` is a *reachable* cache key: `analyzeMissing` calls `cache.put(items[index].contentHash, outcome)` (`src/organize/pipeline.cpp:141`) with whatever `scan.cpp` produced, and `AnalysisCache::put` has no empty-key rejection (`cache.cpp:138-149`). So an item that was readable at scan and unreadable at analysis stores a result under `""`, and an unreadable member during teaching would then match that entry and contribute an unrelated analysis to the folder reference instead of being skipped.
 
 Alternative considered: keep a `fileHash` alias per module for readability — rejected, it re-creates the thing being removed and each call site reads fine as `core::sha256File(path)`. Alternative considered: reject empty keys inside `AnalysisCache::put` — rejected here; that changes cache semantics (a reachable key would become unwritable) and belongs with the cache, not with a dedup pass.
 
-### D2: The planner lives in a new header, `src/core/naming_plan.h`
+### D2: The comparator lives in `collision_naming.h`; the planner header did not survive review
 
-Not in `collision_naming.h` (D1 context: 11 TUs would inherit `<unordered_map>`/`<vector>` for a helper only 2 of them call) and not in either flow's module (it would then be a cross-module dependency from picture to video or vice versa).
+A first pass added `src/core/naming_plan.h` — a header-only template holding the whole grouped-candidate loop — deliberately kept out of `collision_naming.h` so the ten translation units that include the latter would not inherit `<unordered_map>`/`<vector>` for a helper only two of them call.
 
-It is header-only — a template with no `.cpp` — so the change adds exactly one file.
+The Post-Change Review rejected that header (see `D3`). What remains is the rule that was genuinely shared and worth stating once: the case-folded ordering. `collisionnaming::stablePathLess` sits in `collision_naming.h` beside `stablePathString`, which it calls, and needs no include the header lacks — a three-line function needs no container support. It serves four sites, not two (see Impact in proposal.md).
 
-Alternative considered: extend `collision_naming.h` — rejected on include-graph cost. This repo has a `reduce-unused-includes` change in its archive; adding a container dependency to a widely-included path-string header runs against that.
+### D3: The planner is not extracted — measured, then reverted
 
-### D3: Two name callbacks, because both branches differ
+The first pass moved the grouped-candidate loop into `planNamesByCandidate`, a `Ty`-templated function taking a candidate key plus two name callbacks, on the reasoning that the two planners are the same algorithm over the same data shape.
 
-```cpp
-// src/core/naming_plan.h
-template<class Ty>
-auto planNamesByCandidate(
-  std::span<fs::path const> inputs,
-  std::function<fs::path(fs::path const& input)> const& candidateKey,
-  bool forceConflictNaming,
-  std::function<Ty(fs::path const& input, fs::path const& candidate)> const& uniqueName,
-  std::function<Ty(fs::path const& input, fs::path const& candidate)> const& conflictName
-) -> std::unordered_map<fs::path, Ty>;
-```
+The review measured it rather than arguing about it, from `git diff --numstat`:
 
-Body: group `inputs` by `candidateKey(input)`; for each `(candidate, group)`, when `group.size() == 1 && !forceConflictNaming` assign `uniqueName(input, candidate)`; otherwise sort the group by `naming::stablePathString` and assign `conflictName(input, candidate)` to every member. Sorting a group of one is a no-op, so the conflict branch's sort matches today's code in both planners.
+| | lines |
+| --- | --- |
+| `naming_plan.h` | +57 |
+| `video_output_planning.cpp` call site | +14 / −34 |
+| `picture_process.cpp` call site | +13 / −26 |
+| **source net** | **+24** |
+| `tests/naming_plan_tests.cpp` | +94 |
 
-Call sites (each ~6 lines):
+So it added 118 lines to fold away 33 lines of duplicated dispatch at two call sites. This design's own Risks section had pre-authorised exactly this outcome — "if review judges the callbacks cost more than the shared body buys, D3 is the piece to drop and the hash part (D1) stands alone" — and the prediction the extraction rested on ("the net saving is roughly 15-20 lines") was wrong: the callers keep ~13 lines of callbacks each, not the ~6 assumed.
 
-- video — `Ty = fs::path`. The wrapper keeps `planVideoOutputFiles`' existing preconditions before the call: the empty-input early return (`:112`) and the `usesSharedOutputRoot` / `OutputLayout::Keep` error (`:121-124`). Then `candidateKey` = `resolvePlannedOutputDir(...) / EncodeConfig{...}.buildOutputFileName()`; `uniqueName` = `candidate`; `conflictName` = `candidate.parent_path() / naming::buildConflictHandledFlatName(sourceRootDir, input, candidate.stem().string(), candidate.extension().string())`. `ensureUniqueOutputPaths` still runs afterwards, unchanged.
-- picture — `Ty = std::string`; the `OutputLayout::Keep` early return (`picture_process.cpp:96-104`) stays before the call; `candidateKey` = `input.filename()`; `uniqueName` = `"1000__" + candidate.generic_string()`; `conflictName` = `"1000__" + naming::buildConflictHandledFlatName(dirPath, input, candidate.stem().string(), candidate.extension().string())`.
+Two further facts, both established by an independent verification agent, shaped what replaced it:
 
-`Ty` is a template parameter rather than a fixed type because video's map value is an `fs::path` and picture's is a `std::string` (`PictureEntryPlan`), and a fixed `fs::path` value would force picture to round-trip through `generic_string()`.
+- The candidate keys differ in **type**, not just value: video groups on the full `outputDir / fileName` candidate as an `fs::path`, picture on `filePath.filename().generic_string()` as a `std::string`. That is why the helper needed a `Ty` template parameter at all — a symptom of the two flows agreeing less than the extraction assumed.
+- The sort inside the loop is **not** dead weight, contrary to the review's leanness axis. Both original planners sort a colliding group before inserting into the returned map, and that map is a `std::unordered_map` whose `begin()` `summaryOutputDir` reads (`src/video/video_process.cpp:281`); with separate chaining, same-bucket keys iterate in reverse insertion order, so insertion order can change which directory gets reported. Dropping the sort would have been a behaviour change, not a simplification. The latent `begin()` defect itself is recorded in `docs/backlog.md` rather than fixed here.
 
-Alternative considered: one callback covering both branches — rejected, it changes picture's unique-branch naming (D-context table).
+What replaced it is `stablePathLess` (`D2`): three lines, four call sites, no callbacks and no template parameter.
 
-Alternative considered: template the callbacks instead of type-erasing them — rejected as unneeded; the planner runs once per input file, so `std::function`'s indirection is invisible, and `std::function const&` matches `video_encode_runner.h:14`.
+Alternative considered: keep the planner but template the callback parameters instead of type-erasing them — rejected, it removes ~5 lines and neither the +24 source nor the +94 test cost.
 
-### D4: `shouldForce*ConflictNaming` stays duplicated, as a `bool` argument
+### D4: `shouldForce*ConflictNaming` stays duplicated
 
-The helper takes `bool forceConflictNaming`. Each planner keeps its own predicate and passes the result. The video predicate's extra `&& (config.outputFormat != "mp4" || config.packOutput)` clause is behaviour, not duplication, and the helper has no `AppConfig` dependency.
+The two predicates are not merged — each planner keeps its own. The video predicate's extra `&& (config.outputFormat != "mp4" || config.packOutput)` clause is behaviour, not duplication, and sharing anything here would force an `AppConfig` dependency into a path-string header. The `bool forceConflictNaming` parameter this decision used to describe went with the reverted helper (`D3`).
 
-### D5: The hash and naming parts ship as one change
+### D5: The hash dedup and the comparator ship as one change
 
-They are independent edits, but both are behaviour-preserving dedup in the same four-module area, and `unify-media-item-and-stages` wants both before it starts. Splitting them would produce two changes with the same review shape and the same verification story.
+They are independent edits, but both are behaviour-preserving dedup in the same area, and splitting them would produce two changes with the same review shape and the same verification story. The naming *planner* was originally part of this change too; `D3` records why it is not.
 
 ## Risks / Trade-offs
 
-- **The extraction is not obviously worth it on line count.** The shared body is ~20 lines; each call site keeps ~6 lines of callbacks, so the net saving is roughly 15-20 lines. The value is single-sourcing the grouping + `stablePathString` sort contract, not the line count. If review judges the callbacks cost more than the shared body buys, D3 is the piece to drop and the hash part (D1) stands alone.
-- **`fs::path` map keys are compared as `fs::path`.** Both planners already key on `fs::path`; the helper does not change that. The repo's `generic_string()` rule applies to serialization, which neither planner does.
-- **Behaviour-preservation rests on unmodified tests.** `tests/video/video_output_planning_tests.cpp`, `tests/picture/picture_process_tests.cpp` and `tests/naming_strategy_tests.cpp` must pass without edits. If any needs an edit to pass, the extraction changed behaviour and the callback split is wrong — stop and re-derive the table in Context.
-- **`std::function` allocation on the call path** → not a risk at this call frequency (once per input file), and no allocation happens for the lambda captures used here beyond the small-buffer limit; accepted.
+- **The extraction did not repay its cost, and the design's own fallback fired.** This section predicted a 15-20 line net saving; measurement after implementation showed **+24 source and +94 test lines**, because each call site keeps ~13 lines of callbacks rather than the ~6 assumed. `D3` records the revert and what replaced it. The lesson worth keeping: predict a refactor's line cost from the *measured* call sites, not from the shape of the shared body.
+- **The two planners group on different key *types*.** Video's candidate is an `fs::path` (`outputDir / fileName`); picture's is a filename `std::string`. Any future attempt to share this loop has to reckon with that, and it was one of the signals that the two flows agree less than their shape suggests. The repo's `generic_string()` rule applies to serialization, which neither planner does.
+- **Behaviour-preservation rests on unmodified tests.** `tests/video/video_output_planning_tests.cpp`, `tests/picture/picture_process_tests.cpp` and `tests/naming_strategy_tests.cpp` must pass without edits. If any needs an edit to pass, the comparator swap changed behaviour — stop and re-derive the table in Context (and by extension the `stablePathLess` extraction).
+- **`std::function` allocation on the call path** → this risk retired with the reverted helper (`D3`): no callbacks are left, so nothing is type-erased.
 - **`sha256File` is a behaviour-neutral but not cost-neutral swap.** It streams in 8 KB chunks instead of buffering the whole file, so organize's per-image hashing gets cheaper and its peak memory drops. No output changes.
 - **`teach.cpp`'s unreadable path is not the other three's.** Its current behaviour is `continue` while `sha256File` signals unreadable with `""`, which is also a reachable `AnalysisCache` key (D1). → the task keeps the guard and pins it with a case that an unreadable teaching member is skipped; the unmodified `[organize]` cases alone would not catch a dropped guard unless one of them happens to have an unreadable member.
 
 ## Migration Plan
 
 1. Replace the four hash wrappers with `core::sha256File`; run the unit suite (organize, tagger, job-state cases cover these paths).
-2. Add `src/core/naming_plan.h` with the helper plus one direct test case for its grouping and sort order.
-3. Rewrite `planPictureZipEntryNames` (smaller, single layout branch) as a wrapper; run the picture suite.
-4. Rewrite `planVideoOutputFiles` as a wrapper; run the video suite.
-5. Full `xmake test-report` plus `xmake test-parallel` before commit.
+2. Add `src/core/naming_plan.h` with a grouped-candidate planner plus a case for its grouping and sort order, and rewrite both planners as wrappers. **This step was reverted** — the Post-Change Review measured it at +24 source and +94 test lines (`D3`), the header and its test are gone, and the planners are back to their original loops.
+3. Add `collisionnaming::stablePathLess` and point the four sort sites at it; run the plan-output, picture-process and job-state tags.
+4. Full `xmake test-report`, `xmake test-parallel` and the e2e suite before commit.
 
-Rollback: each step is independent and revertable; no persistent state or file format is involved.
+Rollback: each step is independent and revertable; no persistent state or file format is involved. Step 2 was in fact rolled back, which is the evidence that the separation holds.
 
 ## Open Questions
 
-None — the two decisions that could have changed the task breakdown (header location, callback split) are settled above.
+None. The two decisions that could have changed the task breakdown (header location, callback split) were settled, and then reversed by measurement in `D3`, so nothing is deferred here.
