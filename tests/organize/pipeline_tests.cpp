@@ -1,6 +1,8 @@
 // Pipeline integration over the FakeTagger seam (tasks 4.1-4.4): staging,
 // mixed/uncategorized semantics, dry-run, recluster, resume, rename teaching.
+#include "organize/cache.h"
 #include "organize/pipeline.h"
+#include "organize/teach.h"
 
 #include "test_utils.h"
 
@@ -9,6 +11,10 @@
 #include <filesystem>
 #include <map>
 #include <string>
+
+#if defined(_WIN32)
+  #include <windows.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -41,6 +47,40 @@ auto makeOptions(fs::path const& root) -> organize::Options {
     .maxJobs = 1,
   };
 }
+
+#if defined(_WIN32)
+// A file every other check still sees as a regular file, but that no reader
+// can open: a share mode of 0 refuses all further opens until this handle
+// closes. Windows-only, because the portable way to make a file unreadable is
+// to drop its read permission and the current process is subject to that too.
+class ExclusivelyLockedFile {
+public:
+  explicit ExclusivelyLockedFile(fs::path const& path)
+    : handle_(
+        ::CreateFileW(
+          path.c_str(),
+          GENERIC_READ,
+          0,
+          nullptr,
+          OPEN_EXISTING,
+          FILE_ATTRIBUTE_NORMAL,
+          nullptr
+        )
+      ) { }
+
+  ~ExclusivelyLockedFile() {
+    if (handle_ != INVALID_HANDLE_VALUE) { ::CloseHandle(handle_); }
+  }
+
+  ExclusivelyLockedFile(ExclusivelyLockedFile const&) = delete;
+  auto operator=(ExclusivelyLockedFile const&) -> ExclusivelyLockedFile& = delete;
+
+  auto isLocked() const -> bool { return handle_ != INVALID_HANDLE_VALUE; }
+
+private:
+  HANDLE handle_ = INVALID_HANDLE_VALUE;
+};
+#endif
 
 }  // namespace
 
@@ -195,6 +235,32 @@ TEST_CASE("renamed character folder teaches subsequent runs", "[organize]") {
   CHECK(fs::exists(temp.path / "organized" / "初音ミク" / "miku2.png"));
   CHECK(!fs::exists(temp.path / "organized" / "hatsune_miku"));
 }
+
+#if defined(_WIN32)
+TEST_CASE("teaching skips a member it cannot read", "[organize]") {
+  // sha256File signals an unreadable file with "", and "" is a reachable
+  // cache key: the analysis stage stores under whatever scan computed, which
+  // is "" for a file that was already unreadable then (AnalysisCache::put has
+  // no empty-key guard). Teaching must not look that key up, or an unrelated
+  // analysis joins the folder reference.
+  auto temp = TempDir{};
+  auto const member = testutils::writeTextFile(
+    temp.path / "organized" / "hatsune_miku" / "locked.png",
+    "locked"
+  );
+  fs::create_directories(temp.path / "organized" / ".cache");
+
+  auto cache =
+    organize::AnalysisCache{temp.path / "organized" / ".cache" / "analysis.json"};
+  cache.put("", organize::AnalysisResult{.character = {tag("hatsune_miku", 0.9)}});
+
+  auto const lock = ExclusivelyLockedFile{member};
+  REQUIRE(lock.isLocked());
+
+  auto const references = organize::buildFolderReferences(temp.path, cache, 0.35);
+  CHECK(references.empty());
+}
+#endif
 
 TEST_CASE("a merged cluster shares one folder", "[organize]") {
   // Per-image name allocation collision-suffixed every member of a cluster
