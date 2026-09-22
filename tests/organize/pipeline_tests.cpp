@@ -1,5 +1,7 @@
 // Pipeline integration over the FakeTagger seam (tasks 4.1-4.4): staging,
 // mixed/uncategorized semantics, dry-run, recluster, resume, rename teaching.
+#include "core/sha256.h"
+
 #include "organize/cache.h"
 #include "organize/pipeline.h"
 #include "organize/teach.h"
@@ -75,7 +77,7 @@ public:
   ExclusivelyLockedFile(ExclusivelyLockedFile const&) = delete;
   auto operator=(ExclusivelyLockedFile const&) -> ExclusivelyLockedFile& = delete;
 
-  auto isLocked() const -> bool { return handle_ != INVALID_HANDLE_VALUE; }
+  bool isLocked() const { return handle_ != INVALID_HANDLE_VALUE; }
 
 private:
   HANDLE handle_ = INVALID_HANDLE_VALUE;
@@ -256,6 +258,10 @@ TEST_CASE("teaching skips a member it cannot read", "[organize]") {
 
   auto const lock = ExclusivelyLockedFile{member};
   REQUIRE(lock.isLocked());
+  // The premise the case rests on: the member is still enumerable and still a
+  // regular file, but reading it now yields no digest. Without this the case
+  // would pass vacuously whenever the lock failed to block the read.
+  REQUIRE(core::sha256File(member).empty());
 
   auto const references = organize::buildFolderReferences(temp.path, cache, 0.35);
   CHECK(references.empty());
