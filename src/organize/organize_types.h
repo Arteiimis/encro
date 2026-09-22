@@ -1,6 +1,7 @@
 // Pipeline data model shared by the organize stages (design D3/D6).
 #pragma once
 
+#include "core/media_item.h"
 #include "tagger/tagger_types.h"
 
 #include <cstddef>
@@ -40,6 +41,21 @@ struct ImageItem {
   fs::path folderName;                     // empty = unassigned; kept as a
                                            // path so CJK names survive
   FolderSource folderSource = FolderSource::Uncategorized;
+  // Planned destination, filled once routing assigned the folder: the same
+  // <root>/organized/<folderName>/<filename> the copy stage derives, which
+  // keeps its own collision suffixing.
+  fs::path targetPath;
+  // Named `result` because `outcome()` is the accessor the runner calls.
+  mediaitem::ItemOutcome result;
+
+  auto id() const -> std::string { return contentHash; }
+  auto label() const -> std::string { return path.filename().string(); }
+  auto source() const -> fs::path const& { return path; }
+  auto target() const -> fs::path const& { return targetPath; }
+  auto outcome() -> mediaitem::ItemOutcome& { return result; }
+  // Read-only overload: the shared failure print reads items through a const
+  // span.
+  auto outcome() const -> mediaitem::ItemOutcome const& { return result; }
 };
 
 struct Options {

@@ -1,12 +1,12 @@
 #pragma once
 
 #include "core/app_context.h"
+#include "core/media_item.h"
+#include "picture/picture_types.h"
 
 #include <filesystem>
-#include <map>
 #include <span>
 #include <string>
-#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -17,20 +17,6 @@ struct ImageCompressConfig {
   int quality = 2;
 
   auto buildCMD() const -> std::string;
-};
-
-struct CompressTask {
-  fs::path inputPath;
-  fs::path outputPath;
-  std::string entryName;
-  std::string originalEntryName;
-};
-
-struct CompressResult {
-  fs::path originalPath;
-  fs::path compressedPath;
-  std::string entryName;
-  std::string originalEntryName;
 };
 
 // Temp path keeps the target media extension (<stem>.partial.<ext>) so the
@@ -46,10 +32,12 @@ bool compressImage(
   std::string* failureReason = nullptr
 );
 
+// The compress stage over the flow's items: one JPEG artifact per item. The
+// flow's mtime check built the item list, so the stage filters nothing; each
+// item's outcome carries its failure reason.
 auto compressImageBatch(
   appctx::AppContext& ctx,
-  std::span<CompressTask const> tasks,
+  std::span<MediaItem> items,
   int quality,
-  std::size_t maxParallel,
-  std::map<fs::path, std::string>& failureReasons
-) -> std::vector<CompressResult>;
+  std::size_t maxParallel
+) -> mediaitem::StageResult;

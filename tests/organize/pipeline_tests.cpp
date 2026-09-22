@@ -1,5 +1,6 @@
 // Pipeline integration over the FakeTagger seam (tasks 4.1-4.4): staging,
 // mixed/uncategorized semantics, dry-run, recluster, resume, rename teaching.
+#include "core/progress.h"
 #include "core/sha256.h"
 
 #include "organize/cache.h"
@@ -194,6 +195,43 @@ TEST_CASE("re-run resumes from cache without re-classifying", "[organize]") {
   CHECK(second->cacheHits == 1);
   CHECK(second->copied == 0);
   CHECK(second->skippedExisting == 1);
+}
+
+TEST_CASE("identical content is analyzed once and its twin is a skip", "[organize]") {
+  // Two files with the same bytes share one content hash: the stage classifies
+  // that content once, the twin is filtered as already analyzed (skipped, not
+  // attempted), and the bar's total is the uncached remainder rather than
+  // everything the scan found.
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "miku-a.png", "miku-bytes");
+
+  auto engine = FakeTagger{};
+  engine.byName["miku-a.png"] = {.character = {tag("hatsune_miku", 0.9)}};
+
+  auto const first = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  REQUIRE(first.has_value());
+  REQUIRE(engine.calls.load() == 1);
+
+  // The same bytes under a second name (one shared content hash) plus a new
+  // file: the cached analysis covers both miku files, so only the new content
+  // is left to classify. miku-b.png has no fixture on purpose -- classifying
+  // it would fail, not pass silently.
+  testutils::writeTextFile(temp.path / "miku-b.png", "miku-bytes");
+  testutils::writeTextFile(temp.path / "rin.png", "rin-bytes");
+  engine.byName["rin.png"] = {.character = {tag("kagamine_rin", 0.9)}};
+
+  auto progressCtx = progress::ProgressContext{};
+  auto const second = organize::runOrganize(makeOptions(temp.path), engine, &progressCtx);
+  REQUIRE(second.has_value());
+  CHECK(engine.calls.load() == 2);
+  CHECK(second->cacheHits == 2);
+
+  // One bar, one completion: total 1 is the uncached remainder (3 scanned, 2
+  // skipped), the count today's analysisTasks.size() produced.
+  REQUIRE(progressCtx.barCount() == 1);
+  auto const barText = progressCtx.postfixText(0);
+  CHECK(barText.starts_with("1/1 - "));
+  CHECK(barText.ends_with(" img/s"));
 }
 
 TEST_CASE("recluster discards cached analysis and re-classifies", "[organize]") {

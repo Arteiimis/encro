@@ -2,9 +2,9 @@
 #include "test_utils.h"
 
 #include <filesystem>
-#include <map>
 #include <format>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 using testutils::copyFakeTool;
@@ -158,18 +158,18 @@ TEST_CASE(
   SECTION("single image reports per-task result fields") {
     auto const inputPath = testutils::writeTextFile(temp.path / "photo.png");
 
-    auto const tasks = std::vector<CompressTask>{
-      {.inputPath = inputPath,
+    auto items = std::vector<MediaItem>{
+      {.sourcePath = inputPath,
        .outputPath = temp.path / "photo.jpg",
        .entryName = "photo.jpg"},
     };
 
-    std::map<fs::path, std::string> failureReasons;
-    auto const results = compressImageBatch(ctx, tasks, 5, 2, failureReasons);
-    REQUIRE(results.size() == 1);
-    CHECK(results[0].originalPath == inputPath);
-    CHECK(results[0].compressedPath == temp.path / "photo.jpg");
-    CHECK(results[0].entryName == "photo.jpg");
+    auto const result = compressImageBatch(ctx, items, 5, 2);
+    REQUIRE(result.succeeded == 1);
+    CHECK(items[0].sourcePath == inputPath);
+    CHECK(items[0].outputPath == temp.path / "photo.jpg");
+    CHECK(items[0].entryName == "photo.jpg");
+    CHECK(items[0].outcome().state == mediaitem::ItemState::Succeeded);
     CHECK(fs::exists(temp.path / "photo.jpg"));
   }
 
@@ -178,15 +178,14 @@ TEST_CASE(
     auto const inputB = testutils::writeTextFile(temp.path / "b.png");
     auto const inputC = testutils::writeTextFile(temp.path / "c.png");
 
-    auto const tasks = std::vector<CompressTask>{
-      {.inputPath = inputA, .outputPath = temp.path / "a.jpg", .entryName = "a.jpg"},
-      {.inputPath = inputB, .outputPath = temp.path / "b.jpg", .entryName = "b.jpg"},
-      {.inputPath = inputC, .outputPath = temp.path / "c.jpg", .entryName = "c.jpg"},
+    auto items = std::vector<MediaItem>{
+      {.sourcePath = inputA, .outputPath = temp.path / "a.jpg", .entryName = "a.jpg"},
+      {.sourcePath = inputB, .outputPath = temp.path / "b.jpg", .entryName = "b.jpg"},
+      {.sourcePath = inputC, .outputPath = temp.path / "c.jpg", .entryName = "c.jpg"},
     };
 
-    std::map<fs::path, std::string> failureReasons;
-    auto const results = compressImageBatch(ctx, tasks, 5, 3, failureReasons);
-    REQUIRE(results.size() == 3);
+    auto const result = compressImageBatch(ctx, items, 5, 3);
+    REQUIRE(result.succeeded == 3);
     CHECK(fs::exists(temp.path / "a.jpg"));
     CHECK(fs::exists(temp.path / "b.jpg"));
     CHECK(fs::exists(temp.path / "c.jpg"));
@@ -204,13 +203,14 @@ TEST_CASE(
   auto ctx = appctx::AppContext{};
   configureCompressContext(ctx, temp.path, temp.path);
 
-  auto const tasks = std::vector<CompressTask>{
-    {.inputPath = inputPath,
+  auto items = std::vector<MediaItem>{
+    {.sourcePath = inputPath,
      .outputPath = temp.path / "photo.jpg",
      .entryName = "photo.jpg"},
   };
 
-  std::map<fs::path, std::string> failureReasons;
-  auto const results = compressImageBatch(ctx, tasks, 5, 1, failureReasons);
-  CHECK(results.empty());
+  auto const result = compressImageBatch(ctx, items, 5, 1);
+  CHECK(result.succeeded == 0);
+  REQUIRE(items[0].outcome().state == mediaitem::ItemState::Failed);
+  CHECK_FALSE(items[0].outcome().failureReason.empty());
 }
