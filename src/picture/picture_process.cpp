@@ -351,29 +351,10 @@ void prepareConversionCacheDir(fs::path const& cacheDir, bool jobStateMatched) {
 
 struct ConversionPhaseResult {
   int exitCode = 0;  // 0 on success, the canceled exit code when stopped
-  std::vector<MediaItem> ready;
 };
 
-// The clips a finished conversion phase may pack: the ones it converted and
-// the ones the cache already backed. A failed clip and one a stop never
-// reached are not ready, so the pack step never packs a source clip in place
-// of its converted output.
-auto readyItems(std::span<MediaItem const> items) -> std::vector<MediaItem> {
-  auto ready = std::vector<MediaItem>{};
-  for (auto const& item: items) {
-    auto const state = item.outcome().state;
-    if (
-      state == mediaitem::ItemState::Succeeded || state == mediaitem::ItemState::Skipped
-    ) {
-      ready.push_back(item);
-    }
-  }
-  return ready;
-}
-
-// Runs the conversion phase. On success the result carries only the clips whose
-// cached output exists, which is what the pack step must use; a clip whose
-// conversion failed is absent, never packed as its source.
+// Runs the conversion phase. The caller packs through appendVideoPackInputs,
+// which keeps a failed or stop-unreached clip from being packed as its source.
 auto runVideoConversionPhase(appctx::AppContext& ctx, std::span<MediaItem> items)
   -> eh::Result<ConversionPhaseResult> {
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
@@ -382,7 +363,7 @@ auto runVideoConversionPhase(appctx::AppContext& ctx, std::span<MediaItem> items
   auto const elapsed = displaytext::elapsedSince(startedAt);
   if (!outcome) { return eh::makeError("{}", outcome.error()); }
 
-  auto ready = readyItems(items);
+  auto const ready = std::ranges::count_if(items, isPackable);
   if (!outcome.value().canceled) {
     terminal::println(
       Plain,
@@ -392,7 +373,7 @@ auto runVideoConversionPhase(appctx::AppContext& ctx, std::span<MediaItem> items
         "Converted"
       ),
       terminal::summaryCounts(
-        ready.size(),
+        ready,
         items.size(),
         "videos to WebP",
         outcome.value().failedCount,
@@ -404,7 +385,6 @@ auto runVideoConversionPhase(appctx::AppContext& ctx, std::span<MediaItem> items
 
   return ConversionPhaseResult{
     .exitCode = outcome.value().canceled ? stopsignal::kCanceledExitCode : 0,
-    .ready = std::move(ready),
   };
 }
 
@@ -428,6 +408,7 @@ auto appendVideoPackInputs(
   std::span<MediaItem const> convertedItems
 ) {
   for (auto const& item: convertedItems) {
+    if (!isPackable(item)) { continue; }
     auto const sourceDir = item.sourcePath.parent_path();
     packInputs.emplace_back(
       pack::PackEntryInput{
@@ -486,7 +467,7 @@ auto executeDirectPackWorkflow(
 
   auto packInputs =
     buildPackEntryInputs(summaryPics, pics, plannedEntryNames, dirPath, resolveSource);
-  appendVideoPackInputs(packInputs, converted.value().ready);
+  appendVideoPackInputs(packInputs, conversion.value());
 
   auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
@@ -598,7 +579,7 @@ auto runCompressionPhase(
       std::format("{} picture(s) q={}", compressTasks.size(), quality);
     logging::ScopedErrorContext scopedCtx("picture.compress", compressLabel);
     auto const result = compressImageBatch(ctx, compressTasks, quality, maxParallel);
-    mediaitem::printFailures(std::span<MediaItem const>{compressTasks});
+    mediaitem::printFailures(std::span<MediaItem>{compressTasks});
     return result;
   }();
   auto const elapsed = displaytext::elapsedSince(startedAt);
@@ -612,7 +593,7 @@ auto runCompressionPhase(
   }
 
   auto const succeeded = std::ranges::count_if(compressTasks, [](MediaItem const& item) {
-    return item.outcome().state == mediaitem::ItemState::Succeeded;
+    return item.result.state == mediaitem::ItemState::Succeeded;
   });
   if (succeeded == 0) {
     if (auto* store = ctx.runtime.jobState.get(); store != nullptr) {
@@ -799,7 +780,7 @@ auto executeCompressPackWorkflow(
       return resolveCompressedSource(picPath, entryName, tempDir);
     }
   );
-  appendVideoPackInputs(packInputs, converted.value().ready);
+  appendVideoPackInputs(packInputs, conversion.value());
 
   if (packInputs.empty()) {
     fs::remove_all(tempDir, ec);

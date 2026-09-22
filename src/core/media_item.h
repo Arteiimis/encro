@@ -20,8 +20,8 @@ namespace mediaitem {
 
 namespace fs = std::filesystem;
 
-// "Not attempted" is the default, so an item a filter removed or a slot a stop
-// signal never reached can never be read as a success.
+// "Not attempted" is the default, so a filtered or stop-unreached item never
+// reads as a success.
 enum class ItemState {
   Pending,
   Skipped,
@@ -34,11 +34,10 @@ struct ItemOutcome {
   std::string failureReason;
 };
 
-// The per-item contract every migrated flow satisfies. It is a concept rather
-// than a shared struct because video needs chosenCq/totalFrames, organize needs
-// contentHash/analysis/folderName and picture needs entryName/originalEntryName:
-// one concrete type would need a variant or a base class, which trades visible
-// duplication for hidden indirection.
+// The per-item contract every migrated flow satisfies: a concept rather than a
+// shared struct, because each flow carries its own payload. It has no target():
+// the shared layer never reads a planned output, so a flow that needs one keeps
+// its own field.
 //
 // Checked against `Ty&`: outcome() hands back the mutable reference the runner
 // records the result in, while the rest are const members.
@@ -47,38 +46,30 @@ concept Item = requires(Ty& item) {
   { item.id() } -> std::convertible_to<std::string>;
   { item.label() } -> std::convertible_to<std::string>;
   { item.source() } -> std::convertible_to<fs::path const&>;
-  { item.target() } -> std::convertible_to<fs::path const&>;
   { item.outcome() } -> std::convertible_to<ItemOutcome&>;
 };
 
-// Every part of a parallel stage whose *shape* is the same across flows. What a
-// flow keeps is `alreadyDone`, `runOne`, the bar it draws and the summary
-// sentence it prints.
+// The parts of a parallel stage whose shape is the same across flows; what a
+// flow keeps is `alreadyDone`, `runOne`, the bar it draws and its summary.
 struct StageSpec {
-  // The bar this stage drives, created by the flow with addBar so the flow can
-  // also paint a live status into it from inside runOne. Null means "no bar of
-  // my own": the flow paints through its own context (preview's captured slot,
-  // video's one-bar-per-worker layout) and gets only the bookkeeping.
+  // The bar this stage drives, created by the flow with addBar (it may paint a
+  // live status into it from inside runOne). Null means "no bar of my own".
   progress::ProgressContext* progress = nullptr;
   std::size_t barIndex = 0;
   // The text written on each completion: "{verb}: {done}/{total}[ {unit}]".
   // Until the first completion the bar keeps the text the flow's addBar seeded,
-  // so a stage's opening and lasting text are two different strings and neither
-  // is derived from the other. Ignored when `postfix` is set.
+  // so a stage's opening and lasting text are two different strings. Ignored
+  // when `postfix` is set.
   std::string verb;
   std::string unit;
   std::size_t maxConcurrency = 1;
-  bool hideCursor = true;
-  // When set, replaces the counter text entirely on each completion instead of
-  // appending to it: a bar has one text slot, and setPostfixText replaces it.
+  // When set, replaces the counter text entirely on each completion.
   std::function<std::string(std::size_t done, std::size_t total, double elapsedSeconds)>
     postfix;
 };
 
 // What a stage reports back. `total` is the number of items handed to the
-// stage, so `skipped + attempted + (slots a cancel never reached) == total`;
-// the unreached remainder is `total - skipped - attempted` and is non-zero only
-// when `canceled` is set.
+// stage; `total - skipped - attempted` is the cancel-unreached remainder.
 struct StageResult {
   std::size_t total = 0;
   std::size_t skipped = 0;
@@ -90,16 +81,8 @@ struct StageResult {
 
 // Runs one stage: filters what the flow says is already done, runs the rest
 // through the shared executor, writes each outcome back onto its item and
-// counts the result. It never reorders `items`, and it prints nothing: the
-// failure list belongs to the flow, which prints it at its own point through
-// printFailures.
-//
-// The bar is left in place for the flow to finish: the flow writes the text
-// that closes the stage and erases the bar, on the cancel path as well as on
-// the success path.
-// The callbacks are deduced template parameters rather than std::function
-// objects: a lambda stays inlinable, and the constraint below is what states
-// the contract they have to satisfy.
+// counts the result. It never reorders `items` and never prints: the flow owns
+// the failure print, and it closes and erases the bar itself (also on cancel).
 template<Item Ty, class AlreadyDone, class RunOne>
 auto runStage(
   StageSpec const& spec,
@@ -140,7 +123,8 @@ auto runStage(
     .tasks = std::move(taskSpecs),
     .maxConcurrency = spec.maxConcurrency,
     .progress = spec.progress,
-    .hideCursor = spec.hideCursor,
+    // A stage that draws a bar owns the cursor.
+    .hideCursor = true,
     .onTaskFinished = [&spec, startedAt](std::size_t done, std::size_t total) {
       if (spec.progress == nullptr) { return; }
       auto const elapsed =
@@ -190,9 +174,9 @@ auto runStage(
 // their output. An item that failed without a reason has no line to print,
 // which is how the flows' failure maps behaved too.
 template<Item Ty>
-void printFailures(std::span<Ty const> items) {
+void printFailures(std::span<Ty> items) {
   auto failures = std::vector<std::pair<fs::path, std::string>>{};
-  for (auto const& item: items) {
+  for (auto& item: items) {
     auto const& outcome = item.outcome();
     if (outcome.state != ItemState::Failed || outcome.failureReason.empty()) { continue; }
     failures.emplace_back(item.source(), outcome.failureReason);
@@ -207,6 +191,18 @@ void printFailures(std::span<Ty const> items) {
       reason
     );
   }
+}
+
+// Closes a canceled stage's bar: role Bad, "Canceled: {done}/{total}", erase.
+inline void closeCanceledStage(
+  progress::ProgressContext& progress,
+  std::size_t barIndex,
+  std::size_t done,
+  std::size_t total
+) {
+  progress.setRole(barIndex, terminal::Role::Bad);
+  progress.setPostfixText(barIndex, std::format("Canceled: {}/{}", done, total));
+  progress.eraseBars();
 }
 
 }  // namespace mediaitem

@@ -214,7 +214,6 @@ auto compressImageBatch(
       .barIndex = barIndex,
       .verb = "Compressing",
       .maxConcurrency = effectiveMaxParallel,
-      .hideCursor = true,
     },
     items,
     [](MediaItem const&) { return false; },
@@ -233,15 +232,12 @@ auto compressImageBatch(
   );
 
   if (result.canceled) {
-    progressCtx.setRole(barIndex, terminal::Role::Bad);
-    progressCtx
-      .setPostfixText(barIndex, std::format("Canceled: {}/{}", result.succeeded, total));
+    mediaitem::closeCanceledStage(progressCtx, barIndex, result.succeeded, total);
     LOG_INFO(
       "Image compression batch canceled: {}/{} succeeded before stop",
       result.succeeded,
       total
     );
-    progressCtx.eraseBars();
     return result;
   }
 
@@ -253,7 +249,7 @@ auto compressImageBatch(
   retryFailedTasks(ctx, items, quality, progressCtx);
 
   auto const finalSucceeded = std::ranges::count_if(items, [](MediaItem const& item) {
-    return item.outcome().state == mediaitem::ItemState::Succeeded;
+    return item.result.state == mediaitem::ItemState::Succeeded;
   });
   LOG_INFO("Image compression final: {}/{} images compressed", finalSucceeded, total);
 

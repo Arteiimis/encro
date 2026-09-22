@@ -48,14 +48,13 @@ concept Item = requires(Ty& item) {
   { item.id() } -> std::convertible_to<std::string>;
   { item.label() } -> std::convertible_to<std::string>;
   { item.source() } -> std::convertible_to<fs::path const&>;
-  { item.target() } -> std::convertible_to<fs::path const&>;
   { item.outcome() } -> std::convertible_to<ItemOutcome&>;
 };
 
 }
 ```
 
-The concept is checked against `Ty&`, not `Ty const&`: `outcome()` must hand back a **mutable** reference so the runner can record the result, while `id()`/`label()`/`source()`/`target()` are const members. An earlier draft used `Ty const&` and would have rejected the very `MediaItem` D7 declares.
+The concept is checked against `Ty&`, not `Ty const&`: `outcome()` must hand back a **mutable** reference so the runner can record the result, while the rest are const members. The concept carries no `target()`: the shared layer never reads a planned output, so a flow that needs one keeps its own field. An earlier draft used `Ty const&` and would have rejected the very `MediaItem` D7 declares.
 
 A single concrete struct cannot hold `chosenCq`/`totalFrames` (video, `app_context.h:72-98`), `contentHash`/`analysis`/`folderName` (organize, `organize_types.h:36-43`) and `entryName`/`originalEntryName` (picture) at once without a variant or an inheritance tree. Either would replace visible duplication with hidden indirection — a worse trade for a codebase whose stated goal is *less* complexity.
 
@@ -149,7 +148,6 @@ A flow stays a function that calls its stages in order:
 
 ```cpp
 auto items = scan(...);
-planTargets(items);                       // plain function
 auto const converted = runStage(convertSpec, items, ...);
 auto const compressed = runStage(compressSpec, items, ...);
 printSummary(compressed);
@@ -170,19 +168,18 @@ struct MediaItem {              // new file: src/picture/picture_types.h
   std::string originalEntryName;
   mediaitem::ItemOutcome result;   // not `outcome`: that name is the accessor
 
-  auto id() const -> std::string;      // stablePathString-based
+  auto id() const -> std::string;      // jobstate::makeEncodeTask(sourcePath, outputPath).id
   auto label() const -> std::string;   // filename
   auto source() const -> fs::path const&;
-  auto target() const -> fs::path const&;
   auto outcome() -> mediaitem::ItemOutcome&;
 };
 ```
 
 `src/picture/picture_types.h` is a **new file** (the directory currently holds only `picture_compress.*`, `picture_process.*` and `picture_video_webp.*`); it is one of the two files this change adds, the other being `src/core/media_item.h`.
 
-`originalEntryName` is empty for conversions; `CompressResult` (`picture_compress.h:29-34`) disappears because the item carries the outcome. `PackEntryInput` stays pack's own type and is built from items at the boundary, as it already is (`picture_process.cpp:262-315`) — pack is a module, and forcing its grouped entries into the item model would be a cardinality change, not a unification.
+`originalEntryName` is empty for conversions; `CompressResult` (`picture_compress.h:29-34`) disappears because the item carries the outcome. `id()` is the persisted conversion action id, `jobstate::makeEncodeTask(sourcePath, outputPath).id`; a source-path-only id makes two items that share a source and differ only in target ambiguous, which no flow does today. `PackEntryInput` stays pack's own type and is built from items at the boundary, as it already is (`picture_process.cpp:262-315`) — pack is a module, and forcing its grouped entries into the item model would be a cardinality change, not a unification.
 
-### D8: Bar text is preserved by an explicit prompt plus an optional postfix
+### D8: Bar text is preserved by the flow's own prompt plus an optional postfix
 
 A bar has **one** text slot: `addBar` seeds it and `setPostfixText` replaces it (Context). The initial and the lasting text are therefore two different strings in two of the four stages, and `StageSpec` cannot derive one from the other:
 
@@ -202,7 +199,6 @@ struct StageSpec {
   std::string verb;        // used only by the default counter text
   std::string unit;        // "" or e.g. "files" -> "{verb}: {done}/{total} {unit}"
   std::size_t maxConcurrency = 1;
-  bool hideCursor = true;
   // When set, replaces `verb` + count entirely on each completion, mirroring
   // setPostfixText's replace semantics.
   std::function<std::string(std::size_t done, std::size_t total, double elapsedSeconds)>
@@ -215,9 +211,9 @@ call. The migration dropped it: the flow has to call `addBar` itself (see D2, th
 live-status case) with exactly the string it uses today, so a `prompt` field would
 be the same text in two places.
 
-With no `postfix` the runner formats `"{verb}: {done}/{total}"` (+ unit); with one it calls it, and the prompt text is gone from that point on — exactly today's behaviour. Organize supplies `prompt = "Analyzing"` and a `postfix` returning `"{done}/{total} - {rate:.0f} img/s"`.
+With no `postfix` the runner formats `"{verb}: {done}/{total}"` (+ unit); with one it calls it, and the text the flow seeded the bar with is gone from that point on — exactly today's behaviour. Organize seeds the bar with `addBar("Analyzing")` and supplies a `postfix` returning `"{done}/{total} - {rate:.0f} img/s"`.
 
-An earlier draft of this design claimed `"{verb}: {done}/{total}"` reproduced all four stages and called organize's rate "the `postfix` callback". Both cannot hold at once: a runner that formats `"Analyzing: 3/5"` never shows the rate, and one that calls the postfix never shows `"Analyzing"`. The `prompt` + `postfix` pair is what makes organize's output byte-identical.
+An earlier draft of this design claimed `"{verb}: {done}/{total}"` reproduced all four stages and called organize's rate "the `postfix` callback". Both cannot hold at once: a runner that formats `"Analyzing: 3/5"` never shows the rate, and one that calls the postfix never shows `"Analyzing"`. The bar's seeded text plus a `postfix` is what makes organize's output byte-identical.
 
 `"Retrying: 0/N"` (`picture_compress.cpp:214`) is picture's **sequential** retry bar, not a `runStage` call (Migration Plan step 4), so it is outside this contract.
 
@@ -235,10 +231,10 @@ The bar-text contract needed one accessor to become observable at all: `Progress
 
 - **The callback count is the cost, and it does not pay for itself yet.** A migrated stage call site is ~15 lines of callbacks against a shared body of ~60, and the measured result is that migrating **two of four flows costs +95 source lines** (media_item.h +201, the picture and organize migrations -129, `db2f...`/`efc451a`): the three deleted wrappers save ~46 lines, which the runner's own 201 does not recoup. The tests add ~470 more. The design's earlier "150-200 lines saved" was wrong for this step; the payoff is the flows the abstraction was built for - video's five path-keyed maps and its two bundle types (`migrate-video-to-media-items`), which is also why D2's table is the piece to revisit if review judges the callbacks not worth it, and not the item contract, which video needs.
 - **The runner could drift into a god-function.** → D2 states the rule explicitly and D9 lists what stays out; a sixth callback means the stage is not uniform.
-- **Byte-identical console output is load-bearing, but the picture test files are not untouched.** `tests/picture/picture_process_tests.cpp` and `tests/picture/picture_compress_tests.cpp` assert on bar and summary text **and** construct `CompressTask`/`ConversionTask`/`CompressResult`, so D7's collapse necessarily edits their scaffolding. The rule is therefore: those files' asserted **strings** must not change (`git diff` shows no string-literal edits), while construction sites may. `tests/organize/pipeline_tests.cpp`, `tests/organize/stage_tests.cpp` and `tests/infra/progress_tests.cpp` stay unmodified.
+- **Byte-identical console output is load-bearing, but the picture test files are not untouched.** `tests/picture/picture_process_tests.cpp` and `tests/picture/picture_compress_tests.cpp` assert on bar and summary text **and** construct `CompressTask`/`ConversionTask`/`CompressResult`, so D7's collapse necessarily edits their scaffolding. The rule is therefore: no asserted string changed - the one renamed case title names a type that no longer exists - while construction sites may. `tests/organize/pipeline_tests.cpp`, `tests/organize/stage_tests.cpp` and `tests/infra/progress_tests.cpp` stay unmodified.
+- **Two accepted output changes, neither pinned by a test.** Converted clips now enter the archive in input order: the pack inputs are filtered from the item vector by `isPackable` (`picture_process.cpp`) and pack preserves input order, so the order moved from the old completion order to input order. And a compression that fails and is recovered by the retry pass is no longer listed among the failures, because `printFailures` reads the item's final outcome while the old flow printed its accumulating `std::map<fs::path, std::string>`. Both are intended.
 - **`onTaskFinished` runs on worker threads and must not throw.** → invoked outside the outcome write, `done` supplied by the executor's atomic, invoked under a `try`/`catch (...)` that logs and swallows, and the only state it touches is already mutex-guarded (D3).
 - **organize's `alreadyDone` is content-hash dedupe, not path progress.** → a cache hit is filtered by the runner and counted in `StageResult::skipped`. That also makes the bar's total the uncached remainder, matching today, where the total is `analysisTasks.size()` (`pipeline.cpp:152`) built from the uncached items. Organize's summary keeps reporting cache hits from its **own** counter (`:107-113`), not from `StageResult::skipped`, so the printed text is unchanged.
-- **`target()` for organize is a computed destination, not a stored field.** `resolveDestination` (`execute.cpp:50-67`) may add a numeric suffix at copy time. → `target()` returns the planned path (as video's `plannedOutputFile` already is a plan, not a promise); the copy stage keeps its own suffix logic.
 - **Ordering is load-bearing and the runner does not sort.** → D2 states the rule and prohibits a stage from relying on an order the runner does not produce; `migrate-video-to-media-items` carries the concrete case (path-sorted failure list and archive member order).
 - **Two flows migrated, two not, leaves a mixed codebase.** → the mixed state is the point of doing picture and organize first; `migrate-video-to-media-items` is the named follow-up and design.md's D2/D3/D5 already state what video needs.
 
@@ -249,7 +245,7 @@ The bar-text contract needed one accessor to become observable at all: `Progress
 3. Picture webp conversion phase migrates first (smallest: one item type, one predicate, one bar).
 4. Picture compress phase migrates, keeping the single `compress-phase` job-state task and the sequential retry pass (`picture_compress.cpp:191-250`) as it is; the retry pass keeps its own bar and is *not* a `runStage` call.
 5. `CompressTask`/`ConversionTask` collapse into `MediaItem`; delete `CompressResult` and `BatchState`/`ConversionBatchState`.
-6. Organize's analysis phase migrates; `ImageItem` gains `id()`/`label()`/`source()`/`target()`/`outcome()`; the inline counting block is deleted.
+6. Organize's analysis phase migrates; `ImageItem` gains `id()`/`label()`/`source()`/`outcome()`; the inline counting block is deleted.
 7. Full unit suite, e2e, `test-parallel`, `fmt`, `tidy`.
 
 Landed as two commits rather than one, per `AGENTS.md`'s "batch large working

@@ -28,8 +28,12 @@ struct MediaItem {
   }
   auto label() const -> std::string { return sourcePath.filename().string(); }
   auto source() const -> fs::path const& { return sourcePath; }
-  auto target() const -> fs::path const& { return outputPath; }
   auto outcome() -> mediaitem::ItemOutcome& { return result; }
-  // Read-only overload: the failure print reads items through a const span.
-  auto outcome() const -> mediaitem::ItemOutcome const& { return result; }
 };
+
+// An outcome the pack step may use: the item has a cached output (Succeeded),
+// or a conversion cache already backs it (Skipped).
+inline bool isPackable(MediaItem const& item) {
+  return item.result.state == mediaitem::ItemState::Succeeded
+    || item.result.state == mediaitem::ItemState::Skipped;
+}
