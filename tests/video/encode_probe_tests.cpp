@@ -1,4 +1,6 @@
 #include "core/display_text.h"
+#include "core/encoding_state.h"
+#include "core/media_item.h"
 #include "core/progress.h"
 #include "core/work_dirs.h"
 #include "preview/preview_process.h"

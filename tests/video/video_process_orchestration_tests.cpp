@@ -1,5 +1,6 @@
 #include "app/pipeline.h"
 #include "core/app_context.h"
+#include "core/encoding_state.h"
 #include "core/job_state.h"
 #include "infra/stop_signal.h"
 #include "logging/setup.h"
@@ -705,4 +706,40 @@ TEST_CASE(
     CHECK(members[1].find("__A__") != std::string::npos);
     CHECK_FALSE(fs::exists(strayProgress.path));
   }
+}
+
+TEST_CASE(
+  "a repeated input path yields one item, one count and one archive member",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  StrayProgressGuard strayProgress{temp.path};
+  auto const inputPath = temp.path / "a.mp4";
+  writeTextFile(inputPath, "fake-video");
+  auto const inputPaths = std::array{inputPath, inputPath};
+
+  auto ctx = appctx::AppContext{};
+  configureVideoContext(ctx, temp.path, temp.path, true);
+
+  auto const outPath = temp.path / "stdout.txt";
+  auto result = 0;
+  {
+    auto capture = StdoutCapture{outPath};
+    result = handleMultiFileEncoding(ctx, inputPaths);
+  }
+
+  auto const captured = readTextFile(outPath);
+  CHECK(result == 0);
+  // The path-keyed result map the flow used to report from counted the
+  // repeated path once, so the summary and the pack input must count it once.
+  CHECK(captured.find("Encoded 1/1 videos") != std::string::npos);
+  CHECK(captured.find("Packing 1 encoded video(s)") != std::string::npos);
+  // The archive member order is persisted output: one item means one member,
+  // not the same output handed to the packer twice.
+  auto const packedFiles = listRegularFiles(temp.path / "packed");
+  REQUIRE(packedFiles.size() == 1);
+  auto const members = testutils::listZipRegularEntryNamesInOrder(packedFiles.front());
+  CHECK(members.size() == 1);
+  CHECK_FALSE(fs::exists(strayProgress.path));
 }

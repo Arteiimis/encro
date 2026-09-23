@@ -6,6 +6,7 @@
 #include "video/video_workflow_utils.h"
 
 #include "core/display_text.h"
+#include "core/encoding_state.h"
 #include "core/job_state.h"
 #include "core/media_item.h"
 #include "infra/terminal.h"
@@ -20,6 +21,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <set>
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_PROCESS);
@@ -319,12 +321,16 @@ int runScannedEncodingWorkflow(
 
   auto const& plannedOutputFiles = plannedOutputFilesRes.value();
 
-  // One item per scanned video, alive from planning to summary: the planned
+  // One item per unique scanned path, in input order: a repeated input is one
+  // item, as the path-keyed result map it replaced counted it, and one item is
+  // one pack input. Each item is alive from planning to summary: the planned
   // output, the job-state action id and the probe decision all land here, and
   // the encode stage writes its outcome back here.
   auto items = appctx::EncodingStateList{};
+  auto seenPaths = std::set<fs::path>{};
   items.reserve(vids.size());
   for (auto const& vidPath: vids) {
+    if (!seenPaths.insert(vidPath).second) { continue; }
     auto item = std::make_shared<appctx::EncodingState>();
     item->inputPath = vidPath;
     item->plannedOutputFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);

@@ -1,3 +1,4 @@
+#include "core/encoding_state.h"
 #include "core/media_item.h"
 #include "core/progress.h"
 #include "infra/stop_signal.h"
