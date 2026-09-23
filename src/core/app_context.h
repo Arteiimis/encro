@@ -2,8 +2,6 @@
 
 #include <boost/json.hpp>
 
-#include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -68,37 +66,6 @@ struct ToolchainPaths {
   std::optional<fs::path> ffmpegPath;
   std::optional<fs::path> ffprobePath;
 };
-
-struct EncodingState {
-  fs::path inputPath;
-  std::optional<std::string> actionId;
-  std::optional<fs::path> plannedOutputFile;
-  std::optional<fs::path> outputFile;
-  std::optional<fs::path> progressFilePath;
-  std::optional<std::size_t> barIndex;
-  std::optional<std::chrono::steady_clock::time_point> startTime;
-  std::optional<std::chrono::steady_clock::time_point> endTime;
-  std::atomic<float> lastProgressAtomic{-1.0f};
-  std::optional<uint64_t> lastFrameCount;
-  std::optional<std::string> lastStatus;
-  std::optional<std::string> lastError;
-  // Monitor stat-skip state: last observed progress-file path and size, so
-  // unchanged files are not re-read. Keyed by path because segments swap the
-  // progress file between encodes.
-  std::optional<fs::path> lastProgressPath;
-  std::uintmax_t lastProgressFileSize = 0;
-  std::optional<int> chosenCq;  // probe decision; overrides config.crf
-  std::optional<int64_t> totalFrames;
-  std::uint64_t baseFrameOffset = 0;
-  std::optional<int> subprocessPid;
-  std::optional<std::string> subprocessCmdline;
-  bool finished = false;
-  bool success = false;
-  std::mutex mtx;
-};
-
-using EncodingStatePtr = std::shared_ptr<EncodingState>;
-using EncodingStateList = std::vector<EncodingStatePtr>;
 
 struct RuntimeContext {
   struct VideoInfoCacheStore {
