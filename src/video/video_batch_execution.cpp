@@ -5,6 +5,7 @@
 #include "video/video_workflow_utils.h"
 
 #include "core/display_text.h"
+#include "core/encoding_state.h"
 #include "core/job_state.h"
 #include "core/media_item.h"
 #include "core/task_executor.h"

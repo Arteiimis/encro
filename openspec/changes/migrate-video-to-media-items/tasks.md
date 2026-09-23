@@ -1,7 +1,7 @@
 ## 1. `EncodingState` becomes the item (additive, no behaviour change)
 
 - [x] 1.1 Move `EncodingState`, `EncodingStatePtr` and `EncodingStateList` from `src/core/app_context.h:72-101` into `src/core/media_item.h`, leaving `app_context.h` with `AppConfig`, `ToolchainPaths` and `RuntimeContext`; verify `xmake build encro` succeeds and `rg -n "struct EncodingState" src` matches only the new header
-- [x] 1.2 Update the includes in `src/video/video_batch_execution.h`, `video_encode_runner.h`, `video_encoding_state.cpp` and `src/picture/picture_video_webp.cpp:124`; verify `xmake test-report --tag="[picture]"` and `--tag="[video-process]"` pass with no assertion edits
+- [x] 1.2 Update the includes in `src/video/video_batch_execution.h`, `video_encode_runner.h` and `video_encoding_state.cpp`; `src/picture/picture_video_webp.cpp` needed no edit — it already included the header and the type kept its `appctx` namespace, so its diff is empty (the post-review header split moved that include to `core/encoding_state.h`, section 6); verify `xmake test-report --tag="[picture]"` and `--tag="[video-process]"` pass with no assertion edits
 - [x] 1.3 Add the `outcome` field and the `id()` / `label()` / `source()` / `outcome()` accessors to `EncodingState` per design.md D1 (no `target()`: the concept drops it, and `plannedOutputFile` stays a plain field); verify a new case asserts a default-constructed `EncodingState` satisfies `mediaitem::Item` (a `static_assert` is enough) and the suite still passes
 - [x] 1.4 Add the pointer overload to `runStage` (design.md D2) with a direct case: a `std::vector<EncodingStatePtr>` runs, outcomes land on the pointees, and the counts match the value-overload case; verify `xmake test-report` passes
 
@@ -25,7 +25,7 @@
 
 ## 4. The verbose-sequential path merges
 
-- [x] 4.1 Express `runEncodingWithoutProgress` (`video_batch_execution.cpp:277-305`) as the same `runStage` call with `maxConcurrency = 1` and `progress = nullptr`, keeping its `LOG_*` lines and the `"Echo enabled: progress bars disabled."` notice byte-identical (`:408`); two consequences came with the merge and are accepted in design.md's Risks: the cursor stays visible, because a stage with `progress = nullptr` no longer hides it (`media_item.h:160-162`), and an exception escaping the encoder becomes a per-item failure instead of propagating (`task_executor.cpp:52-62`); verify the verbose narration cases pass unmodified in text
+- [x] 4.1 Express `runEncodingWithoutProgress` (`video_batch_execution.cpp:277-305`) as the same `runStage` call with `maxConcurrency = 1` and `progress = nullptr`, keeping its `LOG_*` lines and the `"Echo enabled: progress bars disabled."` notice byte-identical (`:408`); two consequences came with the merge and are accepted in design.md's Risks: the cursor stays visible, because a stage with `progress = nullptr` no longer hides it (`media_item.h:155-157`), and an exception escaping the encoder becomes a per-item failure instead of propagating (`task_executor.cpp:52-62`); verify the verbose narration cases pass unmodified in text
 - [x] 4.2 Verify the per-file bookkeeping exists once: `rg -n "markRunning|markSucceeded|markFailed" src/video/video_batch_execution.cpp` lists one set of calls reachable from both modes
 - [x] 4.3 Verify no new `sleep_for` or fixed delay entered the tests: `xmake test-report --tag="[test-utils][meta]"` passes
 
@@ -40,4 +40,13 @@
 
 ## 6. Post-Change Review follow-up
 
-- [ ] Run the `code-review` skill over the change's commits on all three axes, with the change as the spec source, once this reconciliation lands.
+- [x] Run the `code-review` skill over the change's commits on all three axes, with the change as the spec source, once this reconciliation lands.
+- [x] Fix the material finding: the item list held one item per scanned path, so `encro video a.mp4 a.mp4` reported `Encoded 2/2 videos` and handed the same output to the packer twice (`Packing 2 encoded video(s)...`), while the deleted `EncodeResultsMap` — a `std::map<fs::path,bool>` — counted the repeat once. `runScannedEncodingWorkflow` now keeps one item per unique input path in input order (`video_process.cpp`), and a case pins the one-item count, the `1/1` summary and the single pack input; it failed first with those two doubled lines.
+- [x] Apply the accepted structural finding: `appctx::EncodingState` / `EncodingStatePtr` / `EncodingStateList` move out of `src/core/media_item.h` into `src/core/encoding_state.h`, so the contract header carries no flow state — it does not include the new header, `app_context.h` stays free of the type, and the `appctx` namespace is unchanged.
+- [x] Defended: `StageSpec::setBarProgress` — the alternative is the flow counting its own completions, which is the duplication this change exists to remove, and the default keeps picture's and organize's call sites byte-identical.
+- [x] Defended: the named per-item verbose wrapper — it exists to keep three `bugprone-lambda-function-name` warnings from returning (its three `LOG_*` lines would otherwise sit in the stage's `runOne` lambda).
+- [x] Defended: the pointer/value equivalence case — task 1.4 mandates it.
+- [x] Deferred: `EncodingOutcome`/`collectOutcome` bundling two fields for one log line — replacing it would move a mutex-guarded read to the log site.
+- [x] Deferred: `maybePackOutputs` re-checking a flag its only caller checked — pre-existing, not this change's.
+- [x] Deferred: `updateOverall` and the hook writing the same bar text — the two writers serve the monitor's periodic refresh and the per-completion hook, and deduplicating them would make the flow split its own bar update in half.
+- [x] Deferred: a log line printing one number twice — pre-existing.

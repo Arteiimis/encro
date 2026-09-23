@@ -1,5 +1,6 @@
 #include "picture/picture_video_webp.h"
 
+#include "core/encoding_state.h"
 #include "core/job_state.h"
 #include "core/media_item.h"
 #include "core/task_executor.h"

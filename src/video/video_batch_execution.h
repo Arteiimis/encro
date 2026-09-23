@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/app_context.h"
-#include "core/media_item.h"
+#include "core/encoding_state.h"
 #include "core/progress.h"
 
 #include <atomic>
