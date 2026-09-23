@@ -634,3 +634,75 @@ TEST_CASE(
   CHECK(state.subprocessCmdline->find("-q:v 75") != std::string::npos);
   CHECK_FALSE(fs::exists(strayProgress.path));
 }
+
+TEST_CASE(
+  "case-differing paths keep the path-map order in the failure list and the pack list",
+  "[video-process][orchestration]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  StrayProgressGuard strayProgress{temp.path};
+  // The same directory named two ways, so the two input paths differ in the
+  // case of a component: `fs::path::operator<` orders "Sub/z.mp4" before
+  // "sub/A.mp4", while a case-folding comparison orders the file names and
+  // would list (and pack) them the other way round. The two artefacts are
+  // persisted output, which is why the comparison is pinned here.
+  auto const upperDir = temp.path / "Sub";
+  auto const lowerDir = temp.path / "sub";
+  fs::create_directories(upperDir);
+  fs::create_directories(lowerDir);
+  writeTextFile(upperDir / "z.mp4", "fake-video");
+  writeTextFile(lowerDir / "A.mp4", "fake-video");
+  auto const inputPaths = std::array{upperDir / "z.mp4", lowerDir / "A.mp4"};
+
+  auto const outPath = temp.path / "stdout.txt";
+
+  SECTION("the failure list prints in path order") {
+    // Every output path carries the format, so matching it fails both files.
+    auto const failEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_FAIL_MATCH", "webp"};
+    auto ctx = appctx::AppContext{};
+    configureVideoContext(ctx, temp.path, temp.path);
+
+    auto result = 0;
+    {
+      auto capture = StdoutCapture{outPath};
+      result = handleMultiFileEncoding(ctx, inputPaths);
+    }
+
+    auto const captured = readTextFile(outPath);
+    CHECK(result == 1);
+    CHECK(captured.find("Encoded 0/2 videos") != std::string::npos);
+    auto const upperPos = captured.find((upperDir / "z.mp4").string() + ":");
+    auto const lowerPos = captured.find((lowerDir / "A.mp4").string() + ":");
+    REQUIRE(upperPos != std::string::npos);
+    REQUIRE(lowerPos != std::string::npos);
+    CHECK(upperPos < lowerPos);
+    CHECK_FALSE(fs::exists(strayProgress.path));
+  }
+
+  SECTION("the pack list keeps the same order") {
+    auto ctx = appctx::AppContext{};
+    configureVideoContext(ctx, temp.path, temp.path, true);
+
+    auto result = 0;
+    {
+      auto capture = StdoutCapture{outPath};
+      result = handleMultiFileEncoding(ctx, inputPaths);
+    }
+
+    auto const captured = readTextFile(outPath);
+    CHECK(result == 0);
+    CHECK(captured.find("Encoded 2/2 videos") != std::string::npos);
+    // The archive is the run's persisted member order: the two entries carry
+    // the two inputs' names, in the order the path-sorted view produced.
+    auto const packedFiles = listRegularFiles(temp.path / "packed");
+    REQUIRE(packedFiles.size() == 1);
+    auto const members = testutils::listZipRegularEntryNamesInOrder(packedFiles.front());
+    REQUIRE(members.size() == 2);
+    // The entries carry the two inputs' stems, in the path-sorted order
+    // "Sub/z.mp4" before "sub/A.mp4"; a case-folding sort would swap them.
+    CHECK(members[0].find("__z__") != std::string::npos);
+    CHECK(members[1].find("__A__") != std::string::npos);
+    CHECK_FALSE(fs::exists(strayProgress.path));
+  }
+}

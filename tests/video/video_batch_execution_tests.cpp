@@ -71,14 +71,7 @@ TEST_CASE(
 ) {
   auto appCtx = appctx::AppContext{};
   auto progressState = videobatch::detail::EncodingProgressState{1, 1};
-  auto plannedOutputFiles = appctx::path_map<fs::path>{};
-  auto actionIds = videobatch::ActionIdMap{};
-  auto execCtx = videobatch::detail::EncodingExecutionContext{
-    appCtx,
-    progressState,
-    plannedOutputFiles,
-    actionIds
-  };
+  auto execCtx = videobatch::detail::EncodingExecutionContext{appCtx, progressState};
 
   auto state = appctx::EncodingState{};
   state.barIndex = progressState.slots.barIndexes.at(0);
@@ -102,14 +95,7 @@ TEST_CASE(
   auto resetGuard = testutils::ScopedStopSignalReset{};
   auto appCtx = appctx::AppContext{};
   auto progressState = videobatch::detail::EncodingProgressState{1, 1};
-  auto plannedOutputFiles = appctx::path_map<fs::path>{};
-  auto actionIds = videobatch::ActionIdMap{};
-  auto execCtx = videobatch::detail::EncodingExecutionContext{
-    appCtx,
-    progressState,
-    plannedOutputFiles,
-    actionIds
-  };
+  auto execCtx = videobatch::detail::EncodingExecutionContext{appCtx, progressState};
   TempDir temp;
   auto const progressFile = temp.path / "progress.log";
   {
@@ -153,14 +139,7 @@ TEST_CASE(
   auto resetGuard = testutils::ScopedStopSignalReset{};
   auto appCtx = appctx::AppContext{};
   auto progressState = videobatch::detail::EncodingProgressState{1, 1};
-  auto plannedOutputFiles = appctx::path_map<fs::path>{};
-  auto actionIds = videobatch::ActionIdMap{};
-  auto execCtx = videobatch::detail::EncodingExecutionContext{
-    appCtx,
-    progressState,
-    plannedOutputFiles,
-    actionIds
-  };
+  auto execCtx = videobatch::detail::EncodingExecutionContext{appCtx, progressState};
   TempDir temp;
   auto const progressFile = temp.path / "progress.log";
   {
@@ -217,14 +196,7 @@ TEST_CASE(
   auto resetGuard = testutils::ScopedStopSignalReset{};
   auto appCtx = appctx::AppContext{};
   auto progressState = videobatch::detail::EncodingProgressState{1, 1};
-  auto plannedOutputFiles = appctx::path_map<fs::path>{};
-  auto actionIds = videobatch::ActionIdMap{};
-  auto execCtx = videobatch::detail::EncodingExecutionContext{
-    appCtx,
-    progressState,
-    plannedOutputFiles,
-    actionIds
-  };
+  auto execCtx = videobatch::detail::EncodingExecutionContext{appCtx, progressState};
   TempDir temp;
   auto const progressFile = temp.path / "progress.log";
 
@@ -285,15 +257,7 @@ TEST_CASE(
 TEST_CASE("barDone state transitions do not throw", "[video-batch-execution]") {
   auto appCtx = appctx::AppContext{};
   auto progressState = videobatch::detail::EncodingProgressState{1, 1};
-  auto plannedOutputFiles = appctx::path_map<fs::path>{};
-  auto actionIds = videobatch::ActionIdMap{};
-
-  auto execCtx = videobatch::detail::EncodingExecutionContext{
-    appCtx,
-    progressState,
-    plannedOutputFiles,
-    actionIds
-  };
+  auto execCtx = videobatch::detail::EncodingExecutionContext{appCtx, progressState};
 
   auto barIdx = execCtx.barIndexOpt(0);
 
@@ -343,13 +307,21 @@ struct BatchScaffold {
     testutils::writeSizedFile(inputPath, 1'048'576);
   }
 
-  static auto singleFileJob(fs::path const& vid, fs::path const& output)
-    -> videobatch::EncodingBatchJob {
-    return videobatch::EncodingBatchJob{
-      .vids = {vid},
-      .plannedOutputFiles = appctx::path_map<fs::path>{{vid, output}},
-      .actionIds = {},
-    };
+  static auto makeItem(
+    fs::path const& vid,
+    fs::path const& output,
+    std::optional<std::string> actionId = {}
+  ) -> appctx::EncodingStatePtr {
+    auto item = std::make_shared<appctx::EncodingState>();
+    item->inputPath = vid;
+    item->plannedOutputFile = output;
+    item->actionId = std::move(actionId);
+    return item;
+  }
+
+  static auto singleFileItem(fs::path const& vid, fs::path const& output)
+    -> appctx::EncodingStateList {
+    return appctx::EncodingStateList{makeItem(vid, output)};
   }
 };
 
@@ -374,7 +346,7 @@ bool waitUntilLogContains(fs::path const& logPath, std::string_view needle) {
 }  // namespace
 
 TEST_CASE(
-  "runEncodingTasks returns nullopt results when the confirmation is declined",
+  "runEncodingTasks reports a canceled batch when the confirmation is declined",
   "[video-batch-execution]"
 ) {
   auto s = BatchScaffold{};
@@ -384,14 +356,12 @@ TEST_CASE(
   auto eofInput = std::istringstream{};
   auto const cinGuard = testutils::ScopedCinBuf{eofInput};
 
-  auto const outcome = videobatch::runEncodingTasks(
-    s.ctx,
-    BatchScaffold::singleFileJob(s.inputPath, s.temp.path / "encoded" / "sample.mp4"),
-    1,
-    0
-  );
+  auto items =
+    BatchScaffold::singleFileItem(s.inputPath, s.temp.path / "encoded" / "sample.mp4");
+  auto const outcome = videobatch::runEncodingTasks(s.ctx, items, 1, 0);
 
-  REQUIRE_FALSE(outcome.results.has_value());
+  CHECK(outcome.canceled);
+  CHECK(items[0]->outcome().state == mediaitem::ItemState::Pending);
   CHECK(outcome.attentionWarnings.empty());
   // The probe stage ran, but no production encode was started (encode outputs
   // land in the planned "encoded" directory).
@@ -419,22 +389,21 @@ TEST_CASE(
   store->mergeTasks(std::array{taskA, taskB});
   s.ctx.runtime.jobState = store;
 
-  auto const job = videobatch::EncodingBatchJob{
-    .vids = {s.inputPath, b},
-    .plannedOutputFiles =
-      appctx::path_map<fs::path>{
-        {s.inputPath, s.temp.path / "encoded" / "sample.mp4"},
-        {b, s.temp.path / "encoded" / "b.mp4"},
-      },
-    .actionIds = appctx::path_map<std::string>{{s.inputPath, taskA.id}, {b, taskB.id}},
+  auto items = appctx::EncodingStateList{
+    BatchScaffold::makeItem(
+      s.inputPath,
+      s.temp.path / "encoded" / "sample.mp4",
+      taskA.id
+    ),
+    BatchScaffold::makeItem(b, s.temp.path / "encoded" / "b.mp4", taskB.id),
   };
 
-  auto const outcome = videobatch::runEncodingTasks(s.ctx, job, 2, 0);
+  auto const outcome = videobatch::runEncodingTasks(s.ctx, items, 2, 0);
 
-  REQUIRE(outcome.results.has_value());
-  REQUIRE(outcome.results->size() == 2);
-  CHECK(outcome.results->at(s.inputPath));
-  CHECK(outcome.results->at(b));
+  CHECK_FALSE(outcome.canceled);
+  REQUIRE(items.size() == 2);
+  CHECK(items[0]->outcome().state == mediaitem::ItemState::Succeeded);
+  CHECK(items[1]->outcome().state == mediaitem::ItemState::Succeeded);
 
   // The verbose path encodes per-file in order: file a's encode precedes
   // file b's.
@@ -453,6 +422,57 @@ TEST_CASE(
   CHECK(rereadA->status == jobstate::TaskStatus::Succeeded);
   REQUIRE(rereadB.has_value());
   CHECK(rereadB->status == jobstate::TaskStatus::Succeeded);
+}
+
+TEST_CASE(
+  "runEncodingTasks parallel path records job-state per item",
+  "[video-batch-execution]"
+) {
+  auto s = BatchScaffold{};
+  s.ctx.config.yesToAll = true;
+
+  auto const b = s.temp.path / "b.mp4";
+  testutils::writeSizedFile(b, 1'048'576);
+
+  auto const statePath = s.temp.path / "job-state.json";
+  auto store = std::make_shared<jobstate::Store>(statePath);
+  REQUIRE(store->initialize(s.ctx.config, false));
+  auto const taskA =
+    jobstate::makeEncodeTask(s.inputPath, s.temp.path / "encoded" / "sample.mp4");
+  auto const taskB = jobstate::makeEncodeTask(b, s.temp.path / "encoded" / "b.mp4");
+  store->mergeTasks(std::array{taskA, taskB});
+  s.ctx.runtime.jobState = store;
+
+  auto items = appctx::EncodingStateList{
+    BatchScaffold::makeItem(
+      s.inputPath,
+      s.temp.path / "encoded" / "sample.mp4",
+      taskA.id
+    ),
+    BatchScaffold::makeItem(b, s.temp.path / "encoded" / "b.mp4", taskB.id),
+  };
+
+  auto const outcome = videobatch::runEncodingTasks(s.ctx, items, 2, 0);
+
+  CHECK_FALSE(outcome.canceled);
+  REQUIRE(items.size() == 2);
+  CHECK(items[0]->outcome().state == mediaitem::ItemState::Succeeded);
+  CHECK(items[1]->outcome().state == mediaitem::ItemState::Succeeded);
+  // The settled item names the output it produced, which is what the summary
+  // and the pack list read.
+  CHECK(items[0]->outputFile.has_value());
+  CHECK(items[1]->outputFile.has_value());
+
+  auto reread = jobstate::Store{statePath};
+  REQUIRE(reread.initialize(s.ctx.config, false));
+  auto const rereadA = reread.findTask(taskA.id);
+  auto const rereadB = reread.findTask(taskB.id);
+  REQUIRE(rereadA.has_value());
+  REQUIRE(rereadB.has_value());
+  CHECK(rereadA->status == jobstate::TaskStatus::Succeeded);
+  CHECK(rereadB->status == jobstate::TaskStatus::Succeeded);
+  CHECK(rereadA->attemptCount == 1);
+  CHECK(rereadB->attemptCount == 1);
 }
 
 TEST_CASE(
@@ -483,22 +503,23 @@ TEST_CASE(
     >("ENCRO_FAKE_FFMPEG_FAIL_MATCH", (s.temp.path / "encoded" / "sample.mp4").string())
   );
 
-  auto const job = videobatch::EncodingBatchJob{
-    .vids = {s.inputPath, b},
-    .plannedOutputFiles =
-      appctx::path_map<fs::path>{
-        {s.inputPath, s.temp.path / "encoded" / "sample.mp4"},
-        {b, s.temp.path / "encoded" / "b.mp4"},
-      },
-    .actionIds = appctx::path_map<std::string>{{s.inputPath, taskA.id}, {b, taskB.id}},
+  auto items = appctx::EncodingStateList{
+    BatchScaffold::makeItem(
+      s.inputPath,
+      s.temp.path / "encoded" / "sample.mp4",
+      taskA.id
+    ),
+    BatchScaffold::makeItem(b, s.temp.path / "encoded" / "b.mp4", taskB.id),
   };
 
-  auto const outcome = videobatch::runEncodingTasks(s.ctx, job, 2, 0);
+  auto const outcome = videobatch::runEncodingTasks(s.ctx, items, 2, 0);
 
-  REQUIRE(outcome.results.has_value());
-  REQUIRE(outcome.results->size() == 2);
-  CHECK_FALSE(outcome.results->at(s.inputPath));
-  CHECK(outcome.results->at(b));
+  CHECK_FALSE(outcome.canceled);
+  REQUIRE(items.size() == 2);
+  CHECK(items[0]->outcome().state == mediaitem::ItemState::Failed);
+  // The reason reaches the item, which is what the summary prints.
+  CHECK_FALSE(items[0]->outcome().failureReason.empty());
+  CHECK(items[1]->outcome().state == mediaitem::ItemState::Succeeded);
 
   auto reread = jobstate::Store{statePath};
   REQUIRE(reread.initialize(s.ctx.config, false));
@@ -523,15 +544,13 @@ TEST_CASE(
     auto stopGuard = testutils::ScopedStopSignalReset{};
     stopsignal::requestStop();
 
-    auto const outcome = videobatch::runEncodingTasks(
-      s.ctx,
-      BatchScaffold::singleFileJob(s.inputPath, s.temp.path / "encoded" / "sample.mp4"),
-      1,
-      0
-    );
+    auto items =
+      BatchScaffold::singleFileItem(s.inputPath, s.temp.path / "encoded" / "sample.mp4");
 
-    REQUIRE_FALSE(outcome.results.has_value());
-    // The abort contract is the nullopt results: whether the worker observed
+    auto const outcome = videobatch::runEncodingTasks(s.ctx, items, 1, 0);
+
+    CHECK(outcome.canceled);
+    // The abort contract is the canceled flag: whether the worker observed
     // the stop before or after spawning the first fake-tool invocation is a
     // load-dependent timing detail (the child's log may exist), not a
     // correctness claim — so the log's absence is not asserted here.
@@ -556,19 +575,14 @@ TEST_CASE(
     );
 
     auto stopGuard = testutils::ScopedStopSignalReset{};
-    auto job = videobatch::EncodingBatchJob{
-      .vids = {s.inputPath, b},
-      .plannedOutputFiles =
-        appctx::path_map<fs::path>{
-          {s.inputPath, s.temp.path / "encoded" / "sample.mp4"},
-          {b, s.temp.path / "encoded" / "b.mp4"},
-        },
-      .actionIds = {},
+    auto items = appctx::EncodingStateList{
+      BatchScaffold::makeItem(s.inputPath, s.temp.path / "encoded" / "sample.mp4"),
+      BatchScaffold::makeItem(b, s.temp.path / "encoded" / "b.mp4"),
     };
 
-    std::optional<videobatch::EncodingBatchOutcome> outcome;
+    std::optional<videobatch::EncodingBatchSummary> outcome;
     std::jthread runner([&] {
-      outcome = videobatch::runEncodingTasks(s.ctx, job, 2, 0);
+      outcome = videobatch::runEncodingTasks(s.ctx, items, 2, 0);
     });
     REQUIRE(waitUntilLogContains(s.logPath, "ffmpeg\t"));
     stopsignal::requestStop();
@@ -580,8 +594,10 @@ TEST_CASE(
     runner.join();
 
     REQUIRE(outcome.has_value());
-    REQUIRE(outcome->results.has_value());
-    CHECK(outcome->results->find(b) == outcome->results->end());
+    CHECK_FALSE(outcome->canceled);
+    // The file the stop signal never reached stays Pending: not attempted, so
+    // neither a success nor a failure.
+    CHECK(items[1]->outcome().state == mediaitem::ItemState::Pending);
     auto const log = testutils::readTextFile(s.logPath);
     CHECK(log.find((s.temp.path / "encoded" / "b.mp4").string()) == std::string::npos);
   }
@@ -594,32 +610,30 @@ TEST_CASE(
   auto s = BatchScaffold{};
   s.ctx.config.yesToAll = true;
 
-  // Small source (512 KiB) gets skipped when the estimated output (1 MiB fake
-  // segments) exceeds it; the 3 MiB source survives the filter.
+  // Small source (512 KiB) gets skipped when the estimated output (10 MiB of
+  // 1 MiB fake segments) exceeds it; the 24 MiB source survives the filter.
   auto const small = s.temp.path / "small.mp4";
   auto const big = s.temp.path / "big.mp4";
   testutils::writeSizedFile(small, 512ULL * 1024ULL);
-  testutils::writeSizedFile(big, 3ULL * 1024ULL * 1024ULL);
+  testutils::writeSizedFile(big, 24ULL * 1024ULL * 1024ULL);
   s.envs.push_back(
     std::make_unique<
       ScopedEnvVar
     >("ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", std::to_string(1'048'576))
   );
 
-  auto const job = videobatch::EncodingBatchJob{
-    .vids = {small, big},
-    .plannedOutputFiles =
-      appctx::path_map<fs::path>{
-        {small, s.temp.path / "encoded" / "small.mp4"},
-        {big, s.temp.path / "encoded" / "big.mp4"},
-      },
-    .actionIds = {},
+  auto items = appctx::EncodingStateList{
+    BatchScaffold::makeItem(small, s.temp.path / "encoded" / "small.mp4"),
+    BatchScaffold::makeItem(big, s.temp.path / "encoded" / "big.mp4"),
   };
 
-  auto const outcome = videobatch::runEncodingTasks(s.ctx, job, 2, 0);
+  auto const outcome = videobatch::runEncodingTasks(s.ctx, items, 2, 0);
 
-  REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results->find(small) == outcome.results->end());
+  // The dropped file is counted as skipped rather than as a failure, and it
+  // reached no outcome of its own.
+  CHECK(outcome.skippedCount == 1);
+  CHECK(items[0]->outcome().state == mediaitem::ItemState::Pending);
+  CHECK(items[1]->outcome().state == mediaitem::ItemState::Succeeded);
   auto const log = testutils::readTextFile(s.logPath);
   CHECK(log.find((s.temp.path / "encoded" / "small.mp4").string()) == std::string::npos);
 }

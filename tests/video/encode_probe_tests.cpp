@@ -426,6 +426,8 @@ struct EncodingTasksScaffold {
   fs::path inputPath;
   fs::path outputFile;
   fs::path logPath;
+  // The batch's item, whose outcome the run writes back.
+  appctx::EncodingStateList items;
 
   explicit EncodingTasksScaffold(
     std::string const& duration = "100.0",
@@ -440,20 +442,14 @@ struct EncodingTasksScaffold {
     envs.push_back(
       std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
     );
+    auto item = std::make_shared<appctx::EncodingState>();
+    item->inputPath = inputPath;
+    item->plannedOutputFile = outputFile;
+    items.push_back(std::move(item));
   }
 
-  auto run() -> videobatch::EncodingBatchOutcome {
-    auto plannedOutputFiles = appctx::path_map<fs::path>{{inputPath, outputFile}};
-    return videobatch::runEncodingTasks(
-      ctx,
-      videobatch::EncodingBatchJob{
-        .vids = {inputPath},
-        .plannedOutputFiles = plannedOutputFiles,
-        .actionIds = videobatch::ActionIdMap{},
-      },
-      1,
-      0
-    );
+  auto run() -> videobatch::EncodingBatchSummary {
+    return videobatch::runEncodingTasks(ctx, items, 1, 0);
   }
 };
 
@@ -974,8 +970,9 @@ TEST_CASE(
 
   auto const outcome = s.run();
 
-  REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results.value().at(s.inputPath));
+  CHECK_FALSE(outcome.canceled);
+  REQUIRE(s.items.size() == 1);
+  CHECK(s.items[0]->outcome().state == mediaitem::ItemState::Succeeded);
   CHECK_FALSE(outcome.dryRun);
   CHECK(outcome.attentionWarnings.empty());
   CHECK(fs::exists(s.outputFile));
@@ -1013,8 +1010,8 @@ TEST_CASE(
 
   auto const outcome = s.run();
 
-  REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results.value().at(s.inputPath));
+  REQUIRE(s.items.size() == 1);
+  CHECK(s.items[0]->outcome().state == mediaitem::ItemState::Succeeded);
   REQUIRE(outcome.attentionWarnings.size() == 1);
   CHECK(
     outcome.attentionWarnings.front().find("quality floor unreachable")
@@ -1032,8 +1029,9 @@ TEST_CASE(
   auto const outcome = s.run();
 
   CHECK(outcome.dryRun);
-  REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results.value().empty());
+  // The plan printed and nothing was encoded, so the item reached no outcome.
+  REQUIRE(s.items.size() == 1);
+  CHECK(s.items[0]->outcome().state == mediaitem::ItemState::Pending);
   CHECK_FALSE(fs::exists(s.outputFile));
   CHECK(leftoverProbeDirs().empty());
 }
@@ -1044,8 +1042,9 @@ TEST_CASE("runEncodingTasks skips probing entirely with --crf", "[encode-probe]"
 
   auto const outcome = s.run();
 
-  REQUIRE(outcome.results.has_value());
-  CHECK(outcome.results.value().at(s.inputPath));
+  CHECK_FALSE(outcome.canceled);
+  REQUIRE(s.items.size() == 1);
+  CHECK(s.items[0]->outcome().state == mediaitem::ItemState::Succeeded);
   CHECK(fs::exists(s.outputFile));
 
   auto const log = testutils::readTextFile(s.logPath);
