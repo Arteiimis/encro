@@ -175,8 +175,10 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
 
 ## Batch progress in `runTasks`: narrower than the review card claimed (deferred)
 
-- **Status:** open — fact-checked 2026-09-19, scope reduced, deliberately not
-  scheduled until `unify-task-outcome` lands.
+- **Status:** resolved — fixed by `unify-media-item-and-stages`, which landed
+  `TaskPlan::onTaskFinished`, the completion hook this entry's narrow version asked for (its
+  first consumer is `migrate-video-to-media-items`) · **Found:** 2026-09-19 (the fact-check
+  reduced the review card's scope to that hook).
 - **Original candidate:** "move batch counting, rate, cursor and ETA into
   `runTasks`" (architecture-review card 7) — the executor knows how many tasks
   finished but offers no completion hook, so each caller re-wraps every task to
@@ -338,8 +340,11 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
 
 ## `summaryOutputDir` names an arbitrary directory from an unordered map
 
-- **Status:** open — found 2026-09-22 while reviewing `reuse-hash-and-naming-helpers`
-  (pre-existing; the review had to rule out that the change perturbed it).
+- **Status:** resolved — fixed by `migrate-video-to-media-items`, which removed the
+  path-keyed carrier: `summaryOutputDir` now walks the item vector in input order
+  (`src/video/video_process.cpp:247-260`) · **Found:** 2026-09-22 while reviewing
+  `reuse-hash-and-naming-helpers` (pre-existing; the review had to rule out that the change
+  perturbed it).
 - **Symptom:** the summary line of a video run names an output directory that depends
   on unordered-map iteration order. With `--keep`, inputs under several subdirectories
   and no explicit output path, the directory reported is whichever element iteration
