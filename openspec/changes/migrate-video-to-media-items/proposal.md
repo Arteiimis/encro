@@ -18,8 +18,8 @@ Why now: `unify-media-item-and-stages` provides the item contract and `runStage`
 
 ## What Changes
 
-- **`EncodingState` becomes video's `mediaitem::Item`.** It gains an `outcome` field and takes over the two map roles it does not already hold (`results` → `outcome.state`, `failureReasons` → `outcome.failureReason`); the other three are already fields under different names (`plannedOutputFiles` → `plannedOutputFile`, `actionIds` → `actionId`, `probeCqByInput` → `chosenCq`), so they become direct reads instead of map lookups. It then satisfies the concept from `unify-media-item-and-stages`.
-- **It moves out of `src/core/app_context.h`** into `src/core/media_item.h`, beside the concept. It is not video-private — `picture_video_webp.cpp:124` constructs one to pass to `encodeVideo` — so it cannot move under `src/video/`; but `AppConfig`/`RuntimeContext` should not be the home of a 27-field per-item record either.
+- **`EncodingState` becomes video's `mediaitem::Item`.** It gains a `result` field of type `mediaitem::ItemOutcome`, read through the `outcome()` accessor the concept requires (a field and a method cannot share a name), and that accessor takes over the two map roles it does not already hold (`results` → `outcome.state`, `failureReasons` → `outcome.failureReason`); the other three are already fields under different names (`plannedOutputFiles` → `plannedOutputFile`, `actionIds` → `actionId`, `probeCqByInput` → `chosenCq`), so they become direct reads instead of map lookups. It then satisfies the concept from `unify-media-item-and-stages`.
+- **It moves out of `src/core/app_context.h`** into `src/core/encoding_state.h`, beside the contract (which stays free of it — `media_item.h` does not include the new header). It is not video-private — `picture_video_webp.cpp:124` constructs one to pass to `encodeVideo` — so it cannot move under `src/video/`; but `AppConfig`/`RuntimeContext` should not be the home of a 27-field per-item record either.
 - **The five maps and the two bundle types are deleted.** `EncodingBatchJob` and `EncodingBatchOutcome` dissolve; the flow passes `std::vector<EncodingStatePtr>` (`appctx::EncodingStateList`, already the type in use) and reads outcomes off the items.
 - **The encode phase runs through `runStage`** in its "caller draws its own bar" mode, keeping `EncodingProgressState`'s slot layout untouched (`video_batch_execution.h:84-144`).
 - **The sequential verbose path (`:277-340`) is expressed as the same stage** executed with `maxConcurrency = 1` and no bar, so the per-file bookkeeping exists once instead of twice.
@@ -39,7 +39,7 @@ None — this is an internal reshape of video's per-item state. Every user-visib
 
 ## Impact
 
-- `src/core/app_context.h` — `EncodingState` / `EncodingStatePtr` / `EncodingStateList` move out into `src/core/media_item.h`; both flows' includes change
+- `src/core/app_context.h` — `EncodingState` / `EncodingStatePtr` / `EncodingStateList` move out into `src/core/encoding_state.h`; both flows' includes change
 - `src/video/video_batch_execution.{h,cpp}` — the largest edit: three maps of bookkeeping, `EncodingBatchJob`/`EncodingBatchOutcome` and the parallel/sequential duplicate collapse onto the item vector and `runStage`
 - `src/video/video_process.cpp` — the encode entry, the summary and `collectEncodedOutputFiles` read items instead of the results map; the failure print loop moves to the runner
 - `src/video/video_encode_runner.{h,cpp}`, `video_encoding_state.cpp` — signature-only changes where `EncodingState` is used; the monitor thread's contract is untouched
@@ -51,7 +51,7 @@ None — this is an internal reshape of video's per-item state. Every user-visib
 
 - **The slot-bar layout** — `EncodingProgressState` stays. Video draws one "Overall: i/N" bar plus one bar per worker slot; the runner's single-bar shape does not express that, and teaching it to would be an abstraction for one flow.
 - **The progress-file monitor thread** (`video_encoding_state.cpp:218-262`) and `EncodingState`'s `mtx`/`lastProgressAtomic`. Splitting the runtime block off the item would make the item a movable value but forces a change to the monitor's contract; not worth it here.
-- **Segment resume** (`video_encode_runner.cpp:572-578`, `markSegmentProgress` `:417-428`) and `EncodingState::segmentIndex`.
+- **Segment resume** (`video_encode_runner.cpp:572-578`, `markSegmentProgress` `:417-428`) and the `segmentIndex` it writes onto the task record (`jobstate::TaskRecord`, `src/core/job_state.h:66`).
 - **The probe phase** — `encode_probe.cpp` keeps its own pool, its nested base-CQ pool (`:441`), its bars and its probe cache; only the CQ values it produces move onto the items.
 - **`video_info.cpp`'s two `runTasks` uses** (`:236,281`) — HEVC filtering and WebP prewarming are helper batches with no per-item lifecycle; they are not stages.
 - **Resume skip semantics** — the predicates stay as they are; see `unify-media-item-and-stages/design.md` D4 for why they are deliberately distinct rather than duplicated.
