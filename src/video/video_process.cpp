@@ -345,7 +345,7 @@ int runScannedEncodingWorkflow(
   auto skippedCount = std::size_t{0};
   {
     logging::ScopedTimer timer("video.encode");
-    auto const encodeLabel = std::format("{} video(s)", vids.size());
+    auto const encodeLabel = std::format("{} video(s)", items.size());
     logging::ScopedErrorContext scopedCtx("video.encode", encodeLabel);
     auto outcome = videobatch::runEncodingTasks(
       ctx,
