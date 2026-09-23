@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <format>
+#include <memory>
 #include <span>
 #include <string>
 #include <vector>
@@ -50,6 +51,74 @@ auto makeItems(std::size_t count) -> std::vector<FakeItem> {
 }
 
 }  // namespace
+
+// The contract is compile-time, so its conformance is asserted at compile time
+// too: a change to EncodingState's accessors fails here before any case runs.
+static_assert(mediaitem::Item<appctx::EncodingState>);
+
+TEST_CASE("EncodingState is video's item", "[media-item]") {
+  auto item = appctx::EncodingState{};
+  item.inputPath = fs::path{"videos"} / "A.mp4";
+  item.actionId = std::string{"encode:videos/a.mp4"};
+
+  CHECK(item.id() == "encode:videos/a.mp4");
+  CHECK(item.label() == "A.mp4");
+  CHECK(item.source() == item.inputPath);
+  CHECK(item.outcome().state == mediaitem::ItemState::Pending);
+
+  // Without a job-state action id the item reports the same "encode:<path>"
+  // id the task specs and the verbose path derived on their own.
+  auto planned = appctx::EncodingState{};
+  planned.inputPath = fs::path{"videos"} / "A.mp4";
+  CHECK(planned.id() == "encode:videos/a.mp4");
+}
+
+TEST_CASE(
+  "the pointer overload runs a stage identically to the value overload",
+  "[media-item]"
+) {
+  stopsignal::reset();
+
+  auto const alreadyDone = [](FakeItem const& item) { return item.taskId == "item-1"; };
+  auto const runOne = [](FakeItem& item, taskexec::TaskContext&) -> eh::Result<void> {
+    if (item.taskId == "item-2") { return eh::makeError("boom"); }
+    return {};
+  };
+
+  auto values = makeItems(4);
+  auto const valueResult = mediaitem::runStage(
+    mediaitem::StageSpec{.verb = "Working", .maxConcurrency = 2},
+    std::span<FakeItem>{values},
+    alreadyDone,
+    runOne
+  );
+
+  auto source = makeItems(4);
+  auto handles = std::vector<std::shared_ptr<FakeItem>>{};
+  handles.reserve(source.size());
+  for (auto const& item: source) { handles.push_back(std::make_shared<FakeItem>(item)); }
+  auto const pointerResult = mediaitem::runStage(
+    mediaitem::StageSpec{.verb = "Working", .maxConcurrency = 2},
+    std::span<std::shared_ptr<FakeItem>>{handles},
+    alreadyDone,
+    runOne
+  );
+
+  // Field by field: the two overloads are one stage, so a difference here is
+  // a difference in how a flow's items are reached, not in what a stage does.
+  CHECK(pointerResult.total == valueResult.total);
+  CHECK(pointerResult.skipped == valueResult.skipped);
+  CHECK(pointerResult.attempted == valueResult.attempted);
+  CHECK(pointerResult.succeeded == valueResult.succeeded);
+  CHECK(pointerResult.failed == valueResult.failed);
+  CHECK(pointerResult.canceled == valueResult.canceled);
+
+  REQUIRE(handles.size() == values.size());
+  for (auto index = std::size_t{0}; index < handles.size(); ++index) {
+    CHECK(handles[index]->result.state == values[index].result.state);
+    CHECK(handles[index]->result.failureReason == values[index].result.failureReason);
+  }
+}
 
 TEST_CASE(
   "runStage filters what the flow says is done and writes outcomes back",
@@ -154,6 +223,66 @@ TEST_CASE("a postfix callback replaces the counter text entirely", "[media-item]
   CHECK(ctx.postfixText(barIndex) == "3/3 - 12 img/s");
   // The postfix replaces the text, it never appends to the prompt.
   CHECK(ctx.postfixText(barIndex).find("Analyzing") == std::string::npos);
+}
+
+TEST_CASE("setBarProgress false leaves the bar's value to the flow", "[media-item]") {
+  stopsignal::reset();
+
+  auto items = makeItems(2);
+  auto ctx = progress::ProgressContext{};
+  auto const barIndex = ctx.addBar("Overall: 0/9");
+  // The flow's own value: a 2-item stage inside a 9-item flow, so the runner's
+  // count fraction (50 then 100) is not what this bar shows.
+  ctx.setProgress(barIndex, 20.0f);
+
+  auto const result = mediaitem::runStage(
+    mediaitem::StageSpec{
+      .progress = &ctx,
+      .barIndex = barIndex,
+      .setBarProgress = false,
+      .maxConcurrency = 1,
+      .postfix =
+        [](std::size_t done, std::size_t, double) {
+          return std::format("Overall: {}/9", done);
+        },
+    },
+    std::span<FakeItem>{items},
+    [](FakeItem const&) { return false; },
+    [](FakeItem&, taskexec::TaskContext&) -> eh::Result<void> { return {}; }
+  );
+
+  REQUIRE(result.succeeded == 2);
+  // The runner never wrote the count fraction: the flow's value survives.
+  CHECK(ctx.progressValue(barIndex) == 20.0F);
+  // The text still arrives, through the postfix the runner calls.
+  CHECK(ctx.postfixText(barIndex) == "Overall: 2/9");
+}
+
+TEST_CASE("a postfix runs for a stage with no bar of its own", "[media-item]") {
+  stopsignal::reset();
+
+  auto items = makeItems(3);
+  auto completions = std::size_t{0};
+
+  auto const result = mediaitem::runStage(
+    mediaitem::StageSpec{
+      .progress = nullptr,
+      .maxConcurrency = 1,
+      .postfix =
+        [&completions](std::size_t, std::size_t, double) {
+          ++completions;
+          return std::string{};
+        },
+    },
+    std::span<FakeItem>{items},
+    [](FakeItem const&) { return false; },
+    [](FakeItem&, taskexec::TaskContext&) -> eh::Result<void> { return {}; }
+  );
+
+  REQUIRE(result.succeeded == 3);
+  // The hook is the flow's completion count even with no bar to write: the
+  // video single-item run counts this way.
+  CHECK(completions == 3);
 }
 
 TEST_CASE("a canceled stage leaves its unreached items pending", "[media-item]") {

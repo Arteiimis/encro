@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/app_context.h"
+#include "core/media_item.h"
 
 #include <cstdint>
 #include <filesystem>
