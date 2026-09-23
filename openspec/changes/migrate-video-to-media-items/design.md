@@ -31,7 +31,7 @@ Constraints that shape the approach:
 
 ### D1: `EncodingState` becomes the item by gaining one field, not by being wrapped
 
-It already carries `inputPath` (the key all five maps share), `actionId`, `plannedOutputFile` and `chosenCq` — so three of the five maps' values (`plannedOutputFiles`, `actionIds`, `probeCqByInput`) are already fields under other names. The genuinely new state is **one** field, `mediaitem::ItemOutcome outcome`, which absorbs the last two maps (`results` → `outcome.state`, `failureReasons` → `outcome.failureReason`). `id()`, `label()`, `source()`, `target()` and `outcome()` are accessors over the existing fields.
+It already carries `inputPath` (the key all five maps share), `actionId`, `plannedOutputFile` and `chosenCq` — so three of the five maps' values (`plannedOutputFiles`, `actionIds`, `probeCqByInput`) are already fields under other names. The genuinely new state is **one** field, `mediaitem::ItemOutcome outcome`, which absorbs the last two maps (`results` → `outcome.state`, `failureReasons` → `outcome.failureReason`). `id()`, `label()`, `source()` and `outcome()` are accessors over the existing fields, while `plannedOutputFile` stays a plain field: the concept carries no `target()` (`media_item.h:50-56`), because the shared layer never reads a planned output.
 
 A wrapper (`struct VideoItem { EncodingStatePtr state; ItemOutcome outcome; }`) was considered and rejected: it would add a second type and an indirection to avoid one field, and every existing `EncodingState` user (`video_encode_runner`, `video_encoding_state`, the tests) would keep working on the inner object anyway.
 
@@ -49,13 +49,15 @@ Alternative considered: make the item concept accept both by dereferencing inter
 
 | Stage | Reads | Writes |
 | --- | --- | --- |
-| plan | — | `source`, `target`, `id` |
-| probe | `source` | `chosenCq`, `outcome` (skip decisions stay in the probe's own plan list) |
-| encode | `source`, `target`, `id`, `chosenCq` | `outcome`, `outputFile` |
+| plan | — | `source`, `plannedOutputFile`, `id` |
+| probe | `source` | `chosenCq` (skip decisions stay in the probe's own plan list) |
+| encode | `source`, `plannedOutputFile`, `id`, `chosenCq` | `outcome`, `outputFile` |
 | summary | all | — |
-| pack input collection | `outcome`, `outputFile`, `target` | — |
+| pack input collection | `outcome`, `plannedOutputFile` | — |
 
-`EncodingBatchJob` dissolves into the item vector; `EncodingBatchOutcome` dissolves into the item vector plus the three non-per-item values it also carried (`attentionWarnings`, `dryRun`, `encodeElapsed`), which stay in a small summary struct because they are not per-item.
+The planned output is the item's own field, not a concept member: `unify-media-item-and-stages`' Post-Change Review dropped `target()` along with organize's dead destination field, because the shared layer never reads a planned path, so the table above names `plannedOutputFile` (`media_item.h:287`) where a draft named `target`. The pack-input collection reads that same field (`video_process.cpp:411-415`), not `outputFile`.
+
+`EncodingBatchJob` dissolves into the item vector; `EncodingBatchOutcome` dissolves into the item vector plus the non-per-item values it also carried (`attentionWarnings`, `dryRun`, `skippedCount`, `encodeElapsed`, and the `canceled` flag that `results == nullopt` used to signal), which stay in `EncodingBatchSummary` because they are not per-item (`video_batch_execution.h:19-33`).
 
 Alternative considered: change the planner to annotate items directly — rejected; it forces 13 test rewrites and removes no duplication, because the planner's map is a plan-stage local, not a carried map.
 
@@ -69,13 +71,19 @@ The verbose path keeps its `"Echo enabled: progress bars disabled."` notice and 
 
 `EncodingProgressState` is passed as the stage's own `ProgressContext` and the stage runs in the "caller draws its own bar" mode from `unify-media-item-and-stages` D8. `runStage` still supplies the bookkeeping: filter, `TaskSpec` build, `outcome` write-back, failure collection, counts.
 
-Consequence to accept: the completion counter reaches the flow through `TaskPlan::onTaskFinished` rather than a hand-rolled atomic, but `EncodingProgressState` still owns the bar math (`barEncodingStart/Status/Idle/Done`, `updateOverall`, `video_batch_execution.h:205-287`).
+The count reaches the flow through the hook `runStage` installs on `TaskPlan` (`media_item.h:163`) — but the bar's *value* must not: `StageSpec::setBarProgress = false` (`video_batch_execution.cpp:573`) keeps the hook off the progress value while still calling the flow's `postfix` (`:575-580`, `markFinished`/`updateOverall`/`overallText`). The runner's `done/total` fraction is not this stage's fraction: the Overall bar's denominator is every planned item (`video_batch_execution.h:154`) and it adds the probe-skipped items plus each running encode's partial progress (`:242-270`). Feeding it would also sample the bar's ETA estimator with a count fraction, which is not the quantity that estimator projects (`progress.cpp:369-370`).
+
+`setBarProgress` is the one `StageSpec` field this change added, defaulting to true (`media_item.h:65-69`), so picture and organize are untouched. `runStage`'s `hideCursor` stopped being a constant: it is `spec.progress != nullptr` (`media_item.h:160-162`), because a stage that draws nothing must not hide the cursor — video's verbose path is that case — while a stage that draws a bar owns it.
+
+The hook calls `postfix` before the null-progress early return (`media_item.h:167-170`), so the count still flows when the Overall bar is absent: the compact single-item run, where `showsOverallBar(1,1,true)` is false (`progress.cpp:48-50`) while the slot bar is still drawn (`:52-54`). The flow wraps that case in its own `progress::CursorGuard` (`video_batch_execution.cpp:564-567`).
+
+Consequence to accept: the per-item encode task no longer calls `markFinished`/`updateOverall`, and outside the monitor thread their only caller is the hook's `postfix` (`video_batch_execution.cpp:575-580`), so the flow's count mirrors the runner's `done` instead of being incremented by each task. `EncodingProgressState` still owns the bar math (`barEncodingStart`/`barEncodingStatus`/`barDone`, `overallText`, `updateOverall`; `video_batch_execution.h:154,192-270`).
 
 ### D6: Job-state writes move onto the item's identity, not the map
 
-`markRunning` / `markProgress` / `markSucceeded` / `markFailed` currently key off `vidState.actionId` looked up from `actionIds` (`video_batch_execution.cpp:55-97`). They key off `item.id` instead. The ids themselves are unchanged — `item.id` is populated from the same `prepareEncodeActions` output (`:96-136`), which already builds `jobstate::makeEncodeTask(...).id`.
+`markRunning` / `markProgress` / `markSucceeded` / `markFailed` keyed off `vidState.actionId` looked up from `actionIds`; they now read the item's own `actionId` under the same guard (`video_batch_execution.cpp:71-72`, `:105-114`, `:135-141`), not literally `id()` — which derives an `encode:<path>` form when the field is unset (`media_item.h:317-320`) and would therefore add a store call exactly where the old map lookup found nothing. The ids themselves are unchanged — populated from the same `prepareEncodeActions` output (`video_process.cpp:92-102`), which already builds `jobstate::makeEncodeTask(...).id`.
 
-`persistedElapsedMs` (`:39-49`) and the segment reads (`video_encode_runner.cpp:572-578`) also key off `item.id`; no record shape or fingerprint changes, so an in-flight state file from before this change resumes identically.
+`persistedElapsedMs` (`video_batch_execution.cpp:40-49`) and the segment reads (`video_encode_runner.cpp:565-575`, which derive that same `taskId`) also key off the item's identity; no record shape or fingerprint changes, so an in-flight state file from before this change resumes identically.
 
 ### D7: Output order is reproduced by an explicit sort, with the map's own comparison
 
@@ -94,11 +102,16 @@ Alternative considered: keep the items in a sorted container instead of a vector
 
 - **The largest single edit in the three structural changes.** → D3 keeps the planner out, D5 keeps the progress object out, and D6 changes no ids; each of those removes a class of edit from the diff. If review judges the diff too large, the split point is "maps die" (D3+D6) before "verbose path merges" (D4).
 - **`runStage` gaining a pointer overload widens the abstraction for one caller.** → it is two overloads in a header-only template and the alternative (a value vector) is blocked by a non-goal. If video were the only pointer user, the honest fix would be the runtime-block split; that is recorded as the upgrade path.
-- **The verbose path's log lines are asserted by tests.** → `tests/video/video_process_orchestration_tests.cpp` covers the verbose narration; those cases' asserted strings must not change, and only construction sites may change.
+- **The verbose path's log lines are asserted by tests.** → `tests/video/video_process_orchestration_tests.cpp` covers the verbose narration; those cases' asserted strings must not change. It never built `EncodingBatchJob`/`EncodingBatchOutcome`, so this change added a case there and edited no construction site.
 - **Failure-list and archive-member order can silently change (D7).** → the sort uses `fs::path::operator<` (the comparison the map used), not `stablePathString`, and a new case with case-differing paths pins both the failure list and the archive member order. No existing case covers it.
 - **`EncodingState` leaving `app_context.h` touches picture.** → `picture_video_webp.cpp:124` is the only non-video construction; it changes one include and one qualified name. Picture's behaviour is untouched, and `unify-media-item-and-stages` has already migrated that file.
 - **An in-flight `.encro` state file must still resume.** → D6 changes no id and no fingerprint; `tests/job_state_tests.cpp` and the video resume e2e cases are the guard.
 - **Mixed codebase after this change**: picture and organize are on `runStage`, pack and preview are not. → preview is the named next user; pack is out by design.
+- **Accepted output delta: a verbose failure with no encoder error prints no summary line.** `printEncodingSummary` used to fall back to a bare `"  <path>"` line when `failureReasons` had no entry for the failed path; the shared `printFailures` skips an empty `outcome.failureReason` (`media_item.h:242-250`), the rule picture already adopted (`picture_process.cpp:582`, `picture_video_webp.cpp:169`). Accepted: the file is still counted as failed, the exit code is unchanged, and a failure the encoder explained prints as before, in path order — the reason-less line is the only thing gone.
+- **Accepted fix: `summaryOutputDir` is now deterministic.** It no longer reads an `unordered_map`'s `begin()`: it walks the item vector, which is in input order, and takes the first item with a planned output (`video_process.cpp:247-260`). A flat run prints the same directory; a multi-directory one names the first input's directory instead of an arbitrary element. This closes the "`summaryOutputDir` names an arbitrary directory from an unordered map" entry in `docs/backlog.md`.
+- **Accepted delta: in verbose mode an exception escaping the encoder becomes a per-item failure.** The verbose path now runs through `runStage` → `runTasks`, whose per-task `try`/`catch` records the message and carries on (`task_executor.cpp:52-62`); the old sequential loop let the throw propagate out of the encode phase. This is what the parallel path already did, so the two modes agree.
+- **Accepted delta: `noteStopRequest`'s in-loop call is gone from the verbose path.** The old sequential loop recorded the stop request itself and `break`ed; the recording now happens at the drain after the encode phase — `maybeHandleInterruptedEncoding` calls `requestCancel()` and `markIncompleteInterrupted(pendingActionIds)` right after `runEncodingTasks` (`video_process.cpp:230-243`, called at `:361`) for the verbose and parallel paths alike. Nothing visible or resumable is lost; only the moment of recording moves.
+- **A latent test bug fixed on the way (not a behaviour delta).** The case meant to exercise a skip-encode plan used a 3 MiB source against a 10 MiB probe estimate, so both its files were probe-skipped and its assertions (the skipped path absent from the results and from the encode log) held vacuously; the fixture is now 24 MiB (`tests/video/video_batch_execution_tests.cpp:613-618`), which survives the filter and lets the case assert the mixed skip/encode plan it names.
 
 ## Migration Plan
 

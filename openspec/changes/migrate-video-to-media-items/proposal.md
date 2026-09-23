@@ -4,7 +4,7 @@ Video is the flow with the most machinery and the least per-item identity. `appc
 
 | Map | Produced by | Consumed by | Lives on the item as |
 | --- | --- | --- | --- |
-| `plannedOutputFiles` `path_map<fs::path>` | `planVideoOutputFiles` (`video_process.cpp:313`) | `runEncodingTasks`, `collectEncodedOutputFiles` (`:401`) | `target` |
+| `plannedOutputFiles` `path_map<fs::path>` | `planVideoOutputFiles` (`video_process.cpp:313`) | `runEncodingTasks`, `collectEncodedOutputFiles` (`:401`) | `plannedOutputFile` |
 | `actionIds` `path_map<std::string>` | `prepareEncodeActions` (`:96`) | `applyEncodingStateCommonFields` (`:105`) | `id` |
 | `probeCqByInput` `path_map<int>` | `runProbeStage` (`:385`) | `applyEncodingStateCommonFields` (`:109`) | `chosenCq` |
 | `results` `map<fs::path,bool>` | `collectEncodingResults` (`:440-455`) | summary (`video_process.cpp:519-598`), pack input collection | `outcome.state` |
@@ -25,7 +25,7 @@ Why now: `unify-media-item-and-stages` provides the item contract and `runStage`
 - **The sequential verbose path (`:277-340`) is expressed as the same stage** executed with `maxConcurrency = 1` and no bar, so the per-file bookkeeping exists once instead of twice.
 - **`planVideoOutputFiles` keeps its signature and its 12 cases.** The plan produced by that function is folded into the items by the flow, so only the *cross-stage* carrier disappears. Rewriting the planner to annotate items would force the planner's test file to be rewritten for no reduction in duplication.
 - **Output order is preserved explicitly.** The path-sorted order that two persisted artefacts depend on — the failure list and the archive member order — is reproduced by an explicit sort with the same comparison the map used, rather than inherited from a `std::map`. See design.md D7; this is also why `unify-media-item-and-stages` D2 forbids a stage from relying on an order the runner does not produce.
-- **No behaviour change**: identical planned paths, identical bar and summary text, identical failure lines, identical exit codes, identical job-state records and segment-resume decisions.
+- **No *intended* behaviour change**: identical planned paths, identical bar text, identical exit codes, identical job-state records and segment-resume decisions. Four deltas were produced anyway and are accepted; design.md's Risks names each one.
 
 ## Capabilities
 
@@ -43,7 +43,7 @@ None — this is an internal reshape of video's per-item state. Every user-visib
 - `src/video/video_batch_execution.{h,cpp}` — the largest edit: three maps of bookkeeping, `EncodingBatchJob`/`EncodingBatchOutcome` and the parallel/sequential duplicate collapse onto the item vector and `runStage`
 - `src/video/video_process.cpp` — the encode entry, the summary and `collectEncodedOutputFiles` read items instead of the results map; the failure print loop moves to the runner
 - `src/video/video_encode_runner.{h,cpp}`, `video_encoding_state.cpp` — signature-only changes where `EncodingState` is used; the monitor thread's contract is untouched
-- Tests: `tests/video/video_batch_execution_tests.cpp` and `tests/video/video_process_orchestration_tests.cpp` are updated where they build `EncodingBatchJob`/`EncodingBatchOutcome`, and `tests/video/encode_probe_tests.cpp` where its scaffold builds both types; `tests/video/video_output_planning_tests.cpp` is **not** touched; `tests/video/video_encode_runner_tests.cpp` changes only where it constructs an `EncodingState`
+- Tests: `tests/video/video_batch_execution_tests.cpp` and `tests/video/video_process_orchestration_tests.cpp` are updated where they build the batch types, and `tests/video/encode_probe_tests.cpp` where its scaffold builds both types; `tests/video/video_output_planning_tests.cpp` is **not** touched; `tests/video/video_encode_runner_tests.cpp` changes only where it constructs an `EncodingState`
 
 **Depends on:** `unify-media-item-and-stages` (`runStage`, the concept) and `reuse-hash-and-naming-helpers` (which edits `planVideoOutputFiles`, the function this change deliberately leaves in place).
 
