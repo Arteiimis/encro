@@ -2,6 +2,10 @@
 // mixed/uncategorized semantics, dry-run, recluster, resume, rename teaching.
 #include "organize/pipeline.h"
 
+#include "cmd/cmd.h"
+#include "infra/stop_signal.h"
+#include "organize/organize_command.h"
+
 #include "test_utils.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -250,4 +254,81 @@ TEST_CASE("renderReport lists folders with sources and totals", "[organize]") {
   // Report rules share the encode plan's glyph family (pipeline-narration).
   CHECK(text.find("\xE2\x94\x80") != std::string::npos);
   CHECK(text.find("---") == std::string::npos);
+}
+
+// A stop request is the organize run's own abort, not an error: the analysis
+// phase reports it on the pipeline result, the copy phase stops before the
+// next image, and the command prints one notice with the cancellation exit
+// code instead of the report.
+TEST_CASE(
+  "organize reports a stop request instead of an error or a report",
+  "[organize][stop-signal]"
+) {
+  auto const stopGuard = testutils::ScopedStopSignalReset{};
+
+  SECTION("analysis abort") {
+    auto temp = TempDir{};
+    testutils::writeTextFile(temp.path / "miku.png", "miku");
+    auto engine = FakeTagger{};
+    engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
+
+    stopsignal::requestStop();
+    auto const result = runOrganize(makeOptions(temp.path), engine, nullptr);
+
+    REQUIRE(result.has_value());
+    CHECK(result->canceled);
+    CHECK(result->copied == 0);
+    CHECK_FALSE(fs::exists(temp.path / "organized"));
+  }
+
+  SECTION("copy abort on a resumed run") {
+    auto temp = TempDir{};
+    testutils::writeTextFile(temp.path / "miku.png", "miku");
+    auto engine = FakeTagger{};
+    engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
+
+    // First run analyzes and copies: the cache now covers the image, so the
+    // stopped run has nothing to analyze and the stop lands in the copy loop.
+    auto const first = runOrganize(makeOptions(temp.path), engine, nullptr);
+    REQUIRE(first.has_value());
+    REQUIRE(first->copied == 1);
+
+    stopsignal::requestStop();
+    auto const result = runOrganize(makeOptions(temp.path), engine, nullptr);
+
+    REQUIRE(result.has_value());
+    CHECK(result->canceled);
+  }
+
+  SECTION("command boundary") {
+    auto temp = TempDir{};
+    auto const pics = temp.path / "pics";
+    fs::create_directories(pics);
+    testutils::writeTextFile(pics / "miku.png", "miku");
+    auto const fixture = temp.path / "fixture.json";
+    testutils::writeTextFile(fixture, "{}");
+    auto const fakeEngine =
+      testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", fixture.string()};
+
+    auto cmd = CmdParseResult{};
+    cmd.organizeDir = pics.string();
+
+    stopsignal::requestStop();
+    auto exitCode = 0;
+    auto const stderrPath = temp.path / "stderr.txt";
+    auto const captured = testutils::captureStdout([&] {
+      auto const capture = testutils::StderrCapture{stderrPath};
+      exitCode = organize::runOrganizeCommand(cmd);
+    });
+
+    CHECK(exitCode == stopsignal::kCanceledExitCode);
+    CHECK(
+      testutils::countOccurrences(
+        testutils::readTextFile(stderrPath),
+        "Organize canceled by user."
+      )
+      == 1
+    );
+    CHECK(captured.find("images: copied") == std::string::npos);
+  }
 }

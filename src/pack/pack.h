@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -95,5 +96,11 @@ struct PackRequest {
 // --- execute() (D-05) ---
 // Free function. Internally manages Packer/PackService lifecycle.
 auto execute(PackRequest const& request) -> eh::Result<PackRunResult>;
+
+// The notice a declined packing prompt prints. A stop request that forced the
+// decline is the packing stage's own cancellation and takes the stage notice
+// (`Packing canceled by user.`); a prompt the user really declined keeps the
+// prompt's wording (cancellation-reporting).
+auto promptDeclineNotice() -> std::string_view;
 
 }  // namespace pack
