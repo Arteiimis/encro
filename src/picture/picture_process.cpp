@@ -361,11 +361,15 @@ struct ConversionPhaseResult {
 
 // Runs the conversion phase. On success the result carries only the clips whose
 // cached output exists, which is what the pack step must use; a clip whose
-// conversion failed is absent, never packed as its source.
+// conversion failed is absent, never packed as its source. No planned clip
+// means no phase runs - the flag is off or the input holds no videos - and the
+// run prints no conversion line for it.
 auto runVideoConversionPhase(
   appctx::AppContext& ctx,
   std::vector<picturewebp::ConversionTask> const& tasks
 ) -> eh::Result<ConversionPhaseResult> {
+  if (tasks.empty()) { return ConversionPhaseResult{}; }
+
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
   auto const startedAt = std::chrono::steady_clock::now();
   auto const outcome = picturewebp::runConversionPhase(ctx, tasks, maxParallel);
