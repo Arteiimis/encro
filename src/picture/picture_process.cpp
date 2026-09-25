@@ -586,18 +586,13 @@ auto runCompressionPhase(
   }
 
   auto const startedAt = std::chrono::steady_clock::now();
+  auto failureReasons = std::map<fs::path, std::string>{};
   auto const compressResults = [&]() {
     logging::ScopedTimer timer("picture.compress");
     auto const compressLabel =
       std::format("{} picture(s) q={}", compressTasks.size(), quality);
     logging::ScopedErrorContext scopedCtx("picture.compress", compressLabel);
-    std::map<fs::path, std::string> failureReasons;
-    auto const results =
-      compressImageBatch(ctx, compressTasks, quality, maxParallel, failureReasons);
-    for (auto const& [path, reason]: failureReasons) {
-      terminal::println(Plain, "  {}: {}", terminal::path(path), reason);
-    }
-    return results;
+    return compressImageBatch(ctx, compressTasks, quality, maxParallel, failureReasons);
   }();
   auto const elapsed = displaytext::elapsedSince(startedAt);
 
@@ -607,6 +602,12 @@ auto runCompressionPhase(
     }
     terminal::messageln(Warning, "Compression task canceled by user.");
     return CompressPhaseOutcome{.canceled = true, .results = {}};
+  }
+
+  // The reasons of a stopped batch name the kill that ended it, not a
+  // compression failure, so they print only for a batch that ran to the end.
+  for (auto const& [path, reason]: failureReasons) {
+    terminal::println(Plain, "  {}: {}", terminal::path(path), reason);
   }
 
   if (compressResults.empty()) {
