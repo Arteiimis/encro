@@ -32,6 +32,29 @@ TEST_CASE("runPicturePackWorkflow packs directory", "[picture-process]") {
 }
 
 TEST_CASE(
+  "runPicturePackWorkflow without video conversion prints no conversion line",
+  "[picture-process]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  testutils::writeSizedFile(inputDir / "a.jpg", 32);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.inputPath = inputDir;
+
+  auto runResult = eh::Result<int>{};
+  auto const captured =
+    testutils::captureStdout([&] { runResult = runPicturePackWorkflow(ctx, inputDir); });
+
+  REQUIRE(runResult);
+  CHECK(runResult.value() == 0);
+  CHECK(captured.find("videos to WebP") == std::string::npos);
+}
+
+TEST_CASE(
   "runPicturePackWorkflow with folder-summary keeps summary entries ahead of regular "
   "files",
   "[picture-process]"
