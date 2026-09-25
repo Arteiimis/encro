@@ -17,8 +17,15 @@ using StopEventHandle = int;
 
 void installHandler();
 
+// Requests a stop: sets the flag, signals the event, and (Windows, once a
+// handler is installed) arms the force-exit watchdog. Tests: a second request
+// while that deadline is armed exits the process — reset() between requests,
+// i.e. one testutils::ScopedStopSignalReset per request (per loop iteration or
+// section), never one guard for several requests.
 void requestStop();
 
+// Clears the flag, the armed force-exit deadline and the event, so a case can
+// request a stop again without tripping the watchdog.
 void reset();
 
 bool isStopRequested();

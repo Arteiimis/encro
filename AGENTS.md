@@ -47,6 +47,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 - `[install]`/`[smoke]` completion tests (they write shell startup files / spawn real bash + PowerShell) are opt-in: skipped unless `ENCRO_TEST_COMPLETION=1` (`ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[completion]"`).
 - Tests carry tags for `--tag=` filtering — see the `[...]` annotations in `tests/`.
 - **Sync convention:** tests synchronize by polling observable state via `testutils::waitUntil` (invocation logs, gate files, mutex-guarded fields) — never fixed sleeps, and no negative assertions that race async effects; elapsed-time tests drive `testutils::ScopedSyntheticJobClock`, not the wall clock. Any `sleep_for` in `tests/**.cpp` needs a `// sleep-ok: <reason>` marker within 3 lines (pre-commit clang-format reflows long lines); the `[test-utils][meta]` check in `tests/test_utils_tests.cpp` enforces both markers. Fake-tool gating lives in `tests/e2e/fake_media_tool.cpp`.
+- **Stop tests:** request a stop at most once per case execution — put a fresh `testutils::ScopedStopSignalReset` in every loop iteration instead of one guard for the loop, because a second `stopsignal::requestStop()` while the force-exit deadline is armed calls `ExitProcess(130)` and takes the whole test binary down (symptom: exit 130 mid-run, no Catch2 summary, empty JUnit — while `--tag`/shard runs still pass, since the deadline only arms after a handler-installing case ran).
 
 ## Communication
 
