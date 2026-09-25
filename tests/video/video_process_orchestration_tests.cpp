@@ -8,8 +8,12 @@
 #include "video/video_process.h"
 
 #include <array>
+#include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -211,6 +215,121 @@ TEST_CASE(
     });
   CHECK(archiveTaskCount == 1);
   CHECK_FALSE(fs::exists(strayProgress.path));
+}
+
+TEST_CASE(
+  "handlePathEncoding announces a stop that cuts the encode batch short",
+  "[video-process][orchestration][stop-signal]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  StrayProgressGuard strayProgress{temp.path};
+  auto const inputDir = temp.path / "videos";
+  auto const stateFilePath = temp.path / "encro.job-state.json";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.mp4", "a");
+  writeTextFile(inputDir / "b.mp4", "b");
+
+  // The fake ffmpeg logs the invocation and then blocks on the gate: the log
+  // line is proof the first encode is in flight, so the stop cannot race
+  // ahead of it. The gate is released after the stop so a run that wrongly
+  // starts the second file fails on the deadline instead of hanging.
+  auto const gateFile = temp.path / "encode-gate";
+  auto const logPath = temp.path / "invocations.log";
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+  );
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+  );
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_TIMEOUT_MS", "3000")
+  );
+  // Captures both streams of one run: the notice is a warning (stderr) while
+  // the summary and failure lists are narration (stdout).
+  auto capturedRun = [&](std::string_view tag, auto&& run) {
+    struct Captured {
+      std::string stdoutText;
+      std::string stderrText;
+    };
+    auto outcome = Captured{};
+    auto const stderrPath = temp.path / std::format("stderr-{}.txt", tag);
+    outcome.stdoutText = testutils::captureStdout([&] {
+      auto const capture = StderrCapture{stderrPath};
+      run();
+    });
+    outcome.stderrText = readTextFile(stderrPath);
+    return outcome;
+  };
+
+  SECTION("stop mid-batch reports the encode batch") {
+    auto ctx = appctx::AppContext{};
+    configureVideoContext(ctx, temp.path, inputDir);
+    ctx.config.verbose = false;
+
+    auto exitCode = std::optional<int>{};
+    auto started = false;
+    auto captured = std::string{};
+    auto stderrText = std::string{};
+    {
+      auto requester = testutils::spawnGatedStop(logPath, gateFile, 1, started);
+      auto const run =
+        capturedRun("mid-batch", [&] { exitCode = handlePathEncoding(ctx, inputDir); });
+      captured = run.stdoutText;
+      stderrText = run.stderrText;
+    }
+
+    REQUIRE(started);
+    REQUIRE(exitCode.has_value());
+    CHECK(exitCode.value() == stopsignal::kCanceledExitCode);
+    CHECK(
+      testutils::countOccurrences(stderrText, "Encoding tasks canceled by user.") == 1
+    );
+    // The aborted batch prints no summary and no per-file failure line for
+    // the child the stop killed.
+    CHECK(captured.find("Encoded ") == std::string::npos);
+    CHECK(captured.find(": exit code") == std::string::npos);
+  }
+
+  SECTION("stop with every encode already complete reports the next stage") {
+    // The gate belongs to the mid-batch section: opening it up front lets the
+    // setup run's encodes through.
+    testutils::openGate(gateFile);
+
+    // First run encodes both inputs and leaves a complete state behind.
+    auto ctx = appctx::AppContext{};
+    configureVideoContext(ctx, temp.path, inputDir);
+    ctx.config.verbose = false;
+    ctx.config.stateFilePath = stateFilePath;
+    ctx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
+    REQUIRE(ctx.runtime.jobState->initialize(ctx.config, false));
+    REQUIRE(handlePathEncoding(ctx, inputDir) == 0);
+    auto const encodesAfterSetup = testutils::countFfmpegInvocations(logPath);
+
+    // Second run: every encode is already done, so the stop belongs to the
+    // packing the resume asks about, not to the encode stage.
+    auto resumeCtx = appctx::AppContext{};
+    configureVideoContext(resumeCtx, temp.path, inputDir, true);
+    resumeCtx.config.verbose = false;
+    resumeCtx.config.stateFilePath = stateFilePath;
+    resumeCtx.runtime.jobState = std::make_shared<jobstate::Store>(stateFilePath);
+    REQUIRE(resumeCtx.runtime.jobState->initialize(resumeCtx.config, false));
+
+    auto exitCode = std::optional<int>{};
+    stopsignal::requestStop();
+    auto const run =
+      capturedRun("resume", [&] { exitCode = handlePathEncoding(resumeCtx, inputDir); });
+
+    REQUIRE(exitCode.has_value());
+    CHECK(exitCode.value() == stopsignal::kCanceledExitCode);
+    CHECK(run.stderrText.find("Encoding tasks canceled by user.") == std::string::npos);
+    // Positive controls: no encode ran again, and the run did end on the stop,
+    // reported by the stage that had the work left.
+    CHECK(testutils::countFfmpegInvocations(logPath) == encodesAfterSetup);
+    CHECK(run.stderrText.find("canceled by user.") != std::string::npos);
+    CHECK_FALSE(fs::exists(strayProgress.path));
+  }
 }
 
 TEST_CASE(

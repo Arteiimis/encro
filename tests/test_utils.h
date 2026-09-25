@@ -573,6 +573,46 @@ inline std::size_t countOccurrences(std::string_view text, std::string_view need
   return count;
 }
 
+// Counts ffmpeg-role lines in the fake tool's invocation log; a missing log
+// counts as zero (poll predicates must not abort on absent files).
+inline std::size_t countFfmpegInvocations(fs::path const& logPath) {
+  auto in = std::ifstream{logPath, std::ios::binary};
+  if (!in.is_open()) { return 0; }
+  auto const content = std::string{std::istreambuf_iterator<char>{in}, {}};
+  return countOccurrences(content, "ffmpeg\t");
+}
+
+// Opens the fake tool's gate file, letting every gated invocation (and any
+// later one) proceed; a run left with no open gate fails on the tool's own
+// deadline instead of hanging the case.
+inline void openGate(fs::path const& gatePath) {
+  auto gate = std::ofstream{gatePath, std::ios::binary | std::ios::trunc};
+  if (gate.is_open()) { gate << "go"; }
+}
+
+// Stops a gated batch from a second thread: waits for proof that the fake tool
+// was invoked at least `invocations` times (so the stop cannot race ahead of
+// the run), then raises the stop and opens the gate. *started stays false when
+// the proof never arrives within the deadline, which the caller REQUIREs after
+// joining — a miswired test must not pass silently, and a fixed sleep cannot
+// prove an invocation started under parallel shard load.
+inline auto spawnGatedStop(
+  fs::path const& logPath,
+  fs::path const& gatePath,
+  std::size_t invocations,
+  bool& started
+) -> std::jthread {
+  return std::jthread{[logPath, gatePath, invocations, &started] {
+    started = waitUntil(
+      [&] { return countFfmpegInvocations(logPath) >= invocations; },
+      std::chrono::seconds{10},
+      std::chrono::milliseconds{10}
+    );
+    stopsignal::requestStop();
+    openGate(gatePath);
+  }};
+}
+
 // Drops ANSI escape sequences, so a test can assert on the text a user reads
 // regardless of the color mode that produced it.
 inline auto stripAnsi(std::string_view text) -> std::string {

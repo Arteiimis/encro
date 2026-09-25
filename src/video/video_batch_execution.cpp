@@ -202,6 +202,10 @@ auto runEncodingTask(
 ) -> eh::Result<void> {
   if (stopsignal::isStopRequested()) {
     noteStopRequest(executionCtx.app);
+    // The stop reached this task before its work started: it is a victim like a
+    // killed child, so it leaves no result and no failure reason (the store
+    // records it interrupted through markIncompleteInterrupted).
+    executionCtx.stopAborted[taskIndex].store(true, std::memory_order_release);
     return eh::makeError("Encoding canceled by user.");
   }
 
@@ -241,6 +245,14 @@ auto runEncodingTask(
   executionCtx.finalizeState(vidState, result);
 
   auto const outcome = collectOutcome(*vidState);
+  // The child this task ran was killed while the stop was pending: that failure
+  // is the cancellation's, not the item's, so the batch records the task here
+  // and it never reaches the results or the failed-file list
+  // (cancellation-reporting). The durable task record keeps the failure, which
+  // resume relies on.
+  if (!result && stopsignal::isStopRequested()) {
+    executionCtx.stopAborted[taskIndex].store(true, std::memory_order_release);
+  }
   notifyJobState(executionCtx.app, result, outcome);
 
   if (result) {
@@ -319,9 +331,15 @@ auto runEncodingWithoutProgress(
       auto ec = std::error_code{};
       fs::remove(state.progressFilePath.value(), ec);
     }
-    vidsRunRes.emplace(vidPath, success);
-    if (!success && state.lastError.has_value()) {
-      failureReasons.emplace(vidPath, state.lastError.value());
+    // A child the stop killed is the cancellation's victim: leaving no result
+    // entry makes the batch read as cut short, and leaving no failure reason
+    // keeps the summary from listing it (cancellation-reporting).
+    auto const stopVictim = !success && stopsignal::isStopRequested();
+    if (!stopVictim) {
+      vidsRunRes.emplace(vidPath, success);
+      if (!success && state.lastError.has_value()) {
+        failureReasons.emplace(vidPath, state.lastError.value());
+      }
     }
     finalizeEncodeResult(
       ctx,
@@ -331,6 +349,8 @@ auto runEncodingWithoutProgress(
     );
     if (success) {
       LOG_INFO("Encoded success (no-progress): {}", vidPath.string());
+    } else if (stopVictim) {
+      LOG_WARN("Encoded canceled by the stop (no-progress): {}", vidPath.string());
     } else {
       LOG_WARN("Encoded failed (no-progress): {}", vidPath.string());
     }
@@ -374,6 +394,7 @@ auto runProbeStage(
   auto const probeElapsed = displaytext::elapsedSince(probeStartedAt);
   if (stopsignal::isStopRequested()) {
     noteStopRequest(ctx);
+    terminal::messageln(Warning, "Probing canceled by user.");
     return ProbeStageStatus::Aborted;
   }
   if (!probeRes) {
@@ -440,10 +461,14 @@ auto buildEncodeTasks(
 auto collectEncodingResults(
   std::vector<fs::path> const& vids,
   taskexec::TaskRunResult const& runState,
-  std::map<fs::path, std::string>& failureReasons
+  std::map<fs::path, std::string>& failureReasons,
+  std::vector<std::atomic_bool> const& stopAborted
 ) -> videobatch::EncodeResultsMap {
   auto results = videobatch::EncodeResultsMap{};
   for (auto taskIndex = std::size_t{0}; taskIndex < vids.size(); ++taskIndex) {
+    // A task the stop killed leaves no result (so the batch reads as cut
+    // short) and no failure reason (so nothing lists it as failed).
+    if (stopAborted[taskIndex].load(std::memory_order_acquire)) { continue; }
     auto const& outcome = runState.outcomes[taskIndex];
     if (outcome.state == taskexec::TaskState::Skipped) { continue; }
     results.emplace(vids[taskIndex], outcome.state == taskexec::TaskState::Succeeded);
@@ -512,9 +537,14 @@ auto prepareEncodingExecution(
     initialCompletedCount
   );
 
-  auto executionCtx = std::make_unique<
-    EncodingExecutionContext
-  >(ctx, *progressState, job.plannedOutputFiles, job.actionIds);
+  auto executionCtx = std::make_unique<EncodingExecutionContext>(
+    ctx,
+    *progressState,
+    job.plannedOutputFiles,
+    job.actionIds,
+    // One victim flag per encode task; atomics value-initialize to false.
+    std::vector<std::atomic_bool>(job.vids.size())
+  );
   executionCtx->probeCqByInput = std::move(probeCqByInput);
   executionCtx->updateOverall();
 
@@ -655,8 +685,12 @@ auto videobatch::runEncodingTasks(
   execution.progressState->progressCtx.eraseBars();
 
   std::map<fs::path, std::string> failureReasons;
-  auto const results =
-    collectEncodingResults(encodableJob.vids, runState, failureReasons);
+  auto const results = collectEncodingResults(
+    encodableJob.vids,
+    runState,
+    failureReasons,
+    execution.ctx->stopAborted
+  );
 
   LOG_INFO(
     "Encoding batch completed: attempted={} completed={} ",
