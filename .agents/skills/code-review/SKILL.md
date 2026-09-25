@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Two review stages. Planning stage — a change's proposal/specs/design/tasks before implementation, through a Coherence and a Ground-truth lens. Code stage — the diff since a fixed point (commit, branch, tag, or merge-base) along three axes: Standards (this repo's documented coding standards), Spec (does the code match what the originating spec asked for?), Leanness (what in the diff is over-engineering?), as parallel sub-agents. Use for reviewing an OpenSpec change's artifacts, or a branch, a PR, work-in-progress changes, or "review since X".
+description: Two review stages sharing one protocol. Planning stage — reviews a change's proposal/specs/design/tasks before implementation, through a Coherence and a Ground-truth lens. Code stage — reviews the diff since a fixed point (commit, branch, tag, or merge-base) along three axes (Standards — this repo's documented standards; Spec — does the code match the originating spec; Leanness — what in the diff is over-engineering), as parallel sub-agents. Use for reviewing an OpenSpec change's artifacts, or a branch, a PR, work-in-progress changes, or "review since X".
 ---
 
 Two stages share one protocol — a fresh, independent reviewer; findings that quote their own evidence; and the fix loop in step 6 below.
