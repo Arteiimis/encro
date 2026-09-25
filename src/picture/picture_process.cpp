@@ -457,7 +457,7 @@ auto executeDirectPackWorkflow(
   if (!conversion) { return eh::makeError("{}", conversion.error()); }
 
   if (!confirmPicturePack(ctx.config)) {
-    terminal::messageln(Warning, "Packing task canceled by user.");
+    terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
     return canceledExitCodeForPromptAbort();
   }
 
@@ -758,7 +758,7 @@ auto executeCompressPackWorkflow(
   if (!conversion) { return eh::makeError("{}", conversion.error()); }
 
   if (!confirmPicturePack(ctx.config)) {
-    terminal::messageln(Warning, "Packing task canceled by user.");
+    terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
     return canceledExitCodeForPromptAbort();
   }
 

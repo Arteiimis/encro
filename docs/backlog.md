@@ -335,3 +335,37 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
   user simply cannot tell why. Independent of the planned refactors:
   `unify-media-item-and-stages` deliberately leaves `src/organize/execute.cpp` untouched
   (it migrates only the analysis phase), so this is not a prerequisite for it.
+
+## Pack-only cancellation is invisible inside the single archive write
+
+- **Status:** open (found 2026-09-26 while verifying `unify-cancel-reporting`) · **Severity:** low (no corruption; the stop still ends the run)
+- **Symptom:** `encro --pack-only -i <dir>` interrupted with a console Ctrl+C
+  during the archive write either finishes the pack and reports success
+  (`All files packed successfully ...`, exit 0, no cancellation notice) or —
+  when the write outlasts the force-exit grace period (~3 s) — is ended by the
+  watchdog (`force exit: process did not stop within the grace period`, exit
+  130, log `stop_signal.cpp:148` then `crash_runtime` critical) with no
+  `warning: Packing canceled by user.` line. Reproduced with a 400-500 ms Ctrl+C
+  on a 12-subdir / ~100 MB tree: one archive
+  (`..._part1[1~36#36p].zip`), every entry logged ~5 ms in, the process ending
+  3.0 s later at the watchdog.
+- **Root cause:** Directory-mode packing builds *one* group for the whole input
+  tree, so the pack stage's only stop checkpoint is that one archive boundary
+  (`taskexec::runTasks` checks `stopsignal::isStopRequested()` before each task,
+  `src/core/task_executor.cpp:96`). A stop arriving inside the archive write is
+  therefore noticed only after it completes — and `libzippp`'s write loop has no
+  stop check of its own. The "stop before any task" case works (unit:
+  `tests/pack_execute_tests.cpp` both modes), which is why this is invisible to
+  the suite. The watchdog swallowing the notice is a documented non-goal of
+  `unify-cancel-reporting` ("Guaranteeing a notice when the force-exit watchdog
+  kills a run that never reached a checkpoint").
+- **Fix direction:** give the archive writer a checkpoint — pass the stop signal
+  into `Packer`'s per-entry loop and abort the archive (leaving the partial temp
+  file to the existing cleanup) when it fires, or split Directory-mode packs into
+  more, smaller groups so the executor's per-task check fires sooner. Then the
+  pack funnel's `Packing canceled by user.` notice
+  (`src/pack/pack.cpp`, `execute(PackRequest const&)`) prints on this path too.
+- **Impact:** responsiveness and notice coverage for large pack-only runs; no
+  data loss (a partially written archive is removed or overwritten by the next
+  run) and `--resume`/job-state paths are unaffected (they use per-group archive
+  tasks, which do reach a checkpoint).

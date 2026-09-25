@@ -500,6 +500,17 @@ auto createPreviewProbeRoot() -> eh::Result<fs::path> {
   return videoworkflow::createScratchProbeRoot("preview", "preview temp");
 }
 
+// The stop's own victims are never reported as failed work: a step that finds
+// the stop pending where it would report a child's failure reports the
+// cancellation instead — bars cleared, one notice, cancellation exit code, no
+// failure line (cancellation-reporting). `progressCtx` is null where the stage
+// has not created its bars yet (the single-input probe runs before them).
+auto reportPreviewCanceled(progress::ProgressContext* progressCtx) -> eh::Result<int> {
+  if (progressCtx != nullptr) { progressCtx->eraseBars(); }
+  terminal::messageln(Warning, "Preview canceled by user.");
+  return stopsignal::kCanceledExitCode;
+}
+
 // Renders the comparison, drives the bar to completion, then prints the
 // summary and opens the player.
 auto renderAndReportSingleInput(
@@ -522,6 +533,11 @@ auto renderAndReportSingleInput(
   auto const renderResult =
     renderPreview(ctx, options, options.original, segments, spec, outputPath);
   if (!renderResult) {
+    // A render child the stop terminated is this stage's abort, not a render
+    // failure: no Bad bar, no child exit code on the console.
+    if (stopsignal::isStopRequested()) {
+      return reportPreviewCanceled(&bars.progressCtx);
+    }
     bars.progressCtx.setRole(bars.bar, terminal::Role::Bad);
     bars.progressCtx.setPostfixText(bars.bar, "Preview generation failed");
     bars.progressCtx.eraseBars();
@@ -590,7 +606,7 @@ auto probeSingleInputPlan(
       )
     );
   }
-  if (!plan.probed) {
+  if (!plan.probed && !stopsignal::isStopRequested()) {
     terminal::messageln(
       Warning,
       "Probing skipped (short video or scoring failure); previewing at default CQ {}.",
@@ -622,6 +638,7 @@ auto runSingleInput(
   auto const probeSlot = BarSlot{progressCtx, bar, 0.0f};
   auto const [plan, windowBase] =
     probeSingleInputPlan(ctx, options, *probeRoot, probeSlot, fileName);
+  if (stopsignal::isStopRequested()) { return reportPreviewCanceled(&progressCtx); }
   auto const windowBars = BarSlot{progressCtx, bar, windowBase};
 
   auto const settings = resolveInputEncodeSettings(
@@ -645,6 +662,9 @@ auto runSingleInput(
     windowEncodeFailed
   );
   if (windowEncodeFailed.load()) {
+    // The batch's failure is the stop's kill when the stop is pending: report
+    // the cancellation rather than a window-encode failure.
+    if (stopsignal::isStopRequested()) { return reportPreviewCanceled(&progressCtx); }
     progressCtx.setRole(bar, terminal::Role::Bad);
     progressCtx.setPostfixText(bar, "Window encode failed");
     progressCtx.eraseBars();
@@ -655,10 +675,7 @@ auto runSingleInput(
     std::format("Windows encoded: {}/{}", windows.size(), windows.size())
   );
 
-  if (stopsignal::isStopRequested()) {
-    progressCtx.eraseBars();
-    return eh::makeError("Preview canceled by user.");
-  }
+  if (stopsignal::isStopRequested()) { return reportPreviewCanceled(&progressCtx); }
 
   auto worstIndex = findWorstWindow(windows, windowBatch.outcomes);
 
@@ -795,6 +812,7 @@ auto runTwoInput(
   auto const originalRes = probeVideo(ctx.toolchain, ctx.runtime, options.original);
   if (!originalRes) {
     progressCtx.eraseBars();
+    if (stopsignal::isStopRequested()) { return reportPreviewCanceled(&progressCtx); }
     return eh::makeError("{}", originalRes.error());
   }
   auto const& original = originalRes.value();
@@ -812,6 +830,7 @@ auto runTwoInput(
   auto const encodedRes = probeVideo(ctx.toolchain, ctx.runtime, encodedPath);
   if (!encodedRes) {
     progressCtx.eraseBars();
+    if (stopsignal::isStopRequested()) { return reportPreviewCanceled(&progressCtx); }
     return eh::makeError("{}", encodedRes.error());
   }
   auto const& encoded = encodedRes.value();
@@ -839,6 +858,8 @@ auto runTwoInput(
     worstIndex = scoreComparisonWindows(ctx, options, original, windows, &scoringBars);
   }
 
+  if (stopsignal::isStopRequested()) { return reportPreviewCanceled(&progressCtx); }
+
   progressCtx.setProgress(bar, 85.0f);
   progressCtx.setPostfixText(bar, "Rendering comparison video...");
   auto const spec = FiltergraphSpec{
@@ -849,6 +870,7 @@ auto runTwoInput(
   auto const renderResult =
     renderPreview(ctx, options, options.original, {encodedPath}, spec, outputPath);
   if (!renderResult) {
+    if (stopsignal::isStopRequested()) { return reportPreviewCanceled(&progressCtx); }
     progressCtx.setRole(bar, terminal::Role::Bad);
     progressCtx.setPostfixText(bar, "Preview generation failed");
     progressCtx.eraseBars();
@@ -886,7 +908,10 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
   }
 
   auto const originalRes = probeVideo(ctx.toolchain, ctx.runtime, options.original);
-  if (!originalRes) { return eh::makeError("{}", originalRes.error()); }
+  if (!originalRes) {
+    if (stopsignal::isStopRequested()) { return reportPreviewCanceled(nullptr); }
+    return eh::makeError("{}", originalRes.error());
+  }
   auto const& original = originalRes.value();
   if (original.durationUs == 0) {
     return eh::makeError(

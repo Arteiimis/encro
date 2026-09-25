@@ -46,7 +46,14 @@ namespace {
 auto runNonResumable(PackPlan const& plan) -> eh::Result<PackRunResult> {
   PackService svc;
   auto const packRes = svc.packGroups(plan);
-  if (!packRes) { return eh::makeError("{}", packRes.error()); }
+  if (!packRes) {
+    // A stop request is a cancellation, not a failure: report it the way the
+    // resumable path does, so the caller sees an aborted run, not an error.
+    if (stopsignal::isStopRequested()) {
+      return PackRunResult{.exitCode = stopsignal::kCanceledExitCode};
+    }
+    return eh::makeError("{}", packRes.error());
+  }
   return PackRunResult{.exitCode = 0, .zippedFiles = packRes.value()};
 }
 
@@ -439,6 +446,11 @@ auto execute(PackPlan const& plan, jobstate::Store* jobState)
 }
 
 // --- execute() — public entry point ---
+auto promptDeclineNotice() -> std::string_view {
+  return stopsignal::isStopRequested() ? "Packing canceled by user."
+                                       : "Packing task canceled by user.";
+}
+
 auto execute(PackRequest const& request) -> eh::Result<PackRunResult> {
   // --- Build PackPlan ---
   auto plan = PackPlan{};
@@ -489,6 +501,13 @@ auto execute(PackRequest const& request) -> eh::Result<PackRunResult> {
   auto const packStartedAt = std::chrono::steady_clock::now();
   auto const result = execute(plan, request.jobState);
   auto const packElapsed = displaytext::elapsedSince(packStartedAt);
+
+  // Single notice for every pack caller: the inner result carries the stop as
+  // its exit code, so a completed pack (exit code 0) never prints this even
+  // when the flag is set.
+  if (result && result->exitCode == stopsignal::kCanceledExitCode) {
+    terminal::messageln(terminal::MessageKind::Warning, "Packing canceled by user.");
+  }
 
   // For Directory mode, print success message after resumable completion too
   if (result && result->exitCode == 0 && request.mode == PackMode::Directory) {

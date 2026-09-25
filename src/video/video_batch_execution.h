@@ -148,6 +148,11 @@ struct EncodingExecutionContext {
   EncodingProgressState& progressState;
   appctx::path_map<fs::path> const& plannedOutputFiles;
   videobatch::ActionIdMap const& actionIds;
+  // Per-task flag: this task's encode child was killed while the stop was
+  // pending, so its failure belongs to the cancellation rather than the item —
+  // the results map and the failed-file list must not carry it
+  // (cancellation-reporting). Index matches the encode task list.
+  std::vector<std::atomic_bool> stopAborted;
   // Per-file probe decisions (input path -> chosen CQ), copied when execution
   // contexts are created after the confirmation gate; empty when probing was
   // skipped (--crf, webp, or short videos).

@@ -21,6 +21,7 @@ struct ExecuteStats {
   std::size_t skippedExisting = 0;
   std::size_t createdFolders = 0;   // folders that did not exist before this run
   std::vector<std::string> errors;  // per-file copy failures; never fatal
+  bool canceled = false;            // a stop request ended the loop early
 };
 
 // Copies every item into <root>/organized/<folderName>/ (items without an

@@ -3,6 +3,7 @@
 #include "cmd/cmd.h"
 #include "core/display_text.h"
 #include "core/progress.h"
+#include "infra/stop_signal.h"
 #include "infra/terminal.h"
 #include "organize/pipeline.h"
 #include "tagger/engine_factory.h"
@@ -114,6 +115,14 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
   if (!runResult) {
     terminal::messageln(MessageKind::Error, "{}", runResult.error());
     return 1;
+  }
+
+  // A stop request aborted the run: one notice naming the stage, the
+  // cancellation exit code, and no partial report.
+  if (runResult->canceled) {
+    progress.eraseBars();
+    terminal::messageln(MessageKind::Warning, "Organize canceled by user.");
+    return stopsignal::kCanceledExitCode;
   }
 
   if (runResult->scanned == 0) {

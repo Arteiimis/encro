@@ -367,7 +367,12 @@ auto runOrganize(
   // Persist the tail batch on every exit so an interrupted run loses at most
   // the in-flight images, never the completed-and-buffered ones.
   cache.flush();
-  if (!analyzed) { return eh::makeError("interrupted: completed analysis is cached"); }
+  if (!analyzed) {
+    // analyzeMissing reports false only when a stop canceled the task
+    // executor, so this is the analysis phase's abort rather than a failure:
+    // the command prints the cancellation notice, never the report.
+    return ReportData{.canceled = true};
+  }
 
   // References rebuilt with the freshly cached analyses included, then the
   // fixed routing order per item. Idf weights come from the full analyzed
@@ -380,6 +385,7 @@ auto runOrganize(
   clusterRemainder(items, pending, options.minConfidence, references, traits);
 
   auto const stats = executeOrganize(options.root, items, options.dryRun);
+  if (stats.canceled) { return ReportData{.canceled = true}; }
   return ReportData{
     .folders = buildFoldersSection(items),
     .scanned = items.size(),

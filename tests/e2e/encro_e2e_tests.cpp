@@ -2079,6 +2079,70 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "encro reports an interrupted picture compression without listing its victims",
+  "[e2e][picture][compress][interrupt][fake-toolchain]"
+) {
+  requireConsoleCtrlOrSkip();
+
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  testutils::writeSizedFile(inputDir / "a.jpg", 64);
+  testutils::writeSizedFile(inputDir / "b.jpg", 64);
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const countPath = temp.path / "call-count.txt";
+  auto const markerDir = temp.path / "compress-markers";
+  // The first compression sleeps far longer than the stop needs to arrive, and
+  // -j 1 keeps the second picture from ever starting (the -version tool probe
+  // consumes no call index).
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countPath.string()},
+    {"ENCRO_FAKE_FFMPEG_CALL_PLAN", "1:15000:0"},
+    {"ENCRO_FAKE_FFMPEG_MARKER_DIR", markerDir.string()},
+  };
+  auto const args = std::vector<std::string>{
+    "-y",
+    "--type",
+    "picture",
+    "-r",
+    "--compress",
+    "-i",
+    inputDir.string(),
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto proc = e2e::runEncroAsync(args, std::nullopt, env);
+  auto const compressionStarted = testutils::waitUntil(
+    [&] { return countMarkerFiles(markerDir) >= 1; },
+    std::chrono::seconds{20}
+  );
+  CHECK(proc.sendCtrlC());
+  auto const interrupted = proc.wait(std::chrono::seconds{20});
+
+  REQUIRE(compressionStarted);
+  REQUIRE(interrupted.has_value());
+  CHECK(interrupted->exitCode == stopsignal::kCanceledExitCode);
+  // The killed children are not failures: no per-file "exit code" line (the
+  // bug this case pins: a console event kills the child itself, so its code
+  // arrives as 130, 255 or 0xC000013A) and no compression summary line.
+  CHECK(interrupted->stdoutText.find("exit code") == std::string::npos);
+  CHECK(interrupted->stdoutText.find("Compressed ") == std::string::npos);
+  // Exactly one cancellation notice, on stderr.
+  CHECK(
+    testutils::countOccurrences(
+      interrupted->stderrText,
+      "warning: Compression task canceled by user."
+    )
+    == 1
+  );
+  CHECK(interrupted->stdoutText.find("canceled by user") == std::string::npos);
+}
+
+TEST_CASE(
   "encro exits 130 and saves resumable state on Ctrl+C mid-encode",
   "[e2e][interrupt][resume][segment][logging][fake-toolchain]"
 ) {

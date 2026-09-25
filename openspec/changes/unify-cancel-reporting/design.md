@@ -19,7 +19,7 @@ See `proposal.md` — Why. The state that shapes the approach:
 
 - Which cache or saved state survives a cancel: owned by `job-state-resume-matching`, `picture-compress-resume`, `picture-video-webp` and `image-character-organize`, and unchanged here.
 - The confirmation prompts whose decline exits 0 today (`do you want to proceed with packing the pictures?`, the encode prompt): a decline is not a stop request, and its wording and exit code stay as they are.
-- Guaranteeing a notice when the force-exit watchdog kills a run that never reached a checkpoint: the watchdog's whole purpose is to end a hung stage, so its output path stays best-effort.
+- Guaranteeing a notice when the force-exit watchdog kills a run that never reached a checkpoint: the watchdog's whole purpose is to end a hung stage, so its output path stays best-effort, and the cancellation-reporting requirement says so explicitly. A pack-only run interrupted inside its single archive write is the case this covers today (see `docs/backlog.md`).
 - The video workflow's pack step, which logs but prints nothing and returns 1 for a genuine packing failure (`src/video/video_process.cpp`, `maybePackOutputs`): a real failure, not a cancellation, and out of scope.
 
 ## Decisions

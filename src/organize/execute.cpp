@@ -1,6 +1,7 @@
 #include "organize/execute.h"
 
 #include "core/sha256.h"
+#include "infra/stop_signal.h"
 
 #include <algorithm>
 #include <format>
@@ -83,6 +84,13 @@ auto executeOrganize(
   }
 
   for (auto const& item: items) {
+    // A stop request ends the copy phase at the next image: the copy in flight
+    // was already renamed into place, and the next run skips what is there.
+    if (stopsignal::isStopRequested()) {
+      stats.canceled = true;
+      break;
+    }
+
     // folderName is already sanitized at routing time; empty -> uncategorized.
     auto const folder =
       item.folderName.empty() ? fs::path{kUncategorizedFolder} : item.folderName;

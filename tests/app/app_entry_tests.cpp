@@ -28,7 +28,6 @@ TEST_CASE("run status maps the exit code and the stop fact", "[appentry]") {
   CHECK(appentry::runStatus(0, true) == "success");
   CHECK(appentry::runStatus(stopsignal::kCanceledExitCode, false) == "interrupted");
   CHECK(appentry::runStatus(1, false) == "failed");
-  // Preview reports its cancel as an error (exit 1), so a pending stop is what
-  // distinguishes it from a plain failure.
+  // A genuine failure while a stop is pending still reads interrupted.
   CHECK(appentry::runStatus(1, true) == "interrupted");
 }

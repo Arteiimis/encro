@@ -396,6 +396,72 @@ TEST_CASE(
   stopsignal::reset();
 }
 
+TEST_CASE(
+  "execute() announces a stopped pack once in both modes",
+  "[pack][execute][stop-signal]"
+) {
+  auto const scopedStopReset = testutils::ScopedStopSignalReset{};
+  auto const temp = TempDir{};
+  testutils::writeSizedFile(temp.path / "media_a/clip.mp4", 500);
+  auto const outputDir = temp.path / "packed_cancel";
+  fs::create_directories(outputDir);
+  auto const statePath = temp.path / "encro.job-state.json";
+
+  auto store = jobstate::Store{statePath};
+  REQUIRE(store.initialize(makeStoreConfig(statePath), false).has_value());
+
+  struct Outcome {
+    eh::Result<pack::PackRunResult> result;
+    std::string stdoutText;
+    std::string stderrText;
+  };
+
+  // Runs one pack with the stop already requested and collects both streams:
+  // the notice is a warning (stderr) and the failed-group list is narration
+  // (stdout), so a run that reported the stop as a failure would show up here.
+  auto runStopped = [&](bool resumable) {
+    auto outcome = Outcome{};
+    auto request = pack::PackRequest{
+      .entries = {temp.path / "media_a/clip.mp4"},
+      .mode = pack::PackMode::Media,
+      .outputDir = outputDir,
+      .compact = true,
+    };
+    if (resumable) { request.jobState = &store; }
+    auto const stderrPath =
+      temp.path / std::format("stderr-{}.txt", resumable ? "resumable" : "direct");
+
+    stopsignal::requestStop();
+    outcome.stdoutText = testutils::captureStdout([&] {
+      auto const capture = testutils::StderrCapture{stderrPath};
+      outcome.result = pack::execute(request);
+    });
+    outcome.stderrText = testutils::readTextFile(stderrPath);
+    return outcome;
+  };
+
+  for (auto const resumable: {false, true}) {
+    // A fresh guard per iteration: a second stop request while the force-exit
+    // deadline is armed exits the process (stop_signal.cpp), and that deadline
+    // is armed once a console handler is installed in the test process.
+    auto const stopGuard = testutils::ScopedStopSignalReset{};
+    INFO("resumable: " << resumable);
+    auto const run = runStopped(resumable);
+
+    REQUIRE(run.result.has_value());
+    // The resumable abort's exit code and empty result are pinned by the case
+    // above; this one owns the non-resumable translation, plus the single
+    // notice and the silent-failure rule in both modes.
+    if (!resumable) {
+      CHECK(run.result->exitCode == stopsignal::kCanceledExitCode);
+      CHECK(run.result->zippedFiles.empty());
+    }
+    CHECK(testutils::countOccurrences(run.stderrText, "Packing canceled by user.") == 1);
+    CHECK(run.stdoutText.find("Failed to pack") == std::string::npos);
+    CHECK(run.stdoutText.find("canceled by user") == std::string::npos);
+  }
+}
+
 // ============================================================
 // Grouping Strategy + Summary Config tests
 // ============================================================
