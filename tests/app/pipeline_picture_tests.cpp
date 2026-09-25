@@ -378,6 +378,63 @@ TEST_CASE(
 }
 
 TEST_CASE(
+  "picture pipeline compress cancel prints no per-file failure lines",
+  "[pipeline][compress]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.png");
+  writeTextFile(inputDir / "b.png");
+
+  auto const cntEnv = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    (temp.path / "compress-count.txt").string()
+  };
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
+  auto const toolLogEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+  auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
+  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.maxParallelJobs = 1;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
+
+  auto secondCallProven = false;
+  auto requester =
+    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
+
+  auto const stderrPath = temp.path / "stderr.txt";
+  auto runResult = eh::Result<int>{};
+  auto const captured = testutils::captureStdout([&] {
+    auto const stderrCapture = testutils::StderrCapture{stderrPath};
+    runResult = pipeline::run(ctx);
+  });
+  requester.join();
+  REQUIRE(secondCallProven);
+
+  REQUIRE(runResult);
+  CHECK(runResult.value() == stopsignal::kCanceledExitCode);
+  // The phase announced itself, so the absence below is a real absence.
+  CHECK(captured.find("Compressing 2 picture(s)") != std::string::npos);
+  // The child killed by the stop is not a per-file failure: the cancel notice
+  // on stderr is the phase's whole output.
+  CHECK(captured.find("exit code") == std::string::npos);
+  CHECK(
+    testutils::readTextFile(stderrPath).find("Compression task canceled by user.")
+    != std::string::npos
+  );
+}
+
+TEST_CASE(
   "picture pipeline compress rerun resumes from cache and packs completed files",
   "[pipeline][compress]"
 ) {
