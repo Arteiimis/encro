@@ -1,7 +1,58 @@
 ---
 name: code-review
-description: Review the changes since a fixed point (commit, branch, tag, or merge-base) along three axes — Standards (does the code follow this repo's documented coding standards?), Spec (does the code match what the originating spec asked for?), and Leanness (what in the diff is over-engineering?). Runs the axes as parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to "review since X".
+description: Two review stages. Planning stage — a change's proposal/specs/design/tasks before implementation, through a Coherence and a Ground-truth lens. Code stage — the diff since a fixed point (commit, branch, tag, or merge-base) along three axes: Standards (this repo's documented coding standards), Spec (does the code match what the originating spec asked for?), Leanness (what in the diff is over-engineering?), as parallel sub-agents. Use for reviewing an OpenSpec change's artifacts, or a branch, a PR, work-in-progress changes, or "review since X".
 ---
+
+Two stages share one protocol — a fresh, independent reviewer; findings that quote their own evidence; and the fix loop in step 6 below.
+
+| Stage | Input | When |
+| --- | --- | --- |
+| Planning artifacts | `proposal.md`, delta `specs/**/spec.md`, `design.md`, `tasks.md` | all four written, nothing implemented |
+| Code diff | the diff since a fixed point | implementation done and self-verified |
+
+## Planning-artifact review
+
+The stage before implementation. Input: a change's `proposal.md`, its delta `specs/**/spec.md`, `design.md` and `tasks.md` — all four written, none implemented. Reviewing earlier cannot check the contract *between* them; reviewing later pays for their defects in code.
+
+Two lenses, reported separately and in this order — they find different defects, and neither may be dropped silently:
+
+- **Coherence** — the four artifacts against each other. A requirement stated two ways across two deltas, design, or tasks; a capability the change touches but the proposal does not list, or a listed capability with no delta; a scenario no task implements, or a task no scenario asked for.
+- **Ground truth** — the artifacts against the repository as it is. Every `<path>:<line>` citation resolves and says what the artifact claims; file paths, symbols, test names, config keys and exit codes exist as described; a claimed behavior is not contradicted by the current main spec or the current code; a mechanism the design proposes is not one the codebase already provides under another name; the proposal's Impact section names the files the change actually needs; each `MODIFIED` block matches the main spec's requirement header and carries the whole existing requirement.
+
+Leanness is absent on purpose: it needs measurements that only exist once code does, so it belongs to the code-diff stage. The structural checks are absent too — `openspec validate --strict` already gates them.
+
+### Pre-compute the mechanical half
+
+Produce these first and pass them in as input. They are cheap, and the reviewer should not spend context re-deriving them.
+
+```sh
+openspec validate --strict                                              # structure — a gate, not review work
+rg -l "<a file the artifacts name>" openspec/specs                      # named files -> owning capability/spec
+rg -n "^### Requirement:" openspec/specs openspec/changes/<name>/specs  # requirements that already exist elsewhere
+rg -o "[A-Za-z0-9_./-]+\.(cpp|h|lua|md):[0-9]+" openspec/changes/<name>  # citations to resolve
+```
+
+### The reviewer
+
+One reviewer, one pass, fresh context, spawned through whatever sub-agent mechanism the harness provides — do not fan out per lens here: these artifacts are small enough to hold at once, and one cheap reviewer beats four expensive ones. What keeps a lens from masking another is the report's structure and its required quotes, not a separate context.
+
+Brief it with the change directory, the pre-computed lists, and this contract verbatim:
+
+> Report exactly two sections, in this order: `## Coherence`, then `## Ground truth`. Under each, one line per finding: `[severity] what is wrong — <path>:<line>: "<quoted text>" vs <path>:<line>: "<quoted text>"`. Quote **both sides** of every conflict — the artifact's claim and the text it contradicts. Write `none` when a lens is clean, and list whatever you could not check. No summary, no praise, no suggestions section. At most 10 findings, worst first.
+
+### Converge
+
+Triage, fix the artifacts, then verify through the fix loop in step 6 below — the rule that carries over unchanged is that whoever wrote the fix does not grade it. Because every finding quotes both sides, the verifier needs only the findings list and the diff (`git diff <planning-commit>...HEAD -- openspec/changes/<name>`), so it works in any harness. One with a cheap way to continue the reviewer's own context may use that instead, but nothing here depends on it existing.
+
+### Record the outcome in the repository
+
+Append the findings and their verdicts — `resolved (<commit>)` or `rejected: <reason>` — to the change's `tasks.md` in their own section, before the implementation commit. A verdict living only in a chat log cannot be checked from another harness or a later session, and archiving requires `tasks.md` to be complete anyway.
+
+### Skip when
+
+The change has no delta (`.openspec.yaml` sets `skip_specs: true`), or the artifact edit is a typo or one-liner: run `openspec validate --strict` and move on.
+
+## Process — code-diff stage
 
 Review of the diff between `HEAD` and a fixed point the user supplies, along three axes:
 
@@ -10,8 +61,6 @@ Review of the diff between `HEAD` and a fixed point the user supplies, along thr
 - **Leanness** — what in the diff is over-engineering, and what replaces it?
 
 Each axis runs as a **parallel sub-agent** so they don't pollute each other's context, then this skill aggregates their findings.
-
-## Process
 
 ### 1. Pin the fixed point
 
