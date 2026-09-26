@@ -6,7 +6,7 @@ Constraints:
 
 - C++26, `clang-cl` + `lld-link`, built with xmake (`xmake.lua:5`).
 - `picture_compress.h` is picture-only and already declares `partialTempPath` (`:25`) with a stated contract: the temp path keeps the target media extension so the encoder infers the container (`:22-24`). `picture_video_webp.cpp` already includes it (`:9`) and reuses the rule (`:63`, `:121`), so a finalize helper belongs beside it and needs no new dependency.
-- `core/progress.h` already owns `showsSlotBars` (`:36`) and already carries `<vector>`, `<string>`, `<string_view>` (`:9-18`); `progress.cpp` already includes `<format>`. A slot-bar builder added there costs its includers no new include — the archive change had to keep its planner out of `collision_naming.h` for exactly that reason.
+- `core/progress.h` already owns `showsSlotBars` (`:36`) and already carries `<vector>`, `<string>`, `<string_view>` (`:9-18`); `progress.cpp` already includes `<format>`. A slot-bar builder added there costs its includers no new include — the archive change had to keep its planner out of `collision_naming.h` for exactly that reason. The builder takes a `ProgressContext&`, so its declaration goes after the class (`:84`), beside `fitPostfixText` (`:172`).
 - The three staging callers are not one function with one varying parameter. Verified differences:
 
 | | `job_state::detail::flushSnapshot` (`job_state.cpp:470`) | `organize::AnalysisCache::saveLocked` (`cache.cpp:168`) | `probecache::save` (`probe_cache.cpp:145`) |
@@ -35,7 +35,7 @@ Constraints:
 - One generic temp-path rule (D2: the suffixes are load-bearing).
 - Unifying throttles, error channels, directory creation or rename policies (D2).
 - Unifying the extension lists or fixing the uppercase `.MP4` skip (D4: recorded, not fixed).
-- Everything already listed as out of scope in `proposal.md` (packer scan, confirm prompts, `CompactProgressState`, `copySafely`, model download, collision loops, non-atomic direct writers).
+- Everything already listed as out of scope in `proposal.md`, each for its own reason: the packer scan must see every file; the confirm prompts are already centralized in `readUserIpt`; `CompactProgressState` is a progress context, not a writer; `copySafely` copies a whole file through its own `.part` staging, which the string-content contract cannot express; the model download fetches a binary through curl and verifies a checksum; the two collision loops answer different naming questions (hash-suffixed zip entry name vs `stem_<n>`); the non-atomic direct writers have no staging path.
 
 ## Decisions
 
@@ -76,7 +76,7 @@ auto writeStagingFile(
 
 Body: open `std::ofstream{stagingPath, mode}` (failure → `OpenFailed`); `out << content`; `out.flush()` (either failure → `WriteFailed`); `out.close()` (unchecked, as all three sites leave it today); `Written`. Closing before return preserves today's "closed before rename" — explicit at `job_state.cpp:494`, block-scope at `cache.cpp:180-186` and `probe_cache.cpp:177-203` — which matters on Windows.
 
-Why an enum rather than `eh::Result`: the helper must not impose an error channel. `eh::Result` would force job-state's wording and failure policy onto a caller that is silent and one that only warns. Why `std::string_view`: all three contents are contiguous strings — `json::serialize` temporaries (`job_state.cpp:489`), a local `std::string` (`cache.cpp:173-174`), a `boost::json::serialize` temporary (`probe_cache.cpp:197-202`) — and it binds to them for the call's lifetime without a copy. Why `std::ios::openmode`: each caller passes exactly the flags it passes today, so the helper adds no `trunc` and drops none.
+Why an enum rather than `eh::Result`: the helper must not impose an error channel. `eh::Result` would force job-state's wording and failure policy onto a caller that is silent and one that only warns. Why `std::string_view`: all three contents are contiguous strings — `json::serialize` temporaries (`job_state.cpp:489`), a local `std::string` (`cache.cpp:173-174`), a `boost::json::serialize` temporary (`probe_cache.cpp:197-202`) — and it binds to them for the call's lifetime without a copy. Why `std::ios::openmode`: each caller passes exactly the flags it passes today, so the helper adds no `trunc` and drops none. Because the content is a call argument, `flushSnapshot` (`job_state.cpp:482-489`) and `probecache::save` (`probe_cache.cpp:178-182`) now serialize before the open is attempted where they open first today; both builds are pure and the same error line prints on failure, and `saveLocked` already built its content before opening (`cache.cpp:170-181`). The proposal therefore claims no *output* change, not no reordering.
 
 Per-caller mapping, unchanged behaviour:
 
@@ -103,31 +103,31 @@ Alternatives considered:
 - **Fold the throttles in** — 2 s force-able vs 64-put batch vs none; they are caller schedules, not write mechanics.
 - **Return `eh::Result`** — see above.
 
-### D3: `progress::makeSlotBars` owns the gate and the label; it is the drop-first item
+### D3: `progress::makeSlotBars` owns the gate and the label; the idle text gets one formatter; it is the drop-first item
 
-Add `auto makeSlotBars(progress::ProgressContext& progressCtx, std::size_t count, std::size_t totalTasks, bool compact, std::string_view label) -> std::vector<std::size_t>` beside `showsSlotBars`: declaration `src/core/progress.h:36`, definition `src/core/progress.cpp:52-54`. It owns the gate — a closed gate returns `{}` without adding a bar — and formats `"{}: [idle-{}]"` with `terminal::Role::Accent`, so the two callers pass only their label.
+Add `auto slotBarIdleText(std::string_view label, std::size_t slot) -> std::string` and `auto makeSlotBars(progress::ProgressContext& progressCtx, std::size_t count, std::size_t totalTasks, bool compact, std::string_view label) -> std::vector<std::size_t>`. Both are declared beside `fitPostfixText`, after the `ProgressContext` class — declaration `src/core/progress.h:172` — because `makeSlotBars` takes a `ProgressContext&` and the class is declared at `:84`, above `showsSlotBars`; a declaration above the class would not compile. Both are defined in `src/core/progress.cpp` beside `showsSlotBars` (`:52-54`). `makeSlotBars` owns the gate — a closed gate returns `{}` without adding a bar — and writes each bar's prompt through `slotBarIdleText` with `terminal::Role::Accent`, so the two callers pass only their label. `barIdle` (`src/video/video_batch_execution.h:219-225`), the third writer of the same `"Encoding: [idle-{}]"` text (`:224`), uses `slotBarIdleText` for its postfix too: the expression is identical modulo the label, so it is one rule, not two.
 
-- Encoding: `progress::makeSlotBars(progressCtx, workers, overallTotal, compact, "Encoding")` at `src/video/video_batch_execution.h:92`; the private `makeSlotBars` (`:115-129`) is deleted. Note the parameter order changes from today's `(progressCtx, workers, compact, overallTotal)`.
+- Encoding: `progress::makeSlotBars(progressCtx, workers, overallTotal, compact, "Encoding")` at `src/video/video_batch_execution.h:92`; the private `makeSlotBars` (`:115-129`) is deleted and `barIdle` (`:219-225`) calls `progress::slotBarIdleText("Encoding", slot)`. Note the parameter order changes from today's `(progressCtx, workers, compact, overallTotal)`.
 - Probe: `bars.slotBars = progress::makeSlotBars(progressCtx, slotCount, fileCount, compact, "Probing")` at `src/video/encode_probe.cpp:560-562`; `initSlotBars` (`:536-545`) is deleted and the caller's `if (showsSlotBars(...))` goes with it.
 
 `count` and `totalTasks` are separate parameters because the two sites size the vector and gate on different values: the probe sizes from `slotCount` — 0 when every file is a cache hit, which `tests/video/encode_probe_tests.cpp:473-517` pins — while gating on `fileCount`; the encoder sizes from `workers` and gates on `overallTotal`.
 
-Location: `progress.h` is the module that owns `showsSlotBars` and the bar types; it already carries the includes the declaration needs and `progress.cpp` already includes `<format>`, so this costs its includers nothing.
+Location: `progress.h` is the module that owns `showsSlotBars` and the bar types; it already carries the includes the declarations need and `progress.cpp` already includes `<format>`, so this costs its includers nothing.
 
-**Drop-first:** this item folds ~10 lines and is the smallest of the three. If implementation or review shows the change is too large, delete section 3 and keep D1 and D2 — the proposal lists the three as independent, and `reuse-hash-and-naming-helpers` D3 is the precedent for a measured fallback.
+**Drop-first:** this item folds ~10 lines and is the smallest of the three. If implementation or review shows the change is too large, delete section 3 and keep D1 and D2 — the proposal lists the three as independent, and `reuse-hash-and-naming-helpers` D3 is the precedent for a measured fallback. It now folds two of the three `[idle-...]` writers (the two builders) and shares the third's format rule, which is what makes the bar-text grep a real check.
 
-Alternatives considered: leave the two copies (the gate *placement* is the drift worth removing, and the labels are the only other difference); pass a preformatted label (the format rule then lives at two sites again); put it in `video_batch_execution.h` (the probe phase does not include that header, and bar rules belong to `progress`).
+Alternatives considered: leave the two copies (the gate *placement* is the drift worth removing, and the labels are the only other difference); leave `barIdle` out (the idle text stays a second copy and the grep cannot be a one-file check); pass a preformatted label (the format rule then lives at two sites again); put it in `video_batch_execution.h` (the probe phase does not include that header, and bar rules belong to `progress`).
 
 ### D4: The extension lists and the uppercase `.MP4` skip are recorded in `docs/backlog.md`, not fixed
 
 One backlog entry, nothing else:
 
 - `organize::kImageExtensions` (`src/organize/scan.h:20-29`) — 8 entries, uppercase variants listed deliberately because `media::scanByExtensions` is case-sensitive (`scan.h:18-19`).
-- `readAllPics`'s `pictureTypes` (`src/picture/picture_process.cpp:796-805`) — 7 entries, no `.webp`, adds `.bmp`/`.tiff`/`.gif`/`.heic`.
+- `readAllPics`'s `pictureTypes` (`src/picture/picture_process.cpp:802-811`) — 7 entries, no `.webp`, adds `.bmp`/`.tiff`/`.gif`/`.heic`.
 - `videoinfo::kVideoTypes` (`src/video/video_info.cpp:31-38`) — 6 lowercase entries.
 - `pack::kStoredMediaExtensions` (`src/pack/pack_types.h:22-53`) — 27 entries, a different question (STORE vs deflate) and already case-insensitive through `shouldStoreEntry` (`:55-61`).
 
-The silent skip: `isKnownVideoExtension` (`video_info.cpp:110-115`) and `media::scanByExtensions` (`media_scanner.cpp:18-24`) both compare case-sensitively against the lowercase list, so an uppercase `.MP4` never enters either video scan (`video_info.cpp:300`, `:571`) nor the picture run's conversion scan.
+The silent skip: `isKnownVideoExtension` (`video_info.cpp:110-115`) and `media::extensionMatches` (`media_scanner.cpp:18-24`), the comparison `media::scanByExtensions` uses at `:44` and `:94`, both compare case-sensitively against the lowercase list, so an uppercase `.MP4` never enters either video scan (`video_info.cpp:300`, `:571`) nor the picture run's conversion scan.
 
 Unifying them changes which files each command sees, which is a spec change, not a dedup; the diagnosis is cheap to record and expensive to re-derive. Alternatives: unify on the organize set (changes picture/video file sets); make matching case-insensitive (a superset for every command, needs a spec change); do nothing (the skip stays invisible).
 
@@ -148,7 +148,7 @@ Each step is one commit and independent; no persistent file format or CLI surfac
 2. Add `src/core/file_write.h` and adopt it at the three staging sites; run `--tag="[job-state]"`, `--tag="[organize]"`, `--tag="[probe-cache]"`.
 3. Add `progress::makeSlotBars` and adopt it at both bar sites; run `--tag="[video-batch-execution]"`, `--tag="[encode-probe]"`, `--tag="[progress]"`. Drop this step first if needed.
 4. Append the extension-list/`.MP4` entry to `docs/backlog.md`; verify only that file changed.
-5. Full battery before commit: `xmake test-report`, `xmake build e2e_tests && xmake run e2e_tests`, `xmake test-parallel`, the reporter probe, `xmake fmt` idempotent, `xmake tidy` against the 127-warning baseline. Planning artifacts go in their own `docs:` commit first; implementation lands in one `refactor:` commit.
+5. Full battery before commit: `xmake test-report`, `xmake build e2e_tests && xmake run e2e_tests`, `xmake test-parallel`, the reporter probe, `xmake fmt` idempotent, `xmake tidy` with no new diagnostics (`xmake tidy` is report-only, so compare the pre-change count by hand). Planning artifacts go in their own `docs:` commit first; implementation lands in one `refactor:` commit.
 
 ## Open Questions
 
