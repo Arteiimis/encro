@@ -241,8 +241,9 @@ auto helpIntroLine() -> std::string {
 }
 
 // `0` stays "success" even when a stop arrives in the last instant; any other
-// non-zero exit is "interrupted" while a stop is pending (preview reports its
-// cancel as an error, exit 1, not 130) and "failed" otherwise.
+// non-zero exit is "interrupted" while a stop is pending (a stop-aborted run
+// ends with the cancellation exit code, so this covers a failure that
+// coincides with one) and "failed" otherwise.
 auto runStatus(int exitCode, bool stopRequested) -> std::string {
   if (exitCode == 0) { return "success"; }
   if (exitCode == stopsignal::kCanceledExitCode || stopRequested) {

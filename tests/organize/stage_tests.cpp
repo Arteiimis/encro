@@ -5,6 +5,7 @@
 #include "organize/naming.h"
 #include "organize/report.h"
 #include "core/sha256.h"
+#include "infra/stop_signal.h"
 
 #include "test_utils.h"
 
@@ -210,6 +211,39 @@ TEST_CASE("executeOrganize copies originals untouched into one folder", "[organi
   CHECK(fs::exists(temp.path / "organized" / "hatsune_miku" / "b.png"));
   // Originals untouched.
   CHECK(testutils::readTextFile(temp.path / "a.png") == "content-a");
+}
+
+// The copy loop's checkpoint runs before each image's work. Its position
+// inside the loop is not observable from this seam (a copy is atomic: staging
+// file + rename), so this pins the contract a stop must satisfy — once it is
+// requested, no further image is copied — while the pipeline case pins the
+// same contract through runOrganize.
+TEST_CASE(
+  "executeOrganize copies nothing once a stop is requested",
+  "[organize][stop-signal]"
+) {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "a.png", "content-a");
+  testutils::writeTextFile(temp.path / "b.png", "content-b");
+
+  auto const items = std::vector<organize::ImageItem>{
+    {.path = temp.path / "a.png",
+     .contentHash = core::sha256Hex("content-a"),
+     .folderName = "hatsune_miku"},
+    {.path = temp.path / "b.png",
+     .contentHash = core::sha256Hex("content-b"),
+     .folderName = "hatsune_miku"},
+  };
+
+  auto const stopGuard = testutils::ScopedStopSignalReset{};
+  stopsignal::requestStop();
+
+  auto const stats = organize::executeOrganize(temp.path, items, false);
+  CHECK(stats.canceled);
+  CHECK(stats.copied == 0);
+  CHECK(stats.errors.empty());
+  CHECK_FALSE(fs::exists(temp.path / "organized" / "hatsune_miku" / "a.png"));
+  CHECK_FALSE(fs::exists(temp.path / "organized" / "hatsune_miku" / "b.png"));
 }
 
 TEST_CASE(

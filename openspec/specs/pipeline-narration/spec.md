@@ -60,7 +60,7 @@ Trailing status ellipses in narration lines SHALL use ASCII `...`. Report rule l
 
 ### Requirement: Every bar-rendering phase ends with one summary line
 
-Every phase that renders progress bars SHALL print exactly one summary line, after its bars are cleared (`progress-bar-lifecycle`). A phase that ends before its work completes — a stop request, or a failure that aborts the phase — prints no summary line: whatever that phase prints instead, and nothing at all on some abort paths, is its own output, and its bars are cleared first. Phases that process a counted set of items state their counts, and a phase that can also fail or skip items appends one segment per non-empty class; phases that write a user-facing artifact name it; every phase's line ends with the phase's own elapsed time (`Phase summary lines state their own elapsed time`):
+Every phase that renders progress bars SHALL print exactly one summary line, after its bars are cleared (`progress-bar-lifecycle`). A phase that ends before its work completes — a stop request, or a failure that aborts the phase — prints no summary line, and its bars are cleared first. A phase aborted by a stop request prints the single cancellation notice `cancellation-reporting` requires and nothing else of its own; a phase aborted by a failure prints whatever that failure produces. Phases that process a counted set of items state their counts, and a phase that can also fail or skip items appends one segment per non-empty class; phases that write a user-facing artifact name it; every phase's line ends with the phase's own elapsed time (`Phase summary lines state their own elapsed time`):
 
 - `Probed 8/8 videos in 24s`, or with files that skipped probing: `Probed 7/8 videos (1 not probed) in 24s`
 - `Encoded 8/8 videos → D:\out in 12m:34s`, or with failures: `Encoded 5/8 videos (2 failed, 1 skipped) → D:\out in 12m:34s`
@@ -98,6 +98,11 @@ A phase's per-item detail lines belong to that phase's output and sit around its
 
 - **WHEN** an encode batch is interrupted by a stop request
 - **THEN** its bars are cleared and no encode summary line prints
+
+#### Scenario: Stopped phase prints only its cancellation notice
+
+- **WHEN** a stop request aborts a phase that renders progress bars
+- **THEN** the phase prints `warning: <Stage> canceled by user.` on stderr, no summary line for itself, and no per-item failure or skip line
 
 ### Requirement: Phase summary lines state their own elapsed time
 

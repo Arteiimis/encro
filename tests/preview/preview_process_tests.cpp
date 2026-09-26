@@ -1,16 +1,21 @@
 #include "preview/preview_process.h"
 
 #include "core/work_dirs.h"
+#include "infra/stop_signal.h"
 #include "infra/terminal.h"
 
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
+#include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -357,4 +362,238 @@ TEST_CASE("preview single-input falls back to default CQ for short videos", "[pr
   CHECK(out.find("warning: Probing skipped") != std::string::npos);
   auto const outputPath = temp.path / "sample.preview.mp4";
   CHECK(fs::exists(outputPath));
+}
+
+// A stop request during a preview is the preview's own cancellation: the child
+// the stop killed is not reported as a failed step and the run ends with the
+// cancellation exit code. Each section stops a different step.
+TEST_CASE(
+  "preview reports a stop request as a cancellation, not a failure",
+  "[preview][stop-signal]"
+) {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  testutils::writeTextFile(original);
+  // Below the 40s probe budget: probing is skipped, so the window encode is
+  // the first ffmpeg call and the comparison render is the third (encode,
+  // score, render).
+  auto const gateFile = temp.path / "ffmpeg-gate";
+  auto const countFile = temp.path / "call-count";
+  auto const logPath = temp.path / "invocations.log";
+
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  auto ctx = appctx::AppContext{};
+  fillPreviewContext(ctx, temp.path, envs);
+  envs.emplace_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFPROBE_DURATION_SECS", "20.0")
+  );
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+  );
+  envs.push_back(
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string())
+  );
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+  );
+  envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_TIMEOUT_MS", "3000")
+  );
+  auto const gateFromCall = [&](std::string callNumber) {
+    // Blocks the given ffmpeg call (1-based, the way the fake tool counts).
+    envs.push_back(
+      std::make_unique<
+        ScopedEnvVar
+      >("ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", std::move(callNumber))
+    );
+  };
+
+  struct Outcome {
+    std::optional<int> exitCode;
+    std::string stdoutText;
+    std::string stderrText;
+    bool started = false;
+  };
+  // Runs one stopped preview and collects everything it reported: the notice
+  // is a warning (stderr), the window list and result line are narration
+  // (stdout), so a run that blamed the killed child shows up in one of them.
+  auto runStoppedPreview = [&](std::size_t invocations, std::string_view tag) {
+    auto outcome = Outcome{};
+    auto const stderrPath = temp.path / std::format("stderr-{}.txt", tag);
+    {
+      auto requester =
+        testutils::spawnGatedStop(logPath, gateFile, invocations, outcome.started);
+      outcome.stdoutText = testutils::captureStdout([&] {
+        auto const capture = testutils::StderrCapture{stderrPath};
+        auto const res = preview::run(
+          ctx,
+          preview::PreviewOptions{.original = original, .noOpen = true}
+        );
+        outcome.exitCode =
+          res.has_value() ? std::optional<int>{res.value()} : std::nullopt;
+      });
+    }
+    outcome.stderrText = testutils::readTextFile(stderrPath);
+    return outcome;
+  };
+
+  auto stopGuard = testutils::ScopedStopSignalReset{};
+
+  SECTION("the window encode step killed by the stop") {
+    gateFromCall("1");
+    auto const run = runStoppedPreview(1, "window");
+
+    REQUIRE(run.started);
+    REQUIRE(run.exitCode.has_value());
+    CHECK(run.exitCode.value() == stopsignal::kCanceledExitCode);
+    CHECK(testutils::countOccurrences(run.stderrText, "Preview canceled by user.") == 1);
+    CHECK(run.stderrText.find("Preview window encode failed") == std::string::npos);
+    CHECK(run.stdoutText.find("Preview written to") == std::string::npos);
+  }
+
+  SECTION("the comparison render killed by the stop") {
+    // Every invocation is slow, so the stop can land inside the render, and the
+    // render is identified by its own start marker (the fake tool names it
+    // after the output file) rather than by a call index: the number of window
+    // and scoring calls differs between runs, and an index that silently points
+    // at another call would let a stop land after the run finished.
+    envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_DELAY_MS", "600"));
+    auto const markerDir = temp.path / "render-markers";
+    envs.push_back(
+      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_MARKER_DIR", markerDir.string())
+    );
+    auto const renderOutput = temp.path / "sample.preview.mp4";
+
+    auto started = false;
+    auto exitCode = std::optional<int>{};
+    auto const stderrPath = temp.path / "stderr-render.txt";
+    auto captured = std::string{};
+    {
+      auto requester = std::jthread{[&] {
+        started = testutils::waitUntil(
+          [&] { return fs::exists(markerDir / renderOutput.filename()); },
+          std::chrono::seconds{10},
+          std::chrono::milliseconds{10}
+        );
+        stopsignal::requestStop();
+        testutils::openGate(gateFile);
+      }};
+      captured = testutils::captureStdout([&] {
+        auto const capture = testutils::StderrCapture{stderrPath};
+        auto const res = preview::run(
+          ctx,
+          preview::PreviewOptions{.original = original, .noOpen = true}
+        );
+        exitCode = res.has_value() ? std::optional<int>{res.value()} : std::nullopt;
+      });
+    }
+
+    REQUIRE(started);
+    REQUIRE(exitCode.has_value());
+    CHECK(exitCode.value() == stopsignal::kCanceledExitCode);
+    auto const stderrText = testutils::readTextFile(stderrPath);
+    CHECK(testutils::countOccurrences(stderrText, "Preview canceled by user.") == 1);
+    CHECK(stderrText.find("Preview generation failed") == std::string::npos);
+    CHECK(captured.find("Preview written to") == std::string::npos);
+  }
+
+  SECTION("the quality probe step killed by the stop") {
+    // Long enough to probe, so the probe's ffmpeg scoring call is gated.
+    envs.push_back(
+      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFPROBE_DURATION_SECS", "100.0")
+    );
+    gateFromCall("1");
+    auto const run = runStoppedPreview(1, "probe");
+
+    REQUIRE(run.started);
+    REQUIRE(run.exitCode.has_value());
+    CHECK(run.exitCode.value() == stopsignal::kCanceledExitCode);
+    CHECK(testutils::countOccurrences(run.stderrText, "Preview canceled by user.") == 1);
+    CHECK(run.stderrText.find("Probing skipped") == std::string::npos);
+    // No plan block either: the probe was aborted, not completed and skipped.
+    CHECK(run.stdoutText.find("Probed ") == std::string::npos);
+    CHECK(run.stdoutText.find("Preview written to") == std::string::npos);
+  }
+
+  SECTION("a stop already pending during either input shape's first probe") {
+    // No gate: with the stop pending before the run, the very first probe child
+    // is aborted — the single-input run() probe and the two-input probe pair.
+    auto const encodedPath = temp.path / "encoded.mp4";
+    testutils::writeTextFile(encodedPath);
+
+    for (auto const twoInputs: {false, true}) {
+      // A fresh guard per iteration: a second stop request while the force-exit
+      // deadline is armed exits the process (stop_signal.cpp).
+      auto const stopGuard = testutils::ScopedStopSignalReset{};
+      INFO("two inputs: " << twoInputs);
+      stopsignal::requestStop();
+      auto exitCode = std::optional<int>{};
+      auto const stderrPath =
+        temp.path / std::format("stderr-first-probe-{}.txt", twoInputs);
+      auto const captured = testutils::captureStdout([&] {
+        auto const capture = testutils::StderrCapture{stderrPath};
+        auto const res = preview::run(
+          ctx,
+          preview::PreviewOptions{
+            .original = original,
+            .encoded = twoInputs ? std::optional<fs::path>{encodedPath} : std::nullopt,
+            .noOpen = true,
+          }
+        );
+        exitCode = res.has_value() ? std::optional<int>{res.value()} : std::nullopt;
+      });
+
+      REQUIRE(exitCode.has_value());
+      CHECK(exitCode.value() == stopsignal::kCanceledExitCode);
+      CHECK(
+        testutils::countOccurrences(
+          testutils::readTextFile(stderrPath),
+          "Preview canceled by user."
+        )
+        == 1
+      );
+      CHECK(captured.find("Preview written to") == std::string::npos);
+    }
+  }
+
+  SECTION("the two-input scoring pass ended by the stop") {
+    auto const encodedPath = temp.path / "encoded.mp4";
+    testutils::writeTextFile(encodedPath);
+    // The scoring call is the first ffmpeg invocation of this shape.
+    gateFromCall("1");
+
+    auto started = false;
+    auto exitCode = std::optional<int>{};
+    auto const stderrPath = temp.path / "stderr-two-input-scoring.txt";
+    auto captured = std::string{};
+    {
+      auto requester = testutils::spawnGatedStop(logPath, gateFile, 1, started);
+      captured = testutils::captureStdout([&] {
+        auto const capture = testutils::StderrCapture{stderrPath};
+        auto const res = preview::run(
+          ctx,
+          preview::PreviewOptions{
+            .original = original,
+            .encoded = encodedPath,
+            .noOpen = true,
+          }
+        );
+        exitCode = res.has_value() ? std::optional<int>{res.value()} : std::nullopt;
+      });
+    }
+
+    REQUIRE(started);
+    REQUIRE(exitCode.has_value());
+    CHECK(exitCode.value() == stopsignal::kCanceledExitCode);
+    CHECK(
+      testutils::countOccurrences(
+        testutils::readTextFile(stderrPath),
+        "Preview canceled by user."
+      )
+      == 1
+    );
+    CHECK(captured.find("Preview written to") == std::string::npos);
+  }
 }

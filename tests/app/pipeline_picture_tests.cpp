@@ -28,43 +28,6 @@ std::size_t readInvocationCount(fs::path const& counterPath) {
   return value;
 }
 
-// Counts ffmpeg-role lines in the fake tool's invocation log; a missing log
-// counts as zero (poll predicates must not abort on absent files).
-std::size_t countFfmpegInvocations(fs::path const& logPath) {
-  auto in = std::ifstream{logPath, std::ios::binary};
-  if (!in.is_open()) { return 0; }
-  auto const content = std::string{std::istreambuf_iterator<char>{in}, {}};
-  auto count = std::size_t{0};
-  auto pos = std::string::size_type{0};
-  while ((pos = content.find("ffmpeg\t", pos)) != std::string::npos) {
-    ++count;
-    pos += 1;
-  }
-  return count;
-}
-
-// Stop requester for the gated mid-batch cancel tests: waits for proof that
-// the second compress call is in flight (two logged ffmpeg invocations),
-// then raises the stop and releases the gate. Replaces the old fixed
-// 1200 ms sleep-and-hope, which could fire before the first call finished
-// under parallel shard load. *secondCallProven stays false when the proof
-// never arrives within 10 s; callers REQUIRE it after join.
-auto spawnGatedStop(
-  fs::path const& logPath,
-  fs::path const& gatePath,
-  bool& secondCallProven
-) -> std::jthread {
-  return std::jthread{[logPath, gatePath, &secondCallProven] {
-    secondCallProven = testutils::waitUntil(
-      [&] { return countFfmpegInvocations(logPath) >= 2; },
-      std::chrono::seconds{10}
-    );
-    stopsignal::requestStop();
-    auto gate = std::ofstream{gatePath, std::ios::binary};
-    gate << "go";
-  }};
-}
-
 }  // namespace
 
 TEST_CASE("picture pipeline skips job state by default", "[pipeline]") {
@@ -359,8 +322,12 @@ TEST_CASE(
   auto const cacheDir = workdirs::compressCacheDir(inputDir, 5);
 
   auto secondCallProven = false;
-  auto requester =
-    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
+  auto requester = testutils::spawnGatedStop(
+    temp.path / "tool.log",
+    temp.path / "gate",
+    2,
+    secondCallProven
+  );
 
   auto const runRes = pipeline::run(ctx);
   requester.join();
@@ -375,6 +342,67 @@ TEST_CASE(
   CHECK(cachedCount >= 1);
   // Cancellation cuts through the in-flight compression: nothing is packed.
   CHECK_FALSE(fs::exists(inputDir / "packed" / "pics_part1[1~1#1p].zip"));
+}
+
+TEST_CASE(
+  "picture pipeline compress cancel prints no per-file failure lines",
+  "[pipeline][compress]"
+) {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.png");
+  writeTextFile(inputDir / "b.png");
+
+  auto const cntEnv = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    (temp.path / "compress-count.txt").string()
+  };
+  auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
+  auto const toolLogEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+  auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
+  auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.compressImages = true;
+  ctx.config.imageQuality = 5;
+  ctx.config.maxParallelJobs = 1;
+  ctx.config.inputPath = inputDir;
+  ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
+
+  auto secondCallProven = false;
+  auto requester = testutils::spawnGatedStop(
+    temp.path / "tool.log",
+    temp.path / "gate",
+    2,
+    secondCallProven
+  );
+
+  auto const stderrPath = temp.path / "stderr.txt";
+  auto runResult = eh::Result<int>{};
+  auto const captured = testutils::captureStdout([&] {
+    auto const stderrCapture = testutils::StderrCapture{stderrPath};
+    runResult = pipeline::run(ctx);
+  });
+  requester.join();
+  REQUIRE(secondCallProven);
+
+  REQUIRE(runResult);
+  CHECK(runResult.value() == stopsignal::kCanceledExitCode);
+  // The phase announced itself, so the absence below is a real absence.
+  CHECK(captured.find("Compressing 2 picture(s)") != std::string::npos);
+  // The child killed by the stop is not a per-file failure: the cancel notice
+  // on stderr is the phase's whole output.
+  CHECK(captured.find("exit code") == std::string::npos);
+  CHECK(
+    testutils::readTextFile(stderrPath).find("Compression task canceled by user.")
+    != std::string::npos
+  );
 }
 
 TEST_CASE(
@@ -413,8 +441,12 @@ TEST_CASE(
   ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto secondCallProven = false;
-  auto requester =
-    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
+  auto requester = testutils::spawnGatedStop(
+    temp.path / "tool.log",
+    temp.path / "gate",
+    2,
+    secondCallProven
+  );
 
   auto const canceledRes = pipeline::run(ctx);
   requester.join();
@@ -490,8 +522,12 @@ TEST_CASE(
   ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto secondCallProven = false;
-  auto requester =
-    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
+  auto requester = testutils::spawnGatedStop(
+    temp.path / "tool.log",
+    temp.path / "gate",
+    2,
+    secondCallProven
+  );
 
   auto const canceledRes = pipeline::run(ctx);
   requester.join();
@@ -569,8 +605,12 @@ TEST_CASE(
   ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto secondCallProven = false;
-  auto requester =
-    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
+  auto requester = testutils::spawnGatedStop(
+    temp.path / "tool.log",
+    temp.path / "gate",
+    2,
+    secondCallProven
+  );
 
   auto const canceledRes = pipeline::run(ctx);
   requester.join();
@@ -641,8 +681,12 @@ TEST_CASE(
   ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto secondCallProven = false;
-  auto requester =
-    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
+  auto requester = testutils::spawnGatedStop(
+    temp.path / "tool.log",
+    temp.path / "gate",
+    2,
+    secondCallProven
+  );
 
   auto const canceledRes = pipeline::run(ctx);
   requester.join();
@@ -711,8 +755,12 @@ TEST_CASE(
   ctx.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
 
   auto secondCallProven = false;
-  auto requester =
-    spawnGatedStop(temp.path / "tool.log", temp.path / "gate", secondCallProven);
+  auto requester = testutils::spawnGatedStop(
+    temp.path / "tool.log",
+    temp.path / "gate",
+    2,
+    secondCallProven
+  );
 
   auto const canceledRes = pipeline::run(ctx);
   requester.join();

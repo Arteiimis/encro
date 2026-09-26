@@ -355,8 +355,12 @@ struct ConversionPhaseResult {
 
 // Runs the conversion phase. The caller packs through appendVideoPackInputs,
 // which keeps a failed or stop-unreached clip from being packed as its source.
+// No planned clip means no phase runs - the flag is off or the input holds no
+// videos - and the run prints no conversion line for it.
 auto runVideoConversionPhase(appctx::AppContext& ctx, std::span<MediaItem> items)
   -> eh::Result<ConversionPhaseResult> {
+  if (items.empty()) { return ConversionPhaseResult{}; }
+
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
   auto const startedAt = std::chrono::steady_clock::now();
   auto const outcome = picturewebp::runConversionPhase(ctx, items, maxParallel);
@@ -445,7 +449,7 @@ auto executeDirectPackWorkflow(
   if (!conversion) { return eh::makeError("{}", conversion.error()); }
 
   if (!confirmPicturePack(ctx.config)) {
-    terminal::messageln(Warning, "Packing task canceled by user.");
+    terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
     return canceledExitCodeForPromptAbort();
   }
 
@@ -578,9 +582,7 @@ auto runCompressionPhase(
     auto const compressLabel =
       std::format("{} picture(s) q={}", compressTasks.size(), quality);
     logging::ScopedErrorContext scopedCtx("picture.compress", compressLabel);
-    auto const result = compressImageBatch(ctx, compressTasks, quality, maxParallel);
-    mediaitem::printFailures(std::span<MediaItem>{compressTasks});
-    return result;
+    return compressImageBatch(ctx, compressTasks, quality, maxParallel);
   }();
   auto const elapsed = displaytext::elapsedSince(startedAt);
 
@@ -591,6 +593,10 @@ auto runCompressionPhase(
     terminal::messageln(Warning, "Compression task canceled by user.");
     return CompressPhaseOutcome{.canceled = true};
   }
+
+  // The reasons of a stopped batch name the kill that ended it, not a
+  // compression failure, so they print only for a batch that ran to the end.
+  mediaitem::printFailures(std::span<MediaItem>{compressTasks});
 
   auto const succeeded = std::ranges::count_if(compressTasks, [](MediaItem const& item) {
     return item.result.state == mediaitem::ItemState::Succeeded;
@@ -737,7 +743,7 @@ auto executeCompressPackWorkflow(
   if (!conversion) { return eh::makeError("{}", conversion.error()); }
 
   if (!confirmPicturePack(ctx.config)) {
-    terminal::messageln(Warning, "Packing task canceled by user.");
+    terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
     return canceledExitCodeForPromptAbort();
   }
 

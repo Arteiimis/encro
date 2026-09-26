@@ -23,6 +23,9 @@ struct ReportData {
   std::size_t skippedExisting = 0;
   std::size_t cacheHits = 0;
   std::vector<std::string> copyErrors;  // per-file copy failures; visible in report
+  // A stop request aborted the analysis or the copy phase: the data above is
+  // partial and the report must not print.
+  bool canceled = false;
 };
 
 // Aggregates the per-folder view from the final assignment state.

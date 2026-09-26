@@ -39,21 +39,6 @@ auto encodeArg(fs::path const& filePath) -> std::string {
   return std::format("\"{}\"", filePath.string());
 }
 
-// Counts ffmpeg-role lines in the fake tool's invocation log; a missing log
-// counts as zero (waitUntil predicates must not abort on absent files).
-int countFfmpegInvocations(fs::path const& logPath) {
-  auto log = std::ifstream{logPath, std::ios::binary};
-  if (!log.is_open()) { return 0; }
-  auto const content = std::string{std::istreambuf_iterator<char>{log}, {}};
-  auto count = 0;
-  auto pos = std::string::size_type{0};
-  while ((pos = content.find("ffmpeg\t", pos)) != std::string::npos) {
-    ++count;
-    pos += 1;
-  }
-  return count;
-}
-
 }  // namespace
 
 TEST_CASE("fake tool writes a default-sized output on success", "[fake-tool]") {
@@ -251,7 +236,7 @@ TEST_CASE("fake tool gates from a configured call index onwards", "[fake-tool]")
   }};
   REQUIRE(
     testutils::waitUntil(
-      [&] { return countFfmpegInvocations(logPath) >= 2; },
+      [&] { return testutils::countFfmpegInvocations(logPath) >= 2; },
       std::chrono::seconds{10}
     )
   );
@@ -281,7 +266,7 @@ TEST_CASE("fake tool gates every invocation without a from-call index", "[fake-t
   }};
   REQUIRE(
     testutils::waitUntil(
-      [&] { return countFfmpegInvocations(logPath) >= 1; },
+      [&] { return testutils::countFfmpegInvocations(logPath) >= 1; },
       std::chrono::seconds{10}
     )
   );
