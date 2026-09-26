@@ -89,8 +89,7 @@ struct EncodingProgressState {
       progressCtx{} {
     counters.overallBarIndex =
       createOverallBar(progressCtx, overallTotal, completedBeforeStart, workers, compact);
-    slots.barIndexes =
-      progress::makeSlotBars(progressCtx, workers, overallTotal, compact, "Encoding");
+    slots.barIndexes = makeSlotBars(progressCtx, workers, compact, overallTotal);
   }
 
 private:
@@ -111,6 +110,22 @@ private:
       ),
       terminal::Role::Accent
     )};
+  }
+
+  static std::vector<std::size_t> makeSlotBars(
+    progress::ProgressContext& progressCtx,
+    std::size_t workerCount,
+    bool compact,
+    std::size_t totalTasks
+  ) {
+    if (!progress::showsSlotBars(totalTasks, compact)) { return {}; }
+    auto barIndexes = std::vector<std::size_t>(workerCount);
+    for (auto slot = std::size_t{0}; slot < workerCount; ++slot) {
+      barIndexes[slot] =
+        progressCtx
+          .addBar(std::format("Encoding: [idle-{}]", slot + 1), terminal::Role::Accent);
+    }
+    return barIndexes;
   }
 };
 
@@ -206,7 +221,7 @@ struct EncodingExecutionContext {
     progress().setRole(barIndex.value(), terminal::Role::Accent);
     progress().setProgress(barIndex.value(), 0.0f);
     progress()
-      .setPostfixText(barIndex.value(), progress::slotBarIdleText("Encoding", slot));
+      .setPostfixText(barIndex.value(), std::format("Encoding: [idle-{}]", slot + 1));
   }
 
   void barDone(
