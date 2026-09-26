@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <system_error>
 
 namespace fs = std::filesystem;
 
@@ -23,6 +24,11 @@ struct ImageCompressConfig {
 // encoder infers the container; renamed atomically to outputPath on success.
 // Shared by the picture workflow's compression and its video conversion.
 auto partialTempPath(fs::path const& outputPath) -> fs::path;
+
+// Removes any existing output and renames the partial over it, returning the
+// rename's error code (cleared on success). The helper owns no policy: the
+// callers keep their own existence guard, warning text and failure handling.
+auto finalizePartialOutput(fs::path const& outputPath) -> std::error_code;
 
 bool compressImage(
   appctx::AppContext const& ctx,
