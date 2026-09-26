@@ -12,8 +12,9 @@ namespace organize {
 
 // Runs the full organize pipeline over `options`. Never moves or deletes
 // originals; dryRun skips the execute stage. Returns the report data; an
-// error means the run could not start or was interrupted (completed
-// analysis stays cached either way).
+// error means the run could not start, and `canceled` in the result means a
+// stop request aborted the analysis or the copy phase (completed analysis
+// stays cached either way).
 auto runOrganize(
   Options const& options,
   tagger::TaggerEngine& engine,

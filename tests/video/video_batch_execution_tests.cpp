@@ -549,9 +549,25 @@ TEST_CASE(
     auto items =
       BatchScaffold::singleFileItem(s.inputPath, s.temp.path / "encoded" / "sample.mp4");
 
-    auto const outcome = videobatch::runEncodingTasks(s.ctx, items, 1, 0);
+    auto outcome = videobatch::EncodingBatchSummary{};
+    auto const stderrPath = s.temp.path / "probe-cancel-stderr.txt";
+    auto const captured = testutils::captureStdout([&] {
+      auto const capture = testutils::StderrCapture{stderrPath};
+      outcome = videobatch::runEncodingTasks(s.ctx, items, 1, 0);
+    });
 
     CHECK(outcome.canceled);
+    // The abort is announced, once, and the plan block it would have printed
+    // stays unwritten: no CQ for a video that was never probed.
+    CHECK(
+      testutils::countOccurrences(
+        testutils::readTextFile(stderrPath),
+        "Probing canceled by user."
+      )
+      == 1
+    );
+    CHECK(captured.find("Probed ") == std::string::npos);
+    CHECK(captured.find("video(s) to encode at CQ") == std::string::npos);
     // The abort contract is the canceled flag: whether the worker observed
     // the stop before or after spawning the first fake-tool invocation is a
     // load-dependent timing detail (the child's log may exist), not a
@@ -603,6 +619,40 @@ TEST_CASE(
     auto const log = testutils::readTextFile(s.logPath);
     CHECK(log.find((s.temp.path / "encoded" / "b.mp4").string()) == std::string::npos);
   }
+}
+
+TEST_CASE(
+  "runEncodingTasks leaves no failure record for an encode the stop killed",
+  "[video-batch-execution][stop-signal]"
+) {
+  auto s = BatchScaffold{};
+  s.ctx.config.verbose = false;
+  s.ctx.config.yesToAll = true;
+  // Bypass probing (--crf) so the gated call is the encode itself.
+  s.ctx.config.crf = 28;
+  auto const gateFile = s.temp.path / "encode-gate";
+  s.envs.push_back(
+    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+  );
+
+  auto const stopGuard = testutils::ScopedStopSignalReset{};
+  auto started = false;
+  auto outcome = videobatch::EncodingBatchSummary{};
+  auto items =
+    BatchScaffold::singleFileItem(s.inputPath, s.temp.path / "encoded" / "sample.mp4");
+  {
+    auto requester = testutils::spawnGatedStop(s.logPath, gateFile, 1, started);
+    outcome = videobatch::runEncodingTasks(s.ctx, items, 1, 0);
+  }
+
+  REQUIRE(started);
+  CHECK_FALSE(outcome.canceled);
+  // The killed child is the cancellation's victim, not a failed item: the item
+  // keeps no outcome (so the batch reads as cut short) and no failure reason
+  // for the summary to print.
+  REQUIRE(items.size() == 1);
+  CHECK(items[0]->outcome().state == mediaitem::ItemState::Pending);
+  CHECK(items[0]->outcome().failureReason.empty());
 }
 
 TEST_CASE(

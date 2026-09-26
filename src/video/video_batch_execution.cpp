@@ -194,6 +194,10 @@ auto runEncodingTask(
 ) -> eh::Result<void> {
   if (stopsignal::isStopRequested()) {
     noteStopRequest(executionCtx.app);
+    // The stop reached this task before its work started: it is a victim like a
+    // killed child, so it leaves no result and no failure reason (the store
+    // records it interrupted through markIncompleteInterrupted).
+    item->stopVictim = true;
     return eh::makeError("Encoding canceled by user.");
   }
 
@@ -225,6 +229,14 @@ auto runEncodingTask(
   );
 
   auto const outcome = collectOutcome(*item);
+  // The child this task ran was killed while the stop was pending: that failure
+  // is the cancellation's, not the item's, so the item keeps no outcome and it
+  // never reaches the summary's counts or the failed-file list
+  // (cancellation-reporting). The durable task record keeps the failure, which
+  // resume relies on.
+  if (failureText.has_value() && stopsignal::isStopRequested()) {
+    item->stopVictim = true;
+  }
   if (failureText.has_value()) {
     LOG_WARN(
       "[slot:{} task:{}/{}] encoded failed: {} ({} ms)",
@@ -268,6 +280,14 @@ auto runVerboseEncodingItem(appctx::AppContext& ctx, appctx::EncodingState& item
   LOG_DEBUG("Start encoding (no-progress): {}", item.inputPath.string());
   auto const failureText = encodeOneItem(ctx, item, {});
   if (failureText.has_value()) {
+    // A child the stop killed is the cancellation's victim: the item keeps no
+    // outcome, so the batch reads as cut short and the summary lists nothing
+    // (cancellation-reporting).
+    if (stopsignal::isStopRequested()) {
+      item.stopVictim = true;
+      LOG_WARN("Encoded canceled by the stop (no-progress): {}", item.inputPath.string());
+      return eh::makeError("{}", failureText.value());
+    }
     LOG_WARN("Encoded failed (no-progress): {}", item.inputPath.string());
     return eh::makeError("{}", failureText.value());
   }
@@ -341,6 +361,7 @@ auto runProbeStage(
   auto const probeElapsed = displaytext::elapsedSince(probeStartedAt);
   if (stopsignal::isStopRequested()) {
     noteStopRequest(ctx);
+    terminal::messageln(Warning, "Probing canceled by user.");
     return ProbeStageStatus::Aborted;
   }
   if (!probeRes) {
@@ -379,6 +400,17 @@ auto runProbeStage(
     return ProbeStageStatus::DryRun;
   }
   return ProbeStageStatus::Proceed;
+}
+
+// A task the stop killed is the cancellation's victim, not a failed item: the
+// item goes back to the no-outcome state (Pending, no reason), so the batch
+// reads as cut short and nothing lists it as failed (cancellation-reporting).
+// The durable task record keeps the failure, which resume relies on.
+void clearStopVictims(std::span<appctx::EncodingStatePtr const> items) {
+  for (auto const& item: items) {
+    if (!item->stopVictim) { continue; }
+    item->outcome() = mediaitem::ItemOutcome{};
+  }
 }
 
 }  // namespace
@@ -525,6 +557,7 @@ auto videobatch::runEncodingTasks(
 
   if (ctx.config.verbose) {
     runVerboseEncoding(ctx, encodableItems);
+    clearStopVictims(encodableItems);
     return EncodingBatchSummary{
       .attentionWarnings = std::move(attentionWarnings),
       .skippedCount = skippedBeforeStart,
@@ -606,6 +639,7 @@ auto videobatch::runEncodingTasks(
   // The batch is over on every path (success, cancel, failure): the phase
   // clears its own bars before anything else prints.
   execution.progressState->progressCtx.eraseBars();
+  clearStopVictims(encodableItems);
 
   auto const completed = stageResult.attempted;
 
