@@ -171,6 +171,23 @@ private:
 
 auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string;
 
+// The idle prompt of a slot bar: the label, then the 1-based idle slot number.
+// One rule for the two builders below and the encoding runner's barIdle.
+auto slotBarIdleText(std::string_view label, std::size_t slot) -> std::string;
+
+// Creates one idle slot bar per `count` unless showsSlotBars(totalTasks,
+// compact) is closed, in which case no bar is added and the returned index
+// list is empty. `count` sizes the vector, `totalTasks` gates it: a probe run
+// whose files were all cache hits sizes from zero slots while the encoder
+// sizes from the worker count.
+auto makeSlotBars(
+  ProgressContext& progressCtx,
+  std::size_t count,
+  std::size_t totalTasks,
+  bool compact,
+  std::string_view label
+) -> std::vector<std::size_t>;
+
 // Renders the "[<elapsed>/<estimate>]" badge: nullopt elapsed means no badge
 // at all (no progress sample yet); nullopt estimate renders the "--:--"
 // placeholder while the estimator is still seeding.

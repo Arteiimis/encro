@@ -40,6 +40,14 @@ auto partialTempPath(fs::path const& outputPath) -> fs::path {
     / (outputPath.stem().string() + ".partial" + outputPath.extension().string());
 }
 
+auto finalizePartialOutput(fs::path const& outputPath) -> std::error_code {
+  auto const partialPath = partialTempPath(outputPath);
+  auto ec = std::error_code{};
+  fs::remove(outputPath, ec);
+  fs::rename(partialPath, outputPath, ec);
+  return ec;
+}
+
 bool compressImage(
   appctx::AppContext const& ctx,
   fs::path const& inputPath,
@@ -81,10 +89,7 @@ bool compressImage(
     return false;
   }
 
-  auto ec = std::error_code{};
-  fs::remove(outputPath, ec);
-  fs::rename(partialPath, outputPath, ec);
-  if (ec) {
+  if (auto const ec = finalizePartialOutput(outputPath)) {
     LOG_WARN(
       "Image compression output rename failed: input={} output={} error={}",
       inputPath.string(),

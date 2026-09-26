@@ -403,3 +403,36 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
   data loss (a partially written archive is removed or overwritten by the next
   run) and `--resume`/job-state paths are unaffected (they use per-group archive
   tasks, which do reach a checkpoint).
+
+## Extension lists disagree, and an uppercase `.MP4` never reaches a video scan
+
+- **Status:** open — found 2026-09-27 while planning
+  `share-partial-write-and-bar-helpers` (recorded, not fixed: unifying the lists
+  changes which files each command sees, a spec change rather than a dedup).
+- **Symptom:** the same collection is scanned with different extension sets, so
+  which files a command sees depends on the command: `organize::kImageExtensions`
+  (`src/organize/scan.h:20-29`, 8 entries, uppercase variants listed deliberately
+  because `media::scanByExtensions` is case-sensitive, `:18-19`), `readAllPics`'s
+  `pictureTypes` (`src/picture/picture_process.cpp:802-811`, 7 entries, no `.webp`,
+  with `.bmp`/`.tiff`/`.gif`/`.heic`) and `videoinfo::kVideoTypes`
+  (`src/video/video_info.cpp:31-38`, 6 lowercase entries). A fourth list,
+  `pack::kStoredMediaExtensions` (`src/pack/pack_types.h:22-53`, 27 entries),
+  answers a different question — STORE vs deflate — and is already case-insensitive
+  through `shouldStoreEntry` (`:55-61`). Worst of the drift: `CLIP.MP4` is
+  silently skipped by both video scans and by the picture run's conversion scan.
+- **Root cause:** `isKnownVideoExtension` (`src/video/video_info.cpp:110-115`) and
+  `media::extensionMatches` (`src/core/media_scanner.cpp:18-24`), the comparison
+  `media::scanByExtensions` uses at `:44`/`:94`, match case-sensitively against the
+  lowercase list, so an uppercase extension never matches; the video scans
+  (`video_info.cpp:300`, `:571`) and the conversion scan inherit the skip with no
+  warning. The three lists were each extended for the files its own command was
+  asked to accept, and nothing makes them agree.
+- **Fix direction:** decide one case rule (case-insensitive matching against one
+  canonical lowercase list is the simplest superset) and one owner for the media
+  extension set, then delete the per-command copies. Both steps change which files
+  a command sees, so they belong in their own change with spec deltas and tests,
+  not in a dedup.
+- **Impact:** an uppercase-extension collection looks like "no input found" or is
+  partially processed, with nothing in the output naming the skipped file. Nothing
+  is corrupted. Unifying the lists without first writing down the case rule would
+  silently change the picture and video input sets in the other direction.
