@@ -130,6 +130,8 @@ void armForceExitDeadline() {
   ) {
     // Second stop request while a force-exit deadline is already armed: exit
     // now — but leave a direct record first (the queue will not be drained).
+    // A test that requests a stop twice without reset() between calls lands
+    // here and takes the whole test process down; reset() clears the deadline.
     crash::writeDirectLogLine(
       "force exit: second stop request received before the grace period elapsed"
     );

@@ -229,6 +229,8 @@ int maybePackOutputs(
   return packEncodedVideos(ctx, inputPath, items);
 }
 
+// Returns the cancellation exit code when a stop request cut the encode batch
+// short, cancelling the saved state so a resume re-runs what was left.
 auto maybeHandleInterruptedEncoding(
   appctx::AppContext& ctx,
   PreparedEncodeActions const& prepared
@@ -241,6 +243,7 @@ auto maybeHandleInterruptedEncoding(
     store.markIncompleteInterrupted(pendingActionIds);
   });
 
+  terminal::messageln(Warning, "Encoding tasks canceled by user.");
   return stopsignal::kCanceledExitCode;
 }
 
@@ -363,11 +366,21 @@ int runScannedEncodingWorkflow(
     skippedCount = outcome.skippedCount;
   }
 
-  if (
-    auto const stopExit = maybeHandleInterruptedEncoding(ctx, prepared);
-    stopExit.has_value()
-  ) {
-    return stopExit.value();
+  // The encode stage's own abort is the stop cutting the batch short: every
+  // action accounted for and successful means the batch finished before the
+  // stop, so the next stage reports it instead (a batch with no work left is
+  // finished by the same test). A file the stop killed keeps no outcome, so it
+  // reads as unreached here rather than as a failure.
+  auto const summaryItems = summaryItemsBySource(items);
+  auto const encodeStageFinished =
+    summaryItems.size() + skippedCount >= prepared.totalActions;
+  if (!encodeStageFinished) {
+    if (
+      auto const stopExit = maybeHandleInterruptedEncoding(ctx, prepared);
+      stopExit.has_value()
+    ) {
+      return stopExit.value();
+    }
   }
 
   if (
@@ -378,12 +391,12 @@ int runScannedEncodingWorkflow(
       "All encodes already complete. Do you want to proceed with packing? (Y/n): "
     );
     if (!proceed) {
-      terminal::messageln(Warning, "Packing task canceled by user.");
+      // A stop that forced the decline is the packing stage's cancellation, not
+      // a user decline; the helper picks the notice for the event.
+      terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
       return canceledExitCodeForPromptAbort();
     }
   }
-
-  auto const summaryItems = summaryItemsBySource(items);
 
   // The encode summary prints before packing, matching the order the work ran
   // in, so the packing result stays the run's last product line.

@@ -48,6 +48,12 @@ struct EncodingState {
   std::optional<std::string> subprocessCmdline;
   bool finished = false;
   bool success = false;
+  // Set by the task whose encode child the stop killed (or that the stop
+  // reached before it started): the failure belongs to the cancellation, not to
+  // this item, so the stage leaves its `result` Pending and nothing lists it as
+  // failed (cancellation-reporting). The durable task record keeps the failure,
+  // which resume relies on.
+  bool stopVictim = false;
   // This file's stage outcome; named `result` because `outcome()` is the
   // accessor the runner calls.
   mediaitem::ItemOutcome result;
