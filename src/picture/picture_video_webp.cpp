@@ -63,10 +63,7 @@ bool finalizeConvertedOutput(fs::path const& outputPath) {
   auto const tempPath = partialTempPath(outputPath);
   if (!fs::exists(tempPath)) { return false; }
 
-  auto ec = std::error_code{};
-  fs::remove(outputPath, ec);
-  fs::rename(tempPath, outputPath, ec);
-  if (ec) {
+  if (auto const ec = finalizePartialOutput(outputPath)) {
     LOG_WARN(
       "Video conversion output rename failed: output={} error={}",
       outputPath.string(),
