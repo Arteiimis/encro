@@ -12,14 +12,11 @@
 - [x] 2.4 Adopt it in `probecache::save` (`src/video/probe_cache.cpp:177-203`): keep the pid suffix (`:175-176`), the read-merge-write and eviction (`:146-170`), the `LOG_WARN` on open failure (`:180`) and on rename failure (`:207`), and the single rename (`:206`); `WriteFailed` is ignored exactly as today (the rename still happens) — leave a one-line comment pointing at design D2; verify `xmake test-report --tag="[probe-cache]"` passes (all six cases in `tests/video/probe_cache_tests.cpp`, including "probe cache round-trips entries through save and load")
 - [x] 2.5 Verify the differences stayed at the callers: `rg -n "makeTempStatePath|filePath_.string\(\) \+ \"\.tmp\"|currentProcessId|kFlushIntervalMs|kCacheFlushEveryPuts" src/core/job_state.cpp src/organize/cache.cpp src/organize/cache.h src/video/probe_cache.cpp` still shows three distinct temp rules and two distinct throttles, and `git diff --name-only` touches none of the out-of-scope writers (`src/cmd/config_store.cpp`, `src/cmd/completion_install.cpp`, `src/tagger/model_store.cpp`, `src/organize/execute.cpp`)
 
-## 3. Slot-bar builder (D3 — drop-first)
+## 3. Slot-bar builder (D3 — measured, then reverted)
 
-Drop-first: if the change must shrink, this whole section goes and sections 1-2 stand alone (design D3).
+Not fixed: no box in this section shipped. The extraction was implemented and measured by the code-stage review at 38 added / 27 removed (net +11) — `progress.{h,cpp}` gained 38 lines while the two call sites shed 27 net — and reverted under design D3's pre-authorised fallback. The two builders (`initSlotBars`, `EncodingProgressState::makeSlotBars`) and `barIdle`'s postfix are back to their pre-change bodies, and `src/core/progress.{h,cpp}` is byte-identical to the pre-change tree (`git diff 69c8814 -- src/core/progress.h src/core/progress.cpp` is empty).
 
-- [x] 3.1 Add `progress::makeSlotBars(progressCtx, count, totalTasks, compact, label) -> std::vector<std::size_t>` and `progress::slotBarIdleText(label, slot) -> std::string` — declare both beside `fitPostfixText`, after the `ProgressContext` class (`src/core/progress.h:172`; `makeSlotBars` takes a `ProgressContext&`, so it cannot be declared at `:36` above the class), define both beside `showsSlotBars` in `src/core/progress.cpp:52-54`; `slotBarIdleText` formats `"{}: [idle-{}]"`, and `makeSlotBars` owns the `showsSlotBars(totalTasks, compact)` gate (closed gate returns `{}`) and builds each prompt through it with `terminal::Role::Accent`; verify `xmake build encro` succeeds and `rg -n "#include" src/core/progress.h` shows no include added
-- [x] 3.2 Call it from `EncodingProgressState` (`src/video/video_batch_execution.h:92`) with `(progressCtx, workers, overallTotal, compact, "Encoding")`, delete the private `makeSlotBars` (`:115-129`), and route `barIdle`'s postfix (`:224`) through `progress::slotBarIdleText("Encoding", slot)`; verify `xmake test-report --tag="[video-batch-execution]"` passes (`tests/video/video_batch_execution_tests.cpp`), `rg -n 'static std::vector<std::size_t> makeSlotBars' src/` returns nothing (the private definition is gone; `rg -n 'makeSlotBars' src/video/video_batch_execution.h` still shows the call at `:92`, now qualified `progress::makeSlotBars`), `rg -n '"Encoding"' src/video/video_batch_execution.h` still shows the label the helper receives, and `rg -n '"Encoding: \[idle' src/` returns nothing
-- [x] 3.3 Call it from `createProbeBars` (`src/video/encode_probe.cpp:560-562`) with `(progressCtx, slotCount, fileCount, compact, "Probing")` and delete `initSlotBars` (`:536-545`); verify `xmake test-report --tag="[encode-probe]"` passes — including "probe bar layout follows the compact and worker-count rules" (`tests/video/encode_probe_tests.cpp:473-517`, the `slotCount == 0` case that pins empty bars) — `rg -n "initSlotBars" src/` returns nothing, and `rg -n '"Probing"' src/video/encode_probe.cpp` still shows the label the helper receives
-- [x] 3.4 Verify the bar text is unchanged end to end: `rg -n '"Probing: \[idle|"Encoding: \[idle' src/` returns nothing (no site inlines the idle text once the helper owns it) while `rg -n '\[idle-' src/` matches only `src/core/progress.cpp` — a re-inlined copy elsewhere turns the first check red, a second formatter the second — and `xmake test-report --tag="[progress]"` passes (`tests/infra/progress_tests.cpp`)
+The Spec-axis hole in the old task 3.4 is closed by that revert, not by a check: its greps pinned *where* the idle text lives, never the text, so `slot + 1` → `slot` kept every check green while printing `[idle-0]` instead of `[idle-1]`. With the code byte-identical to its pre-change state there is no new idle-text rule to pin, and a check that cannot fail would be worse than none.
 
 ## 4. Recorded, not fixed (D4)
 
@@ -27,12 +24,13 @@ Drop-first: if the change must shrink, this whole section goes and sections 1-2 
 
 ## 5. Verification & commits
 
-- [x] 5.1 Run `xmake test-report` (full unit suite) and confirm zero failures; confirm `git diff --name-only` lists no file under `tests/` — no test file may be edited, that is the change's correctness evidence
+- [x] 5.1 Run `xmake test-report` (full unit suite) and confirm zero failures; confirm no existing test file is edited — the only `tests/` entry `git diff --name-only 69c8814 -- tests/` lists is the new `tests/file_write_tests.cpp`, which only adds coverage for `fileio::writeStagingFile`. Behaviour preservation stays "no existing test asserted a different result"
 - [x] 5.2 Run `xmake build e2e_tests && xmake run e2e_tests` and confirm the picture, organize and encode end-to-end flows pass
 - [x] 5.3 Run `xmake test-parallel` and confirm every shard reports its assigned case count
 - [x] 5.4 Run the reporter-mode probe `build/windows/x64/release/tests.exe -r console -s` and confirm it reports 0 failures (assertions inside capture windows would be captured as reporter text)
 - [x] 5.5 Run `xmake fmt` before committing and confirm a second run produces no further changes; run `xmake tidy` and confirm no new diagnostics (`xmake tidy` is report-only, so compare the pre-change count by hand), in particular none on `file_write.h` or the touched call sites
 - [x] 5.6 Commit the planning artifacts first as their own `docs:` commit (proposal, design, tasks, `.openspec.yaml`), then implementation + the `docs/backlog.md` entry + ticked `tasks.md` in one `refactor:` commit (English, conventional, subject < 72 chars, body wrapped at 80); verify `git log --oneline -2` shows docs-then-refactor
+- [x] 5.7 Code-stage review round: revert D3 (sources byte-identical to `69c8814`), add the `writeStagingFile` case, correct the proposal/design/test claims, re-run the battery (`test-report`, e2e, test-parallel, reporter probe, `fmt` twice, `tidy`) and commit on top of `64199ff` as one `refactor:` commit
 
 ## Planning-artifact review (before implementation)
 
@@ -60,3 +58,21 @@ One fresh reviewer on `proposal.md` / `design.md` / `tasks.md` per the `code-rev
 - **Drop-first: D3 is the right first cut.** It is the smallest of the three and the only one whose removal hides no duplication on a failure path, and the `barIdle` finding above makes it smaller still - it folds two of the three `[idle-...]` writers, not all three. D1 is the alternative candidate if the fallback is read as "least dedup value" (its body is three statements, and every difference it could have unified stays at the callers), but D1 and D2 both carry the shapes the change exists to merge, so dropping either leaves the drift in place. The `reuse-hash-and-naming-helpers` D3 precedent the design cites is real (that change's `D3: The planner is not extracted - measured, then reverted`). Keep the design's order.
 
 **Summary:** 9 findings - 0 blocker, 3 major, 6 minor (2 coherence, 7 ground truth; none rejected). Worst: the `progress.h:36` declaration site, a compile error as written. Fix loop: 9/9 resolved, none rejected.
+
+## Post-change review round (code stage)
+
+One three-axis review (Standards / Spec / Leanness) of `64199ff` against `69c8814`, per the `code-review` skill's code-diff stage. Findings and verdicts:
+
+- `[major]` **Leanness — D3 measured more than it shared.** `src/core/progress.{h,cpp}` gained 38 lines while the two call sites shed 27 net (43 added / 32 removed, source net +11); what is genuinely shared is a one-line `[idle-N]` format plus a one-line `showsSlotBars` gate. **Verdict: resolved** — design D3 had pre-authorised the cut, so the four files were restored from `69c8814` (`git diff 69c8814 -- src/core/progress.h src/core/progress.cpp src/video/video_batch_execution.h src/video/encode_probe.cpp` is empty), and design D3 / section 3 above record the measurement instead of the extraction.
+- `[minor]` **Spec — the old task 3.4 pinned where the idle text lives, never the text.** `slot + 1` → `slot` kept every check green while printing `[idle-0]` instead of `[idle-1]`, contradicting `openspec/specs/terminal-color-palette/spec.md`. **Verdict: resolved by construction** — after the revert the code is byte-identical to its pre-change state, so this file claims no check rather than one that cannot fail.
+- `[minor]` **TDD — the two new helpers had no test.** One case was added in `tests/file_write_tests.cpp` for `fileio::writeStagingFile` (a writable path reports `Written` with the content landed; an unopenable path reports `OpenFailed`). **Verdict: resolved** — no existing test file edited; `WriteFailed` is recorded, not faked.
+- `[minor]` **Proposal — the test evidence was overstated.** "Each helper's body is already exercised through its callers" was not true of `finalizePartialOutput`'s error branch. **Verdict: resolved** — the proposal now claims what holds (unchanged warning strings; the callers' suites cover the success path) and names the new case.
+- `[minor]` **Standards — comment volume on `src/core/file_write.h`'s enum.** The four-line comment became one line. **Verdict: resolved.**
+
+Recorded, not fixed (no source change):
+
+- `StagingStatus::WriteFailed` has no direct case: triggering it portably needs a full or read-only filesystem, so the new case leaves it uncovered and says so in a comment.
+- `finalizePartialOutput`'s error branch has no direct case. Its regression is the two warning strings, unchanged from the pre-extraction code; both callers' suites cover the success path.
+- Residual staging writers stay out of scope as `proposal.md` declares: `src/cmd/config_store.cpp` (non-atomic direct write, no staging path) and `src/tagger/model_store.cpp` (curl fetch plus checksum verify, a different domain).
+
+The revert, the new case and these artifact corrections land in one `refactor:` commit on top of `64199ff`.

@@ -6,7 +6,7 @@ Constraints:
 
 - C++26, `clang-cl` + `lld-link`, built with xmake (`xmake.lua:5`).
 - `picture_compress.h` is picture-only and already declares `partialTempPath` (`:25`) with a stated contract: the temp path keeps the target media extension so the encoder infers the container (`:22-24`). `picture_video_webp.cpp` already includes it (`:9`) and reuses the rule (`:63`, `:121`), so a finalize helper belongs beside it and needs no new dependency.
-- `core/progress.h` already owns `showsSlotBars` (`:36`) and already carries `<vector>`, `<string>`, `<string_view>` (`:9-18`); `progress.cpp` already includes `<format>`. A slot-bar builder added there costs its includers no new include — the archive change had to keep its planner out of `collision_naming.h` for exactly that reason. The builder takes a `ProgressContext&`, so its declaration goes after the class (`:84`), beside `fitPostfixText` (`:172`).
+- `core/progress.h` already owns `showsSlotBars` (`:36`) and already carries `<vector>`, `<string>`, `<string_view>` (`:9-18`); `progress.cpp` already includes `<format>`. A slot-bar builder added there costs its includers no new include — the archive change had to keep its planner out of `collision_naming.h` for exactly that reason. The builder takes a `ProgressContext&`, so its declaration goes after the class (`:84`), beside `fitPostfixText` (`:172`). This mattered only to the reverted builder (`D3`); the shipped change leaves `progress.{h,cpp}` untouched.
 - The three staging callers are not one function with one varying parameter. Verified differences:
 
 | | `job_state::detail::flushSnapshot` (`job_state.cpp:470`) | `organize::AnalysisCache::saveLocked` (`cache.cpp:168`) | `probecache::save` (`probe_cache.cpp:145`) |
@@ -26,15 +26,16 @@ Constraints:
 
 **Goals:**
 
-- One implementation each of "remove the target, rename the partial over it", "open the caller's staging path, write, flush, close, report" and "build the per-slot idle bars".
+- One implementation each of "remove the target, rename the partial over it" and "open the caller's staging path, write, flush, close, report". The broader goal — one implementation of the per-slot bar builder — was measured and reverted; see `D3`.
 - Every caller keeps what makes it different: temp name, open mode, throttle, error channel and wording, directory creation, rename policy, and the bar label.
-- No test file is edited and no exercised console output moves — that is the correctness evidence.
+- No existing test file is edited and no exercised console output moves — that is the correctness evidence; the one new case (`tests/file_write_tests.cpp`) only pins `writeStagingFile`'s own contract.
 
 **Non-Goals:**
 
 - One generic temp-path rule (D2: the suffixes are load-bearing).
 - Unifying throttles, error channels, directory creation or rename policies (D2).
 - Unifying the extension lists or fixing the uppercase `.MP4` skip (D4: recorded, not fixed).
+- Extracting the per-slot bar builder — implemented, measured at +11 source lines, reverted (D3).
 - Everything already listed as out of scope in `proposal.md`, each for its own reason: the packer scan must see every file; the confirm prompts are already centralized in `readUserIpt`; `CompactProgressState` is a progress context, not a writer; `copySafely` copies a whole file through its own `.part` staging, which the string-content contract cannot express; the model download fetches a binary through curl and verifies a checksum; the two collision loops answer different naming questions (hash-suffixed zip entry name vs `stem_<n>`); the non-atomic direct writers have no staging path.
 
 ## Decisions
@@ -103,20 +104,24 @@ Alternatives considered:
 - **Fold the throttles in** — 2 s force-able vs 64-put batch vs none; they are caller schedules, not write mechanics.
 - **Return `eh::Result`** — see above.
 
-### D3: `progress::makeSlotBars` owns the gate and the label; the idle text gets one formatter; it is the drop-first item
+### D3: The slot-bar builder is not extracted — measured, then reverted
 
-Add `auto slotBarIdleText(std::string_view label, std::size_t slot) -> std::string` and `auto makeSlotBars(progress::ProgressContext& progressCtx, std::size_t count, std::size_t totalTasks, bool compact, std::string_view label) -> std::vector<std::size_t>`. Both are declared beside `fitPostfixText`, after the `ProgressContext` class — declaration `src/core/progress.h:172` — because `makeSlotBars` takes a `ProgressContext&` and the class is declared at `:84`, above `showsSlotBars`; a declaration above the class would not compile. Both are defined in `src/core/progress.cpp` beside `showsSlotBars` (`:52-54`). `makeSlotBars` owns the gate — a closed gate returns `{}` without adding a bar — and writes each bar's prompt through `slotBarIdleText` with `terminal::Role::Accent`, so the two callers pass only their label. `barIdle` (`src/video/video_batch_execution.h:219-225`), the third writer of the same `"Encoding: [idle-{}]"` text (`:224`), uses `slotBarIdleText` for its postfix too: the expression is identical modulo the label, so it is one rule, not two.
+The first pass moved the per-slot bar loop into `progress::makeSlotBars` and the `"<label>: [idle-<n>]"` format into `progress::slotBarIdleText`, called from `EncodingProgressState` (`src/video/video_batch_execution.h:92`, private `makeSlotBars` `:115-129` deleted, `barIdle`'s postfix `:224` routed through the formatter) and from `createProbeBars` (`src/video/encode_probe.cpp:560-562`, `initSlotBars` `:536-545` deleted, the caller's own `if (showsSlotBars(...))` with it).
 
-- Encoding: `progress::makeSlotBars(progressCtx, workers, overallTotal, compact, "Encoding")` at `src/video/video_batch_execution.h:92`; the private `makeSlotBars` (`:115-129`) is deleted and `barIdle` (`:219-225`) calls `progress::slotBarIdleText("Encoding", slot)`. Note the parameter order changes from today's `(progressCtx, workers, compact, overallTotal)`.
-- Probe: `bars.slotBars = progress::makeSlotBars(progressCtx, slotCount, fileCount, compact, "Probing")` at `src/video/encode_probe.cpp:560-562`; `initSlotBars` (`:536-545`) is deleted and the caller's `if (showsSlotBars(...))` goes with it.
+The review measured it rather than arguing about it, from `git diff --numstat`:
 
-`count` and `totalTasks` are separate parameters because the two sites size the vector and gate on different values: the probe sizes from `slotCount` — 0 when every file is a cache hit, which `tests/video/encode_probe_tests.cpp:473-517` pins — while gating on `fileCount`; the encoder sizes from `workers` and gates on `overallTotal`.
+| | added | removed |
+| --- | --- | --- |
+| `src/core/progress.{h,cpp}` | +38 | 0 |
+| `video_batch_execution.h` call site | +3 | −18 |
+| `encode_probe.cpp` call site | +2 | −14 |
+| **total** | **+43** | **−32** |
 
-Location: `progress.h` is the module that owns `showsSlotBars` and the bar types; it already carries the includes the declarations need and `progress.cpp` already includes `<format>`, so this costs its includers nothing.
+`progress.{h,cpp}` gained 38 lines while the two call sites shed 27 net (32 deleted, 5 added): source net +11. What is actually shared is a one-line `[idle-N]` format plus a one-line `showsSlotBars` gate. This design's own drop-first paragraph had pre-authorised exactly this outcome — "If implementation or review shows the change is too large, delete section 3 and keep D1 and D2" — and `reuse-hash-and-naming-helpers` D3 is the precedent for a measured fallback.
 
-**Drop-first:** this item folds ~10 lines and is the smallest of the three. If implementation or review shows the change is too large, delete section 3 and keep D1 and D2 — the proposal lists the three as independent, and `reuse-hash-and-naming-helpers` D3 is the precedent for a measured fallback. It now folds two of the three `[idle-...]` writers (the two builders) and shares the third's format rule, which is what makes the bar-text grep a real check.
+What replaced it: nothing. The two builders and `barIdle`'s postfix are restored to their pre-change bodies, `src/core/progress.{h,cpp}` is byte-identical to the pre-change tree (`git diff 69c8814 -- src/core/progress.h src/core/progress.cpp` is empty), and the three `[idle-...]` writers stay. The bar-text check the change had planned was a hole anyway: task 3.4's greps pinned *where* the idle text lives, never the text, so `slot + 1` → `slot` would have kept every grep green while printing `[idle-0]` instead of `[idle-1]`, contradicting `openspec/specs/terminal-color-palette/spec.md`. With the code byte-identical to its pre-change state, that hole closes by construction — there is no new idle-text rule left to pin, and a check that cannot fail would be worse than no check.
 
-Alternatives considered: leave the two copies (the gate *placement* is the drift worth removing, and the labels are the only other difference); leave `barIdle` out (the idle text stays a second copy and the grep cannot be a one-file check); pass a preformatted label (the format rule then lives at two sites again); put it in `video_batch_execution.h` (the probe phase does not include that header, and bar rules belong to `progress`).
+Alternative considered: keep `makeSlotBars` but drop `slotBarIdleText` and inline the format at the two builders and `barIdle` — rejected, it leaves the format three times over and still pays the +38 for the one-line gate, which is the only thing the extraction was actually worth.
 
 ### D4: The extension lists and the uppercase `.MP4` skip are recorded in `docs/backlog.md`, not fixed
 
@@ -133,12 +138,12 @@ Unifying them changes which files each command sees, which is a spec change, not
 
 ## Risks / Trade-offs
 
-- **Behaviour preservation rests on unmodified tests.** If any of the eight suites above needs an edit to pass, a helper changed behaviour — stop and re-derive that decision. The change edits no test file by design.
+- **Behaviour preservation rests on unmodified tests.** If any of the eight suites above needs an edit to pass, a helper changed behaviour — stop and re-derive that decision. The change edits no existing test file by design; `tests/file_write_tests.cpp` is new and only pins the `writeStagingFile` contract.
 - **The suffix trap.** A later reader may "simplify" the three staging callers into one temp-path helper; D2 records why that is wrong (media-extension inference, JSON vs copy, pid uniqueness). The call sites keep their own names on purpose.
 - **The staging helper can be read as license to unify policy.** Throttles, error channels, directory creation and rename stay per caller; D2's mapping table is the contract, and the tasks verify the three temp rules and throttles survive.
 - **`probecache::save` still ignores a write failure** (`WriteFailed` dropped, rename proceeds) — a pre-existing hole the helper makes visible but does not fix, to keep console output identical on that path. If review wants it fixed, it is a separate change.
-- **No direct test is added for the helpers.** The acceptance bar is "no test file edited"; the bodies are exercised through their callers, and `tests.exe -r console -s` is the extra probe that no output moved.
-- **D3 is the drop-first item** and may be reverted if the change proves too large; D1 and D2 stand alone.
+- **One helper has a direct test; the other's error branch does not.** `fileio::writeStagingFile` is pinned by one case in the new `tests/file_write_tests.cpp` (`Written` with the content landed; `OpenFailed`; `WriteFailed` has no portable trigger and the case records it as uncovered). `finalizePartialOutput` has no direct case — its error branch is exercised only through the callers' suites, and its regression is the two warning strings, which the change leaves unchanged. The acceptance bar is "no *existing* test file edited", the new case adds coverage only, and `tests.exe -r console -s` is the extra probe that no output moved.
+- **D3 fired its drop-first fallback.** The extraction was implemented, measured at +11 source lines, and reverted (`D3`); D1 and D2 stand alone and `src/core/progress.{h,cpp}` is untouched by the change.
 
 ## Migration Plan
 
@@ -146,10 +151,10 @@ Each step is one commit and independent; no persistent file format or CLI surfac
 
 1. Add `finalizePartialOutput` and adopt it at both picture sites; run `xmake test-report --tag="[picture]"`, `--tag="[picture-compress]"`, `--tag="[video-webp]"`, `--tag="[picture-process]"`.
 2. Add `src/core/file_write.h` and adopt it at the three staging sites; run `--tag="[job-state]"`, `--tag="[organize]"`, `--tag="[probe-cache]"`.
-3. Add `progress::makeSlotBars` and adopt it at both bar sites; run `--tag="[video-batch-execution]"`, `--tag="[encode-probe]"`, `--tag="[progress]"`. Drop this step first if needed.
+3. Add `progress::makeSlotBars` and adopt it at both bar sites; run `--tag="[video-batch-execution]"`, `--tag="[encode-probe]"`, `--tag="[progress]"`. **This step was reverted** — the code-stage review measured it at +11 source lines (`D3`), and `progress.{h,cpp}`, `video_batch_execution.h` and `encode_probe.cpp` are back to their pre-change bodies.
 4. Append the extension-list/`.MP4` entry to `docs/backlog.md`; verify only that file changed.
 5. Full battery before commit: `xmake test-report`, `xmake build e2e_tests && xmake run e2e_tests`, `xmake test-parallel`, the reporter probe, `xmake fmt` idempotent, `xmake tidy` with no new diagnostics (`xmake tidy` is report-only, so compare the pre-change count by hand). Planning artifacts go in their own `docs:` commit first; implementation lands in one `refactor:` commit.
 
 ## Open Questions
 
-None. The one judgement call that could have been deferred — whether `probecache::save` should start reporting write failures — is decided in D2 as "no, preserve", and the D3 fallback is pre-authorised rather than open.
+None. The one judgement call that could have been deferred — whether `probecache::save` should start reporting write failures — is decided in D2 as "no, preserve". The pre-authorised D3 fallback is no longer open either: it fired (`D3`).

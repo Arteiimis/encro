@@ -53,27 +53,6 @@ bool showsSlotBars(std::size_t totalTasks, bool compact) {
   return !(compact && totalTasks > 1);
 }
 
-auto slotBarIdleText(std::string_view label, std::size_t slot) -> std::string {
-  return std::format("{}: [idle-{}]", label, slot + 1);
-}
-
-auto makeSlotBars(
-  ProgressContext& progressCtx,
-  std::size_t count,
-  std::size_t totalTasks,
-  bool compact,
-  std::string_view label
-) -> std::vector<std::size_t> {
-  if (!showsSlotBars(totalTasks, compact)) { return {}; }
-
-  auto barIndexes = std::vector<std::size_t>(count);
-  for (auto slot = std::size_t{0}; slot < count; ++slot) {
-    barIndexes[slot] =
-      progressCtx.addBar(slotBarIdleText(label, slot), terminal::Role::Accent);
-  }
-  return barIndexes;
-}
-
 namespace {
 
 constexpr auto kMinConsoleColumns = std::size_t{60};

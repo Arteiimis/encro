@@ -7,10 +7,7 @@
 
 namespace fileio {
 
-// Outcome of staging a serialized file into a caller-chosen temp path. The
-// helper owns the write alone: the caller builds the path (the suffixes are
-// load-bearing, see design D2 of share-partial-write-and-bar-helpers), keeps
-// its own throttle, error channel and wording, and renames afterwards.
+// Outcome of staging a serialized file into a caller-chosen temp path.
 enum class StagingStatus {
   Written,
   OpenFailed,
