@@ -533,6 +533,17 @@ struct ProbeProgress {
   std::function<void()> const& updateOverall;
 };
 
+auto initSlotBars(progress::ProgressContext& progressCtx, std::size_t workerCount)
+  -> std::vector<std::size_t> {
+  auto slotBars = std::vector<std::size_t>(workerCount);
+  for (auto slot = std::size_t{}; slot < workerCount; ++slot) {
+    slotBars[slot] =
+      progressCtx
+        .addBar(std::format("Probing: [idle-{}]", slot + 1), terminal::Role::Accent);
+  }
+  return slotBars;
+}
+
 auto createProbeBars(
   progress::ProgressContext& progressCtx,
   std::size_t fileCount,
@@ -546,8 +557,9 @@ auto createProbeBars(
       progressCtx
         .addBar(std::format("Probing: 0/{} files", fileCount), terminal::Role::Accent);
   }
-  bars.slotBars =
-    progress::makeSlotBars(progressCtx, slotCount, fileCount, compact, "Probing");
+  if (progress::showsSlotBars(fileCount, compact)) {
+    bars.slotBars = initSlotBars(progressCtx, slotCount);
+  }
   return bars;
 }
 
