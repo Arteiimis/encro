@@ -436,3 +436,24 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
   partially processed, with nothing in the output naming the skipped file. Nothing
   is corrupted. Unifying the lists without first writing down the case rule would
   silently change the picture and video input sets in the other direction.
+
+## The frame-exact resume e2e case fails under load
+
+- **Status:** open — found 2026-09-27 while verifying
+  `share-partial-write-and-bar-helpers` and `migrate-preview-to-media-items`
+  (intermittent, and present before both).
+- **Symptom:** `encro real ffmpeg resumes a killed segmented encode frame-exactly`
+  intermittently fails inside a parallel run: a `REQUIRE(is_open)` in
+  `readTextFile` (`tests/test_utils.h`) fires because the job-state file it wants
+  to read is not there yet. Seen three times in one day, each on a machine busy
+  with a concurrent clang build (once as a `test-parallel` e2e shard). The same
+  case passes alone, in a clean full e2e run, and in a clean `test-parallel` run.
+- **Root cause:** the case waits for the file through `testutils::waitUntil`'s
+  default 10 s deadline, and the helper re-checks after the deadline, so under
+  load the wait ends as a plain `is_open` assertion rather than a timeout with
+  context - a load-induced miss and a genuinely missing file look identical.
+- **Fix direction:** give this case a longer deadline (and/or make the deadline
+  part of the failure message, naming the timeout and the path) so a load miss
+  identifies itself. Prove it with `xmake test-parallel` while a clang build runs.
+- **Impact:** CI flakiness - a red shard with no product regression, costing a
+  re-run and, worse, training the reader to ignore a red shard. No product impact.
