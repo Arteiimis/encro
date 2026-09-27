@@ -48,7 +48,7 @@ inline auto scoringProgressText(std::size_t done, std::size_t total) -> std::str
 
 // The stage's slice of the single phase bar: it spans `base`→85% of the bar
 // and reports `done` of `total` completions.
-inline auto phaseProgressValue(std::size_t done, std::size_t total, float base) -> float {
+inline float phaseProgressValue(std::size_t done, std::size_t total, float base) {
   return base + (85.0f - base) * static_cast<float>(done) / static_cast<float>(total);
 }
 
