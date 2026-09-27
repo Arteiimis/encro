@@ -1,4 +1,5 @@
 #include "core/collision_naming.h"
+#include "infra/stop_signal.h"
 #include "pack/packer.h"
 #include "pack/pack_service.h"
 #include "test_utils.h"
@@ -392,6 +393,57 @@ TEST_CASE(
     entryNames == std::vector<std::string>{"0000__summary__a__same.txt", "1000__same.txt"}
   );
   zip.close();
+}
+
+// The stop check lives at the head of every entry, so a stop the write itself
+// produces aborts at the next entry instead of after the whole archive.
+TEST_CASE(
+  "packFilesToZip aborts at the next entry when a stop arrives mid-write",
+  "[packer][packFilesToZip][stop-signal]"
+) {
+  auto const stopGuard = testutils::ScopedStopSignalReset{};
+  TempDir temp;
+  auto const first = testutils::writeSizedFile(temp.path / "a.txt", 64);
+  auto const second = testutils::writeSizedFile(temp.path / "b.txt", 64);
+  auto const zipPath = temp.path / "bundle.zip";
+
+  auto const result = pack::Packer{}.packFilesToZip(
+    {
+      pack::PackFileEntry{.sourcePath = first, .zipEntryName = "a.txt"},
+      pack::PackFileEntry{.sourcePath = second, .zipEntryName = "b.txt"},
+    },
+    zipPath,
+    [](std::size_t fileIndex, std::size_t /*fileCount*/) {
+      if (fileIndex == 1) { stopsignal::requestStop(); }
+    }
+  );
+
+  REQUIRE_FALSE(result);
+  CHECK(result.error() == "Packing canceled by user.");
+  CHECK_FALSE(fs::exists(zipPath));
+}
+
+TEST_CASE(
+  "packFilesToZip leaves no archive when a stop is pending before the write",
+  "[packer][packFilesToZip][stop-signal]"
+) {
+  auto const stopGuard = testutils::ScopedStopSignalReset{};
+  TempDir temp;
+  auto const file = testutils::writeSizedFile(temp.path / "a.txt", 64);
+  auto const zipPath = temp.path / "bundle.zip";
+
+  auto progressCtx = progress::ProgressContext{};
+  stopsignal::requestStop();
+  auto const result = pack::Packer{}.packFilesToZip(
+    {pack::PackFileEntry{.sourcePath = file, .zipEntryName = "a.txt"}},
+    zipPath,
+    progressCtx,
+    "Packing: bundle.zip"
+  );
+
+  REQUIRE_FALSE(result);
+  CHECK(result.error() == "Packing canceled by user.");
+  CHECK_FALSE(fs::exists(zipPath));
 }
 
 TEST_CASE("execute() in Directory mode packs directory", "[packer][workflow]") {
