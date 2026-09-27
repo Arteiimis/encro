@@ -2,6 +2,7 @@
 
 #include "core/collision_naming.h"
 #include "core/progress.h"
+#include "infra/stop_signal.h"
 #include "infra/terminal.h"
 #include "pack/pack_internal.h"
 #include "pack/pack_types.h"
@@ -398,6 +399,14 @@ auto pack::Packer::packFilesToZip(
   zip.open(libzippp::ZipArchive::New);
 
   for (auto const& [index, entry]: std::views::enumerate(entries)) {
+    // A stop request during the write aborts at this entry: discard rolls the
+    // packer's own file back, so no half-written archive is left to be
+    // reported as packed.
+    if (stopsignal::isStopRequested()) {
+      zip.discard();
+      return eh::makeError("Packing canceled by user.");
+    }
+
     auto const progress = static_cast<std::size_t>(
       std::round(static_cast<float>(index + 1) / static_cast<float>(fileCount) * 100.0f)
     );
@@ -474,6 +483,11 @@ auto pack::Packer::packFilesToZip(
   auto const totalCount = entries.size();
 
   for (auto const& entry: entries) {
+    if (stopsignal::isStopRequested()) {
+      zip.discard();
+      return eh::makeError("Packing canceled by user.");
+    }
+
     if (fs::is_regular_file(entry.sourcePath)) {
       if (!zip.addFile(entry.zipEntryName, entry.sourcePath.string())) {
         return eh::makeError("Failed to add entry to zip: {}", entry.zipEntryName);
