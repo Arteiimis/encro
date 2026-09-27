@@ -2509,6 +2509,13 @@ TEST_CASE(
   auto const observed = testutils::waitUntil(
     [&] {
       if (!fs::exists(statePath)) { return false; }
+      // The poll re-reads the state file: a read that fails here is retried,
+      // not the case's verdict, so name the wait it belongs to.
+      INFO(
+        "polling "
+        << statePath.string()
+        << " for a running task with segmentIndex >= 1 (180 s deadline)"
+      );
       try {
         auto const state = loadJsonObject(statePath);
         auto const& tasks = state.at("tasks").as_array();

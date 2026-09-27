@@ -256,6 +256,36 @@ TEST_CASE("test binary keeps log records off its output streams", "[test-utils][
   CHECK(child.output.find("log-probe-marker") == std::string::npos);
 }
 
+// Selector for the hidden probe below; the meta-check spawns this binary with
+// the same tag.
+constexpr auto kReadTextProbeTag = "[.][read-text-probe]";
+
+// Hidden probe: the diagnostic has to come out of a real failure report, and an
+// in-process probe would fail this run instead of yielding text for the parent
+// to read. The short deadline keeps the failing wait off the suite's critical
+// path; the message it prints is the one the default deadline produces.
+// assert-ok: hidden probe — the parent test inspects the child's output.
+TEST_CASE("read text probe", kReadTextProbeTag) {
+  (void)testutils::readTextFile(
+    fs::path{"encro-read-text-probe-never-appears.txt"},
+    std::chrono::milliseconds{50}
+  );
+}
+
+TEST_CASE(
+  "readTextFile names the path and the wait it gave up on",
+  "[test-utils][meta]"
+) {
+  auto const child = spawnSelf({kReadTextProbeTag});
+
+  CHECK(child.exitCode != 0);
+  CHECK(
+    child.output.find("encro-read-text-probe-never-appears.txt") != std::string::npos
+  );
+  CHECK(child.output.find("ms of the 50 ms deadline") != std::string::npos);
+  CHECK(child.output.find("never appeared within the deadline") != std::string::npos);
+}
+
 TEST_CASE(
   "hardening violation produces a single crash record",
   "[crash][integration][hardening]"
