@@ -71,6 +71,23 @@ TEST_CASE(
   CHECK(res.error().find("--start") != std::string::npos);
 }
 
+// The window phases run as bar-less stages and write the flow's own bar through
+// the stage postfix: the text and the value are the flow's, so they are pinned
+// here rather than through a stage that draws nothing.
+TEST_CASE("preview window progress text counts encoded windows", "[preview]") {
+  CHECK(preview::windowProgressText(1, 1) == "Encoding windows: 1/1");
+  CHECK(preview::windowProgressText(2, 5) == "Encoding windows: 2/5");
+}
+
+TEST_CASE("preview scoring progress text counts scored windows", "[preview]") {
+  CHECK(preview::scoringProgressText(2, 5) == "Scoring windows: 2/5");
+}
+
+TEST_CASE("preview phase progress fills its slice of the phase bar", "[preview]") {
+  CHECK(preview::phaseProgressValue(1, 2, 40.0f) == 62.5f);
+  CHECK(preview::phaseProgressValue(2, 2, 10.0f) == 85.0f);
+}
+
 namespace {
 
 // Fake ffmpeg/ffprobe = the shared e2e fake_media_tool binary, copied per role
@@ -143,6 +160,44 @@ TEST_CASE("preview generates the comparison video with fake tools", "[preview]")
   auto const outputPath = temp.path / "sample.preview.mp4";
   CHECK(fs::exists(outputPath));
   CHECK(fs::file_size(outputPath) > 0);
+}
+
+TEST_CASE(
+  "preview two-input mode lists every window score and marks the worst",
+  "[preview]"
+) {
+  TempDir temp;
+  auto const original = temp.path / "sample.mp4";
+  auto const encoded = temp.path / "sample.hevc.mp4";
+  testutils::writeTextFile(original);
+  testutils::writeTextFile(encoded);
+
+  auto ctx = appctx::AppContext{};
+  auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
+  // 100 s of input over the fake tool's uniform 96.0: five scored windows, all
+  // equal, so the strict minimum must keep the marker on the first one.
+  fillPreviewContext(ctx, temp.path, envs);
+
+  auto exitCode = std::optional<int>{};
+  auto const out = testutils::captureStdout([&] {
+    auto const res = preview::run(
+      ctx,
+      preview::PreviewOptions{
+        .original = original,
+        .encoded = encoded,
+        .noOpen = true,
+      }
+    );
+    exitCode = res.has_value() ? std::optional<int>{res.value()} : std::nullopt;
+  });
+  REQUIRE(exitCode.has_value());
+  CHECK(exitCode.value() == 0);
+
+  CHECK(testutils::countOccurrences(out, "VMAF 96.0") == 5);
+  CHECK(testutils::countOccurrences(out, "(worst)") == 1);
+  auto const firstLine = testutils::findHelpLine(out, "[1]");
+  REQUIRE(firstLine.has_value());
+  CHECK(firstLine->find("(worst)") != std::string::npos);
 }
 
 TEST_CASE("preview --output overrides the default location", "[preview]") {
