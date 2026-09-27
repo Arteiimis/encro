@@ -108,10 +108,7 @@ bool isHevcEncodedInfo(boost::json::value const& vidInfo) {
 }
 
 bool isKnownVideoExtension(fs::path const& filePath) {
-  namespace rng = std::ranges;
-
-  auto const vidsExt = filePath.extension().string();
-  return rng::contains(kVideoTypes, vidsExt);
+  return media::extensionMatches(filePath, kVideoTypes);
 }
 
 auto tryReadFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t> {

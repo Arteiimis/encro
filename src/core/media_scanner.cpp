@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <format>
+#include <functional>
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::CORE_SCAN);
@@ -15,12 +16,9 @@ namespace {
 
 constexpr auto kDirectoryOptions = fs::directory_options::skip_permission_denied;
 
-bool extensionMatches(
-  fs::path const& filePath,
-  std::span<std::string_view const> extensions
-) {
-  auto const ext = filePath.extension().string();
-  return std::ranges::contains(extensions, std::string_view{ext});
+// ASCII-only fold: A-Z to a-z, every other byte unchanged (no locale).
+constexpr char asciiLower(char ch) {
+  return ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch - 'A' + 'a') : ch;
 }
 
 // True for entries whose filename starts with a dot (e.g. ".encro"). These
@@ -82,6 +80,22 @@ void scanDir(
 }
 
 }  // namespace
+
+bool extensionMatches(
+  fs::path const& filePath,
+  std::span<std::string_view const> extensions
+) {
+  auto const ext = filePath.extension().string();
+  return std::ranges::any_of(extensions, [&ext](std::string_view candidate) {
+    return std::ranges::equal(
+      candidate,
+      ext,
+      std::ranges::equal_to{},
+      asciiLower,
+      asciiLower
+    );
+  });
+}
 
 auto scanByExtensions(
   fs::path const& root,
