@@ -23,14 +23,6 @@ public:
   Packer() = default;
 
   auto packFilesToZip(
-    std::vector<std::filesystem::path> const& filePaths,
-    std::filesystem::path const& zipFilePath,
-    progress::ProgressContext& progressCtx,
-    std::string_view progressText,
-    pack::detail::ZipEntryNameResolver const& entryNameForFile = {}
-  ) -> eh::Result<void>;
-
-  auto packFilesToZip(
     std::vector<PackFileEntry> const& entries,
     std::filesystem::path const& zipFilePath,
     progress::ProgressContext& progressCtx,

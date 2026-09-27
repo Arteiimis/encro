@@ -214,8 +214,15 @@ TEST_CASE(
 
   progress::ProgressContext progressCtx;
 
-  auto const result =
-    pack::Packer{}.packFilesToZip({f1, f2}, zipPath, progressCtx, "Packing: bundle.zip");
+  auto const result = pack::Packer{}.packFilesToZip(
+    {
+      pack::PackFileEntry{.sourcePath = f1, .zipEntryName = f1.filename().string()},
+      pack::PackFileEntry{.sourcePath = f2, .zipEntryName = f2.filename().string()},
+    },
+    zipPath,
+    progressCtx,
+    "Packing: bundle.zip"
+  );
 
   REQUIRE(result);
   REQUIRE(fs::exists(zipPath));
@@ -256,8 +263,15 @@ TEST_CASE(
 
   progress::ProgressContext progressCtx;
 
-  auto const result =
-    pack::Packer{}.packFilesToZip({f1, f2}, zipPath, progressCtx, "Packing: bundle.zip");
+  auto const result = pack::Packer{}.packFilesToZip(
+    {
+      pack::PackFileEntry{.sourcePath = f1, .zipEntryName = "same.txt"},
+      pack::PackFileEntry{.sourcePath = f2, .zipEntryName = "same.txt"},
+    },
+    zipPath,
+    progressCtx,
+    "Packing: bundle.zip"
+  );
 
   REQUIRE(result);
 
@@ -283,7 +297,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "packFilesToZip preserves relative entry names when resolver is provided",
+  "packFilesToZip stores entries under the provided relative names",
   "[packer][packFilesToZip]"
 ) {
   TempDir temp;
@@ -302,13 +316,19 @@ TEST_CASE(
   progress::ProgressContext progressCtx;
 
   auto const result = pack::Packer{}.packFilesToZip(
-    {f1, f2},
+    {
+      pack::PackFileEntry{
+        .sourcePath = f1,
+        .zipEntryName = f1.lexically_relative(srcDir).generic_string(),
+      },
+      pack::PackFileEntry{
+        .sourcePath = f2,
+        .zipEntryName = f2.lexically_relative(srcDir).generic_string(),
+      },
+    },
     zipPath,
     progressCtx,
-    "Packing: bundle.zip",
-    [srcDir](fs::path const& filePath) {
-      return filePath.lexically_relative(srcDir).generic_string();
-    }
+    "Packing: bundle.zip"
   );
 
   REQUIRE(result);
@@ -482,9 +502,16 @@ TEST_CASE("pack stores media entries and deflates non-media", "[packer][store]")
   auto const zipPath = temp.path / "out.zip";
 
   auto progressCtx = progress::ProgressContext{};
-  auto const res =
-    pack::Packer{}
-      .packFilesToZip({mediaFile, audioFile, textFile}, zipPath, progressCtx, "Packing");
+  auto const res = pack::Packer{}.packFilesToZip(
+    {
+      pack::PackFileEntry{.sourcePath = mediaFile, .zipEntryName = "clip.mp4"},
+      pack::PackFileEntry{.sourcePath = audioFile, .zipEntryName = "audio.m4a"},
+      pack::PackFileEntry{.sourcePath = textFile, .zipEntryName = "note.txt"},
+    },
+    zipPath,
+    progressCtx,
+    "Packing"
+  );
   REQUIRE(res);
 
   libzippp::ZipArchive zip{zipPath.string()};

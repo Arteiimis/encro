@@ -5,7 +5,6 @@
 
 #include <cstddef>
 #include <filesystem>
-#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -89,8 +88,6 @@ struct PackRequest {
     maxParallelJobs;                    // D-10: null = resolveWorkerCount() internally
   bool recursive = true;                // Directory mode only
   jobstate::Store* jobState = nullptr;  // D-06: non-null = enable resumable execution
-  std::function<std::string(fs::path const&)>
-    entryNameForFile;                   // D-07: optional callback for path-only entries
 };
 
 // --- execute() (D-05) ---
