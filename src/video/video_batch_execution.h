@@ -1,38 +1,31 @@
 #pragma once
 
 #include "core/app_context.h"
+#include "core/encoding_state.h"
 #include "core/progress.h"
 
 #include <atomic>
 #include <chrono>
 #include <cstddef>
-#include <filesystem>
 #include <format>
-#include <map>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
-namespace fs = std::filesystem;
-
 namespace videobatch {
 
-// Lookup-only action-id map keyed by input path. Unordered by design: only
-// ever queried via find(), never iterated for user-visible output.
-using ActionIdMap = appctx::path_map<std::string>;
-// Ordered result map (path-sorted iteration) — the failure list and zip
-// member order in the summary/output collection depend on this ordering.
-using EncodeResultsMap = std::map<fs::path, bool>;
-
-struct EncodingBatchOutcome {
-  std::optional<EncodeResultsMap> results;     // nullopt = canceled at the prompt
+// What the encode phase reports that is not per-item: the plan, the job-state
+// action id, the probe decision and each file's outcome all live on the item.
+struct EncodingBatchSummary {
+  // Probe aborted or failed, or the confirmation was declined: the caller
+  // returns the cancel exit code and prints no summary.
+  bool canceled = false;
   std::vector<std::string> attentionWarnings;  // unreachable-floor files
   bool dryRun = false;  // probe plan printed; exit without encoding
-  // input -> child diagnostic line for failed encodes
-  std::map<fs::path, std::string> failureReasons;
   // Files dropped before encoding (estimated output larger than the source);
-  // they are absent from `results`, so the summary needs them to report a
+  // they never reach the encode stage, so the summary needs them to report a
   // total that the outcome classes add up to.
   std::size_t skippedCount = 0;
   // Wall time the encode batch itself took, excluding the probe stage and the
@@ -40,21 +33,14 @@ struct EncodingBatchOutcome {
   std::chrono::milliseconds encodeElapsed{};
 };
 
-// Batch job description threaded through the encode pipeline: the files to
-// encode, where each output lands, and the job-state action ids tracking
-// them. Produced together by the caller and consumed as one unit.
-struct EncodingBatchJob {
-  std::vector<fs::path> vids;
-  appctx::path_map<fs::path> plannedOutputFiles;
-  ActionIdMap actionIds;
-};
-
+// Runs the encode phase over the pending items, writing each file's outcome
+// back onto its item.
 auto runEncodingTasks(
   appctx::AppContext& ctx,
-  EncodingBatchJob const& job,
+  std::span<appctx::EncodingStatePtr const> items,
   std::size_t overallTotalCount,
   std::size_t initialCompletedCount
-) -> EncodingBatchOutcome;
+) -> EncodingBatchSummary;
 
 namespace detail {
 
@@ -146,17 +132,6 @@ private:
 struct EncodingExecutionContext {
   appctx::AppContext& app;
   EncodingProgressState& progressState;
-  appctx::path_map<fs::path> const& plannedOutputFiles;
-  videobatch::ActionIdMap const& actionIds;
-  // Per-task flag: this task's encode child was killed while the stop was
-  // pending, so its failure belongs to the cancellation rather than the item —
-  // the results map and the failed-file list must not carry it
-  // (cancellation-reporting). Index matches the encode task list.
-  std::vector<std::atomic_bool> stopAborted;
-  // Per-file probe decisions (input path -> chosen CQ), copied when execution
-  // contexts are created after the confirmation gate; empty when probing was
-  // skipped (--crf, webp, or short videos).
-  appctx::path_map<int> probeCqByInput;
 
   auto& counters() { return progressState.counters; }
   auto const& counters() const { return progressState.counters; }
@@ -172,6 +147,13 @@ struct EncodingExecutionContext {
   auto finished() const { return counters().finished.load(std::memory_order_acquire); }
 
   void markFinished() { counters().finished.fetch_add(1, std::memory_order_release); }
+
+  // The Overall bar's text. One formatter for the bar and for the runner's
+  // completion hook, so the count the hook writes cannot drift from the count
+  // the monitor writes.
+  auto overallText() const -> std::string {
+    return std::format("Overall: {}/{}", finished(), overallTotal());
+  }
 
   auto barIndex(std::size_t slot) const { return slots().barIndexes[slot]; }
 
@@ -285,39 +267,7 @@ struct EncodingExecutionContext {
     }
 
     progress().setProgress(overallBarIndex.value(), overallPercent);
-    progress().setPostfixText(
-      overallBarIndex.value(),
-      std::format("Overall: {}/{}", completed, overallTotal())
-    );
-  }
-
-  void finalizeState(appctx::EncodingStatePtr const& vidState, bool result) {
-    auto progressFileToRemove = std::optional<fs::path>{};
-
-    {
-      auto lock = std::scoped_lock{vidState->mtx};
-
-      if (result) {
-        if (
-          vidState->plannedOutputFile.has_value()
-          && fs::exists(vidState->plannedOutputFile.value())
-        ) {
-          vidState->outputFile = vidState->plannedOutputFile;
-        }
-      }
-
-      vidState->finished = true;
-      vidState->success = result;
-      vidState->endTime = std::chrono::steady_clock::now();
-      vidState->lastProgressAtomic.store(100.0f, std::memory_order_release);
-
-      progressFileToRemove = vidState->progressFilePath;
-    }
-
-    if (progressFileToRemove.has_value()) {
-      auto ec = std::error_code{};
-      fs::remove(progressFileToRemove.value(), ec);
-    }
+    progress().setPostfixText(overallBarIndex.value(), overallText());
   }
 };
 

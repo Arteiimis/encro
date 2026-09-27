@@ -175,8 +175,10 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
 
 ## Batch progress in `runTasks`: narrower than the review card claimed (deferred)
 
-- **Status:** open — fact-checked 2026-09-19, scope reduced, deliberately not
-  scheduled until `unify-task-outcome` lands.
+- **Status:** resolved — fixed by `unify-media-item-and-stages`, which landed
+  `TaskPlan::onTaskFinished`, the completion hook this entry's narrow version asked for (its
+  first consumer is `migrate-video-to-media-items`) · **Found:** 2026-09-19 (the fact-check
+  reduced the review card's scope to that hook).
 - **Original candidate:** "move batch counting, rate, cursor and ETA into
   `runTasks`" (architecture-review card 7) — the executor knows how many tasks
   finished but offers no completion hook, so each caller re-wraps every task to
@@ -336,6 +338,38 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
   `unify-media-item-and-stages` deliberately leaves `src/organize/execute.cpp` untouched
   (it migrates only the analysis phase), so this is not a prerequisite for it.
 
+## `summaryOutputDir` names an arbitrary directory from an unordered map
+
+- **Status:** resolved — fixed by `migrate-video-to-media-items`, which removed the
+  path-keyed carrier: `summaryOutputDir` now walks the item vector in input order
+  (`src/video/video_process.cpp:247-260`) · **Found:** 2026-09-22 while reviewing
+  `reuse-hash-and-naming-helpers` (pre-existing; the review had to rule out that the change
+  perturbed it).
+- **Symptom:** the summary line of a video run names an output directory that depends
+  on unordered-map iteration order. With `--keep`, inputs under several subdirectories
+  and no explicit output path, the directory reported is whichever element iteration
+  happens to reach first, so the same inputs can report a different directory after an
+  unrelated code change.
+- **Root cause:** `summaryOutputDir` (`src/video/video_process.cpp:272-286`) falls back
+  to `plannedOutputFiles.begin()->second.parent_path()` at `:281` when
+  `resolveOutputRootDir` has no answer. `plannedOutputFiles` is an
+  `appctx::path_map<fs::path>`, i.e. a `std::unordered_map`
+  (`src/core/app_context.h:29`), whose iteration order is unspecified and depends on
+  hashing plus insertion history.
+- **Not a planning bug:** every planned name is a pure function of its own input and the
+  plan is keyed by input, so no output file lands in the wrong place — only the
+  *reported* directory is arbitrary. `planVideoOutputFiles` sorts each colliding group by
+  `collisionnaming::stablePathString` before inserting, which fixes insertion order but
+  not the bucket layout, so that sort cannot rescue this.
+- **Fix direction:** derive the summary directory from the inputs — `planningRootDir`, or
+  the common parent of the plan's values — instead of from an arbitrary element; or take
+  the first entry of a `std::map`-ordered view if "first" is meant to be deterministic.
+  Pin it with a case that runs `--keep` over nested inputs under two subdirectories.
+- **Impact:** cosmetic in the common case — a flat run puts every output in one
+  directory, so any element's parent is the same — and wrong only when the plan spans
+  directories. Until it is fixed, "which directory does the summary name" cannot be
+  pinned by a test.
+
 ## Pack-only cancellation is invisible inside the single archive write
 
 - **Status:** open (found 2026-09-26 while verifying `unify-cancel-reporting`) · **Severity:** low (no corruption; the stop still ends the run)
@@ -369,3 +403,36 @@ aggregate was not a metric: the same 770 cases reported 21113, 11350, 7375 and
   data loss (a partially written archive is removed or overwritten by the next
   run) and `--resume`/job-state paths are unaffected (they use per-group archive
   tasks, which do reach a checkpoint).
+
+## Extension lists disagree, and an uppercase `.MP4` never reaches a video scan
+
+- **Status:** open — found 2026-09-27 while planning
+  `share-partial-write-and-bar-helpers` (recorded, not fixed: unifying the lists
+  changes which files each command sees, a spec change rather than a dedup).
+- **Symptom:** the same collection is scanned with different extension sets, so
+  which files a command sees depends on the command: `organize::kImageExtensions`
+  (`src/organize/scan.h:20-29`, 8 entries, uppercase variants listed deliberately
+  because `media::scanByExtensions` is case-sensitive, `:18-19`), `readAllPics`'s
+  `pictureTypes` (`src/picture/picture_process.cpp:802-811`, 7 entries, no `.webp`,
+  with `.bmp`/`.tiff`/`.gif`/`.heic`) and `videoinfo::kVideoTypes`
+  (`src/video/video_info.cpp:31-38`, 6 lowercase entries). A fourth list,
+  `pack::kStoredMediaExtensions` (`src/pack/pack_types.h:22-53`, 27 entries),
+  answers a different question — STORE vs deflate — and is already case-insensitive
+  through `shouldStoreEntry` (`:55-61`). Worst of the drift: `CLIP.MP4` is
+  silently skipped by both video scans and by the picture run's conversion scan.
+- **Root cause:** `isKnownVideoExtension` (`src/video/video_info.cpp:110-115`) and
+  `media::extensionMatches` (`src/core/media_scanner.cpp:18-24`), the comparison
+  `media::scanByExtensions` uses at `:44`/`:94`, match case-sensitively against the
+  lowercase list, so an uppercase extension never matches; the video scans
+  (`video_info.cpp:300`, `:571`) and the conversion scan inherit the skip with no
+  warning. The three lists were each extended for the files its own command was
+  asked to accept, and nothing makes them agree.
+- **Fix direction:** decide one case rule (case-insensitive matching against one
+  canonical lowercase list is the simplest superset) and one owner for the media
+  extension set, then delete the per-command copies. Both steps change which files
+  a command sees, so they belong in their own change with spec deltas and tests,
+  not in a dedup.
+- **Impact:** an uppercase-extension collection looks like "no input found" or is
+  partially processed, with nothing in the output naming the skipped file. Nothing
+  is corrupted. Unifying the lists without first writing down the case rule would
+  silently change the picture and video input sets in the other direction.

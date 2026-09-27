@@ -1,5 +1,7 @@
 #include "video/probe_cache.h"
 
+#include "core/file_write.h"
+
 #include "infra/env.h"
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -174,32 +176,28 @@ void save(std::vector<Entry> const& updates, fs::path const& filePath) {
   // processes from clobbering each other's staging file.
   auto const tmpPath =
     resolvedPath.string() + "." + std::to_string(currentProcessId()) + ".tmp";
-  {
-    auto out = std::ofstream{tmpPath};
-    if (!out) {
-      LOG_WARN("Failed to open probe cache for write: {}", tmpPath);
-      return;
-    }
-    auto entriesArray = boost::json::array{};
-    for (auto const& entry: entries) {
-      entriesArray.push_back(
-        boost::json::object{
-          {"key", entry.key},
-          {"cq", entry.chosenCq},
-          {"p5", entry.p5},
-          {"bytes", static_cast<std::uint64_t>(entry.estimatedBytes)},
-          {"metric", entry.metric},
-          {"floor", entry.unreachableFloor},
-          {"ts", entry.updatedAtMs},
-        }
-      );
-    }
-    out << boost::json::serialize(
+  auto entriesArray = boost::json::array{};
+  for (auto const& entry: entries) {
+    entriesArray.push_back(
       boost::json::object{
-        {"version", kSchemaVersion},
-        {"entries", std::move(entriesArray)}
+        {"key", entry.key},
+        {"cq", entry.chosenCq},
+        {"p5", entry.p5},
+        {"bytes", static_cast<std::uint64_t>(entry.estimatedBytes)},
+        {"metric", entry.metric},
+        {"floor", entry.unreachableFloor},
+        {"ts", entry.updatedAtMs},
       }
     );
+  }
+  auto const content = boost::json::serialize(
+    boost::json::object{{"version", kSchemaVersion}, {"entries", std::move(entriesArray)}}
+  );
+  // WriteFailed is deliberately dropped: the rename below happens either way,
+  // exactly as it did before the helper (design D2).
+  if (fileio::writeStagingFile(tmpPath, content) == fileio::StagingStatus::OpenFailed) {
+    LOG_WARN("Failed to open probe cache for write: {}", tmpPath);
+    return;
   }
 
   auto ec = std::error_code{};

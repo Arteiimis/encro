@@ -2,6 +2,7 @@
 #include "core/job_state_detail.h"
 
 #include "core/collision_naming.h"
+#include "core/file_write.h"
 #include "core/work_dirs.h"
 
 #include "logging/log_tags.h"
@@ -479,19 +480,17 @@ auto flushSnapshot(
   snapshot.updatedAtMs = now;
 
   auto const tempPath = makeTempStatePath(stateFilePath);
-  auto output = std::ofstream{tempPath, std::ios::trunc};
-  if (!output) {
+  auto const content = json::serialize(toJson(snapshot));
+  auto const status = fileio::writeStagingFile(tempPath, content, std::ios::trunc);
+  if (status == fileio::StagingStatus::OpenFailed) {
     return eh::makeError(
       "Failed to open state temp file for writing: {}",
       tempPath.string()
     );
   }
-  output << json::serialize(toJson(snapshot));
-  output.flush();
-  if (!output) {
+  if (status == fileio::StagingStatus::WriteFailed) {
     return eh::makeError("Failed to write state snapshot to: {}", tempPath.string());
   }
-  output.close();
 
   auto ec = std::error_code{};
   fs::rename(tempPath, stateFilePath, ec);
@@ -539,10 +538,7 @@ auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot {
   if (inputPaths.empty() && !config.inputPath.empty()) {
     inputPaths.push_back(config.inputPath);
   }
-  std::ranges::sort(inputPaths, [](fs::path const& lhs, fs::path const& rhs) {
-    return collisionnaming::stablePathString(lhs)
-      < collisionnaming::stablePathString(rhs);
-  });
+  std::ranges::sort(inputPaths, collisionnaming::stablePathLess);
 
   return ConfigSnapshot{
     .processType = config.processType,

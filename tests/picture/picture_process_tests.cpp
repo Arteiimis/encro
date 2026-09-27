@@ -467,7 +467,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "addCompressTask deduplicates and creates valid CompressTask entries",
+  "addCompressTask deduplicates and creates valid MediaItem entries",
   "[picture-process][compress]"
 ) {
   TempDir temp;

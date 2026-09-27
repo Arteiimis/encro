@@ -1,6 +1,8 @@
 #include "picture/picture_video_webp.h"
 
+#include "core/encoding_state.h"
 #include "core/job_state.h"
+#include "core/media_item.h"
 #include "core/task_executor.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
@@ -9,11 +11,11 @@
 
 #include <algorithm>
 #include <atomic>
-#include <map>
+#include <format>
 #include <mutex>
-#include <optional>
-#include <string_view>
-#include <utility>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -35,10 +37,6 @@ constexpr auto kVideoConversionMaxParallel = std::size_t{2};
 // final cached path is always a complete output. Same rule as the picture
 // workflow's compression temp (recognizable media extension, `.partial`), so
 // both share partialTempPath.
-
-auto conversionActionId(picturewebp::ConversionTask const& task) -> std::string {
-  return jobstate::makeEncodeTask(task.sourcePath, task.outputPath).id;
-}
 
 // A cached output may be reused only when the saved state already records a
 // succeeded conversion of this exact source. Anything else - a missing record,
@@ -65,10 +63,7 @@ bool finalizeConvertedOutput(fs::path const& outputPath) {
   auto const tempPath = partialTempPath(outputPath);
   if (!fs::exists(tempPath)) { return false; }
 
-  auto ec = std::error_code{};
-  fs::remove(outputPath, ec);
-  fs::rename(tempPath, outputPath, ec);
-  if (ec) {
+  if (auto const ec = finalizePartialOutput(outputPath)) {
     LOG_WARN(
       "Video conversion output rename failed: output={} error={}",
       outputPath.string(),
@@ -79,250 +74,213 @@ bool finalizeConvertedOutput(fs::path const& outputPath) {
   return true;
 }
 
-struct ConversionBatchState {
-  appctx::AppContext* ctx = nullptr;
-  jobstate::Store* store = nullptr;
-  std::size_t total = 0;
-  std::size_t barIndex = 0;
-  std::atomic_size_t completed{0};
-  progress::ProgressContext* progressCtx = nullptr;
-  std::mutex mtx;
-  std::vector<picturewebp::ConversionTask> converted;
-  std::map<fs::path, std::string> failureReasons;
-};
-
-void recordConversionOutcome(
-  ConversionBatchState& state,
-  picturewebp::ConversionTask const& task,
-  std::string_view actionId,
-  std::optional<std::string> failureReason
-) {
-  auto lock = std::scoped_lock{state.mtx};
-  if (failureReason.has_value()) {
-    auto const reason =
-      failureReason->empty() ? std::string{"conversion failed"} : failureReason.value();
-    state.failureReasons.emplace(task.sourcePath, reason);
-    if (state.store != nullptr) { state.store->markFailed(actionId, reason); }
-    return;
+// Plans the run's conversions: one job-state record per clip, the cache purge
+// for every clip the saved state does not back, and the merge that registers
+// them. The records are parallel to the items, in item order.
+auto planConversionRecords(jobstate::Store* store, std::span<MediaItem> items)
+  -> std::vector<jobstate::TaskRecord> {
+  auto records = std::vector<jobstate::TaskRecord>{};
+  records.reserve(items.size());
+  for (auto const& item: items) {
+    records.push_back(jobstate::makeEncodeTask(item.sourcePath, item.outputPath));
   }
 
-  state.converted.push_back(task);
-  if (state.store != nullptr) { state.store->markSucceeded(actionId); }
+  for (auto index = std::size_t{0}; index < items.size(); ++index) {
+    if (cacheBackedByState(store, records[index])) { continue; }
+    dropCachedOutput(items[index].outputPath);
+  }
+
+  if (store != nullptr) { store->mergeTasks(records); }
+  return records;
 }
 
-auto runConversionTask(
-  ConversionBatchState& state,
-  picturewebp::ConversionTask const& task
+// Encodes one clip and records its outcome in the phase's job state. The
+// status callback paints the encoder's live line onto the phase's bar, which
+// is why it is passed in rather than built here.
+auto convertClip(
+  appctx::AppContext& ctx,
+  jobstate::Store* store,
+  MediaItem& item,
+  std::function<void(std::string const&)> const& statusUpdater
 ) -> eh::Result<void> {
   if (stopsignal::isStopRequested()) {
     return eh::makeError("Video conversion canceled by user.");
   }
 
-  auto const actionId = conversionActionId(task);
-  if (state.store != nullptr) { state.store->markRunning(actionId); }
+  auto const actionId = item.id();
+  if (store != nullptr) { store->markRunning(actionId); }
 
   auto encodingState = appctx::EncodingState{};
-  encodingState.inputPath = task.sourcePath;
+  encodingState.inputPath = item.sourcePath;
   encodingState.actionId = actionId;
   // The encoder writes the temp path; the final cached name appears only after
   // the encoder exited successfully.
-  encodingState.plannedOutputFile = partialTempPath(task.outputPath);
+  encodingState.plannedOutputFile = partialTempPath(item.outputPath);
 
-  auto const statusUpdater = [&state](std::string const& status) {
-    state.progressCtx->setPostfixText(
-      state.barIndex,
-      std::format(
-        "Converting videos: {}/{} [{}]",
-        state.completed.load(std::memory_order_acquire),
-        state.total,
-        status
-      )
-    );
-  };
+  auto const encoded = encodeVideo(ctx, encodingState, "webp", statusUpdater);
+  auto const converted = encoded && finalizeConvertedOutput(item.outputPath);
+  if (converted) {
+    if (store != nullptr) { store->markSucceeded(actionId); }
+    return {};
+  }
 
-  auto const encoded = encodeVideo(*state.ctx, encodingState, "webp", statusUpdater);
-  auto const completed = encoded && finalizeConvertedOutput(task.outputPath);
-  std::optional<std::string> failureReason;
-  if (!completed) {
+  auto reason = std::string{};
+  {
     auto const lock =
       std::scoped_lock{encodingState.mtx};  // NOLINT(bugprone-unused-raii)
-    failureReason = encodingState.lastError.value_or(std::string{});
+    reason = encodingState.lastError.value_or(std::string{});
   }
-  recordConversionOutcome(state, task, actionId, failureReason);
-
-  auto const done = state.completed.fetch_add(1, std::memory_order_release) + 1;
-  state.progressCtx->setProgress(
-    state.barIndex,
-    static_cast<float>(done) / static_cast<float>(state.total) * 100.0f
-  );
-  state.progressCtx->setPostfixText(
-    state.barIndex,
-    std::format("Converting videos: {}/{}", done, state.total)
-  );
-
-  if (!completed) {
-    return eh::makeError("Failed to convert {}", task.sourcePath.string());
-  }
-  return {};
+  if (reason.empty()) { reason = "conversion failed"; }
+  if (store != nullptr) { store->markFailed(actionId, reason); }
+  return eh::makeError("{}", reason);
 }
 
-// Splits the run's conversions into what the saved state already backs and what
-// has to be encoded, dropping the cache entries the state does not back.
-auto planPendingConversions(
+// Closes the bar on the cancel path: the clips that were still pending are
+// interrupted in the saved state, and the bar reports how many conversions had
+// finished before the stop.
+void closeCanceledConversion(
   jobstate::Store* store,
-  std::span<picturewebp::ConversionTask const> tasks
-)
-  -> std::pair<
-    std::vector<picturewebp::ConversionTask>,
-    std::vector<picturewebp::ConversionTask>
-  > {
-  auto plannedRecords = std::vector<jobstate::TaskRecord>{};
-  plannedRecords.reserve(tasks.size());
-  for (auto const& task: tasks) {
-    plannedRecords.push_back(jobstate::makeEncodeTask(task.sourcePath, task.outputPath));
+  std::vector<std::string> const& pendingIds,
+  std::size_t converted,
+  progress::ProgressContext& progressCtx,
+  std::size_t barIndex
+) {
+  if (store != nullptr) {
+    store->markIncompleteInterrupted(pendingIds, "canceled by user");
   }
 
-  for (auto index = std::size_t{0}; index < tasks.size(); ++index) {
-    if (cacheBackedByState(store, plannedRecords[index])) { continue; }
-    dropCachedOutput(tasks[index].outputPath);
-  }
+  mediaitem::closeCanceledStage(progressCtx, barIndex, converted, pendingIds.size());
+  terminal::messageln(Warning, "Video conversion canceled by user.");
+}
 
-  auto pending = std::vector<picturewebp::ConversionTask>{};
-  auto ready = std::vector<picturewebp::ConversionTask>{};
-  if (store == nullptr) {
-    pending.assign(tasks.begin(), tasks.end());
-    return {std::move(pending), std::move(ready)};
-  }
+// Closes the bar on the success path, printing the failures first - while the
+// bar is still on screen, which is where this flow has always printed them.
+// `ready` is how many clips the pack step may use: a cache hit is Skipped and a
+// conversion is Succeeded, and both have a cached output.
+void closeConvertedConversion(
+  std::span<MediaItem> items,
+  mediaitem::StageResult const& result,
+  std::size_t ready,
+  progress::ProgressContext& progressCtx,
+  std::size_t barIndex
+) {
+  mediaitem::printFailures(items);
 
-  for (auto const& task: store->mergeTasks(plannedRecords)) {
-    auto const sourcePath = jobstate::primarySourcePath(task);
-    if (!sourcePath.has_value()) { continue; }
-    auto const found =
-      std::ranges::find_if(tasks, [&](picturewebp::ConversionTask const& candidate) {
-        return candidate.sourcePath == sourcePath.value();
-      });
-    if (found == tasks.end()) { continue; }
-    if (jobstate::needsExecution(task)) {
-      pending.push_back(*found);
-    } else {
-      ready.push_back(*found);
-    }
-  }
+  progressCtx.setRole(barIndex, terminal::Role::Good);
+  progressCtx.setPostfixText(
+    barIndex,
+    std::format(
+      "Converted: {}/{}{}",
+      ready,
+      items.size(),
+      result.failed > 0 ? " (some failed)" : ""
+    )
+  );
+  progressCtx.eraseBars();
+}
 
-  return {std::move(pending), std::move(ready)};
+// Splits the clips into the ids that must be encoded and the already-done
+// decision the stage filters by, keyed on item address: an id-keyed set could
+// let two items that share a source share one decision, since a conversion's id
+// derives from its source path alone. `cacheBackedByState(nullptr, ...)` is
+// false, which makes every clip pending when there is no store.
+auto splitConversions(
+  jobstate::Store* store,
+  std::span<MediaItem const> items,
+  std::span<jobstate::TaskRecord const> records
+) -> std::pair<std::vector<std::string>, std::unordered_map<MediaItem const*, bool>> {
+  auto pendingIds = std::vector<std::string>{};
+  auto backedByItem = std::unordered_map<MediaItem const*, bool>{};
+  backedByItem.reserve(items.size());
+  for (auto index = std::size_t{0}; index < items.size(); ++index) {
+    auto const backed = cacheBackedByState(store, records[index]);
+    backedByItem.emplace(&items[index], backed);
+    if (!backed) { pendingIds.push_back(records[index].id); }
+  }
+  return {std::move(pendingIds), std::move(backedByItem)};
 }
 
 }  // namespace
 
 auto picturewebp::runConversionPhase(
   appctx::AppContext& ctx,
-  std::span<ConversionTask const> tasks,
+  std::span<MediaItem> items,
   std::size_t maxParallel
 ) -> eh::Result<ConversionOutcome> {
-  if (tasks.empty()) { return ConversionOutcome{}; }
+  if (items.empty()) { return ConversionOutcome{}; }
 
   auto* store = ctx.runtime.jobState.get();
-  auto [pending, ready] = planPendingConversions(store, tasks);
+  auto const records = planConversionRecords(store, items);
 
-  if (pending.empty()) {
+  auto const [pendingIds, backedByItem] = splitConversions(store, items, records);
+
+  if (pendingIds.empty()) {
+    // Nothing to encode: every clip is a cache-backed conversion already, and
+    // the pack step reads that off the items.
+    for (auto& item: items) { item.outcome().state = mediaitem::ItemState::Skipped; }
     terminal::println(
       Info,
       "Recovered {} converted video(s) from the conversion cache.",
-      terminal::count(ready.size())
+      terminal::count(items.size())
     );
-    return ConversionOutcome{.canceled = false, .ready = std::move(ready)};
+    return ConversionOutcome{};
   }
 
   terminal::println(
     Info,
     "Converting {} video(s) to WebP...",
-    terminal::count(pending.size())
+    terminal::count(pendingIds.size())
   );
 
   auto progressCtx = progress::ProgressContext{};
-  auto state = ConversionBatchState{
-    .ctx = &ctx,
-    .store = store,
-    .total = pending.size(),
-    .progressCtx = &progressCtx,
-  };
-  state.barIndex = progressCtx.addBar(
-    std::format("Converting videos: 0/{}", pending.size()),
+  auto const barIndex = progressCtx.addBar(
+    std::format("Converting videos: 0/{}", pendingIds.size()),
     terminal::Role::Accent
   );
 
-  auto taskSpecs = std::vector<taskexec::TaskSpec>{};
-  taskSpecs.reserve(pending.size());
-  for (auto const& task: pending) {
-    taskSpecs.push_back({
-      .id = std::format("convert:{}", task.outputPath.string()),
-      .label = task.sourcePath.filename().string(),
-      .input = task.sourcePath.string(),
-      .run = [&state, &task](taskexec::TaskContext&) {
-        return runConversionTask(state, task);
-      },
-    });
-  }
+  // The runner is the single source of the finished-clip count: the postfix
+  // stores what it reports and the encoder's live status line reads it.
+  auto completed = std::atomic_size_t{0};
 
-  auto const runState = taskexec::runTasks({
-    .tasks = std::move(taskSpecs),
-    .maxConcurrency =
-      std::max(std::size_t{1}, std::min(maxParallel, kVideoConversionMaxParallel)),
-    .progress = &progressCtx,
-    .hideCursor = true,
-  });
-
-  if (runState.canceled || stopsignal::isStopRequested()) {
-    auto pendingIds = std::vector<std::string>{};
-    pendingIds.reserve(pending.size());
-    for (auto const& task: pending) { pendingIds.push_back(conversionActionId(task)); }
-    if (store != nullptr) {
-      store->markIncompleteInterrupted(pendingIds, "canceled by user");
+  auto const result = mediaitem::runStage(
+    mediaitem::StageSpec{
+      .progress = &progressCtx,
+      .barIndex = barIndex,
+      .verb = "Converting videos",
+      .maxConcurrency =
+        std::max(std::size_t{1}, std::min(maxParallel, kVideoConversionMaxParallel)),
+      .postfix =
+        [&completed](std::size_t done, std::size_t total, double) {
+          completed.store(done, std::memory_order_release);
+          return std::format("Converting videos: {}/{}", done, total);
+        },
+    },
+    items,
+    [&backedByItem](MediaItem const& item) { return backedByItem.at(&item); },
+    [&](MediaItem& item, taskexec::TaskContext&) -> eh::Result<void> {
+      auto const statusUpdater = [&](std::string const& status) {
+        progressCtx.setPostfixText(
+          barIndex,
+          std::format(
+            "Converting videos: {}/{} [{}]",
+            completed.load(std::memory_order_acquire),
+            pendingIds.size(),
+            status
+          )
+        );
+      };
+      return convertClip(ctx, store, item, statusUpdater);
     }
-
-    auto const converted = [&]() {
-      auto const lock = std::scoped_lock{state.mtx};  // NOLINT(bugprone-unused-raii)
-      return state.converted.size();
-    }();
-    progressCtx.setRole(state.barIndex, terminal::Role::Bad);
-    progressCtx.setPostfixText(
-      state.barIndex,
-      std::format("Canceled: {}/{}", converted, pending.size())
-    );
-    progressCtx.eraseBars();
-    terminal::messageln(Warning, "Video conversion canceled by user.");
-    return ConversionOutcome{.canceled = true, .ready = std::move(ready)};
-  }
-
-  auto const [failedCount, convertedTasks] = [&]() {
-    auto const lock = std::scoped_lock{state.mtx};  // NOLINT(bugprone-unused-raii)
-    for (auto const& [path, reason]: state.failureReasons) {
-      terminal::println(Plain, "  {}: {}", terminal::path(path), reason);
-    }
-    return std::pair{state.failureReasons.size(), state.converted};
-  }();
-  for (auto const& task: convertedTasks) { ready.push_back(task); }
-
-  progressCtx.setRole(state.barIndex, terminal::Role::Good);
-  progressCtx.setPostfixText(
-    state.barIndex,
-    std::format(
-      "Converted: {}/{}{}",
-      ready.size(),
-      tasks.size(),
-      failedCount > 0 ? " (some failed)" : ""
-    )
   );
 
-  if (ready.empty()) {
-    progressCtx.eraseBars();
-    return eh::makeError("All video conversions failed.");
+  if (result.canceled || stopsignal::isStopRequested()) {
+    closeCanceledConversion(store, pendingIds, result.succeeded, progressCtx, barIndex);
+    return ConversionOutcome{.canceled = true};
   }
 
-  progressCtx.eraseBars();
-  return ConversionOutcome{
-    .canceled = false,
-    .ready = std::move(ready),
-    .failedCount = failedCount,
-  };
+  auto const ready = result.succeeded + result.skipped;
+  closeConvertedConversion(items, result, ready, progressCtx, barIndex);
+  if (ready == 0) { return eh::makeError("All video conversions failed."); }
+
+  return ConversionOutcome{.canceled = false, .failedCount = result.failed};
 }

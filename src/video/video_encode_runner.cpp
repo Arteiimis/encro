@@ -4,6 +4,7 @@
 #include "video/video_progress_parser.h"
 
 #include "core/display_text.h"
+#include "core/encoding_state.h"
 #include "core/job_state.h"
 #include "infra/stop_signal.h"
 #include "utils/utils.h"

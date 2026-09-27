@@ -1,4 +1,5 @@
 #include "core/app_context.h"
+#include "core/encoding_state.h"
 #include "infra/stop_signal.h"
 #include "test_utils.h"
 #include "video/video_encode_runner.h"

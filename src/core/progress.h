@@ -105,6 +105,11 @@ public:
   // Read-only view for diagnostics and tests.
   float progressValue(std::size_t barIndex) const;
 
+  // The bar's current postfix text: what setPostfixText last stored, or the
+  // prompt addBar seeded it with until then. Read-only view for diagnostics
+  // and tests.
+  std::string postfixText(std::size_t barIndex) const;
+
   // Repaint passes run so far, including the ones that rendered nothing.
   // Read-only view for diagnostics and tests.
   std::uint64_t tickCount() const;
