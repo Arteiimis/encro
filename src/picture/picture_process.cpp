@@ -22,7 +22,6 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
-#include <map>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -117,9 +116,7 @@ auto planPictureZipEntryNames(
     }
 
     auto sortedPaths = groupedPaths;
-    std::ranges::sort(sortedPaths, [](fs::path const& lhs, fs::path const& rhs) {
-      return naming::stablePathString(lhs) < naming::stablePathString(rhs);
-    });
+    std::ranges::sort(sortedPaths, naming::stablePathLess);
 
     for (auto const& filePath: sortedPaths) {
       plannedEntries[filePath] = buildFlatPictureEntryName(
@@ -139,10 +136,10 @@ auto planVideoConversionTasks(
   fs::path const& dirPath,
   fs::path const& cacheDir,
   std::span<fs::path const> videoPaths
-) -> std::vector<picturewebp::ConversionTask> {
+) -> std::vector<MediaItem> {
   auto const plannedEntryNames = planPictureZipEntryNames(config, dirPath, videoPaths);
 
-  auto tasks = std::vector<picturewebp::ConversionTask>{};
+  auto tasks = std::vector<MediaItem>{};
   tasks.reserve(videoPaths.size());
   for (auto const& videoPath: videoPaths) {
     auto const plannedIt = plannedEntryNames.find(videoPath);
@@ -151,7 +148,7 @@ auto planVideoConversionTasks(
       : videoPath.filename().generic_string();
     auto const webpEntryName = toWebpEntryName(entryName);
     tasks.push_back(
-      picturewebp::ConversionTask{
+      MediaItem{
         .sourcePath = videoPath,
         // Flat entry names carry the conflict-handling suffix, so they are
         // unique within a cache directory.
@@ -187,9 +184,7 @@ auto collectFolderSummaryPictures(
   summaryPictures.reserve(sortedDirKeys.size());
   for (auto const& dirKey: sortedDirKeys) {
     auto pictures = picturesByDirKey.at(dirKey);
-    std::ranges::sort(pictures, [](fs::path const& lhs, fs::path const& rhs) {
-      return naming::stablePathString(lhs) < naming::stablePathString(rhs);
-    });
+    std::ranges::sort(pictures, naming::stablePathLess);
     summaryPictures.push_back(pictures.front());
   }
 
@@ -198,7 +193,7 @@ auto collectFolderSummaryPictures(
 
 void addCompressTask(
   fs::path const& tempDir,
-  std::vector<CompressTask>& compressTasks,
+  std::vector<MediaItem>& compressTasks,
   fs::path const& picPath,
   std::string const& entryName
 ) {
@@ -215,8 +210,8 @@ void addCompressTask(
   fs::create_directories(outputPath.parent_path(), ec);
 
   compressTasks.push_back(
-    CompressTask{
-      .inputPath = picPath,
+    MediaItem{
+      .sourcePath = picPath,
       .outputPath = outputPath,
       .entryName = jpgEntryName,
       .originalEntryName = entryName,
@@ -356,26 +351,23 @@ void prepareConversionCacheDir(fs::path const& cacheDir, bool jobStateMatched) {
 
 struct ConversionPhaseResult {
   int exitCode = 0;  // 0 on success, the canceled exit code when stopped
-  std::vector<picturewebp::ConversionTask> ready;
 };
 
-// Runs the conversion phase. On success the result carries only the clips whose
-// cached output exists, which is what the pack step must use; a clip whose
-// conversion failed is absent, never packed as its source. No planned clip
-// means no phase runs - the flag is off or the input holds no videos - and the
-// run prints no conversion line for it.
-auto runVideoConversionPhase(
-  appctx::AppContext& ctx,
-  std::vector<picturewebp::ConversionTask> const& tasks
-) -> eh::Result<ConversionPhaseResult> {
-  if (tasks.empty()) { return ConversionPhaseResult{}; }
+// Runs the conversion phase. The caller packs through appendVideoPackInputs,
+// which keeps a failed or stop-unreached clip from being packed as its source.
+// No planned clip means no phase runs - the flag is off or the input holds no
+// videos - and the run prints no conversion line for it.
+auto runVideoConversionPhase(appctx::AppContext& ctx, std::span<MediaItem> items)
+  -> eh::Result<ConversionPhaseResult> {
+  if (items.empty()) { return ConversionPhaseResult{}; }
 
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
   auto const startedAt = std::chrono::steady_clock::now();
-  auto const outcome = picturewebp::runConversionPhase(ctx, tasks, maxParallel);
+  auto const outcome = picturewebp::runConversionPhase(ctx, items, maxParallel);
   auto const elapsed = displaytext::elapsedSince(startedAt);
   if (!outcome) { return eh::makeError("{}", outcome.error()); }
 
+  auto const ready = std::ranges::count_if(items, isPackable);
   if (!outcome.value().canceled) {
     terminal::println(
       Plain,
@@ -385,8 +377,8 @@ auto runVideoConversionPhase(
         "Converted"
       ),
       terminal::summaryCounts(
-        outcome.value().ready.size(),
-        tasks.size(),
+        ready,
+        items.size(),
         "videos to WebP",
         outcome.value().failedCount,
         0
@@ -397,7 +389,6 @@ auto runVideoConversionPhase(
 
   return ConversionPhaseResult{
     .exitCode = outcome.value().canceled ? stopsignal::kCanceledExitCode : 0,
-    .ready = outcome.value().ready,
   };
 }
 
@@ -418,20 +409,21 @@ void clearConversionCacheAfterSuccess(appctx::AppContext& ctx) {
 // may reach this point.
 auto appendVideoPackInputs(
   std::vector<pack::PackEntryInput>& packInputs,
-  std::vector<picturewebp::ConversionTask> const& convertedTasks
+  std::span<MediaItem const> convertedItems
 ) {
-  for (auto const& task: convertedTasks) {
-    auto const sourceDir = task.sourcePath.parent_path();
+  for (auto const& item: convertedItems) {
+    if (!isPackable(item)) { continue; }
+    auto const sourceDir = item.sourcePath.parent_path();
     packInputs.emplace_back(
       pack::PackEntryInput{
         .entry =
           pack::PackFileEntry{
-            .sourcePath = task.outputPath,
-            .zipEntryName = task.entryName,
+            .sourcePath = item.outputPath,
+            .zipEntryName = item.entryName,
           },
         .sourceDir = sourceDir,
         .sourceKey = naming::stablePathString(sourceDir),
-        .fileKey = naming::stablePathString(task.sourcePath),
+        .fileKey = naming::stablePathString(item.sourcePath),
       }
     );
   }
@@ -479,7 +471,7 @@ auto executeDirectPackWorkflow(
 
   auto packInputs =
     buildPackEntryInputs(summaryPics, pics, plannedEntryNames, dirPath, resolveSource);
-  appendVideoPackInputs(packInputs, converted.value().ready);
+  appendVideoPackInputs(packInputs, conversion.value());
 
   auto const request = buildPicturePackRequest(std::move(packInputs), outputDir, ctx);
 
@@ -546,8 +538,8 @@ auto buildCompressTaskList(
   std::vector<fs::path> const& pics,
   std::unordered_map<fs::path, std::string> const& plannedEntryNames,
   fs::path const& dirPath
-) -> std::vector<CompressTask> {
-  auto compressTasks = std::vector<CompressTask>{};
+) -> std::vector<MediaItem> {
+  auto compressTasks = std::vector<MediaItem>{};
   compressTasks.reserve(pics.size() + summaryPics.size());
   auto ec = std::error_code{};
 
@@ -567,15 +559,14 @@ auto buildCompressTaskList(
 }
 
 struct CompressPhaseOutcome {
-  bool canceled;
-  std::vector<CompressResult> results;
+  bool canceled = false;
 };
 
-// Runs the JPEG batch; returns the results on success, the canceled exit code
-// on user stop, or an error when every picture failed.
+// Runs the JPEG batch; reports a user stop as `canceled` and errors out when
+// every picture failed.
 auto runCompressionPhase(
   appctx::AppContext& ctx,
-  std::vector<CompressTask> const& compressTasks,
+  std::span<MediaItem> compressTasks,
   int quality,
   std::size_t maxParallel
 ) -> eh::Result<CompressPhaseOutcome> {
@@ -586,13 +577,12 @@ auto runCompressionPhase(
   }
 
   auto const startedAt = std::chrono::steady_clock::now();
-  auto failureReasons = std::map<fs::path, std::string>{};
-  auto const compressResults = [&]() {
+  auto const stage = [&]() {
     logging::ScopedTimer timer("picture.compress");
     auto const compressLabel =
       std::format("{} picture(s) q={}", compressTasks.size(), quality);
     logging::ScopedErrorContext scopedCtx("picture.compress", compressLabel);
-    return compressImageBatch(ctx, compressTasks, quality, maxParallel, failureReasons);
+    return compressImageBatch(ctx, compressTasks, quality, maxParallel);
   }();
   auto const elapsed = displaytext::elapsedSince(startedAt);
 
@@ -601,16 +591,17 @@ auto runCompressionPhase(
       store->markInterrupted(jobstate::kCompressPhaseTaskId, "canceled by user");
     }
     terminal::messageln(Warning, "Compression task canceled by user.");
-    return CompressPhaseOutcome{.canceled = true, .results = {}};
+    return CompressPhaseOutcome{.canceled = true};
   }
 
   // The reasons of a stopped batch name the kill that ended it, not a
   // compression failure, so they print only for a batch that ran to the end.
-  for (auto const& [path, reason]: failureReasons) {
-    terminal::println(Plain, "  {}: {}", terminal::path(path), reason);
-  }
+  mediaitem::printFailures(std::span<MediaItem>{compressTasks});
 
-  if (compressResults.empty()) {
+  auto const succeeded = std::ranges::count_if(compressTasks, [](MediaItem const& item) {
+    return item.result.state == mediaitem::ItemState::Succeeded;
+  });
+  if (succeeded == 0) {
     if (auto* store = ctx.runtime.jobState.get(); store != nullptr) {
       store
         ->markFailed(jobstate::kCompressPhaseTaskId, "all picture compressions failed");
@@ -622,22 +613,16 @@ auto runCompressionPhase(
     store->markSucceeded(jobstate::kCompressPhaseTaskId);
   }
 
-  auto const failedCount = compressTasks.size() - compressResults.size();
+  auto const failedCount = compressTasks.size() - succeeded;
   terminal::println(
     Plain,
     "{} {} in {}",
     terminal::withRole(terminal::outcomeVerbRole(failedCount, 0), "Compressed"),
-    terminal::summaryCounts(
-      compressResults.size(),
-      compressTasks.size(),
-      "pictures",
-      failedCount,
-      0
-    ),
+    terminal::summaryCounts(succeeded, compressTasks.size(), "pictures", failedCount, 0),
     terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(elapsed))
   );
 
-  return CompressPhaseOutcome{.canceled = false, .results = compressResults};
+  return CompressPhaseOutcome{.canceled = false};
 }
 
 // Prefer the compressed JPEG when it is smaller than the source, else fall
@@ -710,7 +695,7 @@ auto executePicturePack(
 auto runCompressPackPhase(
   appctx::AppContext& ctx,
   fs::path const& tempDir,
-  std::vector<CompressTask> const& compressTasks,
+  std::span<MediaItem> compressTasks,
   int quality,
   std::size_t maxParallel
 ) -> eh::Result<int> {
@@ -778,7 +763,7 @@ auto executeCompressPackWorkflow(
   auto const plannedEntryNames =
     planPictureZipEntryNames(ctx.config, dirPath, scannedPics);
 
-  auto const compressTasks =
+  auto compressTasks =
     buildCompressTaskList(tempDir, summaryPics, scannedPics, plannedEntryNames, dirPath);
 
   auto const maxParallel = ctx.config.maxParallelJobs.value_or(10);
@@ -801,7 +786,7 @@ auto executeCompressPackWorkflow(
       return resolveCompressedSource(picPath, entryName, tempDir);
     }
   );
-  appendVideoPackInputs(packInputs, converted.value().ready);
+  appendVideoPackInputs(packInputs, conversion.value());
 
   if (packInputs.empty()) {
     fs::remove_all(tempDir, ec);
@@ -842,8 +827,8 @@ auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
 }
 
 auto planPictureVideoConversions(appctx::AppContext& ctx, fs::path const& dirPath)
-  -> eh::Result<std::vector<picturewebp::ConversionTask>> {
-  if (!ctx.config.videoWebp) { return std::vector<picturewebp::ConversionTask>{}; }
+  -> eh::Result<std::vector<MediaItem>> {
+  if (!ctx.config.videoWebp) { return std::vector<MediaItem>{}; }
 
   auto const scannedVids =
     videoinfo::scanVideosForConversion(dirPath, ctx.config.recursive);
@@ -856,7 +841,7 @@ auto planPictureVideoConversions(appctx::AppContext& ctx, fs::path const& dirPat
     terminal::path(dirPath)
   );
 
-  if (scannedVids->empty()) { return std::vector<picturewebp::ConversionTask>{}; }
+  if (scannedVids->empty()) { return std::vector<MediaItem>{}; }
 
   auto const cacheDirRes = workdirs::resolveWorkRoot(ctx.config);
   if (!cacheDirRes) { return eh::makeError("{}", cacheDirRes.error()); }

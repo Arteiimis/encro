@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/app_context.h"
+#include "core/encoding_state.h"
 
 #include <cstdint>
 #include <filesystem>

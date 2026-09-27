@@ -6,7 +6,9 @@
 #include "video/video_workflow_utils.h"
 
 #include "core/display_text.h"
+#include "core/encoding_state.h"
 #include "core/job_state.h"
+#include "core/media_item.h"
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
 #include "logging/log_tags.h"
@@ -17,18 +19,14 @@
 #include "utils/utils.h"
 
 #include <algorithm>
-#include <boost/lambda2.hpp>  // IWYU pragma: keep
 #include <chrono>
 #include <cstdint>
-#include <map>
+#include <set>
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_PROCESS);
 
 namespace fs = std::filesystem;
-using boost::lambda2::
-  _1;  // NOLINT(bugprone-reserved-identifier): boost::lambda2's conventional placeholder name
-using boost::lambda2::second;
 using enum terminal::MessageKind;
 using pathroots::commonAncestorPath;
 using pathroots::normalizeInputRootDir;
@@ -39,30 +37,24 @@ using videoworkflow::withJobState;
 
 namespace {
 
-using ActionIdMap = videobatch::ActionIdMap;
-using EncodeResultsMap = videobatch::EncodeResultsMap;
-using PendingVidList = std::vector<fs::path>;
 using PendingActionIdList = std::vector<std::string>;
 constexpr auto kVideoArchiveBaseName = std::string_view{"videos"};
 
 int packEncodedVideos(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  EncodeResultsMap const& vidsRunRes
+  std::span<appctx::EncodingStatePtr const> items
 );
 
 void printEncodingSummary(
   fs::path const& outputDir,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  EncodeResultsMap const& vidsRunRes,
-  std::map<fs::path, std::string> const& failureReasons,
+  std::span<appctx::EncodingStatePtr const> items,
   std::span<std::string const> attentionWarnings,
   std::size_t skippedCount,
   std::chrono::milliseconds elapsed
 );
 
-bool hasEncodingFailures(EncodeResultsMap const& vidsRunRes);
+bool hasEncodingFailures(std::span<appctx::EncodingStatePtr const> items);
 
 }  // namespace
 
@@ -70,65 +62,64 @@ namespace {
 
 // NOLINTNEXTLINE(bugprone-exception-escape): implicit default ctor is noexcept (std containers default-construct noexcept); clang-tidy conservative check on the aggregate
 struct PreparedEncodeActions {
-  PendingVidList pendingVids;
-  ActionIdMap actionIds;
-  EncodeResultsMap initialResults;
+  appctx::EncodingStateList pendingItems;
   PendingActionIdList pendingActionIds;
   std::size_t totalActions = 0;
+  std::size_t recoveredCount = 0;
 };
-
-auto buildEncodeActions(
-  std::vector<fs::path> const& vids,
-  appctx::path_map<fs::path> const& plannedOutputFiles
-) -> std::vector<jobstate::TaskRecord> {
-  auto tasks = std::vector<jobstate::TaskRecord>{};
-  tasks.reserve(vids.size());
-
-  for (auto const& vidPath: vids) {
-    auto const plannedOutputFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
-    if (!plannedOutputFile.has_value()) { continue; }
-    tasks.push_back(jobstate::makeEncodeTask(vidPath, plannedOutputFile.value()));
-  }
-
-  return tasks;
-}
 
 auto prepareEncodeActions(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& vids,
-  appctx::path_map<fs::path> const& plannedOutputFiles
+  std::span<appctx::EncodingStatePtr const> items
 ) -> PreparedEncodeActions {
   auto prepared = PreparedEncodeActions{};
-  prepared.totalActions = vids.size();
+  prepared.totalActions = items.size();
 
   auto* store = maybeJobState(ctx);
   if (store == nullptr) {
-    prepared.pendingVids = PendingVidList{vids.begin(), vids.end()};
+    prepared.pendingItems.assign(items.begin(), items.end());
     return prepared;
   }
 
-  auto const mergedTasks =
-    store->mergeTasks(buildEncodeActions(vids, plannedOutputFiles));
+  // One planned task per item that has a planned output, in item order:
+  // mergeTasks returns one merged record per planned task, in the same order,
+  // so the merged tasks line up with the items that produced them.
+  auto plannedItems = appctx::EncodingStateList{};
+  auto plannedTasks = std::vector<jobstate::TaskRecord>{};
+  plannedItems.reserve(items.size());
+  plannedTasks.reserve(items.size());
+  for (auto const& item: items) {
+    if (!item->plannedOutputFile.has_value()) { continue; }
+    plannedItems.push_back(item);
+    plannedTasks.push_back(
+      jobstate::makeEncodeTask(item->inputPath, item->plannedOutputFile.value())
+    );
+  }
 
-  for (auto const& task: mergedTasks) {
-    auto const inputPath = jobstate::primarySourcePath(task);
-    if (!inputPath.has_value()) { continue; }
-    prepared.actionIds.emplace(inputPath.value(), task.id);
+  auto const mergedTasks = store->mergeTasks(plannedTasks);
+
+  for (auto index = std::size_t{0}; index < mergedTasks.size(); ++index) {
+    auto const& task = mergedTasks[index];
+    auto const& item = plannedItems[index];
+    item->actionId = task.id;
     if (jobstate::needsExecution(task)) {
-      prepared.pendingVids.push_back(inputPath.value());
+      prepared.pendingItems.push_back(item);
       prepared.pendingActionIds.push_back(task.id);
       continue;
     }
 
-    prepared.initialResults.emplace(inputPath.value(), true);
+    // Recovered from saved state: the summary counts it as encoded, and it
+    // never enters a stage.
+    item->outcome().state = mediaitem::ItemState::Succeeded;
+    ++prepared.recoveredCount;
   }
 
-  if (!prepared.initialResults.empty()) {
+  if (prepared.recoveredCount != 0) {
     terminal::println(
       Info,
       "Recovered {} completed task(s) from saved state/output files, {} remaining.",
-      terminal::count(prepared.initialResults.size()),
-      terminal::count(prepared.pendingVids.size())
+      terminal::count(prepared.recoveredCount),
+      terminal::count(prepared.pendingItems.size())
     );
   }
 
@@ -232,24 +223,10 @@ auto resolveMultiInputBasePath(
 int maybePackOutputs(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  EncodeResultsMap const& vidsRunRes
+  std::span<appctx::EncodingStatePtr const> items
 ) {
   if (!ctx.config.packOutput) { return 0; }
-  return packEncodedVideos(ctx, inputPath, plannedOutputFiles, vidsRunRes);
-}
-
-auto mergeEncodeResults(
-  EncodeResultsMap initialResults,
-  EncodeResultsMap const& runResults
-) -> EncodeResultsMap {
-  for (auto const& [vidPath, success]: runResults) {
-    // insert_or_assign: run results win over recovered/initial entries,
-    // preserving immer::set's last-write-wins semantics.
-    initialResults.insert_or_assign(vidPath, success);
-  }
-
-  return initialResults;
+  return packEncodedVideos(ctx, inputPath, items);
 }
 
 // Returns the cancellation exit code when a stop request cut the encode batch
@@ -271,17 +248,19 @@ auto maybeHandleInterruptedEncoding(
 }
 
 // The output directory the count line names: the explicit --output, the webp
-// default subdirectory, or wherever the planned outputs land.
+// default subdirectory, or wherever the first planned output lands.
 auto summaryOutputDir(
   appctx::AppConfig const& config,
   std::optional<fs::path> const& planningRootDir,
-  appctx::path_map<fs::path> const& plannedOutputFiles
+  std::span<appctx::EncodingStatePtr const> items
 ) -> fs::path {
   if (auto const dir = resolveOutputRootDir(config, planningRootDir)) {
     return dir.value();
   }
-  if (!plannedOutputFiles.empty()) {
-    return plannedOutputFiles.begin()->second.parent_path();
+  for (auto const& item: items) {
+    if (item->plannedOutputFile.has_value()) {
+      return item->plannedOutputFile->parent_path();
+    }
   }
   return planningRootDir.value_or(fs::path{});
 }
@@ -289,8 +268,7 @@ auto summaryOutputDir(
 int maybePackWorkflowOutputs(
   appctx::AppContext& ctx,
   std::optional<fs::path> const& packInputPath,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  EncodeResultsMap const& vidsRunRes
+  std::span<appctx::EncodingStatePtr const> items
 ) {
   if (!ctx.config.packOutput) { return 0; }
 
@@ -302,7 +280,32 @@ int maybePackWorkflowOutputs(
     return 1;
   }
 
-  return maybePackOutputs(ctx, packInputPath.value(), plannedOutputFiles, vidsRunRes);
+  return maybePackOutputs(ctx, packInputPath.value(), items);
+}
+
+// The items the summary and the pack list report, in the path order those two
+// artefacts depend on: `fs::path::operator<`, the comparison the path-keyed
+// result map they used to read from ordered by — not stablePathString, which
+// case-folds. An item the run never reached stays out: it was neither
+// attempted nor skipped.
+auto summaryItemsBySource(appctx::EncodingStateList const& items)
+  -> std::vector<appctx::EncodingStatePtr> {
+  auto sortedItems = std::vector<appctx::EncodingStatePtr>{};
+  sortedItems.reserve(items.size());
+  for (auto const& item: items) {
+    auto const state = item->outcome().state;
+    if (
+      state != mediaitem::ItemState::Succeeded && state != mediaitem::ItemState::Failed
+    ) {
+      continue;
+    }
+    sortedItems.push_back(item);
+  }
+
+  std::ranges::sort(sortedItems, [](auto const& lhs, auto const& rhs) {
+    return lhs->source() < rhs->source();
+  });
+  return sortedItems;
 }
 
 int runScannedEncodingWorkflow(
@@ -320,48 +323,57 @@ int runScannedEncodingWorkflow(
   }
 
   auto const& plannedOutputFiles = plannedOutputFilesRes.value();
+
+  // One item per unique scanned path, in input order: a repeated input is one
+  // item, as the path-keyed result map it replaced counted it, and one item is
+  // one pack input. Each item is alive from planning to summary: the planned
+  // output, the job-state action id and the probe decision all land here, and
+  // the encode stage writes its outcome back here.
+  auto items = appctx::EncodingStateList{};
+  auto seenPaths = std::set<fs::path>{};
+  items.reserve(vids.size());
+  for (auto const& vidPath: vids) {
+    if (!seenPaths.insert(vidPath).second) { continue; }
+    auto item = std::make_shared<appctx::EncodingState>();
+    item->inputPath = vidPath;
+    item->plannedOutputFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
+    items.push_back(std::move(item));
+  }
+
   withJobState(ctx, [](jobstate::Store& store) { store.setStage("encoding"); });
 
-  auto const prepared = prepareEncodeActions(ctx, vids, plannedOutputFiles);
-  auto const pendingVids = prepared.pendingVids;
-  auto vidsRunRes = EncodeResultsMap{};
+  auto const prepared = prepareEncodeActions(ctx, items);
   auto attentionWarnings = std::vector<std::string>{};
-  auto failureReasons = std::map<fs::path, std::string>{};
   auto encodeElapsed = std::chrono::milliseconds{0};
   auto skippedCount = std::size_t{0};
   {
     logging::ScopedTimer timer("video.encode");
-    auto const encodeLabel = std::format("{} video(s)", vids.size());
+    auto const encodeLabel = std::format("{} video(s)", items.size());
     logging::ScopedErrorContext scopedCtx("video.encode", encodeLabel);
-    auto const encodeJob = videobatch::EncodingBatchJob{
-      .vids = pendingVids,
-      .plannedOutputFiles = plannedOutputFiles,
-      .actionIds = prepared.actionIds,
-    };
     auto outcome = videobatch::runEncodingTasks(
       ctx,
-      encodeJob,
+      prepared.pendingItems,
       prepared.totalActions,
-      prepared.initialResults.size()
+      prepared.recoveredCount
     );
-    if (!outcome.results.has_value()) { return canceledExitCodeForPromptAbort(); }
+    if (outcome.canceled) { return canceledExitCodeForPromptAbort(); }
     if (outcome.dryRun) {
       LOG_INFO("Dry run completed; no files were encoded.");
       return 0;
     }
     attentionWarnings = std::move(outcome.attentionWarnings);
-    failureReasons = std::move(outcome.failureReasons);
     encodeElapsed = outcome.encodeElapsed;
     skippedCount = outcome.skippedCount;
-    vidsRunRes = mergeEncodeResults(prepared.initialResults, outcome.results.value());
   }
 
   // The encode stage's own abort is the stop cutting the batch short: every
   // action accounted for and successful means the batch finished before the
   // stop, so the next stage reports it instead (a batch with no work left is
-  // finished by the same test).
+  // finished by the same test). A file the stop killed keeps no outcome, so it
+  // reads as unreached here rather than as a failure.
+  auto const summaryItems = summaryItemsBySource(items);
   auto const encodeStageFinished =
-    vidsRunRes.size() + skippedCount >= prepared.totalActions;
+    summaryItems.size() + skippedCount >= prepared.totalActions;
   if (!encodeStageFinished) {
     if (
       auto const stopExit = maybeHandleInterruptedEncoding(ctx, prepared);
@@ -372,9 +384,7 @@ int runScannedEncodingWorkflow(
   }
 
   if (
-    prepared.pendingVids.empty()
-    && !prepared.initialResults.empty()
-    && ctx.config.packOutput
+    prepared.pendingItems.empty() && prepared.recoveredCount != 0 && ctx.config.packOutput
   ) {
     auto const proceed = readUserIpt(
       ctx.config.yesToAll,
@@ -391,43 +401,36 @@ int runScannedEncodingWorkflow(
   // The encode summary prints before packing, matching the order the work ran
   // in, so the packing result stays the run's last product line.
   printEncodingSummary(
-    summaryOutputDir(ctx.config, planningRootDir, plannedOutputFiles),
-    plannedOutputFiles,
-    vidsRunRes,
-    failureReasons,
+    summaryOutputDir(ctx.config, planningRootDir, items),
+    summaryItems,
     attentionWarnings,
     skippedCount,
     encodeElapsed
   );
 
-  auto const packRes =
-    maybePackWorkflowOutputs(ctx, packInputPath, plannedOutputFiles, vidsRunRes);
+  auto const packRes = maybePackWorkflowOutputs(ctx, packInputPath, summaryItems);
   if (packRes != 0) { return packRes; }
 
   withJobState(ctx, [](jobstate::Store& store) { store.setStage("completed"); });
 
   if (onCompleted) { onCompleted(); }
 
-  return hasEncodingFailures(vidsRunRes) ? 1 : 0;
+  return hasEncodingFailures(summaryItems) ? 1 : 0;
 }
 
 auto collectEncodedOutputFiles(
   appctx::AppContext& ctx,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  EncodeResultsMap const& vidsRunRes
+  std::span<appctx::EncodingStatePtr const> items
 ) -> std::vector<EncodedVideoPackFile> {
   constexpr auto kWebpPackMaxSize = std::uintmax_t{20ULL * 1024ULL * 1024ULL};
 
   auto encodedOutputFiles = std::vector<EncodedVideoPackFile>{};
-  encodedOutputFiles.reserve(vidsRunRes.size());
-  LOG_DEBUG(
-    "Collecting encoded outputs for packing: success-map-size={}",
-    vidsRunRes.size()
-  );
-  for (auto const& [vidPath, success]: vidsRunRes) {
-    if (!success) { continue; }
+  encodedOutputFiles.reserve(items.size());
+  LOG_DEBUG("Collecting encoded outputs for packing: item-count={}", items.size());
+  for (auto const& item: items) {
+    if (item->outcome().state != mediaitem::ItemState::Succeeded) { continue; }
 
-    auto const outFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
+    auto const& outFile = item->plannedOutputFile;
     if (!outFile.has_value() || !fs::exists(outFile.value())) { continue; }
 
     if (
@@ -454,15 +457,13 @@ auto collectEncodedOutputFiles(
 int packEncodedVideos(
   appctx::AppContext& ctx,
   fs::path const& inputPath,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  EncodeResultsMap const& vidsRunRes
+  std::span<appctx::EncodingStatePtr const> items
 ) {
   logging::ScopedTimer timer("video.pack");
   auto const packPathStr = inputPath.string();
   logging::ScopedErrorContext scopedCtx("video.pack", packPathStr);
   LOG_INFO("Packing encoded outputs for input: {}", inputPath.string());
-  auto const encodedOutputFiles =
-    collectEncodedOutputFiles(ctx, plannedOutputFiles, vidsRunRes);
+  auto const encodedOutputFiles = collectEncodedOutputFiles(ctx, items);
   if (encodedOutputFiles.empty()) {
     terminal::messageln(Hint, "No encoded output files found to pack.");
     return 0;
@@ -531,16 +532,16 @@ int packEncodedVideos(
 
 void printEncodingSummary(
   fs::path const& outputDir,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  EncodeResultsMap const& vidsRunRes,
-  std::map<fs::path, std::string> const& failureReasons,
+  std::span<appctx::EncodingStatePtr const> items,
   std::span<std::string const> attentionWarnings,
   std::size_t skippedCount,
   std::chrono::milliseconds elapsed
 ) {
-  auto const successCount = std::ranges::count_if(vidsRunRes, _1->*second);
-  auto const failureCount = vidsRunRes.size() - static_cast<std::size_t>(successCount);
-  auto const totalCount = vidsRunRes.size() + skippedCount;
+  auto const successCount = std::ranges::count_if(items, [](auto const& item) {
+    return item->outcome().state == mediaitem::ItemState::Succeeded;
+  });
+  auto const failureCount = items.size() - static_cast<std::size_t>(successCount);
+  auto const totalCount = items.size() + skippedCount;
 
   LOG_INFO(
     "Encoding summary: total={} success={} failed={} skipped={}",
@@ -567,17 +568,7 @@ void printEncodingSummary(
     terminal::withRole(terminal::Role::Accent, displaytext::formatDuration(elapsed))
   );
 
-  if (failureCount > 0) {
-    for (auto const& [vidPath, success]: vidsRunRes) {
-      if (success) { continue; }
-      auto const reason = failureReasons.find(vidPath);
-      if (reason != failureReasons.end()) {
-        terminal::println(Plain, "  {}: {}", terminal::path(vidPath), reason->second);
-      } else {
-        terminal::println(Plain, "  {}", terminal::path(vidPath));
-      }
-    }
-  }
+  if (failureCount > 0) { mediaitem::printFailures(items); }
 
   if (!attentionWarnings.empty()) {
     // One severity marker for the whole group: the announcement names the
@@ -598,20 +589,21 @@ void printEncodingSummary(
   // single completed task still hints.
   if (successCount != 1) { return; }
 
-  for (auto const& [vidPath, success]: vidsRunRes) {
-    if (!success) { continue; }
-    auto const outFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
-    if (!outFile.has_value()) { continue; }
+  for (auto const& item: items) {
+    if (item->outcome().state != mediaitem::ItemState::Succeeded) { continue; }
+    if (!item->plannedOutputFile.has_value()) { continue; }
     terminal::println(
       Hint,
       "  Compare: {}",
-      encodeprobe::previewHint(vidPath, outFile.value())
+      encodeprobe::previewHint(item->inputPath, item->plannedOutputFile.value())
     );
   }
 }
 
-bool hasEncodingFailures(EncodeResultsMap const& vidsRunRes) {
-  return std::ranges::any_of(vidsRunRes, !(_1->*second));
+bool hasEncodingFailures(std::span<appctx::EncodingStatePtr const> items) {
+  return std::ranges::any_of(items, [](auto const& item) {
+    return item->outcome().state == mediaitem::ItemState::Failed;
+  });
 }
 
 }  // namespace

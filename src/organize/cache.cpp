@@ -3,6 +3,8 @@
 #include "organize/assign.h"
 #include "organize/cluster.h"
 
+#include "core/file_write.h"
+
 #include <boost/json.hpp>
 
 #include <algorithm>
@@ -177,12 +179,11 @@ void AnalysisCache::saveLocked() {
   fs::create_directories(filePath_.parent_path(), ec);
 
   auto const tempPath = filePath_.string() + ".tmp";
-  {
-    auto out = std::ofstream{tempPath, std::ios::binary};
-    if (!out.is_open()) { return; }
-    out << content;
-    out.flush();
-    if (!out) { return; }
+  if (
+    fileio::writeStagingFile(tempPath, content, std::ios::binary)
+    != fileio::StagingStatus::Written
+  ) {
+    return;
   }
   fs::rename(tempPath, filePath_, ec);
 }

@@ -14,10 +14,12 @@
 #include <chrono>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
 #include <format>
 #include <memory>  // IWYU pragma: keep -- needed with libstdc++; MSVC pulls it transitively
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using namespace std::chrono_literals;
@@ -331,4 +333,198 @@ TEST_CASE(
   auto const lineEnd = output.find('\n', secondPos);
   auto const secondLine = output.substr(secondPos, lineEnd - secondPos);
   CHECK(secondLine.find("[attrs:") == std::string::npos);
+}
+
+// A caller that wants per-completion bookkeeping (a bar it counts, a rate it
+// computes) should read the executor's count instead of wrapping every task.
+TEST_CASE(
+  "onTaskFinished runs once per finished task and reaches the total",
+  "[task-executor]"
+) {
+  stopsignal::reset();
+
+  auto mutex = std::mutex{};
+  auto calls = std::vector<std::pair<std::size_t, std::size_t>>{};
+
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(3);
+  for (auto index = std::size_t{0}; index < 3; ++index) {
+    tasks.push_back({
+      .id = std::format("task-{}", index),
+      .label = std::format("Task {}", index),
+      .run = [](taskexec::TaskContext&) -> eh::Result<void> { return {}; },
+    });
+  }
+
+  auto const result = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = 1,
+    .progress = nullptr,
+    .hideCursor = false,
+    .onTaskFinished = [&](std::size_t done, std::size_t total) {
+      auto const lock = std::lock_guard{mutex};
+      calls.emplace_back(done, total);
+    },
+  });
+
+  REQUIRE(result.attemptedCount == 3);
+  auto const lock = std::lock_guard{mutex};
+  REQUIRE(calls.size() == 3);
+  // `done` counts finished tasks, so it reaches the total without repeating.
+  CHECK(calls[0] == std::pair{std::size_t{1}, std::size_t{3}});
+  CHECK(calls[1] == std::pair{std::size_t{2}, std::size_t{3}});
+  CHECK(calls[2] == std::pair{std::size_t{3}, std::size_t{3}});
+}
+
+// With overlapping workers a count of started tasks would report the total
+// before anything finished, and a caller's rate (done / elapsed) would be
+// wrong from the first completion.
+TEST_CASE("onTaskFinished counts finished tasks, not started ones", "[task-executor]") {
+  stopsignal::reset();
+
+  auto mutex = std::mutex{};
+  auto calls = std::vector<std::size_t>{};
+  auto secondStarted = std::atomic_bool{false};
+  auto firstFinished = std::atomic_bool{false};
+
+  auto tasks = std::vector<taskexec::TaskSpec>{
+    taskexec::TaskSpec{
+      .id = "first",
+      .label = "first",
+      .run = [&](taskexec::TaskContext&) -> eh::Result<void> {
+        // Hold this slot open until the other task is in flight too, so both
+        // workers are busy at the same time.
+        if (!testutils::waitUntil([&] {
+              return secondStarted.load(std::memory_order_acquire);
+            })) {
+          return eh::makeError("second task never started");
+        }
+        firstFinished.store(true, std::memory_order_release);
+        return {};
+      },
+    },
+    taskexec::TaskSpec{
+      .id = "second",
+      .label = "second",
+      .run = [&](taskexec::TaskContext&) -> eh::Result<void> {
+        secondStarted.store(true, std::memory_order_release);
+        if (!testutils::waitUntil([&] {
+              return firstFinished.load(std::memory_order_acquire);
+            })) {
+          return eh::makeError("first task never finished");
+        }
+        return {};
+      },
+    },
+  };
+
+  auto const result = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = 2,
+    .progress = nullptr,
+    .hideCursor = false,
+    .onTaskFinished = [&](std::size_t done, std::size_t) {
+      auto const lock = std::lock_guard{mutex};
+      calls.push_back(done);
+    },
+  });
+
+  REQUIRE(result.attemptedCount == 2);
+  auto const lock = std::lock_guard{mutex};
+  REQUIRE(calls.size() == 2);
+  std::ranges::sort(calls);
+  CHECK(calls[0] == std::size_t{1});
+  CHECK(calls[1] == std::size_t{2});
+}
+
+TEST_CASE(
+  "onTaskFinished is not called for a slot the stop signal skipped",
+  "[task-executor]"
+) {
+  auto const stopGuard = testutils::ScopedStopSignalReset{};
+
+  auto mutex = std::mutex{};
+  auto calls = std::vector<std::pair<std::size_t, std::size_t>>{};
+  auto bodiesStarted = std::atomic_size_t{0};
+
+  auto tasks = std::vector<taskexec::TaskSpec>{};
+  tasks.reserve(3);
+  for (auto index = std::size_t{0}; index < 3; ++index) {
+    tasks.push_back({
+      .id = std::format("task-{}", index),
+      .label = std::format("Task {}", index),
+      .run = [&](taskexec::TaskContext&) -> eh::Result<void> {
+        bodiesStarted.fetch_add(1, std::memory_order_acq_rel);
+        stopsignal::requestStop();
+        return {};
+      },
+    });
+  }
+
+  auto const result = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = 1,
+    .progress = nullptr,
+    .hideCursor = false,
+    .onTaskFinished = [&](std::size_t done, std::size_t total) {
+      auto const lock = std::lock_guard{mutex};
+      calls.emplace_back(done, total);
+    },
+  });
+
+  REQUIRE(result.outcomes.size() == 3);
+  CHECK(result.attemptedCount == 1);
+  auto const lock = std::lock_guard{mutex};
+  // Only the task that ran reached the hook; a skipped slot is not a
+  // completion, so the caller's bar can never claim work it never did.
+  REQUIRE(calls.size() == 1);
+  CHECK(calls[0] == std::pair{std::size_t{1}, std::size_t{3}});
+}
+
+TEST_CASE("a throwing onTaskFinished callback does not fail the run", "[task-executor]") {
+  stopsignal::reset();
+
+  auto [logger, oss] = testutils::registerCapturingLogger(logtags::CORE_TASK);
+  auto calls = std::atomic_size_t{0};
+
+  auto tasks = std::vector<taskexec::TaskSpec>{
+    taskexec::TaskSpec{
+      .id = "ok",
+      .label = "ok",
+      .run = [](taskexec::TaskContext&) -> eh::Result<void> { return {}; },
+    },
+    taskexec::TaskSpec{
+      .id = "fail",
+      .label = "fail",
+      .run = [](taskexec::TaskContext&) -> eh::Result<void> {
+        return eh::makeError("expected failure");
+      },
+    },
+  };
+
+  auto const result = taskexec::runTasks({
+    .tasks = std::move(tasks),
+    .maxConcurrency = 1,
+    .progress = nullptr,
+    .hideCursor = false,
+    .onTaskFinished = [&](std::size_t, std::size_t) {
+      calls.fetch_add(1, std::memory_order_acq_rel);
+      throw std::runtime_error{"hook boom"};
+    },
+  });
+
+  // The outcome is written before the hook runs, so a throwing callback can
+  // neither lose it nor take a pool thread down with it.
+  REQUIRE(result.outcomes.size() == 2);
+  CHECK(result.outcomes[0].state == taskexec::TaskState::Succeeded);
+  REQUIRE(result.outcomes[1].state == taskexec::TaskState::Failed);
+  CHECK(result.outcomes[1].error == "expected failure");
+  CHECK(calls.load(std::memory_order_acquire) == 2);
+
+  logger->flush();
+  auto const output = oss->str();
+  CAPTURE(output);
+  CHECK(output.find("hook boom") != std::string::npos);
+
+  spdlog::drop(logtags::CORE_TASK);
 }

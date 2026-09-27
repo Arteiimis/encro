@@ -1,6 +1,7 @@
 #include "organize/pipeline.h"
 
 #include "core/display_text.h"
+#include "core/media_item.h"
 #include "core/task_executor.h"
 #include "infra/stop_signal.h"
 #include "organize/assign.h"
@@ -12,13 +13,12 @@
 #include "organize/teach.h"
 
 #include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <format>
-#include <mutex>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
+#include <span>
 
 namespace organize {
 
@@ -112,9 +112,17 @@ std::size_t applyCachedAnalyses(std::vector<ImageItem>& items, AnalysisCache& ca
   return cacheHits;
 }
 
+// The analysis stage's skip filter, applied to analysis and to the bar's
+// existence alike: applyCachedAnalyses filled `analysis` from the cache
+// before the stage runs, so this is content-hash dedupe, not path progress.
+bool alreadyAnalyzed(ImageItem const& item) {
+  return item.analysis.has_value();
+}
+
 // Analyzes everything the cache does not cover; identical content dedupes
-// through the cache on the fly. Failures cache an empty result so re-runs
-// never re-pay for a deterministic decode failure. Returns false on cancel.
+// through the cache, so the twin of an analyzed file is filtered instead of
+// classified again. Failures cache an empty result so re-runs never re-pay for
+// a deterministic decode failure. Returns false on cancel.
 bool analyzeMissing(
   std::vector<ImageItem>& items,
   tagger::TaggerEngine& engine,
@@ -122,70 +130,46 @@ bool analyzeMissing(
   Options const& options,
   progress::ProgressContext* progress
 ) {
-  auto analysisTasks = std::vector<taskexec::TaskSpec>{};
   auto cacheMutex = std::mutex{};
-  for (auto index = std::size_t{0}; index < items.size(); ++index) {
-    if (cache.get(items[index].contentHash).has_value()) { continue; }
-    analysisTasks.push_back(
-      taskexec::TaskSpec{
-        .id = items[index].contentHash,
-        .label = items[index].path.filename().string(),
-        .input = items[index].path.string(),
-        .run = [&engine, &items, &cache, &cacheMutex, index](taskexec::TaskContext&)
-          -> eh::Result<void> {
-          auto result = engine.classify(items[index].path);
-          auto outcome = AnalysisResult{};
-          if (result.has_value()) { outcome = std::move(*result); }
-          auto lock = std::lock_guard{cacheMutex};
-          items[index].analysis = outcome;
-          cache.put(items[index].contentHash, outcome);
-          return {};
-        },
-      }
-    );
+  // The bar is the flow's: created with today's prompt only when something is
+  // pending, and left in place for the caller to erase.
+  auto barIndex = std::size_t{0};
+  if (progress != nullptr && std::ranges::any_of(items, [](ImageItem const& item) {
+        return !alreadyAnalyzed(item);
+      })) {
+    barIndex = progress->addBar("Analyzing");
+    progress->resetEta(barIndex);
   }
-  if (analysisTasks.empty()) { return true; }
 
-  auto barIndex = progress != nullptr ? progress->addBar("Analyzing")
-                                      : std::numeric_limits<std::size_t>::max();
-  if (progress != nullptr) { progress->resetEta(barIndex); }
-  auto const total = analysisTasks.size();
-  auto done = std::atomic<std::size_t>{0};
-  auto const startedAt = std::chrono::steady_clock::now();
-  for (auto& task: analysisTasks) {
-    task.run = [run = std::move(task.run),
-                &done,
-                total,
-                barIndex,
-                progress,
-                startedAt](taskexec::TaskContext& ctx) -> eh::Result<void> {
-      auto outcome = run(ctx);
-      auto const finished = done.fetch_add(1) + 1;
-      if (progress != nullptr) {
-        auto const percent =
-          static_cast<float>(finished) / static_cast<float>(total) * 100.0F;
-        auto const seconds =
-          std::chrono::duration<float>(std::chrono::steady_clock::now() - startedAt)
-            .count();
-        auto const rate = seconds > 0.0F ? static_cast<float>(finished) / seconds : 0.0F;
-        progress->setProgress(barIndex, percent);
-        progress->setPostfixText(
-          barIndex,
-          std::format("{}/{} - {:.0f} img/s", finished, total, rate)
-        );
-      }
-      return outcome;
-    };
-  }
-  auto const runResult = taskexec::runTasks({
-    .tasks = std::move(analysisTasks),
-    .maxConcurrency = options.maxJobs,
-    .progress = progress,
-    // Per-image bar redraws flicker unless the cursor stays hidden for the
-    // whole run (same as the encode/pack/picture pipelines).
-    .hideCursor = true,
-  });
-  return !runResult.canceled;
+  auto const stageResult = mediaitem::runStage(
+    mediaitem::StageSpec{
+      .progress = progress,
+      .barIndex = barIndex,
+      .maxConcurrency = options.maxJobs,
+      // The bar shows the rate instead of "{verb}: {done}/{total}"; `total` is
+      // the stage's own count, i.e. the uncached remainder.
+      .postfix =
+        [](std::size_t done, std::size_t total, double elapsedSeconds) {
+          auto const seconds = static_cast<float>(elapsedSeconds);
+          auto const rate = seconds > 0.0F ? static_cast<float>(done) / seconds : 0.0F;
+          return std::format("{}/{} - {:.0f} img/s", done, total, rate);
+        },
+    },
+    std::span<ImageItem>{items},
+    alreadyAnalyzed,
+    [&engine,
+     &cache,
+     &cacheMutex](ImageItem& item, taskexec::TaskContext&) -> eh::Result<void> {
+      auto result = engine.classify(item.path);
+      auto outcome = AnalysisResult{};
+      if (result.has_value()) { outcome = std::move(*result); }
+      auto lock = std::lock_guard{cacheMutex};
+      item.analysis = outcome;
+      cache.put(item.contentHash, outcome);
+      return {};
+    }
+  );
+  return !stageResult.canceled;
 }
 
 // Routes every analyzed item; returns the single-subject remainder indices.

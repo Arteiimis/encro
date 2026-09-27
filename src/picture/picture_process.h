@@ -20,7 +20,7 @@ auto readAllPics(appctx::AppConfig const& config, std::filesystem::path const& d
 auto planPictureVideoConversions(
   appctx::AppContext& ctx,
   std::filesystem::path const& dirPath
-) -> eh::Result<std::vector<picturewebp::ConversionTask>>;
+) -> eh::Result<std::vector<MediaItem>>;
 
 auto runPicturePackWorkflow(appctx::AppContext& ctx, std::filesystem::path const& dirPath)
   -> eh::Result<int>;

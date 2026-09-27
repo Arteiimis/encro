@@ -5,8 +5,9 @@
 #include "video/video_workflow_utils.h"
 
 #include "core/display_text.h"
-#include "core/collision_naming.h"
+#include "core/encoding_state.h"
 #include "core/job_state.h"
+#include "core/media_item.h"
 #include "core/task_executor.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
@@ -20,7 +21,9 @@
 #include <chrono>
 #include <cstdint>
 #include <format>
+#include <optional>
 #include <thread>
+#include <unordered_map>
 
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
 DEFINE_LOGGER(logtags::VIDEO_BATCH);
@@ -29,7 +32,6 @@ namespace fs = std::filesystem;
 using enum terminal::MessageKind;
 using videobatch::detail::EncodingExecutionContext;
 using videobatch::detail::EncodingProgressState;
-using videoworkflow::lookupPlannedOutputFile;
 using videoworkflow::maybeJobState;
 using videoworkflow::noteStopRequest;
 using videoworkflow::withJobState;
@@ -52,28 +54,72 @@ auto persistedElapsedMs(
 
 namespace {
 
-void markRunningNoProgress(
+// One file's encode bookkeeping, shared by the parallel stage and the verbose
+// sequential stage: the job-state running/settled transitions, the item's
+// final state and the progress-file cleanup. Bars and log lines stay with the
+// caller, which is all the two modes differ in.
+//
+// Returns the failure text to record on the item, or nullopt on success. The
+// text is empty when the encoder recorded no reason of its own.
+auto encodeOneItem(
   appctx::AppContext& ctx,
-  std::optional<std::string> const& actionId
-) {
-  if (auto* store = maybeJobState(ctx); actionId.has_value()) {
-    store->markRunning(actionId.value());
-  }
-}
-
-void finalizeEncodeResult(
-  appctx::AppContext& ctx,
-  std::optional<std::string> const& actionId,
-  bool success,
-  std::string const& failureReason
-) {
-  if (auto* store = maybeJobState(ctx); actionId.has_value()) {
-    if (success) {
-      store->markSucceeded(actionId.value());
-    } else {
-      store->markFailed(actionId.value(), failureReason);
+  appctx::EncodingState& item,
+  function_ref statusUpdater,
+  std::size_t workerCount = 1
+) -> std::optional<std::string> {
+  {
+    auto lock = std::scoped_lock{item.mtx};
+    if (auto* store = maybeJobState(ctx); item.actionId.has_value()) {
+      store->markRunning(item.actionId.value());
     }
   }
+
+  auto const success =
+    encodeVideo(ctx, item, ctx.config.outputFormat, statusUpdater, workerCount);
+
+  auto progressFileToRemove = std::optional<fs::path>{};
+  auto lastStatus = std::optional<std::string>{};
+  auto failureText = std::string{};
+  {
+    auto lock = std::scoped_lock{item.mtx};
+    if (
+      success
+      && item.plannedOutputFile.has_value()
+      && fs::exists(item.plannedOutputFile.value())
+    ) {
+      item.outputFile = item.plannedOutputFile;
+    }
+    item.finished = true;
+    item.success = success;
+    item.endTime = std::chrono::steady_clock::now();
+    item.lastProgressAtomic.store(100.0f, std::memory_order_release);
+    progressFileToRemove = item.progressFilePath;
+    lastStatus = item.lastStatus;
+    failureText = item.lastError.value_or(item.lastStatus.value_or(""));
+  }
+
+  if (progressFileToRemove.has_value()) {
+    auto ec = std::error_code{};
+    fs::remove(progressFileToRemove.value(), ec);
+  }
+
+  if (auto* store = maybeJobState(ctx); item.actionId.has_value()) {
+    if (success) {
+      if (lastStatus.has_value()) {
+        store->markSucceeded(item.actionId.value(), lastStatus.value());
+      } else {
+        store->markSucceeded(item.actionId.value());
+      }
+    } else {
+      store->markFailed(
+        item.actionId.value(),
+        failureText.empty() ? "encoding failed" : failureText
+      );
+    }
+  }
+
+  if (success) { return std::nullopt; }
+  return failureText;
 }
 
 auto makeSlotLabel(fs::path const& vidPath) -> std::string {
@@ -96,41 +142,14 @@ void reportEncodingStatus(
   }
 }
 
-// Fills the fields shared by the executor and the no-progress path: task
-// correlation, the planned output file, and the probed CQ.
-void applyEncodingStateCommonFields(
-  appctx::EncodingState& state,
-  videobatch::ActionIdMap const& actionIds,
-  appctx::path_map<fs::path> const& plannedOutputFiles,
-  appctx::path_map<int> const& probeCqByInput,
-  fs::path const& vidPath
-) {
-  if (auto const it = actionIds.find(vidPath); it != actionIds.end()) {
-    state.actionId = it->second;
-  }
-  state.plannedOutputFile = lookupPlannedOutputFile(plannedOutputFiles, vidPath);
-  if (auto const it = probeCqByInput.find(vidPath); it != probeCqByInput.end()) {
-    state.chosenCq = it->second;
-  }
-}
-
-auto createEncodingState(
-  EncodingExecutionContext& executionCtx,
-  fs::path const& vidPath,
+// The item was built at planning; the run only stamps the slot it took and
+// when it started.
+void startEncodingState(
+  appctx::EncodingState& item,
   std::optional<std::size_t> barIndex
-) -> appctx::EncodingStatePtr {
-  auto vidState = std::make_shared<appctx::EncodingState>();
-  vidState->inputPath = vidPath;
-  vidState->barIndex = barIndex;
-  applyEncodingStateCommonFields(
-    *vidState,
-    executionCtx.actionIds,
-    executionCtx.plannedOutputFiles,
-    executionCtx.probeCqByInput,
-    vidPath
-  );
-  vidState->startTime = std::chrono::steady_clock::now();
-  return vidState;
+) {
+  item.barIndex = barIndex;
+  item.startTime = std::chrono::steady_clock::now();
 }
 
 // Records the message of an exception that escaped runEncodingTask (which
@@ -149,11 +168,9 @@ void recordTaskException(
   executionCtx.clearActive(slot);
 }
 
+// The post-encode fields the parallel path logs.
 struct EncodingOutcome {
   std::optional<fs::path> outputFile_;
-  std::optional<std::string> actionId_;
-  std::optional<std::string> lastStatus_;
-  std::string failureReason_ = "encoding failed";
   int64_t elapsedMs_ = 0;
 };
 
@@ -161,13 +178,6 @@ auto collectOutcome(appctx::EncodingState& vidState) -> EncodingOutcome {
   auto outcome = EncodingOutcome{};
   auto lock = std::scoped_lock{vidState.mtx};
   outcome.outputFile_ = vidState.outputFile;
-  outcome.actionId_ = vidState.actionId;
-  outcome.lastStatus_ = vidState.lastStatus;
-  if (vidState.lastError.has_value()) {
-    outcome.failureReason_ = vidState.lastError.value();
-  } else if (vidState.lastStatus.has_value()) {
-    outcome.failureReason_ = vidState.lastStatus.value();
-  }
   if (vidState.startTime.has_value() && vidState.endTime.has_value()) {
     using namespace std::chrono;
     auto const elapsed = vidState.endTime.value() - vidState.startTime.value();
@@ -176,28 +186,10 @@ auto collectOutcome(appctx::EncodingState& vidState) -> EncodingOutcome {
   return outcome;
 }
 
-void notifyJobState(
-  appctx::AppContext& ctx,
-  bool result,
-  EncodingOutcome const& outcome
-) {
-  if (auto* store = maybeJobState(ctx); outcome.actionId_.has_value()) {
-    if (result) {
-      if (outcome.lastStatus_.has_value()) {
-        store->markSucceeded(outcome.actionId_.value(), outcome.lastStatus_.value());
-      } else {
-        store->markSucceeded(outcome.actionId_.value());
-      }
-    } else {
-      store->markFailed(outcome.actionId_.value(), outcome.failureReason_);
-    }
-  }
-}
-
 auto runEncodingTask(
   EncodingExecutionContext& executionCtx,
+  appctx::EncodingStatePtr const& item,
   std::size_t taskIndex,
-  fs::path const& vidPath,
   std::size_t slot
 ) -> eh::Result<void> {
   if (stopsignal::isStopRequested()) {
@@ -205,7 +197,7 @@ auto runEncodingTask(
     // The stop reached this task before its work started: it is a victim like a
     // killed child, so it leaves no result and no failure reason (the store
     // records it interrupted through markIncompleteInterrupted).
-    executionCtx.stopAborted[taskIndex].store(true, std::memory_order_release);
+    item->stopVictim = true;
     return eh::makeError("Encoding canceled by user.");
   }
 
@@ -214,149 +206,118 @@ auto runEncodingTask(
     slot + 1,
     taskIndex + 1,
     executionCtx.pendingTotal(),
-    vidPath.string()
+    item->inputPath.string()
   );
   auto const barIndex = executionCtx.barIndexOpt(slot);
-  auto vidState = createEncodingState(executionCtx, vidPath, barIndex);
-  executionCtx.setActive(slot, vidState);
+  startEncodingState(*item, barIndex);
+  executionCtx.setActive(slot, item);
 
-  auto const fileLabel = makeSlotLabel(vidPath);
-  {
-    auto lock = std::scoped_lock{vidState->mtx};
-    if (auto* store = maybeJobState(executionCtx.app); vidState->actionId.has_value()) {
-      store->markRunning(vidState->actionId.value());
-    }
-  }
+  auto const fileLabel = makeSlotLabel(item->inputPath);
   auto elapsedBase = std::chrono::milliseconds{0};
   if (auto* store = maybeJobState(executionCtx.app); store != nullptr) {
-    elapsedBase = videobatch::detail::persistedElapsedMs(*store, vidState->actionId);
+    elapsedBase = videobatch::detail::persistedElapsedMs(*store, item->actionId);
   }
-  executionCtx.barEncodingStart(*vidState, fileLabel, elapsedBase);
-  auto const result = encodeVideo(
+  executionCtx.barEncodingStart(*item, fileLabel, elapsedBase);
+
+  auto const failureText = encodeOneItem(
     executionCtx.app,
-    *vidState,
-    executionCtx.app.config.outputFormat,
+    *item,
     [&](std::string const& status) {
-      reportEncodingStatus(executionCtx, *vidState, fileLabel, status);
+      reportEncodingStatus(executionCtx, *item, fileLabel, status);
     },
     executionCtx.counters().workers
   );
 
-  executionCtx.finalizeState(vidState, result);
-
-  auto const outcome = collectOutcome(*vidState);
+  auto const outcome = collectOutcome(*item);
   // The child this task ran was killed while the stop was pending: that failure
-  // is the cancellation's, not the item's, so the batch records the task here
-  // and it never reaches the results or the failed-file list
+  // is the cancellation's, not the item's, so the item keeps no outcome and it
+  // never reaches the summary's counts or the failed-file list
   // (cancellation-reporting). The durable task record keeps the failure, which
   // resume relies on.
-  if (!result && stopsignal::isStopRequested()) {
-    executionCtx.stopAborted[taskIndex].store(true, std::memory_order_release);
+  if (failureText.has_value() && stopsignal::isStopRequested()) {
+    item->stopVictim = true;
   }
-  notifyJobState(executionCtx.app, result, outcome);
-
-  if (result) {
-    LOG_INFO(
-      "[slot:{} task:{}/{}] encoded success: {} -> {} ({} ms)",
-      slot + 1,
-      taskIndex + 1,
-      executionCtx.pendingTotal(),
-      vidPath.string(),
-      outcome.outputFile_.has_value() ? outcome.outputFile_->string() : "<unknown>",
-      outcome.elapsedMs_
-    );
-  } else {
+  if (failureText.has_value()) {
     LOG_WARN(
       "[slot:{} task:{}/{}] encoded failed: {} ({} ms)",
       slot + 1,
       taskIndex + 1,
       executionCtx.pendingTotal(),
-      vidPath.string(),
+      item->inputPath.string(),
+      outcome.elapsedMs_
+    );
+  } else {
+    LOG_INFO(
+      "[slot:{} task:{}/{}] encoded success: {} -> {} ({} ms)",
+      slot + 1,
+      taskIndex + 1,
+      executionCtx.pendingTotal(),
+      item->inputPath.string(),
+      outcome.outputFile_.has_value() ? outcome.outputFile_->string() : "<unknown>",
       outcome.elapsedMs_
     );
   }
 
-  executionCtx.barDone(barIndex, result, fileLabel);
+  executionCtx.barDone(barIndex, !failureText.has_value(), fileLabel);
   executionCtx.clearActive(slot);
 
-  executionCtx.markFinished();
-  executionCtx.updateOverall();
-
-  if (!result) { return eh::makeError("{}", outcome.failureReason_); }
+  // A failure the encoder left unexplained still names itself, so the summary
+  // prints a line for every failed file.
+  if (failureText.has_value()) {
+    return eh::makeError(
+      "{}",
+      failureText->empty() ? "encoding failed" : failureText.value()
+    );
+  }
   return {};
 }
 
-auto runEncodingWithoutProgress(
-  appctx::AppContext& ctx,
-  videobatch::EncodingBatchJob const& job,
-  appctx::path_map<int> const& probeCqByInput,
-  std::map<fs::path, std::string>& failureReasons
-) -> videobatch::EncodeResultsMap {
-  auto vidsRunRes = videobatch::EncodeResultsMap{};
+// One verbose file: the no-progress log lines around the shared bookkeeping.
+// The failure text the encoder recorded is returned as it is, so a failure
+// with no reason of its own prints no summary line (as it always did here).
+auto runVerboseEncodingItem(appctx::AppContext& ctx, appctx::EncodingState& item)
+  -> eh::Result<void> {
+  LOG_DEBUG("Start encoding (no-progress): {}", item.inputPath.string());
+  auto const failureText = encodeOneItem(ctx, item, {});
+  if (failureText.has_value()) {
+    // A child the stop killed is the cancellation's victim: the item keeps no
+    // outcome, so the batch reads as cut short and the summary lists nothing
+    // (cancellation-reporting).
+    if (stopsignal::isStopRequested()) {
+      item.stopVictim = true;
+      LOG_WARN("Encoded canceled by the stop (no-progress): {}", item.inputPath.string());
+      return eh::makeError("{}", failureText.value());
+    }
+    LOG_WARN("Encoded failed (no-progress): {}", item.inputPath.string());
+    return eh::makeError("{}", failureText.value());
+  }
+  LOG_INFO("Encoded success (no-progress): {}", item.inputPath.string());
+  return {};
+}
 
+void runEncodingWithoutProgress(
+  appctx::AppContext& ctx,
+  std::span<appctx::EncodingStatePtr const> items
+) {
   LOG_INFO(
     "Running encoding without progress bars (verbose output mode), total={}.",
-    job.vids.size()
+    items.size()
   );
 
-  for (auto const& vidPath: job.vids) {
-    if (stopsignal::isStopRequested()) {
-      noteStopRequest(ctx);
-      break;
+  // The verbose path is the parallel stage with one worker and no bar of its
+  // own: the runner owns the per-file outcome write-back, and the job-state
+  // transitions live in encodeOneItem.
+  mediaitem::runStage(
+    mediaitem::StageSpec{
+      .progress = nullptr,
+      .maxConcurrency = 1,
+    },
+    items,
+    [](appctx::EncodingState const&) { return false; },
+    [&ctx](appctx::EncodingState& item, taskexec::TaskContext&) {
+      return runVerboseEncodingItem(ctx, item);
     }
-
-    auto state = appctx::EncodingState{};
-    state.inputPath = vidPath;
-    applyEncodingStateCommonFields(
-      state,
-      job.actionIds,
-      job.plannedOutputFiles,
-      probeCqByInput,
-      vidPath
-    );
-
-    LOG_DEBUG("Start encoding (no-progress): {}", vidPath.string());
-    auto const taskId =
-      state.actionId
-        .value_or(std::format("encode:{}", collisionnaming::stablePathString(vidPath)));
-    // Same correlation as the executor path: task_id + input on every record
-    auto const vidPathText = vidPath.string();
-    auto attrs = logging::ScopedLogAttributes(
-      {{std::string_view{"task_id"}, taskId}, {std::string_view{"input"}, vidPathText}}
-    );
-    markRunningNoProgress(ctx, state.actionId);
-
-    auto const success = encodeVideo(ctx, state, ctx.config.outputFormat, {});
-    if (state.progressFilePath.has_value()) {
-      auto ec = std::error_code{};
-      fs::remove(state.progressFilePath.value(), ec);
-    }
-    // A child the stop killed is the cancellation's victim: leaving no result
-    // entry makes the batch read as cut short, and leaving no failure reason
-    // keeps the summary from listing it (cancellation-reporting).
-    auto const stopVictim = !success && stopsignal::isStopRequested();
-    if (!stopVictim) {
-      vidsRunRes.emplace(vidPath, success);
-      if (!success && state.lastError.has_value()) {
-        failureReasons.emplace(vidPath, state.lastError.value());
-      }
-    }
-    finalizeEncodeResult(
-      ctx,
-      state.actionId,
-      success,
-      state.lastError.value_or("encoding failed")
-    );
-    if (success) {
-      LOG_INFO("Encoded success (no-progress): {}", vidPath.string());
-    } else if (stopVictim) {
-      LOG_WARN("Encoded canceled by the stop (no-progress): {}", vidPath.string());
-    } else {
-      LOG_WARN("Encoded failed (no-progress): {}", vidPath.string());
-    }
-  }
-
-  return vidsRunRes;
+  );
 }
 
 }  // namespace
@@ -372,22 +333,28 @@ enum class ProbeStageStatus {
 
 // Probing stage of runEncodingTasks (MP4 only; --crf bypasses it entirely):
 // picks a per-file CQ meeting the quality floor and prints the plan before
-// the confirmation prompt. Fills probeCqByInput/attentionWarnings on
-// success; encodableVids receives the videos that survive the probe (plans
-// whose estimated size exceeds the source are dropped).
+// the confirmation prompt. Writes each item's chosen CQ and fills
+// attentionWarnings on success; encodableItems receives the items that
+// survive the probe (plans whose estimated size exceeds the source are
+// dropped).
 auto runProbeStage(
   appctx::AppContext& ctx,
-  std::vector<fs::path> const& vids,
-  std::vector<fs::path>& encodableVids,
-  appctx::path_map<int>& probeCqByInput,
+  std::span<appctx::EncodingStatePtr const> items,
+  std::vector<appctx::EncodingStatePtr>& encodableItems,
   std::vector<std::string>& attentionWarnings
 ) -> ProbeStageStatus {
   auto const shouldProbe =
     ctx.config.outputFormat == "mp4" && !ctx.config.crf.has_value();
   if (!shouldProbe) {
-    encodableVids.assign(vids.begin(), vids.end());
+    encodableItems.assign(items.begin(), items.end());
     return ProbeStageStatus::Proceed;
   }
+
+  // The probe phase plans by path and keeps its own plan list, so the paths go
+  // in and the decisions come back onto the items.
+  auto vids = std::vector<fs::path>{};
+  vids.reserve(items.size());
+  for (auto const& item: items) { vids.push_back(item->inputPath); }
 
   auto const probeStartedAt = std::chrono::steady_clock::now();
   auto probeRes = encodeprobe::runProbePhase(ctx, vids);
@@ -402,23 +369,27 @@ auto runProbeStage(
     terminal::messageln(Error, "{}", probeRes.error());
     return ProbeStageStatus::Failed;
   }
-  for (auto const& [vidPath, plan]: probeRes->plans) {
-    probeCqByInput[vidPath] = plan.chosenCq;
-  }
   // Plans marked skipEncode (estimated output > source) never reach the
   // encode stage; the printed plan flags them as skipped.
-  encodableVids.clear();
-  for (auto const& vidPath: vids) {
-    auto const it = probeRes->plans.find(vidPath);
-    if (it != probeRes->plans.end() && it->second.skipEncode) { continue; }
-    encodableVids.push_back(vidPath);
+  encodableItems.clear();
+  for (auto const& item: items) {
+    auto const it = probeRes->plans.find(item->inputPath);
+    if (it == probeRes->plans.end()) {
+      encodableItems.push_back(item);
+      continue;
+    }
+    item->chosenCq = it->second.chosenCq;
+    if (it->second.skipEncode) { continue; }
+    encodableItems.push_back(item);
   }
   attentionWarnings = std::move(probeRes->attentionWarnings);
 
   auto plans = std::vector<encodeprobe::ProbePlan>{};
   plans.reserve(probeRes->plans.size());
-  for (auto const& vidPath: vids) {
-    if (auto const it = probeRes->plans.find(vidPath); it != probeRes->plans.end()) {
+  for (auto const& item: items) {
+    if (
+      auto const it = probeRes->plans.find(item->inputPath); it != probeRes->plans.end()
+    ) {
       plans.push_back(it->second);
     }
   }
@@ -431,52 +402,15 @@ auto runProbeStage(
   return ProbeStageStatus::Proceed;
 }
 
-auto buildEncodeTasks(
-  std::vector<fs::path> const& vids,
-  EncodingExecutionContext& executionCtx
-) -> std::vector<taskexec::TaskSpec> {
-  auto tasks = std::vector<taskexec::TaskSpec>{};
-  tasks.reserve(vids.size());
-  for (auto taskIndex = std::size_t{0}; taskIndex < vids.size(); ++taskIndex) {
-    tasks.push_back({
-      .id = std::format("encode:{}", collisionnaming::stablePathString(vids[taskIndex])),
-      .label = vids[taskIndex].filename().string(),
-      .input = vids[taskIndex].string(),
-      .run = [&, taskIndex, vidPath = vids[taskIndex]](taskexec::TaskContext& taskCtx) {
-        try {
-          return runEncodingTask(executionCtx, taskIndex, vidPath, taskCtx.slot);
-        } catch (std::exception const& ex) {
-          recordTaskException(executionCtx, taskCtx.slot, ex.what());
-          throw;
-        } catch (...) {
-          recordTaskException(executionCtx, taskCtx.slot, "unknown exception");
-          throw;
-        }
-      },
-    });
+// A task the stop killed is the cancellation's victim, not a failed item: the
+// item goes back to the no-outcome state (Pending, no reason), so the batch
+// reads as cut short and nothing lists it as failed (cancellation-reporting).
+// The durable task record keeps the failure, which resume relies on.
+void clearStopVictims(std::span<appctx::EncodingStatePtr const> items) {
+  for (auto const& item: items) {
+    if (!item->stopVictim) { continue; }
+    item->outcome() = mediaitem::ItemOutcome{};
   }
-  return tasks;
-}
-
-auto collectEncodingResults(
-  std::vector<fs::path> const& vids,
-  taskexec::TaskRunResult const& runState,
-  std::map<fs::path, std::string>& failureReasons,
-  std::vector<std::atomic_bool> const& stopAborted
-) -> videobatch::EncodeResultsMap {
-  auto results = videobatch::EncodeResultsMap{};
-  for (auto taskIndex = std::size_t{0}; taskIndex < vids.size(); ++taskIndex) {
-    // A task the stop killed leaves no result (so the batch reads as cut
-    // short) and no failure reason (so nothing lists it as failed).
-    if (stopAborted[taskIndex].load(std::memory_order_acquire)) { continue; }
-    auto const& outcome = runState.outcomes[taskIndex];
-    if (outcome.state == taskexec::TaskState::Skipped) { continue; }
-    results.emplace(vids[taskIndex], outcome.state == taskexec::TaskState::Succeeded);
-    if (outcome.state == taskexec::TaskState::Failed && !outcome.error.empty()) {
-      failureReasons.emplace(vids[taskIndex], outcome.error);
-    }
-  }
-  return results;
 }
 
 }  // namespace
@@ -497,55 +431,43 @@ struct PreparedEncodingExecution {
   std::size_t maxConcurrentJobs;
 };
 
-auto runVerboseEncoding(
+void runVerboseEncoding(
   appctx::AppContext& ctx,
-  videobatch::EncodingBatchJob const& job,
-  appctx::path_map<int>& probeCqByInput,
-  std::map<fs::path, std::string>& failureReasons
-) -> videobatch::EncodeResultsMap {
+  std::span<appctx::EncodingStatePtr const> items
+) {
   // One notice covers both echo levels; suppressed under --quiet, where bars
   // are already off (verbose-levels D5/D6).
   if (!terminal::quiet()) {
     terminal::messageln(Warning, "Echo enabled: progress bars disabled.");
   }
-  return runEncodingWithoutProgress(ctx, job, probeCqByInput, failureReasons);
+  runEncodingWithoutProgress(ctx, items);
 }
 
 auto prepareEncodingExecution(
   appctx::AppContext& ctx,
-  videobatch::EncodingBatchJob const& job,
+  std::span<appctx::EncodingStatePtr const> items,
   std::size_t overallTotalCount,
-  std::size_t initialCompletedCount,
-  appctx::path_map<int>& probeCqByInput
+  std::size_t initialCompletedCount
 ) -> PreparedEncodingExecution {
   constexpr auto kMaxConcurrentJobs = std::size_t{10};
   auto const maxConcurrentJobs =
     std::max<std::size_t>(1, ctx.config.maxParallelJobs.value_or(kMaxConcurrentJobs));
-  auto const workerCount =
-    taskexec::resolveWorkerCount(job.vids.size(), maxConcurrentJobs);
+  auto const workerCount = taskexec::resolveWorkerCount(items.size(), maxConcurrentJobs);
   auto const compact = !ctx.config.fullProgress;
   auto progressState = std::make_unique<
     EncodingProgressState
-  >(job.vids.size(), overallTotalCount, initialCompletedCount, workerCount, compact);
+  >(items.size(), overallTotalCount, initialCompletedCount, workerCount, compact);
 
   LOG_INFO(
     "Scheduling encoding workers: workers={} pending={} overall={} "
     "completed-before-start={}",
     workerCount,
-    job.vids.size(),
+    items.size(),
     overallTotalCount,
     initialCompletedCount
   );
 
-  auto executionCtx = std::make_unique<EncodingExecutionContext>(
-    ctx,
-    *progressState,
-    job.plannedOutputFiles,
-    job.actionIds,
-    // One victim flag per encode task; atomics value-initialize to false.
-    std::vector<std::atomic_bool>(job.vids.size())
-  );
-  executionCtx->probeCqByInput = std::move(probeCqByInput);
+  auto executionCtx = std::make_unique<EncodingExecutionContext>(ctx, *progressState);
   executionCtx->updateOverall();
 
   logging::setForensicAppContext(&ctx);
@@ -562,14 +484,14 @@ auto prepareEncodingExecution(
 
 void logBatchStart(
   appctx::AppContext const& ctx,
-  std::vector<fs::path> const& vids,
+  std::span<appctx::EncodingStatePtr const> items,
   std::size_t overallTotalCount,
   std::size_t initialCompletedCount
 ) {
   LOG_INFO(
     "Preparing encoding batch: pending={} overall={} completed-before-start={} "
     "output-format={} pack-output={}",
-    vids.size(),
+    items.size(),
     overallTotalCount,
     initialCompletedCount,
     ctx.config.outputFormat,
@@ -596,35 +518,31 @@ bool confirmEncodingStart(appctx::AppContext& ctx) {
 
 auto videobatch::runEncodingTasks(
   appctx::AppContext& ctx,
-  videobatch::EncodingBatchJob const& job,
+  std::span<appctx::EncodingStatePtr const> items,
   std::size_t overallTotalCount,
   std::size_t initialCompletedCount
-) -> EncodingBatchOutcome {
-  if (job.vids.empty()) { return EncodingBatchOutcome{.results = EncodeResultsMap{}}; }
-  logBatchStart(ctx, job.vids, overallTotalCount, initialCompletedCount);
+) -> EncodingBatchSummary {
+  if (items.empty()) { return EncodingBatchSummary{}; }
+  logBatchStart(ctx, items, overallTotalCount, initialCompletedCount);
 
   // Pre-encode quality probing (MP4 only; --crf bypasses it entirely): picks
   // a per-file CQ meeting the quality floor and prints the plan before the
   // confirmation prompt. A stop request during probing aborts the run.
   auto attentionWarnings = std::vector<std::string>{};
-  auto probeCqByInput = appctx::path_map<int>{};
-  auto encodableVids = std::vector<fs::path>{};  // filled by runProbeStage
-  switch (
-    runProbeStage(ctx, job.vids, encodableVids, probeCqByInput, attentionWarnings)) {
+  auto encodableItems =
+    std::vector<appctx::EncodingStatePtr>{};  // filled by runProbeStage
+  switch (runProbeStage(ctx, items, encodableItems, attentionWarnings)) {
     case ProbeStageStatus::Proceed: break;
     case ProbeStageStatus::DryRun:
-      return EncodingBatchOutcome{
-        .results = EncodeResultsMap{},
+      return EncodingBatchSummary{
         .attentionWarnings = std::move(attentionWarnings),
         .dryRun = true,
       };
     case ProbeStageStatus::Aborted:
-    case ProbeStageStatus::Failed : return EncodingBatchOutcome{.results = std::nullopt};
+    case ProbeStageStatus::Failed : return EncodingBatchSummary{.canceled = true};
   }
 
-  if (!confirmEncodingStart(ctx)) {
-    return EncodingBatchOutcome{.results = std::nullopt};
-  }
+  if (!confirmEncodingStart(ctx)) { return EncodingBatchSummary{.canceled = true}; }
 
   // The encode phase's own clock starts after the prompt: waiting for the
   // user is not encode time.
@@ -635,28 +553,20 @@ auto videobatch::runEncodingTasks(
 
   // Skipped (too-large estimate) files count as completed up front so the
   // overall bar reaches its total when the remaining encodes finish.
-  auto const skippedBeforeStart = job.vids.size() - encodableVids.size();
-  auto const encodableJob = EncodingBatchJob{
-    .vids = std::move(encodableVids),
-    .plannedOutputFiles = job.plannedOutputFiles,
-    .actionIds = job.actionIds,
-  };
+  auto const skippedBeforeStart = items.size() - encodableItems.size();
 
   if (ctx.config.verbose) {
-    std::map<fs::path, std::string> failureReasons;
-    auto results = runVerboseEncoding(ctx, encodableJob, probeCqByInput, failureReasons);
-    return EncodingBatchOutcome{
-      .results = std::move(results),
+    runVerboseEncoding(ctx, encodableItems);
+    clearStopVictims(encodableItems);
+    return EncodingBatchSummary{
       .attentionWarnings = std::move(attentionWarnings),
-      .failureReasons = std::move(failureReasons),
       .skippedCount = skippedBeforeStart,
       .encodeElapsed = encodeElapsedNow(),
     };
   }
 
-  if (encodableJob.vids.empty()) {
-    return EncodingBatchOutcome{
-      .results = EncodeResultsMap{},
+  if (encodableItems.empty()) {
+    return EncodingBatchSummary{
       .attentionWarnings = std::move(attentionWarnings),
       .skippedCount = skippedBeforeStart,
       .encodeElapsed = encodeElapsedNow(),
@@ -665,43 +575,82 @@ auto videobatch::runEncodingTasks(
 
   auto execution = prepareEncodingExecution(
     ctx,
-    encodableJob,
+    encodableItems,
     overallTotalCount,
-    initialCompletedCount + skippedBeforeStart,
-    probeCqByInput
+    initialCompletedCount + skippedBeforeStart
   );
 
-  auto const runState = taskexec::runTasks({
-    .tasks = buildEncodeTasks(encodableJob.vids, *execution.ctx),
-    .maxConcurrency = execution.maxConcurrentJobs,
-    .progress = &execution.progressState->progressCtx,
-    .hideCursor = true,
-  });
+  // The runner hands each task its item by reference; the flow needs the
+  // handle it owns (the monitor's active slot) and the item's position (its
+  // log line), both of which the batch list already holds.
+  auto positions = std::unordered_map<appctx::EncodingState const*, std::size_t>{};
+  positions.reserve(encodableItems.size());
+  for (auto position = std::size_t{0}; position < encodableItems.size(); ++position) {
+    positions.emplace(encodableItems[position].get(), position);
+  }
+
+  // The flow draws the two-tier bar layout itself (Overall plus one bar per
+  // worker slot). The stage drives the Overall bar but not its value: the
+  // flow's postfix owns that value, because it counts with the flow's own
+  // denominator (probe-skipped items are done before the stage starts, and
+  // each running encode contributes its partial progress).
+  auto const overallBarIndex = execution.ctx->counters().overallBarIndex;
+  // With the Overall bar absent the stage drives no bar of its own; the slot
+  // bars the monitor paints still need the cursor hidden.
+  auto cursorGuard = std::optional<progress::CursorGuard>{};
+  if (!overallBarIndex.has_value()) { cursorGuard.emplace(); }
+
+  auto const stageResult = mediaitem::runStage(
+    mediaitem::StageSpec{
+      .progress = overallBarIndex.has_value() ? &execution.ctx->progress() : nullptr,
+      .barIndex = overallBarIndex.value_or(0),
+      .setBarProgress = false,
+      .maxConcurrency = execution.maxConcurrentJobs,
+      .postfix =
+        [&execution](std::size_t, std::size_t, double) {
+          execution.ctx->markFinished();
+          execution.ctx->updateOverall();
+          return execution.ctx->overallText();
+        },
+    },
+    std::span<appctx::EncodingStatePtr const>{encodableItems},
+    [](appctx::EncodingState const&) { return false; },
+    [&](appctx::EncodingState& item, taskexec::TaskContext& taskCtx) -> eh::Result<void> {
+      auto const position = positions.at(&item);
+      try {
+        return runEncodingTask(
+          *execution.ctx,
+          encodableItems[position],
+          position,
+          taskCtx.slot
+        );
+      } catch (std::exception const& ex) {
+        recordTaskException(*execution.ctx, taskCtx.slot, ex.what());
+        throw;
+      } catch (...) {
+        recordTaskException(*execution.ctx, taskCtx.slot, "unknown exception");
+        throw;
+      }
+    }
+  );
 
   execution.monitorThread.join();
 
   // The batch is over on every path (success, cancel, failure): the phase
   // clears its own bars before anything else prints.
   execution.progressState->progressCtx.eraseBars();
+  clearStopVictims(encodableItems);
 
-  std::map<fs::path, std::string> failureReasons;
-  auto const results = collectEncodingResults(
-    encodableJob.vids,
-    runState,
-    failureReasons,
-    execution.ctx->stopAborted
-  );
+  auto const completed = stageResult.attempted;
 
   LOG_INFO(
     "Encoding batch completed: attempted={} completed={} ",
-    runState.attemptedCount,
-    results.size()
+    stageResult.attempted,
+    completed
   );
 
-  return EncodingBatchOutcome{
-    .results = results,
+  return EncodingBatchSummary{
     .attentionWarnings = std::move(attentionWarnings),
-    .failureReasons = std::move(failureReasons),
     .skippedCount = skippedBeforeStart,
     .encodeElapsed = encodeElapsedNow(),
   };
