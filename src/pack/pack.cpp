@@ -268,23 +268,6 @@ auto partitionPackInputs(
   };
 }
 
-// --- applyEntryNameOverrides ---
-// Applies the entryNameForFile callback to override zip entry names when
-// entries are provided as raw paths (not via entryInputs).
-void applyEntryNameOverrides(
-  PackRequest const& request,
-  std::vector<std::vector<PackFileEntry>>& groups
-) {
-  if (request.entryInputs.empty() && request.entryNameForFile) {
-    for (auto& group: groups) {
-      for (auto& entry: group) {
-        if (entry.isSummary) { continue; }
-        entry.zipEntryName = request.entryNameForFile(entry.sourcePath);
-      }
-    }
-  }
-}
-
 // --- resolveZipNameStrategy ---
 // Returns a zipNameForIndex lambda: the default mode-based naming.
 auto resolveZipNameStrategy(
@@ -303,8 +286,8 @@ auto resolveZipNameStrategy(
 
 // --- buildMediaPackPlan ---
 // Groups entries using two-layer partitioning (groupPackEntriesWithSubparts),
-// reads NamingConfig for baseName and zipNameStrategy, applies entryNameForFile
-// callback, and returns a PackPlan ready for execution.
+// reads NamingConfig for baseName and zipNameStrategy, and returns a PackPlan
+// ready for execution.
 auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
   auto const* naming = optNamingPtr(request);
 
@@ -314,9 +297,7 @@ auto buildMediaPackPlan(PackRequest const& request) -> eh::Result<PackPlan> {
   // 2. Partition + group
   auto const keepTogether = resolveKeepTogetherThreshold(request);
   auto [groups, nameParts, subPartCounts] = partitionPackInputs(packInputs, keepTogether);
-  // 3. Entry name overrides
-  applyEntryNameOverrides(request, groups);
-  // 4. Naming configuration
+  // 3. Naming configuration
   auto baseName = std::string{};
   if (naming && naming->baseName.has_value()) { baseName = naming->baseName.value(); }
   auto const ordinalRanges = pack::internal::buildGroupOrdinalRanges(groups);
