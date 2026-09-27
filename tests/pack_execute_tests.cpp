@@ -14,6 +14,7 @@
 
 #include "pack/pack.h"
 #include "pack/pack_types.h"
+#include "pack/pack_plan_internal.h"
 #include "core/job_state.h"
 #include "core/app_context.h"
 #include "infra/stop_signal.h"
@@ -460,6 +461,44 @@ TEST_CASE(
     CHECK(run.stdoutText.find("Failed to pack") == std::string::npos);
     CHECK(run.stdoutText.find("canceled by user") == std::string::npos);
   }
+}
+
+TEST_CASE(
+  "execute() reports a stop that arrives mid-archive as a canceled run",
+  "[pack][execute][stop-signal]"
+) {
+  auto const scopedStopReset = testutils::ScopedStopSignalReset{};
+  auto const temp = TempDir{};
+  auto const srcDir = temp.path / "src";
+  auto const outputDir = temp.path / "packed";
+  fs::create_directories(srcDir);
+  auto const first = testutils::writeSizedFile(srcDir / "a.bin", 64);
+  auto const second = testutils::writeSizedFile(srcDir / "b.bin", 64);
+
+  auto plan = pack::PackPlan{
+    .groups =
+      {
+        {
+          pack::PackFileEntry{.sourcePath = first, .zipEntryName = "a.bin"},
+          pack::PackFileEntry{.sourcePath = second, .zipEntryName = "b.bin"},
+        },
+      },
+    .outputDir = outputDir,
+    .zipNameForIndex = [](std::size_t) { return std::string{"bundle.zip"}; },
+  };
+  // A stop the write itself produces: the packer aborts at the next entry, so
+  // the task fails with the stop pending instead of being skipped upfront.
+  plan.progressCallbacks.onCompactProgress =
+    [](std::size_t fileIndex, std::size_t /*fileCount*/) {
+      if (fileIndex == 1) { stopsignal::requestStop(); }
+    };
+
+  auto const result = pack::execute(plan);
+
+  REQUIRE(result.has_value());
+  CHECK(result->exitCode == stopsignal::kCanceledExitCode);
+  CHECK(result->zippedFiles.empty());
+  CHECK_FALSE(fs::exists(outputDir / "bundle.zip"));
 }
 
 // ============================================================

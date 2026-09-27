@@ -399,9 +399,8 @@ auto pack::Packer::packFilesToZip(
   zip.open(libzippp::ZipArchive::New);
 
   for (auto const& [index, entry]: std::views::enumerate(entries)) {
-    // A stop request during the write aborts at this entry: discard rolls the
-    // packer's own file back, so no half-written archive is left to be
-    // reported as packed.
+    // A stop during the write aborts at this entry: discard drops the archive
+    // before libzip commits it, so the abort leaves no new archive behind.
     if (stopsignal::isStopRequested()) {
       zip.discard();
       return eh::makeError("Packing canceled by user.");

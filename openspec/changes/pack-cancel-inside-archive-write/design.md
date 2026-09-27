@@ -1,6 +1,6 @@
 ## Context
 
-See `proposal.md` - Why. The two facts that shape the approach: Directory-mode packing builds one group for the whole input tree, so the pack stage's only existing checkpoint is the executor's pre-task check (`src/core/task_executor.cpp:111`); and `Packer::packFilesToZip` has two write loops - the entries+progress form (`src/pack/packer.cpp:400-425`, used with `--full-progress`) and the entries+callbacks form (`:476-495`, used by compact mode, which is the pack-only default).
+See `proposal.md` - Why. The two facts that shape the approach: Directory-mode packing builds one group for the whole input tree, so the pack stage's only existing checkpoint is the executor's pre-task check (`src/core/task_executor.cpp:111`); and `Packer::packFilesToZip` has two write loops - the entries+progress form (`src/pack/packer.cpp:401-433`, used with `--full-progress`) and the entries+callbacks form (`:484-508`, used by compact mode, which is the pack-only default).
 
 ## Goals / Non-Goals
 
@@ -23,7 +23,7 @@ Both loops check `stopsignal::isStopRequested()` at the head of each entry and r
 
 ### D2: An aborted archive is discarded, not left to `removeOnFailure`
 
-On the abort the loop calls `libzippp::ZipArchive::discard()` before returning, so the file the packer created is rolled back. Alternative considered: leave the partial file for `PackTaskRecorder::fail` (`src/pack/pack_service.cpp:51-66`) to remove - but that removal is gated on `plan.removeOnFailure`, and pack-only builds its request without it (`src/app/pipeline.cpp:110-124`), so the partial archive would survive as a valid-looking zip holding fewer entries than the input tree. The packer created the file, so it cleans it up on abort; a resumable run re-executes the interrupted archive task from the job state, so nothing depends on reading a partial archive.
+On the abort the loop calls `libzippp::ZipArchive::discard()` before returning. libzip materialises the archive only at `close()`, so the discard drops it before anything is committed: a fresh output path is left with no file at all, and a pre-existing file at that path stays untouched. Alternative considered: leave the archive for `PackTaskRecorder::fail` (`src/pack/pack_service.cpp:51-66`) to remove - but that removal is gated on `plan.removeOnFailure`, and pack-only builds its request without it (`src/app/pipeline.cpp:110-122`), so the archive's destructor would commit a partial zip holding fewer entries than the input tree. The packer owns the archive it opened, so it discards it on abort; a resumable run re-executes the interrupted archive task from the job state, so nothing depends on reading a partial archive.
 
 ### D3: The message matches the pack stage's existing cancellation error
 
