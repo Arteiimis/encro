@@ -343,6 +343,8 @@ void reportAndOpen(
   }
 }
 
+namespace {
+
 // One window of either preview mode: the payload the stage carries, the score
 // it writes and the outcome the runner records. Declared here, not in a
 // header: no other flow has a preview window, and the item never leaves this
@@ -360,7 +362,7 @@ struct PreviewWindowItem {
   auto outcome() -> mediaitem::ItemOutcome& { return result; }
 };
 
-static_assert(mediaitem::Item<PreviewWindowItem>);
+}  // namespace
 
 // The single preview progress bar: its context, handle, and the percent
 // offset where the window phase starts (40 after a successful probe).
@@ -369,6 +371,18 @@ struct BarSlot {
   std::size_t bar;
   float windowBase;
 };
+
+// Both preview stages run bar-less and paint the flow's own bar through this
+// postfix: the phase-relative value plus the mode's per-completion text.
+auto stagePostfix(BarSlot const& bars, std::string (*textFor)(std::size_t, std::size_t)) {
+  return [&bars, textFor](std::size_t done, std::size_t total, double) -> std::string {
+    bars.progressCtx
+      .setProgress(bars.bar, phaseProgressValue(done, total, bars.windowBase));
+    auto const text = textFor(done, total);
+    bars.progressCtx.setPostfixText(bars.bar, text);
+    return text;
+  };
+}
 
 // One window-encode batch for a single-input preview: the input, the
 // windows to encode, the probe plan (CQ decision), the encode settings,
@@ -448,13 +462,7 @@ auto encodeAndScoreAllWindows(
     mediaitem::StageSpec{
       .progress = nullptr,
       .maxConcurrency = previewWorkers,
-      .postfix = [&bars](std::size_t done, std::size_t total, double) -> std::string {
-        bars.progressCtx
-          .setProgress(bars.bar, phaseProgressValue(done, total, bars.windowBase));
-        auto const text = windowProgressText(done, total);
-        bars.progressCtx.setPostfixText(bars.bar, text);
-        return text;
-      },
+      .postfix = stagePostfix(bars, windowProgressText),
     },
     std::span<PreviewWindowItem>{items},
     [](PreviewWindowItem const&) { return false; },
@@ -484,16 +492,6 @@ auto windowsFromItems(std::vector<PreviewWindowItem> const& items)
   windows.reserve(items.size());
   for (auto const& item: items) { windows.push_back(item.window); }
   return windows;
-}
-
-// The single-input render's encoded-side inputs: one pre-cut segment per
-// window, in item order.
-auto segmentsFromItems(std::vector<PreviewWindowItem> const& items)
-  -> std::vector<fs::path> {
-  auto segments = std::vector<fs::path>{};
-  segments.reserve(items.size());
-  for (auto const& item: items) { segments.push_back(item.segmentPath); }
-  return segments;
 }
 
 // The worst-scoring window's index: the strict minimum keeps the first of two
@@ -698,6 +696,12 @@ auto runSingleInput(
   windows = windowsFromItems(windowItems);
   auto const worstIndex = findWorstWindow(windowItems);
 
+  // The render's encoded-side inputs: one pre-cut segment per window, in item
+  // order.
+  auto segments = std::vector<fs::path>{};
+  segments.reserve(windowItems.size());
+  for (auto const& item: windowItems) { segments.push_back(item.segmentPath); }
+
   progressCtx.setProgress(bar, 85.0f);
   progressCtx.setPostfixText(bar, "Rendering comparison video...");
   auto const renderResult = renderAndReportSingleInput(
@@ -705,7 +709,7 @@ auto runSingleInput(
     options,
     original,
     windows,
-    segmentsFromItems(windowItems),
+    segments,
     outputPath,
     windowBars,
     worstIndex,
@@ -761,13 +765,7 @@ auto scoreComparisonWindows(
     mediaitem::StageSpec{
       .progress = nullptr,
       .maxConcurrency = 1,
-      .postfix = [&bars](std::size_t done, std::size_t total, double) -> std::string {
-        bars.progressCtx
-          .setProgress(bars.bar, phaseProgressValue(done, total, bars.windowBase));
-        auto const text = scoringProgressText(done, total);
-        bars.progressCtx.setPostfixText(bars.bar, text);
-        return text;
-      },
+      .postfix = stagePostfix(bars, scoringProgressText),
     },
     std::span<PreviewWindowItem>{items},
     [](PreviewWindowItem const&) { return false; },
