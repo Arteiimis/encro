@@ -7,7 +7,7 @@ A stop request is honoured only at task boundaries: `taskexec::runTasks` checks 
 - **A checkpoint inside the archive write.** Both of `Packer::packFilesToZip`'s entry loops (the entries+progress loop at `src/pack/packer.cpp:401-433`, used with `--full-progress`, and the entries+callbacks loop at `:484-508`, used by compact mode) check `stopsignal::isStopRequested()` at the head of every entry.
 - **A pending stop aborts the archive, not reports it.** On a pending stop the loop discards the open archive (`libzippp::ZipArchive::discard`) and returns `Packing canceled by user.`, so no half-written archive is left behind for the run to report as packed. The existing funnel translation is unchanged: the pack funnel maps an aborted batch with a pending stop to the cancellation exit code and prints its single notice (`src/pack/pack.cpp:486-490`), and the resumable path marks the archive task interrupted (`pack.cpp:409-412`).
 - **No behaviour change when no stop is pending:** the same entries are written, the same archives are produced, and the progress output is unchanged.
-- **Tests:** a deterministic case in `tests/packer_tests.cpp` requests a stop from the mid-write entry callback and asserts the call aborts with no archive left; a second case asserts the full-progress loop also leaves no archive when a stop is already pending. No other test file is edited.
+- **Tests:** a deterministic case in `tests/packer_tests.cpp` requests a stop from the mid-write entry callback and asserts the call aborts with no archive left; a second case asserts the full-progress loop also leaves no archive when a stop is already pending; a third asserts a pre-existing archive at the output path survives the abort untouched; and a case in `tests/pack_execute_tests.cpp` drives the mid-write stop through `execute()` and asserts the canceled run (exit code 130, no zipped file, no archive).
 
 ## Capabilities
 
@@ -22,6 +22,7 @@ None.
 ## Impact
 
 - `src/pack/packer.cpp`: the two entry loops gain the stop check and the discard (plus the `infra/stop_signal.h` include).
-- `tests/packer_tests.cpp`: two new cases; no existing case edited.
+- `tests/packer_tests.cpp`: three new cases; no existing case edited.
+- `tests/pack_execute_tests.cpp`: one new case pinning the funnel translation of a mid-write stop.
 - `openspec/specs/cancellation-reporting/spec.md` via the change's delta spec.
 - No CLI, archive-format, job-state or resume surface changes; no new dependency; the force-exit watchdog stays a backstop for a run that reaches no checkpoint at all.
