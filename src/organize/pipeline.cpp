@@ -376,6 +376,7 @@ auto runOrganize(
     .copied = stats.copied,
     .skippedExisting = stats.skippedExisting,
     .cacheHits = cacheHits,
+    .copyErrors = stats.errors,
   };
 }
 
