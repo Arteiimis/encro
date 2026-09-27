@@ -16,6 +16,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
 #include <filesystem>
+#include <format>
 #include <map>
 #include <string>
 
@@ -364,6 +365,48 @@ TEST_CASE("renderReport lists folders with sources and totals", "[organize]") {
   // Report rules share the encode plan's glyph family (pipeline-narration).
   CHECK(text.find("\xE2\x94\x80") != std::string::npos);
   CHECK(text.find("---") == std::string::npos);
+}
+
+TEST_CASE("organize names failed copies in its report", "[organize]") {
+  // A regular file where the output root belongs makes every copy fail through
+  // the real staging-copy path on any platform: both ignored create_directories
+  // calls cannot make way for the tree, so each item lands in the copy-failure
+  // vector. The report must name the affected image; the exit code stays 0
+  // (design D2), since nothing is corrupted and a re-run retries the copies.
+  auto temp = TempDir{};
+  auto const pics = temp.path / "pics";
+  fs::create_directories(pics);
+  auto const bytes = std::string{"miku-bytes"};
+  auto const source = testutils::writeTextFile(pics / "miku.png", bytes);
+  testutils::writeTextFile(pics / "organized", "not a directory");
+
+  auto const fixture = temp.path / "fixture.json";
+  testutils::writeTextFile(
+    fixture,
+    std::format(
+      R"({{"{}": {{"character": [["hatsune_miku", 0.9]]}}}})",
+      core::sha256Hex(bytes)
+    )
+  );
+  auto const fakeEngine = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", fixture.string()};
+
+  auto cmd = CmdParseResult{};
+  cmd.organizeDir = pics.string();
+
+  auto exitCode = 0;
+  auto const captured =
+    testutils::captureStdout([&] { exitCode = organize::runOrganizeCommand(cmd); });
+
+  // The copy failed and was counted as such; the report names the source and
+  // the destination that is missing from the tree.
+  auto const destination = pics / "organized" / "hatsune_miku" / "miku.png";
+  CHECK(captured.find("scanned 1 images: copied 0") != std::string::npos);
+  CHECK(
+    captured
+      .find(std::format("copy failed: {} -> {}", source.string(), destination.string()))
+    != std::string::npos
+  );
+  CHECK(exitCode == 0);
 }
 
 // A stop request is the organize run's own abort, not an error: the analysis

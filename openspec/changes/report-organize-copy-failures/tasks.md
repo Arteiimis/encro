@@ -1,6 +1,6 @@
 ## 1. Tests
 
-- [ ] 1.1 Add one `[organize]` case in `tests/organize/pipeline_tests.cpp`: a
+- [x] 1.1 Add one `[organize]` case in `tests/organize/pipeline_tests.cpp`: a
       command-boundary run (`runOrganizeCommand` over an `ENCRO_FAKE_TAGGER`
       fixture with one image) whose `organized` path is a regular file, so the
       real copy path fails for every item; assert the captured report names the
@@ -10,12 +10,20 @@
       against the current implementation while the exit-code assertion passes:
       the red is the missing wiring, and the exit-code half pins the decision
       that does not change.
-- [ ] 1.2 Record the red-first run in this task list (command, observed failure
+- [x] 1.2 Record the red-first run in this task list (command, observed failure
       line) before applying 2.1.
+
+      Red-first run before 2.1 (`MSYSTEM= xmake test-report --tag="[organize]"`):
+      `test cases: 52 | 51 passed | 1 failed`, `assertions: 286 | 285 passed |
+      1 failed`; the failing assertion is
+      `tests/organize/pipeline_tests.cpp(410): FAILED: CHECK( captured.find(
+      std::format("copy failed: {} -> {}", source.string(),
+      destination.string()) ) != std::string::npos )`. The same case's `copied 0`
+      and exit-code 0 assertions passed, so the red is the missing wiring only.
 
 ## 2. Implementation
 
-- [ ] 2.1 Assign `.copyErrors = stats.errors` in the `ReportData` aggregate
+- [x] 2.1 Assign `.copyErrors = stats.errors` in the `ReportData` aggregate
       (`src/organize/pipeline.cpp:373-379`) and change nothing else; verify 1.1
       passes with `xmake test-report --tag="[organize]"`.
 
