@@ -432,3 +432,31 @@ TEST_CASE("readAllVidsFromFiles filters unknown extensions", "[video-info]") {
 
   CHECK(vids == std::vector<fs::path>{video});
 }
+
+TEST_CASE("readAllVids accepts uppercase video extensions", "[video-info]") {
+  TempDir temp;
+  auto const clip = temp.path / "CLIP.MP4";
+  testutils::writeSizedFile(clip, 1024ULL);
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "mp4";
+  config.recursive = false;
+  auto toolchain = appctx::ToolchainPaths{};
+  auto runtime = appctx::RuntimeContext{};
+
+  SECTION("directory scan reports the clip") {
+    auto const vids = readAllVids(config, toolchain, runtime, temp.path);
+
+    REQUIRE(vids);
+    REQUIRE(vids->size() == 1);
+    CHECK(vids->front() == clip);
+  }
+
+  SECTION("explicit file input keeps the clip") {
+    auto const inputFiles = std::array{clip};
+    auto const vids = readAllVidsFromFiles(config, toolchain, runtime, inputFiles);
+
+    REQUIRE(vids.size() == 1);
+    CHECK(vids.front() == clip);
+  }
+}

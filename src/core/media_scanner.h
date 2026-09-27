@@ -17,6 +17,15 @@ struct ScanResult {
   std::vector<std::string> warnings;
 };
 
+// True when `filePath`'s extension matches one of `extensions`. Letters are
+// compared with an ASCII case fold (A-Z matches a-z); every other byte,
+// including non-ASCII, must match exactly. The fold never consults the
+// process locale.
+bool extensionMatches(
+  fs::path const& filePath,
+  std::span<std::string_view const> extensions
+);
+
 // Scans `root` (a file or directory) for entries whose extension matches.
 // Returns an error when `root` is not a readable directory (missing, not a
 // directory, permission denied) — never a silently empty result.

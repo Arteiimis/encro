@@ -15,17 +15,13 @@ namespace fs = std::filesystem;
 
 namespace organize {
 
-// media::scanByExtensions matches case-sensitively, so both cases are
-// listed explicitly (Windows collections contain .JPG/.PNG files).
+// Media extensions the organize scan accepts; media-scan matches them
+// case-insensitively, so uppercase spellings are covered.
 inline constexpr auto kImageExtensions = std::array{
   std::string_view{".jpg"},
   std::string_view{".jpeg"},
   std::string_view{".png"},
   std::string_view{".webp"},
-  std::string_view{".JPG"},
-  std::string_view{".JPEG"},
-  std::string_view{".PNG"},
-  std::string_view{".WEBP"},
 };
 
 // Wraps media::scanByExtensions with the image extension set; each match is
