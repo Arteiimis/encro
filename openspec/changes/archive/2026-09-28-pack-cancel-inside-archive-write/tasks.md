@@ -20,7 +20,7 @@
 
 ## 4. Archive
 
-- [ ] 4.1 Archive the change with the spec sync, then verify `openspec/specs/cancellation-reporting/spec.md` carries the mid-archive clause and the change sits under `openspec/changes/archive/`.
+- [x] 4.1 Archive the change with the spec sync, then verify `openspec/specs/cancellation-reporting/spec.md` carries the mid-archive clause and the change sits under `openspec/changes/archive/`. (synced and validated; archived as `2026-09-28-pack-cancel-inside-archive-write`)
 
 ## 5. Code review (code stage)
 
@@ -51,7 +51,7 @@ fresh verifier, plus the follow-up it found.
   pre-existing archive survives the abort intact, the packer comment states the
   real mechanism, and design D2 was corrected. `unlink()` rejected: it would
   delete a previous run's archive, which the spec's clause does not ask for.
-- Resolved (this commit): `proposal.md` still claimed two packer cases and no
+- Resolved (`20d368f`): `proposal.md` still claimed two packer cases and no
   other test file; found by the verifier.
 
 ### Leanness
