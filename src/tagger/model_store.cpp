@@ -36,13 +36,6 @@ auto fileNameOf(RemoteFile const& file) -> std::string {
   return slash == std::string::npos ? file.urlPath : file.urlPath.substr(slash + 1);
 }
 
-auto fileHash(fs::path const& path) -> std::string {
-  auto file = std::ifstream{path, std::ios::binary};
-  if (!file.is_open()) { return {}; }
-  auto const bytes = std::string{std::istreambuf_iterator<char>{file}, {}};
-  return core::sha256Hex(bytes);
-}
-
 // Downloads urlPath from endpoint into dest via a .part sibling, using the
 // platform curl: Windows ships one since Win10 1803 and Linux distros have
 // it, so TLS and the trust store stay the OS's own (no static OpenSSL in the
@@ -179,7 +172,7 @@ auto verifyDownload(fs::path const& dest, RemoteFile const& file, bool retrying)
     }
   }
   if (!file.sha256.empty()) {
-    auto const digest = fileHash(partPath);
+    auto const digest = core::sha256File(partPath);
     if (digest != file.sha256) {
       if (!retrying) {
         return {

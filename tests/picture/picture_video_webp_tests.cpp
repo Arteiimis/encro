@@ -149,7 +149,7 @@ bool containsEntryEndingWith(
 int convertWithoutPacking(ConversionFixture& f) {
   f.ensureState();
 
-  auto const tasks = planPictureVideoConversions(f.ctx, f.inputDir);
+  auto tasks = planPictureVideoConversions(f.ctx, f.inputDir);
   REQUIRE(tasks);
   REQUIRE_FALSE(tasks->empty());
 

@@ -1,6 +1,11 @@
 // Pipeline integration over the FakeTagger seam (tasks 4.1-4.4): staging,
 // mixed/uncategorized semantics, dry-run, recluster, resume, rename teaching.
+#include "core/progress.h"
+#include "core/sha256.h"
+
+#include "organize/cache.h"
 #include "organize/pipeline.h"
+#include "organize/teach.h"
 
 #include "cmd/cmd.h"
 #include "infra/stop_signal.h"
@@ -13,6 +18,10 @@
 #include <filesystem>
 #include <map>
 #include <string>
+
+#if defined(_WIN32)
+  #include <windows.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -45,6 +54,40 @@ auto makeOptions(fs::path const& root) -> organize::Options {
     .maxJobs = 1,
   };
 }
+
+#if defined(_WIN32)
+// A file every other check still sees as a regular file, but that no reader
+// can open: a share mode of 0 refuses all further opens until this handle
+// closes. Windows-only, because the portable way to make a file unreadable is
+// to drop its read permission and the current process is subject to that too.
+class ExclusivelyLockedFile {
+public:
+  explicit ExclusivelyLockedFile(fs::path const& path)
+    : handle_(
+        ::CreateFileW(
+          path.c_str(),
+          GENERIC_READ,
+          0,
+          nullptr,
+          OPEN_EXISTING,
+          FILE_ATTRIBUTE_NORMAL,
+          nullptr
+        )
+      ) { }
+
+  ~ExclusivelyLockedFile() {
+    if (handle_ != INVALID_HANDLE_VALUE) { ::CloseHandle(handle_); }
+  }
+
+  ExclusivelyLockedFile(ExclusivelyLockedFile const&) = delete;
+  auto operator=(ExclusivelyLockedFile const&) -> ExclusivelyLockedFile& = delete;
+
+  bool isLocked() const { return handle_ != INVALID_HANDLE_VALUE; }
+
+private:
+  HANDLE handle_ = INVALID_HANDLE_VALUE;
+};
+#endif
 
 }  // namespace
 
@@ -158,6 +201,43 @@ TEST_CASE("re-run resumes from cache without re-classifying", "[organize]") {
   CHECK(second->skippedExisting == 1);
 }
 
+TEST_CASE("identical content is analyzed once and its twin is a skip", "[organize]") {
+  // Two files with the same bytes share one content hash: the stage classifies
+  // that content once, the twin is filtered as already analyzed (skipped, not
+  // attempted), and the bar's total is the uncached remainder rather than
+  // everything the scan found.
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "miku-a.png", "miku-bytes");
+
+  auto engine = FakeTagger{};
+  engine.byName["miku-a.png"] = {.character = {tag("hatsune_miku", 0.9)}};
+
+  auto const first = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  REQUIRE(first.has_value());
+  REQUIRE(engine.calls.load() == 1);
+
+  // The same bytes under a second name (one shared content hash) plus a new
+  // file: the cached analysis covers both miku files, so only the new content
+  // is left to classify. miku-b.png has no fixture on purpose -- classifying
+  // it would fail, not pass silently.
+  testutils::writeTextFile(temp.path / "miku-b.png", "miku-bytes");
+  testutils::writeTextFile(temp.path / "rin.png", "rin-bytes");
+  engine.byName["rin.png"] = {.character = {tag("kagamine_rin", 0.9)}};
+
+  auto progressCtx = progress::ProgressContext{};
+  auto const second = organize::runOrganize(makeOptions(temp.path), engine, &progressCtx);
+  REQUIRE(second.has_value());
+  CHECK(engine.calls.load() == 2);
+  CHECK(second->cacheHits == 2);
+
+  // One bar, one completion: total 1 is the uncached remainder (3 scanned, 2
+  // skipped), the count today's analysisTasks.size() produced.
+  REQUIRE(progressCtx.barCount() == 1);
+  auto const barText = progressCtx.postfixText(0);
+  CHECK(barText.starts_with("1/1 - "));
+  CHECK(barText.ends_with(" img/s"));
+}
+
 TEST_CASE("recluster discards cached analysis and re-classifies", "[organize]") {
   auto temp = TempDir{};
   testutils::writeTextFile(temp.path / "miku.png", "miku");
@@ -199,6 +279,36 @@ TEST_CASE("renamed character folder teaches subsequent runs", "[organize]") {
   CHECK(fs::exists(temp.path / "organized" / "初音ミク" / "miku2.png"));
   CHECK(!fs::exists(temp.path / "organized" / "hatsune_miku"));
 }
+
+#if defined(_WIN32)
+TEST_CASE("teaching skips a member it cannot read", "[organize]") {
+  // sha256File signals an unreadable file with "", and "" is a reachable
+  // cache key: the analysis stage stores under whatever scan computed, which
+  // is "" for a file that was already unreadable then (AnalysisCache::put has
+  // no empty-key guard). Teaching must not look that key up, or an unrelated
+  // analysis joins the folder reference.
+  auto temp = TempDir{};
+  auto const member = testutils::writeTextFile(
+    temp.path / "organized" / "hatsune_miku" / "locked.png",
+    "locked"
+  );
+  fs::create_directories(temp.path / "organized" / ".cache");
+
+  auto cache =
+    organize::AnalysisCache{temp.path / "organized" / ".cache" / "analysis.json"};
+  cache.put("", organize::AnalysisResult{.character = {tag("hatsune_miku", 0.9)}});
+
+  auto const lock = ExclusivelyLockedFile{member};
+  REQUIRE(lock.isLocked());
+  // The premise the case rests on: the member is still enumerable and still a
+  // regular file, but reading it now yields no digest. Without this the case
+  // would pass vacuously whenever the lock failed to block the read.
+  REQUIRE(core::sha256File(member).empty());
+
+  auto const references = organize::buildFolderReferences(temp.path, cache, 0.35);
+  CHECK(references.empty());
+}
+#endif
 
 TEST_CASE("a merged cluster shares one folder", "[organize]") {
   // Per-image name allocation collision-suffixed every member of a cluster

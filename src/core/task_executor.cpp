@@ -62,6 +62,21 @@ auto runOneTask(
   }
 }
 
+// The hook runs bare on a pool thread: a throw would terminate the process
+// and lose an outcome that is already recorded. A free function rather than an
+// inline block in the worker loop, so the failure logger does not name the
+// lambda as the throwing function and the loop stays under the complexity
+// threshold.
+void notifyTaskFinished(TaskPlan const& plan, std::size_t finished) {
+  if (!plan.onTaskFinished) { return; }
+
+  try {
+    plan.onTaskFinished(finished, plan.tasks.size());
+  } catch (std::exception const& ex) {
+    LOG_ERROR("Task completion hook threw exception: {}", ex.what());
+  } catch (...) { LOG_ERROR("Task completion hook threw unknown exception"); }
+}
+
 }  // namespace
 
 std::size_t resolveWorkerCount(std::size_t taskCount, std::size_t maxConcurrency) {
@@ -98,14 +113,19 @@ auto runTasks(TaskPlan const& plan) -> TaskRunResult {
         auto const taskIndex = nextIndex.fetch_add(1, std::memory_order_acq_rel);
         if (taskIndex >= plan.tasks.size()) { break; }
 
-        attemptedCount.fetch_add(1, std::memory_order_release);
-
         auto const result = runOneTask(plan.tasks[taskIndex], slot, progressCtx);
         // A slot no worker reached stays Skipped: there is no success value
         // for a stop-skipped task to be misread from.
         outcomes[taskIndex] = result.has_value()
           ? TaskOutcome{.state = TaskState::Succeeded}
           : TaskOutcome{.state = TaskState::Failed, .error = result.error()};
+
+        // Counted after the outcome so the count reads "finished", which is
+        // what a caller's bar needs. Nothing reads it before the pool drains,
+        // so the total is the same as counting on entry.
+        auto const finished = attemptedCount.fetch_add(1, std::memory_order_release) + 1;
+
+        notifyTaskFinished(plan, finished);
       }
     });
   }

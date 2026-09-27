@@ -30,6 +30,11 @@ struct TaskPlan {
   std::size_t maxConcurrency = 1;
   progress::ProgressContext* progress = nullptr;
   bool hideCursor = false;
+  // Called once per task that finished, after its outcome is recorded, with
+  // the number of finished tasks. It runs on a worker thread, so keep it
+  // cheap and let it throw: the invocation swallows and logs what it throws.
+  // A slot the stop signal skipped is not a completion and does not call it.
+  std::function<void(std::size_t done, std::size_t total)> onTaskFinished;
 };
 
 // Default = not attempted, so a slot the stop signal skipped can never be

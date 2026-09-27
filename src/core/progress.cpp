@@ -396,6 +396,11 @@ float ProgressContext::progressValue(std::size_t barIndex) const {
   return etas_[barIndex].lastProgress();
 }
 
+std::string ProgressContext::postfixText(std::size_t barIndex) const {
+  auto lock = std::scoped_lock{mtx_};
+  return postfixes_[barIndex];
+}
+
 std::uint64_t ProgressContext::tickCount() const {
   auto lock = std::scoped_lock{mtx_};
   return tickCount_;

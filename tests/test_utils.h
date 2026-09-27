@@ -376,7 +376,10 @@ inline auto listRegularFiles(fs::path const& dirPath) -> std::vector<fs::path> {
   return files;
 }
 
-inline auto listZipRegularEntryNames(fs::path const& zipPath)
+// The archive's regular entries in the order they were written: the member
+// order is part of the archive, so a case that pins it cannot read a sorted
+// view.
+inline auto listZipRegularEntryNamesInOrder(fs::path const& zipPath)
   -> std::vector<std::string> {
   auto zip = libzippp::ZipArchive{zipPath.string()};
   zip.open(libzippp::ZipArchive::ReadOnly);
@@ -389,8 +392,14 @@ inline auto listZipRegularEntryNames(fs::path const& zipPath)
     entryNames.emplace_back(entry.getName());
   }
 
-  std::ranges::sort(entryNames);
   zip.close();
+  return entryNames;
+}
+
+inline auto listZipRegularEntryNames(fs::path const& zipPath)
+  -> std::vector<std::string> {
+  auto entryNames = listZipRegularEntryNamesInOrder(zipPath);
+  std::ranges::sort(entryNames);
   return entryNames;
 }
 

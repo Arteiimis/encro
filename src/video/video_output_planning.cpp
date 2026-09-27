@@ -144,9 +144,7 @@ auto planVideoOutputFiles(
     }
 
     auto sortedInputs = groupedInputs;
-    std::ranges::sort(sortedInputs, [](fs::path const& lhs, fs::path const& rhs) {
-      return naming::stablePathString(lhs) < naming::stablePathString(rhs);
-    });
+    std::ranges::sort(sortedInputs, naming::stablePathLess);
 
     for (auto const& inputPath: sortedInputs) {
       plannedOutputFiles[inputPath] =
