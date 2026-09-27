@@ -49,7 +49,7 @@ struct PreviewWindowItem {
 
 It satisfies `mediaitem::Item` structurally, so no inheritance and no header: the type never leaves `preview_process.cpp`, and the only new declarations outside it are the three bar helpers in `preview_process.h` (D2). Both modes use the same type because the only difference is `segmentPath`; a second type would be the same five fields under another name.
 
-The `std::vector<Window>` that `FiltergraphSpec` (`preview_filtergraph.h:29-37`) and `printWindows` (`:203-229`) consume is rebuilt after the stage by `windowsFromItems(items)` (and `segmentsFromItems(items)` for `renderPreview`'s encoded-side input list). `runStage` iterates the item vector in input order and never sorts (`unify-media-item-and-stages` D2), so the rebuilt vectors are element-for-element what the old code produced; the two-input mode reassigns its local `windows` the same way.
+The `std::vector<Window>` that `FiltergraphSpec` (`preview_filtergraph.h:29-37`) and `printWindows` (`:203-229`) consume is rebuilt after the stage by `windowsFromItems(items)`, and the single-input render's encoded-side segment list is built inline at its one call site (the code-stage review inlined the single-use `segmentsFromItems` away). `runStage` iterates the item vector in input order and never sorts (`unify-media-item-and-stages` D2), so the rebuilt vectors are element-for-element what the old code produced; the two-input mode reassigns its local `windows` the same way.
 
 **Where the score is written.** In both modes `runOne` writes the item: single-input `encodeAndScoreWindow` sets `item.window.metric = measured->value().metric` and `item.window.score = videoquality::percentile(measured->value().frameScores, 5.0)` (today's `outcome.metric`/`outcome.score`, `preview_process.cpp:410-412`) and returns `eh::Result<void>`, still setting `windowEncodeFailed` (`:401`) before an encode error; two-input `runOne` is the current loop body, writing the same two fields from `measureSegmentQuality` (`:744-757`) and returning success after the existing `LOG_WARN` when scoring fails (D5). A `runOne` that does not write `item.window` would print `-` for every window with no marker — that is the failure this states against.
 
@@ -102,9 +102,9 @@ Consequence for the item: `runOne` is mode-specific (encode-then-score vs score-
 
 ## Migration Plan
 
-Each step is one commit; the runner, `media_item.h` and `task_executor` are untouched by all of them.
+The planning artifacts landed before implementation, in the shared `docs:` commits that planned both this change and `share-partial-write-and-bar-helpers` (`b46664c`, then `69c8814` for the planning review); sections 2-4 landed together in `e839812` with the ticked tasks, and the code-stage review fixes in one more `refactor:` commit. The runner, `media_item.h` and `task_executor` are untouched by all of them.
 
-1. Section 2 plus task 4.1's helpers, which the migrated postfixes call: `PreviewWindowItem`, `windowsFromItems`/`segmentsFromItems`, the bar-text/value helpers, and the single-input batch on `runStage` with `progress = nullptr`; `encodeAndScoreWindow` writes into its item; `findWorstWindow` is pointed at the items; delete `windowsCompleted`, `WindowOutcome` and `WindowBatchResult`.
+1. Section 2 plus task 4.1's helpers, which the migrated postfixes call: `PreviewWindowItem`, `windowsFromItems` (with the render's segment list inline at its call site), the bar-text/value helpers, and the single-input batch on `runStage` with `progress = nullptr`; `encodeAndScoreWindow` writes into its item; `findWorstWindow` is pointed at the items; delete `windowsCompleted`, `WindowOutcome` and `WindowBatchResult`.
 2. Section 3: the two-input scoring path on the same runner shape (`maxConcurrency = 1`), `runOne` writing `item.window.metric`/`score`, and `worstIndex` from `findWorstWindow(items)` after `windowsFromItems`.
 3. Section 4's cases (4.2-4.4): the per-mode bar texts, the value formula and the score list/`(worst)` marker.
 4. Section 5: full unit suite, e2e, `test-parallel`, `fmt`, `tidy` (no new diagnostics).

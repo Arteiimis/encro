@@ -83,9 +83,19 @@ TEST_CASE("preview scoring progress text counts scored windows", "[preview]") {
   CHECK(preview::scoringProgressText(2, 5) == "Scoring windows: 2/5");
 }
 
+// The phase bar's slice for both stage bases: the single-input window encode
+// starts at 40 after a successful probe, the two-input scoring starts at 10,
+// and both end at 85. Quarter steps keep every expected value exact in float,
+// and the two totals catch a denominator that ignores `total`.
 TEST_CASE("preview phase progress fills its slice of the phase bar", "[preview]") {
+  CHECK(preview::phaseProgressValue(0, 4, 40.0f) == 40.0f);
+  CHECK(preview::phaseProgressValue(2, 4, 40.0f) == 62.5f);
+  CHECK(preview::phaseProgressValue(4, 4, 40.0f) == 85.0f);
+  CHECK(preview::phaseProgressValue(0, 4, 10.0f) == 10.0f);
+  CHECK(preview::phaseProgressValue(2, 4, 10.0f) == 47.5f);
+  CHECK(preview::phaseProgressValue(4, 4, 10.0f) == 85.0f);
   CHECK(preview::phaseProgressValue(1, 2, 40.0f) == 62.5f);
-  CHECK(preview::phaseProgressValue(2, 2, 10.0f) == 85.0f);
+  CHECK(preview::phaseProgressValue(1, 2, 10.0f) == 47.5f);
 }
 
 namespace {
