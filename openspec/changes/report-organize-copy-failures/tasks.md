@@ -29,11 +29,23 @@
 
 ## 3. Verification & commits
 
-- [ ] 3.1 `xmake test-report` (full unit suite) with zero failures.
-- [ ] 3.2 `xmake fmt` twice with no second-run diff.
-- [ ] 3.3 `xmake tidy` with no new diagnostics against the baseline count taken
+- [x] 3.1 `xmake test-report` (full unit suite) with zero failures.
+- [x] 3.2 `xmake fmt` twice with no second-run diff.
+- [x] 3.3 `xmake tidy` with no new diagnostics against the baseline count taken
       before the change (report-only task in this repo).
-- [ ] 3.4 Commit the planning artifacts as their own `docs:` commit before the
+
+      Verification after 3ec5c7f: full suite `test cases: 821 | 810 passed | 11
+      skipped`, `assertions: 16361 | 16361 passed | 0 skipped`. `xmake fmt` run
+      twice: both runs produced the same diff
+      (sha256 c3f781aaf29284f626bac287122712da9a0354fb3aa4b812dc1cc99b4828d051),
+      whose only entries are the pre-existing clang-format drift in
+      `src/cmd/cmd.cpp` and `src/cmd/help_layout.h` (reverted, out of scope);
+      nothing under `src/organize/`, `tests/organize/` or the change directory
+      differed. `xmake tidy`: 132 warnings before and 132 after, the only
+      diff being four pre-existing `bugprone-unused-return-value` diagnostics
+      in `tests/organize/pipeline_tests.cpp` shifted one line by the added
+      include; no new diagnostic.
+- [x] 3.4 Commit the planning artifacts as their own `docs:` commit before the
       implementation, then implementation + test + ticked `tasks.md` in one
       `fix:` commit (English, subject < 72 chars, body wrapped at 80).
 - [ ] 3.5 Archive the change with the spec sync (`openspec-archive-change`),
