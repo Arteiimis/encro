@@ -18,6 +18,12 @@
 
 ## 5. Code review (code stage)
 
+## 4. Archive
+
+- [ ] 4.1 Archive the change with the spec sync, then verify `openspec/specs/cancellation-reporting/spec.md` carries the mid-archive clause and the change sits under `openspec/changes/archive/`.
+
+## 5. Code review (code stage)
+
 Reviewed the diff since `c9bc9fd` on three axes; fixes in `75c4cad`, verdicts from a
 fresh verifier, plus the follow-up it found.
 
@@ -52,7 +58,3 @@ fresh verifier, plus the follow-up it found.
 
 - No findings: nothing reinvented from the standard library, no new dependency,
   no abstraction, config or dead flexibility added.
-
-## 4. Archive
-
-- [ ] 4.1 Archive the change with the spec sync, then verify `openspec/specs/cancellation-reporting/spec.md` carries the mid-archive clause and the change sits under `openspec/changes/archive/`.
