@@ -395,8 +395,8 @@ TEST_CASE(
   zip.close();
 }
 
-// The stop check lives at the head of every entry, so a stop the write itself
-// produces aborts at the next entry instead of after the whole archive.
+// A stop the write itself produces fails the write instead of finishing the
+// archive.
 TEST_CASE(
   "packFilesToZip aborts at the next entry when a stop arrives mid-write",
   "[packer][packFilesToZip][stop-signal]"
@@ -444,6 +444,29 @@ TEST_CASE(
   REQUIRE_FALSE(result);
   CHECK(result.error() == "Packing canceled by user.");
   CHECK_FALSE(fs::exists(zipPath));
+}
+
+TEST_CASE(
+  "packFilesToZip leaves a pre-existing archive untouched when the write aborts",
+  "[packer][packFilesToZip][stop-signal]"
+) {
+  auto const stopGuard = testutils::ScopedStopSignalReset{};
+  TempDir temp;
+  auto const file = testutils::writeSizedFile(temp.path / "a.txt", 64);
+  auto const zipPath = temp.path / "bundle.zip";
+  testutils::writeTextFile(zipPath, "stale archive bytes");
+
+  auto progressCtx = progress::ProgressContext{};
+  stopsignal::requestStop();
+  auto const result = pack::Packer{}.packFilesToZip(
+    {pack::PackFileEntry{.sourcePath = file, .zipEntryName = "a.txt"}},
+    zipPath,
+    progressCtx,
+    "Packing: bundle.zip"
+  );
+
+  REQUIRE_FALSE(result);
+  CHECK(testutils::readTextFile(zipPath) == "stale archive bytes");
 }
 
 TEST_CASE("execute() in Directory mode packs directory", "[packer][workflow]") {
