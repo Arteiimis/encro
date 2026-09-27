@@ -141,3 +141,50 @@ TEST_CASE(
   REQUIRE(results.size() == 1);
   CHECK(results.front() == regular);
 }
+
+TEST_CASE(
+  "scanByExtensions matches uppercase and mixed-case extensions in a directory",
+  "[media-scanner]"
+) {
+  TempDir temp;
+  auto const upper = temp.path / "CLIP.MP4";
+  auto const mixed = temp.path / "PHOTO.Jpg";
+  writeTextFile(upper);
+  writeTextFile(mixed);
+
+  auto const scanRes =
+    media::scanByExtensions(temp.path, std::array{".mp4"sv, ".jpg"sv}, false);
+  REQUIRE(scanRes);
+  auto const& results = scanRes->matches;
+
+  REQUIRE(results.size() == 2);
+  CHECK(std::ranges::contains(results, upper));
+  CHECK(std::ranges::contains(results, mixed));
+}
+
+TEST_CASE(
+  "scanByExtensions matches an uppercase extension for a single-file root",
+  "[media-scanner]"
+) {
+  TempDir temp;
+  auto const filePath = temp.path / "PHOTO.Jpg";
+  writeTextFile(filePath);
+
+  auto const scanRes = media::scanByExtensions(filePath, std::array{".jpg"sv}, false);
+
+  REQUIRE(scanRes);
+  REQUIRE(scanRes->matches.size() == 1);
+  CHECK(scanRes->matches.front() == filePath);
+}
+
+TEST_CASE("scanByExtensions does not fold letters outside A-Z", "[media-scanner]") {
+  TempDir temp;
+  // A `ch | 0x20` fold would turn '[' (0x5B) into '{' (0x7B) and match.
+  auto const filePath = temp.path / "a.{";
+  writeTextFile(filePath);
+
+  auto const scanRes = media::scanByExtensions(filePath, std::array{".["sv}, false);
+
+  REQUIRE(scanRes);
+  CHECK(scanRes->matches.empty());
+}
