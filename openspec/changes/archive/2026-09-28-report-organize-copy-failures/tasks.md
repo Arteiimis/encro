@@ -48,5 +48,5 @@
 - [x] 3.4 Commit the planning artifacts as their own `docs:` commit before the
       implementation, then implementation + test + ticked `tasks.md` in one
       `fix:` commit (English, subject < 72 chars, body wrapped at 80).
-- [ ] 3.5 Archive the change with the spec sync (`openspec-archive-change`),
+- [x] 3.5 Archive the change with the spec sync (`openspec-archive-change`),
       committing the archived artifacts and the updated main spec.
