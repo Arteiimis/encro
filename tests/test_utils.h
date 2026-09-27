@@ -501,12 +501,31 @@ struct StderrCapture: FileCapture {
 // process (the app, ffmpeg) whose file can lag the exit of another process by a
 // scheduling quantum under parallel load, which showed up as an unreadable log
 // in a real-ffmpeg e2e case. The deadline is a hang guard — a file that never
-// appears still fails here, naming the path.
-inline auto readTextFile(fs::path const& filePath) -> std::string {
-  (void)waitUntil([&] { return fs::exists(filePath); }, std::chrono::seconds{10});
+// appears still fails here — and the failure names the path, the wait and its
+// outcome, so an expired wait, a path that never existed and a path that would
+// not open (a writer still holding it) are told apart.
+inline auto readTextFile(
+  fs::path const& filePath,
+  std::chrono::milliseconds timeout = std::chrono::milliseconds{10'000}
+) -> std::string {
+  auto const startedAt = std::chrono::steady_clock::now();
+  auto const appeared = waitUntil([&] { return fs::exists(filePath); }, timeout);
+  auto const waited = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - startedAt
+  );
 
   auto ifs = std::ifstream{filePath};
+  // One short line per fact: Catch2 wraps failure text at 79 columns, and a
+  // wrap inside a line would break a field apart mid-token.
   INFO("readTextFile: " << filePath.string());
+  INFO(
+    "  waited " << waited.count() << " ms of the " << timeout.count() << " ms deadline"
+  );
+  INFO(
+    "  the path "
+    << (appeared ? "appeared, but opening it failed"
+                 : "never appeared within the deadline")
+  );
   REQUIRE(ifs.is_open());
   return {std::istreambuf_iterator<char>{ifs}, std::istreambuf_iterator<char>{}};
 }
