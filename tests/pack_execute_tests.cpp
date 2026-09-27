@@ -555,7 +555,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "entryNameForFile does not overwrite summary entry names",
+  "summary entries keep their configured zip entry names",
   "[pack-execute][summary-config]"
 ) {
   TempDir temp;
@@ -572,19 +572,17 @@ TEST_CASE(
     .entries = {regularFile},
     .mode = pack::PackMode::Media,
     .outputDir = outputDir,
-    .summary =
-      pack::SummaryConfig{
-        .entries =
-          {
-            pack::PackFileEntry{
-              .sourcePath = summaryFile,
-              .zipEntryName = "00_cover.jpg",
-              .isSummary = true,
-            },
+    .summary = pack::SummaryConfig{
+      .entries =
+        {
+          pack::PackFileEntry{
+            .sourcePath = summaryFile,
+            .zipEntryName = "00_cover.jpg",
+            .isSummary = true,
           },
-        .enabled = true,
-      },
-    .entryNameForFile = [](fs::path const&) { return std::string{"overridden.txt"}; },
+        },
+      .enabled = true,
+    },
   };
 
   auto const result = pack::execute(request);
@@ -594,5 +592,5 @@ TEST_CASE(
   auto const entryNames = testutils::listZipRegularEntryNames(result->zippedFiles[0]);
   REQUIRE(entryNames.size() == 2);
   CHECK(entryNames[0] == "00_cover.jpg");
-  CHECK(entryNames[1] == "overridden.txt");
+  CHECK(entryNames[1] == "regular.txt");
 }

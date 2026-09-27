@@ -385,28 +385,6 @@ auto applyEntryCompression(
 // === Public methods ===
 
 auto pack::Packer::packFilesToZip(
-  std::vector<fs::path> const& filePaths,
-  fs::path const& zipFilePath,
-  progress::ProgressContext& progressCtx,
-  std::string_view progressText,
-  ZipEntryNameResolver const& entryNameForFile
-) -> eh::Result<void> {
-  auto entries = std::vector<PackFileEntry>{};
-  entries.reserve(filePaths.size());
-  for (auto const& filePath: filePaths) {
-    entries.emplace_back(
-      PackFileEntry{
-        .sourcePath = filePath,
-        .zipEntryName =
-          entryNameForFile ? entryNameForFile(filePath) : filePath.filename().string(),
-      }
-    );
-  }
-
-  return packFilesToZip(entries, zipFilePath, progressCtx, progressText);
-}
-
-auto pack::Packer::packFilesToZip(
   std::vector<PackFileEntry> const& entries,
   fs::path const& zipFilePath,
   progress::ProgressContext& progressCtx,

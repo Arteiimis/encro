@@ -10,7 +10,6 @@
 
 namespace pack::detail {
 
-using ZipEntryNameResolver = std::function<std::string(std::filesystem::path const&)>;
 using PackEntryProgressCallback = std::function<void(std::size_t, std::size_t)>;
 
 using PackEntryInput = pack::PackEntryInput;
