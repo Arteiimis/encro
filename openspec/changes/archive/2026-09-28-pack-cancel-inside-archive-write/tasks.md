@@ -24,37 +24,22 @@
 
 ## 5. Code review (code stage)
 
-Reviewed the diff since `c9bc9fd` on three axes; fixes in `75c4cad`, verdicts from a
-fresh verifier, plus the follow-up it found.
+Reviewed the diff since `c9bc9fd` on three axes; fixes in `75c4cad`, verdicts from a fresh verifier, plus the follow-up it found.
 
 ### Standards
 
-- Rejected: the four-line guard is duplicated in both write loops; a shared
-  helper returns `bool` and still needs the same guard and return at both call
-  sites, so it nets no line, and the leanness axis found nothing to cut.
-- Rejected: `Packing canceled by user.` now appears at five sites; the packer
-  must return the funnel's exact string, the other three sites predate this
-  change, and the repo has no message-constant convention.
-- Resolved (`75c4cad`): the packer cases' leading comment now states behaviour
-  instead of where the check sits.
-- Accepted non-goal (design, Non-Goals): a stop that lands after the last entry,
-  during `zip.close()`, is not a checkpoint.
+- Rejected: the four-line guard is duplicated in both write loops; a shared helper returns `bool` and still needs the same guard and return at both call sites, so it nets no line, and the leanness axis found nothing to cut.
+- Rejected: `Packing canceled by user.` now appears at five sites; the packer must return the funnel's exact string, the other three sites predate this change, and the repo has no message-constant convention.
+- Resolved (`75c4cad`): the packer cases' leading comment now states behaviour instead of where the check sits.
+- Accepted non-goal (design, Non-Goals): a stop that lands after the last entry, during `zip.close()`, is not a checkpoint.
 
 ### Spec
 
-- Resolved (`75c4cad`): the mid-write abort's funnel outcome was unpinned;
-  `tests/pack_execute_tests.cpp` now drives the stop from `onCompactProgress`
-  and asserts exit 130, no zipped files, no archive.
+- Resolved (`75c4cad`): the mid-write abort's funnel outcome was unpinned; `tests/pack_execute_tests.cpp` now drives the stop from `onCompactProgress` and asserts exit 130, no zipped files, no archive.
 - Accepted non-goal: the last-entry/`close()` window above.
-- Resolved (`75c4cad`): `discard()` does not delete the file - libzip
-  materialises the archive at close - so the packer cases now also pin that a
-  pre-existing archive survives the abort intact, the packer comment states the
-  real mechanism, and design D2 was corrected. `unlink()` rejected: it would
-  delete a previous run's archive, which the spec's clause does not ask for.
-- Resolved (`20d368f`): `proposal.md` still claimed two packer cases and no
-  other test file; found by the verifier.
+- Resolved (`75c4cad`): `discard()` does not delete the file - libzip materialises the archive at close - so the packer cases now also pin that a pre-existing archive survives the abort intact, the packer comment states the real mechanism, and design D2 was corrected. `unlink()` rejected: it would delete a previous run's archive, which the spec's clause does not ask for.
+- Resolved (`20d368f`): `proposal.md` still claimed two packer cases and no other test file; found by the verifier.
 
 ### Leanness
 
-- No findings: nothing reinvented from the standard library, no new dependency,
-  no abstraction, config or dead flexibility added.
+- No findings: nothing reinvented from the standard library, no new dependency, no abstraction, config or dead flexibility added.

@@ -39,13 +39,5 @@
 
 ## Outcome
 
-- 2026-09-05: three consecutive full `xmake test-parallel` runs green
-  (611-613 test cases, 12 shards, ~45 s wall each including incremental
-  build; serial-path fixed sleeps removed, so pure test time is at or
-  below the pre-change baseline).
-- Final verification surfaced three residual intermittents, fixed and
-  folded back into the convention: the meta-check marker window
-  (clang-format reflow moved trailing comments off the sleep line),
-  a racy negative log-absence assertion in the stop-before-probe
-  section, and interleaving finalizing-spinner frames breaking the
-  pack-service positional sequence match.
+- 2026-09-05: three consecutive full `xmake test-parallel` runs green (611-613 test cases, 12 shards, ~45 s wall each including incremental build; serial-path fixed sleeps removed, so pure test time is at or below the pre-change baseline).
+- Final verification surfaced three residual intermittents, fixed and folded back into the convention: the meta-check marker window (clang-format reflow moved trailing comments off the sleep line), a racy negative log-absence assertion in the stop-before-probe section, and interleaving finalizing-spinner frames breaking the pack-service positional sequence match.

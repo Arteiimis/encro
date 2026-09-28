@@ -26,8 +26,7 @@ See `proposal.md` — Why for the pain and the trigger. The current state that s
 
 ## Decisions
 
-**D1 — One module, two directions, no persistence.**
-`src/video/segment_plan.{h,cpp}`, namespace `videoseg`, exposes:
+**D1 — One module, two directions, no persistence.** `src/video/segment_plan.{h,cpp}`, namespace `videoseg`, exposes:
 
 ```cpp
 struct SegmentPlan {
@@ -54,23 +53,17 @@ The module reads (`fs::exists` walk, `parseSegmentList`, `segmentBaseFrameOffset
 
 *Alternatives:* (a) extract only the stride arithmetic — leaves `encodeComplete` and the prefix rule inside the 165-line function, still unreachable from unit tests, so the expensive part of the move is paid without the payoff; (b) a stateful tracker holding the store, writing on each closed segment — re-owns persistence that `Store` already owns deeply and makes the plan impure, so the rules could only be tested with a store stand-in.
 
-**D2 — The plan holds facts; the runner builds `SegmentSeries`.**
-`SegmentSeries` is the value the ffmpeg command line is built from (`encode_config.h:133-145`), so it stays on the encoder side of the seam. `startNumber()` is derived from `reusableNames.size()` rather than stored, so the count and the names cannot drift — the current code keeps `completed` and `completedNames` as two variables for one fact.
+**D2 — The plan holds facts; the runner builds `SegmentSeries`.** `SegmentSeries` is the value the ffmpeg command line is built from (`encode_config.h:133-145`), so it stays on the encoder side of the seam. `startNumber()` is derived from `reusableNames.size()` rather than stored, so the count and the names cannot drift — the current code keeps `completed` and `completedNames` as two variables for one fact.
 
-**D3 — The store read stays at the call site.**
-`video_encode_runner.cpp:605` is the only production consumer of the recorded segment count; a `PriorProgress` accessor would serve one caller and add a type. The parameter is named `storedSegments` so the seam states what it means.
+**D3 — The store read stays at the call site.** `video_encode_runner.cpp:605` is the only production consumer of the recorded segment count; a `PriorProgress` accessor would serve one caller and add a type. The parameter is named `storedSegments` so the seam states what it means.
 
-**D4 — `segmentBaseFrameOffset` stays where it is.**
-It is already a pure inline beside the parser (`video_progress_parser.h:37`) and has its own test; the plan calls it. Moving it into the plan would cut the parser's seam for no gain.
+**D4 — `segmentBaseFrameOffset` stays where it is.** It is already a pure inline beside the parser (`video_progress_parser.h:37`) and has its own test; the plan calls it. Moving it into the plan would cut the parser's seam for no gain.
 
-**D5 — The exit direction shares the arithmetic, not the guard.**
-`closedSegments` returns the raw count; the watcher keeps its monotonic guard (`total <= watch.completedSegments`), the `std::atomic` it guards, and the `Store::markSegmentProgress` call. The guard is watch-loop state, not a rule about segments. The runner's post-run read for the assembly input (`:739`) also counts through `closedSegments(listPath, 0)` — the list was cleared before the run — so `parseSegmentList` has no production caller outside the module.
+**D5 — The exit direction shares the arithmetic, not the guard.** `closedSegments` returns the raw count; the watcher keeps its monotonic guard (`total <= watch.completedSegments`), the `std::atomic` it guards, and the `Store::markSegmentProgress` call. The guard is watch-loop state, not a rule about segments. The runner's post-run read for the assembly input (`:739`) also counts through `closedSegments(listPath, 0)` — the list was cleared before the run — so `parseSegmentList` has no production caller outside the module.
 
-**D6 — Fix the offset read by locking, not by making fields atomic.**
-`getEncodingProgress` will snapshot `baseFrameOffset` and `totalFrames` in one `std::scoped_lock{state.mtx}` alongside the `progressFilePath` it already snapshots (`video_encoding_state.cpp:99-103`). Making `baseFrameOffset` a `std::atomic` would leave the pair readable torn apart from `totalFrames`, and the monitor already takes this lock on every parse pass, so the extra snapshot is free.
+**D6 — Fix the offset read by locking, not by making fields atomic.** `getEncodingProgress` will snapshot `baseFrameOffset` and `totalFrames` in one `std::scoped_lock{state.mtx}` alongside the `progressFilePath` it already snapshots (`video_encoding_state.cpp:99-103`). Making `baseFrameOffset` a `std::atomic` would leave the pair readable torn apart from `totalFrames`, and the monitor already takes this lock on every parse pass, so the extra snapshot is free.
 
-**D7 — Tests: unit for the rules e2e cannot stage, e2e untouched.**
-`tests/video/segment_plan_tests.cpp`, tag `[segment-plan]`, one `TEST_CASE` per named failure mode: a gap inside the prefix (stops there), the list reaches the timeline end with fewer segments than the duration implies (`complete`), a run that died with a segment in flight (not complete), and the frame-offset conversion. The recorded-count-exceeds-disk variant stays e2e (the vanished-prefix-file case at `tests/e2e/encro_e2e_tests.cpp:1553-1601` removes `seg_0.ts`). The e2e resume cases stay: they cover the process boundary (`-ss`, `-segment_start_number`, the concat manifest) and the watcher writing to job state, which the unit tests cannot reach.
+**D7 — Tests: unit for the rules e2e cannot stage, e2e untouched.** `tests/video/segment_plan_tests.cpp`, tag `[segment-plan]`, one `TEST_CASE` per named failure mode: a gap inside the prefix (stops there), the list reaches the timeline end with fewer segments than the duration implies (`complete`), a run that died with a segment in flight (not complete), and the frame-offset conversion. The recorded-count-exceeds-disk variant stays e2e (the vanished-prefix-file case at `tests/e2e/encro_e2e_tests.cpp:1553-1601` removes `seg_0.ts`). The e2e resume cases stay: they cover the process boundary (`-ss`, `-segment_start_number`, the concat manifest) and the watcher writing to job state, which the unit tests cannot reach.
 
 ## Risks / Trade-offs
 
