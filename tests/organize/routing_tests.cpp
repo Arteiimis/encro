@@ -345,6 +345,59 @@ TEST_CASE("buildFolderReferences skips cache misses and the cache dir", "[organi
   );
 }
 
+// Same-run references: the character folders this run's own routing created
+// join the on-disk ones, so a first run can capture a cluster (design D1/D3).
+TEST_CASE(
+  "same-run references merge with the on-disk ones by folder name",
+  "[organize]"
+) {
+  auto onDisk = organize::FolderReference{.name = "hatsune_miku"};
+  onDisk.meanFeature = testutils::unitFeature(1.0);
+  onDisk.featureMembers = 1;
+  onDisk.soleTagCounts["hatsune_miku"] = 1;
+  onDisk.analyzableMembers = 1;
+
+  auto renamed = organize::FolderReference{.name = "初音ミク"};
+  renamed.meanFeature = testutils::unitFeature(1.0);
+  renamed.featureMembers = 1;
+  renamed.soleTagCounts["hatsune_miku"] = 1;
+  renamed.analyzableMembers = 1;
+
+  auto items = std::vector<organize::ImageItem>{
+    item(
+      "tagged-a",
+      analysis({{"pink_hair", 0.9}}, {{"hatsune_miku", 0.9}}, testutils::unitFeature(1.0))
+    ),
+    item("tagged-b", analysis({}, {}, testutils::unitFeature(1.0))),
+    item("duo", analysis({{"2girls", 0.9}}, {}, testutils::unitFeature(1.0))),
+    item("blank", analysis({}, {}, {})),
+  };
+  items[0].folderName = "hatsune_miku";
+  items[0].folderSource = organize::FolderSource::CharacterTag;
+  items[1].folderName = "初音ミク";
+  items[1].folderSource = organize::FolderSource::FolderMatch;
+  items[2].folderName = "mixed";
+  items[2].folderSource = organize::FolderSource::Mixed;
+  items[3].folderSource = organize::FolderSource::Uncategorized;
+
+  auto const merged = organize::buildSameRunReferences(items, {onDisk, renamed});
+  // mixed/ and uncategorized/ are not characters, so they teach nothing.
+  REQUIRE(merged.size() == 2);
+  // Display-name order: ASCII sorts before the CJK bytes, so equal scores
+  // resolve the same way every run.
+  CHECK(merged[0].name == "hatsune_miku");
+  CHECK(merged[1].name == "初音ミク");
+  // A destination folds into the reference of the same name: union members.
+  CHECK(merged[0].analyzableMembers == 2);
+  CHECK(merged[1].analyzableMembers == 2);
+  // The disk member and this run's filed image both count as this folder's
+  // evidence, which is what the union means.
+  CHECK(merged[0].soleTagCounts.at("hatsune_miku") == 2);
+  // The renamed destination is its own single reference, not a copy of the
+  // tag-named one.
+  CHECK(merged[1].soleTagCounts.at("hatsune_miku") == 1);
+}
+
 TEST_CASE("renamed character folder keeps teaching under its new name", "[organize]") {
   auto temp = TempDir{};
   auto cache =

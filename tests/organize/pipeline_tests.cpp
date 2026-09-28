@@ -143,7 +143,140 @@ private:
 };
 #endif
 
+// True when the run left a cluster uncaptured: it named an unknown_ folder.
+bool hasUnknownFolder(organize::ReportData const& report) {
+  for (auto const& line: report.folders) {
+    if (line.folder.starts_with(organize::kUnknownPrefix)) { return true; }
+  }
+  return false;
+}
+
+// How many images the report files under one folder name.
+std::size_t folderImages(organize::ReportData const& report, std::string_view name) {
+  for (auto const& line: report.folders) {
+    if (line.folder == name) { return line.images; }
+  }
+  return 0;
+}
+
 }  // namespace
+
+// The first run is the case this change exists for: the folder the routing
+// creates in this very run becomes a reference, so a cluster joins it now
+// instead of waiting for a second run (design D1/D2/D5).
+TEST_CASE(
+  "a first run captures a cluster into the folder it just created",
+  "[organize]"
+) {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "miku.png", "miku");
+  testutils::writeTextFile(temp.path / "solo.png", "solo");
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
+  engine.byName["solo.png"] = {.general = {tag("pink_hair", 0.9)}};
+  features.byName["miku.png"] = testutils::unitFeature(1.0);
+  // Cosine 0.9 against the folder's only member: above the feature-only
+  // default, so the cluster matches the reference the routing just made.
+  features.byName["solo.png"] = testutils::unitFeature(0.9);
+
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(report.has_value());
+  CHECK(fs::exists(temp.path / "organized" / "hatsune_miku" / "miku.png"));
+  CHECK(fs::exists(temp.path / "organized" / "hatsune_miku" / "solo.png"));
+  CHECK_FALSE(hasUnknownFolder(*report));
+  CHECK(folderImages(*report, "hatsune_miku") == 2);
+}
+
+// A folder the user renamed owns its character tag; the run's own destination
+// carries that name, so the two are one reference and nothing is duplicated.
+TEST_CASE(
+  "a renamed folder keeps owning the character a first run would add",
+  "[organize]"
+) {
+  auto temp = TempDir{};
+  auto const renamed = temp.path / "organized" / "初音ミク";
+  fs::create_directories(renamed);
+  auto const seat = std::string{"old-bytes"};
+  testutils::writeTextFile(renamed / "old.png", seat);
+  {
+    auto cache =
+      organize::AnalysisCache{temp.path / "organized" / ".cache" / "analysis.json"};
+    cache.put(
+      core::sha256Hex(seat),
+      organize::AnalysisResult{
+        .tags = {.character = {tag("hatsune_miku", 0.9)}},
+        .identity = testutils::unitFeature(1.0),
+      }
+    );
+  }
+
+  testutils::writeTextFile(temp.path / "miku.png", "miku");
+  testutils::writeTextFile(temp.path / "solo.png", "solo");
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
+  engine.byName["solo.png"] = {.general = {tag("pink_hair", 0.9)}};
+  features.byName["miku.png"] = testutils::unitFeature(1.0);
+  features.byName["solo.png"] = testutils::unitFeature(0.9);
+
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(report.has_value());
+  CHECK(fs::exists(renamed / "miku.png"));
+  CHECK(fs::exists(renamed / "solo.png"));
+  CHECK_FALSE(fs::exists(temp.path / "organized" / "hatsune_miku"));
+}
+
+// A run that files nothing by character tag has no references of its own, so
+// its clusters keep the names they had before this change.
+TEST_CASE(
+  "a run with no character routing produces no references of its own",
+  "[organize]"
+) {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "a.png", "a");
+  testutils::writeTextFile(temp.path / "b.png", "b");
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["a.png"] = {.general = {tag("pink_hair", 0.9)}};
+  engine.byName["b.png"] = {.general = {tag("pink_hair", 0.9)}};
+  features.byName["a.png"] = testutils::unitFeature(1.0);
+  features.byName["b.png"] = testutils::unitFeature(1.0);
+
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(report.has_value());
+  // Same result as before the requirement existed: one cluster, named from the
+  // tags its members carry, and nothing captured.
+  CHECK(report->folders.size() == 1);
+  CHECK(folderImages(*report, "unknown_pink_hair") == 2);
+}
+
+// The threshold still decides: a cluster that matches no reference keeps its
+// unknown_ name even though a reference now exists.
+TEST_CASE("a cluster below the threshold keeps its unknown name", "[organize]") {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "miku.png", "miku");
+  testutils::writeTextFile(temp.path / "far.png", "far");
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
+  engine.byName["far.png"] = {.general = {tag("blue_eyes", 0.9)}};
+  features.byName["miku.png"] = testutils::unitFeature(1.0);
+  features.byName["far.png"] = testutils::unitFeature(0.2);
+
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(report.has_value());
+  CHECK(fs::exists(temp.path / "organized" / "hatsune_miku" / "miku.png"));
+  CHECK(folderImages(*report, "hatsune_miku") == 1);
+  CHECK(hasUnknownFolder(*report));
+}
 
 TEST_CASE("pipeline files known characters, clusters, and mixed", "[organize]") {
   auto temp = TempDir{};

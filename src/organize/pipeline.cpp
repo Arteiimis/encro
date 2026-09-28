@@ -389,8 +389,12 @@ auto runOrganize(
   // References rebuilt with the freshly cached analyses included, then the
   // fixed routing order per item.
   auto const characterDf = buildCharacterDf(items);
-  auto const references = buildFolderReferences(options.root, cache);
-  auto const pending = routeItems(items, options.minConfidence, references, characterDf);
+  // On-disk folders drive ownership; the merged set — on-disk folders plus the
+  // character folders this run's own routing creates — drives the capture, so a
+  // first run files a cluster into its character's folder (design D1-D3).
+  auto const onDisk = buildFolderReferences(options.root, cache);
+  auto const pending = routeItems(items, options.minConfidence, onDisk, characterDf);
+  auto const references = buildSameRunReferences(items, onDisk);
   clusterRemainder(items, pending, references, options);
 
   auto const stats = executeOrganize(options.root, items, options.dryRun);
