@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <map>
 #include <system_error>
+#include <utility>
 
 namespace organize {
 
@@ -72,6 +74,73 @@ auto buildFolderReferences(fs::path const& root, AnalysisCache const& cache)
     auto reference = buildReference(entry, cache);
     if (reference.analyzableMembers > 0) { references.push_back(std::move(reference)); }
   }
+  return references;
+}
+
+auto buildSameRunReferences(
+  std::vector<ImageItem> const& items,
+  std::vector<FolderReference> const& onDisk
+) -> std::vector<FolderReference> {
+  // Keyed by display name: a destination and an on-disk folder of the same
+  // name become one reference.
+  auto byName = std::map<std::string, FolderReference>{};
+  for (auto const& reference: onDisk) {
+    byName[displaytext::pathToUtf8String(reference.name)] = reference;
+  }
+
+  // This run's filed images, folded in content-hash order: the stored mean must
+  // not depend on the order the scanner happened to walk the gallery. The
+  // analysis is held by pointer so the fold below needs no second check.
+  struct Filed {
+    std::string hash;
+    fs::path destination;
+    AnalysisResult const* analysis = nullptr;
+  };
+  auto filed = std::vector<Filed>{};
+  for (auto const& item: items) {
+    // Only a character folder can teach one: mixed/ holds several characters
+    // and uncategorized/ may hold none (design D1).
+    if (
+      item.folderSource != FolderSource::CharacterTag
+      && item.folderSource != FolderSource::FolderMatch
+    ) {
+      continue;
+    }
+    if (item.folderName.empty() || !item.analysis.has_value()) { continue; }
+    filed.push_back(
+      Filed{
+        .hash = item.contentHash,
+        .destination = item.folderName,
+        .analysis = &*item.analysis,
+      }
+    );
+  }
+  std::sort(filed.begin(), filed.end(), [](Filed const& a, Filed const& b) {
+    return a.hash < b.hash;
+  });
+
+  for (auto const& entry: filed) {
+    auto& reference = byName[displaytext::pathToUtf8String(entry.destination)];
+    // A destination the routing created has no name yet; an on-disk reference
+    // keeps the one the user sees.
+    if (reference.name.empty()) { reference.name = entry.destination; }
+    accumulateMember(reference, *entry.analysis);
+  }
+
+  auto references = std::vector<FolderReference>{};
+  references.reserve(byName.size());
+  for (auto& entry: byName) { references.push_back(std::move(entry.second)); }
+  // Name order is the invariant a tie in the capture relies on, so it is stated
+  // here in the same terms buildFolderReferences uses rather than left to the
+  // map's comparator.
+  std::sort(
+    references.begin(),
+    references.end(),
+    [](FolderReference const& a, FolderReference const& b) {
+      return displaytext::pathToUtf8String(a.name)
+        < displaytext::pathToUtf8String(b.name);
+    }
+  );
   return references;
 }
 
