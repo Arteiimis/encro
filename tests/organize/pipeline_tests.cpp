@@ -323,6 +323,87 @@ TEST_CASE("a cache from an older format version is re-analyzed", "[organize]") {
   CHECK(fs::exists(temp.path / "organized" / "stale_character"));
 }
 
+TEST_CASE("teaching weighs the tag side like clustering does", "[organize]") {
+  // Two halves, both red under a feature-only comparison at 0.643: agreeing
+  // identity tags lift a pair whose features alone would miss the default
+  // (0.8*0.63 + 0.2*1.0 = 0.704 clears 0.70), and a reference with no
+  // identity-tag evidence is judged on the feature alone against 0.74, so
+  // 0.72 no longer reaches it.
+  auto const run = [](double cosine, std::vector<organize::TagScore> memberTags) {
+    auto temp = TempDir{};
+    auto const referenceDir = temp.path / "organized" / "taught";
+    fs::create_directories(referenceDir);
+    auto const memberBytes = std::string{"member"};
+    testutils::writeTextFile(referenceDir / "member.png", memberBytes);
+
+    auto cache =
+      organize::AnalysisCache{temp.path / "organized" / ".cache" / "analysis.json"};
+    cache.put(
+      core::sha256Hex(memberBytes),
+      organize::AnalysisResult{
+        .tags = {.general = std::move(memberTags), .character = {}, .rating = {}},
+        .identity = testutils::unitFeature(1.0),
+      }
+    );
+
+    testutils::writeTextFile(temp.path / "new.png", "new");
+    auto engine = FakeTagger{};
+    auto features = FakeFeatureEngine{};
+    engine.byName["new.png"] = {.general = {tag("pink_hair", 0.9)}};
+    features.byName["new.png"] = testutils::unitFeature(cosine);
+
+    auto const report =
+      organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+    REQUIRE(report.has_value());
+    for (auto const& folder: report->folders) {
+      if (folder.folder == "taught") { return true; }
+    }
+    return false;
+  };
+
+  // Agreeing tags carry the pair over the combined default.
+  CHECK(run(0.63, {tag("pink_hair", 0.9)}));
+  // No tag evidence on the reference side: the feature alone, below 0.74.
+  CHECK_FALSE(run(0.72, {}));
+}
+
+TEST_CASE("a run above the clustering ceiling falls back and reports it", "[organize]") {
+  auto temp = TempDir{};
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  for (auto const index: {0, 1, 2}) {
+    auto const name = std::format("oc{}.png", index);
+    testutils::writeTextFile(temp.path / name, name);
+    engine.byName[name] = {};
+    features.byName[name] = testutils::unitFeature(1.0);
+  }
+
+  auto options = makeOptions(temp.path);
+  options.clusterImageCeiling = 2;  // three unassigned images: above it
+  // The fallback line is a warning, so it goes to stderr: capture that stream
+  // and keep every assertion outside the redirection window.
+  auto const capturePath = temp.path / "stderr.log";
+  auto report = std::optional<organize::ReportData>{};
+  {
+    auto const capture = testutils::StderrCapture{capturePath};
+    auto const result = organize::runOrganize(options, engine, features, nullptr);
+    if (result.has_value()) { report = *result; }
+  }
+  auto const captured = testutils::readTextFile(capturePath);
+
+  CHECK(captured.find("falling back") != std::string::npos);
+  // Every image still lands in exactly one folder: three copies, one folder.
+  REQUIRE(report.has_value());
+  auto copies = std::size_t{0};
+  for (auto const& entry: fs::recursive_directory_iterator(temp.path / "organized")) {
+    if (entry.is_regular_file() && entry.path().parent_path().filename() != ".cache") {
+      ++copies;
+    }
+  }
+  CHECK(copies == 3);
+  CHECK(report->folders.size() == 1);
+}
+
 TEST_CASE("identical content is analyzed once and its twin is a skip", "[organize]") {
   // Two files with the same bytes share one content hash: the stage classifies
   // that content once, the twin is filtered as already analyzed (skipped, not

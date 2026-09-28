@@ -78,8 +78,9 @@ TEST_CASE("organize groups images by character via the CLI", "[e2e][organize]") 
     fixture,
     {{"miku1", {"hatsune_miku", 0.9}}, {"miku2", {"hatsune_miku", 0.85}}},
     {{"oc1", {"pink_hair", 0.9}}},
-    // Clustering reads the identity feature, not the tags (design D3/D4); the
-    // tag on oc1 only names the folder it ends up in.
+    // Clustering weighs the identity feature with identity-bearing general
+    // tags (0.8/0.2, design D1/D3), so oc1's pink_hair both joins the score
+    // and names the folder it ends up in.
     {{"oc1", {1.0F, 0.0F}}}
   );
 

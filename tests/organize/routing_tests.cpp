@@ -106,40 +106,125 @@ TEST_CASE("cosineSimilarity is 1 for identical, 0 for disjoint", "[organize]") {
 
 TEST_CASE("clusterPending groups features that reach the threshold", "[organize]") {
   // One character across styles: both mates sit at cos 0.9 or above against
-  // the cluster centroid (kIdentityTau is 0.643).
+  // the cluster centroid, in feature-only mode (no identity tags here, so the
+  // comparison uses the feature-only default).
   auto items = std::vector<organize::ImageItem>{
     item("a", analysis({}, {}, testutils::unitFeature(1.0))),
     item("b", analysis({}, {}, testutils::unitFeature(0.9))),
     item("c", analysis({}, {}, testutils::unitFeature(0.1))),
   };
-  auto const clusters = organize::clusterPending(items, {0, 1, 2});
+  auto const clusters = organize::clusterPending(items, {0, 1, 2}).clusters;
   REQUIRE(clusters.size() == 2);
   // Hash order decides which cluster is first; the pair is the big one.
   auto const& merged = clusters[0].itemIndices.size() == 2 ? clusters[0] : clusters[1];
   CHECK(merged.itemIndices.size() == 2);
 }
 
-TEST_CASE("a feature below the threshold opens a new cluster", "[organize]") {
-  // kIdentityTau sits at 0.643050, the cosine equivalent of the identity
-  // model's published metric threshold: 0.7 belongs to the character, 0.6
-  // does not.
+TEST_CASE("a feature below the feature-only default opens a new cluster", "[organize]") {
+  // With no identity-tag evidence the comparison is a bare cosine and the
+  // calibrated default for that mode is 0.74 (design D6): 0.8 belongs to the
+  // character, 0.7 does not.
   auto const above = organize::clusterPending(
-    std::vector<organize::ImageItem>{
-      item("a", analysis({}, {}, testutils::unitFeature(1.0))),
-      item("b", analysis({}, {}, testutils::unitFeature(0.7))),
-    },
-    {0, 1}
-  );
+                       std::vector<organize::ImageItem>{
+                         item("a", analysis({}, {}, testutils::unitFeature(1.0))),
+                         item("b", analysis({}, {}, testutils::unitFeature(0.8))),
+                       },
+                       {0, 1}
+  )
+                       .clusters;
   CHECK(above.size() == 1);
 
   auto const below = organize::clusterPending(
-    std::vector<organize::ImageItem>{
-      item("a", analysis({}, {}, testutils::unitFeature(1.0))),
-      item("b", analysis({}, {}, testutils::unitFeature(0.6))),
-    },
-    {0, 1}
-  );
+                       std::vector<organize::ImageItem>{
+                         item("a", analysis({}, {}, testutils::unitFeature(1.0))),
+                         item("b", analysis({}, {}, testutils::unitFeature(0.7))),
+                       },
+                       {0, 1}
+  )
+                       .clusters;
   CHECK(below.size() == 2);
+}
+
+TEST_CASE("the combined score weights the feature and the tags", "[organize]") {
+  // 0.8/0.2 (design D2) over the two cosines. The tag side is built from
+  // identity-bearing general tags at or above the naming floor, weighted by
+  // confidence and normalized — no corpus statistic (design D1).
+  auto const image = organize::profileOf(item(
+    "a",
+    analysis(
+      {tag("pink_hair", 0.9), tag("blue_eyes", 0.3), tag("2girls", 0.95)},
+      {},
+      testutils::unitFeature(1.0)
+    )
+  ));
+  // blue_eyes is below the naming floor and 2girls is not an identity tag.
+  REQUIRE(image.tags.size() == 1);
+  CHECK(organize::tagCosine(image.tags, image.tags) == Catch::Approx(1.0));
+
+  auto const mate = organize::profileOf(
+    item("b", analysis({tag("pink_hair", 0.9)}, {}, testutils::unitFeature(0.5)))
+  );
+  auto const score = organize::scoreProfiles(image, mate);
+  CHECK(score.combined);
+  CHECK(score.value == Catch::Approx(0.8 * 0.5 + 0.2 * 1.0));
+  CHECK(organize::tauFor(score, organize::kCombinedTau) == organize::kCombinedTau);
+
+  // No identity-tag evidence on either side: the feature cosine alone, judged
+  // against the mode's own calibrated default rather than the knob.
+  auto const untagged = organize::profileOf(
+    item("c", analysis({tag("2girls", 0.95)}, {}, testutils::unitFeature(0.5)))
+  );
+  CHECK(untagged.tags.empty());
+  auto const plain = organize::scoreProfiles(image, untagged);
+  CHECK_FALSE(plain.combined);
+  CHECK(plain.value == Catch::Approx(0.5));
+  CHECK(organize::tauFor(plain, organize::kCombinedTau) == organize::kFeatureOnlyTau);
+}
+
+TEST_CASE(
+  "clustering merges by mean cross-pair score, not by centroid distance",
+  "[organize]"
+) {
+  // Three images 0/30/55 degrees apart, above the feature-only default: the
+  // pair 0-30 (0.866) and the pair 30-55 (0.906) clear it, but a third image
+  // joins them only if the *mean cross-pair* score does — 0 against 55 is
+  // 0.574, so the mean of {30,55} against 0 is 0.72, below the default. A
+  // centroid rule merges the trio instead, which is the dead end design D4
+  // rejects; the same fixture therefore also pins that the partition does not
+  // move when the pending order is reversed.
+  auto const degrees = std::vector{0.0, 30.0, 55.0, 90.0};
+  auto items = std::vector<organize::ImageItem>{};
+  for (auto const index: {0, 1, 2, 3}) {
+    auto const radians = degrees[index] * 3.14159265358979323846 / 180.0;
+    items.push_back(item(
+      std::format("chain-{}", index),
+      analysis(
+        {},
+        {},
+        std::vector<float>{
+          static_cast<float>(std::cos(radians)),
+          static_cast<float>(std::sin(radians)),
+        }
+      )
+    ));
+  }
+
+  auto const partition = [](std::vector<organize::Cluster> const& clusters) {
+    auto groups = std::vector<std::vector<std::size_t>>{};
+    for (auto const& cluster: clusters) {
+      auto group = cluster.itemIndices;
+      std::sort(group.begin(), group.end());
+      groups.push_back(std::move(group));
+    }
+    std::sort(groups.begin(), groups.end());
+    return groups;
+  };
+
+  auto const forward = partition(organize::clusterPending(items, {0, 1, 2, 3}).clusters);
+  auto const reversed = partition(organize::clusterPending(items, {3, 2, 1, 0}).clusters);
+  CHECK(forward == reversed);
+  // 30 and 55 are the only pair above the default; 0 and 90 stay alone.
+  CHECK(forward == std::vector<std::vector<std::size_t>>{{0}, {1, 2}, {3}});
 }
 
 TEST_CASE("an item without an identity feature never joins a cluster", "[organize]") {
@@ -149,7 +234,7 @@ TEST_CASE("an item without an identity feature never joins a cluster", "[organiz
     item("a", analysis({tag("pink_hair", 0.9)})),
     item("b", analysis({tag("pink_hair", 0.9)}, {}, testutils::unitFeature(1.0))),
   };
-  auto const clusters = organize::clusterPending(items, {0, 1});
+  auto const clusters = organize::clusterPending(items, {0, 1}).clusters;
   REQUIRE(clusters.size() == 1);
   CHECK(clusters[0].itemIndices == std::vector<std::size_t>{1});
 }
@@ -163,7 +248,7 @@ TEST_CASE(
     item("b", analysis({tag("pink_hair", 0.88)}, {}, testutils::unitFeature(0.99))),
     item("c", analysis({tag("black_hair", 0.9)}, {}, testutils::unitFeature(0.0))),
   };
-  auto const clusters = organize::clusterPending(items, {0, 1, 2});
+  auto const clusters = organize::clusterPending(items, {0, 1, 2}).clusters;
   REQUIRE(clusters.size() == 2);
 
   auto used = std::set<std::string>{};
@@ -191,7 +276,7 @@ TEST_CASE("clusterFolderName ranks member tags by how many carry them", "[organi
     ),
     item("b", analysis({tag("pink_hair", 0.61)}, {}, testutils::unitFeature(0.99))),
   };
-  auto const clusters = organize::clusterPending(items, {0, 1});
+  auto const clusters = organize::clusterPending(items, {0, 1}).clusters;
   REQUIRE(clusters.size() == 1);
 
   auto used = std::set<std::string>{};
@@ -216,7 +301,7 @@ TEST_CASE(
       )
     ),
   };
-  auto const clusters = organize::clusterPending(items, {0});
+  auto const clusters = organize::clusterPending(items, {0}).clusters;
   REQUIRE(clusters.size() == 1);
 
   auto first = std::set<std::string>{};
@@ -290,4 +375,17 @@ TEST_CASE("renamed character folder keeps teaching under its new name", "[organi
   auto const* owner = organize::owningFolder(references, "hatsune_miku");
   REQUIRE(owner != nullptr);
   CHECK(owner->name == "初音ミク");
+}
+
+TEST_CASE("a lowered identity threshold reaches the clustering queue", "[organize]") {
+  // 0.8 * 0.55 + 0.2 * 1.0 = 0.64: below the calibrated default but above a knob
+  // the user lowered, which used to be filtered out before the pair was queued.
+  auto items = std::vector<organize::ImageItem>{
+    item("low-a", analysis({{"pink_hair", 0.9}}, {}, testutils::unitFeature(1.0))),
+    item("low-b", analysis({{"pink_hair", 0.9}}, {}, testutils::unitFeature(0.55))),
+  };
+
+  CHECK(organize::clusterPending(items, {0, 1}, 0.62).clusters.size() == 1);
+  // The calibrated default keeps them apart.
+  CHECK(organize::clusterPending(items, {0, 1}).clusters.size() == 2);
 }

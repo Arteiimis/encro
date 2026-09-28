@@ -19,7 +19,8 @@ namespace configstore {
 
 enum class JsonKind {
   String,
-  Number,
+  Number,  // integral: stored and validated as an integer
+  Real,    // fractional: validated as a decimal number
   Boolean,
 };
 

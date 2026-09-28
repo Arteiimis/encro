@@ -4,6 +4,7 @@
 #include "cmd/config_store.h"
 #include "cmd/help_layout.h"
 #include "cmd/option_specs.h"
+#include "organize/organize_types.h"
 
 #include <CLI/CLI.hpp>
 
@@ -49,6 +50,19 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
       "directory holding the local model files (default: ~/.encro/models)",
       cfg::ConfigKey{"model-dir"},
       cfg::Path{}
+    ),
+    opt(
+      "--identity-tau",
+      &result.organizeIdentityTau,
+      std::format(
+        "identity similarity threshold: raise it to keep look-alikes apart, lower "
+        "it to hold a character's varied artwork together (default {:.2f})",
+        organize::kCombinedTau
+      ),
+      cfg::ConfigKey{"identity-tau"},
+      cfg::DefaultValue{std::format("{:.2f}", organize::kCombinedTau)},
+      cfg::FloatRange{0.0, 1.0},
+      cfg::PositiveFloat{}
     ),
     opt(
       "--download-models",

@@ -517,7 +517,7 @@ constexpr auto kCompletionUsageLines = std::array{
 
 constexpr auto kOrganizeUsageLines = std::array{
   "encro organize [dir] [-r] [--min-confidence <f>] [--model-dir <dir>] "
-  "[--download-models] [--dry-run]"sv,
+  "[--identity-tau <f>] [--download-models] [--dry-run]"sv,
 };
 
 }  // namespace
