@@ -190,3 +190,38 @@ TEST_CASE("missing models fail fast with guidance", "[e2e][organize]") {
      || run.stderrText.find("models not found") != std::string::npos)
   );
 }
+
+// The fetch-only form: --download-models stands alone, so no directory is
+// needed and nothing is scanned. The child's working directory is this temp
+// dir, so a silent fallback to "." would scan it and leave an organized/ tree
+// right here — which is what the assertion below watches.
+TEST_CASE("organize fetches models without a directory", "[e2e][organize]") {
+  auto temp = TempDir{};
+  writeImage(temp.path / "miku1.png", "miku1");
+
+  auto fixture = temp.path / "fixture.json";
+  writeFixture(fixture, {{"miku1", {"hatsune_miku", 0.9}}}, {});
+
+  auto const run = e2e::runEncro(
+    {"organize", "--download-models"},
+    temp.path,
+    {{"ENCRO_FAKE_TAGGER", fixture.string()}}
+  );
+  REQUIRE_SUCCESS(run);
+  CHECK(!fs::exists(temp.path / "organized"));
+}
+
+// The rule is hand-written (design D1), so the rendered error and the help
+// hint are what could regress silently; the parse-level case pins the message
+// text alone.
+TEST_CASE("organize without a directory names the missing argument", "[e2e][organize]") {
+  auto const run = e2e::runEncro({"organize"});
+  CHECK(run.exitCode == 1);
+  CHECK(
+    run.stderrText.find("error: Invalid arguments: dir is required") != std::string::npos
+  );
+  CHECK(
+    run.stderrText.find("hint: Run encro -h for help (or -hh for all options).")
+    != std::string::npos
+  );
+}

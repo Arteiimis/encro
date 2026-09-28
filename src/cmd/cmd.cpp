@@ -30,7 +30,7 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
   );
   sub->set_help_flag("-h,--help", "show organize help");
   auto const options = std::tuple{
-    opt("dir", &result.organizeDir, "folder of images to organize", cfg::Required{}),
+    opt("dir", &result.organizeDir, "folder of images to organize"),
     opt(
       "-r,--recursive,--no-recursive{false}",
       &result.recursive,
@@ -53,7 +53,7 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
     opt(
       "--download-models",
       &result.organizeDownloadModels,
-      "fetch missing model files (~530 MB, one time), then run"
+      "fetch missing model files (~530 MB), then run (no dir: fetch only)"
     ),
     opt("--dry-run", &result.dryRun, "classify and print the plan; copy nothing"),
     opt("--recluster", &result.organizeRecluster, "discard cached analysis and redo it"),
@@ -174,6 +174,16 @@ auto configActionArityError(CmdParseResult const& result) -> std::optional<std::
     );
   }
   return std::nullopt;
+}
+
+// --download-models is a complete request on its own: fetching the models
+// needs no images. Beside the config arity rule so the missing-directory case
+// keeps the CLI's own error line and help hint (design D1).
+auto organizeDirError(CmdParseResult const& result) -> std::optional<std::string> {
+  if (result.organizeDir.has_value() || result.organizeDownloadModels) {
+    return std::nullopt;
+  }
+  return "dir is required";
 }
 
 // Completion scripts for supported shells; install/uninstall are mutually
@@ -533,7 +543,12 @@ auto buildAndParse(
     if (result.debug) { result.verbosity = std::max(result.verbosity, 2); }
     result.verbosity = std::min(result.verbosity, 2);
     if (tree.app->got_subcommand(tree.previewSub)) { result.preview = true; }
-    if (tree.app->got_subcommand(tree.organizeSub)) { result.organize = true; }
+    if (tree.app->got_subcommand(tree.organizeSub)) {
+      result.organize = true;
+      if (auto const error = organizeDirError(result); error.has_value()) {
+        result.error = *error;
+      }
+    }
     if (tree.app->got_subcommand(tree.configSub)) {
       result.config = true;
       result.helpApp_ = tree.configSub;

@@ -125,6 +125,8 @@ The first run needs the model files (~530 MB, one time):
 xmake run encro organize <dir> --download-models
 ```
 
+`--download-models` without `<dir>` fetches the models and stops there, so a folder only has to be named when you also want the run.
+
 Rename any output folder to rename a character — e.g. `hatsune_miku` → `初音ミク`; later runs file new images of that character under your name. `--dry-run` prints the plan without copying; results are cached by content hash, so re-runs and interrupted runs re-analyze nothing (`--recluster` discards the cache). On NVIDIA GPUs the model runs on CUDA; install the CUDA runtime once with `scoop install versions/cuda12.9` (cuDNN is downloaded automatically by `--download-models`). Without it, everything falls back to the CPU with a notice.
 
 ## Building
