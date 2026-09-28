@@ -111,3 +111,28 @@ TEST_CASE(
   REQUIRE(result.organizeModelDir.has_value());
   CHECK(result.organizeModelDir.value() == "D:/models");
 }
+
+// --download-models is a complete request on its own: fetching the models
+// needs no images, so the directory is optional with it.
+TEST_CASE("organize parses --download-models without a directory", "[cmd][organize]") {
+  auto const result = testutils::parseArgs({"encro", "organize", "--download-models"});
+  CHECK_FALSE(result.error.has_value());
+  CHECK(result.organize);
+  CHECK(result.organizeDownloadModels);
+  CHECK_FALSE(result.organizeDir.has_value());
+}
+
+TEST_CASE("organize without a directory asks for one", "[cmd][organize]") {
+  auto const result = testutils::parseArgs({"encro", "organize"});
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("dir is required") != std::string::npos);
+}
+
+TEST_CASE("organize help shows the directory as optional", "[cmd][organize]") {
+  // Pinned width so the flag's description cannot wrap mid-phrase.
+  auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "120"};
+  auto const result = testutils::parseArgs({"encro", "organize", "-h"});
+  CHECK(result.help);
+  CHECK(result.helpText().find("encro organize [dir]") != std::string::npos);
+  CHECK(result.helpText().find("no dir: fetch only") != std::string::npos);
+}
