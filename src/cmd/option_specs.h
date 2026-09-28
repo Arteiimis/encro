@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdlib>
 #include <functional>
 #include <initializer_list>
 #include <optional>
@@ -73,6 +74,28 @@ struct FloatRange {
 struct PositiveNumber {
   void operator()(CLI::Option* option) const {
     option->check(CLI::PositiveNumber);
+    if (auto const name = captureLongName(option)) { completion::recordNumeric(*name); }
+  }
+};
+
+// CLI::PositiveNumber parses integers, so a fractional option needs its own
+// check. The validator is attached to the option, which is also what the config
+// store copies, so the CLI and `config set` enforce the same lower bound.
+struct PositiveFloat {
+  void operator()(CLI::Option* option) const {
+    option->check(
+      CLI::Validator{
+        [](std::string& value) -> std::string {
+          auto* end = static_cast<char*>(nullptr);
+          auto const parsed = std::strtod(value.c_str(), &end);
+          if (end != value.c_str() + value.size() || !(parsed > 0.0)) {
+            return std::string{"must be greater than 0"};
+          }
+          return std::string{};
+        },
+        "positive_float",
+      }
+    );
     if (auto const name = captureLongName(option)) { completion::recordNumeric(*name); }
   }
 };
@@ -167,11 +190,19 @@ struct IsArithmeticBinding: std::is_arithmetic<std::remove_cvref_t<Ty>> { };
 template<typename Ty>
 struct IsArithmeticBinding<std::optional<Ty>>: std::is_arithmetic<Ty> { };
 
+// Same shape for the fractional half: the config store validates an integer
+// and a real differently, so the binding's own type decides the JSON kind.
+template<typename Ty> struct IsFloatingBinding: std::is_floating_point<Ty> { };
+template<typename Ty> struct IsFloatingBinding<std::optional<Ty>>
+  : std::is_floating_point<Ty> { };
+
 template<typename Ty>
 constexpr auto jsonKindFor() -> configstore::JsonKind {
   using Value = std::remove_cvref_t<Ty>;
   if constexpr (std::is_same_v<Value, bool>) {
     return configstore::JsonKind::Boolean;
+  } else if constexpr (IsFloatingBinding<Ty>::value) {
+    return configstore::JsonKind::Real;
   } else if constexpr (IsArithmeticBinding<Ty>::value) {
     return configstore::JsonKind::Number;
   } else {

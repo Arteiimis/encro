@@ -20,8 +20,13 @@ void accumulateMember(FolderReference& reference, AnalysisResult const& analysis
   auto const candidates = positiveCharacterTags(analysis);
   if (candidates.size() == 1) { ++reference.soleTagCounts[candidates.front().tag]; }
 
-  if (analysis.identity.empty()) { return; }
-  accumulateFeature(reference.meanFeature, reference.featureMembers, analysis.identity);
+  if (!analysis.identity.empty()) {
+    accumulateFeature(reference.meanFeature, reference.featureMembers, analysis.identity);
+  }
+  auto const tags = identityTagVector(analysis.tags.general);
+  if (!tags.empty()) {
+    accumulateTagVector(reference.meanTags, reference.tagMembers, tags);
+  }
 }
 
 auto buildReference(fs::path const& folderDir, AnalysisCache const& cache)
