@@ -18,10 +18,10 @@ namespace {
 
 namespace json = boost::json;
 
-// 2: the identity feature joined the entry (design D6). An older file is
-// discarded whole rather than read as featureless, so an upgrade re-analyzes
-// once instead of clustering on entries that cannot cluster.
-constexpr auto kVersion = 2;
+// 3: the identity input preparation was corrected (design D4): the version
+// tracks the *meaning* of the stored analysis — a model or input-preparation
+// change invalidates the file whole — so an upgrade re-analyzes once.
+constexpr auto kVersion = 3;
 
 auto tagsToJson(std::vector<TagScore> const& tags) -> json::value {
   auto array = json::array{};

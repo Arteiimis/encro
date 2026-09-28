@@ -29,15 +29,18 @@ TEST_CASE("buildPreprocessCommand pins the wd contract", "[tagger]") {
 }
 
 TEST_CASE("buildPreprocessCommand pins the identity contract", "[tagger]") {
-  // The identity model's own transform is a plain stretch to its edge: no
-  // white canvas, no aspect preservation, no overlay.
+  // The identity model's own transform is a plain stretch to its edge with the
+  // reference's bilinear resampling filter: no white canvas, no aspect
+  // preservation, no overlay.
   auto const cmd = tagger::buildPreprocessCommand(
     fs::path{"ffmpeg"},
     fs::path{R"(C:\pics\img 01.png)"},
     tagger::InputKind::Identity
   );
 
-  CHECK(cmd.find("scale=384:384") != std::string::npos);
+  // The filter is pinned whole: `scale=384:384` alone stays a substring of the
+  // command under ffmpeg's bicubic default, which the reference does not use.
+  CHECK(cmd.find("scale=384:384:flags=bilinear") != std::string::npos);
   CHECK(cmd.find("format=rgb24") != std::string::npos);
   CHECK(cmd.find("-f rawvideo -") != std::string::npos);
   CHECK(cmd.find("-loglevel quiet") != std::string::npos);

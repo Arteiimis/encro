@@ -30,18 +30,26 @@ TEST_CASE("sigmoidConfidence maps logits", "[tagger]") {
   CHECK(tagger::sigmoidConfidence(-100.0) < 0.01);
 }
 
-TEST_CASE("toIdentityInput lays the rgb frame out as planar 0..1 floats", "[tagger]") {
-  // Two pixels: (255,0,0) and (0,128,255). The identity model's transform is
-  // a plain ToTensor, so channels come out as planes, not interleaved.
+TEST_CASE(
+  "toIdentityInput lays the rgb frame out as normalized planar floats",
+  "[tagger]"
+) {
+  // Two pixels: (255,0,0) and (0,128,255). The identity model's reference
+  // preprocessing scales to 0..1 and then normalizes each channel with the
+  // CLIP constants, so channels come out as planes, not interleaved, and the
+  // values are no longer confined to 0..1.
   auto const rgb = std::vector<std::uint8_t>{255, 0, 0, 0, 128, 255};
   auto const floats = tagger::toIdentityInput(rgb);
   REQUIRE(floats.size() == 6);
-  CHECK(floats[0] == 1.0F);  // R plane
-  CHECK(floats[1] == 0.0F);
-  CHECK(floats[2] == 0.0F);  // G plane
-  CHECK(floats[3] == Catch::Approx(128.0F / 255.0F));
-  CHECK(floats[4] == 0.0F);  // B plane
-  CHECK(floats[5] == 1.0F);
+  auto const normalized = [](double value, double mean, double deviation) {
+    return (value - mean) / deviation;
+  };
+  CHECK(floats[0] == Catch::Approx(normalized(1.0, 0.48145466, 0.26862954)));  // R plane
+  CHECK(floats[1] == Catch::Approx(normalized(0.0, 0.48145466, 0.26862954)));
+  CHECK(floats[2] == Catch::Approx(normalized(0.0, 0.4578275, 0.26130258)));   // G plane
+  CHECK(floats[3] == Catch::Approx(normalized(128.0 / 255.0, 0.4578275, 0.26130258)));
+  CHECK(floats[4] == Catch::Approx(normalized(0.0, 0.40821073, 0.27577711)));  // B plane
+  CHECK(floats[5] == Catch::Approx(normalized(1.0, 0.40821073, 0.27577711)));
 }
 
 TEST_CASE("normalizeFeature scales to unit length and leaves zero alone", "[tagger]") {

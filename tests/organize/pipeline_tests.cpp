@@ -269,6 +269,60 @@ TEST_CASE("re-run resumes from cache without re-classifying", "[organize]") {
   CHECK(second->skippedExisting == 1);
 }
 
+TEST_CASE("a cache from an older format version is re-analyzed", "[organize]") {
+  // The run-level half of the cache's version rule: an entry written by a
+  // release that prepared the model input differently must not be read, so its
+  // destination is not the one the stale analysis would have chosen.
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "miku.png", "miku");
+
+  auto const cachePath = temp.path / "organized" / ".cache" / "analysis.json";
+  fs::create_directories(cachePath.parent_path());
+  auto const hash = core::sha256File(temp.path / "miku.png");
+  auto const entry =
+    R"({"general":[],"character":[["stale_character",0.9]],"rating":[],"identity":[1.0,0.0]}}})";
+  auto const writeCache = [&](std::string const& version) {
+    testutils::writeTextFile(
+      cachePath,
+      std::string{"{\"version\":"} + version + ",\"images\":{\"" + hash + "\":" + entry
+    );
+  };
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
+
+  // The version the previous release wrote: it must not be trusted, so the
+  // image is classified again and lands where the fresh analysis sends it.
+  writeCache("2");
+  auto const stale =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(stale.has_value());
+  CHECK(engine.calls.load() == 1);
+  CHECK(stale->cacheHits == 0);
+  CHECK(fs::exists(temp.path / "organized" / "hatsune_miku"));
+  CHECK(!fs::exists(temp.path / "organized" / "stale_character"));
+
+  // The other direction, which keeps the case from passing on a fixture the
+  // cache never parses at all: the same entry under the current version is
+  // trusted, so the cached analysis decides the destination without inference.
+  fs::remove_all(temp.path / "organized" / "hatsune_miku");
+  writeCache("3");
+  {
+    // The fixture itself has to parse: without this the case could pass on a
+    // file the cache never reads, which is how the first version of it misled.
+    auto probe = organize::AnalysisCache{cachePath};
+    probe.load();
+    REQUIRE(probe.get(hash).has_value());
+  }
+  auto const current =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(current.has_value());
+  CHECK(current->cacheHits == 1);
+  CHECK(engine.calls.load() == 1);
+  CHECK(fs::exists(temp.path / "organized" / "stale_character"));
+}
+
 TEST_CASE("identical content is analyzed once and its twin is a skip", "[organize]") {
   // Two files with the same bytes share one content hash: the stage classifies
   // that content once, the twin is filtered as already analyzed (skipped, not

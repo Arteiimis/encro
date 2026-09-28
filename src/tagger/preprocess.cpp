@@ -17,12 +17,15 @@ struct InputSpec {
 };
 
 auto specOf(InputKind kind) -> InputSpec {
-  // The identity model's own transform is a plain stretch: no aspect
-  // preservation, nothing to center it on.
+  // The identity model's own transform is a plain stretch with the reference's
+  // bilinear resampling filter (ffmpeg's unqualified scale is bicubic, which
+  // the reference does not use): no aspect preservation, nothing to center it
+  // on.
   if (kind == InputKind::Identity) {
     return InputSpec{
       .edge = kIdentityEdge,
-      .filterGraph = std::format("scale={0}:{0},format=rgb24", kIdentityEdge),
+      .filterGraph =
+        std::format("scale={0}:{0}:flags=bilinear,format=rgb24", kIdentityEdge),
     };
   }
   // The tagger scales into the canvas keeping aspect, then centers it on a

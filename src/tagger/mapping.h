@@ -23,8 +23,11 @@ auto mapOutputs(
 // wd input contract: raw RGB bytes as float32 0..255, no normalization.
 auto toInputFloats(std::span<std::uint8_t const> rgbBytes) -> std::vector<float>;
 
-// Identity input contract: interleaved rgb24 bytes as planar NCHW float32 in
-// 0..1 (the identity model's ToTensor).
+// Identity input contract: interleaved rgb24 bytes as planar NCHW float32,
+// scaled to 0..1 and then normalized per channel with the documented channel
+// mean and standard deviation of the pinned
+// ccip-caformer-24-randaug-pruned/model_feat.onnx (the constants and their
+// upstream source are in mapping.cpp).
 auto toIdentityInput(std::span<std::uint8_t const> rgbBytes) -> std::vector<float>;
 
 // Scales `feature` to unit length in place — the identity similarity contract
