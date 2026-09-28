@@ -96,21 +96,27 @@ TEST_CASE("AnalysisCache roundtrips raw analysis by content hash", "[organize]")
   CHECK(!reloaded.get("hash-c").has_value());
 }
 
-TEST_CASE("AnalysisCache discards a cache written by an earlier format", "[organize]") {
-  // The identity feature changed the entry shape (design D6): a version-1
-  // file must read as empty so the run re-analyzes instead of clustering on
-  // entries that carry no feature.
+TEST_CASE("AnalysisCache discards a cache whose format version differs", "[organize]") {
+  // The stored analysis changes meaning when a model or its input preparation
+  // changes, so the version is part of the meaning: a file from any other
+  // version — the old entry shape, or the file the previous release wrote —
+  // reads as empty, and the run re-analyzes instead of clustering on features
+  // computed a different way.
   auto temp = TempDir{};
   auto const cachePath = temp.path / "organized" / ".cache" / "analysis.json";
   fs::create_directories(cachePath.parent_path());
-  testutils::writeTextFile(
-    cachePath,
-    R"({"version":1,"images":{"hash-a":{"general":[["pink_hair",0.9]],"character":[],"rating":[]}}})"
-  );
 
-  auto cache = organize::AnalysisCache{cachePath};
-  cache.load();
-  CHECK(!cache.get("hash-a").has_value());
+  for (
+    auto const& body: {
+      R"({"version":1,"images":{"hash-a":{"general":[["pink_hair",0.9]],"character":[],"rating":[]}}})",
+      R"({"version":2,"images":{"hash-a":{"general":[["pink_hair",0.9]],"character":[],"rating":[],"identity":[0.5,0.5]}}})",
+    }
+  ) {
+    testutils::writeTextFile(cachePath, body);
+    auto cache = organize::AnalysisCache{cachePath};
+    cache.load();
+    CHECK(!cache.get("hash-a").has_value());
+  }
 }
 
 TEST_CASE("AnalysisCache stores only what routing can read, per category", "[organize]") {
