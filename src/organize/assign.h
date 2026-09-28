@@ -83,8 +83,10 @@ struct FolderReference {
   fs::path name;                   // current name on disk; a path so CJK survives
   std::vector<float> meanFeature;  // mean of the members' unit features
   std::size_t featureMembers = 0;
+  TagVector meanTags;              // mean of the members' unit tag vectors
+  std::size_t tagMembers = 0;      // members that contributed a tag vector
   std::map<std::string, std::size_t>
-    soleTagCounts;  // tag -> members whose sole candidate
+    soleTagCounts;                 // tag -> members whose sole candidate
   std::size_t analyzableMembers = 0;
 };
 

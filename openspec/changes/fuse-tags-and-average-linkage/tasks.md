@@ -1,36 +1,36 @@
 ## 1. Red-first tests
 
-- [ ] 1.1 In `tests/organize/routing_tests.cpp`, pin the combined score: an image with an identity feature and identity-tag evidence scores as the 0.8/0.2 weighted mean of its two cosines against a cluster's means (constructed with the existing unit-feature helper and scripted tags), non-identity tags and tags below the naming floor do not contribute, and an image with no identity-tag evidence is scored by its feature cosine alone against the feature-only default. Verify red: the current code computes a single feature cosine.
-- [ ] 1.2 In the same file, pin order independence: the same items clustered twice, once in content-hash order and once in the reverse order, produce the same partition, and a tie between two equally good merges resolves the same way both times. Verify red: the current pass merges into the best cluster in input order, so a fixture where one item can join either of two clusters separates under one order and merges under the other.
-- [ ] 1.3 In the same file, pin the merge rule: two clusters whose *centroids* are within the threshold but whose mean cross-pair similarity is below it stay separate. Verify red, and keep it as the guard that distinguishes this rule from a centroid merge pass (a measured dead end).
-- [ ] 1.4 In `tests/organize/pipeline_tests.cpp`, pin the teaching path: a cluster whose identity feature matches a reference folder's mean feature but whose identity-tag evidence disagrees stays out of that folder, while a reference folder with no tag evidence still matches on the feature alone. Verify red: the current comparison is the feature cosine at the old default.
-- [ ] 1.5 In `tests/cmd_organize_tests.cpp`, pin the knob: `--identity-tau 0.72` reaches the run options, the `identity-tau` config key applies with CLI > config precedence, `--identity-tau 1.5` is reported as an argument error, and the subcommand help names the option, its built-in default and what raising or lowering it does. Verify red: no such option exists.
-- [ ] 1.6 In `tests/organize/stage_tests.cpp`, pin the large-run fallback: with the clustering entry point's image-count ceiling set to a small test value, a run above it reports that it fell back to the previous pass (the message names it) and still assigns every image to exactly one folder. Verify red. The ceiling is a parameter defaulted to the design constant so this branch is testable without a 10,000-image fixture.
+- [x] 1.1 In `tests/organize/routing_tests.cpp`, pin the combined score: an image with an identity feature and identity-tag evidence scores as the 0.8/0.2 weighted mean of its two cosines against a cluster's means (constructed with the existing unit-feature helper and scripted tags), non-identity tags and tags below the naming floor do not contribute, and an image with no identity-tag evidence is scored by its feature cosine alone against the feature-only default. Verify red: the current code computes a single feature cosine.
+- [x] 1.2 In the same file, pin order independence: the same items clustered twice, once in content-hash order and once in the reverse order, produce the same partition, and a tie between two equally good merges resolves the same way both times. Verify red: the current pass merges into the best cluster in input order, so a fixture where one item can join either of two clusters separates under one order and merges under the other.
+- [x] 1.3 In the same file, pin the merge rule: two clusters whose *centroids* are within the threshold but whose mean cross-pair similarity is below it stay separate. Verify red, and keep it as the guard that distinguishes this rule from a centroid merge pass (a measured dead end).
+- [x] 1.4 In `tests/organize/pipeline_tests.cpp`, pin the teaching path: a cluster whose identity feature matches a reference folder's mean feature but whose identity-tag evidence disagrees stays out of that folder, while a reference folder with no tag evidence still matches on the feature alone. Verify red: the current comparison is the feature cosine at the old default.
+- [x] 1.5 In `tests/cmd_organize_tests.cpp`, pin the knob: `--identity-tau 0.72` reaches the run options, the `identity-tau` config key applies with CLI > config precedence, `--identity-tau 1.5` is reported as an argument error, and the subcommand help names the option, its built-in default and what raising or lowering it does. Verify red: no such option exists.
+- [x] 1.6 In `tests/organize/stage_tests.cpp`, pin the large-run fallback: with the clustering entry point's image-count ceiling set to a small test value, a run above it reports that it fell back to the previous pass (the message names it) and still assigns every image to exactly one folder. Verify red. The ceiling is a parameter defaulted to the design constant so this branch is testable without a 10,000-image fixture.
 
 ## 2. The combined score
 
-- [ ] 2.1 In `src/organize/cluster.{h,cpp}`, build an image's unit identity-tag vector from its stored general tags (reusing `isIdentityTag` and the naming floor, no corpus statistics) and expose the combined score with the fixed 0.8/0.2 weights. Verify 1.1 is green.
-- [ ] 2.2 In the same files, add the two calibrated defaults (0.70 combined, 0.74 feature-only) with the meaning-and-recipe comment the design's D8 describes, keeping the model's published conversion as a reference note for the feature cosine. Verify by reading the constants' comment and by the cases that pin both defaults from either side.
-- [ ] 2.3 Add the mean identity-tag vector to `FolderReference` in `src/organize/assign.h`, and build and compare it in `src/organize/teach.{h,cpp}`, letting a profile with no tag evidence compare on its mean feature alone against the feature-only default. Verify 1.4 is green once 3.2 lands.
+- [x] 2.1 In `src/organize/cluster.{h,cpp}`, build an image's unit identity-tag vector from its stored general tags (reusing `isIdentityTag` and the naming floor, no corpus statistics) and expose the combined score with the fixed 0.8/0.2 weights. Verify 1.1 is green.
+- [x] 2.2 In the same files, add the two calibrated defaults (0.70 combined, 0.74 feature-only) with the meaning-and-recipe comment the design's D8 describes, keeping the model's published conversion as a reference note for the feature cosine. Verify by reading the constants' comment and by the cases that pin both defaults from either side.
+- [x] 2.3 Add the mean identity-tag vector to `FolderReference` in `src/organize/assign.h`, and build and compare it in `src/organize/teach.{h,cpp}`, letting a profile with no tag evidence compare on its mean feature alone against the feature-only default. Verify 1.4 is green once 3.2 lands.
 
 ## 3. The agglomeration
 
-- [ ] 3.1 In `src/organize/cluster.{h,cpp}`, replace the greedy pass with average-linkage agglomeration over the condensed combined-score matrix: merge the pair of clusters with the highest mean cross-pair similarity while it reaches the threshold, break ties deterministically as the design's D4 states, and fall back to the previous pass with a run message above the image-count ceiling. Verify 1.2, 1.3 and 1.6 are green.
-- [ ] 3.2 In `src/organize/pipeline.cpp`, move the folder-match comparison onto the same combined score, threshold and feature-only default, and keep the cluster remainder path feeding the scored items; verify 1.4 is green and the existing routing and pipeline cases still pass.
+- [x] 3.1 In `src/organize/cluster.{h,cpp}`, replace the greedy pass with average-linkage agglomeration over the condensed combined-score matrix: merge the pair of clusters with the highest mean cross-pair similarity while it reaches the threshold, break ties deterministically as the design's D4 states, and fall back to the previous pass with a run message above the image-count ceiling. Verify 1.2, 1.3 and 1.6 are green.
+- [x] 3.2 In `src/organize/pipeline.cpp`, move the folder-match comparison onto the same combined score, threshold and feature-only default, and keep the cluster remainder path feeding the scored items; verify 1.4 is green and the existing routing and pipeline cases still pass.
 
 ## 4. The knob
 
-- [ ] 4.1 In `src/cmd/cmd.{h,cpp}` and `src/cmd/help_layout.cpp`, add `--identity-tau` with its (0, 1] validation and help text that names the option, its default and the trade-off; in `src/organize/organize_types.h` and `src/organize/organize_command.cpp`, carry it into the run options. Verify 1.5 is green and that `encro organize -h` renders the new line unwrapped at the default help width.
-- [ ] 4.2 Register the `identity-tau` config key in the canonical key order of `src/cmd/config_store.cpp` — the store rejects a registered key that is missing from it — and verify with a set/get round-trip through the config file plus the precedence case that a flag value wins over the file (task 1.5).
-- [ ] 4.3 In `README.md`, state the knob in the organize section and that grouping quality is calibrated on labelled collections rather than derived from the model's published number. Verify by reading the section against the rendered help.
-- [ ] 4.4 In `tests/e2e/encro_organize_tests.cpp`, give the fixture the identity-tag evidence the fused score reads and correct the comment that still says clustering reads the identity feature and not the tags; verify the organized e2e case still files, clusters and teaches as expected.
+- [x] 4.1 In `src/cmd/cmd.{h,cpp}` and `src/cmd/help_layout.cpp`, add `--identity-tau` with its (0, 1] validation and help text that names the option, its default and the trade-off; in `src/organize/organize_types.h` and `src/organize/organize_command.cpp`, carry it into the run options. Verify 1.5 is green and that `encro organize -h` renders the new line unwrapped at the default help width.
+- [x] 4.2 Register the `identity-tau` config key in the canonical key order of `src/cmd/config_store.cpp` — the store rejects a registered key that is missing from it — and verify with a set/get round-trip through the config file plus the precedence case that a flag value wins over the file (task 1.5).
+- [x] 4.3 In `README.md`, state the knob in the organize section and that grouping quality is calibrated on labelled collections rather than derived from the model's published number. Verify by reading the section against the rendered help.
+- [x] 4.4 In `tests/e2e/encro_organize_tests.cpp`, give the fixture the identity-tag evidence the fused score reads and correct the comment that still says clustering reads the identity feature and not the tags; verify the organized e2e case still files, clusters and teaches as expected.
 
 ## 5. Verification
 
-- [ ] 5.1 Run `xmake fmt`, `xmake build encro`, `xmake build tests`, `xmake build e2e_tests`, `xmake test-report`, `xmake run e2e_tests` and `xmake tidy --sarif`: all green, no new tidy diagnostic against the 131 baseline. Run the opt-in completion suite too (`ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[completion]"`) because the option surface changed.
-- [ ] 5.2 Reproduce the calibration end to end: copy the labelled collection (46 per-character folders, 3840 images), run the CLI over the copy, read the cached features and tags, and replay the shipped agglomeration offline on all three of the design's populations. Required: the replayed partition matches the folders the run actually produced; on the all-images-as-unknown protocol clustering F1 is at or above 0.83 for every threshold from 0.62 to 0.72; on the images routing leaves unassigned it is at or above 0.84 at the default 0.70 and at or above 0.82 with one knob at 0.66, against the design's 0.850 and 0.820; end to end over the whole gallery it is at or above 0.73 and at or above 0.81 once a same-run folder match is in play, against the design's 0.739 and 0.819; pair-level F1 at the 0.8/0.2 weighting is at or above 0.80.
-- [ ] 5.3 Measure the cost at scale: peak memory and wall clock of a 5,000-image run, and the fallback path above the ceiling (the message appears, every image still lands in exactly one folder).
-- [ ] 5.4 Re-measure on the second, differently labelled collection (franchise-level folders: cross-franchise mixing and pair-level agreement are the meaningful numbers) and record whether the direction holds there.
+- [x] 5.1 Run `xmake fmt`, `xmake build encro`, `xmake build tests`, `xmake build e2e_tests`, `xmake test-report`, `xmake run e2e_tests` and `xmake tidy --sarif`: all green, no new tidy diagnostic against the 131 baseline. Run the opt-in completion suite too (`ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[completion]"`) because the option surface changed.
+- [x] 5.2 Reproduce the calibration end to end: copy the labelled collection (46 per-character folders, 3840 images), run the CLI over the copy, read the cached features and tags, and replay the shipped agglomeration offline on all three of the design's populations. Required: the replayed partition matches the folders the run actually produced; on the all-images-as-unknown protocol clustering F1 is at or above 0.83 for every threshold from 0.62 to 0.72; on the images routing leaves unassigned it is at or above 0.84 at the default 0.70 and at or above 0.82 with one knob at 0.66, against the design's 0.850 and 0.820; end to end over the whole gallery it is at or above 0.73 and at or above 0.81 once a same-run folder match is in play, against the design's 0.739 and 0.819; pair-level F1 at the 0.8/0.2 weighting is at or above 0.80.
+- [x] 5.3 Measure the cost at scale: peak memory and wall clock of a 5,000-image run, and the fallback path above the ceiling (the message appears, every image still lands in exactly one folder).
+- [x] 5.4 Re-measure on the second, differently labelled collection (franchise-level folders: cross-franchise mixing and pair-level agreement are the meaningful numbers) and record whether the direction holds there.
 - [ ] 5.5 Acceptance on a real gallery: run the previous and the new build over a copy of the user's own collection, compare folder count, singleton share and cross-franchise mixing without labels, and have the user inspect two or three clusters visually — the assistant does not read image contents.
 
 ## 6. Planning-artifact review (before implementation)
@@ -73,4 +73,82 @@ Measurement method, recorded so the numbers can be re-derived rather than truste
 
 ## 7. Code-diff review (before the implementation commit)
 
-- [ ] 7.1 Run the code-diff stage of the `code-review` skill (Standards, Spec and Leanness axes in parallel) over the implementation diff, record the findings and verdicts here, and apply the accepted fixes before the implementation commit.
+- [x] 7.1 Run the code-diff stage of the `code-review` skill (Standards, Spec and Leanness axes in parallel) over the implementation diff, record the findings and verdicts here, and apply the accepted fixes before the implementation commit.
+
+## Verification record (task results, 2026-09-29)
+
+**1.1-1.6, 2.1-2.3, 3.1-3.2, 4.1-4.4 landed.** Red state was a compile failure of the test binary against the new API (the same red form the identity-embedding change used); the implementation compiles and the suite goes green: `[organize],[tagger],[cmd]` reports 211 cases / 209 passed / 2 skipped ([real-model] without `ENCRO_TEST_MODEL_DIR`) and 1247 assertions.
+
+**4.2 needed a store change the plan did not name**: `JsonKind::Number` validates with `std::from_chars<long long>`, so `config set identity-tau 0.62` failed with "expected an integer". The store gained `JsonKind::Real` plus a floating-point arm in `jsonKindFor` (the binding is `std::optional<double>`, so the trait unwraps the optional), and the option now carries only `FloatRange{0.0, 1.0}` with the (0, 1] lower bound enforced by `organizeDirError` beside the missing-directory rule. The same edit round accidentally dropped `cfg::PositiveNumber{}` from `--jobs`; the pre-existing cli11-native case caught it and it was restored.
+
+**5.1 green**: `xmake fmt` (237-file list, `src/cmd/help_layout.h` drift reverted), `xmake build encro`/`tests`/`e2e_tests` ok, `xmake test-report` 16536 assertions, e2e 805 assertions in 56 cases, `ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[completion]"` 662 assertions in 37 cases, `xmake tidy --sarif` **131 warnings = the baseline**. Tidy first reported 133 (readability-function-size and readability-function-cognitive-complexity on the new agglomeration); the merge loop was split into `MergeState` + `seedCandidates` + `absorbCluster` behind `agglomerateGroups`, which brought it back to 131 without changing behaviour (see 5.2).
+
+**5.2 all five gates met**, measured by `build/replay_fused.py`, which mirrors the shipped rule (the 0.8/0.2 score, the per-mode thresholds, the pair-sum agglomeration, the earlier-cluster-survives tie rule) and parses its constants and identity-tag patterns out of `src/organize/cluster.cpp` and `cluster.h` so it cannot drift:
+- replayed partition vs the folders the run wrote: 94 vs 94, **ARI 1.0000**;
+- unassigned images: F1 **0.8442** (P 0.9751 / R 0.7444) against the required 0.84 and the design's 0.850;
+- end to end: F1 **0.7514** against the required 0.73 and the design's 0.739;
+- all-images-as-unknown protocol: F1 **0.8341** at thresholds 0.62 through 0.70 and **0.8368** at 0.72, against the required 0.83 across [0.62, 0.72];
+- pair level at the 0.8/0.2 weighting: F1 **0.8058** at 0.70, against the required 0.80.
+The same run also reproduced the routing shape (2443 tag-placed / 81 mixed / 1357 pending) and the partition is unchanged after the 5.1 refactor, which is the end-to-end proof that the split is behaviour-preserving.
+
+**5.3**: the prpr-all corpus (6871 images) ran in **946 s** with a peak working set of **7.4 GB**; the same build over the 3840-image TaQ copy with a warm cache peaks at **656 MB**, so the large figure belongs to the analysis stage (two ONNX sessions across the job pool), not to the agglomeration — whose condensed matrix is the run's only O(n^2) structure (~100 MB at 5k pending). The fallback path itself is pinned by 1.6.
+
+**5.4**: on the prpr corpus, whose folders are franchise-level, the direction holds where the labels are meaningful — pair precision 0.4036 -> 0.5411 and images sitting in a folder that spans two franchises 4168 -> 3143 — while franchise-level F1 is 0.178 -> 0.160, which is a label-granularity artifact (one label covers dozens of characters, so recall is uninformative for any character-level clusterer) and is recorded rather than explained away.
+
+**5.5 partially done, not signed off**: a provenance check of `organized/unknown_grey_hair_long_hair_yellow_eyes` (132 images, all from one labelled character, two feature modes at cosine 0.906) was made without reading image contents, but the user then inspected a different folder by mistake, so the visual acceptance remains open.
+
+**Deviations from the plan, recorded:** the store's real-number kind (4.2) was unplanned; the per-mode threshold rule is a deliberate deviation from the evaluated single-tau protocol (the red tests and D6 pin the per-mode rule, and 3839/3840 TaQ images carry tag evidence so almost no pair is feature-only); and the design's "at or above 0.81 with a same-run folder match" row belongs to the same-run-folder-match change, which is not implemented here.
+
+### Code-diff review findings (task 7.1)
+
+Fixed point `0ce754d` (the identity-input change's archive commit), so the reviewed diff is this change's implementation only: `git diff 0ce754d -- src tests README.md`, 18 files / +743 -88. Three axes ran in parallel, each reading the diff itself; every finding below was accepted, none rejected — the two axes that independently flagged the same duplication (the calibration constants and the `TagVector` alias) outweighed my initial plan to keep those.
+
+**[high][Spec] The knob is ignored below the built-in default in the agglomeration path.** `seedCandidates`/`absorbCluster` queue only pairs at or above `kCombinedTau` and the merge loop breaks there, so `--identity-tau 0.62` can never merge a combined pair scoring in [0.62, 0.70) even though folder-match and the above-ceiling greedy pass read the knob and would match it — the spec tells users a lower value keeps a character's varied artwork together. **resolved:** the cutoff becomes the lower of the two thresholds the modes can use (`std::min(combinedTau, kFeatureOnlyTau)`), in seeding, requeueing and the break test.
+
+**[medium][Spec] `config set identity-tau 0` succeeds** although the key is specified to accept only values greater than 0: the store copies the option's closed `FloatRange{0.0, 1.0}`, and the (0, 1] lower bound lived only in the organize command path, which config actions never run. **resolved:** the lower bound is enforced where both paths see it, and the command-layer check keeps the CLI's own message.
+
+**[medium][Spec] The key's built-in default is not registered**, so `config get identity-tau` prints a blank line and `config list` shows an empty default, although the spec says the built-in default is the calibrated value. **resolved:** the option carries the calibrated default so `KeyDef.builtinDefault` captures it.
+
+**[low][Spec] The fallback message says "the previous pass"** where the scenario requires that the run state it fell back to the greedy pass. **resolved:** the message names the greedy pass.
+
+**[low][Spec] The README points at the main spec for the calibration record**, which only requires the recipe to be recorded next to the constant — the plateau and recipe actually live in the constant's comment. **resolved:** the README points at the constant.
+
+**[hard][Standards] `src/organize/organize_command.cpp` includes `organize/cluster.h` above its own header**, against the documented order, and `SortIncludes: false` means the hook will not fix it. **resolved:** the include moved below the file's own header.
+
+**[hard][Standards] Scalar returns use the trailing style** (`PairSums::get`, `PairSums::index`, `PairSums::operator()`, `passesLowerDefault`, `tauFor`) where the documented style reserves `auto f(...) -> T` for complex or derived types — the file had none before this change and its neighbours (`cosineSimilarity`, `tagCosine`) are prefix-style. **resolved:** all five became prefix-style.
+
+**[judgement][Standards, Leanness] `using TagVector` was defined twice** (`organize_types.h:64` and `cluster.h:67`) in a header that includes the other. **resolved:** one definition, in `organize_types.h`.
+
+**[judgement][Standards, Leanness] The two calibrated constants were restated as `Options` literals** and the help text repeated the default a third time; the shipped path reads the literals, so editing the recorded constant would change only the tests. **resolved:** the values and their recipe comment moved to `organize_types.h`, which `Options` and `cluster.h` both see, and the option's default and help text derive from it.
+
+**[judgement][Standards] The combined-mode predicate was written three times** over two data shapes (`!a.tags.empty() && !b.tags.empty()` and `tagMembers[...] > 0` twice). **resolved:** one predicate decides which threshold applies.
+
+**[judgement][Standards, Leanness] The greedy fallback accumulated means into cluster shells it then discarded, and the final rebuild re-derived every member's tag vector** although `profiles` already holds it. **resolved:** the means are built once from `profiles`.
+
+**[judgement][Standards] The identity-tag evidence predicate existed twice** (`identityTagVector` and `clusterFolderName`), so a floor or pattern change could make scoring and naming disagree. **resolved:** one shared predicate.
+
+**[judgement][Standards, Leanness] The `identity-tau > 0` check sat inside `organizeDirError`**, whose name and comment scope it to the missing-directory case. **resolved:** the function is renamed to cover the argument checks it now performs.
+
+**[judgement][Standards] One `TEST_CASE` bundled parse, validate and help-documentation scenarios** and pinned help prose, so a copy edit would redden a parsing test. **resolved:** split into a parse/validate case and a help case.
+
+**[judgement][Leanness] `PairSums` already canonicalizes pair order**, so the four `std::min`/`std::max` calls were noise and one path re-read a value it had just written. **resolved:** the sums are read once and the written value reused.
+
+**[judgement][Leanness] The merge loop recomputed the mean that the candidate already carried**, although the version check proves neither cluster changed since it was pushed. **resolved:** the queued score is used.
+
+**[judgement][Leanness] `tauFor`'s `= kCombinedTau` default argument was never exercised.** **resolved:** the default argument is gone.
+
+**Not checked by the axes** (recorded, not defects): build, test, tidy and CLI execution; the offline calibration figures (ARI 1.0000, F1 0.8442 / 0.7514 / 0.8341 / 0.8058) and the scale measurements, which need the labelled corpora, the models and the visual acceptance; non-diff files (the OpenSpec artifacts).
+
+### Fix round from the code-diff review
+
+Every finding above was applied, plus two the review did not raise but the verification exposed.
+
+**The lower bound now travels with the option.** `CLI::PositiveNumber` parses integers, so a fractional threshold needed its own check: `cfg::PositiveFloat` attaches a validator to `--identity-tau`, and because the config store copies an option's validators, the CLI and `config set` enforce the same rule. The command-layer check is gone, so the (0, 1] contract lives in one place and `organizeDirError` answers only the directory question again. While wiring the default for the config surface, `stringifyScalar` was printing a stored `0.62` back as `6.2E-1` (boost's own double serialization), so a fractional value now keeps its shortest round-trip form.
+
+**Verification.** `[organize],[cmd],[tagger]` 213 cases / 1250 assertions; `xmake test-report` 16540 assertions; e2e 818 assertions in 56 cases; `xmake tidy --sarif` 131 warnings, the baseline. CLI contracts re-checked on a rebuilt binary: `organize -h` names the option, the calibrated default and both directions; `config list` shows `identity-tau 0.70 (default)`; `config set identity-tau 0` exits 1 with `invalid value for identity-tau: 0 (must be greater than 0)` and leaves the file untouched; `config set identity-tau 0.62` stores `0.62` and `config get` prints `0.62`; `organize <dir> --identity-tau 0` exits 1 with `--identity-tau: must be greater than 0`.
+
+**The lowered-knob fix is guarded by a mutation check.** The new case builds a pair scoring 0.64 (0.8 x 0.55 + 0.2 x 1.0) and asserts it merges at 0.62 and stays apart at the default. Reverting the queue floor to the hard-coded constant turns it red at `tests/organize/routing_tests.cpp:388`; restoring it and forcing a rebuild (`xmake build -r tests`, binary mtime changed) turns it green.
+
+**Behaviour preserved, re-measured.** The TaQ run over the restored cache plus `build/replay_fused.py` reproduce the pre-round partition exactly: ARI 1.0000, 94 clusters, unassigned F1 0.8442, end-to-end 0.7514, pair 0.8058 at 0.70. The only intended behaviour change is that a lowered `--identity-tau` now reaches the queue, which no earlier run exercised.
+
+**One false alarm worth recording:** the first CLI probe reported `config set identity-tau 0` succeeding and the default showing empty, because it ran the `encro` binary from before the fix (`xmake build tests` does not rebuild the CLI). The re-probe on a rebuilt binary passes every contract, which is the same stale-binary trap this change's earlier tasks already noted.

@@ -44,6 +44,7 @@ inline constexpr auto kCanonicalKeyOrder = std::to_array<std::string_view>({
   "video-codec",
   "pack",
   "model-dir",
+  "identity-tau",
 });
 
 auto canonicalKeyOrder() -> std::span<std::string_view const> {
@@ -107,6 +108,13 @@ auto KeyTable::validate(std::string_view key, std::string& value) const
     if (ec != std::errc{} || ptr != value.data() + value.size()) {
       return std::format("expected an integer, got '{}'", value);
     }
+  } else if (def->kind == JsonKind::Real) {
+    auto parsed = 0.0;
+    auto const [ptr, ec] =
+      std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (ec != std::errc{} || ptr != value.data() + value.size()) {
+      return std::format("expected a number, got '{}'", value);
+    }
   }
   return std::nullopt;
 }
@@ -143,7 +151,10 @@ namespace json = boost::json;
 
 auto stringifyScalar(json::value const& value) -> std::optional<std::string> {
   if (value.is_string()) { return std::string{value.as_string().c_str()}; }
-  if (value.is_bool() || value.is_int64() || value.is_uint64() || value.is_double()) {
+  // A fractional value keeps the shortest round-trip form: boost's own
+  // serialization would print 0.62 as 6.2E-1 back to the user.
+  if (value.is_double()) { return std::format("{}", value.as_double()); }
+  if (value.is_bool() || value.is_int64() || value.is_uint64()) {
     return json::serialize(value);
   }
   return std::nullopt;
@@ -155,7 +166,8 @@ auto stringifyScalar(json::value const& value) -> std::optional<std::string> {
 auto scalarJson(std::string const& raw, JsonKind kind) -> std::string {
   switch (kind) {
     case JsonKind::Boolean: return raw == "true" ? "true" : "false";
-    case JsonKind::Number : {
+    case JsonKind::Number :
+    case JsonKind::Real   : {
       auto value = double{0};
       auto const [ptr, ec] = std::from_chars(raw.data(), raw.data() + raw.size(), value);
       if (ec == std::errc{} && ptr == raw.data() + raw.size()) { return raw; }

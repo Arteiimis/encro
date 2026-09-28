@@ -114,7 +114,7 @@ With one input, `preview` runs the probe phase on the source, encodes the window
 ### Grouping images by character (`organize`)
 
 ```sh
-xmake run encro organize <dir> [-r] [--min-confidence F] [--model-dir <dir>] [--dry-run]
+xmake run encro organize <dir> [-r] [--min-confidence F] [--model-dir <dir>] [--identity-tau F] [--dry-run]
 ```
 
 `organize` sorts a folder of images into per-character folders under `<dir>/organized/` using two local AI models (a tagger and an identity model). Analysis is fully local: image content never leaves this machine. Known characters file by their tag (`organized/hatsune_miku/`); everything else clusters by appearance into `unknown_<tags>/` folders; multi-subject images land in `mixed/`. Originals are always copied, never moved.
@@ -126,6 +126,8 @@ xmake run encro organize <dir> --download-models
 ```
 
 `--download-models` without `<dir>` fetches the models and stops there, so a folder only has to be named when you also want the run.
+
+`--identity-tau F` sets how similar two images must be before they share a folder, by identity feature and identity-bearing tags together (default `0.70`, or `0.74` when a comparison has no tag evidence on either side). It is a calibrated operating point rather than a derived number: raise it to keep look-alikes apart, lower it to hold one character's varied artwork together. To re-calibrate after a model change, group a labelled gallery of characters, replay the same weighted score and agglomeration over the cached analyses, and pick the threshold where co-clustering F1 peaks — the calibration record and the measured plateau live next to the constant that carries the default (`kCombinedTau` in `src/organize/organize_types.h`).
 
 Rename any output folder to rename a character — e.g. `hatsune_miku` → `初音ミク`; later runs file new images of that character under your name. `--dry-run` prints the plan without copying; results are cached by content hash, so re-runs and interrupted runs re-analyze nothing (`--recluster` discards the cache). On NVIDIA GPUs the model runs on CUDA; install the CUDA runtime once with `scoop install versions/cuda12.9` (cuDNN is downloaded automatically by `--download-models`). Without it, everything falls back to the CPU with a notice.
 

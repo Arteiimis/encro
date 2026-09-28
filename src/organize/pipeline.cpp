@@ -4,6 +4,7 @@
 #include "core/media_item.h"
 #include "core/task_executor.h"
 #include "infra/stop_signal.h"
+#include "infra/terminal.h"
 #include "organize/assign.h"
 #include "organize/cache.h"
 #include "organize/cluster.h"
@@ -227,20 +228,26 @@ auto sourceWorkKey(fs::path const& path) -> std::string {
 void assignFolderMatches(
   std::vector<ImageItem>& items,
   std::vector<Cluster> const& clusters,
-  std::vector<FolderReference> const& references
+  std::vector<FolderReference> const& references,
+  double combinedTau
 ) {
   for (auto const& cluster: clusters) {
     auto matched = static_cast<FolderReference const*>(nullptr);
-    auto bestScore = kIdentityTau;
+    auto bestScore = 0.0;
+    auto const clusterProfile =
+      IdentityProfile{.feature = cluster.centroid, .tags = cluster.meanTags};
     for (auto const& reference: references) {
       if (reference.meanFeature.empty()) { continue; }
-      auto const score = cosineSimilarity(cluster.centroid, reference.meanFeature);
+      auto const score = scoreProfiles(
+        clusterProfile,
+        IdentityProfile{.feature = reference.meanFeature, .tags = reference.meanTags}
+      );
       // First best wins a tie: references are built in folder-name order, so
       // equal scores cannot pick a folder at random.
-      if (score < bestScore) { continue; }
-      if (matched != nullptr && score <= bestScore) { continue; }
+      if (score.value < tauFor(score, combinedTau)) { continue; }
+      if (matched != nullptr && score.value <= bestScore) { continue; }
       matched = &reference;
-      bestScore = score;
+      bestScore = score.value;
     }
     if (matched == nullptr) { continue; }
     for (auto const index: cluster.itemIndices) {
@@ -283,9 +290,21 @@ auto groupSingletonsByWork(
 void clusterRemainder(
   std::vector<ImageItem>& items,
   std::vector<std::size_t> const& pending,
-  std::vector<FolderReference> const& references
+  std::vector<FolderReference> const& references,
+  Options const& options
 ) {
-  auto const clusters = clusterPending(items, pending);
+  auto const result =
+    clusterPending(items, pending, options.identityTau, options.clusterImageCeiling);
+  auto const& clusters = result.clusters;
+  if (result.fellBack) {
+    // No silent degradation (design D5): the low-memory path names itself.
+    terminal::messageln(
+      terminal::MessageKind::Warning,
+      "identity clustering: more than {} analysable images, falling back to the "
+      "greedy pass",
+      options.clusterImageCeiling
+    );
+  }
   auto usedNames = std::set<std::string>{};
   for (auto const& item: items) {
     if (!item.folderName.empty()) {
@@ -293,9 +312,9 @@ void clusterRemainder(
     }
   }
 
-  // Folder-match: a cluster whose appearance resembles an existing folder
-  // joins it (teaching).
-  assignFolderMatches(items, clusters, references);
+  // Folder-match: a cluster whose profile resembles an existing folder's joins
+  // it (teaching).
+  assignFolderMatches(items, clusters, references, options.identityTau);
 
   // Singleton clusters group by their download-work stem prefix (pages of
   // one work share its character cast); the group name is allocated once
@@ -372,7 +391,7 @@ auto runOrganize(
   auto const characterDf = buildCharacterDf(items);
   auto const references = buildFolderReferences(options.root, cache);
   auto const pending = routeItems(items, options.minConfidence, references, characterDf);
-  clusterRemainder(items, pending, references);
+  clusterRemainder(items, pending, references, options);
 
   auto const stats = executeOrganize(options.root, items, options.dryRun);
   if (stats.canceled) { return ReportData{.canceled = true}; }

@@ -112,6 +112,75 @@ TEST_CASE(
   CHECK(result.organizeModelDir.value() == "D:/models");
 }
 
+// --identity-tau: the calibrated threshold, exposed because it is an operating
+// point rather than a derived number (design D7/D8).
+TEST_CASE("identity-tau parses and is validated", "[cmd][organize]") {
+  auto const plain = testutils::parseArgs({"encro", "organize", "D:/pics"});
+  REQUIRE_FALSE(plain.error.has_value());
+  CHECK_FALSE(plain.organizeIdentityTau.has_value());
+
+  auto const flagged =
+    testutils::parseArgs({"encro", "organize", "D:/pics", "--identity-tau", "0.72"});
+  REQUIRE_FALSE(flagged.error.has_value());
+  REQUIRE(flagged.organizeIdentityTau.has_value());
+  CHECK(flagged.organizeIdentityTau.value() == Catch::Approx(0.72));
+
+  // Above 1 is not a cosine threshold at all, and 0 would join everything.
+  auto const outOfRange =
+    testutils::parseArgs({"encro", "organize", "D:/pics", "--identity-tau", "1.5"});
+  REQUIRE(outOfRange.error.has_value());
+  CHECK(outOfRange.error->find("identity-tau") != std::string::npos);
+
+  auto const zero =
+    testutils::parseArgs({"encro", "organize", "D:/pics", "--identity-tau", "0"});
+  REQUIRE(zero.error.has_value());
+}
+
+// The help is the only place a user learns which way to turn the knob, so the
+// wording is pinned separately from the parsing contract.
+TEST_CASE("identity-tau is documented in the organize help", "[cmd][organize]") {
+  auto const help = testutils::parseArgs({"encro", "organize", "-h"});
+  CHECK(help.helpText().find("--identity-tau") != std::string::npos);
+  CHECK(help.helpText().find("default 0.70") != std::string::npos);
+  CHECK(help.helpText().find("look-alikes apart") != std::string::npos);
+}
+
+TEST_CASE(
+  "identity-tau config value applies and the flag wins over it",
+  "[cmd][organize][config]"
+) {
+  auto configFile = ScopedConfigFile{"{"
+                                     "}"};
+
+  // The store rejects a registered key that is missing from its canonical
+  // order, so a set/get round-trip is what proves the key is wired.
+  auto const setExit = cmd::runConfigCommand(
+    testutils::parseArgs({"encro", "config", "set", "identity-tau", "0.62"})
+  );
+  CHECK(setExit == 0);
+  auto const getExit = cmd::runConfigCommand(
+    testutils::parseArgs({"encro", "config", "get", "identity-tau"})
+  );
+  CHECK(getExit == 0);
+
+  auto const fromConfig = testutils::parseArgs({"encro", "organize", "D:/pics"});
+  REQUIRE_FALSE(fromConfig.error.has_value());
+  REQUIRE(fromConfig.organizeIdentityTau.has_value());
+  CHECK(fromConfig.organizeIdentityTau.value() == Catch::Approx(0.62));
+
+  auto const fromFlag =
+    testutils::parseArgs({"encro", "organize", "D:/pics", "--identity-tau", "0.72"});
+  REQUIRE(fromFlag.organizeIdentityTau.has_value());
+  CHECK(fromFlag.organizeIdentityTau.value() == Catch::Approx(0.72));
+
+  // The store validates with the option's own copied rules, so the lower bound
+  // the CLI enforces also rejects a stored zero.
+  auto const zeroExit = cmd::runConfigCommand(
+    testutils::parseArgs({"encro", "config", "set", "identity-tau", "0"})
+  );
+  CHECK(zeroExit != 0);
+}
+
 // --download-models is a complete request on its own: fetching the models
 // needs no images, so the directory is optional with it.
 TEST_CASE("organize parses --download-models without a directory", "[cmd][organize]") {

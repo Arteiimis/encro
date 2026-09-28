@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -56,6 +57,33 @@ struct ImageItem {
   auto outcome() -> mediaitem::ItemOutcome& { return result; }
 };
 
+// The tag side of the identity score: a sparse unit vector over the
+// identity-bearing general tags (name -> weight). Sparse because the vocabulary
+// is the corpus's own and no run-time corpus statistic may be fitted, so there
+// is no global dimension to index into (design D1).
+using TagVector = std::map<std::string, double>;
+
+// Calibrated operating points, not derived numbers. A combined score and a bare
+// feature cosine are different coordinates — the same images peak at 0.70 and at
+// 0.74 — so each mode carries its own default, and `--identity-tau` moves only
+// the combined one. Reference point: the identity model's published metric is
+// 0.5 * (1 - cosine) with its threshold at 0.178475, i.e. a feature cosine of
+// 0.643050; that number describes a score this code no longer computes, so these
+// defaults come from labelled character collections instead — the combined score
+// reaches F1 0.86 at 0.70 with the plateau holding from 0.62 to 0.72, and the
+// feature-only comparison peaks at 0.74 on the same collection. A model,
+// preprocessing or weight change invalidates both and calls for re-measuring
+// them the same way. They live beside Options because a run's threshold is
+// configuration: the clustering reads them from here and the CLI help and the
+// config surface derive their default from the same place.
+inline constexpr auto kCombinedTau = 0.70;
+inline constexpr auto kFeatureOnlyTau = 0.74;
+
+// Above this many analysed images the condensed pairwise matrix costs more
+// memory than the observed workload justifies, so the clustering falls back to
+// the previous greedy pass and says so (design D5).
+inline constexpr std::size_t kAgglomerationImageCeiling = 10'000;
+
 struct Options {
   fs::path root;  // directory to scan and organize
   bool recursive = false;
@@ -65,6 +93,11 @@ struct Options {
   bool recluster = false;
   std::optional<fs::path> ffmpegPath;  // explicit --ffmpeg-path override
   std::size_t maxJobs = 4;
+  // Identity similarity threshold for a combined score (kCombinedTau above); a
+  // comparison with no tag evidence uses kFeatureOnlyTau instead.
+  double identityTau = kCombinedTau;
+  // Above this many analysed images the clustering takes its low-memory path.
+  std::size_t clusterImageCeiling = kAgglomerationImageCeiling;
 };
 
 }  // namespace organize

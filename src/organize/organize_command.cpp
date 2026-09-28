@@ -154,6 +154,7 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
     .recluster = cmd.organizeRecluster,
     .ffmpegPath = ffmpegPath,
     .maxJobs = cmd.maxJobs.value_or(4),
+    .identityTau = cmd.organizeIdentityTau.value_or(kCombinedTau),
   };
 
   auto progress = progress::ProgressContext{};
