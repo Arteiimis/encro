@@ -10,10 +10,7 @@ Guarantees that every operational failure, cancellation, and crash leaves a trut
 
 When the job-state store cannot persist its snapshot (disk full, read-only directory, locked state file, failed rename), the failure SHALL produce an error-level log record naming the operation and the failure reason. `initialize` additionally SHALL fail with an error that reaches the caller. The program SHALL NOT continue as if the state had been saved.
 
-> Note: the `mark*` / `setStage` / `requestCancel` / `flush` mutators are best-effort
-> state transitions with no recovery path, so they return `void` and report
-> exclusively through the log (the store owns the persistence error);
-> `initialize` is the single call that propagates.
+> Note: the `mark*` / `setStage` / `requestCancel` / `flush` mutators are best-effort state transitions with no recovery path, so they return `void` and report exclusively through the log (the store owns the persistence error); `initialize` is the single call that propagates.
 
 #### Scenario: State file write fails
 - **WHEN** the state file cannot be opened or written during a `mark*` or `flush` operation
@@ -161,18 +158,12 @@ When a subprocess-backed task fails (video encode, probe, picture compression), 
 
 ### Requirement: Fatal exceptions are reported under third-party crash filters
 
-When a fatal exception (invalid memory access, illegal instruction including the standard
-library hardening trap, stack overflow) is raised while a third-party top-level filter owns the
-unhandled-exception path (e.g. inside a Catch2 test run), the crash report SHALL still be
-written through the direct-write durability chain before that filter terminates the process.
-Registering the first-chance interception SHALL NOT change the process's termination behavior:
-after writing the report, the interception SHALL continue the normal exception dispatch.
+When a fatal exception (invalid memory access, illegal instruction including the standard library hardening trap, stack overflow) is raised while a third-party top-level filter owns the unhandled-exception path (e.g. inside a Catch2 test run), the crash report SHALL still be written through the direct-write durability chain before that filter terminates the process. Registering the first-chance interception SHALL NOT change the process's termination behavior: after writing the report, the interception SHALL continue the normal exception dispatch.
 
 #### Scenario: Hardening violation inside a test run
 
 - **WHEN** an STL hardening violation traps during a Catch2 test execution
-- **THEN** a crash record with reason and stacktrace is written (direct log append / async
-  logger / stderr fallback chain, as for other crashes)
+- **THEN** a crash record with reason and stacktrace is written (direct log append / async logger / stderr fallback chain, as for other crashes)
 - **AND** the process still terminates non-zero through the third-party filter's normal flow
 
 #### Scenario: Non-fatal exceptions are not intercepted
@@ -182,78 +173,55 @@ after writing the report, the interception SHALL continue the normal exception d
 
 #### Scenario: A fatal exception yields exactly one crash record
 
-- **WHEN** a fatal exception is reported by the first-chance interception and then reaches the
-  process's own unhandled-exception path
+- **WHEN** a fatal exception is reported by the first-chance interception and then reaches the process's own unhandled-exception path
 - **THEN** the crash record is written exactly once, not once per reporting layer
 
 ### Requirement: Crash records carry available process context
 
-When a pluggable context provider has been installed, the crash record SHALL include the
-context it returns (for the unit-test runner: the currently running test name). The provider
-SHALL be optional; without it, crash records are written as before.
+When a pluggable context provider has been installed, the crash record SHALL include the context it returns (for the unit-test runner: the currently running test name). The provider SHALL be optional; without it, crash records are written as before.
 
 #### Scenario: Crash names the running test
 
-- **WHEN** a fatal exception occurs while a test is running and the runner has installed a
-  context provider
+- **WHEN** a fatal exception occurs while a test is running and the runner has installed a context provider
 - **THEN** the crash record identifies that test
 
 #### Scenario: No provider installed
 
 - **WHEN** the context provider was never installed
-- **THEN** crash records are written with reason and stacktrace as before, with no placeholder
-  noise
+- **THEN** crash records are written with reason and stacktrace as before, with no placeholder noise
 
 ### Requirement: Crash stacktraces resolve to symbols on Windows release builds
 
-Windows release builds SHALL emit debug symbols alongside the binary, and crash records from
-those builds SHALL resolve application stack frames to `module!function` form rather than bare
-`module+offset` addresses, so a crash stack is actionable without re-running under a debugger.
+Windows release builds SHALL emit debug symbols alongside the binary, and crash records from those builds SHALL resolve application stack frames to `module!function` form rather than bare `module+offset` addresses, so a crash stack is actionable without re-running under a debugger.
 
 #### Scenario: Release-build crash stack is readable
 
 - **WHEN** a crash record with a stacktrace is produced by a Windows release build
-- **THEN** the application frames in the record reference named functions via the debug
-  symbols emitted with the build
+- **THEN** the application frames in the record reference named functions via the debug symbols emitted with the build
 - **AND** frames from system libraries without available symbols may remain address-only
 
 ### Requirement: DLL-initialization exceptions pass through crash interception
 
-Notwithstanding the general fatal-exception first-chance reporting and
-durable crash-record requirements: when a fatal-code exception is raised on a
-thread that is inside a DLL-load zone (executing within a dynamic-library load
-window the application itself initiated), the first-chance crash interception
-SHALL NOT write a crash record and SHALL NOT capture a stacktrace for that
-exception; normal exception dispatch SHALL continue so the library's own
-exception handlers run. Any crash record written by another report path while
-the reporting thread is inside a DLL-load zone SHALL omit the stacktrace
-(reason and context only, with a marker noting the omission) rather than risk
-blocking the process.
+Notwithstanding the general fatal-exception first-chance reporting and durable crash-record requirements: when a fatal-code exception is raised on a thread that is inside a DLL-load zone (executing within a dynamic-library load window the application itself initiated), the first-chance crash interception SHALL NOT write a crash record and SHALL NOT capture a stacktrace for that exception; normal exception dispatch SHALL continue so the library's own exception handlers run. Any crash record written by another report path while the reporting thread is inside a DLL-load zone SHALL omit the stacktrace (reason and context only, with a marker noting the omission) rather than risk blocking the process.
 
 #### Scenario: Handled probe exception during a DLL load
 
-- **WHEN** a loaded library's initialization raises a fatal-code exception
-  that the library's own handler catches
+- **WHEN** a loaded library's initialization raises a fatal-code exception that the library's own handler catches
 - **THEN** no crash record is written and no stacktrace is captured
 - **AND** execution continues and the process terminates normally (no hang)
 
 #### Scenario: Unhandled exception on a DLL-load-zone thread
 
-- **WHEN** an exception raised while the thread is inside a DLL-load zone is
-  not handled and reaches the process's unhandled-exception or terminate path
+- **WHEN** an exception raised while the thread is inside a DLL-load zone is not handled and reaches the process's unhandled-exception or terminate path
 - **THEN** the crash record is written with reason and context
-- **AND** the record omits the stacktrace, carrying a marker that names the
-  omission
+- **AND** the record omits the stacktrace, carrying a marker that names the omission
 
 #### Scenario: Crashes outside DLL-load zones are unchanged
 
 - **WHEN** a fatal exception occurs on a thread outside any DLL-load zone
-- **THEN** the crash record carries reason, context, and the symbolized
-  stacktrace exactly as before this carve-out
+- **THEN** the crash record carries reason, context, and the symbolized stacktrace exactly as before this carve-out
 
 #### Scenario: The zone is thread-scoped and temporary
 
-- **WHEN** a thread has left its DLL-load zone, or another thread crashes
-  while one thread is inside a zone
-- **THEN** first-chance interception and stacktrace capture behave as before
-  on the threads outside the zone
+- **WHEN** a thread has left its DLL-load zone, or another thread crashes while one thread is inside a zone
+- **THEN** first-chance interception and stacktrace capture behave as before on the threads outside the zone
