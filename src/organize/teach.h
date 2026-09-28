@@ -21,4 +21,12 @@ namespace organize {
 auto buildFolderReferences(fs::path const& root, AnalysisCache const& cache)
   -> std::vector<FolderReference>;
 
+// Merges this run's character-folder routing into the on-disk references, keyed
+// by display name (design D1-D3). mixed/ and uncategorized/ never become
+// references, and the result is in name order like the on-disk list.
+auto buildSameRunReferences(
+  std::vector<ImageItem> const& items,
+  std::vector<FolderReference> const& onDisk
+) -> std::vector<FolderReference>;
+
 }  // namespace organize

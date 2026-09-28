@@ -129,6 +129,8 @@ xmake run encro organize <dir> --download-models
 
 `--identity-tau F` sets how similar two images must be before they share a folder, by identity feature and identity-bearing tags together (default `0.70`, or `0.74` when a comparison has no tag evidence on either side). It is a calibrated operating point rather than a derived number: raise it to keep look-alikes apart, lower it to hold one character's varied artwork together. To re-calibrate after a model change, group a labelled gallery of characters, replay the same weighted score and agglomeration over the cached analyses, and pick the threshold where co-clustering F1 peaks — the calibration record and the measured plateau live next to the constant that carries the default (`kCombinedTau` in `src/organize/organize_types.h`).
 
+A first run already groups what it can: the character folder this run's own tag routing creates becomes a reference, so a cluster whose profile matches it is filed there in the same run instead of waiting for a second one.
+
 Rename any output folder to rename a character — e.g. `hatsune_miku` → `初音ミク`; later runs file new images of that character under your name. `--dry-run` prints the plan without copying; results are cached by content hash, so re-runs and interrupted runs re-analyze nothing (`--recluster` discards the cache). On NVIDIA GPUs the model runs on CUDA; install the CUDA runtime once with `scoop install versions/cuda12.9` (cuDNN is downloaded automatically by `--download-models`). Without it, everything falls back to the CPU with a notice.
 
 ## Building
