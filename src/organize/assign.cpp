@@ -8,10 +8,10 @@ namespace organize {
 
 auto positiveCharacterTags(AnalysisResult const& analysis) -> std::vector<TagScore> {
   auto tags = std::vector<TagScore>{};
-  tags.reserve(analysis.character.size());
+  tags.reserve(analysis.tags.character.size());
   std::copy_if(
-    analysis.character.begin(),
-    analysis.character.end(),
+    analysis.tags.character.begin(),
+    analysis.tags.character.end(),
     std::back_inserter(tags),
     [&](TagScore const& tag) { return tag.confidence > kZeroEvidence; }
   );
@@ -25,7 +25,7 @@ auto positiveCharacterTags(AnalysisResult const& analysis) -> std::vector<TagSco
 bool hasStrongCountTag(AnalysisResult const& analysis) {
   // Count tags are subject assertions: like character identities they need
   // strong evidence (the ~0.5 sigmoid band is zero-evidence noise).
-  for (auto const& tag: analysis.general) {
+  for (auto const& tag: analysis.tags.general) {
     if (tag.confidence < kSubjectCountConfidence) { continue; }
     auto const match = std::ranges::find(kSubjectCountTags, tag.tag);
     if (match != std::ranges::end(kSubjectCountTags)) { return true; }
@@ -39,7 +39,7 @@ auto buildCharacterDf(std::vector<ImageItem> const& items)
   for (auto const& item: items) {
     if (!item.analysis.has_value()) { continue; }
     auto seen = std::set<std::string>{};
-    for (auto const& tag: item.analysis->character) {
+    for (auto const& tag: item.analysis->tags.character) {
       if (tag.confidence > kZeroEvidence) { seen.insert(tag.tag); }
     }
     for (auto const& tag: seen) { df[tag] += 1; }

@@ -8,6 +8,7 @@
 #include <httplib.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -100,6 +101,37 @@ TEST_CASE("downloadFile rejects checksum mismatch after bounded retries", "[tagg
     tagger::downloadFile(temp.path, corrupt, server.url(), server.url());
   REQUIRE(!installed.has_value());
   CHECK(installed.error().find("checksum mismatch") != std::string::npos);
+}
+
+TEST_CASE("modelFiles pins the identity model beside the tagger", "[tagger]") {
+  auto const files = tagger::modelFiles();
+  auto const identity = std::ranges::find_if(files, [](tagger::RemoteFile const& file) {
+    return file.urlPath.ends_with(
+      "/deepghs/ccip_onnx/resolve/main/"
+      "ccip-caformer-24-randaug-pruned/model_feat.onnx"
+    );
+  });
+  REQUIRE(identity != files.end());
+  CHECK(identity->size == 150248245);
+  CHECK(
+    identity->sha256 == "4ea118d16496274f4f6e08d3afc768cc592389e8f7f32f8732ce2215c228ac5f"
+  );
+}
+
+TEST_CASE("a missing identity model is named as missing", "[tagger]") {
+  // The presence check and the fail-fast message share one missing-file list,
+  // so a second model cannot be pinned into the manifest only.
+  auto temp = TempDir{};
+  auto const files = tagger::modelFiles();
+  auto const missing = tagger::missingFiles(temp.path, files);
+  REQUIRE(missing.size() == files.size());
+  CHECK(std::ranges::find(missing, std::string{"model_feat.onnx"}) != missing.end());
+
+  auto const one = std::vector{goodFile()};
+  CHECK(tagger::missingFiles(temp.path, one) == std::vector<std::string>{"file.bin"});
+  testutils::writeTextFile(temp.path / "file.bin", kGoodBody);
+  CHECK(tagger::missingFiles(temp.path, one).empty());
+  CHECK(tagger::missingFiles(temp.path, {}).empty());
 }
 
 TEST_CASE("allFilesPresent checks existence and size", "[tagger]") {

@@ -63,9 +63,12 @@ TEST_CASE("AnalysisCache roundtrips raw analysis by content hash", "[organize]")
   auto temp = TempDir{};
   auto const cachePath = temp.path / "organized" / ".cache" / "analysis.json";
   auto const result = organize::AnalysisResult{
-    .general = {tag("pink_hair", 0.9), tag("2girls", 0.8)},
-    .character = {tag("hatsune_miku", 0.7), tag("kagamine_rin", 0.6)},
-    .rating = {tag("general", 0.95)},
+    .tags =
+      {.general = {tag("pink_hair", 0.9), tag("2girls", 0.8)},
+       .character = {tag("hatsune_miku", 0.7), tag("kagamine_rin", 0.6)},
+       .rating = {tag("general", 0.95)}},
+    // Decimal fractions that do not survive a lossy number format.
+    .identity = {0.1f, 0.2f, 0.3f},
   };
 
   {
@@ -81,48 +84,72 @@ TEST_CASE("AnalysisCache roundtrips raw analysis by content hash", "[organize]")
   auto const restored = reloaded.get("hash-a");
   REQUIRE(restored.has_value());
   CHECK(restored == result);
+  REQUIRE(restored->identity.size() == 3);
+  CHECK(restored->identity[0] == 0.1f);
+  CHECK(restored->identity[2] == 0.3f);
 
   auto const empty = reloaded.get("hash-b");
   REQUIRE(empty.has_value());  // analyzed-but-empty is distinct from absent
-  CHECK(empty->general.empty());
-  CHECK(empty->character.empty());
+  CHECK(empty->tags.general.empty());
+  CHECK(empty->tags.character.empty());
 
   CHECK(!reloaded.get("hash-c").has_value());
 }
 
+TEST_CASE("AnalysisCache discards a cache written by an earlier format", "[organize]") {
+  // The identity feature changed the entry shape (design D6): a version-1
+  // file must read as empty so the run re-analyzes instead of clustering on
+  // entries that carry no feature.
+  auto temp = TempDir{};
+  auto const cachePath = temp.path / "organized" / ".cache" / "analysis.json";
+  fs::create_directories(cachePath.parent_path());
+  testutils::writeTextFile(
+    cachePath,
+    R"({"version":1,"images":{"hash-a":{"general":[["pink_hair",0.9]],"character":[],"rating":[]}}})"
+  );
+
+  auto cache = organize::AnalysisCache{cachePath};
+  cache.load();
+  CHECK(!cache.get("hash-a").has_value());
+}
+
 TEST_CASE("AnalysisCache stores only what routing can read, per category", "[organize]") {
-  // Floors track the consuming thresholds (design D6): general vectors read
-  // kVectorFloor (0.55) and up, character routing reads kWeakConfidence
-  // (0.53) and up. Storing lower confidences let the tagger's ~0.5 identity
-  // noise (all ~2.7k vocabulary characters per image) dominate the store
-  // without ever influencing a decision.
+  // Floors track the consuming thresholds (design D6): general tags are read at
+  // kNamingConfidenceFloor (0.55) and up for `unknown_` names, character routing
+  // reads kWeakConfidence (0.53) and up. Storing lower confidences let the
+  // tagger's ~0.5 identity noise (all ~2.7k vocabulary characters per image)
+  // dominate the store without ever influencing a decision. The identity
+  // feature is stored whole: it is the clustering input, not a tag.
   auto temp = TempDir{};
   auto cache = organize::AnalysisCache{temp.path / "analysis.json"};
   cache.load();
   cache.put(
     "hash-a",
     organize::AnalysisResult{
-      .general =
-        {tag("pink_hair", 0.9),
-         tag("vector_noise", 0.5499),
-         tag("background_detail", 0.05)},
-      .character =
-        {tag("hatsune_miku", 0.7),
-         tag("weak_agreement", 0.53),
-         tag("identity_noise", 0.52)},
-      .rating = {tag("general", 0.95), tag("sub_floor", 0.09)},
+      .tags =
+        {.general =
+           {tag("pink_hair", 0.9),
+            tag("vector_noise", 0.5499),
+            tag("background_detail", 0.05)},
+         .character =
+           {tag("hatsune_miku", 0.7),
+            tag("weak_agreement", 0.53),
+            tag("identity_noise", 0.52)},
+         .rating = {tag("general", 0.95), tag("sub_floor", 0.09)}},
+      .identity = {0.5f, 0.5f},
     }
   );
 
   auto const restored = cache.get("hash-a");
   REQUIRE(restored.has_value());
-  REQUIRE(restored->general.size() == 1);
-  CHECK(restored->general.front().tag == "pink_hair");
-  REQUIRE(restored->character.size() == 2);
-  CHECK(restored->character[0].tag == "hatsune_miku");
-  CHECK(restored->character[1].tag == "weak_agreement");
-  REQUIRE(restored->rating.size() == 1);
-  CHECK(restored->rating.front().tag == "general");
+  REQUIRE(restored->tags.general.size() == 1);
+  CHECK(restored->tags.general.front().tag == "pink_hair");
+  REQUIRE(restored->tags.character.size() == 2);
+  CHECK(restored->tags.character[0].tag == "hatsune_miku");
+  CHECK(restored->tags.character[1].tag == "weak_agreement");
+  REQUIRE(restored->tags.rating.size() == 1);
+  CHECK(restored->tags.rating.front().tag == "general");
+  CHECK(restored->identity == std::vector<float>{0.5f, 0.5f});
 }
 
 TEST_CASE("AnalysisCache buffers puts until the flush interval", "[organize]") {

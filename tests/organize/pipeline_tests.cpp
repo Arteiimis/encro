@@ -4,12 +4,14 @@
 #include "core/sha256.h"
 
 #include "organize/cache.h"
+#include "organize/cluster.h"
 #include "organize/pipeline.h"
 #include "organize/teach.h"
 
 #include "cmd/cmd.h"
 #include "infra/stop_signal.h"
 #include "organize/organize_command.h"
+#include "tagger/mapping.h"
 
 #include "test_utils.h"
 
@@ -46,6 +48,25 @@ public:
   }
 };
 
+// Scripted identity engine: filename -> feature. An unscripted file has no
+// identity evidence, so it can still be routed by character tag or count tag
+// but never clusters; a scripted one is normalized the way the real engine's
+// contract says.
+class FakeFeatureEngine final: public tagger::FeatureEngine {
+public:
+  std::map<std::string, std::vector<float>> byName;
+  std::atomic<int> calls{0};
+
+  auto extract(fs::path const& path) -> eh::Result<std::vector<float>> override {
+    ++calls;
+    auto const it = byName.find(path.filename().string());
+    if (it == byName.end()) { return eh::makeError("no fixture for {}", path.string()); }
+    auto feature = it->second;
+    tagger::normalizeFeature(feature);
+    return feature;
+  }
+};
+
 auto makeOptions(fs::path const& root) -> organize::Options {
   return organize::Options{
     .root = root,
@@ -54,6 +75,38 @@ auto makeOptions(fs::path const& root) -> organize::Options {
     .modelDir = root / "models",
     .maxJobs = 1,
   };
+}
+
+// Runs one image, holding `cosine` against a taught folder whose single member
+// carries `unitFeature(1.0)`, and returns the folder the image landed in. The
+// referenced member is never rescanned (it sits under organized/), so its
+// feature has to come from the cache.
+auto taughtFolderFor(double cosine) -> std::string {
+  auto temp = TempDir{};
+  auto const bytes = std::string{"member-bytes"};
+  testutils::writeTextFile(temp.path / "organized" / "taught" / "member.png", bytes);
+  testutils::writeTextFile(temp.path / "new.png", "new-bytes");
+
+  auto cache =
+    organize::AnalysisCache{temp.path / "organized" / ".cache" / "analysis.json"};
+  cache.load();
+  cache.put(
+    core::sha256Hex(bytes),
+    organize::AnalysisResult{.identity = testutils::unitFeature(1.0)}
+  );
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  features.byName["new.png"] = testutils::unitFeature(cosine);
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(report.has_value());
+
+  for (auto const& entry: fs::directory_iterator{temp.path / "organized"}) {
+    if (!entry.is_directory()) { continue; }
+    if (fs::exists(entry.path() / "new.png")) { return entry.path().filename().string(); }
+  }
+  return {};
 }
 
 #if defined(_WIN32)
@@ -100,13 +153,18 @@ TEST_CASE("pipeline files known characters, clusters, and mixed", "[organize]") 
   testutils::writeTextFile(temp.path / "duo.png", "duo");
 
   auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
   engine.byName["miku-1.png"] = {.character = {tag("hatsune_miku", 0.9)}};
   engine.byName["miku-2.png"] = {.character = {tag("hatsune_miku", 0.9)}};
   engine.byName["oc-a.png"] = {.general = {tag("pink_hair", 0.9), tag("blue_eyes", 0.8)}};
   engine.byName["duo.png"] =
     {.general = {tag("2girls", 0.9)}, .character = {tag("a", 0.8), tag("b", 0.7)}};
+  // Only the clustered remainder needs a feature; the tagged and
+  // multi-subject images are routed before clustering reads one.
+  features.byName["oc-a.png"] = testutils::unitFeature(1.0);
 
-  auto const report = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(report.has_value());
   CHECK(report->scanned == 4);
   CHECK(report->copied == 4);
@@ -137,13 +195,15 @@ TEST_CASE("lone weak character candidate claims the image", "[organize]") {
   testutils::writeTextFile(temp.path / "clash.png", "clash");
 
   auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
   engine.byName["venti-solo.png"] =
     {.general = {tag("2boys", 0.7)}, .character = {tag("venti", 0.55)}};
   engine.byName["venti-duo.png"] =
     {.general = {tag("2boys", 0.7)}, .character = {tag("venti", 0.55)}};
   engine.byName["clash.png"] = {.character = {tag("venti", 0.55), tag("kieran", 0.52)}};
 
-  auto const report = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(report.has_value());
   // Weak-but-only candidate files by character even though count tags fired.
   CHECK(fs::exists(temp.path / "organized" / "venti" / "venti-solo.png"));
@@ -158,9 +218,11 @@ TEST_CASE("pipeline routes count-tag multi-subject and analysis failures", "[org
   testutils::writeTextFile(temp.path / "broken.png", "broken");
 
   auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
   engine.byName["duo.png"] = {.general = {tag("2girls", 0.9)}};  // no character tag
 
-  auto const report = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(report.has_value());
   CHECK(fs::exists(temp.path / "organized" / "mixed" / "duo.png"));
   // Unscripted file fails analysis -> uncategorized, run continues.
@@ -172,11 +234,12 @@ TEST_CASE("dry run reports but copies nothing", "[organize]") {
   testutils::writeTextFile(temp.path / "miku.png", "miku");
 
   auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
   engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
   auto options = makeOptions(temp.path);
   options.dryRun = true;
-  auto const report = organize::runOrganize(options, engine, nullptr);
+  auto const report = organize::runOrganize(options, engine, features, nullptr);
   REQUIRE(report.has_value());
   CHECK(report->copied == 0);
   CHECK(report->folders.size() == 1);
@@ -188,15 +251,19 @@ TEST_CASE("re-run resumes from cache without re-classifying", "[organize]") {
   testutils::writeTextFile(temp.path / "miku.png", "miku");
 
   auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
   engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
-  (void)organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  (void)organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(engine.calls.load() == 1);
 
-  // Second run: cache hits, no new classify calls, no duplicate copies.
-  auto const second = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  // Second run: cache hits, no new inference of either product, no duplicate
+  // copies.
+  auto const second =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(second.has_value());
   CHECK(engine.calls.load() == 1);
+  CHECK(features.calls.load() == 1);
   CHECK(second->cacheHits == 1);
   CHECK(second->copied == 0);
   CHECK(second->skippedExisting == 1);
@@ -211,9 +278,11 @@ TEST_CASE("identical content is analyzed once and its twin is a skip", "[organiz
   testutils::writeTextFile(temp.path / "miku-a.png", "miku-bytes");
 
   auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
   engine.byName["miku-a.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
-  auto const first = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  auto const first =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(first.has_value());
   REQUIRE(engine.calls.load() == 1);
 
@@ -226,9 +295,11 @@ TEST_CASE("identical content is analyzed once and its twin is a skip", "[organiz
   engine.byName["rin.png"] = {.character = {tag("kagamine_rin", 0.9)}};
 
   auto progressCtx = progress::ProgressContext{};
-  auto const second = organize::runOrganize(makeOptions(temp.path), engine, &progressCtx);
+  auto const second =
+    organize::runOrganize(makeOptions(temp.path), engine, features, &progressCtx);
   REQUIRE(second.has_value());
   CHECK(engine.calls.load() == 2);
+  CHECK(features.calls.load() == 2);
   CHECK(second->cacheHits == 2);
 
   // One bar, one completion: total 1 is the uncached remainder (3 scanned, 2
@@ -244,14 +315,15 @@ TEST_CASE("recluster discards cached analysis and re-classifies", "[organize]") 
   testutils::writeTextFile(temp.path / "miku.png", "miku");
 
   auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
   engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
-  (void)organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  (void)organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(engine.calls.load() == 1);
 
   auto options = makeOptions(temp.path);
   options.recluster = true;
-  (void)organize::runOrganize(options, engine, nullptr);
+  (void)organize::runOrganize(options, engine, features, nullptr);
   CHECK(engine.calls.load() == 2);
 }
 
@@ -260,9 +332,10 @@ TEST_CASE("renamed character folder teaches subsequent runs", "[organize]") {
   testutils::writeTextFile(temp.path / "miku.png", "miku");
 
   auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
   engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
-  (void)organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  (void)organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   CHECK(fs::exists(temp.path / "organized" / "hatsune_miku" / "miku.png"));
 
   // User renames the folder; the next run files by the new name and never
@@ -274,11 +347,23 @@ TEST_CASE("renamed character folder teaches subsequent runs", "[organize]") {
   testutils::writeTextFile(temp.path / "miku2.png", "miku2");
   engine.byName["miku2.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
-  auto const report = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(report.has_value());
   CHECK(fs::exists(temp.path / "organized" / "初音ミク" / "miku.png"));
   CHECK(fs::exists(temp.path / "organized" / "初音ミク" / "miku2.png"));
   CHECK(!fs::exists(temp.path / "organized" / "hatsune_miku"));
+}
+
+TEST_CASE("teaching captures a cluster at the threshold", "[organize]") {
+  // A cluster joins a reference folder when its centroid matches the folder's
+  // mean feature at the identity threshold (spec "Teaching by renamed
+  // folders").
+  CHECK(taughtFolderFor(0.9) == "taught");
+}
+
+TEST_CASE("a cluster below the threshold keeps its unknown_ name", "[organize]") {
+  CHECK(taughtFolderFor(0.5).starts_with("unknown_"));
 }
 
 #if defined(_WIN32)
@@ -297,7 +382,8 @@ TEST_CASE("teaching skips a member it cannot read", "[organize]") {
 
   auto cache =
     organize::AnalysisCache{temp.path / "organized" / ".cache" / "analysis.json"};
-  cache.put("", organize::AnalysisResult{.character = {tag("hatsune_miku", 0.9)}});
+  cache
+    .put("", organize::AnalysisResult{.tags = {.character = {tag("hatsune_miku", 0.9)}}});
 
   auto const lock = ExclusivelyLockedFile{member};
   REQUIRE(lock.isLocked());
@@ -306,7 +392,7 @@ TEST_CASE("teaching skips a member it cannot read", "[organize]") {
   // would pass vacuously whenever the lock failed to block the read.
   REQUIRE(core::sha256File(member).empty());
 
-  auto const references = organize::buildFolderReferences(temp.path, cache, 0.35);
+  auto const references = organize::buildFolderReferences(temp.path, cache);
   CHECK(references.empty());
 }
 #endif
@@ -321,11 +407,16 @@ TEST_CASE("a merged cluster shares one folder", "[organize]") {
   testutils::writeTextFile(temp.path / "c.png", "c");
 
   auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
   engine.byName["a.png"] = {.general = {tag("pink_hair", 0.9), tag("blue_eyes", 0.8)}};
   engine.byName["b.png"] = {.general = {tag("pink_hair", 0.88), tag("blue_eyes", 0.82)}};
   engine.byName["c.png"] = {.general = {tag("black_hair", 0.9), tag("brown_eyes", 0.85)}};
+  features.byName["a.png"] = testutils::unitFeature(1.0);
+  features.byName["b.png"] = testutils::unitFeature(0.99);
+  features.byName["c.png"] = testutils::unitFeature(0.0);
 
-  auto const report = organize::runOrganize(makeOptions(temp.path), engine, nullptr);
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(report.has_value());
 
   auto unknownFolders = std::map<std::string, int>{};
@@ -423,10 +514,11 @@ TEST_CASE(
     auto temp = TempDir{};
     testutils::writeTextFile(temp.path / "miku.png", "miku");
     auto engine = FakeTagger{};
+    auto features = FakeFeatureEngine{};
     engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
     stopsignal::requestStop();
-    auto const result = runOrganize(makeOptions(temp.path), engine, nullptr);
+    auto const result = runOrganize(makeOptions(temp.path), engine, features, nullptr);
 
     REQUIRE(result.has_value());
     CHECK(result->canceled);
@@ -438,16 +530,17 @@ TEST_CASE(
     auto temp = TempDir{};
     testutils::writeTextFile(temp.path / "miku.png", "miku");
     auto engine = FakeTagger{};
+    auto features = FakeFeatureEngine{};
     engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
     // First run analyzes and copies: the cache now covers the image, so the
     // stopped run has nothing to analyze and the stop lands in the copy loop.
-    auto const first = runOrganize(makeOptions(temp.path), engine, nullptr);
+    auto const first = runOrganize(makeOptions(temp.path), engine, features, nullptr);
     REQUIRE(first.has_value());
     REQUIRE(first->copied == 1);
 
     stopsignal::requestStop();
-    auto const result = runOrganize(makeOptions(temp.path), engine, nullptr);
+    auto const result = runOrganize(makeOptions(temp.path), engine, features, nullptr);
 
     REQUIRE(result.has_value());
     CHECK(result->canceled);

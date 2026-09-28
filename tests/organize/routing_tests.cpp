@@ -10,6 +10,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <set>
@@ -25,12 +26,13 @@ auto tag(std::string name, double confidence) -> organize::TagScore {
 
 auto analysis(
   std::vector<organize::TagScore> general,
-  std::vector<organize::TagScore> character = {}
+  std::vector<organize::TagScore> character = {},
+  std::vector<float> identity = {}
 ) -> organize::AnalysisResult {
   return organize::AnalysisResult{
-    .general = std::move(general),
-    .character = std::move(character),
-    .rating = {},
+    .tags =
+      {.general = std::move(general), .character = std::move(character), .rating = {}},
+    .identity = std::move(identity),
   };
 }
 
@@ -81,125 +83,75 @@ TEST_CASE("folder ownership claims by majority of sole candidates", "[organize]"
   CHECK(organize::owningFolder(references, "hatsune_miku") == &references[0]);
 }
 
-TEST_CASE("appearanceVector keeps only identity-bearing tags", "[organize]") {
-  // Acceptance (prpr corpus, 1899 images): unrestricted vectors carried
-  // scene/action words (nude, trembling, open_mouth) and collapsed pairwise
-  // cosine to noise (p50 0.08 against the original 0.82 threshold); only
-  // identity features group characters.
-  auto const vector = organize::appearanceVector(analysis({
-    tag("pink_hair", 0.9),
-    tag("blue_eyes", 0.8),
-    tag("dragon_horns", 0.85),
-    tag("nude", 0.95),
-    tag("open_mouth", 0.85),
-    tag("trembling", 0.7),
-    // Substring traps: each matches a pattern but is scene/expression.
-    tag("pubic_hair", 0.9),
-    tag("cum_on_hair", 0.8),
-    tag("tears", 0.75),
-    tag("horny", 0.7),
-    tag("cocktail", 0.6),
-  }));
-  REQUIRE(vector.size() == 3);
-  CHECK(vector.count("pink_hair") == 1);
-  CHECK(vector.count("blue_eyes") == 1);
-  CHECK(vector.count("dragon_horns") == 1);
-}
-
-TEST_CASE("appearanceVector caps to top-K and floors at threshold", "[organize]") {
-  auto general = std::vector<organize::TagScore>{};
-  for (auto index = 0; index < 25; ++index) {
-    general.push_back(tag(std::format("hair_{:02}", index), 0.9 - index * 0.01));
-  }
-  general.push_back(tag("hair_weak", 0.1));
-  auto const vector = organize::appearanceVector(analysis(general));
-  CHECK(vector.size() == organize::kTopKTags);
-  CHECK(vector.find("hair_weak") == vector.end());
-  CHECK(vector.find("hair_00") != vector.end());
-}
-
 TEST_CASE("cosineSimilarity is 1 for identical, 0 for disjoint", "[organize]") {
-  auto const a = std::map<std::string, double>{{"x", 1.0}, {"y", 1.0}};
-  CHECK(organize::cosineSimilarity(a, a) == Catch::Approx(1.0));
-  auto const b = std::map<std::string, double>{{"z", 1.0}};
-  CHECK(organize::cosineSimilarity(a, b) == 0.0);
-  CHECK(organize::cosineSimilarity(a, {}) == 0.0);
+  CHECK(
+    organize::cosineSimilarity(testutils::unitFeature(1.0), testutils::unitFeature(1.0))
+    == Catch::Approx(1.0)
+  );
+  // Orthogonal only up to the float rounding of cos(pi/2).
+  CHECK(
+    organize::cosineSimilarity(testutils::unitFeature(1.0), testutils::unitFeature(0.0))
+    == Catch::Approx(0.0).margin(1e-6)
+  );
+  CHECK(
+    organize::cosineSimilarity(testutils::unitFeature(1.0), testutils::unitFeature(-1.0))
+    == Catch::Approx(-1.0)
+  );
+  CHECK(
+    organize::cosineSimilarity(testutils::unitFeature(1.0), std::span<float const>{})
+    == 0.0
+  );
+  CHECK(organize::cosineSimilarity(std::span<float const>{}, {}) == 0.0);
 }
 
-TEST_CASE(
-  "clusterPending groups same-character-across-styles deterministically",
-  "[organize]"
-) {
-  // Same appearance tag set, differing style tags below threshold.
+TEST_CASE("clusterPending groups features that reach the threshold", "[organize]") {
+  // One character across styles: both mates sit at cos 0.9 or above against
+  // the cluster centroid (kIdentityTau is 0.643).
   auto items = std::vector<organize::ImageItem>{
-    item("a", analysis({tag("pink_hair", 0.9), tag("blue_eyes", 0.85)})),
-    item("b", analysis({tag("blue_eyes", 0.86), tag("pink_hair", 0.88)})),
-    item("c", analysis({tag("white_hair", 0.9), tag("red_eyes", 0.8)})),
-  };
-  auto pending = std::vector<std::size_t>{0, 1, 2};
-
-  auto const clusters = organize::clusterPending(items, pending);
-  REQUIRE(clusters.size() == 2);
-  // Hash order decides which cluster is first; find the pink one.
-  auto const& pink = clusters[0].itemIndices.size() == 2 ? clusters[0] : clusters[1];
-  CHECK(pink.itemIndices.size() == 2);
-}
-
-TEST_CASE("clusterPending merges partially overlapping identity vectors", "[organize]") {
-  // kClusterTau sits at 0.50 (acceptance): one character with slightly
-  // different feature sets must merge, not fragment into per-image folders.
-  auto items = std::vector<organize::ImageItem>{
-    item(
-      "a",
-      analysis({tag("pink_hair", 0.9), tag("blue_eyes", 0.8), tag("ahoge", 0.7)})
-    ),
-    item(
-      "b",
-      analysis({tag("pink_hair", 0.85), tag("blue_eyes", 0.75), tag("ahoge", 0.75)})
-    ),
-    item("c", analysis({tag("black_hair", 0.9), tag("brown_eyes", 0.8)})),
+    item("a", analysis({}, {}, testutils::unitFeature(1.0))),
+    item("b", analysis({}, {}, testutils::unitFeature(0.9))),
+    item("c", analysis({}, {}, testutils::unitFeature(0.1))),
   };
   auto const clusters = organize::clusterPending(items, {0, 1, 2});
   REQUIRE(clusters.size() == 2);
+  // Hash order decides which cluster is first; the pair is the big one.
   auto const& merged = clusters[0].itemIndices.size() == 2 ? clusters[0] : clusters[1];
-  auto members = merged.itemIndices;
-  std::sort(members.begin(), members.end());
-  CHECK(members == std::vector<std::size_t>{0, 1});
+  CHECK(merged.itemIndices.size() == 2);
 }
 
-TEST_CASE("inTraitBand minimum df scales with corpus and floors low", "[organize]") {
-  // Acceptance (prpr corpus): corpus/20 at 1899 images demanded df >= 94 and
-  // kept only 184 collection-wide tags; the minimum now grows as corpus/50
-  // from an absolute floor of 5.
-  auto const traits = organize::CorpusTraits{
-    .idf = {},
-    .df = {{"in_band", 37}, {"too_rare", 10}, {"collection_constant", 1500}},
-    .corpus = 1899,
-  };
-  CHECK(traits.inTraitBand("in_band"));
-  CHECK(!traits.inTraitBand("too_rare"));
-  CHECK(!traits.inTraitBand("collection_constant"));
-  CHECK(!traits.inTraitBand("absent"));
+TEST_CASE("a feature below the threshold opens a new cluster", "[organize]") {
+  // kIdentityTau sits at 0.643050, the cosine equivalent of the identity
+  // model's published metric threshold: 0.7 belongs to the character, 0.6
+  // does not.
+  auto const above = organize::clusterPending(
+    std::vector<organize::ImageItem>{
+      item("a", analysis({}, {}, testutils::unitFeature(1.0))),
+      item("b", analysis({}, {}, testutils::unitFeature(0.7))),
+    },
+    {0, 1}
+  );
+  CHECK(above.size() == 1);
 
-  auto const small = organize::CorpusTraits{
-    .idf = {},
-    .df = {{"edge", 5}, {"below", 4}},
-    .corpus = 100,
-  };
-  CHECK(small.inTraitBand("edge"));
-  CHECK(!small.inTraitBand("below"));
+  auto const below = organize::clusterPending(
+    std::vector<organize::ImageItem>{
+      item("a", analysis({}, {}, testutils::unitFeature(1.0))),
+      item("b", analysis({}, {}, testutils::unitFeature(0.6))),
+    },
+    {0, 1}
+  );
+  CHECK(below.size() == 2);
+}
 
-  // Tiny corpus: the support requirement never exceeds a fifth of it.
-  auto const tiny = organize::CorpusTraits{
-    .idf = {},
-    .df = {{"only", 1}},
-    .corpus = 4,
+TEST_CASE("an item without an identity feature never joins a cluster", "[organize]") {
+  // A failed analysis (or an unavailable identity model) leaves the feature
+  // empty; the item falls through to uncategorized instead of clustering.
+  auto items = std::vector<organize::ImageItem>{
+    item("a", analysis({tag("pink_hair", 0.9)})),
+    item("b", analysis({tag("pink_hair", 0.9)}, {}, testutils::unitFeature(1.0))),
   };
-  CHECK(tiny.inTraitBand("only"));
-
-  // No corpus statistics at all (tests, single-image runs): no filtering.
-  auto const empty = organize::CorpusTraits{};
-  CHECK(empty.inTraitBand("anything"));
+  auto const clusters = organize::clusterPending(items, {0, 1});
+  REQUIRE(clusters.size() == 1);
+  CHECK(clusters[0].itemIndices == std::vector<std::size_t>{1});
 }
 
 TEST_CASE(
@@ -207,9 +159,9 @@ TEST_CASE(
   "[organize]"
 ) {
   auto items = std::vector<organize::ImageItem>{
-    item("a", analysis({tag("pink_hair", 0.9)})),
-    item("b", analysis({tag("black_hair", 0.9)})),
-    item("c", analysis({tag("pink_hair", 0.88)})),
+    item("a", analysis({tag("pink_hair", 0.9)}, {}, testutils::unitFeature(1.0))),
+    item("b", analysis({tag("pink_hair", 0.88)}, {}, testutils::unitFeature(0.99))),
+    item("c", analysis({tag("black_hair", 0.9)}, {}, testutils::unitFeature(0.0))),
   };
   auto const clusters = organize::clusterPending(items, {0, 1, 2});
   REQUIRE(clusters.size() == 2);
@@ -225,13 +177,53 @@ TEST_CASE(
   CHECK(duplicate == firstName + "_2");
 }
 
-TEST_CASE("clusterFolderName falls back to deterministic hash name", "[organize]") {
-  auto items = std::vector<organize::ImageItem>{};
-  // An analysis with no general tags at threshold -> empty vector cluster.
-  items.push_back(item("a", analysis({}, {tag("miku", 0.9)})));
+TEST_CASE("clusterFolderName ranks member tags by how many carry them", "[organize]") {
+  // A tag two members carry outranks the single most confident tag: the name
+  // describes the cluster, not its loudest image (design D5).
+  auto items = std::vector<organize::ImageItem>{
+    item(
+      "a",
+      analysis(
+        {tag("blue_eyes", 0.99), tag("pink_hair", 0.60)},
+        {},
+        testutils::unitFeature(1.0)
+      )
+    ),
+    item("b", analysis({tag("pink_hair", 0.61)}, {}, testutils::unitFeature(0.99))),
+  };
+  auto const clusters = organize::clusterPending(items, {0, 1});
+  REQUIRE(clusters.size() == 1);
+
+  auto used = std::set<std::string>{};
+  CHECK(
+    organize::clusterFolderName(clusters[0], items, used) == "unknown_pink_hair_blue_eyes"
+  );
+}
+
+TEST_CASE(
+  "a cluster with no identity tag in its members falls back to a hash name",
+  "[organize]"
+) {
+  // The identity model has no vocabulary, so naming reads the members' tags;
+  // when none of them is identity-bearing the name stays deterministic.
+  auto items = std::vector<organize::ImageItem>{
+    item(
+      "a",
+      analysis(
+        {tag("1girl", 0.9), tag("solo", 0.8)},
+        {tag("miku", 0.9)},
+        testutils::unitFeature(1.0)
+      )
+    ),
+  };
   auto const clusters = organize::clusterPending(items, {0});
-  // Empty vectors never join a cluster; nothing to name.
-  CHECK(clusters.empty());
+  REQUIRE(clusters.size() == 1);
+
+  auto first = std::set<std::string>{};
+  auto second = std::set<std::string>{};
+  auto const name = organize::clusterFolderName(clusters[0], items, first);
+  CHECK(name.starts_with("unknown_char_"));
+  CHECK(organize::clusterFolderName(clusters[0], items, second) == name);
 }
 
 TEST_CASE("buildFolderReferences skips cache misses and the cache dir", "[organize]") {
@@ -241,7 +233,7 @@ TEST_CASE("buildFolderReferences skips cache misses and the cache dir", "[organi
   cache.load();
   cache.put(
     core::sha256Hex("member-bytes"),
-    analysis({tag("pink_hair", 0.9)}, {tag("miku", 0.9)})
+    analysis({tag("pink_hair", 0.9)}, {tag("miku", 0.9)}, testutils::unitFeature(1.0))
   );
   cache.put(core::sha256Hex("empty-bytes"), organize::AnalysisResult{});
 
@@ -253,12 +245,19 @@ TEST_CASE("buildFolderReferences skips cache misses and the cache dir", "[organi
   fs::create_directories(temp.path / "organized" / ".cache");
   testutils::writeTextFile(temp.path / "organized" / ".cache" / "analysis.json", "{}");
 
-  auto const references = organize::buildFolderReferences(temp.path, cache, 0.35);
+  auto const references = organize::buildFolderReferences(temp.path, cache);
   REQUIRE(references.size() == 1);
   CHECK(references[0].name == "unknown_pink");
   CHECK(references[0].analyzableMembers == 2);
   CHECK(references[0].soleTagCounts.at("miku") == 1);
-  CHECK(references[0].vectorMembers == 1);
+  // The cached-empty member contributes no feature, so the mean is the one
+  // member that has one.
+  CHECK(references[0].featureMembers == 1);
+  REQUIRE(references[0].meanFeature.size() == 2);
+  CHECK(
+    organize::cosineSimilarity(references[0].meanFeature, testutils::unitFeature(1.0))
+    == Catch::Approx(1.0)
+  );
 }
 
 TEST_CASE("renamed character folder keeps teaching under its new name", "[organize]") {
@@ -283,7 +282,7 @@ TEST_CASE("renamed character folder keeps teaching under its new name", "[organi
     );
   }
 
-  auto const references = organize::buildFolderReferences(temp.path, cache, 0.35);
+  auto const references = organize::buildFolderReferences(temp.path, cache);
   REQUIRE(references.size() == 1);
   CHECK(references[0].name == "初音ミク");
   REQUIRE(organize::claimedTag(references[0]) == "hatsune_miku");

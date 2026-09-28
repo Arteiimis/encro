@@ -1,12 +1,12 @@
 #include "organize/cluster.h"
 
-#include "organize/assign.h"
 #include "organize/naming.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <format>
+#include <cstddef>
+#include <map>
 #include <string_view>
 #include <utility>
 
@@ -15,10 +15,9 @@ namespace organize {
 namespace {
 
 // Identity-bearing tag substrings: the visual features that make a character
-// recognizable (hair, eyes, anatomy, signature accessories). Acceptance on a
-// 1899-image illustration dump showed unrestricted general-tag vectors are
-// dominated by scene/action words and cannot tell characters apart (pairwise
-// cosine p50 0.08); identity-only vectors cluster the same corpus cleanly.
+// recognizable (hair, eyes, anatomy, signature accessories). They name
+// clusters — the identity model has no vocabulary — and are the one survivor
+// of the tag-vector appearance signal the embedding replaced.
 constexpr auto kIdentityPatterns = std::array{
   std::string_view{"hair"},     std::string_view{"eyes"},
   std::string_view{"ahoge"},    std::string_view{"bangs"},
@@ -60,6 +59,12 @@ constexpr auto kIdentityBlocklist = std::array{
   std::string_view{"holding_mask"},
 };
 
+// How often a tag names a cluster, and how sure the members were of it.
+struct TagTally {
+  std::size_t members = 0;
+  double confidenceTotal = 0.0;
+};
+
 bool isIdentityTag(std::string const& tag) {
   if (std::ranges::find(kIdentityBlocklist, tag) != kIdentityBlocklist.end()) {
     return false;
@@ -69,120 +74,42 @@ bool isIdentityTag(std::string const& tag) {
   });
 }
 
-double l2Norm(std::map<std::string, double> const& vector) {
-  auto sum = 0.0;
-  for (auto const& [_, value]: vector) { sum += value * value; }
-  return std::sqrt(sum);
-}
-
 }  // namespace
 
-double cosineSimilarity(
-  std::map<std::string, double> const& a,
-  std::map<std::string, double> const& b
-) {
-  auto const normA = l2Norm(a);
-  auto const normB = l2Norm(b);
-  if (normA == 0.0 || normB == 0.0) { return 0.0; }
+double cosineSimilarity(std::span<float const> a, std::span<float const> b) {
+  if (a.empty() || a.size() != b.size()) { return 0.0; }
   auto dot = 0.0;
-  for (auto const& [tag, value]: a) {
-    if (auto const it = b.find(tag); it != b.end()) { dot += value * it->second; }
+  auto normA = 0.0;
+  auto normB = 0.0;
+  for (auto index = std::size_t{0}; index < a.size(); ++index) {
+    auto const left = static_cast<double>(a[index]);
+    auto const right = static_cast<double>(b[index]);
+    dot += left * right;
+    normA += left * left;
+    normB += right * right;
   }
-  return dot / (normA * normB);
+  if (normA <= 0.0 || normB <= 0.0) { return 0.0; }
+  return dot / (std::sqrt(normA) * std::sqrt(normB));
 }
 
-bool CorpusTraits::inTraitBand(std::string const& tag) const {
-  // No corpus statistics (tests, single-image runs): no band filtering.
-  if (df.empty()) { return true; }
-  auto const it = df.find(tag);
-  if (it == df.end()) { return false; }
-  // Scale the minimum with the corpus (recurring-trait support ~2%), from an
-  // absolute floor so small runs keep their traits, capped at a fifth of the
-  // corpus so tiny runs keep theirs.
-  auto const minDf = std::min(
-    corpus / kTraitMinDfCorpusCapFraction,
-    std::max(kTraitMinDfFloor, corpus / kTraitMinDfCorpusFraction)
-  );
-  return it->second >= minDf
-    && static_cast<double>(it->second)
-    <= kTraitMaxDfFraction * static_cast<double>(corpus);
-}
-
-auto buildCorpusTraits(std::vector<ImageItem> const& items) -> CorpusTraits {
-  auto traits = CorpusTraits{};
-  for (auto const& item: items) {
-    if (!item.analysis.has_value()) { continue; }
-    ++traits.corpus;
-    auto seen = std::set<std::string>{};
-    for (auto const& tag: item.analysis->general) {
-      if (tag.confidence < kVectorFloor) { continue; }
-      if (
-        std::ranges::find(kSubjectCountTags, tag.tag)
-        != std::ranges::end(kSubjectCountTags)
-      ) {
-        continue;
-      }
-      seen.insert(tag.tag);
-    }
-    for (auto const& tag: seen) { traits.df[tag] += 1; }
+void accumulateFeature(
+  std::vector<float>& mean,
+  std::size_t& count,
+  std::span<float const> feature
+) {
+  auto const members = static_cast<double>(count);
+  auto const total = members + 1.0;
+  if (mean.size() != feature.size()) { mean.assign(feature.size(), 0.0F); }
+  for (auto index = std::size_t{0}; index < feature.size(); ++index) {
+    auto const accumulated = static_cast<double>(mean[index]) * members + feature[index];
+    mean[index] = static_cast<float>(accumulated / total);
   }
-  for (auto const& [tag, frequency]: traits.df) {
-    traits.idf[tag] =
-      std::log(static_cast<double>(traits.corpus) / static_cast<double>(frequency));
-  }
-  return traits;
-}
-
-auto appearanceVector(AnalysisResult const& analysis, CorpusTraits const& traits)
-  -> std::map<std::string, double> {
-  auto weighted = std::vector<TagScore>{};
-  weighted.reserve(analysis.general.size());
-  for (auto const& tag: analysis.general) {
-    if (tag.confidence < kVectorFloor) { continue; }
-    // Count tags route multi-subject images; they are not appearance.
-    if (
-      std::ranges::find(kSubjectCountTags, tag.tag) != std::ranges::end(kSubjectCountTags)
-    ) {
-      continue;
-    }
-    // Outside the trait band: collection constants and one-off scene noise
-    // are equally useless for telling characters apart.
-    if (!traits.inTraitBand(tag.tag)) { continue; }
-    // Scene and action words describe the picture, not the person.
-    if (!isIdentityTag(tag.tag)) { continue; }
-    auto const weight =
-      tag.confidence * (traits.idf.contains(tag.tag) ? traits.idf.at(tag.tag) : 1.0);
-    weighted.push_back(TagScore{.tag = tag.tag, .confidence = weight});
-  }
-  std::sort(weighted.begin(), weighted.end(), [](TagScore const& a, TagScore const& b) {
-    if (a.confidence != b.confidence) { return a.confidence > b.confidence; }
-    return a.tag < b.tag;
-  });
-
-  auto vector = std::map<std::string, double>{};
-  for (auto const& tag: weighted) {
-    if (vector.size() >= kTopKTags) { break; }
-    vector[tag.tag] = tag.confidence;
-  }
-  return vector;
-}
-
-auto normalizedAppearanceVector(
-  AnalysisResult const& analysis,
-  CorpusTraits const& traits
-) -> std::map<std::string, double> {
-  auto vector = appearanceVector(analysis, traits);
-  auto const norm = l2Norm(vector);
-  if (norm > 0.0) {
-    for (auto& [_, value]: vector) { value /= norm; }
-  }
-  return vector;
+  count += 1;
 }
 
 auto clusterPending(
   std::vector<ImageItem> const& items,
-  std::vector<std::size_t> const& pending,
-  CorpusTraits const& traits
+  std::vector<std::size_t> const& pending
 ) -> std::vector<Cluster> {
   // Deterministic order: content-hash sorted indices.
   auto ordered = pending;
@@ -193,29 +120,26 @@ auto clusterPending(
   auto clusters = std::vector<Cluster>{};
   for (auto const index: ordered) {
     auto const& analysis = items[index].analysis;
-    if (!analysis.has_value()) { continue; }
-    auto const normalized = normalizedAppearanceVector(*analysis, traits);
-    if (normalized.empty()) { continue; }
+    if (!analysis.has_value() || analysis->identity.empty()) { continue; }
+    auto const& feature = analysis->identity;
 
+    // The best centroid at or above the threshold (kIdentityTau says which
+    // one wins a tie).
     auto bestCluster = static_cast<Cluster*>(nullptr);
-    auto bestScore = 0.0;
+    auto bestScore = kIdentityTau;
     for (auto& cluster: clusters) {
-      auto const score = cosineSimilarity(normalized, cluster.centroid);
-      if (score >= kClusterTau && score > bestScore) {
-        bestCluster = &cluster;
-        bestScore = score;
-      }
+      if (cluster.centroid.size() != feature.size()) { continue; }
+      auto const score = cosineSimilarity(feature, cluster.centroid);
+      if (score < kIdentityTau) { continue; }
+      if (bestCluster != nullptr && score <= bestScore) { continue; }
+      bestCluster = &cluster;
+      bestScore = score;
     }
 
     auto& target = bestCluster != nullptr ? *bestCluster : clusters.emplace_back();
+    auto members = target.itemIndices.size();
+    accumulateFeature(target.centroid, members, feature);
     target.itemIndices.push_back(index);
-
-    // Running mean: n members before this one.
-    auto const previous = static_cast<double>(target.itemIndices.size() - 1);
-    for (auto& [_, value]: target.centroid) { value *= previous; }
-    for (auto const& [tag, value]: normalized) { target.centroid[tag] += value; }
-    auto const total = static_cast<double>(target.itemIndices.size());
-    for (auto& [_, value]: target.centroid) { value /= total; }
   }
   return clusters;
 }
@@ -225,12 +149,31 @@ auto clusterFolderName(
   std::vector<ImageItem> const& items,
   std::set<std::string>& used
 ) -> std::string {
-  auto ranked = std::vector<std::pair<std::string, double>>{
-    cluster.centroid.begin(),
-    cluster.centroid.end()
-  };
+  // Rank by how many members carry the tag: a cluster is described by what its
+  // members share, not by the single loudest image (design D5).
+  auto tally = std::map<std::string, TagTally>{};
+  for (auto const index: cluster.itemIndices) {
+    auto const& analysis = items[index].analysis;
+    if (!analysis.has_value()) { continue; }
+    for (auto const& tag: analysis->tags.general) {
+      if (tag.confidence < kNamingConfidenceFloor || !isIdentityTag(tag.tag)) {
+        continue;
+      }
+      auto& entry = tally[tag.tag];
+      entry.members += 1;
+      entry.confidenceTotal += tag.confidence;
+    }
+  }
+
+  auto ranked = std::vector<std::pair<std::string, TagTally>>{tally.begin(), tally.end()};
   std::sort(ranked.begin(), ranked.end(), [](auto const& a, auto const& b) {
-    if (a.second != b.second) { return a.second > b.second; }
+    if (a.second.members != b.second.members) {
+      return a.second.members > b.second.members;
+    }
+    // Equal member counts share the divisor, so the sums order the means.
+    if (a.second.confidenceTotal != b.second.confidenceTotal) {
+      return a.second.confidenceTotal > b.second.confidenceTotal;
+    }
     return a.first < b.first;
   });
 
@@ -242,7 +185,7 @@ auto clusterFolderName(
   }
   auto sanitized = sanitizeCharacterName(joined);
   if (sanitized.empty()) {
-    // Indistinguishable vectors: deterministic content fallback.
+    // No member carries an identity tag: deterministic content fallback.
     auto seed = std::string{};
     for (auto const index: cluster.itemIndices) {
       seed += items[index].contentHash + "|";
