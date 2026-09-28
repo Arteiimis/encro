@@ -36,8 +36,7 @@ Copy semantics: destination name = requested basename + `.exe` suffix on Windows
 
 Move from `preview_process_tests.cpp` into `testutils::` namespace:
 - `ScopedEnvVar(name, value)` - portable body: `_putenv_s` on Windows, `setenv`/`unsetenv` (with prior-value capture) elsewhere; restore-on-destruct already correct.
-- `copyFakeTool(dir, name) -> fs::path` - platform-suffix aware wrapper around `FAKE_TOOL_EXE_PATH` copy; hard fail if the define is missing so misconfiguration surfaces loudly, not silently.
-Delete both per-file private versions. Files consumed patterns diverge slightly (vector-of-unique-ptr lifetime management) - standardize on storing `ScopedEnvVar` values directly in the case scope (destruction order = reverse declaration order is sufficient).
+- `copyFakeTool(dir, name) -> fs::path` - platform-suffix aware wrapper around `FAKE_TOOL_EXE_PATH` copy; hard fail if the define is missing so misconfiguration surfaces loudly, not silently. Delete both per-file private versions. Files consumed patterns diverge slightly (vector-of-unique-ptr lifetime management) - standardize on storing `ScopedEnvVar` values directly in the case scope (destruction order = reverse declaration order is sufficient).
 
 ### D3: Fake-tool extensions stay environment-driven, scoped to four known gaps
 

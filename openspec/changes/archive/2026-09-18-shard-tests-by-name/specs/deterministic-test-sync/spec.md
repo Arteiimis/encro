@@ -2,21 +2,7 @@
 
 ### Requirement: Shards partition the suite by an explicit case list
 
-The parallel test task SHALL enumerate the suite's test cases itself and assign each
-enumerated case to exactly one shard, passing that assignment to the runner as an
-explicit list of case names. It SHALL NOT rely on the runner's own shard selection
-over a randomised execution order. The assignment SHALL be a deterministic function of
-the enumerated case list and the recorded per-case cost, and the task SHALL write the
-spec files it used for the run to disk. Enumeration SHALL read a machine-readable
-listing
-rather than the human-readable one, and case names SHALL be passed in the spec form
-the runner accepts, with the characters that syntax reserves escaped. Before spawning
-any shard the task SHALL validate the enumeration, the escaping, the scan for reserved
-characters and the assignment, failing with the offending count or name instead of
-starting a run it cannot account for. After the run, each shard's executed case count
-SHALL match the count assigned to it, and the task SHALL fail naming the shard when it
-does not. A shard whose assignment would be empty SHALL NOT be started; the task SHALL
-fail with guidance to lower the shard count.
+The parallel test task SHALL enumerate the suite's test cases itself and assign each enumerated case to exactly one shard, passing that assignment to the runner as an explicit list of case names. It SHALL NOT rely on the runner's own shard selection over a randomised execution order. The assignment SHALL be a deterministic function of the enumerated case list and the recorded per-case cost, and the task SHALL write the spec files it used for the run to disk. Enumeration SHALL read a machine-readable listing rather than the human-readable one, and case names SHALL be passed in the spec form the runner accepts, with the characters that syntax reserves escaped. Before spawning any shard the task SHALL validate the enumeration, the escaping, the scan for reserved characters and the assignment, failing with the offending count or name instead of starting a run it cannot account for. After the run, each shard's executed case count SHALL match the count assigned to it, and the task SHALL fail naming the shard when it does not. A shard whose assignment would be empty SHALL NOT be started; the task SHALL fail with guidance to lower the shard count.
 
 #### Scenario: Every case runs in exactly one shard
 
@@ -54,12 +40,7 @@ fail with guidance to lower the shard count.
 
 ### Requirement: Shard assignment follows measured case cost
 
-The parallel task SHALL assign cases to shards using measured per-case cost, so that
-no shard carries a disproportionate share of the suite's work, and it SHALL report the
-resulting distribution per suite. Per-case cost SHALL be derived from the durations
-the runs already record, SHALL be reused across runs, and SHALL have a defined
-fallback for cases it does not know yet, so a first run on a fresh checkout still
-partitions the suite correctly.
+The parallel task SHALL assign cases to shards using measured per-case cost, so that no shard carries a disproportionate share of the suite's work, and it SHALL report the resulting distribution per suite. Per-case cost SHALL be derived from the durations the runs already record, SHALL be reused across runs, and SHALL have a defined fallback for cases it does not know yet, so a first run on a fresh checkout still partitions the suite correctly.
 
 #### Scenario: Cost-heavy cases are spread across shards
 
@@ -81,12 +62,7 @@ partitions the suite correctly.
 
 ### Requirement: Reported totals are the sum of what ran
 
-The task SHALL report, per suite, an aggregate assert count equal to the sum of that
-suite's shards' own console totals, together with the enumerated and executed case
-counts. Its coverage check SHALL treat a shard that produced no readable console summary
-as failed, in addition to whatever that shard's report says, and the task SHALL NOT print
-an aggregate for such a suite. For a suite whose cases assert deterministic counts, the
-aggregate SHALL equal the count a single-process run of that suite prints.
+The task SHALL report, per suite, an aggregate assert count equal to the sum of that suite's shards' own console totals, together with the enumerated and executed case counts. Its coverage check SHALL treat a shard that produced no readable console summary as failed, in addition to whatever that shard's report says, and the task SHALL NOT print an aggregate for such a suite. For a suite whose cases assert deterministic counts, the aggregate SHALL equal the count a single-process run of that suite prints.
 
 #### Scenario: All shards pass
 

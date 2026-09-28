@@ -78,18 +78,7 @@ This is the decision that keeps the abstraction from becoming a god-function, so
 
 The runner iterates the item vector in **input order and never sorts**. A flow whose *output* order is part of a persisted artifact or of the printed output sorts explicitly at its own boundary. Video is the case that matters: its failure list and its archive member order come from a path-sorted map today, and `migrate-video-to-media-items` carries that contract. The one order the runner does impose is on the failure list it hands to `printFailures`, which stays in path order because that is what the flows' `std::map<fs::path, string>` failure maps produced.
 
-**Three refinements the migration forced, each to keep output byte-identical.**
-The bar is created by the *flow*, not by the runner: picture's conversion phase
-paints a live status line (`"Converting videos: 3/12 [encoding]"`) into the same
-bar from inside its per-item work, so the flow needs the handle *before* the run
-starts, and only `addBar` can give it. The flow also keeps the closing text and
-`eraseBars`, because `setPostfixText` renders (`progress.cpp:365`) and the
-existing order is closing text and then erase - a runner that erased its own bar
-would swallow that frame. And the failure *print* is a helper
-(`mediaitem::printFailures`) rather than part of `runStage`: the two picture
-flows print at different points (conversion before its closing text, compress
-after its sequential retry pass) and moving either would change the
-interleaving, while `printFailures` still single-sources the format string.
+**Three refinements the migration forced, each to keep output byte-identical.** The bar is created by the *flow*, not by the runner: picture's conversion phase paints a live status line (`"Converting videos: 3/12 [encoding]"`) into the same bar from inside its per-item work, so the flow needs the handle *before* the run starts, and only `addBar` can give it. The flow also keeps the closing text and `eraseBars`, because `setPostfixText` renders (`progress.cpp:365`) and the existing order is closing text and then erase - a runner that erased its own bar would swallow that frame. And the failure *print* is a helper (`mediaitem::printFailures`) rather than part of `runStage`: the two picture flows print at different points (conversion before its closing text, compress after its sequential retry pass) and moving either would change the interleaving, while `printFailures` still single-sources the format string.
 
 If a stage needs a new callback beyond `alreadyDone` / `runOne` / the `StageSpec` text fields, it is not uniform and that stage stays out of the runner. Recorded so the next stage does not quietly add a sixth parameter.
 
@@ -99,14 +88,7 @@ If a stage needs a new callback beyond `alreadyDone` / `runOne` / the `StageSpec
 
 Thread-safety: the callback runs on worker threads. It is invoked outside the outcome write and must be cheap. `runStage`'s callback only touches the bar through `ProgressContext`, which is already mutex-guarded (`progress.h:141-167`), so no new lock is introduced. `done` is passed rather than left to the callback to increment, so the executor's atomic stays the single counter.
 
-`done` counts tasks that have **finished**, so the executor increments that counter
-after the outcome write instead of on entry to the task. A count of started tasks
-would report the total before anything finished and make a caller's rate
-(`done / elapsed`) wrong from the first completion, which organize's four workers
-hit immediately. Nothing reads the counter before the pool drains, so its final
-value - and therefore `TaskRunResult::attemptedCount` and `skippedCount()` - is
-unchanged; a concurrent case in `tests/task_executor_tests.cpp` pins exactly that,
-because a sequential one cannot tell the two semantics apart.
+`done` counts tasks that have **finished**, so the executor increments that counter after the outcome write instead of on entry to the task. A count of started tasks would report the total before anything finished and make a caller's rate (`done / elapsed`) wrong from the first completion, which organize's four workers hit immediately. Nothing reads the counter before the pool drains, so its final value - and therefore `TaskRunResult::attemptedCount` and `skippedCount()` - is unchanged; a concurrent case in `tests/task_executor_tests.cpp` pins exactly that, because a sequential one cannot tell the two semantics apart.
 
 **The hook must not throw.** The worker loop routes every task through `runOneTask`'s try/catch (`task_executor.cpp:103`), but a hook invoked after the outcome write runs bare on a pool thread, and an exception escaping it terminates the process. It is therefore invoked inside a `try`/`catch (...)` that logs and swallows: the task's outcome is already recorded, and a failing progress callback must not lose it. That invocation lives in a free function (`notifyTaskFinished`) rather than inline in the worker loop, because the log fallback's `__FUNCTION__` expands to the enclosing lambda's name and the loop's cognitive complexity otherwise crosses clang-tidy's threshold.
 
@@ -206,10 +188,7 @@ struct StageSpec {
 };
 ```
 
-An earlier draft gave `StageSpec` a `prompt` field for the runner's own `addBar`
-call. The migration dropped it: the flow has to call `addBar` itself (see D2, the
-live-status case) with exactly the string it uses today, so a `prompt` field would
-be the same text in two places.
+An earlier draft gave `StageSpec` a `prompt` field for the runner's own `addBar` call. The migration dropped it: the flow has to call `addBar` itself (see D2, the live-status case) with exactly the string it uses today, so a `prompt` field would be the same text in two places.
 
 With no `postfix` the runner formats `"{verb}: {done}/{total}"` (+ unit); with one it calls it, and the text the flow seeded the bar with is gone from that point on — exactly today's behaviour. Organize seeds the bar with `addBar("Analyzing")` and supplies a `postfix` returning `"{done}/{total} - {rate:.0f} img/s"`.
 
@@ -248,13 +227,7 @@ The bar-text contract needed one accessor to become observable at all: `Progress
 6. Organize's analysis phase migrates; `ImageItem` gains `id()`/`label()`/`source()`/`outcome()`; the inline counting block is deleted.
 7. Full unit suite, e2e, `test-parallel`, `fmt`, `tidy`.
 
-Landed as two commits rather than one, per `AGENTS.md`'s "batch large working
-trees by functional area": the completion hook and the runner first (`db2ffb1`,
-additive, no caller migrated), then the two flow migrations (`efc451a`). The
-planning artifacts were committed before either, as their own `docs:` commit,
-and this design was reconciled with what shipped afterwards, because the
-migration is what revealed the three refinements in D2 and the measured cost in
-Risks.
+Landed as two commits rather than one, per `AGENTS.md`'s "batch large working trees by functional area": the completion hook and the runner first (`db2ffb1`, additive, no caller migrated), then the two flow migrations (`efc451a`). The planning artifacts were committed before either, as their own `docs:` commit, and this design was reconciled with what shipped afterwards, because the migration is what revealed the three refinements in D2 and the measured cost in Risks.
 
 Rollback: steps 1-2 are additive; 3-6 are independent per flow and revertable.
 
