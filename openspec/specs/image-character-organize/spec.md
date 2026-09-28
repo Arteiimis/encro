@@ -51,6 +51,7 @@ The directory SHALL be optional when `--download-models` is given: in that form 
 
 - **WHEN** `encro organize -h` runs
 - **THEN** the usage line shows the directory as optional and the `--download-models` help states that the models are fetched and the run stops there when no directory is given
+
 ### Requirement: Local-only analysis
 
 All classification decisions SHALL be computed on the local machine by model files resolved from the model directory. The pipeline SHALL make no network requests while classifying, except the explicit model download triggered by `--download-models`.
@@ -59,6 +60,7 @@ All classification decisions SHALL be computed on the local machine by model fil
 
 - **WHEN** `encro organize <dir>` runs with models already present and machine network access is blocked
 - **THEN** the run completes successfully with identical results to an unblocked run
+
 ### Requirement: Known-character assignment
 
 For every image, the analyzer SHALL produce character-tag candidates with confidence values. Character confidence is tiered: a candidate is confident at or above the character confidence threshold (a design constant, default 0.60 — character heads emit ~0.5 confidence for every unused identity so the threshold must sit above `--min-confidence`, and AI-generated art sits off the training distribution which further depresses confidence), and weak-but-identity-bearing above 0.5 (the zero-evidence floor: a zero logit). An image with exactly one confident candidate SHALL be assigned to a folder named after that tag; when no confident candidate exists but exactly one weak candidate does, the image SHALL be assigned to that tag's folder as well (a second, uncharacterized subject does not make the image ownerless). Folder names are sanitized to `[a-z0-9_]` with deterministic collision suffixes. An image with two or more confident character tags SHALL be treated as multi-subject.
@@ -77,6 +79,7 @@ For every image, the analyzer SHALL produce character-tag candidates with confid
 
 - **WHEN** an image has two character tags scoring at or above the threshold
 - **THEN** the image is treated as multi-subject for assignment purposes
+
 ### Requirement: Appearance clustering for unassigned images
 
 Routing follows a fixed order: assignment by exactly one at-or-above-threshold character tag first, then multi-subject routing to `mixed/`, then clustering of the single-subject remainder. Single-subject images with no character tag at or above the threshold SHALL be clustered by their identity feature: the fixed-width numeric embedding the identity model produces for the image, normalized to unit length before use, so that similarity is a pure cosine and an image's stored magnitude never influences a cluster's shape.
@@ -104,6 +107,7 @@ Clusters SHALL be named `unknown_<top-appearance-tags>`, sanitized and length-ca
 
 - **WHEN** two distinct clusters reduce to the same descriptive name
 - **THEN** deterministic numeric suffixes keep the folders distinct
+
 ### Requirement: Multi-subject fallback
 
 An image is multi-subject when it has two or more confident character tags, two or more weak competing character candidates with no confident candidate, or a subject-count tag (a fixed vocabulary of general tags such as `2girls`) asserted at or above the strong count threshold with no character candidate above the zero-evidence floor. A multi-subject image with exactly one confident character tag SHALL be assigned to that character's folder; every other multi-subject image SHALL be copied into `mixed/`.
@@ -122,6 +126,7 @@ An image is multi-subject when it has two or more confident character tags, two 
 
 - **WHEN** a multi-subject image has exactly one confident character tag
 - **THEN** the image is assigned to that character's folder
+
 ### Requirement: Teaching by renamed folders
 
 At the start of every run, existing folders under the output root (including folders the user renamed, in any character set) SHALL be consulted as naming references: a new cluster whose identity-feature centroid matches a reference folder's mean identity feature at or above the identity similarity threshold SHALL be filed into that folder's name instead of receiving an `unknown_` name. A reference folder's mean feature is the mean of its analyzable members' normalized features, read from cached analysis. Additionally, character-tag assignment SHALL respect folder ownership: when a reference folder's contents identify with a character tag (that tag being carried as the sole at-or-above-threshold character tag by a majority of the folder's analyzable members), images assigned that character tag SHALL be filed into the owning folder's current name instead of the sanitized tag name; when several folders claim the same tag, the folder with the most tagged members wins. Folders containing no analyzable member files SHALL be skipped as references, and a folder whose members hold no cached identity feature SHALL be skipped as a folder-match reference — its tags may still own a character tag. encro SHALL never rename, delete, or reorganize existing output folders. User-renamed folders SHALL take precedence over both `unknown_` naming and raw tag-derived names.
@@ -145,6 +150,7 @@ At the start of every run, existing folders under the output root (including fol
 
 - **WHEN** a run completes with reference folders present
 - **THEN** every pre-existing folder still exists under its original name and its previous contents are unchanged
+
 ### Requirement: Output semantics
 
 The run SHALL copy (never move) each scanned image into exactly one folder under `<directory>/organized/`; originals SHALL be untouched. A copy target that already exists with identical content (matching content hash) SHALL be skipped silently. Name collisions with different content SHALL receive deterministic numeric suffixes. An image whose analysis fails SHALL be copied into `uncategorized/` so every scanned image lands in exactly one folder.
@@ -163,9 +169,10 @@ The run SHALL copy (never move) each scanned image into exactly one folder under
 
 - **WHEN** analysis of an image fails (for example an undecodable file)
 - **THEN** the run continues and that image is copied into `uncategorized/`
+
 ### Requirement: Cache and resume
 
-Analysis results SHALL be cached keyed by SHA-256 of file content under `<directory>/organized/.cache/`, and SHALL hold everything a later run needs to skip re-analysis: the identity feature and the tag pairs. Re-runs SHALL skip analysis for unchanged images (renames and moves still hit the cache). The cache SHALL be persisted in bounded batches (not one rewrite per image) and flushed at the analysis stage boundary and on interruption, so an interrupted run (including Ctrl-C) resumes without redoing completed analysis beyond the in-flight batch. Stored tag pairs SHALL be limited to each category's consuming threshold (general at or above the naming floor, character at or above the weakest routing threshold) so identity noise cannot dominate the store. A cache written by a different cache format version SHALL be treated as empty, so an upgrade re-analyzes every image once instead of reading entries that lack the identity feature. `--recluster` SHALL discard cached analysis before running. Cached rating tags SHALL never influence folder assignment.
+Analysis results SHALL be cached keyed by SHA-256 of file content under `<directory>/organized/.cache/`, and SHALL hold everything a later run needs to skip re-analysis: the identity feature and the tag pairs. Re-runs SHALL skip analysis for unchanged images (renames and moves still hit the cache). The cache SHALL be persisted in bounded batches (not one rewrite per image) and flushed at the analysis stage boundary and on interruption, so an interrupted run (including Ctrl-C) resumes without redoing completed analysis beyond the in-flight batch. Stored tag pairs SHALL be limited to each category's consuming threshold (general at or above the naming floor, character at or above the weakest routing threshold) so identity noise cannot dominate the store. A cache written by a different cache format version SHALL be treated as empty, so an upgrade re-analyzes every image once instead of reading entries that lack the identity feature. The format version SHALL be raised whenever the stored analysis changes meaning, not only when the entry shape changes: a model replacement or a change in how the model input is prepared makes every stored feature and tag pair stale, and a cache that mixed entries from two preparations would compare values that are not comparable. `--recluster` SHALL discard cached analysis before running. Cached rating tags SHALL never influence folder assignment.
 
 #### Scenario: Re-run does not re-analyze
 
@@ -181,6 +188,12 @@ Analysis results SHALL be cached keyed by SHA-256 of file content under `<direct
 
 - **WHEN** a cache written by an earlier cache format version is present at the start of a run
 - **THEN** the run analyzes every image again, and the file is rewritten as the new entries are stored
+
+#### Scenario: A change in how the model input is prepared invalidates stored features
+
+- **WHEN** a release changes the preparation of the model input, and a cache written by the previous release is present at the start of a run
+- **THEN** the run analyzes every image again instead of reading features computed from the previous preparation
+
 ### Requirement: Model and runtime file management
 
 Model files SHALL resolve from `--model-dir` (default `~/.encro/models`; persistable via config). The command SHALL require two models — the tagger that produces the tags and the identity model that produces the identity feature — and every model file SHALL be pinned by size and checksum in the one file list the download and presence checks share, so a new model cannot be added to one path only. When required model files are missing, the run SHALL fail fast with a message that names every missing file and offers `--download-models` and the manual-download alternative. `--download-models` SHALL download missing model files from the primary Hugging Face URL, falling back to the `hf-mirror.com` mirror per-file on failure, honoring an `HF_ENDPOINT` override, and SHALL verify each downloaded file against a pinned checksum before accepting it. When an NVIDIA driver is present and the cuDNN runtime DLLs are missing, `--download-models` SHALL also install the pinned cuDNN archive (downloaded from NVIDIA's public CDN, checksum-verified) by extracting its DLLs into encro's lib directory; on machines without an NVIDIA driver it SHALL skip that download. No download SHALL ever happen without `--download-models`.
@@ -219,6 +232,21 @@ Model files SHALL resolve from `--model-dir` (default `~/.encro/models`; persist
 
 - **WHEN** `--download-models` runs on a machine without an NVIDIA driver
 - **THEN** no cuDNN archive is downloaded and the run proceeds on the CPU provider
+
+### Requirement: Identity model input preparation
+
+The identity feature SHALL be computed from input prepared exactly the way the identity model's reference implementation prepares it: the image resampled to the model's input edge with the reference implementation's resampling filter (aspect ratio not preserved), pixel values scaled to the 0..1 range, and then normalized per channel with the model's documented channel mean and standard deviation, delivered in the model's documented tensor layout. No preparation step SHALL alter those pixels in any other way — no further scaling, colour transform, masking or padding — but the decode and the resampling are the platform's own, so agreement with a reference extraction is bounded by the two implementations' last-bit differences rather than being bit-exact. The feature SHALL remain stored as a unit-length vector. The input contract that belongs to the pinned model file (edge size, resampling filter, scaling, normalization, layout) SHALL be stated next to that pin, so that replacing the model file requires restating its contract instead of inheriting the previous model's preparation.
+
+#### Scenario: Input matches the model's reference preprocessing
+
+- **WHEN** a frame with known pixel values passes through the identity input preparation
+- **THEN** the frame is resampled to the model's input edge with the reference resampling filter, each channel is scaled to 0..1 and then normalized with that channel's documented mean and standard deviation, and the values reach the model in the documented layout
+
+#### Scenario: The input contract is recorded beside the model pin
+
+- **WHEN** the pinned identity model file and the input contract recorded with it are read together
+- **THEN** the record names the input edge, the resampling filter, the pixel scaling, the per-channel normalization and the tensor layout the conversion implements, so a replacement cannot inherit them silently
+
 ### Requirement: Execution provider selection
 
 The analyzer SHALL attempt the CUDA execution provider first and fall back to the CPU provider when CUDA initialization fails, printing exactly one notice line naming the active provider. Provider selection SHALL never fail a run by itself.
@@ -232,6 +260,7 @@ The analyzer SHALL attempt the CUDA execution provider first and fall back to th
 
 - **WHEN** a run starts
 - **THEN** exactly one line names the execution provider in use
+
 ### Requirement: Progress and report
 
 During analysis the command SHALL show a progress bar with completion count, image rate, and ETA on a TTY; no progress bar SHALL be rendered when stdout is not a terminal. After execution the command SHALL print a report: per-folder counts, each folder's assignment source (character tag, folder match, new cluster, `mixed/`, `uncategorized/`), and run totals.
@@ -245,6 +274,7 @@ During analysis the command SHALL show a progress bar with completion count, ima
 
 - **WHEN** a run completes with folders from character tags, folder matches, and new clusters
 - **THEN** the report lists each folder with its image count and assignment source
+
 ### Requirement: Copy failures are named in the report
 
 The end-of-run report SHALL list every image whose copy failed, naming the source path and the destination path, after the run totals and in the report's indented detail-line style. The run SHALL report what was actually copied in its totals, and a failed copy SHALL NOT change the run's exit code: the exit code SHALL be the one the run would end with otherwise (0 for a completed run), and a re-run SHALL retry exactly the copies that are missing.
@@ -254,6 +284,7 @@ The end-of-run report SHALL list every image whose copy failed, naming the sourc
 - **WHEN** a run completes with an image whose copy failed (for example the destination tree cannot be written)
 - **THEN** the report lists that image's source and destination after the totals line
 - **AND** the run exits with the exit code it would otherwise have (0)
+
 ### Requirement: Dry run
 
 `--dry-run` SHALL run the full analysis and print the assignment plan (the report) without copying anything and without creating output folders beyond the cache.
