@@ -46,7 +46,7 @@ Every configurable option SHALL take its effective value from the first source t
 
 ### Requirement: Configurable key set
 
-The config SHALL accept exactly these keys, named after the CLI long options: `color`, `output-format`, `force-conflict-handling`, `jobs`, `ffmpeg-path`, `image-quality`, `crf`, `min-vmaf`, `preset`, `video-codec`, `yes`, `pack`, `keep`, `compress`, `recursive`, `folder-summary`, `model-dir`. `encro config set` SHALL reject unknown keys and SHALL reject values that violate the option's rule (legal members or numeric range), exiting non-zero with an error naming the key and its legal values. Unknown keys found in a hand-edited config file SHALL be ignored, with a warning naming the key. The `model-dir` key SHALL accept any non-empty path string (the directory need not exist at set time); its built-in default is `~/.encro/models`.
+The config SHALL accept exactly these keys, named after the CLI long options: `color`, `output-format`, `force-conflict-handling`, `jobs`, `ffmpeg-path`, `image-quality`, `crf`, `min-vmaf`, `preset`, `video-codec`, `yes`, `pack`, `keep`, `compress`, `recursive`, `folder-summary`, `model-dir`, `identity-tau`. `encro config set` SHALL reject unknown keys and SHALL reject values that violate the option's rule (legal members or numeric range), exiting non-zero with an error naming the key and its legal values. Unknown keys found in a hand-edited config file SHALL be ignored, with a warning naming the key. The `model-dir` key SHALL accept any non-empty path string (the directory need not exist at set time); its built-in default is `~/.encro/models`. The `identity-tau` key SHALL accept a number greater than 0 and at most 1 — the organize subcommand's identity similarity threshold — and its built-in default is the calibrated combined-score default.
 
 #### Scenario: Unknown key rejected on set
 
@@ -77,6 +77,16 @@ The config SHALL accept exactly these keys, named after the CLI long options: `c
 
 - **WHEN** the config file contains `model-dir` and `encro organize` runs without `--model-dir`
 - **THEN** the config value is used, and an explicit `--model-dir` overrides it
+
+#### Scenario: identity-tau set and get round-trips
+
+- **WHEN** the user runs `encro config set identity-tau 0.72` followed by `encro config get identity-tau`
+- **THEN** `0.72` is reported from config, and a later `encro organize <dir>` without `--identity-tau` decides at 0.72
+
+#### Scenario: identity-tau rejects a value outside its range
+
+- **WHEN** the user runs `encro config set identity-tau 1.5`
+- **THEN** the command exits non-zero with an error naming `identity-tau` and its legal range, and the config file is unchanged
 ### Requirement: Malformed config file handling
 
 A config file that exists but cannot be parsed as JSON SHALL cause the run or config action to fail with an error naming the file and the parse problem, exiting non-zero; the file SHALL NOT be overwritten or silently ignored. The `path` action SHALL report the resolved location without reading the file content.
