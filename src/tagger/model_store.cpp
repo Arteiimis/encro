@@ -95,7 +95,10 @@ auto modelFiles() -> std::vector<RemoteFile> {
      .size = 308468,
      .sha256 = "298633d94d0031d2081c0893f29c82eab7f0df00b08483ba8f29d1e979441217"},
     // The identity model's similarity metric is a fixed function of the
-    // cosine, so this feature extractor is the whole model (design D3).
+    // cosine, so this feature extractor is the whole model (design D3). Its
+    // input contract: 384x384 stretched with the reference's bilinear
+    // resampling filter (preprocess.cpp), rgb24 as planar NCHW floats scaled to
+    // 0..1 and normalized per channel (mapping.cpp).
     {.logical = "ccip-caformer-24-randaug-pruned/model_feat.onnx",
      .urlPath = std::string{identityPrefix} + "/model_feat.onnx",
      .size = 150248245,
