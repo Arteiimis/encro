@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.0-alpha.3] - 2026-09-28
+
+### Added
+
+- `encro organize` groups a folder of artwork into per-character folders using a local model; image content never leaves the machine.
+- `organize --download-models` fetches the model files, and can fetch them without running a grouping pass.
+- Shell completion for PowerShell and bash, with `encro completion --install` / `--uninstall` managing the startup wiring.
+- `encro config` reads and writes user-level defaults, persisted to `config.json`, so options that never change stop being retyped.
+- Failed runs state why they failed instead of only that they did, and the log hint prints on failure rather than on every run.
+- Packing can be cancelled inside the archive write, and the partial archive is removed rather than left behind.
+- `organize` reports copy failures per file instead of stopping silently.
+
+### Changed
+
+- **Breaking:** a cancelled run now exits with code 130 instead of 1, so a cancellation is distinguishable from a failure.
+- **Breaking:** `--download-models` now also needs the identity-embedding model; the total model download grows to roughly 530 MB and help output names both models.
+- Progress reporting was unified: bars scroll their labels consistently, compact mode reports probe progress, and pipeline output is less noisy during long runs.
+- Help layout follows git's convention, `-h` lists the common flags first, and the colour palette was simplified.
+- Media extensions are matched case-insensitively, so `.JPG` and `.jpg` are treated alike.
+- Segmented encoding runs in a single pass, and verbose levels were reworked so `-v` means one thing at every depth.
+
+### Fixed
+
+- Crash handling is safe against the loader lock and reports more of the state that led to the crash.
+- `--help` colours no longer flash before settling.
+- The pack finalizing indicator no longer jumps between archives or lingers after completion.
+- Video info parsing tolerates malformed ffprobe output instead of aborting the run.
+
 ## [2.0.0-alpha.2] - 2026-08-19
 
 ### Added
@@ -174,7 +202,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.2...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.3...HEAD
+[2.0.0-alpha.3]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.2...v2.0.0-alpha.3
 [2.0.0-alpha.2]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.1...v2.0.0-alpha.2
 [2.0.0-alpha.1]: https://github.com/Arteiimis/encro/compare/v1.7.0...v2.0.0-alpha.1
 [1.7.0]: https://github.com/Arteiimis/encro/compare/v1.6.0...v1.7.0

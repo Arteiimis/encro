@@ -62,7 +62,7 @@ Co-cluster recall over same-folder pairs (named folders only; the mixed root is 
 ## 6. Planning-artifact review (before implementation)
 
 - [x] 6.1 Run the planning-artifact stage of the `code-review` skill (one fresh reviewer, Coherence then Ground truth, findings quoting both sides) against proposal, delta specs, design and tasks; record every finding and its verdict (`resolved (<commit>)` / `rejected: <reason>`) here before the implementation commit.
-- [ ] 6.2 Commit the planning artifacts (proposal, delta spec, design, this file with the review record) as their own `docs:` commit before any implementation, and verify the working tree is clean apart from the implementation.
+- [x] 6.2 Commit the planning artifacts (proposal, delta spec, design, this file with the review record) as their own `docs:` commit before any implementation, and verify the working tree is clean apart from the implementation. (4aa1bf5 `docs: plan the identity-embedding grouping change`; the implementation followed in eeaaf3a.)
 
 ### Planning-artifact review findings (task 6.1)
 
@@ -117,4 +117,4 @@ Three fresh reviewers ran the code-diff stage in parallel over `git diff c66525c
 
 ## 8. Archive
 
-- [ ] 8.1 Archive the change with the spec sync and verify `openspec/specs/image-character-organize/spec.md` carries the new clustering, teaching, cache and model-requirement text and that the change sits under `openspec/changes/archive/`.
+- [x] 8.1 Archive the change with the spec sync and verify `openspec/specs/image-character-organize/spec.md` carries the new clustering, teaching, cache and model-requirement text and that the change sits under `openspec/changes/archive/`. (Sync applied 4 MODIFIED requirements -- clustering, teaching, cache, model files -- adding 5 scenarios and leaving the other 9 requirements untouched; `openspec validate --specs` 38/38. Moved to `archive/2026-09-28-identity-embedding-for-grouping/`.)
