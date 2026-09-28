@@ -1,0 +1,34 @@
+## Why
+
+Measured on the labelled collection (with the identity preprocessing corrected by the companion change), the shipped grouping decision leaves a quantified margin, and its size depends on which population is asked — so the numbers worth acting on are the ones the pipeline actually governs. On the 1316 images that routing leaves unassigned (the population clustering exists for), today's rule — the feature cosine with the single greedy centroid pass at the current threshold — scores clustering F1 0.684; over the whole 3840-image gallery end to end (2443 images placed by character tag, 81 in `mixed/`), the shipped pipeline scores 0.697. The fused score with order-independent agglomeration raises those to 0.850 (clustering population, at its calibrated 0.70) and 0.739 (end to end, with no folder match available); a same-run folder match on top lifts the end-to-end number to 0.819, and the measured ceiling for this gallery — every unassigned image joining its character's existing folder — is 0.854. In the calibration protocol that treats every image as unknown, which is the protocol the plateau and the threshold were fitted on, the same change moves clustering F1 0.561 → 0.860 and pair-level F1 0.480 → 0.806 (against 0.751 for the feature alone). The two signals are complementary rather than redundant: the same-character model is documented as insensitive to hair colour, which is exactly what the tag side carries, and the fused score peaks on a wide plateau (F1 at or above 0.83 for every threshold from 0.62 to 0.72) instead of the narrow window the feature-only score needs. The shipped pass is also order-sensitive: the same images in a different input order move its F1 by about 0.08 and change how much it fragments characters. On the workload this feature exists for — unknown characters, where routing by character tag cannot help — this margin is the whole quality of the feature.
+
+## What Changes
+
+- The similarity that answers "same character" becomes a calibrated weighted combination of the identity-feature cosine and an identity-tag cosine, at a fixed 0.8/0.2 weight, at both places that ask the question: clustering and folder-match (teaching). The tag side is confidence-weighted, uses identity-bearing general tags only, and deliberately uses **no corpus-wide statistics**: measured on the labelled collection, idf weighting scores 0.583 pair F1 against 0.666 for plain confidence weighting, so the statistic-heavy machinery the previous change deleted stays deleted.
+- Clustering becomes order-independent average-linkage agglomeration at the similarity threshold, replacing the single greedy pass in content-hash order. **BREAKING (output)**: the same gallery now produces a different folder split than before — clusters can merge that the greedy pass kept apart — while folder naming (`unknown_<tags>`), routing, `mixed/`, the work-stem grouping and the never-rename/never-delete contract are unchanged.
+- The identity similarity threshold becomes a knob (`--identity-tau`, also settable through the config file) with default 0.70, one value for both comparisons because measurement shows a split knob buys +0.001 end-to-end, and its documentation changes meaning: a calibrated operating point on the fused score with a recorded plateau and a recorded calibration recipe, instead of the arithmetic conversion of the model's published metric threshold. The arithmetic conversion stays valid only for the feature cosine alone, which is now only used when an image has no tag side at all — that path keeps its own calibrated default, 0.74.
+
+## Capabilities
+
+### New Capabilities
+
+(none)
+
+### Modified Capabilities
+
+- `image-character-organize`: the appearance-clustering requirement (the similarity is a fused score, clustering is order-independent agglomeration at a calibrated threshold, and the threshold's meaning and recipe are stated), the teaching requirement (folder matching uses the same fused score and the same threshold), and the command-surface requirement (the new option, its range and its help text).
+- `user-config`: the configurable key set gains `identity-tau`, the option's numeric range applies to it like any other key, and the organize subcommand resolves it by the standard CLI > config > default precedence.
+
+## Impact
+
+- `src/organize/cluster.{h,cpp}` — the similarity function, the identity-tag vector, the clustering algorithm and the threshold constants.
+- `src/organize/pipeline.cpp` — the folder-match comparison and the cluster remainder path move to the same fused score.
+- `src/organize/assign.h` — the `FolderReference` profile gains the mean identity-tag vector; `src/organize/teach.{h,cpp}` — that profile is built and compared there.
+- `src/cmd/cmd.{h,cpp}`, `src/cmd/config_store.cpp`, `src/cmd/help_layout.cpp` — the option, its numeric range, its config key (which must also be entered in the canonical key order the config store enforces, or saving the config fails, and which extends the `user-config` key set this change carries a delta for), and its help text (the CLI contract requires new help to be declared by a capability requirement, which this change adds).
+- `src/organize/organize_types.h`, `src/organize/organize_command.cpp` — the option reaches the run options.
+- `tests/organize/{routing,pipeline,stage}_tests.cpp`, `tests/cmd_organize_tests.cpp`, `tests/e2e/encro_organize_tests.cpp` — fused score, agglomeration, config-key registration, knob plumbing and help; the e2e fixture gains the identity-tag evidence the fused score reads, replacing the comment that still says clustering reads the identity feature and not the tags.
+- `README.md` — the organize section gains the knob and states that grouping quality is calibrated on labelled collections rather than derived from the model's published number.
+- Cost: no extra inference and no new model file — the tag confidences are already computed and cached, so the fusion only changes arithmetic. Clustering gains one pairwise step over the analysed images (about 100 MB of condensed scores and seconds at 5k images; about 400 MB at 10k, which is where the recorded ceiling sits and above which the run falls back and says so).
+- Existing galleries: the first run after the upgrade regroups images under the new score, so `unknown_*` folder membership and names differ from the previous run; nothing is moved or deleted, and renamed folders still teach.
+- Deliberately out of scope: crop or flip test-time augmentation, a different identity model, clustering the similarity graph with DBSCAN/OPTICS, hubness correction, and learning a projection head from renamed folders.
+- Depends on `clip-normalize-identity-input`: the calibration numbers above were measured on features produced by the corrected preprocessing, so this change is implemented and re-measured after it.
