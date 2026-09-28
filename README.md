@@ -117,9 +117,9 @@ With one input, `preview` runs the probe phase on the source, encodes the window
 xmake run encro organize <dir> [-r] [--min-confidence F] [--model-dir <dir>] [--dry-run]
 ```
 
-`organize` sorts a folder of images into per-character folders under `<dir>/organized/` using a local AI model (wd-vit-tagger-v3). Analysis is fully local: image content never leaves this machine. Known characters file by their tag (`organized/hatsune_miku/`); everything else clusters by appearance into `unknown_<tags>/` folders; multi-subject images land in `mixed/`. Originals are always copied, never moved.
+`organize` sorts a folder of images into per-character folders under `<dir>/organized/` using two local AI models (a tagger and an identity model). Analysis is fully local: image content never leaves this machine. Known characters file by their tag (`organized/hatsune_miku/`); everything else clusters by appearance into `unknown_<tags>/` folders; multi-subject images land in `mixed/`. Originals are always copied, never moved.
 
-The first run needs the model files (~400 MB, one time):
+The first run needs the model files (~530 MB, one time):
 
 ```sh
 xmake run encro organize <dir> --download-models

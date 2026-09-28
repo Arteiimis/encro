@@ -2,9 +2,11 @@
 // itself needs a real model and is covered by the [real-model] smoke.
 #include "tagger/mapping.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace {
 
@@ -26,6 +28,37 @@ TEST_CASE("sigmoidConfidence maps logits", "[tagger]") {
   CHECK(tagger::sigmoidConfidence(0.0) == 0.5);
   CHECK(tagger::sigmoidConfidence(100.0) > 0.99);
   CHECK(tagger::sigmoidConfidence(-100.0) < 0.01);
+}
+
+TEST_CASE("toIdentityInput lays the rgb frame out as planar 0..1 floats", "[tagger]") {
+  // Two pixels: (255,0,0) and (0,128,255). The identity model's transform is
+  // a plain ToTensor, so channels come out as planes, not interleaved.
+  auto const rgb = std::vector<std::uint8_t>{255, 0, 0, 0, 128, 255};
+  auto const floats = tagger::toIdentityInput(rgb);
+  REQUIRE(floats.size() == 6);
+  CHECK(floats[0] == 1.0F);  // R plane
+  CHECK(floats[1] == 0.0F);
+  CHECK(floats[2] == 0.0F);  // G plane
+  CHECK(floats[3] == Catch::Approx(128.0F / 255.0F));
+  CHECK(floats[4] == 0.0F);  // B plane
+  CHECK(floats[5] == 1.0F);
+}
+
+TEST_CASE("normalizeFeature scales to unit length and leaves zero alone", "[tagger]") {
+  auto feature = std::vector<float>{3.0F, 4.0F};
+  tagger::normalizeFeature(feature);
+  CHECK(feature[0] == Catch::Approx(0.6F));
+  CHECK(feature[1] == Catch::Approx(0.8F));
+
+  // No direction is no evidence: the feature becomes empty rather than a
+  // vector every image is equidistant from.
+  auto zero = std::vector<float>{0.0F, 0.0F};
+  tagger::normalizeFeature(zero);
+  CHECK(zero.empty());
+
+  auto empty = std::vector<float>{};
+  tagger::normalizeFeature(empty);
+  CHECK(empty.empty());
 }
 
 TEST_CASE("mapOutputs filters categories and applies the floor", "[tagger]") {

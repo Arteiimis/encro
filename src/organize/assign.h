@@ -80,9 +80,9 @@ bool isMultiSubject(AnalysisResult const& analysis);
 // A teaching reference folder: what its analyzable contents say it owns.
 // NOLINTNEXTLINE(bugprone-exception-escape): std::map members allocate by design
 struct FolderReference {
-  fs::path name;  // current name on disk; a path so CJK survives
-  std::map<std::string, double> meanVector;  // mean appearance vector
-  std::size_t vectorMembers = 0;
+  fs::path name;                   // current name on disk; a path so CJK survives
+  std::vector<float> meanFeature;  // mean of the members' unit features
+  std::size_t featureMembers = 0;
   std::map<std::string, std::size_t>
     soleTagCounts;  // tag -> members whose sole candidate
   std::size_t analyzableMembers = 0;

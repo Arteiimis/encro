@@ -1,6 +1,7 @@
 // Model/runtime file acquisition (task 2.4, design D7): a pinned manifest,
 // streaming download with checksum verification, Hugging Face -> hf-mirror
 // fallback with HF_ENDPOINT override, and gated cuDNN self-install.
+
 #pragma once
 
 #include "core/error_handle.h"
@@ -27,8 +28,8 @@ struct RemoteFile {
 auto primaryEndpoint() -> std::string;
 auto mirrorEndpoint() -> std::string;
 
-// wd-vit-tagger-v3 model + vocabulary; sha256 values are pinned during the
-// real-machine acceptance (task 6.2).
+// Both models, each file pinned by size and checksum: the tagger that produces
+// the tags and the identity model that produces the feature (task 2.4).
 auto modelFiles() -> std::vector<RemoteFile>;
 
 // The pinned cuDNN 9 CUDA-12 archive (NVIDIA login-free CDN).
@@ -46,6 +47,13 @@ bool hasNvidiaDriver();
 // True when every file in `files` exists under `dir` (size-checked when the
 // manifest pins a size).
 bool allFilesPresent(fs::path const& dir, std::vector<RemoteFile> const& files);
+
+// The basenames of `files` that are absent or size-mismatched under `dir`, in
+// manifest order. The presence check and the fail-fast message read this one
+// list, so a model cannot be pinned into the manifest and forgotten by the
+// other (spec: the message names every missing file).
+auto missingFiles(fs::path const& dir, std::vector<RemoteFile> const& files)
+  -> std::vector<std::string>;
 
 // Downloads `file` to dir/<filename>: primary host first, mirror fallback,
 // .part streaming, checksum verify (when pinned), bounded retry on mismatch,

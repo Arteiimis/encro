@@ -83,6 +83,8 @@ auto mirrorEndpoint() -> std::string {
 
 auto modelFiles() -> std::vector<RemoteFile> {
   constexpr auto prefix = "/SmilingWolf/wd-vit-tagger-v3/resolve/main";
+  constexpr auto identityPrefix =
+    "/deepghs/ccip_onnx/resolve/main/ccip-caformer-24-randaug-pruned";
   return std::vector<RemoteFile>{
     {.logical = "wd-vit-tagger-v3/model.onnx",
      .urlPath = std::string{prefix} + "/model.onnx",
@@ -92,6 +94,12 @@ auto modelFiles() -> std::vector<RemoteFile> {
      .urlPath = std::string{prefix} + "/selected_tags.csv",
      .size = 308468,
      .sha256 = "298633d94d0031d2081c0893f29c82eab7f0df00b08483ba8f29d1e979441217"},
+    // The identity model's similarity metric is a fixed function of the
+    // cosine, so this feature extractor is the whole model (design D3).
+    {.logical = "ccip-caformer-24-randaug-pruned/model_feat.onnx",
+     .urlPath = std::string{identityPrefix} + "/model_feat.onnx",
+     .size = 150248245,
+     .sha256 = "4ea118d16496274f4f6e08d3afc768cc592389e8f7f32f8732ce2215c228ac5f"},
   };
 }
 
@@ -133,13 +141,25 @@ bool hasNvidiaDriver() {
 }
 
 bool allFilesPresent(fs::path const& dir, std::vector<RemoteFile> const& files) {
-  return std::ranges::all_of(files, [&](RemoteFile const& file) {
+  return missingFiles(dir, files).empty();
+}
+
+auto missingFiles(fs::path const& dir, std::vector<RemoteFile> const& files)
+  -> std::vector<std::string> {
+  auto missing = std::vector<std::string>{};
+  for (auto const& file: files) {
+    auto const name = fileNameOf(file);
     auto ec = std::error_code{};
-    auto const path = dir / fileNameOf(file);
-    if (!fs::exists(path, ec) || ec) { return false; }
-    if (file.size != 0 && fs::file_size(path, ec) != file.size) { return false; }
-    return !ec;
-  });
+    auto const path = dir / name;
+    if (!fs::exists(path, ec) || ec) {
+      missing.push_back(name);
+      continue;
+    }
+    if (file.size != 0 && fs::file_size(path, ec) != file.size) {
+      missing.push_back(name);
+    }
+  }
+  return missing;
 }
 
 namespace {

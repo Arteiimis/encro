@@ -80,7 +80,40 @@ One fresh reviewer ran the planning-artifact stage (Coherence, then Ground truth
 The reviewer also listed what it could not check: the throughput figures, the metric formula's accuracy, and the digest to pin — none had a repo artifact behind them. — resolved: the design states both figures as measurements taken on the reference host during the evaluation (and says so), and the pin (url path, `150248245` bytes, sha256 `4ea118d1…`) appears in the design's Context and in task 2.4.
 ## 7. Code-diff review (before the implementation commit)
 
-- [ ] 7.1 Run the code-diff stage of the `code-review` skill over the implementation diff (Standards / Spec / Leanness), apply the fixes, and record the findings and verdicts here.
+- [x] 7.1 Run the code-diff stage of the `code-review` skill over the implementation diff (Standards / Spec / Leanness), apply the fixes, and record the findings and verdicts here.
+
+### Code-diff review findings (task 7.1)
+
+Three fresh reviewers ran the code-diff stage in parallel over `git diff c66525c` (37 files, +1515/-838): Standards (the repo's documented conventions plus the smell baseline), Spec (the delta spec), Leanness (ponytail tags). Everything they accepted was fixed before the implementation commit; the fixes were verified by re-running the whole suite (16461 assertions), the e2e suite (817 assertions), the reporter probe (838 cases, 0 failures), `xmake fmt` idempotence, `xmake tidy` (132 -> 131, back to one below the pre-change count) and the acceptance run again — which reproduced the same 0.599 recall and the same cluster counts, so the round was behaviour-preserving.
+
+**Standards**
+
+- Two scalar helpers used trailing returns (`src/tagger/preprocess.cpp`), against the documented prefix style. — **resolved**: both are prefix-style now.
+- `FakeFeatureEngine`'s comment claimed the real engine's normalization but returned the fixture verbatim. — **resolved**: the double normalizes like the production fake and the contract says so.
+- The new teaching case looped two equivalence classes (0.9 and 0.5) in one `TEST_CASE`. — **resolved**: split into "teaching captures a cluster at the threshold" and "a cluster below the threshold keeps its unknown_ name", sharing one `taughtFolderFor(cosine)` helper.
+- `modelFiles`'s test summed the manifest sizes (`total > 520 MB`), an arithmetic nothing reads. — **resolved**: dropped; the size and digest pins stay, because pinning them is the test's contract.
+- Duplicated running-mean (`teach.cpp` vs `clusterPending`), duplicated best-match scans, `(engine, features)` travelling as a pair, `TagTally::confidence` holding a sum, `OnnxModel(..., label, what)`, an unread `OnnxFeatureEngine::modelPath_`, `InputKind` dispatched at four sites, a `cache.cpp` comment contradicting its own version bump, and `teach.cpp` sorting by `filename().string()` where the suite elsewhere compares UTF-8 names. — **resolved** except the two below: `accumulateFeature` now holds the running mean, the tie rule moved into `kIdentityTau`'s own comment, `confidenceTotal` says what it holds, `logLabel`/`modelKind` name their roles, the dead field is gone, `specOf(InputKind)` is the one place a kind's properties live, the cache comment states the contract instead of a false history, and references sort by `displaytext::pathToUtf8String`.
+- Best-match scan helper — **rejected**: the two scans iterate different things (a live `vector<Cluster>` that grows while it is scanned, versus an immutable reference list) and do different things with the winner (extend a centroid versus file images), so sharing them means building a span-of-spans view per image; the shared *rule* now lives in one sentence on the constant.
+- One `Engines` parameter for the pipeline — **rejected**: `Engines` owns two `unique_ptr`s while the pipeline borrows two engines; merging them would force the tests to wrap stack fakes in owners, or add a second reference-holding twin.
+- `identity` / `feature` / `centroid` / `meanFeature` spelling spread — **rejected**: these are three roles (the model's output, a cluster's running mean, a folder's mean), named for the role they play.
+
+**Spec**
+
+- The delta's reference sentence read "Folders containing no analyzable member files, **or no member with a cached identity feature**, SHALL be skipped as references", but ownership teaching must keep working from tags — a renamed folder whose members' extraction failed has to keep claiming its character. — **resolved in the artifact**: the sentence now skips a folder as a *folder-match* reference while its tags may still own a character tag. The implementation was already right.
+- "SHALL be treated as empty **and rewritten**" promised a rewrite a run that analyzes nothing cannot perform (`flush()` no-ops with no pending puts, and the stale file is still read as empty next time). — **resolved in the artifact**: the requirement now promises only what the pipeline does, and the scenario says the file is rewritten as the new entries are stored.
+- `notifyProviders` prints `(identity: …)` when the two engines negotiate differently, which the unchanged "Execution provider selection" requirement does not ask for. — **accepted, recorded here**: with two engines "the provider in use" is two values, the output is still the one line the requirement demands, and a user debugging a silent CPU fallback is better served than by naming only the tagger's provider.
+- References sorted by folder name (unspecced determinism), the shared `onnx_runtime` extraction (sanctioned by design D7 and task 2.2), the `cmd.cpp` end-of-file blank line (clang-format's) — **accepted**.
+- `normalizeFeature` left an all-zero feature non-empty, so a degenerate model output would open a singleton cluster instead of landing in `uncategorized/`. — **resolved**: a feature with no direction becomes empty ("unit feature or no evidence"), pinned by the mapping case.
+
+**Leanness** (net: -48 lines proposed)
+
+- `struct Engines` + `std::optional<Engines>` ceremony for handing over two pointers. — **resolved in part**: the optional, its `has_value()` and the `*engines->…` derefs are gone (an `explicit operator bool` reads `if (!engines)`); inlining the builder back into the command was **rejected** because that is what pushed `runOrganizeCommand` past the 80-line `readability-function-size` threshold this same change had to repair.
+- The duplicated 11-line running mean. — **resolved**: one `accumulateFeature` beside `cosineSimilarity`.
+- `meanA`/`meanB` dividing by the same count after the guard proved them equal. — **resolved**: the sums order the means.
+- The `feature()` pass-through alias in `routing_tests.cpp`. — **resolved**: 23 call sites now name `testutils::unitFeature` directly.
+- `FakeFeatureEngine::calls` incremented but never asserted. — **resolved by use, not deletion**: the resume and shared-content cases now assert it, so the cache covering *both* products is what the counter proves.
+- The e2e fixture JSON assembled by hand with three trailing-comma strips. — **resolved**: `boost::json` builds and serializes it, the same library the parser uses.
+- The `fold_left` size sum in `model_store_tests.cpp`. — **resolved**: dropped (with the includes it brought).
 
 ## 8. Archive
 

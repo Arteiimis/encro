@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
@@ -710,6 +711,14 @@ inline auto parseArgs(std::vector<std::string> const& args) -> CmdParseResult {
   argv.push_back(nullptr);
 
   return commandLineInit(static_cast<int>(argv.size() - 1), argv.data(), "");
+}
+
+// A unit-length identity feature at a known cosine to `unitFeature(1.0)`: two
+// dimensions place a cosine anywhere an organize test needs it, and the
+// similarity contract reads unit-length cosines.
+inline auto unitFeature(double cosine) -> std::vector<float> {
+  auto const angle = std::acos(std::clamp(cosine, -1.0, 1.0));
+  return {static_cast<float>(std::cos(angle)), static_cast<float>(std::sin(angle))};
 }
 
 }  // namespace testutils

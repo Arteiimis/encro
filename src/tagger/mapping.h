@@ -23,4 +23,15 @@ auto mapOutputs(
 // wd input contract: raw RGB bytes as float32 0..255, no normalization.
 auto toInputFloats(std::span<std::uint8_t const> rgbBytes) -> std::vector<float>;
 
+// Identity input contract: interleaved rgb24 bytes as planar NCHW float32 in
+// 0..1 (the identity model's ToTensor).
+auto toIdentityInput(std::span<std::uint8_t const> rgbBytes) -> std::vector<float>;
+
+// Scales `feature` to unit length in place — the identity similarity contract
+// reads a cosine, so magnitude must carry no information. A feature with no
+// direction (all zeros, which a degenerate model output can be) becomes empty:
+// the contract is "unit feature or no evidence", and an empty feature keeps
+// such an image out of every cluster instead of giving it a singleton.
+void normalizeFeature(std::vector<float>& feature);
+
 }  // namespace tagger

@@ -18,7 +18,10 @@ namespace {
 
 namespace json = boost::json;
 
-constexpr auto kVersion = 1;
+// 2: the identity feature joined the entry (design D6). An older file is
+// discarded whole rather than read as featureless, so an upgrade re-analyzes
+// once instead of clustering on entries that cannot cluster.
+constexpr auto kVersion = 2;
 
 auto tagsToJson(std::vector<TagScore> const& tags) -> json::value {
   auto array = json::array{};
@@ -45,11 +48,31 @@ auto tagsFromJson(json::value const& value) -> std::vector<TagScore> {
   return tags;
 }
 
+auto floatsToJson(std::vector<float> const& values) -> json::value {
+  auto array = json::array{};
+  for (auto const value: values) { array.emplace_back(value); }
+  return array;
+}
+
+// A missing, empty or malformed array is no feature: the identity model's
+// contract is a unit feature or none, so an entry that lost the array reads as
+// "no identity evidence" rather than as a failure to parse the whole entry.
+auto floatsFromJson(json::value const& value) -> std::vector<float> {
+  auto values = std::vector<float>{};
+  if (!value.is_array()) { return values; }
+  for (auto const& number: value.as_array()) {
+    if (!number.is_number()) { continue; }
+    values.push_back(static_cast<float>(number.to_number<double>()));
+  }
+  return values;
+}
+
 auto resultToJson(AnalysisResult const& result) -> json::value {
   return json::object{
-    {"general", tagsToJson(result.general)},
-    {"character", tagsToJson(result.character)},
-    {"rating", tagsToJson(result.rating)},
+    {"general", tagsToJson(result.tags.general)},
+    {"character", tagsToJson(result.tags.character)},
+    {"rating", tagsToJson(result.tags.rating)},
+    {"identity", floatsToJson(result.identity)},
   };
 }
 
@@ -58,13 +81,16 @@ auto resultFromJson(json::value const& value) -> AnalysisResult {
   if (!value.is_object()) { return result; }
   auto const& object = value.as_object();
   if (auto const* general = object.if_contains("general")) {
-    result.general = tagsFromJson(*general);
+    result.tags.general = tagsFromJson(*general);
   }
   if (auto const* character = object.if_contains("character")) {
-    result.character = tagsFromJson(*character);
+    result.tags.character = tagsFromJson(*character);
   }
   if (auto const* rating = object.if_contains("rating")) {
-    result.rating = tagsFromJson(*rating);
+    result.tags.rating = tagsFromJson(*rating);
+  }
+  if (auto const* identity = object.if_contains("identity")) {
+    result.identity = floatsFromJson(*identity);
   }
   return result;
 }
@@ -74,13 +100,14 @@ bool aboveFloor(TagScore const& tag, double floor) {
 }
 
 // Storage floors per category: the cache keeps exactly what a downstream
-// stage can read, and nothing more. Appearance vectors and corpus traits
-// consume general tags at kVectorFloor and up; character routing consumes
-// kWeakConfidence and up — below that, the unused identity head emits
-// ~0.50-0.52 noise for every vocabulary character, which used to dominate
-// the store (~2.7k dead pairs per image) without ever influencing a
-// decision. Derived from the consuming constants so a floor can never
-// silently exceed a threshold that reads the cache (design D6).
+// stage can read, and nothing more. Naming consumes general tags at
+// kNamingConfidenceFloor and up; character routing consumes kWeakConfidence
+// and up — below that, the unused identity head emits ~0.50-0.52 noise for
+// every vocabulary character, which used to dominate the store (~2.7k dead
+// pairs per image) without ever influencing a decision. Derived from the
+// consuming constants so a floor can never silently exceed a threshold that
+// reads the cache (design D6). The identity feature is stored whole: it is
+// the clustering input, not a tag.
 auto keepAtOrAbove(std::vector<TagScore> const& tags, double floor)
   -> std::vector<TagScore> {
   auto kept = std::vector<TagScore>{};
@@ -139,9 +166,10 @@ auto AnalysisCache::get(std::string const& contentHash) const
 
 void AnalysisCache::put(std::string const& contentHash, AnalysisResult const& result) {
   auto filtered = AnalysisResult{};
-  filtered.general = keepAtOrAbove(result.general, kVectorFloor);
-  filtered.character = keepAtOrAbove(result.character, kWeakConfidence);
-  filtered.rating = keepAtOrAbove(result.rating, kCacheConfidenceFloor);
+  filtered.tags.general = keepAtOrAbove(result.tags.general, kNamingConfidenceFloor);
+  filtered.tags.character = keepAtOrAbove(result.tags.character, kWeakConfidence);
+  filtered.tags.rating = keepAtOrAbove(result.tags.rating, kCacheConfidenceFloor);
+  filtered.identity = result.identity;
 
   auto lock = std::lock_guard{mutex_};
   entries_.insert_or_assign(contentHash, std::move(filtered));

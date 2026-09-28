@@ -122,10 +122,12 @@ bool alreadyAnalyzed(ImageItem const& item) {
 // Analyzes everything the cache does not cover; identical content dedupes
 // through the cache, so the twin of an analyzed file is filtered instead of
 // classified again. Failures cache an empty result so re-runs never re-pay for
-// a deterministic decode failure. Returns false on cancel.
+// a deterministic decode failure; the two engines are independent, so a
+// failure of one keeps the other's product. Returns false on cancel.
 bool analyzeMissing(
   std::vector<ImageItem>& items,
   tagger::TaggerEngine& engine,
+  tagger::FeatureEngine& features,
   AnalysisCache& cache,
   Options const& options,
   progress::ProgressContext* progress
@@ -157,12 +159,17 @@ bool analyzeMissing(
     },
     std::span<ImageItem>{items},
     alreadyAnalyzed,
-    [&engine,
-     &cache,
-     &cacheMutex](ImageItem& item, taskexec::TaskContext&) -> eh::Result<void> {
-      auto result = engine.classify(item.path);
+    [&engine, &features, &cache, &cacheMutex](ImageItem& item, taskexec::TaskContext&)
+      -> eh::Result<void> {
       auto outcome = AnalysisResult{};
-      if (result.has_value()) { outcome = std::move(*result); }
+      if (auto result = engine.classify(item.path); result.has_value()) {
+        outcome.tags = std::move(*result);
+      }
+      // Tags route and name, the feature clusters; either one alone is worth
+      // caching, so a failure of one is not a failure of the image.
+      if (auto identity = features.extract(item.path); identity.has_value()) {
+        outcome.identity = std::move(*identity);
+      }
       auto lock = std::lock_guard{cacheMutex};
       item.analysis = outcome;
       cache.put(item.contentHash, outcome);
@@ -214,8 +221,9 @@ auto sourceWorkKey(fs::path const& path) -> std::string {
   return prefix;
 }
 
-// Folder-match: a cluster whose appearance resembles an existing folder
-// joins it (teaching).
+// Folder-match: a cluster whose identity feature resembles an existing
+// folder's mean joins it (teaching). Same threshold as clustering
+// acceptance: one question, one answer (design D4).
 void assignFolderMatches(
   std::vector<ImageItem>& items,
   std::vector<Cluster> const& clusters,
@@ -223,14 +231,16 @@ void assignFolderMatches(
 ) {
   for (auto const& cluster: clusters) {
     auto matched = static_cast<FolderReference const*>(nullptr);
-    auto bestScore = kFolderTau;
+    auto bestScore = kIdentityTau;
     for (auto const& reference: references) {
-      if (reference.meanVector.empty()) { continue; }
-      auto const score = cosineSimilarity(cluster.centroid, reference.meanVector);
-      if (score > bestScore) {
-        matched = &reference;
-        bestScore = score;
-      }
+      if (reference.meanFeature.empty()) { continue; }
+      auto const score = cosineSimilarity(cluster.centroid, reference.meanFeature);
+      // First best wins a tie: references are built in folder-name order, so
+      // equal scores cannot pick a folder at random.
+      if (score < bestScore) { continue; }
+      if (matched != nullptr && score <= bestScore) { continue; }
+      matched = &reference;
+      bestScore = score;
     }
     if (matched == nullptr) { continue; }
     for (auto const index: cluster.itemIndices) {
@@ -273,11 +283,9 @@ auto groupSingletonsByWork(
 void clusterRemainder(
   std::vector<ImageItem>& items,
   std::vector<std::size_t> const& pending,
-  double minConfidence,
-  std::vector<FolderReference> const& references,
-  CorpusTraits const& traits
+  std::vector<FolderReference> const& references
 ) {
-  auto const clusters = clusterPending(items, pending, traits);
+  auto const clusters = clusterPending(items, pending);
   auto usedNames = std::set<std::string>{};
   for (auto const& item: items) {
     if (!item.folderName.empty()) {
@@ -333,6 +341,7 @@ void clusterRemainder(
 auto runOrganize(
   Options const& options,
   tagger::TaggerEngine& engine,
+  tagger::FeatureEngine& features,
   progress::ProgressContext* progress
 ) -> eh::Result<ReportData> {
   auto scanned = scanImages(options.root, options.recursive);
@@ -347,7 +356,7 @@ auto runOrganize(
   }
   auto const cacheHits = applyCachedAnalyses(items, cache);
 
-  auto const analyzed = analyzeMissing(items, engine, cache, options, progress);
+  auto const analyzed = analyzeMissing(items, engine, features, cache, options, progress);
   // Persist the tail batch on every exit so an interrupted run loses at most
   // the in-flight images, never the completed-and-buffered ones.
   cache.flush();
@@ -359,14 +368,11 @@ auto runOrganize(
   }
 
   // References rebuilt with the freshly cached analyses included, then the
-  // fixed routing order per item. Idf weights come from the full analyzed
-  // corpus so collection-constant tags cannot dominate similarity.
-  auto const traits = buildCorpusTraits(items);
+  // fixed routing order per item.
   auto const characterDf = buildCharacterDf(items);
-  auto const references =
-    buildFolderReferences(options.root, cache, options.minConfidence, traits);
+  auto const references = buildFolderReferences(options.root, cache);
   auto const pending = routeItems(items, options.minConfidence, references, characterDf);
-  clusterRemainder(items, pending, options.minConfidence, references, traits);
+  clusterRemainder(items, pending, references);
 
   auto const stats = executeOrganize(options.root, items, options.dryRun);
   if (stats.canceled) { return ReportData{.canceled = true}; }

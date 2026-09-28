@@ -46,14 +46,14 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
     opt(
       "--model-dir",
       &result.organizeModelDir,
-      "directory holding the local tagger model files (default: ~/.encro/models)",
+      "directory holding the local model files (default: ~/.encro/models)",
       cfg::ConfigKey{"model-dir"},
       cfg::Path{}
     ),
     opt(
       "--download-models",
       &result.organizeDownloadModels,
-      "fetch missing model files (~400 MB, one time), then run"
+      "fetch missing model files (~530 MB, one time), then run"
     ),
     opt("--dry-run", &result.dryRun, "classify and print the plan; copy nothing"),
     opt("--recluster", &result.organizeRecluster, "discard cached analysis and redo it"),
@@ -661,4 +661,3 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   if (probe.error.has_value() || probe.config || probe.completion) { return probe; }
   return buildAndParse(argc, argv, introLine, true);
 }
-

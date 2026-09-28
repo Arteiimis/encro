@@ -1,54 +1,31 @@
 #include "organize/teach.h"
 
+#include "core/display_text.h"
 #include "core/sha256.h"
 #include "organize/cluster.h"
 
 #include <algorithm>
-#include <cmath>
+#include <cstddef>
 #include <system_error>
 
 namespace organize {
 
 namespace {
 
-double l2Norm(std::map<std::string, double> const& vector) {
-  auto sum = 0.0;
-  for (auto const& [_, value]: vector) { sum += value * value; }
-  return std::sqrt(sum);
-}
-
-// Folds one folder member into the reference. Returns false when the member
-// is not analyzable (missing from the cache).
-auto accumulateMember(
-  FolderReference& reference,
-  AnalysisResult const& analysis,
-  double minConfidence,
-  CorpusTraits const& traits
-) {
-  // Cached-but-empty analysis still counts as analyzable: routing happened,
-  // it simply produced nothing.
+// Folds one folder member into the reference. A member with no cached feature
+// counts as analyzable (routing happened) but adds nothing to the mean.
+void accumulateMember(FolderReference& reference, AnalysisResult const& analysis) {
   ++reference.analyzableMembers;
 
   auto const candidates = positiveCharacterTags(analysis);
   if (candidates.size() == 1) { ++reference.soleTagCounts[candidates.front().tag]; }
 
-  auto vector = normalizedAppearanceVector(analysis, traits);
-  if (vector.empty()) { return; }
-
-  auto const count = static_cast<double>(reference.vectorMembers);
-  for (auto& [_, value]: reference.meanVector) { value *= count; }
-  for (auto const& [tag, value]: vector) { reference.meanVector[tag] += value; }
-  reference.vectorMembers += 1;
-  auto const total = static_cast<double>(reference.vectorMembers);
-  for (auto& [_, value]: reference.meanVector) { value /= total; }
+  if (analysis.identity.empty()) { return; }
+  accumulateFeature(reference.meanFeature, reference.featureMembers, analysis.identity);
 }
 
-auto buildReference(
-  fs::path const& folderDir,
-  AnalysisCache const& cache,
-  double minConfidence,
-  CorpusTraits const& traits
-) -> FolderReference {
+auto buildReference(fs::path const& folderDir, AnalysisCache const& cache)
+  -> FolderReference {
   auto reference = FolderReference{.name = folderDir.filename()};
   auto ec = std::error_code{};
   for (auto const& member: fs::directory_iterator{folderDir, ec}) {
@@ -60,29 +37,34 @@ auto buildReference(
     if (digest.empty()) { continue; }
     auto const cached = cache.get(digest);
     if (!cached.has_value()) { continue; }
-    accumulateMember(reference, *cached, minConfidence, traits);
+    accumulateMember(reference, *cached);
   }
   return reference;
 }
 
 }  // namespace
 
-auto buildFolderReferences(
-  fs::path const& root,
-  AnalysisCache const& cache,
-  double minConfidence,
-  CorpusTraits const& traits
-) -> std::vector<FolderReference> {
+auto buildFolderReferences(fs::path const& root, AnalysisCache const& cache)
+  -> std::vector<FolderReference> {
   auto const outputRoot = root / "organized";
   auto ec = std::error_code{};
   if (!fs::exists(outputRoot, ec) || ec) { return {}; }
 
-  auto references = std::vector<FolderReference>{};
+  auto entries = std::vector<fs::path>{};
   for (auto const& entry: fs::directory_iterator{outputRoot, ec}) {
     // Skip cache-internal directories; only character/unknown/mixed folders
     // teach.
     if (!entry.is_directory() || entry.path().filename() == ".cache") { continue; }
-    auto reference = buildReference(entry.path(), cache, minConfidence, traits);
+    entries.push_back(entry.path());
+  }
+  std::sort(entries.begin(), entries.end(), [](fs::path const& a, fs::path const& b) {
+    // UTF-8 order, like the names this list is compared against.
+    return displaytext::pathToUtf8String(a) < displaytext::pathToUtf8String(b);
+  });
+
+  auto references = std::vector<FolderReference>{};
+  for (auto const& entry: entries) {
+    auto reference = buildReference(entry, cache);
     if (reference.analyzableMembers > 0) { references.push_back(std::move(reference)); }
   }
   return references;

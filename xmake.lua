@@ -128,10 +128,11 @@ target("encro")
 
   add_includedirs("src", {public = true})
   add_files("src/**.cpp")
-  -- ONNX inference links win-x64-only ORT binaries; other hosts get the
-  -- engine_factory stub instead.
+  -- ONNX inference links win-x64-only ORT binaries, and onnx_runtime.cpp plus
+  -- every engine over it include the ORT headers; other hosts get the
+  -- engine_factory stubs instead.
   if not is_plat("windows") then
-    remove_files("src/tagger/onnx_tagger.cpp")
+    remove_files("src/tagger/onnx_*.cpp")
   end
   after_build(copyOrtRuntimeDlls)
 target_end()
@@ -187,9 +188,9 @@ target("tests")
   end
   add_files("tests/video/*.cpp")
   add_files("src/**.cpp|main.cpp")
-  -- Mirrors the encro target: the ORT engine impl is windows-only.
+  -- Mirrors the encro target: the ORT engine implementations are windows-only.
   if not is_plat("windows") then
-    remove_files("src/tagger/onnx_tagger.cpp")
+    remove_files("src/tagger/onnx_*.cpp")
   end
 
   -- Unit tests spawn the fake media tool exe directly (no cmd.exe layer).
