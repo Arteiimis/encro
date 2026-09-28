@@ -45,13 +45,20 @@ void writeFixture(
     if (!value.is_object()) { value = boost::json::object{}; }
     return value.as_object();
   };
+  // A `json::array` element goes through `value` on purpose: a braced
+  // single same-type element (array{array{…}}) picks the copy constructor
+  // on some compilers (CI's gcc) and the initializer_list constructor on
+  // others (clang-cl), which flattens [[tag, conf]] to [tag, conf] — a
+  // fixture the fake engines parse as zero tags. Going through `value`
+  // makes the nesting the only valid reading everywhere.
+  auto scoredTag = [](std::pair<std::string, double> const& tag) {
+    return boost::json::value{boost::json::array{tag.first, tag.second}};
+  };
   for (auto const& [name, tag]: characterTags) {
-    entryFor(name)["character"] =
-      boost::json::array{boost::json::array{tag.first, tag.second}};
+    entryFor(name)["character"] = boost::json::array{scoredTag(tag)};
   }
   for (auto const& [name, tag]: generalTags) {
-    entryFor(name)["general"] =
-      boost::json::array{boost::json::array{tag.first, tag.second}};
+    entryFor(name)["general"] = boost::json::array{scoredTag(tag)};
   }
   for (auto const& [name, feature]: identities) {
     auto numbers = boost::json::array{};
