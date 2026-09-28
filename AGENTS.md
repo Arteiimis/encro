@@ -32,6 +32,8 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 | Comments       | Minimal, no Doxygen                                         |
 | Template params| `Ty` (single), `Tys` (pack)                                          |
 
+- **Markdown docs:** one paragraph per line — no cosmetic hard wrapping in `README.md`, `docs/`, `openspec/`. Exception: `.agents/skills/openspec-*/SKILL.md` comes verbatim from the openspec CLI templates, so it keeps the upstream wrapping — never re-wrap it; the `code-review`/`diagnosing-bugs` skills are ours and stay unwrapped.
+
 ## Testing
 
 - **Test-value rules** (a test earns its place by the regression it names, not by the lines it covers):
@@ -65,7 +67,8 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 ## Platform & Git
 
 - **Platform:** primary Windows clang-cl; POSIX paths go through `generic_string()` wherever they are compared or serialized. External ffmpeg/ffprobe come from PATH or `--ffmpeg-path`.
-- **Commits:** English only (no CJK in git metadata); conventional commits (`feat:`/`fix:`/`docs:`/`test:`/`refactor:`/`chore:`), subject <72 chars, body wrapped at 80 columns (hard ceiling 90); batch large working trees by functional area.
+- **Commits:** English only (no CJK in git metadata); conventional commits (`feat:`/`fix:`/`docs:`/`test:`/`refactor:`/`chore:`); subject <72 chars; batch large working trees by functional area.
+  - **Body wrapped at 80 columns (hard ceiling 90)** — this repo asks for a wrapped body, so the commit rule here overrides the global "one paragraph per line" default; that default still governs every file in the repo (see Markdown docs). Existing bodies in `git log` are all ≤74 columns; match them (`git commit -F <pre-wrapped file>` is the easy way).
   - OpenSpec planning artifacts (proposal/specs/design) are committed before implementation, as their own `docs:` commit — they describe what will be built, not the build itself.
   - Implementation + its tests + the change's `tasks.md` checkboxes go in one commit (atomic: `git revert` removes the feature and its completion state together; no "code gone but tasks still checked" intermediate state).
   - A code change and its documentation belong in the same commit when they tell one story; split only when the docs are a prerequisite (planning) or an independent deliverable (user guide).
