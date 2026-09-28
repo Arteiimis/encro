@@ -63,7 +63,6 @@ struct Options {
   fs::path modelDir;  // resolved before run(); default ~/.encro/models
   bool dryRun = false;
   bool recluster = false;
-  bool downloadModels = false;
   std::optional<fs::path> ffmpegPath;  // explicit --ffmpeg-path override
   std::size_t maxJobs = 4;
 };

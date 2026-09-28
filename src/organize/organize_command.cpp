@@ -131,6 +131,12 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
   }
   if (!fakeEngine && !requireModels(modelDir)) { return 1; }
 
+  // The fetch-only form: no directory means --download-models was the whole
+  // request, so nothing is organized (design D2). The presence check above
+  // still ran — a model file that exists at the wrong size is missing from
+  // the downloader's own "already present" rule and caught only by it.
+  if (!cmd.organizeDir.has_value()) { return 0; }
+
   auto const ffmpegPath = cmd.ffmpegPath.has_value()
     ? std::optional<fs::path>{fs::path{*cmd.ffmpegPath}}
     : std::nullopt;
@@ -146,7 +152,6 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
     .modelDir = modelDir,
     .dryRun = cmd.dryRun,
     .recluster = cmd.organizeRecluster,
-    .downloadModels = cmd.organizeDownloadModels,
     .ffmpegPath = ffmpegPath,
     .maxJobs = cmd.maxJobs.value_or(4),
   };
