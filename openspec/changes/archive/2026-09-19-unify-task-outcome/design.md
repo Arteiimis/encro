@@ -48,15 +48,11 @@ struct TaskRunResult {
 }
 ```
 
-`runOneTask` keeps returning `eh::Result<void>`; the worker loop maps `has_value()` → `Succeeded`/`Failed` and stores the error string. A slot the stop signal skipped is `Skipped` — there is no success value to misread, which is the whole point.
-*Alternatives:* `{bool attempted; eh::Result<void> result;}` (the review's first shape) bundles the arrays but still ships a default success for skipped slots, so the trap survives; `Result<SkippedTag>` would put a fake error in the failure path and make skipped slots look like failures in failure lists.
+`runOneTask` keeps returning `eh::Result<void>`; the worker loop maps `has_value()` → `Succeeded`/`Failed` and stores the error string. A slot the stop signal skipped is `Skipped` — there is no success value to misread, which is the whole point. *Alternatives:* `{bool attempted; eh::Result<void> result;}` (the review's first shape) bundles the arrays but still ships a default success for skipped slots, so the trap survives; `Result<SkippedTag>` would put a fake error in the failure path and make skipped slots look like failures in failure lists.
 
-**D2 — `canceled` keeps its meaning; `skippedCount()` is the derived view.**
-`canceled` = "the stop signal was in effect when the run returned" (unchanged, `task_executor.cpp:117`). `skippedCount()` replaces the hand-rolled `attemptedCount < n` comparison at `pack_service.cpp:305` and gives the new test something to assert. `attemptedCount` stays because `video_batch_execution.cpp:645` reports it.
-*Alternative:* make `canceled` mean "work was actually cut short" (`skippedCount() > 0`) — more useful at two call sites, but it silently changes both of their decisions and contradicts the spec'd cancellation behavior, so it belongs to its own change if it is wanted at all.
+**D2 — `canceled` keeps its meaning; `skippedCount()` is the derived view.** `canceled` = "the stop signal was in effect when the run returned" (unchanged, `task_executor.cpp:117`). `skippedCount()` replaces the hand-rolled `attemptedCount < n` comparison at `pack_service.cpp:305` and gives the new test something to assert. `attemptedCount` stays because `video_batch_execution.cpp:645` reports it. *Alternative:* make `canceled` mean "work was actually cut short" (`skippedCount() > 0`) — more useful at two call sites, but it silently changes both of their decisions and contradicts the spec'd cancellation behavior, so it belongs to its own change if it is wanted at all.
 
-**D3 — No failure-aggregation helper.**
-`video_batch_execution.cpp:444` and `pack_service.cpp:310` each own the index → key mapping (`vids[i]`, `packResults[i]`), so a shared `failures()` view would save one line per site while introducing an interface whose index semantics need documenting. After D1 both loops are plain filters:
+**D3 — No failure-aggregation helper.** `video_batch_execution.cpp:444` and `pack_service.cpp:310` each own the index → key mapping (`vids[i]`, `packResults[i]`), so a shared `failures()` view would save one line per site while introducing an interface whose index semantics need documenting. After D1 both loops are plain filters:
 ```cpp
 for (auto index = std::size_t{0}; index < vids.size(); ++index) {
   if (result.outcomes[index].state == taskexec::TaskState::Skipped) { continue; }
@@ -64,11 +60,9 @@ for (auto index = std::size_t{0}; index < vids.size(); ++index) {
 }
 ```
 
-**D4 — Pack's two channels become one check.**
-The executor's outcome is authoritative for "did this task fail (including throwing)"; `packResults[index]` stays the task body's own payload channel. So `pack_service.cpp:311-316` becomes a single `state == Failed` check, and the comment explaining the default-constructed success is deleted with it. The behavior it protected is asserted by `tests/pack_service_tests.cpp:686`, which must stay green.
+**D4 — Pack's two channels become one check.** The executor's outcome is authoritative for "did this task fail (including throwing)"; `packResults[index]` stays the task body's own payload channel. So `pack_service.cpp:311-316` becomes a single `state == Failed` check, and the comment explaining the default-constructed success is deleted with it. The behavior it protected is asserted by `tests/pack_service_tests.cpp:686`, which must stay green.
 
-**D5 — Tests: six updated, one added.**
-`tests/task_executor_tests.cpp`'s six cases move to `outcomes` (the concurrency case asserts six `Succeeded`; "preserves task failures" asserts `Succeeded/Failed/Succeeded` with the error text; the attribute cases read states only). The added case — **"a slot the stop signal skipped is not a success"** — starts a run with `maxConcurrency = 1` whose first task body records observable state and requests a stop through `stopsignal::requestStop()` (guarded by `testutils::ScopedStopSignalReset`, so the skipped slot is deterministic), and asserts: at least one `Skipped`, `skippedCount() > 0`, `canceled == true`, and no slot that was never attempted reports `Succeeded`. No stop-mid-run case exists today, which is how the trap survived; the new case is its named regression.
+**D5 — Tests: six updated, one added.** `tests/task_executor_tests.cpp`'s six cases move to `outcomes` (the concurrency case asserts six `Succeeded`; "preserves task failures" asserts `Succeeded/Failed/Succeeded` with the error text; the attribute cases read states only). The added case — **"a slot the stop signal skipped is not a success"** — starts a run with `maxConcurrency = 1` whose first task body records observable state and requests a stop through `stopsignal::requestStop()` (guarded by `testutils::ScopedStopSignalReset`, so the skipped slot is deterministic), and asserts: at least one `Skipped`, `skippedCount() > 0`, `canceled == true`, and no slot that was never attempted reports `Succeeded`. No stop-mid-run case exists today, which is how the trap survived; the new case is its named regression.
 
 ## Risks / Trade-offs
 

@@ -26,17 +26,13 @@ See `proposal.md` — Why. The state that shapes the approach:
 
 ## Decisions
 
-**D1 — One shared matcher, reused by both comparison sites.**
-`media::extensionMatches` moves out of the anonymous namespace and is declared in `src/core/media_scanner.h`; `videoinfo::isKnownVideoExtension` becomes a call to it. Alternatives considered: (a) also fold case inside `video_info.cpp` — two copies of the rule that can drift apart again, which is how the defect arose; (b) add uppercase spellings to every list — does not cover mixed-case names such as `.Mp4`, multiplies entries, and organize's list is already the evidence of where that path leads. The scanner is the module that owns "which extensions match", so the rule lives there.
+**D1 — One shared matcher, reused by both comparison sites.** `media::extensionMatches` moves out of the anonymous namespace and is declared in `src/core/media_scanner.h`; `videoinfo::isKnownVideoExtension` becomes a call to it. Alternatives considered: (a) also fold case inside `video_info.cpp` — two copies of the rule that can drift apart again, which is how the defect arose; (b) add uppercase spellings to every list — does not cover mixed-case names such as `.Mp4`, multiplies entries, and organize's list is already the evidence of where that path leads. The scanner is the module that owns "which extensions match", so the rule lives there.
 
-**D2 — The fold is a local ASCII fold, not `std::tolower`.**
-`std::tolower` reads the process locale; whether `CLIP.MP4` is input must not depend on the environment a user or CI happens to run in. The matcher compares with a `constexpr` function that folds `A`–`Z` to `a`–`z` and leaves every other byte alone, so non-ASCII bytes compare exactly. The repo's other `std::tolower` uses (pack's `shouldStoreEntry`, collision naming, terminal output) are out of scope and keep their behavior.
+**D2 — The fold is a local ASCII fold, not `std::tolower`.** `std::tolower` reads the process locale; whether `CLIP.MP4` is input must not depend on the environment a user or CI happens to run in. The matcher compares with a `constexpr` function that folds `A`–`Z` to `a`–`z` and leaves every other byte alone, so non-ASCII bytes compare exactly. The repo's other `std::tolower` uses (pack's `shouldStoreEntry`, collision naming, terminal output) are out of scope and keep their behavior.
 
-**D3 — organize's duplicate uppercase entries are removed; its membership is unchanged.**
-Under the fold, `.JPG`, `.JPEG`, `.PNG` and `.WEBP` match their lowercase entries, so the four duplicates are dead and the comment above them asserts a case-sensitivity that no longer holds. The set of extensions organize accepts — jpg, jpeg, png, webp — is unchanged. The picture and video lists are untouched: they were already lowercase-only, and the rule reaches them through the scanner.
+**D3 — organize's duplicate uppercase entries are removed; its membership is unchanged.** Under the fold, `.JPG`, `.JPEG`, `.PNG` and `.WEBP` match their lowercase entries, so the four duplicates are dead and the comment above them asserts a case-sensitivity that no longer holds. The set of extensions organize accepts — jpg, jpeg, png, webp — is unchanged. The picture and video lists are untouched: they were already lowercase-only, and the rule reaches them through the scanner.
 
-**D4 — Each widened input set is recorded in its own capability, but the rule is stated once.**
-`image-character-organize` and `picture-video-webp` each gain a scenario naming the uppercase spelling that is now scanned, so the widening is visible where the input set is owned; neither restates the fold mechanism, which `media-scan` owns. The picture run's own extension set is not named by any main spec; the general `media-scan` requirement covers it and no new capability is invented for it.
+**D4 — Each widened input set is recorded in its own capability, but the rule is stated once.** `image-character-organize` and `picture-video-webp` each gain a scenario naming the uppercase spelling that is now scanned, so the widening is visible where the input set is owned; neither restates the fold mechanism, which `media-scan` owns. The picture run's own extension set is not named by any main spec; the general `media-scan` requirement covers it and no new capability is invented for it.
 
 ## Migration Plan
 
