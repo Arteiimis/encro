@@ -6,12 +6,16 @@
 #include "core/sha256.h"
 #include "test_utils.h"
 
+#include <boost/json.hpp>
+
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -26,29 +30,37 @@ void writeImage(fs::path const& path, std::string_view bytes) {
   out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 }
 
-// Fixture: content hash -> tags for the fake engine.
+// Fixture: what the fake engines answer for one image's content hash. An image
+// may carry tags and an identity feature at once, so its object collects
+// whichever fields that image has.
 void writeFixture(
   fs::path const& path,
   std::map<std::string, std::pair<std::string, double>> const& characterTags,
-  std::map<std::string, std::pair<std::string, double>> const& generalTags
+  std::map<std::string, std::pair<std::string, double>> const& generalTags,
+  std::map<std::string, std::vector<float>> const& identities = {}
 ) {
-  auto entries = std::map<std::string, std::string>{};
+  auto fixture = boost::json::object{};
+  auto entryFor = [&](std::string const& name) -> boost::json::object& {
+    auto& value = fixture[sha256Of(name)];
+    if (!value.is_object()) { value = boost::json::object{}; }
+    return value.as_object();
+  };
   for (auto const& [name, tag]: characterTags) {
-    entries[sha256Of(name)] =
-      std::format(R"({{"character": [[ "{}", {} ]]}})", tag.first, tag.second);
+    entryFor(name)["character"] =
+      boost::json::array{boost::json::array{tag.first, tag.second}};
   }
   for (auto const& [name, tag]: generalTags) {
-    entries[sha256Of(name)] =
-      std::format(R"({{"general": [[ "{}", {} ]]}})", tag.first, tag.second);
+    entryFor(name)["general"] =
+      boost::json::array{boost::json::array{tag.first, tag.second}};
   }
-  auto json = std::string{"{"};
-  for (auto const& [hash, tags]: entries) {
-    json += std::format(R"("{}": {},)", hash, tags);
+  for (auto const& [name, feature]: identities) {
+    auto numbers = boost::json::array{};
+    for (auto const value: feature) { numbers.emplace_back(value); }
+    entryFor(name)["identity"] = std::move(numbers);
   }
-  if (!entries.empty()) { json.pop_back(); }
-  json += '}';
+
   auto out = std::ofstream{path, std::ios::binary};
-  out << json;
+  out << boost::json::serialize(fixture);
 }
 
 }  // namespace
@@ -65,7 +77,10 @@ TEST_CASE("organize groups images by character via the CLI", "[e2e][organize]") 
   writeFixture(
     fixture,
     {{"miku1", {"hatsune_miku", 0.9}}, {"miku2", {"hatsune_miku", 0.85}}},
-    {{"oc1", {"pink_hair", 0.9}}}
+    {{"oc1", {"pink_hair", 0.9}}},
+    // Clustering reads the identity feature, not the tags (design D3/D4); the
+    // tag on oc1 only names the folder it ends up in.
+    {{"oc1", {1.0F, 0.0F}}}
   );
 
   auto const run = e2e::runEncro(

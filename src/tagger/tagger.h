@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -25,6 +26,19 @@ public:
 
   // Execution provider named in organize's one-line notice ("cuda"/"cpu");
   // engines without provider selection report "n/a".
+  virtual auto providerName() const -> std::string { return "n/a"; }
+};
+
+// The identity model's seam (design D7): the feature vector that decides
+// whether two images show the same character. Engines return a unit-length
+// vector (mapping.h normalizeFeature) because the similarity contract reads a
+// cosine; an error means this image carries no identity evidence.
+class FeatureEngine {
+public:
+  virtual ~FeatureEngine() = default;
+
+  virtual auto extract(fs::path const& path) -> eh::Result<std::vector<float>> = 0;
+
   virtual auto providerName() const -> std::string { return "n/a"; }
 };
 

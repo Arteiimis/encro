@@ -27,11 +27,17 @@ enum class FolderSource {
 
 // One (tag, confidence) pair comes from tagger::TagScore (alias above).
 
-// Raw analysis output cached per content hash; identical shape to the
-// tagger's TaggerOutput. Thresholds are
-// applied at routing time, never baked in here (design D6): a changed
-// --min-confidence applies to cached images too.
-using AnalysisResult = tagger::TaggerOutput;
+// Raw analysis of one image (design D2/D6): the tagger's tags plus the
+// identity model's feature. Thresholds are applied at routing time, never
+// baked in here, so a changed --min-confidence applies to cached images too.
+struct AnalysisResult {
+  tagger::TaggerOutput tags;
+  // Unit-length identity feature (tagger.h FeatureEngine's contract); empty
+  // when the image could not be read — which is no identity evidence at all.
+  std::vector<float> identity;
+
+  bool operator==(AnalysisResult const&) const = default;
+};
 
 // One scanned image moving through the pipeline.
 struct ImageItem {

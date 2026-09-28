@@ -18,6 +18,7 @@ namespace organize {
 auto runOrganize(
   Options const& options,
   tagger::TaggerEngine& engine,
+  tagger::FeatureEngine& features,
   progress::ProgressContext* progress
 ) -> eh::Result<ReportData>;
 

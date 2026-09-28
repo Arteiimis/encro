@@ -5,7 +5,6 @@
 
 #include "organize/assign.h"
 #include "organize/cache.h"
-#include "organize/cluster.h"
 
 #include <filesystem>
 #include <vector>
@@ -14,15 +13,12 @@ namespace fs = std::filesystem;
 
 namespace organize {
 
-// Builds references from the folders currently under <root>/organized.
-// Uses the cache for member analysis; members missing from the cache are
-// ignored (rebuildable fast path in design D6). Folders with no analyzable
-// members are skipped.
-auto buildFolderReferences(
-  fs::path const& root,
-  AnalysisCache const& cache,
-  double minConfidence,
-  CorpusTraits const& traits = {}
-) -> std::vector<FolderReference>;
+// Builds references from the folders currently under <root>/organized, in
+// folder-name order so that a cluster matching several references at the same
+// score always lands in the same one. Uses the cache for member analysis;
+// members missing from the cache are ignored (rebuildable fast path in design
+// D6). Folders with no analyzable members are skipped.
+auto buildFolderReferences(fs::path const& root, AnalysisCache const& cache)
+  -> std::vector<FolderReference>;
 
 }  // namespace organize
