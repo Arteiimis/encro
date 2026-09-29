@@ -21,7 +21,7 @@ auto asString(std::u8string_view text) -> std::string {
   return out;
 }
 
-bool hasWholeCodePoints(std::string const& text) {
+bool hasWholeCodePoints(std::string_view text) {
   if (text.empty()) { return true; }
   auto const first = static_cast<unsigned char>(text.front());
   auto const last = static_cast<unsigned char>(text.back());
@@ -689,4 +689,77 @@ TEST_CASE("fitPostfixWithEta passes text through when it fits", "[progress]") {
 
     CHECK(progress::fitPostfixWithEta(std::nullopt, text, 60) == text);
   }
+}
+
+TEST_CASE("spinnerGlyph advances one frame per tick and wraps", "[progress]") {
+  // Distinct frames on consecutive ticks...
+  CHECK(progress::spinnerGlyph(0) != progress::spinnerGlyph(1));
+  CHECK(progress::spinnerGlyph(3) != progress::spinnerGlyph(4));
+  // ...and a ten-frame set: tick 10 lands on frame 0 again.
+  CHECK(progress::spinnerGlyph(10) == progress::spinnerGlyph(0));
+  CHECK(progress::spinnerGlyph(17) == progress::spinnerGlyph(7));
+  // Every frame is a whole UTF-8 Braille code point.
+  CHECK(hasWholeCodePoints(progress::spinnerGlyph(5)));
+}
+
+TEST_CASE("spinnerPostfix prefixes the frame and keeps the label", "[progress]") {
+  auto const first = progress::spinnerPostfix(0, "Loading models");
+  auto const second = progress::spinnerPostfix(1, "Loading models");
+
+  CHECK(first != second);
+  CHECK(first.find("Loading models") != std::string::npos);
+  CHECK(second.find("Loading models") != std::string::npos);
+  CHECK(hasWholeCodePoints(first));
+  // An empty label degrades to the bare frame, never a dangling separator.
+  auto const bare = progress::spinnerPostfix(2, "");
+  CHECK(bare == progress::spinnerGlyph(2));
+}
+
+TEST_CASE("indeterminate bars animate on ticks without an ETA", "[progress]") {
+  auto ctx = progress::ProgressContext{};
+  auto const barIndex = ctx.addBar("Loading models", terminal::Role::Accent);
+  CHECK_FALSE(ctx.isIndeterminate(barIndex));
+
+  ctx.setIndeterminate(barIndex, true);
+  CHECK(ctx.isIndeterminate(barIndex));
+
+  ctx.tick();
+  auto const firstTick = ctx.tickCount();
+  CHECK(firstTick > 0);
+
+  // Consecutive ticks advance the glyph the bar renders for its postfix.
+  auto const afterFirst = progress::spinnerPostfix(firstTick, "Loading models");
+  ctx.tick();
+  CHECK(progress::spinnerPostfix(ctx.tickCount(), "Loading models") != afterFirst);
+
+  // Animation never samples the estimator: no elapsed anchor, no ETA, and so
+  // no badge can be composed for the bar.
+  CHECK_FALSE(ctx.elapsedSeconds(barIndex, std::chrono::steady_clock::now()).has_value());
+  CHECK_FALSE(ctx.etaSeconds(barIndex).has_value());
+  CHECK(ctx.progressValue(barIndex) == 0.0f);
+}
+
+TEST_CASE("a determinate bar beside a spinner keeps its behavior", "[progress]") {
+  auto ctx = progress::ProgressContext{};
+  auto const spinIndex = ctx.addBar("Loading models", terminal::Role::Accent);
+  auto const barIndex = ctx.addBar("Analyzing", terminal::Role::Accent);
+  ctx.setIndeterminate(spinIndex, true);
+  ctx.setProgress(barIndex, 40.0f);
+  ctx.setPostfixText(barIndex, "half way");
+
+  for (auto i = 0; i < 3; ++i) { ctx.tick(); }
+
+  // Ticks on the spinner neighbour leave the determinate bar untouched.
+  CHECK(ctx.progressValue(barIndex) == 40.0f);
+  CHECK(ctx.postfixText(barIndex) == "half way");
+  CHECK_FALSE(ctx.isIndeterminate(barIndex));
+  // And the spinner never gained progress from animation.
+  CHECK(ctx.progressValue(spinIndex) == 0.0f);
+
+  // The clear lifecycle applies to an indeterminate bar like any other: the
+  // erased context stays finished and renders nothing after.
+  ctx.eraseBars();
+  ctx.tick();
+  CHECK(ctx.cleared());
+  CHECK_FALSE(ctx.renderable());
 }

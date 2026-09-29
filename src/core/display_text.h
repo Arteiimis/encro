@@ -179,6 +179,15 @@ inline auto truncateMiddle(std::string_view text, std::size_t maxWidth) -> std::
   + takePrefixByDisplayWidth(ext, maxWidth - used - 1);
 }
 
+// Pads text on the right to exactly `width` display columns; text already at
+// or past the width passes through untouched (no truncation here — pair with
+// truncateWithEllipsis/truncateMiddle when a column must not overflow).
+inline auto padToDisplayWidth(std::string_view text, std::size_t width) -> std::string {
+  auto const used = displayWidth(text);
+  if (used >= width) { return std::string{text}; }
+  return std::string{text} + std::string(width - used, ' ');
+}
+
 struct TableLayout {
   std::size_t nameWidth = 0;
 };
