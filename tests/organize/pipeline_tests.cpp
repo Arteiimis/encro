@@ -876,7 +876,6 @@ TEST_CASE(
   // terminal, and the count stays right where today's fixed layout puts it.
   CHECK(imagesColumnText(lines[0], 30) == "images");
   CHECK(imagesColumnText(lines[2], 30) == std::format("{: >6}", 1));
-  CHECK(text.find("folder") != std::string::npos);
   CHECK(text.find("folder ") != std::string::npos);
 }
 

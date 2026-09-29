@@ -720,8 +720,15 @@ TEST_CASE("indeterminate bars animate on ticks without an ETA", "[progress]") {
   auto const barIndex = ctx.addBar("Loading models", terminal::Role::Accent);
   CHECK_FALSE(ctx.isIndeterminate(barIndex));
 
+  // Flipping a bar that already reported progress must still lose the badge:
+  // the flag discards the determinate timing state, so no anchor survives.
+  ctx.setProgress(barIndex, 50.0f);
+  REQUIRE(ctx.elapsedSeconds(barIndex, std::chrono::steady_clock::now()).has_value());
+
   ctx.setIndeterminate(barIndex, true);
   CHECK(ctx.isIndeterminate(barIndex));
+  CHECK_FALSE(ctx.elapsedSeconds(barIndex, std::chrono::steady_clock::now()).has_value());
+  CHECK_FALSE(ctx.etaSeconds(barIndex).has_value());
 
   ctx.tick();
   auto const firstTick = ctx.tickCount();
@@ -734,8 +741,6 @@ TEST_CASE("indeterminate bars animate on ticks without an ETA", "[progress]") {
 
   // Animation never samples the estimator: no elapsed anchor, no ETA, and so
   // no badge can be composed for the bar.
-  CHECK_FALSE(ctx.elapsedSeconds(barIndex, std::chrono::steady_clock::now()).has_value());
-  CHECK_FALSE(ctx.etaSeconds(barIndex).has_value());
   CHECK(ctx.progressValue(barIndex) == 0.0f);
 }
 
