@@ -605,7 +605,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "conversion concurrency stops at two without a job cap",
+  "conversion concurrency follows the job count without a lower cap",
   "[picture-process][video-webp]"
 ) {
   ConversionFixture f;
@@ -615,6 +615,8 @@ TEST_CASE(
   }
   // The gate pins every allowed conversion in flight, and each one logs its
   // invocation before blocking, so the log shows exactly how many run at once.
+  // Three clips must all be in flight together under the default job count:
+  // a conversion-specific cap below the job count would hold the third back.
   auto const gateFile = f.temp.path / "convert-gate";
   f.envs.push_back(
     std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
@@ -622,13 +624,8 @@ TEST_CASE(
 
   std::optional<eh::Result<int>> outcome;
   auto runner = std::jthread{[&] { outcome = f.run(); }};
-  auto const twoInFlight =
-    testutils::waitUntil([&] { return f.encodeCount() >= 2; }, std::chrono::seconds{30});
-  // While the gate holds, a third conversion would already have started if the
-  // cap allowed it: the workers are live and only the gate stops them, so this
-  // window is not a race against machine load.
-  auto const thirdStarted =
-    testutils::waitUntil([&] { return f.encodeCount() >= 3; }, std::chrono::seconds{1});
+  auto const allInFlight =
+    testutils::waitUntil([&] { return f.encodeCount() >= 3; }, std::chrono::seconds{30});
   {
     auto gate = std::ofstream{gateFile, std::ios::binary};
     REQUIRE(gate.is_open());
@@ -636,8 +633,7 @@ TEST_CASE(
   }
   runner.join();
 
-  REQUIRE(twoInFlight);
-  CHECK_FALSE(thirdStarted);
+  REQUIRE(allInFlight);
   REQUIRE(outcome.has_value());
   REQUIRE(outcome->has_value());
   CHECK(outcome->value() == 0);

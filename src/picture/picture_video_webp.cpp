@@ -28,11 +28,6 @@ using enum terminal::MessageKind;
 
 namespace {
 
-// Each conversion is a single-core libwebp encode plus an ffmpeg decode, so a
-// picture-style size-derived cap would oversubscribe the machine while gaining
-// little; throughput is bounded per conversion, not per machine.
-constexpr auto kVideoConversionMaxParallel = std::size_t{2};
-
 // The encoder writes here and the phase renames on success, so a file at the
 // final cached path is always a complete output. Same rule as the picture
 // workflow's compression temp (recognizable media extension, `.partial`), so
@@ -247,8 +242,7 @@ auto picturewebp::runConversionPhase(
       .progress = &progressCtx,
       .barIndex = barIndex,
       .verb = "Converting videos",
-      .maxConcurrency =
-        std::max(std::size_t{1}, std::min(maxParallel, kVideoConversionMaxParallel)),
+      .maxConcurrency = std::max(std::size_t{1}, maxParallel),
       .postfix =
         [&completed](std::size_t done, std::size_t total, double) {
           completed.store(done, std::memory_order_release);
