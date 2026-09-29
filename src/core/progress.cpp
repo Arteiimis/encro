@@ -5,6 +5,7 @@
 #include "infra/terminal.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 #include <print>  // IWYU pragma: keep -- needed with MSVC STL; Linux libstdc++ pulls it transitively
@@ -189,6 +190,31 @@ std::size_t bounceOffset(std::uint64_t elapsedMs, std::size_t travel) {
   return 0;
 }
 
+auto spinnerGlyph(std::uint64_t tickCount) -> std::string_view {
+  // The standard ten-frame Braille spinner, one frame per repaint.
+  static constexpr auto kFrames = std::array<std::string_view, 10>{
+    "\xE2\xA0\x8B",
+    "\xE2\xA0\x99",
+    "\xE2\xA0\xB9",
+    "\xE2\xA0\xB8",
+    "\xE2\xA0\xBC",
+    "\xE2\xA0\xB4",
+    "\xE2\xA0\xA6",
+    "\xE2\xA0\xA7",
+    "\xE2\xA0\x87",
+    "\xE2\xA0\x8F",
+  };
+  return kFrames[tickCount % kFrames.size()];
+}
+
+auto spinnerPostfix(std::uint64_t tickCount, std::string_view postfix) -> std::string {
+  auto out = std::string{spinnerGlyph(tickCount)};
+  if (postfix.empty()) { return out; }
+  out += ' ';
+  out += postfix;
+  return out;
+}
+
 auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
   if (budget == 0) { return {}; }
   if (displaytext::displayWidth(text) <= budget) { return std::string{text}; }
@@ -331,6 +357,7 @@ std::size_t ProgressContext::addBar(std::string_view promptText, terminal::Role 
   auto const index = progress::addBar(manager_, bars_, roles_, promptText, role);
   postfixes_.emplace_back(promptText);
   etas_.emplace_back();
+  indeterminate_.emplace_back(0);
   ensureTicker();
   return index;
 }
@@ -351,9 +378,14 @@ void ProgressContext::applyBarText(std::size_t barIndex, float progress) {
     })
   );
   bars_[barIndex]->set_option(indicators::option::BarWidth{layout.barWidth});
+  // An indeterminate bar's postfix carries the spinner frame for this tick;
+  // the progress value itself stays untouched (repaints are display-only).
+  auto const postfix = indeterminate_[barIndex] != 0
+    ? spinnerPostfix(tickCount_, postfixes_[barIndex])
+    : postfixes_[barIndex];
   bars_[barIndex]->set_option(
     indicators::option::PostfixText{
-      fitPostfixWithEta(etaText, postfixes_[barIndex], layout.postfixBudget)
+      fitPostfixWithEta(etaText, postfix, layout.postfixBudget)
     }
   );
 }
@@ -464,6 +496,18 @@ void ProgressContext::setRole(std::size_t barIndex, terminal::Role role) {
   roles_[barIndex] = role;
   applyRole(*bars_[barIndex], role);
   render();
+}
+
+void ProgressContext::setIndeterminate(std::size_t barIndex, bool indeterminate) {
+  auto lock = std::scoped_lock{mtx_};
+  indeterminate_[barIndex] = indeterminate ? 1 : 0;
+  applyBarText(barIndex, etas_[barIndex].lastProgress());
+  render();
+}
+
+bool ProgressContext::isIndeterminate(std::size_t barIndex) const {
+  auto lock = std::scoped_lock{mtx_};
+  return indeterminate_[barIndex] != 0;
 }
 
 void ProgressContext::render() {

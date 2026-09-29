@@ -32,7 +32,9 @@ struct ReportData {
 auto buildFoldersSection(std::vector<ImageItem> const& items)
   -> std::vector<FolderReportLine>;
 
-// Human-readable report text (per-folder counts + sources, run totals).
-auto renderReport(ReportData const& report) -> std::string;
+// Human-readable report text (per-folder counts + sources, run totals). The
+// folder column adapts to `terminalColumns` (encode-probe table layout):
+// never below the fixed minimum, never wider than the terminal budget.
+auto renderReport(ReportData const& report, std::size_t terminalColumns) -> std::string;
 
 }  // namespace organize

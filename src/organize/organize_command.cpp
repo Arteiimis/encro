@@ -3,6 +3,7 @@
 #include "cmd/cmd.h"
 #include "core/display_text.h"
 #include "core/progress.h"
+#include "infra/console_width.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
 #include "organize/pipeline.h"
@@ -16,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -97,29 +99,36 @@ bool downloadModels(fs::path const& modelDir) {
 }
 
 // The two engines the pipeline runs. Both load a model file and fail the same
-// way, so they share one build path (design D7); a null member means the
-// failure was already reported.
+// way, so they share one build path (design D7); a null member means its
+// build error sits in `errors`, printed by the caller after the loading
+// spinner is erased (bars are cleared before any failure diagnostic).
 struct Engines {
   std::unique_ptr<tagger::TaggerEngine> tagger;
   std::unique_ptr<tagger::FeatureEngine> features;
+  std::vector<std::string> errors;
 
   explicit operator bool() const { return tagger != nullptr && features != nullptr; }
 };
 
 auto makeEngines(fs::path const& modelDir, std::optional<fs::path> const& ffmpegPath)
   -> Engines {
-  auto build = [](auto&& make) -> decltype(make()) {
+  auto build = [](auto&& make, std::vector<std::string>& errors) -> decltype(make()) {
     try {
       return make();
     } catch (std::exception const& error) {
-      terminal::messageln(MessageKind::Error, "{}", error.what());
+      errors.emplace_back(error.what());
       return nullptr;
     }
   };
-  return Engines{
-    .tagger = build([&] { return tagger::makeTaggerEngine(modelDir, ffmpegPath); }),
-    .features = build([&] { return tagger::makeFeatureEngine(modelDir, ffmpegPath); }),
+  auto errors = std::vector<std::string>{};
+  auto engines = Engines{
+    .tagger =
+      build([&] { return tagger::makeTaggerEngine(modelDir, ffmpegPath); }, errors),
+    .features =
+      build([&] { return tagger::makeFeatureEngine(modelDir, ffmpegPath); }, errors),
   };
+  engines.errors = std::move(errors);
+  return engines;
 }
 
 int runOrganizeCommand(CmdParseResult const& cmd) {
@@ -141,8 +150,23 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
     ? std::optional<fs::path>{fs::path{*cmd.ffmpegPath}}
     : std::nullopt;
 
+  // The engine build is the run's silent spot (CUDA DLL loads, two session
+  // creations); an indeterminate spinner covers it and is erased before any
+  // output follows, per the bar lifecycle. The fake-engine path loads
+  // nothing, so it never starts the spinner.
+  auto spinner = progress::ProgressContext{};
+  if (!fakeEngine) {
+    auto const barIndex = spinner.addBar("Loading models");
+    spinner.setIndeterminate(barIndex, true);
+  }
   auto engines = makeEngines(modelDir, ffmpegPath);
-  if (!engines) { return 1; }
+  spinner.eraseBars();
+  if (!engines) {
+    for (auto const& error: engines.errors) {
+      terminal::messageln(MessageKind::Error, "{}", error);
+    }
+    return 1;
+  }
   if (!fakeEngine) { notifyProviders(*engines.tagger, *engines.features); }
 
   auto options = Options{
@@ -183,7 +207,11 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
   }
 
   progress.eraseBars();
-  terminal::print(MessageKind::Plain, "{}", renderReport(*runResult));
+  terminal::print(
+    MessageKind::Plain,
+    "{}",
+    renderReport(*runResult, consolewidth::resolveColumns())
+  );
   return 0;
 }
 
