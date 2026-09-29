@@ -112,7 +112,8 @@ struct Engines {
 
 auto makeEngines(fs::path const& modelDir, std::optional<fs::path> const& ffmpegPath)
   -> Engines {
-  auto build = [](auto&& make, std::vector<std::string>& errors) -> decltype(make()) {
+  auto errors = std::vector<std::string>{};
+  auto build = [&errors](auto&& make) -> decltype(make()) {
     try {
       return make();
     } catch (std::exception const& error) {
@@ -120,15 +121,11 @@ auto makeEngines(fs::path const& modelDir, std::optional<fs::path> const& ffmpeg
       return nullptr;
     }
   };
-  auto errors = std::vector<std::string>{};
-  auto engines = Engines{
-    .tagger =
-      build([&] { return tagger::makeTaggerEngine(modelDir, ffmpegPath); }, errors),
-    .features =
-      build([&] { return tagger::makeFeatureEngine(modelDir, ffmpegPath); }, errors),
+  return Engines{
+    .tagger = build([&] { return tagger::makeTaggerEngine(modelDir, ffmpegPath); }),
+    .features = build([&] { return tagger::makeFeatureEngine(modelDir, ffmpegPath); }),
+    .errors = std::move(errors),
   };
-  engines.errors = std::move(errors);
-  return engines;
 }
 
 int runOrganizeCommand(CmdParseResult const& cmd) {

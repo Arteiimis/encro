@@ -364,7 +364,10 @@ std::size_t ProgressContext::addBar(std::string_view promptText, terminal::Role 
 
 void ProgressContext::applyBarText(std::size_t barIndex, float progress) {
   auto etaText = std::optional<std::string>{};
-  if (progress < 100.0f) {
+  // An indeterminate bar never renders an ETA badge, whatever timing state
+  // the estimator still holds (spec: the flag, not the sample history,
+  // decides).
+  if (progress < 100.0f && indeterminate_[barIndex] == 0) {
     etaText = formatEtaBadge(
       etas_[barIndex].elapsedSeconds(std::chrono::steady_clock::now()),
       etas_[barIndex].etaSeconds(progress)
@@ -501,6 +504,9 @@ void ProgressContext::setRole(std::size_t barIndex, terminal::Role role) {
 void ProgressContext::setIndeterminate(std::size_t barIndex, bool indeterminate) {
   auto lock = std::scoped_lock{mtx_};
   indeterminate_[barIndex] = indeterminate ? 1 : 0;
+  // Entering spinner mode discards the bar's determinate timing state: no
+  // stale elapsed anchor can surface after the flip.
+  if (indeterminate_[barIndex] != 0) { etas_[barIndex].reset(); }
   applyBarText(barIndex, etas_[barIndex].lastProgress());
   render();
 }
