@@ -88,6 +88,12 @@ public:
   void setPostfixText(std::size_t barIndex, std::string_view promptText);
   void setProgress(std::size_t barIndex, float progress);
   void setRole(std::size_t barIndex, terminal::Role role);
+  // Marks a bar indeterminate: repaints animate its postfix with the spinner
+  // glyph and no progress value is ever sampled, so no ETA badge appears.
+  // The bar's lifecycle is unchanged: erase semantics apply as for any bar.
+  void setIndeterminate(std::size_t barIndex, bool indeterminate);
+  // True when the bar is flagged indeterminate (read-only view for tests).
+  bool isIndeterminate(std::size_t barIndex) const;
   void resetEta(std::size_t barIndex, float elapsedBaseSec = 0.0f);
   // Real seconds spent on the bar's current task (base + time since the
   // encoding anchor); nullopt before the anchor. Read-only view for
@@ -157,6 +163,7 @@ private:
   std::vector<terminal::Role> roles_;
   std::vector<std::string> postfixes_;
   std::vector<EtaEstimator> etas_;
+  std::vector<char> indeterminate_;  // parallel to postfixes_; 0 = determinate
   std::uint64_t tickCount_ = 0;
   // Bars rendered on the last render pass; bars added but never rendered
   // (all-cache-hit probe runs) leave no lines to erase.
@@ -189,6 +196,14 @@ auto scrollWindow(std::string_view text, std::size_t budget, std::size_t startCo
   -> std::string;
 
 std::size_t bounceOffset(std::uint64_t elapsedMs, std::size_t travel);
+
+// The spinner frame an indeterminate bar shows at `tickCount`: one frame per
+// repaint through the ten-glyph Braille set, wrapping at the set's size.
+auto spinnerGlyph(std::uint64_t tickCount) -> std::string_view;
+
+// The postfix an indeterminate bar renders at `tickCount`: the spinner frame
+// prefixed to the stored label ("<glyph> label"), the label alone when empty.
+auto spinnerPostfix(std::uint64_t tickCount, std::string_view postfix) -> std::string;
 
 class CursorGuard {
 public:

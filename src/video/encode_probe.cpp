@@ -947,12 +947,6 @@ auto formatProbeP5(ProbePlan const& plan) -> std::string {
   return p5 < 95.0 ? std::format("{:.2f}", p5) : std::format("{:.1f}", p5);
 }
 
-auto padToDisplayWidth(std::string_view text, std::size_t width) -> std::string {
-  auto const used = displaytext::displayWidth(text);
-  if (used >= width) { return std::string{text}; }
-  return std::string{text} + std::string(width - used, ' ');
-}
-
 struct PlanStats {
   std::vector<ProbePlan const*> normal;
   std::vector<ProbePlan const*> warnings;
@@ -1035,9 +1029,9 @@ auto formatProbePlanRow(
     nameWidth - prefixWidth(marker)
   );
   auto const ratio = probePlanRatio(plan);
-  auto const nameCell = marker.empty()
-    ? padToDisplayWidth(name, nameWidth)
-    : std::string{marker} + padToDisplayWidth(name, nameWidth - prefixWidth(marker));
+  auto const nameCell = marker.empty() ? displaytext::padToDisplayWidth(name, nameWidth)
+                                       : std::string{marker}
+      + displaytext::padToDisplayWidth(name, nameWidth - prefixWidth(marker));
   if (!plan.probed) {
     return std::format(
       "  {}  {:>3}  {:>6}  {:>9}  {:<6} (not probed: {})",
@@ -1145,7 +1139,7 @@ void printProbePlan(
   lines.push_back(
     std::format(
       "  {}  {:>3}  {:>6}  {:>9}  {:<6}",
-      padToDisplayWidth("File", width),
+      displaytext::padToDisplayWidth("File", width),
       "CQ",
       "p5",
       "Est.Size",

@@ -2,6 +2,7 @@
 
 #include "core/display_text.h"
 
+#include <algorithm>
 #include <format>
 #include <map>
 #include <string_view>
@@ -52,19 +53,50 @@ auto sourceLabel(FolderSource source) -> std::string_view {
   return "unknown";
 }
 
+// The folder column's width (encode-probe table layout): at least the fixed
+// minimum (today's layout, kept for short-name tables), never wider than the
+// terminal budget after the fixed tail (space + images 6 + gap 2 + the
+// longest source label 13). A narrower terminal falls back to the minimum,
+// matching the pre-dynamic fixed layout.
+constexpr auto kMinFolderWidth = std::size_t{30};
+constexpr auto kTailWidth = std::size_t{9 + 13};
+
+auto resolveFolderWidth(
+  std::vector<FolderReportLine> const& folders,
+  std::size_t terminalColumns
+) -> std::size_t {
+  auto widest = std::size_t{0};
+  for (auto const& folder: folders) {
+    widest = std::max(widest, displaytext::displayWidth(folder.folder));
+  }
+  auto const budget = terminalColumns > kTailWidth ? terminalColumns - kTailWidth : 0;
+  return std::min(std::max(widest, kMinFolderWidth), std::max(budget, kMinFolderWidth));
+}
+
 }  // namespace
 
-auto renderReport(ReportData const& report) -> std::string {
+auto renderReport(ReportData const& report, std::size_t terminalColumns) -> std::string {
   auto text = std::string{};
-  text += "folder                          images  source\n";
-  // The rule shares the encode plan's glyph family (pipeline-narration);
-  // its 46 glyphs match the header row's width.
-  text += displaytext::boxRule(46);
+  auto const nameWidth = resolveFolderWidth(report.folders, terminalColumns);
+  auto const headerLine = std::format(
+    "{} {:>6}  {}",
+    displaytext::padToDisplayWidth("folder", nameWidth),
+    "images",
+    "source"
+  );
+  text += headerLine;
+  text += '\n';
+  // The rule shares the encode plan's glyph family (pipeline-narration); its
+  // width matches the rendered header row.
+  text += displaytext::boxRule(displaytext::displayWidth(headerLine));
   text += '\n';
   for (auto const& folder: report.folders) {
     text += std::format(
-      "{:<30} {:>6}  {}\n",
-      folder.folder,
+      "{} {:>6}  {}\n",
+      displaytext::padToDisplayWidth(
+        displaytext::truncateWithEllipsis(folder.folder, nameWidth),
+        nameWidth
+      ),
       folder.images,
       sourceLabel(folder.source)
     );

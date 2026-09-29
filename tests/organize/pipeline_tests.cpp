@@ -1,5 +1,6 @@
 // Pipeline integration over the FakeTagger seam (tasks 4.1-4.4): staging,
 // mixed/uncategorized semantics, dry-run, recluster, resume, rename teaching.
+#include "core/display_text.h"
 #include "core/progress.h"
 #include "core/sha256.h"
 
@@ -12,6 +13,7 @@
 #include "infra/stop_signal.h"
 #include "organize/organize_command.h"
 #include "tagger/mapping.h"
+#include "utils/utils.h"
 
 #include "test_utils.h"
 
@@ -20,7 +22,9 @@
 #include <filesystem>
 #include <format>
 #include <map>
+#include <ranges>
 #include <string>
+#include <vector>
 
 #if defined(_WIN32)
   #include <windows.h>
@@ -705,6 +709,89 @@ TEST_CASE("a merged cluster shares one folder", "[organize]") {
   CHECK((members == std::vector<int>{2, 1} || members == std::vector<int>{1, 2}));
 }
 
+// The fake-engine path loads no ONNX runtime, so it must stay notice-free
+// while still running to completion (the spinner wiring must not change it).
+TEST_CASE("organize with the fake engine prints no provider notice", "[organize]") {
+  auto temp = TempDir{};
+  auto const pics = temp.path / "pics";
+  fs::create_directories(pics);
+  auto const bytes = std::string{"miku-bytes"};
+  testutils::writeTextFile(pics / "miku.png", bytes);
+  auto const fixture = temp.path / "fixture.json";
+  testutils::writeTextFile(
+    fixture,
+    std::format(
+      R"({{"{}": {{"character": [["hatsune_miku", 0.9]]}}}})",
+      core::sha256Hex(bytes)
+    )
+  );
+  auto const fakeEngine = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", fixture.string()};
+
+  auto cmd = CmdParseResult{};
+  cmd.organizeDir = pics.string();
+  auto exitCode = 1;
+  auto const captured =
+    testutils::captureStdout([&] { exitCode = organize::runOrganizeCommand(cmd); });
+
+  CHECK(exitCode == 0);
+  CHECK(captured.find("onnxruntime:") == std::string::npos);
+}
+
+// The loading spinner wraps real engine construction; the observable contract
+// off a TTY is that the run still succeeds and exactly one provider notice
+// survives the spinner's create-and-clear cycle.
+TEST_CASE(
+  "organize loads real engines and prints one provider notice",
+  "[organize][real-model]"
+) {
+  auto const modelDirVar = processenv::readEnvVar("ENCRO_TEST_MODEL_DIR");
+  if (!modelDirVar.has_value()) {
+    SKIP("ENCRO_TEST_MODEL_DIR is unset; the real-model smoke needs a model dir.");
+  }
+  auto const modelDir = fs::path{*modelDirVar};
+  if (
+    !fs::exists(modelDir / "model.onnx")
+    || !fs::exists(modelDir / "model_feat.onnx")
+    || !fs::exists(modelDir / "selected_tags.csv")
+  ) {
+    SKIP("Model files not present; run --download-models for the real-model smoke.");
+  }
+  auto const ffmpeg = findFFmpeg(std::nullopt);
+  if (!ffmpeg.has_value()) { SKIP("System FFmpeg not available on PATH."); }
+
+  auto temp = TempDir{};
+  auto const pics = temp.path / "pics";
+  fs::create_directories(pics);
+  auto const input = pics / "probe.png";
+  auto const [exitCode, output, _, stderrText] = exec2(
+    std::format(
+      R"("{}" -hide_banner -loglevel error -y -f lavfi -i color=c=red:s=448x448 -frames:v 1 "{}")",
+      quoteToolPath(*ffmpeg),
+      input.string()
+    )
+  );
+  REQUIRE(exitCode == 0);
+
+  auto cmd = CmdParseResult{};
+  cmd.organizeDir = pics.string();
+  cmd.organizeModelDir = modelDir.string();
+  cmd.ffmpegPath = ffmpeg->string();
+
+  auto runExit = 1;
+  auto const captured =
+    testutils::captureStdout([&] { runExit = organize::runOrganizeCommand(cmd); });
+
+  CHECK(runExit == 0);
+  auto notices = std::size_t{0};
+  for (
+    auto pos = captured.find("onnxruntime:"); pos != std::string::npos;
+    pos = captured.find("onnxruntime:", pos + 1)
+  ) {
+    ++notices;
+  }
+  CHECK(notices == 1);
+}
+
 TEST_CASE("renderReport lists folders with sources and totals", "[organize]") {
   auto report = organize::ReportData{
     .folders = {organize::FolderReportLine{
@@ -717,13 +804,111 @@ TEST_CASE("renderReport lists folders with sources and totals", "[organize]") {
     .skippedExisting = 0,
     .cacheHits = 0,
   };
-  auto const text = organize::renderReport(report);
+  auto const text = organize::renderReport(report, 80);
   CHECK(text.find("hatsune_miku") != std::string::npos);
   CHECK(text.find("character tag") != std::string::npos);
   CHECK(text.find("scanned 2 images") != std::string::npos);
   // Report rules share the encode plan's glyph family (pipeline-narration).
   CHECK(text.find("\xE2\x94\x80") != std::string::npos);
   CHECK(text.find("---") == std::string::npos);
+}
+
+// The images column starts one past the folder column on every row; header
+// included. Rows carry `images` right-aligned in 6 columns after that.
+auto imagesColumnText(std::string const& line, std::size_t nameWidth) -> std::string {
+  return line.substr(nameWidth + 1, 6);
+}
+
+TEST_CASE("renderReport truncates long folder names and stays aligned", "[organize]") {
+  auto const longName = std::string{"unknown_animal_ears_eyepatch_black_hair"};
+  REQUIRE(displaytext::displayWidth(longName) == 39);
+  auto report = organize::ReportData{
+    .folders = {
+      organize::FolderReportLine{
+        .folder = longName,
+        .images = 2,
+        .source = organize::FolderSource::NewCluster
+      },
+      organize::FolderReportLine{
+        .folder = "venti",
+        .images = 10,
+        .source = organize::FolderSource::CharacterTag
+      },
+    },
+  };
+
+  // A 50-column terminal cannot fund more than the 30-column floor: the
+  // 39-wide name truncates with an ellipsis while both rows keep the
+  // header's columns.
+  auto const text = organize::renderReport(report, 50);
+  auto lines = std::vector<std::string>{};
+  for (auto const& line: text | std::views::split('\n')) {
+    lines.emplace_back(line.begin(), line.end());
+  }
+  REQUIRE(lines.size() >= 4);  // header, rule, two rows
+  CHECK(text.find("...") != std::string::npos);
+  CHECK(imagesColumnText(lines[0], 30) == "images");
+  CHECK(imagesColumnText(lines[2], 30) == std::format("{: >6}", 2));
+  CHECK(imagesColumnText(lines[3], 30) == std::format("{: >6}", 10));
+  // The truncated cell fills the whole column (the count follows it
+  // directly, not at the untruncated name's width).
+  CHECK(displaytext::displayWidth(lines[2].substr(0, 30)) == 30);
+}
+
+TEST_CASE(
+  "renderReport keeps the folder column at its minimum for short names",
+  "[organize]"
+) {
+  auto report = organize::ReportData{
+    .folders = {organize::FolderReportLine{
+      .folder = "pikachu",
+      .images = 1,
+      .source = organize::FolderSource::FolderMatch
+    }},
+  };
+
+  auto const text = organize::renderReport(report, 120);
+  auto lines = std::vector<std::string>{};
+  for (auto const& line: text | std::views::split('\n')) {
+    lines.emplace_back(line.begin(), line.end());
+  }
+  // Floor 30: short names do not grow the column toward the 120-column
+  // terminal, and the count stays right where today's fixed layout puts it.
+  CHECK(imagesColumnText(lines[0], 30) == "images");
+  CHECK(imagesColumnText(lines[2], 30) == std::format("{: >6}", 1));
+  CHECK(text.find("folder") != std::string::npos);
+  CHECK(text.find("folder ") != std::string::npos);
+}
+
+TEST_CASE("renderReport aligns a CJK folder name by display width", "[organize]") {
+  auto report = organize::ReportData{
+    .folders = {
+      organize::FolderReportLine{
+        .folder =
+          "\xE5\x88\x9D\xE9\x9F\xB3\xE3\x83\x9F\xE3\x82\xAF",  // 初音ミク, width 8
+        .images = 3,
+        .source = organize::FolderSource::CharacterTag
+      },
+      organize::FolderReportLine{
+        .folder = "venti",
+        .images = 7,
+        .source = organize::FolderSource::CharacterTag
+      },
+    },
+  };
+
+  auto const text = organize::renderReport(report, 80);
+  auto lines = std::vector<std::string>{};
+  for (auto const& line: text | std::views::split('\n')) {
+    lines.emplace_back(line.begin(), line.end());
+  }
+  // Padding counts display columns, not bytes: the CJK row's count sits at
+  // the same column as every other row's.
+  auto const cjkRow = lines[2];
+  auto const countPos = cjkRow.find(std::format("{: >6}", 3));
+  REQUIRE(countPos != std::string::npos);
+  CHECK(displaytext::displayWidth(cjkRow.substr(0, countPos)) == 31);
+  CHECK(imagesColumnText(lines[3], 30) == std::format("{: >6}", 7));
 }
 
 TEST_CASE("organize names failed copies in its report", "[organize]") {
