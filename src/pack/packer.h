@@ -61,7 +61,7 @@ public:
     std::filesystem::path const& dirPath,
     std::filesystem::path const& zipFileDir,
     std::uintmax_t maxGroupSize = pack::kDefaultMaxArchiveGroupSize,
-    DirectoryPackOptions options = {}
+    DirectoryPackOptions const& options = {}
   ) -> eh::Result<PackPlan>;
 
 private:

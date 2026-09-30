@@ -155,8 +155,7 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const root = temp.path / "pics";
-  auto const oversized =
-    testutils::writeSizedFile(root / "huge.mp4", 32ULL * 1024ULL * 1024ULL);
+  testutils::writeSizedFile(root / "huge.mp4", 32ULL * 1024ULL * 1024ULL);
   auto const boundary =
     testutils::writeSizedFile(root / "boundary.mp4", 32ULL * 1024ULL * 1024ULL - 1ULL);
 
