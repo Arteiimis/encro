@@ -239,9 +239,8 @@ auto runIdSnapshot() -> std::string_view {
 static auto gCountingSink = std::shared_ptr<LevelCountingSink>{};
 // Snapshot taken at shutdown so levelCounts() stays queryable after the
 // sink chain (and its file handles) is released.
-static auto
-  gLevelCountSnapshot =  // NOLINT(bugprone-throwing-static-initialization): std::map default ctor is noexcept
-  std::map<std::string, std::uint64_t>{};
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): std::map default ctor is noexcept
+static auto gLevelCountSnapshot = std::map<std::string, std::uint64_t>{};
 
 namespace {
 
@@ -536,9 +535,8 @@ auto currentNdjsonFilePath() -> std::optional<fs::path> {
 // ── Forensic context state ──────────────────────────────────────────────────
 
 static auto gForensicAppCtx = std::atomic<void*>{nullptr};
-static auto
-  gForensicSnapshotData =  // NOLINT(bugprone-throwing-static-initialization): EnvironmentSnapshot is noexcept-default-constructible
-  EnvironmentSnapshot{};
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): EnvironmentSnapshot is noexcept-default-constructible
+static auto gForensicSnapshotData = EnvironmentSnapshot{};
 
 void setForensicAppContext(void* appCtx) {
   gForensicAppCtx.store(appCtx, std::memory_order_release);

@@ -83,7 +83,8 @@ struct ProbeRootCleanupGuard {
   std::chrono::milliseconds retryDelay;
   bool warnOnFailure;
 
-  ~ProbeRootCleanupGuard() {  // NOLINT(bugprone-exception-escape): error_code overloads never throw
+  // NOLINTNEXTLINE(bugprone-exception-escape): error_code overloads never throw
+  ~ProbeRootCleanupGuard() {
     for (auto attempt = 0; attempt < retries; ++attempt) {
       auto ec = std::error_code{};
       fs::remove_all(root, ec);

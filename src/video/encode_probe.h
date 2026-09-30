@@ -145,8 +145,8 @@ struct ProbePlan {
   std::string_view skipReason = "short video";
 };
 
-struct
-  ProbePhaseResult {  // NOLINT(bugprone-exception-escape): aggregate construction; bad_alloc only
+// NOLINTNEXTLINE(bugprone-exception-escape): aggregate construction; bad_alloc only
+struct ProbePhaseResult {
   appctx::path_map<ProbePlan> plans;
   std::vector<std::string> attentionWarnings;
 };

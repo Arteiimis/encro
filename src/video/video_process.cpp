@@ -629,10 +629,8 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
 
   auto const sourceRootDir = normalizeInputRootDir(inputPath);
   return runScannedEncodingWorkflow(ctx, vids, sourceRootDir, inputPath, [&] {
-    LOG_INFO(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in completion lambda
-      "Path encoding done: {}",
-      inputPath.string()
-    );
+    // NOLINTNEXTLINE(bugprone-lambda-function-name): SPDLOG_FUNCTION in completion lambda
+    LOG_INFO("Path encoding done: {}", inputPath.string());
   });
 }
 
@@ -671,9 +669,7 @@ int handleMultiFileEncoding(
   }
 
   return runScannedEncodingWorkflow(ctx, vids, basePath, basePath, [&] {
-    LOG_INFO(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in completion lambda
-      "Multi-file encoding done: input-count={}",
-      inputPaths.size()
-    );
+    // NOLINTNEXTLINE(bugprone-lambda-function-name): SPDLOG_FUNCTION in completion lambda
+    LOG_INFO("Multi-file encoding done: input-count={}", inputPaths.size());
   });
 }

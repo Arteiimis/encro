@@ -436,20 +436,16 @@ auto pack::Packer::packFilesToZip(
   progressCtx.setRole(progressBarIndex, terminal::Role::Warn);
 
   std::atomic<bool> finalizing{true};
-  auto spinnerThread = std::jthread(
-    [&](
-      std::stop_token
-        stopToken  // NOLINT(performance-unnecessary-value-param): jthread callback signature is fixed
-    ) {
-      runFinalizingSpinner(
-        progressCtx,
-        progressBarIndex,
-        progressText,
-        finalizing,
-        stopToken
-      );
-    }
-  );
+  // NOLINTNEXTLINE(performance-unnecessary-value-param): jthread callback signature is fixed
+  auto spinnerThread = std::jthread([&](std::stop_token stopToken) {
+    runFinalizingSpinner(
+      progressCtx,
+      progressBarIndex,
+      progressText,
+      finalizing,
+      stopToken
+    );
+  });
 
   zip.close();
 
@@ -770,14 +766,13 @@ auto pack::Packer::buildDirectoryPackPlan(
     .groups = std::move(groupedEntries),
     .outputDir = zipFileDir,
     .zipNameForIndex =
-      [dirName = dirPath.filename().string(), ordinalRanges](  // NOLINT(bugprone-exception-escape): .at() throws intentionally on logic errors
-        std::size_t index
-      ) {
-        return pack::internal::appendOrdinalRangeSuffix(
-          std::format("{}_part{}.zip", dirName, index + 1),
-          ordinalRanges.at(index)
-        );
-      },
+      // NOLINTNEXTLINE(bugprone-exception-escape): .at() throws intentionally on logic errors
+    [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
+      return pack::internal::appendOrdinalRangeSuffix(
+        std::format("{}_part{}.zip", dirName, index + 1),
+        ordinalRanges.at(index)
+      );
+    },
     .maxParallelJobs = options.maxParallelJobs,
     .compact = true
   };

@@ -478,12 +478,8 @@ auto ensureAudioFile(
     auto const [exitCode, _, pid, stderrText] = exec2(cmd, [&](std::string_view line) {
       reportEncodingDiagnostic(statusUpdater, line);
     });
-    if (pid.has_value()) {
-      LOG_DEBUG(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in exec2 callback lambda
-        "Audio extraction pid: {}",
-        pid.value()
-      );
-    }
+    // NOLINTNEXTLINE(bugprone-lambda-function-name): SPDLOG_FUNCTION in exec2 callback lambda
+    if (pid.has_value()) { LOG_DEBUG("Audio extraction pid: {}", pid.value()); }
     return exitCode == 0 && fs::exists(audioPath);
   };
 

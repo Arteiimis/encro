@@ -577,79 +577,79 @@ auto buildProbeTaskSpec(
     .id = std::format("probe:{}", collisionnaming::stablePathString(vids[index])),
     .label = fileName,
     .input = vids[index].string(),
-.run = [&, index, fileName, vids, progress, probeRoot, workerCount](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
-  // probeRoot/workerCount captured by value: this frame returns before the
-  // pool runs the task, so by-reference captures would dangle (same hazard
-  // as vids below; workerCount is a value parameter living in this frame)
-  taskexec::TaskContext& taskCtx) -> eh::Result<void> {
-  auto const slot = taskCtx.slot;
-  // Compact mode creates no slot bars for a multi-file batch: the per-task
-  // updates then only feed slotProgress, which the Overall bar reads.
-  auto const slotBar = progress.slotBars.empty()
-    ? std::optional<std::size_t>{}
-    : std::optional<std::size_t>{progress.slotBars[slot]};
-  if (slotBar.has_value()) {
-    progress.progressCtx.setRole(slotBar.value(), terminal::Role::Accent);
-    progress.progressCtx.resetEta(slotBar.value());
-    progress.progressCtx.setProgress(slotBar.value(), 0.0f);
-    progress.progressCtx.setPostfixText(
-      slotBar.value(),
-      std::format("Probing: {}", fileName)
-    );
-  }
-  auto step = std::size_t{0};
-  auto const onStep = [&, slotBar, slot](int cq, std::string_view phase) {
-    ++step;
-    auto const p =
-      100.0f * static_cast<float>(step) / static_cast<float>(kMaxProbeSteps);
-    progress.slotProgress[slot].store(p);
-    if (slotBar.has_value()) {
-      progress.progressCtx.setProgress(slotBar.value(), p);
-      progress.progressCtx.setPostfixText(
-        slotBar.value(),
-        std::format("Probing: {} | CQ {} {}", fileName, cq, phase)
-      );
+    // NOLINTNEXTLINE(bugprone-exception-escape): taskexec::runTasks catches
+    .run = [&, index, fileName, vids, progress, probeRoot, workerCount](
+             // probeRoot/workerCount captured by value: this frame returns before the
+             // pool runs the task, so by-reference captures would dangle (same hazard
+             // as vids below; workerCount is a value parameter living in this frame)
+             taskexec::TaskContext& taskCtx
+           ) -> eh::Result<void> {
+      auto const slot = taskCtx.slot;
+      // Compact mode creates no slot bars for a multi-file batch: the per-task
+      // updates then only feed slotProgress, which the Overall bar reads.
+      auto const slotBar = progress.slotBars.empty()
+        ? std::optional<std::size_t>{}
+        : std::optional<std::size_t>{progress.slotBars[slot]};
+      if (slotBar.has_value()) {
+        progress.progressCtx.setRole(slotBar.value(), terminal::Role::Accent);
+        progress.progressCtx.resetEta(slotBar.value());
+        progress.progressCtx.setProgress(slotBar.value(), 0.0f);
+        progress.progressCtx
+          .setPostfixText(slotBar.value(), std::format("Probing: {}", fileName));
+      }
+      auto step = std::size_t{0};
+      auto const onStep = [&, slotBar, slot](int cq, std::string_view phase) {
+        ++step;
+        auto const p =
+          100.0f * static_cast<float>(step) / static_cast<float>(kMaxProbeSteps);
+        progress.slotProgress[slot].store(p);
+        if (slotBar.has_value()) {
+          progress.progressCtx.setProgress(slotBar.value(), p);
+          progress.progressCtx.setPostfixText(
+            slotBar.value(),
+            std::format("Probing: {} | CQ {} {}", fileName, cq, phase)
+          );
+        }
+        progress.updateOverall();
+      };
+      auto const onPoint = [&, slotBar, slot](std::size_t done, int cq) {
+        auto const p = 100.0f
+          * static_cast<float>(done * kStepsPerProbePoint)
+          / static_cast<float>(kMaxProbeSteps);
+        progress.slotProgress[slot].store(p);
+        if (slotBar.has_value()) {
+          progress.progressCtx.setProgress(slotBar.value(), p);
+          progress.progressCtx.setPostfixText(
+            slotBar.value(),
+            std::format("Probing: {} | CQ {} scored", fileName, cq)
+          );
+        }
+        progress.updateOverall();
+      };
+      plans[index] =
+        probeSingleFile(ctx, vids[index], probeRoot, workerCount, onPoint, onStep);
+      auto const& plan = plans[index];
+      if (plan.probed) {
+        if (slotBar.has_value()) {
+          progress.progressCtx.setProgress(slotBar.value(), 100.0f);
+          progress.progressCtx.setRole(slotBar.value(), terminal::Role::Good);
+          progress.progressCtx.setPostfixText(
+            slotBar.value(),
+            std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
+          );
+        }
+      } else if (slotBar.has_value()) {
+        progress.progressCtx.setRole(slotBar.value(), terminal::Role::Accent);
+        progress.progressCtx.setPostfixText(
+          slotBar.value(),
+          std::format("Skipped: {} (default CQ {})", fileName, kDefaultCq)
+        );
+      }
+      progress.slotProgress[slot].store(0.0f);
+      progress.completed.fetch_add(1);
+      progress.updateOverall();
+      return {};
     }
-    progress.updateOverall();
-  };
-  auto const onPoint = [&, slotBar, slot](std::size_t done, int cq) {
-    auto const p = 100.0f
-      * static_cast<float>(done * kStepsPerProbePoint)
-      / static_cast<float>(kMaxProbeSteps);
-    progress.slotProgress[slot].store(p);
-    if (slotBar.has_value()) {
-      progress.progressCtx.setProgress(slotBar.value(), p);
-      progress.progressCtx.setPostfixText(
-        slotBar.value(),
-        std::format("Probing: {} | CQ {} scored", fileName, cq)
-      );
-    }
-    progress.updateOverall();
-  };
-  plans[index] =
-    probeSingleFile(ctx, vids[index], probeRoot, workerCount, onPoint, onStep);
-  auto const& plan = plans[index];
-  if (plan.probed) {
-    if (slotBar.has_value()) {
-      progress.progressCtx.setProgress(slotBar.value(), 100.0f);
-      progress.progressCtx.setRole(slotBar.value(), terminal::Role::Good);
-      progress.progressCtx.setPostfixText(
-        slotBar.value(),
-        std::format("Probed: {} (CQ {})", fileName, plan.chosenCq)
-      );
-    }
-  } else if (slotBar.has_value()) {
-    progress.progressCtx.setRole(slotBar.value(), terminal::Role::Accent);
-    progress.progressCtx.setPostfixText(
-      slotBar.value(),
-      std::format("Skipped: {} (default CQ {})", fileName, kDefaultCq)
-    );
-  }
-  progress.slotProgress[slot].store(0.0f);
-  progress.completed.fetch_add(1);
-  progress.updateOverall();
-  return {};
-}
   };
 }
 
@@ -864,8 +864,7 @@ auto runProbePhase(
   auto result = ProbePhaseResult{};
   if (vids.empty()) { return result; }
 
-  auto const probeRoot =
-    createProbeRoot();  // NOLINT(performance-no-automatic-move): read multiple times; const is intentional
+  auto const probeRoot = createProbeRoot();
   if (!probeRoot) { return eh::makeError("{}", probeRoot.error()); }
   videoworkflow::ProbeRootCleanupGuard
     rootGuard{probeRoot.value(), 6, std::chrono::milliseconds{500}, true};
