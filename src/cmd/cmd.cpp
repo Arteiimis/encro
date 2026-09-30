@@ -373,11 +373,8 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
   registerAll(io, positional, result.keyEntries);
 }
 
-void registerProcessingFlags(
-  CLI::App* processing,
-  CmdParseResult& result
-)  // NOLINT(readability-function-size): declarative option table
-{
+// NOLINTNEXTLINE(readability-function-size): declarative option table
+void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
   auto const options = std::tuple{
     opt(
       "-t,--type",

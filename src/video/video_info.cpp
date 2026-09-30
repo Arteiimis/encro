@@ -216,10 +216,8 @@ auto finalizeVideoList(
         auto const vidInfo = getVidInfo(toolchain, vidPath);
 
         if (config.outputFormat == "mp4" && isHevcEncodedInfo(vidInfo)) {
-          LOG_DEBUG(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
-            "Skipping already HEVC encoded file: {}",
-            vidPath.string()
-          );
+          // NOLINTNEXTLINE(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
+          LOG_DEBUG("Skipping already HEVC encoded file: {}", vidPath.string());
           return {};
         }
 

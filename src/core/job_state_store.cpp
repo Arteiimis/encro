@@ -90,11 +90,7 @@ auto Store::initialize(
     auto const restored =
       tryRestoreExistingLocked(currentConfig, config.resumeState, discardedMismatched);
     if (!restored) { return restored; }
-    if (
-      restored.value()
-    ) {  // NOLINT(bugprone-unchecked-optional-access): guarded by the !restored check above
-      return true;
-    }
+    if (restored.value()) { return true; }
   }
 
   snapshot_ = Snapshot{

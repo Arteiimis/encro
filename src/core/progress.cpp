@@ -453,17 +453,13 @@ bool ProgressContext::cleared() const {
 
 void ProgressContext::ensureTicker() {
   if (ticker_.joinable()) { return; }
-  ticker_ = std::jthread(
-    [this](
-      std::stop_token
-        stopToken  // NOLINT(performance-unnecessary-value-param): jthread callback signature is fixed
-    ) {
-      while (!stopToken.stop_requested()) {
-        std::this_thread::sleep_for(kRepaintInterval);
-        tick();
-      }
+  // NOLINTNEXTLINE(performance-unnecessary-value-param): jthread callback signature is fixed
+  ticker_ = std::jthread([this](std::stop_token stopToken) {
+    while (!stopToken.stop_requested()) {
+      std::this_thread::sleep_for(kRepaintInterval);
+      tick();
     }
-  );
+  });
 }
 
 void ProgressContext::stopTicker() {
