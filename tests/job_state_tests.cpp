@@ -804,7 +804,6 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputPath = temp.path / "input.mp4";
-  auto const outputPath = temp.path / "input.hevc.mp4";
   writeTextFile(inputPath);
 
   // Make the parent path a regular file so the state temp file cannot be created.

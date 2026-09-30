@@ -737,7 +737,7 @@ auto pack::Packer::buildDirectoryPackPlan(
   fs::path const& dirPath,
   fs::path const& zipFileDir,
   std::uintmax_t maxGroupSize,
-  DirectoryPackOptions options
+  DirectoryPackOptions const& options
 ) -> eh::Result<pack::PackPlan> {
   if (!fs::is_directory(dirPath)) {
     return eh::makeError("Input path is not a directory: {}", dirPath.string());

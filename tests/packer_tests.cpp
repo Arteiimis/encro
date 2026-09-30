@@ -497,9 +497,9 @@ TEST_CASE(
   auto const outputDir = temp.path / "packed";
   fs::create_directories(inputDir);
 
-  auto const f1 = testutils::writeSizedFile(inputDir / "a.bin", 150);
-  auto const f2 = testutils::writeSizedFile(inputDir / "b.bin", 150);
-  auto const f3 = testutils::writeSizedFile(inputDir / "c.bin", 60);
+  testutils::writeSizedFile(inputDir / "a.bin", 150);
+  testutils::writeSizedFile(inputDir / "b.bin", 150);
+  testutils::writeSizedFile(inputDir / "c.bin", 60);
 
   pack::Packer packer;
   auto const planRes =
