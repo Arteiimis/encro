@@ -40,7 +40,7 @@ inline std::uint64_t segmentBaseFrameOffset(
   std::uint64_t totalDurationUs
 ) {
   if (totalFrames <= 0 || totalDurationUs == 0) { return 0; }
-  return static_cast<std::uint64_t>(std::llround(  // NOLINT(bugprone-narrowing-conversions): frame math needs double
+  return static_cast<std::uint64_t>(std::llround(
     static_cast<double>(cumulativeDurationUs)
     * static_cast<double>(totalFrames)
     / static_cast<double>(totalDurationUs)

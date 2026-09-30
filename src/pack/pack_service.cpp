@@ -136,23 +136,19 @@ struct CompactProgressState {
     // status consumer is installed, so a timing thread would repaint nothing.
     if (!ctx.renderable() && !onCompactStatusText) { return; }
 
-    spinnerThread = std::jthread{
-      [this, &onCompactStatusText](
-        std::stop_token
-          stopToken  // NOLINT(performance-unnecessary-value-param): jthread callback signature is fixed
+    // NOLINTNEXTLINE(performance-unnecessary-value-param): jthread callback signature is fixed
+    spinnerThread = std::jthread{[this, &onCompactStatusText](std::stop_token stopToken) {
+      while (
+        !stopToken.stop_requested() && !spinnerStop.load(std::memory_order_acquire)
       ) {
-        while (
-          !stopToken.stop_requested() && !spinnerStop.load(std::memory_order_acquire)
-        ) {
-          if (finalizingCount.load(std::memory_order_acquire) > 0) {
-            publish({}, onCompactStatusText);
-          }
-          // One repaint per frame interval, rendered or not: the wait is the
-          // cadence, so the frame cannot advance at repaint speed.
-          waitTick();
+        if (finalizingCount.load(std::memory_order_acquire) > 0) {
+          publish({}, onCompactStatusText);
         }
+        // One repaint per frame interval, rendered or not: the wait is the
+        // cadence, so the frame cannot advance at repaint speed.
+        waitTick();
       }
-    };
+    }};
   }
 
   void finish(
@@ -295,9 +291,8 @@ auto runPackTaskPlan(
       .id = std::format("archive:{}", collisionnaming::stablePathString(zipPath)),
       .label = label,
       .input = zipPath.string(),
-      .run = [&, index, zipPath, label](  // NOLINT(bugprone-exception-escape): taskexec::runTasks catches
-               taskexec::TaskContext& taskCtx
-             ) {
+      // NOLINTNEXTLINE(bugprone-exception-escape): taskexec::runTasks catches
+      .run = [&, index, zipPath, label](taskexec::TaskContext& taskCtx) {
         recorder.notifyGroupStart(index);
         return runGroup(index, zipPath, label, taskCtx, recorder);
       },
@@ -484,7 +479,7 @@ auto selectPackPlanIndexes(PackPlan const& plan, std::span<std::size_t const> in
     .removeOnFailure = plan.removeOnFailure,
     .compact = plan.compact,
   };
-}  // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks): impl is owned by the returned PackPlan
+}
 
 }  // namespace internal
 

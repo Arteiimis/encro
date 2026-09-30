@@ -186,9 +186,7 @@ auto probeVideo(
   auto probe = VideoProbe{};
   auto const foundVideo = probeStreamMetadata(streamsIt->value(), probe, path);
   if (!foundVideo) { return eh::makeError("{}", foundVideo.error()); }
-  if (
-    !foundVideo.value()
-  ) {  // NOLINT(bugprone-unchecked-optional-access): guarded by the !foundVideo check above
+  if (!foundVideo.value()) {
     return eh::makeError("Not a video file: {}", path.string());
   }
   if (probe.width == 0 || probe.height == 0) {
@@ -786,7 +784,8 @@ auto scoreComparisonWindows(
         item.window.metric = scores->metric;
         item.window.score = videoquality::percentile(scores->frameScores, 5.0);
       } else {
-        LOG_WARN(  // NOLINT(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
+        // NOLINTNEXTLINE(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
+        LOG_WARN(
           "Preview scoring failed for window {}us: {}",
           item.window.startUs,
           scores.error()

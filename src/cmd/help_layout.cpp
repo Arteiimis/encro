@@ -416,7 +416,8 @@ auto makeHelpFormatter(
     [general, io, processing, fileop, helpOpt, subcommands](
       CLI::App const* app_ptr,
       std::string /*prev*/
-      ,  // NOLINT(performance-unnecessary-value-param): CLI11 formatter callback signature is fixed
+      // NOLINTNEXTLINE(performance-unnecessary-value-param): CLI11 formatter callback signature is fixed
+      ,
       CLI::AppFormatMode /*mode*/
     ) -> std::string {
       // Subcommand synopsis lines stay out of the usage block: the commands
@@ -478,7 +479,8 @@ auto makeSubcommandHelpFormatter(
     [subApp, usageLines](
       CLI::App const* appPtr,
       std::string /*prev*/
-      ,  // NOLINT(performance-unnecessary-value-param): CLI11 formatter callback signature is fixed
+      // NOLINTNEXTLINE(performance-unnecessary-value-param): CLI11 formatter callback signature is fixed
+      ,
       CLI::AppFormatMode /*mode*/
     ) -> std::string {
       auto const layout = resolveHelpTextLayout();

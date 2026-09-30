@@ -714,11 +714,7 @@ auto runCompressPackPhase(
     fs::remove_all(tempDir, ec);
     return eh::makeError("{}", compressOutcome.error());
   }
-  if (
-    compressOutcome.value().canceled
-  ) {  // NOLINT(bugprone-unchecked-optional-access): guarded by the !compressOutcome check above
-    return stopsignal::kCanceledExitCode;
-  }
+  if (compressOutcome.value().canceled) { return stopsignal::kCanceledExitCode; }
   return 0;
 }
 

@@ -254,9 +254,7 @@ struct EncodingExecutionContext {
     }
 
     auto const completed = finished();
-    auto const totalCount = static_cast<float>(
-      overallTotal()
-    );  // NOLINT(bugprone-narrowing-conversions): progress percent needs float; size_t precision loss irrelevant
+    auto const totalCount = static_cast<float>(overallTotal());
     auto overallPercent = 0.0f;
     if (totalCount > 0.0f) {
       overallPercent = std::min(

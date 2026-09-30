@@ -67,8 +67,8 @@ auto assembleKeyTable(
 // fallback otherwise); temp dir as the terminal fallback.
 auto resolveConfigPath() -> std::filesystem::path;
 
-struct
-  LoadResult {  // NOLINT(bugprone-exception-escape): standard-container members only, move is noexcept in practice
+// NOLINTNEXTLINE(bugprone-exception-escape): standard-container members only, move is noexcept in practice
+struct LoadResult {
   std::map<std::string, std::string> values;  // scalar values as canonical text
   std::vector<std::string> unknownKeys;       // reported once by the caller
   std::optional<std::string> error;           // malformed JSON / bad value type
