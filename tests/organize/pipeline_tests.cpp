@@ -391,6 +391,7 @@ TEST_CASE("re-run resumes from cache without re-classifying", "[organize]") {
   auto features = FakeFeatureEngine{};
   engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
+  // NOLINTNEXTLINE(bugprone-unused-return-value): effects asserted below
   (void)organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(engine.calls.load() == 1);
 
@@ -590,11 +591,13 @@ TEST_CASE("recluster discards cached analysis and re-classifies", "[organize]") 
   auto features = FakeFeatureEngine{};
   engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
+  // NOLINTNEXTLINE(bugprone-unused-return-value): effects asserted below
   (void)organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(engine.calls.load() == 1);
 
   auto options = makeOptions(temp.path);
   options.recluster = true;
+  // NOLINTNEXTLINE(bugprone-unused-return-value): effects asserted below
   (void)organize::runOrganize(options, engine, features, nullptr);
   CHECK(engine.calls.load() == 2);
 }
@@ -607,6 +610,7 @@ TEST_CASE("renamed character folder teaches subsequent runs", "[organize]") {
   auto features = FakeFeatureEngine{};
   engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
 
+  // NOLINTNEXTLINE(bugprone-unused-return-value): effects asserted below
   (void)organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   CHECK(fs::exists(temp.path / "organized" / "hatsune_miku" / "miku.png"));
 

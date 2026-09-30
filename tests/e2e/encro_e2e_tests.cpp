@@ -978,7 +978,7 @@ TEST_CASE(
   requireRealToolchainOrSkip();
 
   TempDir temp;
-  auto const clip = createRealSmokeVideo(temp.path / "clip.mp4");
+  createRealSmokeVideo(temp.path / "clip.mp4");
   auto const png = temp.path / "picture.png";
   REQUIRE_SUCCESS(
     e2e::runProcess(
