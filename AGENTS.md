@@ -32,8 +32,6 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 | Comments       | Minimal, no Doxygen                                         |
 | Template params| `Ty` (single), `Tys` (pack)                                          |
 
-- **Markdown docs:** one paragraph per line — no cosmetic hard wrapping in `README.md`, `docs/`, `openspec/`. Exception: `.agents/skills/openspec-*/SKILL.md` comes verbatim from the openspec CLI templates, so it keeps the upstream wrapping — never re-wrap it; the `code-review`/`diagnosing-bugs` skills are ours and stay unwrapped.
-
 ## Testing
 
 - **Test-value rules** (a test earns its place by the regression it names, not by the lines it covers):
@@ -61,15 +59,16 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 - **OpenSpec explore trigger:** when the user's request is exploratory — "探索下"/"explore", feasibility or options discussion, or similar exploratory intent — automatically start with the `openspec-explore` skill (read `.agents/skills/openspec-explore/SKILL.md` and enter explore mode) instead of answering or implementing directly.
 - **OpenSpec review timing:** write all planning artifacts (proposal → specs → design → tasks) before reviewing the proposal against the complete set — a proposal review without its specs/design/tasks cannot validate the contract between them. Then run the planning-artifact stage of the `code-review` skill: one fresh reviewer against the written artifacts (not the author's intent), whose findings and verdicts are recorded in the change's `tasks.md`.
 - **OpenSpec archive auto-sync:** when archiving a change whose delta specs are not yet applied to the main specs, run the sync step automatically (inline, as the archive skill prescribes) without prompting; never archive with stale main specs. Skip the sync only when the user explicitly says so. This overrides the archive skill's sync prompt and stays here on purpose — an openspec skill update would drop it from the skill.
-- **TDD:** never write implementation before tests; test + implementation go in the same commit.
+- **TDD:** never write implementation before tests.
 - **Post-Change Review:** after self-verification, unless trivial (typos, docs-only, one-liner or mechanical refactor), run the `code-review` skill, passing the spec path in as its argument — it runs the code-diff stage's Standards / Spec / Leanness axes and the review fix loop. For large multi-area changes add ≤1 sub-agent per functional area, edge cases only.
 
 ## Platform & Git
 
 - **Platform:** primary Windows clang-cl; POSIX paths go through `generic_string()` wherever they are compared or serialized. External ffmpeg/ffprobe come from PATH or `--ffmpeg-path`.
 - **Commits:** English only (no CJK in git metadata); conventional commits (`feat:`/`fix:`/`docs:`/`test:`/`refactor:`/`chore:`); subject <72 chars; batch large working trees by functional area.
-  - **Body wrapped at 80 columns (hard ceiling 90)** — this repo asks for a wrapped body, so the commit rule here overrides the global "one paragraph per line" default; that default still governs every file in the repo (see Markdown docs). Existing bodies in `git log` are all ≤74 columns; match them (`git commit -F <pre-wrapped file>` is the easy way).
+  - **Body wrapped at 80 columns (hard ceiling 90)** — this repo asks for a wrapped body, so the commit rule here overrides the global "one paragraph per line" default; that default still governs every file in the repo (see Markdown docs). `git commit -F <pre-wrapped file>` is the easy way.
   - OpenSpec planning artifacts (proposal/specs/design) are committed before implementation, as their own `docs:` commit — they describe what will be built, not the build itself.
   - Implementation + its tests + the change's `tasks.md` checkboxes go in one commit (atomic: `git revert` removes the feature and its completion state together; no "code gone but tasks still checked" intermediate state).
   - A code change and its documentation belong in the same commit when they tell one story; split only when the docs are a prerequisite (planning) or an independent deliverable (user guide).
+- **Markdown docs:** one paragraph per line — no cosmetic hard wrapping in `README.md`, `docs/`, `openspec/`. Exception: `.agents/skills/openspec-*/SKILL.md` comes verbatim from the openspec CLI templates, so it keeps the upstream wrapping — never re-wrap it; the `code-review`/`diagnosing-bugs` skills are ours and stay unwrapped.
 - **Pre-commit hook:** clang-format on staged C/C++ files (`.githooks/pre-commit`; setup `git config core.hooksPath .githooks`).
