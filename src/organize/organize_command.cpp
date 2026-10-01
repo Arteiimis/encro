@@ -150,14 +150,20 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
   // The engine build is the run's silent spot (CUDA DLL loads, two session
   // creations); an indeterminate spinner covers it and is erased before any
   // output follows, per the bar lifecycle. The fake-engine path loads
-  // nothing, so it never starts the spinner.
-  auto spinner = progress::ProgressContext{};
-  if (!fakeEngine) {
-    auto const barIndex = spinner.addBar("Loading models");
-    spinner.setIndeterminate(barIndex, true);
+  // nothing, so it never starts the spinner. The cursor hides for the
+  // spinner's lifetime, as it does for every other bar-rendering phase.
+  auto engines = Engines{};
+  {
+    auto spinner = progress::ProgressContext{};
+    // Declared after the context so the cursor restores before its teardown.
+    auto cursorGuard = progress::CursorGuard{!fakeEngine};
+    if (!fakeEngine) {
+      auto const barIndex = spinner.addBar("Loading models");
+      spinner.setIndeterminate(barIndex, true);
+    }
+    engines = makeEngines(modelDir, ffmpegPath);
+    spinner.eraseBars();
   }
-  auto engines = makeEngines(modelDir, ffmpegPath);
-  spinner.eraseBars();
   if (!engines) {
     for (auto const& error: engines.errors) {
       terminal::messageln(MessageKind::Error, "{}", error);

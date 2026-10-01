@@ -215,6 +215,12 @@ auto spinnerPostfix(std::uint64_t tickCount, std::string_view postfix) -> std::s
   return out;
 }
 
+auto barGeometry(bool indeterminate, std::size_t determinateWidth) -> BarGeometry {
+  return indeterminate
+    ? BarGeometry{.barWidth = 0, .start = "", .end = ""}
+    : BarGeometry{.barWidth = determinateWidth, .start = "[", .end = "]"};
+}
+
 auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
   if (budget == 0) { return {}; }
   if (displaytext::displayWidth(text) <= budget) { return std::string{text}; }
@@ -380,12 +386,17 @@ void ProgressContext::applyBarText(std::size_t barIndex, float progress) {
       .minColumns = kMinConsoleColumns,
     })
   );
-  bars_[barIndex]->set_option(indicators::option::BarWidth{layout.barWidth});
+  // Repaints re-derive the geometry from the indeterminate flag, so a flip
+  // back to determinate rebuilds the track on the next pass.
+  auto const indeterminate = indeterminate_[barIndex] != 0;
+  auto const geometry = barGeometry(indeterminate, layout.barWidth);
+  bars_[barIndex]->set_option(indicators::option::BarWidth{geometry.barWidth});
+  bars_[barIndex]->set_option(indicators::option::Start{std::string{geometry.start}});
+  bars_[barIndex]->set_option(indicators::option::End{std::string{geometry.end}});
   // An indeterminate bar's postfix carries the spinner frame for this tick;
   // the progress value itself stays untouched (repaints are display-only).
-  auto const postfix = indeterminate_[barIndex] != 0
-    ? spinnerPostfix(tickCount_, postfixes_[barIndex])
-    : postfixes_[barIndex];
+  auto const postfix = indeterminate ? spinnerPostfix(tickCount_, postfixes_[barIndex])
+                                     : postfixes_[barIndex];
   bars_[barIndex]->set_option(
     indicators::option::PostfixText{
       fitPostfixWithEta(etaText, postfix, layout.postfixBudget)
@@ -557,10 +568,12 @@ auto makeBar(std::string_view promptText, terminal::Role role) -> BarPtr {
     })
   );
 
+  auto const geometry = barGeometry(false, layout.barWidth);
+
   return std::make_unique<ProgressBar>(
-    option::BarWidth{layout.barWidth},
-    option::Start{"["},
-    option::End{"]"},
+    option::BarWidth{geometry.barWidth},
+    option::Start{std::string{geometry.start}},
+    option::End{std::string{geometry.end}},
     option::PostfixText{fitPostfixText(promptText, layout.postfixBudget)},
     option::ForegroundColor{barColor(role, terminal::colorsEnabled())},
     option::ShowRemainingTime{false},
