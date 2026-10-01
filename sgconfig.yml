@@ -1,0 +1,6 @@
+# ast-grep project config. Without the cpp globs, `ast-grep -l cpp` silently
+# skips every .h file (66 of src/'s 154) and reports no error.
+languageGlobs:
+  cpp:
+    - "**/*.h"
+    - "**/*.cpp"
