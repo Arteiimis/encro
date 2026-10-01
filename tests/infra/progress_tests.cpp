@@ -715,6 +715,25 @@ TEST_CASE("spinnerPostfix prefixes the frame and keeps the label", "[progress]")
   CHECK(bare == progress::spinnerGlyph(2));
 }
 
+TEST_CASE(
+  "an indeterminate bar collapses its track, determinate restores it",
+  "[progress]"
+) {
+  // The spinner frame is the glyph + label alone: a leftover empty track in
+  // front of the glyph reads as a stuck 0% bar, so the indeterminate mode
+  // renders no width and no delimiters.
+  auto const spin = progress::barGeometry(true, 40);
+  CHECK(spin.barWidth == 0);
+  CHECK(spin.start.empty());
+  CHECK(spin.end.empty());
+
+  // Flipping back to determinate rebuilds the track from the layout width.
+  auto const track = progress::barGeometry(false, 40);
+  CHECK(track.barWidth == 40);
+  CHECK(track.start == "[");
+  CHECK(track.end == "]");
+}
+
 TEST_CASE("indeterminate bars animate on ticks without an ETA", "[progress]") {
   auto ctx = progress::ProgressContext{};
   auto const barIndex = ctx.addBar("Loading models", terminal::Role::Accent);

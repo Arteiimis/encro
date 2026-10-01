@@ -205,6 +205,18 @@ auto spinnerGlyph(std::uint64_t tickCount) -> std::string_view;
 // prefixed to the stored label ("<glyph> label"), the label alone when empty.
 auto spinnerPostfix(std::uint64_t tickCount, std::string_view postfix) -> std::string;
 
+// The geometry a bar renders with: an indeterminate bar collapses its track
+// (zero width, no delimiters) so its frame is the spinner glyph + label alone
+// -- a leftover empty track in front of the glyph reads as a stuck 0% bar.
+// Determinate bars keep the layout's width and the usual "[" / "]" pair.
+struct BarGeometry {
+  std::size_t barWidth;
+  std::string_view start;
+  std::string_view end;
+};
+
+auto barGeometry(bool indeterminate, std::size_t determinateWidth) -> BarGeometry;
+
 class CursorGuard {
 public:
   explicit CursorGuard(bool hideOnConstruct = true);
