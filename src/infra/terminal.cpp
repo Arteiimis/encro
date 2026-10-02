@@ -7,6 +7,8 @@
 #include <cctype>
 #include <cstdio>
 #include <format>
+#include <fstream>
+#include <mutex>
 #include <vector>
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -21,6 +23,10 @@ namespace {
 
 auto g_colorMode = std::atomic<ColorMode>{ColorMode::Auto};
 auto g_quiet = std::atomic<bool>{false};
+
+constexpr auto kRenderDumpEnvVar = "ENCRO_DEBUG_DUMP_RENDER";
+
+auto g_renderDumpMutex = std::mutex{};
 
 // Where a kind's role lands. Prefix and LeadingVerb are the only two sites a
 // message may style: wrapping prose would nest any value the caller embedded.
@@ -290,7 +296,29 @@ auto renderMessage(Stream stream, MessageKind kind, std::string_view text)
   );
 }
 
+void appendRenderDump(std::string_view record) {
+  auto const target = processenv::readNonEmptyEnvVar(kRenderDumpEnvVar);
+  if (!target.has_value()) { return; }
+
+  auto lock = std::scoped_lock{g_renderDumpMutex};
+  // ponytail: per-write append open with no cross-process locking — debug-only,
+  // single user; file locking if concurrent processes ever share a dump path.
+  auto file = std::ofstream{target.value(), std::ios::app | std::ios::binary};
+  file.write(record.data(), static_cast<std::streamsize>(record.size()));
+}
+
 void write(Stream stream, std::string_view text, bool newline) {
+  // The lookup gates the format allocation off the default (dump-inactive) path.
+  if (processenv::readNonEmptyEnvVar(kRenderDumpEnvVar).has_value()) {
+    appendRenderDump(
+      std::format(
+        "{}{}{}",
+        stream == Stream::Stdout ? "[out] " : "[err] ",
+        text,
+        newline ? "\n" : ""
+      )
+    );
+  }
   auto* file = streamFile(stream);
   if (newline) {
     fmt::print(file, "{}\n", text);
