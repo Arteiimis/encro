@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-style_file='D:/clangformat/.clang-format'
+# Formats what is staged, never what is not: the staged blob is read with
+# `git show`, formatted, and written back into the index. The working tree is
+# only refreshed for files that carry no unstaged edits, so in-progress work
+# can never be eaten by a commit (the previous stash --keep-index approach
+# lost work whenever the post-format `git stash pop` conflicted).
+
+cd "$(git rev-parse --show-toplevel)"
+
+style_file="$(git rev-parse --show-toplevel)/.clang-format"
 
 if ! command -v clang-format >/dev/null 2>&1; then
   echo "pre-commit: clang-format not found in PATH" >&2
@@ -13,45 +21,30 @@ if [ ! -f "$style_file" ]; then
   exit 1
 fi
 
-cd "$(git rev-parse --show-toplevel)"
-
-declare -a files=()
+status=0
 while IFS= read -r -d '' file; do
-  if [ -f "$file" ]; then
-    files+=("$file")
+  [ -f "$file" ] || continue
+  # Whether the worktree carries edits beyond what is staged, decided before
+  # the index entry is replaced below.
+  unstaged=0
+  git diff --quiet -- "$file" 2>/dev/null || unstaged=1
+  if ! formatted=$(git show ":$file" | clang-format "--style=file:$style_file" "--assume-filename=$file"); then
+    echo "pre-commit: clang-format failed on $file" >&2
+    status=1
+    continue
+  fi
+  blob=$(printf '%s\n' "$formatted" | git hash-object -w --stdin)
+  git update-index --cacheinfo 100644,"$blob","$file"
+  # Refresh the worktree copy too, but only when it had no unstaged edits;
+  # otherwise leave it untouched so in-progress work survives the commit.
+  if [ "$unstaged" -eq 0 ]; then
+    printf '%s\n' "$formatted" > "$file"
   fi
 done < <(
   git diff --cached --name-only --diff-filter=ACMR -z -- \
     '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp' '*.hxx' '*.ipp' '*.inl'
 )
 
-if [ "${#files[@]}" -eq 0 ]; then
-  exit 0
+if [ "$status" -ne 0 ]; then
+  exit 1
 fi
-
-restore_stash=0
-
-restore_unstaged_changes() {
-  if [ "$restore_stash" -eq 0 ]; then
-    return
-  fi
-
-  if ! git stash pop --quiet >/dev/null 2>&1; then
-    echo "pre-commit: formatted staged files, but failed to restore unstaged changes." >&2
-    echo "pre-commit: recover them with 'git stash list' and 'git stash pop'." >&2
-    exit 1
-  fi
-}
-
-if ! git diff --quiet --ignore-submodules --; then
-  git stash push --quiet --keep-index --message pre-commit-clang-format >/dev/null 2>&1
-  restore_stash=1
-  trap restore_unstaged_changes EXIT
-fi
-
-echo "pre-commit: running clang-format on staged C/C++ files"
-for file in "${files[@]}"; do
-  clang-format -i "-style=file:${style_file}" "$file"
-done
-
-git add -- "${files[@]}"
