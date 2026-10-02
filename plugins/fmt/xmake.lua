@@ -5,7 +5,7 @@ task("fmt")
     description = "Format C/C++ sources with clang-format",
     options = {
       {"k", "check", "k", nil, "Check formatting without modifying files"},
-      {"s", "style", "kv", nil, "clang-format style file or built-in style (default: D:/clangformat/.clang-format)"}
+      {"s", "style", "kv", nil, "clang-format style file or built-in style (default: the repo's .clang-format)"}
     }
   })
 
@@ -17,7 +17,7 @@ task("fmt")
     local clang_format = tool.program
 
     local check = option.get("check")
-    local style = option.get("style") or "file:D:/clangformat/.clang-format"
+    local style = option.get("style") or "file:.clang-format"
 
     local files = {}
     for _, root in ipairs({"src", "tests"}) do
