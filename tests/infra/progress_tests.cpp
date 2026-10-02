@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <ranges>
 #include <string>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -202,6 +204,52 @@ TEST_CASE("progress updates emit no frames when stdout is not a terminal", "[pro
     auto withoutBars = progress::ProgressContext{};
     CHECK_FALSE(withoutBars.renderable());
   }
+}
+
+TEST_CASE(
+  "progress bars leave a final-state frame in the render dump",
+  "[progress][render-dump]"
+) {
+  TempDir temp;
+  auto const dumpPath = temp.path / "render-dump.txt";
+  auto const capturePath = temp.path / "out.txt";
+  auto const dumpVar =
+    testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", dumpPath.string()};
+
+  {
+    auto capture = testutils::StdoutCapture{capturePath};
+    auto ctx = progress::ProgressContext{};
+    auto const encodeBar = ctx.addBar("encoding clip.mkv", terminal::Role::Accent);
+    auto const probeBar = ctx.addBar("probing", terminal::Role::Accent);
+    ctx.setProgress(encodeBar, 42.0f);
+    ctx.setIndeterminate(probeBar, true);
+
+    ctx.eraseBars();
+  }
+
+  auto const dumped = testutils::readTextFile(dumpPath);
+  auto const lines = dumped
+    | std::views::split('\n')
+    | std::views::filter([](auto const& part) { return !part.empty(); })
+    | std::ranges::to<std::vector<std::string>>();
+  REQUIRE(lines.size() == 2);
+
+  auto const& encodeLine = lines[0];
+  auto const& probeLine = lines[1];
+  // Determinate frame: fill and percentage beside the stored label.
+  CHECK(encodeLine.find("encoding clip.mkv") != std::string::npos);
+  CHECK(encodeLine.find("42") != std::string::npos);
+  CHECK(encodeLine.find('#') != std::string::npos);
+  // Indeterminate frame: the marker replaces the percentage; the label stays.
+  CHECK(probeLine.find("probing") != std::string::npos);
+  CHECK(probeLine.find('%') == std::string::npos);
+
+  // The frame is dump-file-only: piped stdout carries neither bar text nor
+  // cursor escapes.
+  auto const piped = testutils::readTextFile(capturePath);
+  CHECK(piped.find("encoding clip.mkv") == std::string::npos);
+  CHECK(piped.find("probing") == std::string::npos);
+  CHECK(piped.find("\x1b[") == std::string::npos);
 }
 
 TEST_CASE("bar layout follows the compact and worker-count rules", "[progress]") {

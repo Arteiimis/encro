@@ -221,6 +221,26 @@ auto barGeometry(bool indeterminate, std::size_t determinateWidth) -> BarGeometr
     : BarGeometry{.barWidth = determinateWidth, .start = "[", .end = "]"};
 }
 
+// One plain-text final-state line per bar for the render dump. Not a
+// re-rendering of the live bar: the frame records stored state (fill,
+// percentage or the indeterminate marker, raw unfitted label), never the
+// drawing (width-fitting, scrolling, colors).
+auto formatBarFrameLine(bool indeterminate, float progress, std::string_view label)
+  -> std::string {
+  constexpr auto kFrameFillCells = std::size_t{10};
+  if (indeterminate) { return std::format("[~] -- | {}", label); }
+
+  auto const pct = static_cast<std::size_t>(std::clamp(progress, 0.0f, 100.0f));
+  auto const filled = std::min(pct / (100 / kFrameFillCells), kFrameFillCells);
+  return std::format(
+    "[{}{}] {:>3}% | {}",
+    std::string(filled, '#'),
+    std::string(kFrameFillCells - filled, '-'),
+    pct,
+    label
+  );
+}
+
 auto fitPostfixText(std::string_view text, std::size_t budget) -> std::string {
   if (budget == 0) { return {}; }
   if (displaytext::displayWidth(text) <= budget) { return std::string{text}; }
@@ -539,6 +559,19 @@ void ProgressContext::eraseBars() {
   stopTicker();
   auto lock = std::scoped_lock{mtx_};
   cleared_ = true;
+  // Final-state frames append before the TTY gate, so a dump sees them on
+  // non-TTY runs (where no bar was ever drawn) exactly as on a terminal; the
+  // append writes only the dump file, never a console stream.
+  for (std::size_t index = 0; index < bars_.size(); ++index) {
+    terminal::appendRenderDump(
+      formatBarFrameLine(
+        indeterminate_[index] != 0,
+        etas_[index].lastProgress(),
+        postfixes_[index]
+      )
+      + "\n"
+    );
+  }
   if (!progressBarsAllowed()) { return; }
   for (std::size_t index = 0; index < renderedBarCount_; ++index) {
     indicators::move_up(1);

@@ -6,7 +6,7 @@ Gives non-interactive runs (pipes, tests, agent sessions) inspectable console ou
 
 ### Requirement: Render dump is activated by an environment variable
 
-The console layer SHALL append every console write to the file named by a non-empty `ENCRO_DEBUG_DUMP_RENDER` environment variable, creating or appending to that file per write. When the variable is unset or empty, the console layer SHALL behave exactly as it does without this capability: no file is created and no code path observes the variable. Activation SHALL NOT change what is rendered — dump records are copies of the rendered bytes, never a re-rendering or a reformatting of them, and quiet-mode suppression applies before the dump just as it applies before the console.
+The console layer SHALL append every message-layer console write (every write that goes through the console output functions) to the file named by a non-empty `ENCRO_DEBUG_DUMP_RENDER` environment variable, creating or appending to that file per write. When the variable is unset or empty, the console layer SHALL behave exactly as it does without this capability: no file is created and console output is byte-identical to a run of a build without this capability. Activation SHALL NOT change what is rendered — dump records are copies of the rendered bytes, never a re-rendering or a reformatting of them, and quiet-mode suppression applies before the dump just as it applies before the console. Progress bars' own terminal writes are not message-layer writes and are covered by the final-state frame requirement instead.
 
 #### Scenario: Unset variable leaves no trace
 
@@ -34,7 +34,7 @@ Each dump record SHALL be the target stream's marker (`[out]` for stdout, `[err]
 
 ### Requirement: Progress bars leave a final-state frame in the dump
 
-When a progress-bar phase ends and its bars are cleared, each bar the phase created SHALL contribute one plain-text line to the dump describing that bar's final state — the progress fill and percentage for a determinate bar, or the indeterminate marker for a bar that never reached a determinate value, followed by the bar's stored label text (the label the phase last set on the bar, seeded from the prompt at creation). The frame SHALL be appended for non-TTY runs, where no bar was ever drawn on the console, and for TTY runs alike, because the frame is written to the dump file and not to the console. Console output SHALL NOT change: no cursor movement, bar text or extra line is written to any console stream by the frame append.
+When a progress-bar phase ends and its bars are cleared, each bar the phase created SHALL contribute one plain-text line to the dump describing that bar's final state — the progress fill and percentage for a determinate bar, or the indeterminate marker for a bar left in its indeterminate state at the end of the phase, followed by the bar's stored label text (the label the phase last set on the bar, seeded from the prompt at creation). The frame SHALL be appended for non-TTY runs, where no bar was ever drawn on the console, and for TTY runs alike, because the frame is written to the dump file and not to the console. Console output SHALL NOT change: no cursor movement, bar text or extra line is written to any console stream by the frame append.
 
 #### Scenario: Non-TTY run records the bars it never drew
 

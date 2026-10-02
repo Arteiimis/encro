@@ -1,17 +1,17 @@
 ## 1. Message-layer dump hook
 
-- [ ] 1.1 Add cases to `tests/infra/terminal_tests.cpp`: with `ENCRO_DEBUG_DUMP_RENDER` unset or empty, `terminal::print`/`println` create no dump file; with the variable set to a temp path, an stdout `print`, an stderr `println` and another stdout `print` append three records `[out] …`, `[err] …`, `[out] …` in write order (drive the env with the existing `ScopedEnvVar`; verify red before the hook exists)
-- [ ] 1.2 Implement the hook in `terminal::write` (`src/infra/terminal.cpp`): read `ENCRO_DEBUG_DUMP_RENDER` via `processenv::readNonEmptyEnvVar`, and when non-empty append `"[out] "+text+(newline?"\n":"")` (or the `[err]` form) with `std::ofstream(path, app | binary)` under one static mutex; mark the no-cross-process-locking ceiling with a `// ponytail:` comment — verify the 1.1 cases go green
-- [ ] 1.3 Add a fidelity case to `tests/infra/terminal_tests.cpp`: the same message dumped under `configure(ColorMode::Always)` contains its escape sequences and under `configure(ColorMode::Never)` contains none, with `terminal::reset()` restoring state — verify it passes against the hook
+- [x] 1.1 Add cases to `tests/infra/terminal_tests.cpp`: with `ENCRO_DEBUG_DUMP_RENDER` unset or empty, `terminal::print`/`println` create no dump file; with the variable set to a temp path, an stdout `print`, an stderr `println` and another stdout `print` append three records `[out] …`, `[err] …`, `[out] …` in write order (drive the env with the existing `ScopedEnvVar`; verify red before the hook exists)
+- [x] 1.2 Implement the hook in `terminal::write` (`src/infra/terminal.cpp`): read `ENCRO_DEBUG_DUMP_RENDER` via `processenv::readNonEmptyEnvVar`, and when non-empty append `"[out] "+text+(newline?"\n":"")` (or the `[err]` form) with `std::ofstream(path, app | binary)` under one static mutex; mark the no-cross-process-locking ceiling with a `// ponytail:` comment — verify the 1.1 cases go green
+- [x] 1.3 Add a fidelity case to `tests/infra/terminal_tests.cpp`: the same message dumped under `configure(ColorMode::Always)` contains its escape sequences and under `configure(ColorMode::Never)` contains none, with `terminal::reset()` restoring state — verify it passes against the hook
 
 ## 2. Progress-bar final-state frames
 
-- [ ] 2.1 Add a case to `tests/infra/progress_tests.cpp`: with the dump active (non-TTY test process, bars never drawn), build a `ProgressContext`, add one determinate and one indeterminate bar with known label text, `setProgress`, then `eraseBars`; assert the dump gains one plain-text frame line per bar carrying the determinate fill/percentage or the indeterminate marker and the bar's stored label text, while captured stdout stays free of bar text and cursor escapes — this asserts the non-TTY half of the frame scenarios directly; the TTY half is covered structurally (the append writes only the dump file) plus the existing suites staying green — verify red before the frame exists
-- [ ] 2.2 Implement the frame append in `ProgressContext::eraseBars` (`src/core/progress.cpp`): after `cleared_ = true` and before the `progressBarsAllowed()` early return, append one plain-text line per bar built from stored state (`postfixText()` label slot raw and unfitted, `progressValue()`, indeterminate flag) through the same dump helper — verify the 2.1 case goes green
+- [x] 2.1 Add a case to `tests/infra/progress_tests.cpp`: with the dump active (non-TTY test process, bars never drawn), build a `ProgressContext`, add one determinate and one indeterminate bar with known label text, `setProgress`, then `eraseBars`; assert the dump gains one plain-text frame line per bar carrying the determinate fill/percentage or the indeterminate marker and the bar's stored label text, while captured stdout stays free of bar text and cursor escapes — this asserts the non-TTY half of the frame scenarios directly; the TTY half is covered structurally (the append writes only the dump file) plus the existing suites staying green — verify red before the frame exists
+- [x] 2.2 Implement the frame append in `ProgressContext::eraseBars` (`src/core/progress.cpp`): after `cleared_ = true` and before the `progressBarsAllowed()` early return, append one plain-text line per bar built from stored state (`postfixText()` label slot raw and unfitted, `progressValue()`, indeterminate flag) through the same dump helper — verify the 2.1 case goes green
 
 ## 3. Verification
 
-- [ ] 3.1 Run `xmake test-report` (full unit suite) and `openspec validate add-render-debug-dump --strict`; both green, and the pre-existing narration/capture cases confirm console output is unchanged with the env var unset
+- [x] 3.1 Run `xmake test-report` (full unit suite) and `openspec validate add-render-debug-dump --strict`; both green, and the pre-existing narration/capture cases confirm console output is unchanged with the env var unset
 
 ## Planning review
 
@@ -25,3 +25,16 @@ Fresh reviewer, planning-artifact stage (Coherence + Ground-truth), 2026-10-02; 
 - [minor] Ground truth — tasks cited `tests/terminal_tests.cpp` / `tests/progress_tests.cpp`, which do not exist → resolved: `tests/infra/terminal_tests.cpp`, `tests/infra/progress_tests.cpp`.
 - [minor] Ground truth — artifacts named `ScopedEnv`, the helper is `ScopedEnvVar` (`tests/test_utils.h:238`) → resolved.
 - [minor] Ground truth — design's line citations drifted (`terminal.cpp:291`→293, `progress.cpp:21`→22) → resolved.
+
+## Code review
+
+Two reviewers (tier M: standards+leanness, spec), 2026-10-02, over the working-tree diff since fb1ecff; fixes verified by a fresh verifier pass (all resolved; the quiet-gate pin needed a second round to make the dump var non-empty).
+
+- [leanness] `renderDumpMutex()` accessor → file-scope `g_renderDumpMutex` beside the other globals → resolved.
+- [leanness] redundant `is_open` guard before `ofstream::write` (write on a failed stream is a no-op) → resolved (deleted).
+- [leanness] nested `std::format("{}\n", …)` just to append a newline → resolved (`+ "\n"`).
+- [spec] zero-trace case asserted presence, not byte-identity → resolved (exact-equality assertions on both captured streams).
+- [spec] no test pinned quiet-before-dump suppression → resolved (SECTION with non-empty dump var + quiet; suppressed text absent, ungated text present).
+- [spec] spec wording "no code path observes the variable" overpromised vs the deliberate per-write env read → resolved (reworded to the behavioral contract).
+- [spec] spec wording "every console write" was wider than the message-layer hook → resolved (scoped to message-layer writes; bars stay under the frame requirement).
+- [spec] spec wording "never reached a determinate value" mismatched the flag-based gate → resolved ("left in its indeterminate state at the end of the phase").

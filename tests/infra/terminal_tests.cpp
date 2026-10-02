@@ -460,3 +460,104 @@ TEST_CASE("colored failure lines carry the severity marker exactly once", "[term
   CHECK(text.find("[error]") == std::string::npos);
   CHECK(text.find("boom") != std::string::npos);
 }
+
+TEST_CASE(
+  "render dump stays silent without the debug env var",
+  "[terminal][render-dump]"
+) {
+  auto const _ = ScopedTerminalReset{};
+  terminal::configure(terminal::ColorMode::Never);
+  // Empty value stands in for unset on Windows, which is the state a normal
+  // run carries.
+  auto const dumpVar = testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", ""};
+
+  auto const temp = TempDir{};
+  auto const dumpPath = temp.path / "render-dump.txt";
+  auto const outPath = temp.path / "out.txt";
+  auto const errPath = temp.path / "err.txt";
+  {
+    auto outCapture = testutils::StdoutCapture{outPath};
+    auto errCapture = testutils::StderrCapture{errPath};
+    terminal::print(terminal::MessageKind::Plain, "alpha");
+    terminal::eprintln(terminal::MessageKind::Error, "beta");
+  }
+
+  CHECK_FALSE(fs::exists(dumpPath));
+  // Byte-identity: the streams carry exactly what a dump-free build writes.
+  CHECK(testutils::readTextFile(outPath) == "alpha");
+  CHECK(testutils::readTextFile(errPath) == "error: beta\n");
+
+  SECTION("quiet suppression applies before the dump") {
+    terminal::setQuiet(true);
+    auto const activeDumpVar =
+      testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", dumpPath.string()};
+    {
+      auto outCapture = testutils::StdoutCapture{outPath};
+      terminal::print(terminal::MessageKind::Info, "narration");
+      terminal::eprintln(terminal::MessageKind::Plain, "severity text");
+    }
+    auto const dumped = testutils::readTextFile(dumpPath);
+    // The quiet gate sits above the write hook: suppressed narration never
+    // reaches the dump, while ungated writes still do.
+    CHECK(dumped.find("narration") == std::string::npos);
+    CHECK(dumped.find("severity text") != std::string::npos);
+    CHECK(testutils::readTextFile(outPath).find("narration") == std::string::npos);
+  }
+}
+
+TEST_CASE("render dump records both streams in write order", "[terminal][render-dump]") {
+  auto const _ = ScopedTerminalReset{};
+  terminal::configure(terminal::ColorMode::Never);
+
+  auto const temp = TempDir{};
+  auto const dumpPath = temp.path / "render-dump.txt";
+  auto const dumpVar =
+    testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", dumpPath.string()};
+  {
+    auto outCapture = testutils::StdoutCapture{temp.path / "out.txt"};
+    auto errCapture = testutils::StderrCapture{temp.path / "err.txt"};
+    terminal::print(terminal::MessageKind::Plain, "alpha");
+    terminal::eprintln(terminal::MessageKind::Error, "beta");
+    terminal::print(terminal::MessageKind::Plain, "gamma");
+  }
+
+  // print carries no newline, so its record ends where the next marker
+  // begins; only the eprintln write owns its trailing byte.
+  CHECK(testutils::readTextFile(dumpPath) == "[out] alpha[err] error: beta\n[out] gamma");
+}
+
+TEST_CASE(
+  "render dump copies styling bytes and omits them when colors are off",
+  "[terminal][render-dump]"
+) {
+  auto const _ = ScopedTerminalReset{};
+
+  auto const temp = TempDir{};
+  auto const dumpPath = temp.path / "render-dump.txt";
+
+  SECTION("colors forced on") {
+    terminal::configure(terminal::ColorMode::Always);
+    auto const dumpVar =
+      testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", dumpPath.string()};
+    {
+      auto outCapture = testutils::StdoutCapture{temp.path / "out.txt"};
+      terminal::println(terminal::MessageKind::Success, "done");
+    }
+    auto const dumped = testutils::readTextFile(dumpPath);
+    CHECK(dumped.find("done") != std::string::npos);
+    CHECK(dumped.find("\x1b[") != std::string::npos);
+  }
+
+  SECTION("colors forced off") {
+    terminal::configure(terminal::ColorMode::Never);
+    auto const dumpVar =
+      testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", dumpPath.string()};
+    {
+      auto outCapture = testutils::StdoutCapture{temp.path / "out.txt"};
+      terminal::println(terminal::MessageKind::Success, "done");
+    }
+    auto const dumped = testutils::readTextFile(dumpPath);
+    CHECK(dumped.find("done") != std::string::npos);
+    CHECK(dumped.find("\x1b[") == std::string::npos);
+  }
+}
