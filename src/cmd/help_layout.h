@@ -3,8 +3,10 @@
 #include <span>
 
 namespace CLI {
+
 class App;
 class Option;
+
 }  // namespace CLI
 
 // Main help: description + usage + commands section + the four option groups

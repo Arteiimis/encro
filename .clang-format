@@ -1,0 +1,154 @@
+# clang-format config for encro. Previously lived at D:/clangformat/.clang-format
+# (machine-local); moved in-repo so the pre-commit hook, `xmake fmt`, and CI all
+# resolve the same style. Keep the D:/ copy in sync or delete it after adoption.
+
+# BasedOnStyle: LLVM
+Language: Cpp
+ColumnLimit: 90
+IndentWidth: 2
+TabWidth: 2
+DisableFormat: false
+Standard: Latest
+InsertNewlineAtEOF: true
+
+# Access specifiers and namespaces
+NamespaceIndentation: None
+CompactNamespaces: true
+FixNamespaceComments: true
+WrapNamespaceBodyWithEmptyLines: Always
+
+# Alignment
+AlignAfterOpenBracket: BlockIndent # [Align, DontAlign, AlwaysBreak, BlockIndent]
+AlignArrayOfStructures: None # [None, Left, Right]
+AlignOperands: DontAlign # [DontAlign, Align, AlignAfterOperator]
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros:
+  Enabled: false
+  AcrossEmptyLines: true
+  AcrossComments: false
+AlignConsecutiveBitFields:
+  Enabled: true
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+  AlignCaseColons: true
+  AcrossEmptyLines: true
+AlignEscapedNewlines: LeftWithLastLine
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 1
+
+# Short statements
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+AllowShortLambdasOnASingleLine: All
+
+# Line breaking
+AllowAllArgumentsOnNextLine: false # never move all arguments to the next line
+AllowAllParametersOfDeclarationOnNextLine: false # never move all parameters to the next line
+AllowBreakBeforeNoexceptSpecifier: OnlyWithParen
+BreakBeforeBraces: Custom # Custom, Attach
+BreakBeforeBinaryOperators: NonAssignment # [None,NonAssignment,All]
+BreakBeforeInlineASMColon: Always
+BreakBeforeConceptDeclarations: Always
+BreakBeforeTemplateCloser: true
+BreakAfterAttributes: Leave
+BreakAfterReturnType: ExceptShortType
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: AfterComma
+BreakTemplateDeclarations: Leave
+BreakBinaryOperations: RespectPrecedence
+# BreakFunctionDefinitionParameters: true
+BreakBeforeCloseBracketIf: true # clang-format >22
+BreakBeforeCloseBracketLoop: true # clang-format >22
+BreakAfterOpenBracketLoop: true
+
+# Spacing
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeRangeBasedForLoopColon: false
+SpaceBeforeSquareBrackets: false
+SpaceBeforeCtorInitializerColon: false
+SpaceBeforeInheritanceColon: false
+SpaceBeforeCaseColon: false
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpaceInEmptyBlock: true
+SpacesInContainerLiterals: false
+SpacesInCStyleCastParentheses: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SpacesInParens: Custom
+SpaceBeforeParens: Custom
+SpacesInLineCommentPrefix:
+  Minimum: 1
+  Maximum: 1
+
+SpaceBeforeParensOptions:
+  AfterRequiresInClause: true
+  AfterControlStatements: true
+
+SpacesInParensOptions:
+  InConditionalStatements: false
+
+# Indentation
+ContinuationIndentWidth: 2
+ConstructorInitializerIndentWidth: 2
+IndentCaseLabels: true
+IndentPPDirectives: BeforeHash
+IndentRequiresClause: true
+PPIndentWidth: 2
+AccessModifierOffset: -2
+IndentWrappedFunctionNames: false
+LambdaBodyIndentation: Signature # [Signature, OuterScope]
+RequiresExpressionIndentation: OuterScope
+RequiresClausePosition: OwnLineWithBrace
+IndentAccessModifiers: false
+
+# Miscellaneous
+AttributeMacros: ['NO_UNIQUE_ADDRESS']
+BinPackArguments: false # never pack arguments onto one line
+BinPackParameters: false # never pack parameters onto one line
+BinPackLongBracedList: true
+Cpp11BracedListStyle: FunctionCall
+DerivePointerAlignment: false
+MacroBlockEnd: ''
+MacroBlockBegin: ''
+MaxEmptyLinesToKeep: 1
+PackConstructorInitializers: NextLine
+PointerAlignment: Left
+QualifierAlignment: Custom
+QualifierOrder: [inline, static, constexpr, type, const]
+ReflowComments: Never
+RemoveEmptyLinesInUnwrappedLines: true
+SortIncludes: false
+SortUsingDeclarations: LexicographicNumeric
+SeparateDefinitionBlocks: Leave # Always, Leave, Never
+
+# Penalties
+# PenaltyExcessCharacter: 100
+# PenaltyBreakAssignment: 200
+PenaltyBreakBeforeFirstCallParameter: 100 # lower the penalty for breaking after the first argument
+PenaltyBreakOpenParenthesis: 500 # raise the penalty for breaking right after an open paren
+PenaltyBreakScopeResolution: 8000
+# PenaltyReturnTypeOnItsOwnLine: 20000000
+PenaltyBreakBeforeMemberAccess: 500
+
+# Include categories
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^".*"$' # project-local includes
+    Priority: 1
+  - Regex: '^<(assert|ctype|errno|float|limits|locale|math|setjmp|signal|stdarg|stddef|stdio|stdlib|string|time|wchar|wctype|complex|fenv|inttypes|iso646|stdalign|stdatomic|stdbool|stdint|stdnoreturn|tgmath|threads|uchar)\.h>$' # C standard library
+    Priority: 2
+  - Regex: '^<[[:alnum:]_]+>$' # C++ standard library (no suffix)
+    Priority: 3
+  - Regex: '^<.+>$' # third-party dependencies
+    Priority: 4
