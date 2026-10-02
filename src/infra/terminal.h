@@ -120,6 +120,11 @@ auto renderMessage(Stream stream, MessageKind kind, std::string_view text) -> st
 
 void write(Stream stream, std::string_view text, bool newline);
 
+// Appends raw bytes to the active render dump (ENCRO_DEBUG_DUMP_RENDER=<file>;
+// no-op when unset or empty). write() feeds it every console record, and the
+// progress layer feeds its bars' final-state frames so both share one file.
+void appendRenderDump(std::string_view record);
+
 template<class Ty>
 auto count(Ty const& number, Stream stream = Stream::Stdout) -> std::string {
   return accent(fmt::format("{}", number), stream);
