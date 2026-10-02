@@ -7,6 +7,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 - **Build system:** xmake (not CMake). Toolchain: `clang-cl` + `lld-link` on Windows. C++26. For any xmake-related question or change (xmake.lua, configuration, CLI), read the `xmake` skill first.
 - **Build:** `xmake build encro` · **Run:** `xmake run encro <args>` (e.g. `xmake run encro -h`; do NOT use `--` — it is passed through to the program and breaks CLI11 parsing)
 - **Order-dependent failure:** Catch2 randomises case order, and the failing run's console log names its seed (`Randomness seeded to: <N>`) — reproduce with `build/windows/x64/release/tests.exe --rng-seed <N>`.
+- **Stale-binary trap:** restoring a mutated file to its original content makes xmake reuse the cached object and **silently skip the relink** (build "succeeds" in under a second, exe mtime unchanged) — after any mutation/restore cycle, confirm the exe mtime changed or `xmake build -r <target>` before trusting a red/green verdict; a verdict that contradicts the source means you are running the old binary.
 - **Real-model smoke:** the `[real-model]` cases read the model directory from `ENCRO_TEST_MODEL_DIR` and `SKIP()` when it is unset, so the fixture carries no machine path (`ENCRO_TEST_MODEL_DIR=<dir> xmake test-report --tag="[real-model]"`).
 - **Reporter-mode probe:** `build/windows/x64/release/tests.exe -r console -s` must report 0 failures. `-s` echoes successful assertions, so an assertion inside a redirect window is captured as reporter text and fails a capture assertion — keep assertions outside `testutils::captureStdout` / `FileCapture` windows.
 - **Tests with failure summary:** `xmake test-report` — builds + runs unit tests, writes `build/last-test-report.xml` (JUnit) and `build/last-test-console.log`, prints a pass/fail summary instead of raw console. `--tag="[tag]"` filters (the `=` form is required).
@@ -14,7 +15,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 - **Tests (parallel):** `xmake test-parallel` shards both suites by case name (`--unit-shards` / `--e2e-shards` override the counts, `--selftest` checks the partitioning helpers on fixtures). A shard's JUnit report decides pass/fail, and a shard that runs fewer cases than assigned fails — so green means every case ran; artifacts land in `build/.test-parallel/`.
 - **Tooling tasks:** `fmt` (clang-format) / `tidy` (report-only clang-tidy) / `coverage` / `size` / `include-cleaner` live in `plugins/*/xmake.lua` — `xmake <task> --help` lists the options.
 - **ASan:** `xmake f -m releasedbg && xmake build encro` (config then build; `xmake f` alone only reconfigures)
-- **Dependency headers:** read `build/compile_commands.json` for absolute include paths — they live there, not in the repo (never search `~/.xmake`).
+- **Dependency headers:** read `build/compile_commands.json` for absolute include paths — they live there, not in the repo (never search `~/.xmake`). Extract one fast: `rg -o -- '-I[^"]*<pkg>[^"]*' build/compile_commands.json -m1` (e.g. `<pkg>` = indicators).
 - **Modes:** `debug` / `release` / `releasedbg` / `coverage`; per-mode flags live in `xmake.lua` (top) and `plugins/coverage`.
 
 ## Code Conventions (repo-specific — observed by hand, only layout is tooling-checked)
@@ -71,4 +72,4 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
   - Implementation + its tests + the change's `tasks.md` checkboxes go in one commit (atomic: `git revert` removes the feature and its completion state together; no "code gone but tasks still checked" intermediate state).
   - A code change and its documentation belong in the same commit when they tell one story; split only when the docs are a prerequisite (planning) or an independent deliverable (user guide).
 - **Markdown docs:** one paragraph per line — no cosmetic hard wrapping in `README.md`, `docs/`, `openspec/`. Exception: `.agents/skills/openspec-*/SKILL.md` comes verbatim from the openspec CLI templates, so it keeps the upstream wrapping — never re-wrap it; the `code-review`/`diagnosing-bugs` skills are ours and stay unwrapped.
-- **Pre-commit hook:** clang-format on staged C/C++ files (`.githooks/pre-commit`; setup `git config core.hooksPath .githooks`).
+- **Pre-commit hook:** clang-format on staged C/C++ files, formatting the staged blob only — unstaged worktree edits are never touched. Style: repo-root `.clang-format` (setup `git config core.hooksPath .githooks`).
