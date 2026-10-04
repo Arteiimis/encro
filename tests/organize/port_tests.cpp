@@ -1,5 +1,6 @@
 // Ported pipeline foundations: SHA-256 reference vectors and the scan stage
 // (change add-local-character-grouping tasks 1.1/1.2).
+#include "organize/disposition.h"
 #include "organize/scan.h"
 #include "core/sha256.h"
 
@@ -84,4 +85,47 @@ TEST_CASE("scanImages errors on a missing directory", "[organize]") {
   auto const res = organize::scanImages(fs::path{"Z:/definitely/missing"}, false);
   REQUIRE(!res.has_value());
   CHECK(!res.error().empty());
+}
+
+// Incremental input assembly (change organize-existing-structure task 3.1):
+// loose root images plus recursively collected input-disposition folders.
+TEST_CASE("scanImages assembles input from dispositions", "[organize]") {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "loose.png", "loose");
+  testutils::writeTextFile(temp.path / "角色A" / "ref.png", "ref");
+  testutils::writeTextFile(temp.path / "mix" / "x.png", "x");
+  testutils::writeTextFile(temp.path / "mix" / "nested" / "y.png", "y");
+  testutils::writeTextFile(temp.path / ".stash" / "s.png", "s");
+  testutils::writeTextFile(temp.path / "organized" / "miku" / "old.png", "old");
+
+  auto const dispositions = organize::computeFolderDispositions(temp.path, false, {}, {});
+  auto const res = organize::scanImages(temp.path, false, dispositions);
+  REQUIRE(res.has_value());
+  auto names = std::map<std::string, int>{};
+  for (auto const& item: *res) { ++names[item.path.filename().string()]; }
+  // mix is misc-listed input (recursively collected); 角色A is a reference
+  // and .stash ignored — neither contributes scan input; the output tree is
+  // excluded as always.
+  CHECK(
+    names == std::map<std::string, int>{{"loose.png", 1}, {"x.png", 1}, {"y.png", 1}}
+  );
+}
+
+TEST_CASE("a recursive scan disposes every folder as input", "[organize]") {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "loose.png", "loose");
+  testutils::writeTextFile(temp.path / "角色A" / "ref.png", "ref");
+  testutils::writeTextFile(temp.path / "mix" / "x.png", "x");
+  testutils::writeTextFile(temp.path / ".stash" / "s.png", "s");
+  testutils::writeTextFile(temp.path / "organized" / "miku" / "old.png", "old");
+
+  auto const dispositions = organize::computeFolderDispositions(temp.path, true, {}, {});
+  auto const res = organize::scanImages(temp.path, true, dispositions);
+  REQUIRE(res.has_value());
+  CHECK(res->size() == 4);  // whole tree minus the output tree
+
+  auto const skipping = organize::computeFolderDispositions(temp.path, true, {}, {"mix"});
+  auto const skipped = organize::scanImages(temp.path, true, skipping);
+  REQUIRE(skipped.has_value());
+  CHECK(skipped->size() == 3);  // --ignore-folder still excludes mix
 }

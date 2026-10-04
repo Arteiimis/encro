@@ -6,6 +6,7 @@
 #include "infra/console_width.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
+#include "organize/disposition.h"
 #include "organize/pipeline.h"
 #include "tagger/engine_factory.h"
 #include "tagger/model_store.h"
@@ -14,6 +15,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -147,6 +149,30 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
     ? std::optional<fs::path>{fs::path{*cmd.ffmpegPath}}
     : std::nullopt;
 
+  // Incremental entry (design D8): the disposition walk needs no models, so
+  // it runs before the engines load and its notice precedes the loading
+  // spinner. Recursive runs keep whole-set behavior and stay silent.
+  if (!cmd.recursive) {
+    auto const dispositions = computeFolderDispositions(
+      fs::path{cmd.organizeDir.value_or(".")},
+      /*recursive=*/false,
+      cmd.organizeIngest.value_or(std::vector<std::string>{}),
+      cmd.organizeIgnoreFolder.value_or(std::vector<std::string>{})
+    );
+    if (!dispositions.empty()) {
+      auto const references =
+        std::ranges::count_if(dispositions, [](FolderDisposition const& disposition) {
+          return disposition.kind == DispositionKind::Reference;
+        });
+      terminal::println(
+        MessageKind::Info,
+        "incremental organize: {} reference folder{}",
+        references,
+        references == 1 ? "" : "s"
+      );
+    }
+  }
+
   // The engine build is the run's silent spot (CUDA DLL loads, two session
   // creations); an indeterminate spinner covers it and is erased before any
   // output follows, per the bar lifecycle. The fake-engine path loads
@@ -182,6 +208,8 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
     .ffmpegPath = ffmpegPath,
     .maxJobs = cmd.maxJobs.value_or(4),
     .identityTau = cmd.organizeIdentityTau.value_or(kCombinedTau),
+    .ingestFolders = cmd.organizeIngest.value_or(std::vector<std::string>{}),
+    .ignoreFolders = cmd.organizeIgnoreFolder.value_or(std::vector<std::string>{}),
   };
 
   auto progress = progress::ProgressContext{};

@@ -4,6 +4,7 @@
 #include "cmd/config_store.h"
 #include "cmd/help_layout.h"
 #include "cmd/option_specs.h"
+#include "organize/disposition.h"
 #include "organize/organize_types.h"
 
 #include <CLI/CLI.hpp>
@@ -24,6 +25,9 @@ namespace {
 // Local character grouping (spec: image-character-organize). Analysis is
 // fully local: image content never leaves this machine.
 auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
+  // Folder flags are greedy per occurrence like --inputs; one name per
+  // occurrence is the documented shape.
+  constexpr auto kMaxFolderFlags = 256;
   auto* sub = app.add_subcommand(
     "organize",
     "group a folder of images into per-character folders with a local "
@@ -71,6 +75,18 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
     ),
     opt("--dry-run", &result.dryRun, "classify and print the plan; copy nothing"),
     opt("--recluster", &result.organizeRecluster, "discard cached analysis and redo it"),
+    opt(
+      "--ingest",
+      &result.organizeIngest,
+      "treat this first-level folder's images as input (repeatable)",
+      cfg::Expected{1, kMaxFolderFlags}
+    ),
+    opt(
+      "--ignore-folder",
+      &result.organizeIgnoreFolder,
+      "skip this first-level folder entirely (repeatable)",
+      cfg::Expected{1, kMaxFolderFlags}
+    ),
   };
   registerAll(sub, options, result.keyEntries);
   installOrganizeHelpFormatter(*sub);
@@ -558,6 +574,20 @@ auto buildAndParse(
       result.organize = true;
       if (auto const error = organizeDirError(result); error.has_value()) {
         result.error = *error;
+      } else if (result.organizeDir.has_value()) {
+        // Folder-flag names are validated before any scan, through the same
+        // argument-error channel as the missing directory (spec "Command
+        // surface and scanning").
+        if (
+          auto const error = organize::validateDispositionFlags(
+            fs::path{*result.organizeDir},
+            result.organizeIngest.value_or(std::vector<std::string>{}),
+            result.organizeIgnoreFolder.value_or(std::vector<std::string>{})
+          );
+          error.has_value()
+        ) {
+          result.error = *error;
+        }
       }
     }
     if (tree.app->got_subcommand(tree.configSub)) {

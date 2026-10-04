@@ -84,6 +84,13 @@ inline constexpr auto kFeatureOnlyTau = 0.74;
 // the previous greedy pass and says so (design D5).
 inline constexpr std::size_t kAgglomerationImageCeiling = 10'000;
 
+// Reference-folder sample size for incremental organize (design D3): enough
+// members for a stable mean feature and a sole-tag majority vote at folder
+// scale, small enough that 30 reference folders cost ~600 inferences once.
+// Deterministic by content-hash order, so a re-run samples the same members
+// and pays nothing. Tune by editing the constant, not the mechanism.
+inline constexpr std::size_t kReferenceSampleSize = 20;
+
 struct Options {
   fs::path root;  // directory to scan and organize
   bool recursive = false;
@@ -98,6 +105,10 @@ struct Options {
   double identityTau = kCombinedTau;
   // Above this many analysed images the clustering takes its low-memory path.
   std::size_t clusterImageCeiling = kAgglomerationImageCeiling;
+  // First-level folder names from --ingest / --ignore-folder; the disposition
+  // pre-pass folds them into its reference/input/ignored decisions.
+  std::vector<std::string> ingestFolders;
+  std::vector<std::string> ignoreFolders;
 };
 
 }  // namespace organize

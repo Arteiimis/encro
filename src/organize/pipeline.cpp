@@ -2,12 +2,15 @@
 
 #include "core/display_text.h"
 #include "core/media_item.h"
+#include "core/media_scanner.h"
+#include "core/sha256.h"
 #include "core/task_executor.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
 #include "organize/assign.h"
 #include "organize/cache.h"
 #include "organize/cluster.h"
+#include "organize/disposition.h"
 #include "organize/execute.h"
 #include "organize/naming.h"
 #include "organize/scan.h"
@@ -17,6 +20,7 @@
 #include <format>
 #include <map>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <span>
@@ -131,7 +135,8 @@ bool analyzeMissing(
   tagger::FeatureEngine& features,
   AnalysisCache& cache,
   Options const& options,
-  progress::ProgressContext* progress
+  progress::ProgressContext* progress,
+  std::string_view barLabel = "Analyzing"
 ) {
   auto cacheMutex = std::mutex{};
   // The bar is the flow's: created with today's prompt only when something is
@@ -140,7 +145,7 @@ bool analyzeMissing(
   if (progress != nullptr && std::ranges::any_of(items, [](ImageItem const& item) {
         return !alreadyAnalyzed(item);
       })) {
-    barIndex = progress->addBar("Analyzing");
+    barIndex = progress->addBar(barLabel);
     progress->resetEta(barIndex);
   }
 
@@ -291,7 +296,8 @@ void clusterRemainder(
   std::vector<ImageItem>& items,
   std::vector<std::size_t> const& pending,
   std::vector<FolderReference> const& references,
-  Options const& options
+  Options const& options,
+  std::vector<FolderDisposition> const& dispositions
 ) {
   auto const result =
     clusterPending(items, pending, options.identityTau, options.clusterImageCeiling);
@@ -310,6 +316,15 @@ void clusterRemainder(
     if (!item.folderName.empty()) {
       usedNames.insert(displaytext::pathToUtf8String(item.folderName));
     }
+  }
+  // A new cluster name must never collide with a folder that exists on disk
+  // (spec): every first-level name — any disposition — and every output-root
+  // name seeds the registry, and assignUniqueFolderName suffixes the rest.
+  for (auto const& disposition: dispositions) {
+    usedNames.insert(displaytext::pathToUtf8String(disposition.name));
+  }
+  for (auto const& entry: outputRootFolderNames(options.root)) {
+    usedNames.insert(displaytext::pathToUtf8String(entry.filename()));
   }
 
   // Folder-match: a cluster whose profile resembles an existing folder's joins
@@ -355,6 +370,93 @@ void clusterRemainder(
   }
 }
 
+// One reference folder's slice of the sampling stage's flat item vector.
+struct SampleFolderSpan {
+  fs::path name;
+  std::size_t begin = 0;
+  std::size_t count = 0;
+};
+
+// Collects each reference folder's members recursively, orders them by
+// content hash, and caps at kReferenceSampleSize (design D3): the hash is the
+// cache key and the ordering in one step, so two runs over the same folder
+// sample the same members. An unreadable folder simply does not teach.
+auto collectReferenceSampleSpans(
+  std::vector<FolderDisposition> const& dispositions,
+  fs::path const& root
+) -> std::pair<std::vector<ImageItem>, std::vector<SampleFolderSpan>> {
+  auto items = std::vector<ImageItem>{};
+  auto spans = std::vector<SampleFolderSpan>{};
+  for (auto const& disposition: dispositions) {
+    if (disposition.kind != DispositionKind::Reference) { continue; }
+    auto scanned =
+      media::scanByExtensions(root / disposition.name, kImageExtensions, true);
+    if (!scanned) { continue; }
+    auto members = std::vector<ImageItem>{};
+    members.reserve(scanned->matches.size());
+    for (auto const& path: scanned->matches) {
+      auto const digest = core::sha256File(path);
+      // "" is a reachable cache key (an unreadable file hashed to it during
+      // a scan); never sample such a member.
+      if (digest.empty()) { continue; }
+      members.push_back(ImageItem{.path = path, .contentHash = digest});
+    }
+    std::sort(members.begin(), members.end(), [](ImageItem const& a, ImageItem const& b) {
+      return a.contentHash < b.contentHash;
+    });
+    if (members.size() > kReferenceSampleSize) { members.resize(kReferenceSampleSize); }
+    spans.push_back(
+      SampleFolderSpan{
+        .name = disposition.name,
+        .begin = items.size(),
+        .count = members.size(),
+      }
+    );
+    items.insert(
+      items.end(),
+      std::make_move_iterator(members.begin()),
+      std::make_move_iterator(members.end())
+    );
+  }
+  return {std::move(items), std::move(spans)};
+}
+
+// Demotion and splitting (design D4): a sample splitting into two or more
+// identity clusters under the run's tau loses matching and ownership — it is
+// simply absent from the reference list. The disposition itself is
+// unchanged; demotion never makes the folder input. The demoted names ride
+// along for the report.
+struct SampleSplit {
+  std::vector<FolderSample> samples;
+  std::set<std::string> demotedNames;  // utf8 folder names
+};
+
+auto splitNonDemotedSamples(
+  std::vector<ImageItem>& sampleItems,
+  std::vector<SampleFolderSpan> const& spans,
+  Options const& options
+) -> SampleSplit {
+  auto split = SampleSplit{};
+  for (auto const& span: spans) {
+    auto members = std::vector<ImageItem>{};
+    members.reserve(span.count);
+    for (auto index = std::size_t{0}; index < span.count; ++index) {
+      members.push_back(sampleItems[span.begin + index]);
+    }
+    auto pending = std::vector<std::size_t>(span.count);
+    std::iota(pending.begin(), pending.end(), std::size_t{0});
+    auto const clustered =
+      clusterPending(members, pending, options.identityTau, options.clusterImageCeiling);
+    if (clustered.clusters.size() >= 2) {
+      split.demotedNames.insert(displaytext::pathToUtf8String(span.name));
+      continue;
+    }
+    split.samples
+      .push_back(FolderSample{.name = span.name, .members = std::move(members)});
+  }
+  return split;
+}
+
 }  // namespace
 
 auto runOrganize(
@@ -363,7 +465,13 @@ auto runOrganize(
   tagger::FeatureEngine& features,
   progress::ProgressContext* progress
 ) -> eh::Result<ReportData> {
-  auto scanned = scanImages(options.root, options.recursive);
+  auto const dispositions = computeFolderDispositions(
+    options.root,
+    options.recursive,
+    options.ingestFolders,
+    options.ignoreFolders
+  );
+  auto scanned = scanImages(options.root, options.recursive, dispositions);
   if (!scanned) { return std::unexpected(scanned.error()); }
   auto items = std::move(*scanned);
 
@@ -373,6 +481,24 @@ auto runOrganize(
   } else {
     cache.load();
   }
+
+  // Incremental runs (non-recursive, first-level folders present) profile
+  // their reference folders first: a capped, hash-ordered, cached sample
+  // feeds teaching (design D3/D4). Members never route or copy.
+  auto sampleSplit = SampleSplit{};
+  auto const incremental = !options.recursive && !dispositions.empty();
+  if (incremental) {
+    auto [sampleItems, spans] = collectReferenceSampleSpans(dispositions, options.root);
+    applyCachedAnalyses(sampleItems, cache);
+    auto const sampled =
+      analyzeMissing(sampleItems, engine, features, cache, options, progress, "Sampling");
+    // Persist the sample even when the loose-image analysis is canceled next.
+    cache.flush();
+    if (!sampled) { return ReportData{.canceled = true}; }
+    sampleSplit = splitNonDemotedSamples(sampleItems, spans, options);
+  }
+  auto const& samples = sampleSplit.samples;
+
   auto const cacheHits = applyCachedAnalyses(items, cache);
 
   auto const analyzed = analyzeMissing(items, engine, features, cache, options, progress);
@@ -392,13 +518,29 @@ auto runOrganize(
   // On-disk folders drive ownership; the merged set — on-disk folders plus the
   // character folders this run's own routing creates — drives the capture, so a
   // first run files a cluster into its character's folder (design D1-D3).
-  auto const onDisk = buildFolderReferences(options.root, cache);
+  auto const onDisk = buildFolderReferences(options.root, cache, samples);
   auto const pending = routeItems(items, options.minConfidence, onDisk, characterDf);
   auto const references = buildSameRunReferences(items, onDisk);
-  clusterRemainder(items, pending, references, options);
+  clusterRemainder(items, pending, references, options, dispositions);
 
   auto const stats = executeOrganize(options.root, items, options.dryRun);
   if (stats.canceled) { return ReportData{.canceled = true}; }
+
+  // The disposition section is an incremental-run surface: recursive runs
+  // keep whole-set behavior and print no summary.
+  auto dispositionLines = std::vector<DispositionLine>{};
+  if (incremental) {
+    for (auto const& disposition: dispositions) {
+      auto const name = displaytext::pathToUtf8String(disposition.name);
+      dispositionLines.push_back(
+        DispositionLine{
+          .folder = name,
+          .kind = disposition.kind,
+          .demoted = sampleSplit.demotedNames.contains(name),
+        }
+      );
+    }
+  }
   return ReportData{
     .folders = buildFoldersSection(items),
     .scanned = items.size(),
@@ -406,6 +548,7 @@ auto runOrganize(
     .skippedExisting = stats.skippedExisting,
     .cacheHits = cacheHits,
     .copyErrors = stats.errors,
+    .dispositions = std::move(dispositionLines),
   };
 }
 

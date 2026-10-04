@@ -2,6 +2,7 @@
 // totals (spec "Progress and report").
 #pragma once
 
+#include "organize/disposition.h"
 #include "organize/organize_types.h"
 
 #include <cstddef>
@@ -16,6 +17,15 @@ struct FolderReportLine {
   FolderSource source = FolderSource::Uncategorized;
 };
 
+// One first-level folder's disposition as the report shows it (design D9):
+// `demoted` marks a reference the mixed-sample check dropped, which the
+// summary names with a hint at --ingest.
+struct DispositionLine {
+  std::string folder;
+  DispositionKind kind = DispositionKind::Reference;
+  bool demoted = false;
+};
+
 struct ReportData {
   std::vector<FolderReportLine> folders;  // sorted by folder name
   std::size_t scanned = 0;
@@ -23,6 +33,9 @@ struct ReportData {
   std::size_t skippedExisting = 0;
   std::size_t cacheHits = 0;
   std::vector<std::string> copyErrors;  // per-file copy failures; visible in report
+  // First-level dispositions; empty outside incremental runs, so the
+  // disposition summary is an incremental-only report section.
+  std::vector<DispositionLine> dispositions;
   // A stop request aborted the analysis or the copy phase: the data above is
   // partial and the report must not print.
   bool canceled = false;

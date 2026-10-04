@@ -6,6 +6,7 @@
 
 #include "organize/cache.h"
 #include "organize/cluster.h"
+#include "organize/execute.h"
 #include "organize/pipeline.h"
 #include "organize/teach.h"
 
@@ -43,9 +44,11 @@ class FakeTagger final: public tagger::TaggerEngine {
 public:
   std::map<std::string, tagger::TaggerOutput> byName;
   std::atomic<int> calls{0};
+  std::vector<std::string> classifiedPaths;
 
   auto classify(fs::path const& path) -> eh::Result<tagger::TaggerOutput> override {
     ++calls;
+    classifiedPaths.push_back(path.filename().string());
     auto const it = byName.find(path.filename().string());
     if (it == byName.end()) { return eh::makeError("no fixture for {}", path.string()); }
     return it->second;
@@ -900,6 +903,8 @@ TEST_CASE("renderReport aligns a CJK folder name by display width", "[organize]"
     },
   };
 
+  // The folder column adapts by display width, and rows render in folder-name
+  // order (the zero-row merge sorts), so venti precedes the CJK row.
   auto const text = organize::renderReport(report, 80);
   auto lines = std::vector<std::string>{};
   for (auto const& line: text | std::views::split('\n')) {
@@ -907,11 +912,11 @@ TEST_CASE("renderReport aligns a CJK folder name by display width", "[organize]"
   }
   // Padding counts display columns, not bytes: the CJK row's count sits at
   // the same column as every other row's.
-  auto const cjkRow = lines[2];
+  auto const cjkRow = lines[3];
   auto const countPos = cjkRow.find(std::format("{: >6}", 3));
   REQUIRE(countPos != std::string::npos);
   CHECK(displaytext::displayWidth(cjkRow.substr(0, countPos)) == 31);
-  CHECK(imagesColumnText(lines[3], 30) == std::format("{: >6}", 7));
+  CHECK(imagesColumnText(lines[2], 30) == std::format("{: >6}", 7));
 }
 
 TEST_CASE("organize names failed copies in its report", "[organize]") {
@@ -960,6 +965,353 @@ TEST_CASE("organize names failed copies in its report", "[organize]") {
 // phase reports it on the pipeline result, the copy phase stops before the
 // next image, and the command prints one notice with the cancellation exit
 // code instead of the report.
+// ── Incremental organize (change organize-existing-structure tasks 4.1, 4.2,
+// 5.1): sampling, demotion, and first-level teaching ──
+
+// Sampling is capped and deterministic: members are ordered by content hash
+// and the first kReferenceSampleSize analyzed, so two fresh directories with
+// the same contents sample the same members, and a re-run pays nothing.
+TEST_CASE("reference sampling caps members by content hash and caches", "[organize]") {
+  auto const buildDir = [](fs::path const& dir) {
+    for (auto index = 0; index < 21; ++index) {
+      testutils::writeTextFile(
+        dir / "角色A" / std::format("m{:02}.png", index),
+        std::format("m{:02}", index)
+      );
+    }
+    testutils::writeTextFile(dir / "new.png", "new");
+  };
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  for (auto index = 0; index < 21; ++index) {
+    auto const name = std::format("m{:02}.png", index);
+    engine.byName[name] = {.general = {tag("pink_hair", 0.9)}};
+    features.byName[name] = testutils::unitFeature(1.0);
+  }
+  engine.byName["new.png"] = {.general = {tag("pink_hair", 0.9)}};
+  features.byName["new.png"] = testutils::unitFeature(0.95);
+
+  auto const runOnce = [&](fs::path const& dir) {
+    engine.classifiedPaths.clear();
+    auto const report =
+      organize::runOrganize(makeOptions(dir), engine, features, nullptr);
+    REQUIRE(report.has_value());
+    return std::set<std::string>{
+      engine.classifiedPaths.begin(),
+      engine.classifiedPaths.end()
+    };
+  };
+
+  auto tempA = TempDir{};
+  buildDir(tempA.path);
+  auto const first = runOnce(tempA.path);
+  // 20 of the 21 members plus the loose image.
+  CHECK(first.size() == 21);
+  CHECK(first.contains("new.png"));
+
+  auto tempB = TempDir{};
+  buildDir(tempB.path);
+  CHECK(runOnce(tempB.path) == first);
+
+  // The sampled analyses live in the shared cache, and a re-run performs no
+  // inference at all.
+  auto cache =
+    organize::AnalysisCache{tempA.path / "organized" / ".cache" / "analysis.json"};
+  cache.load();
+  CHECK(cache.get(core::sha256Hex("m00")).has_value() == first.contains("m00.png"));
+  auto const callsBefore = engine.calls.load();
+  auto const rerun =
+    organize::runOrganize(makeOptions(tempA.path), engine, features, nullptr);
+  REQUIRE(rerun.has_value());
+  CHECK(engine.calls.load() == callsBefore);
+
+  // The reference folder itself is untouched; the loose image filed into the
+  // mirrored skeleton.
+  CHECK(fs::exists(tempA.path / "角色A" / "m00.png"));
+  CHECK(fs::exists(tempA.path / "organized" / "角色A" / "new.png"));
+}
+
+TEST_CASE("a first-level folder teaches the run and is mirrored", "[organize]") {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "角色A" / "member.png", "member");
+  testutils::writeTextFile(temp.path / "solo.png", "solo");
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["member.png"] = {.general = {tag("pink_hair", 0.9)}};
+  engine.byName["solo.png"] = {.general = {tag("pink_hair", 0.9)}};
+  features.byName["member.png"] = testutils::unitFeature(1.0);
+  features.byName["solo.png"] = testutils::unitFeature(0.9);
+
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(report.has_value());
+  CHECK(fs::exists(temp.path / "organized" / "角色A" / "solo.png"));
+  // The first-level folder and its member are untouched; no parallel
+  // unknown_ folder appears.
+  CHECK(fs::exists(temp.path / "角色A" / "member.png"));
+  CHECK_FALSE(hasUnknownFolder(*report));
+}
+
+// Demotion (design D4): a sample splitting into two identity clusters loses
+// folder matching AND tag ownership, without changing the folder's contents.
+TEST_CASE("a mixed sample demotes the folder from matching and ownership", "[organize]") {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "温迪" / "a.png", "a");
+  testutils::writeTextFile(temp.path / "温迪" / "b.png", "b");
+  testutils::writeTextFile(temp.path / "new.png", "new");
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["a.png"] = {.character = {tag("venti", 0.9)}};
+  engine.byName["b.png"] = {.character = {tag("venti", 0.9)}};
+  engine.byName["new.png"] = {.character = {tag("venti", 0.9)}};
+  // Opposite features: two clusters under the combined tau.
+  features.byName["a.png"] = testutils::unitFeature(1.0);
+  features.byName["b.png"] = testutils::unitFeature(0.0);
+  features.byName["new.png"] = testutils::unitFeature(1.0);
+
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(report.has_value());
+  // Not demoted, the sampled sole-tag majority would own venti and file the
+  // image under 温迪/; demoted, the raw tag folder is used.
+  CHECK(fs::exists(temp.path / "organized" / "venti" / "new.png"));
+  CHECK_FALSE(fs::exists(temp.path / "organized" / "温迪"));
+  CHECK(fs::exists(temp.path / "温迪" / "a.png"));
+  CHECK(fs::exists(temp.path / "温迪" / "b.png"));
+}
+
+TEST_CASE("a first-level folder owns its character tag", "[organize]") {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "温迪" / "a.png", "a");
+  testutils::writeTextFile(temp.path / "温迪" / "b.png", "b");
+  testutils::writeTextFile(temp.path / "new.png", "new");
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["a.png"] = {.character = {tag("venti", 0.9)}};
+  engine.byName["b.png"] = {.character = {tag("venti", 0.9)}};
+  engine.byName["new.png"] = {.character = {tag("venti", 0.9)}};
+  // Close features: one cluster, no demotion.
+  features.byName["a.png"] = testutils::unitFeature(1.0);
+  features.byName["b.png"] = testutils::unitFeature(0.95);
+
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(report.has_value());
+  CHECK(fs::exists(temp.path / "organized" / "温迪" / "new.png"));
+  CHECK_FALSE(fs::exists(temp.path / "organized" / "venti"));
+}
+
+// Same-name sources merge (design D5): a first-level folder and an output-root
+// folder of one name form a single reference whose membership is the union.
+TEST_CASE(
+  "same-name first-level and output folders merge into one reference",
+  "[organize]"
+) {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "角色A" / "s1.png", "s1");
+  testutils::writeTextFile(temp.path / "角色A" / "s2.png", "s2");
+  testutils::writeTextFile(temp.path / "organized" / "角色A" / "old.png", "old");
+  testutils::writeTextFile(temp.path / "new.png", "new");
+
+  // The output-root member carries venti from an earlier run; the sample
+  // carries one venti and one xiao — only the union reaches a sole-tag
+  // majority, so filing under 角色A proves the two sources merged.
+  {
+    auto cache =
+      organize::AnalysisCache{temp.path / "organized" / ".cache" / "analysis.json"};
+    cache.put(
+      core::sha256Hex("old"),
+      organize::AnalysisResult{
+        .tags = {.character = {tag("venti", 0.9)}},
+        .identity = testutils::unitFeature(1.0),
+      }
+    );
+  }
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["s1.png"] = {.character = {tag("venti", 0.9)}};
+  engine.byName["s2.png"] = {.character = {tag("xiao", 0.9)}};
+  engine.byName["new.png"] = {.character = {tag("venti", 0.9)}};
+  features.byName["s1.png"] = testutils::unitFeature(1.0);
+  features.byName["s2.png"] = testutils::unitFeature(0.98);
+
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(report.has_value());
+  CHECK(fs::exists(temp.path / "organized" / "角色A" / "new.png"));
+  CHECK_FALSE(fs::exists(temp.path / "organized" / "venti"));
+}
+
+// New cluster names never reuse a folder that already exists — not at the
+// first level, not under the output root (design D7): the suffixing is
+// deterministic, and a zero-match reference folder still creates no skeleton.
+TEST_CASE("a new cluster name never collides with an existing folder", "[organize]") {
+  auto const run = [](fs::path const& dir) {
+    testutils::writeTextFile(dir / "a.png", "a");
+    testutils::writeTextFile(dir / "b.png", "b");
+    auto engine = FakeTagger{};
+    auto features = FakeFeatureEngine{};
+    engine.byName["a.png"] = {.general = {tag("pink_hair", 0.9)}};
+    engine.byName["b.png"] = {.general = {tag("pink_hair", 0.9)}};
+    features.byName["a.png"] = testutils::unitFeature(1.0);
+    features.byName["b.png"] = testutils::unitFeature(0.99);
+    auto const report =
+      organize::runOrganize(makeOptions(dir), engine, features, nullptr);
+    REQUIRE(report.has_value());
+  };
+
+  SECTION("a first-level folder of that name") {
+    auto temp = TempDir{};
+    // Far-away feature and disagreeing tags: the folder captures nothing.
+    testutils::writeTextFile(temp.path / "unknown_pink_hair" / "ref.png", "ref");
+    auto engine = FakeTagger{};
+    auto features = FakeFeatureEngine{};
+    engine.byName["ref.png"] = {.general = {tag("black_hair", 0.9)}};
+    features.byName["ref.png"] = testutils::unitFeature(-1.0);
+    run(temp.path);
+    CHECK(fs::exists(temp.path / "organized" / "unknown_pink_hair_2" / "a.png"));
+    CHECK(fs::exists(temp.path / "organized" / "unknown_pink_hair_2" / "b.png"));
+    CHECK_FALSE(fs::exists(temp.path / "organized" / "unknown_pink_hair"));
+  }
+
+  SECTION("an output-root folder of that name") {
+    auto temp = TempDir{};
+    // No cached analysis: the folder is not a reference, but its name still
+    // must not be reused.
+    testutils::writeTextFile(
+      temp.path / "organized" / "unknown_pink_hair" / "old.png",
+      "old"
+    );
+    run(temp.path);
+    CHECK(fs::exists(temp.path / "organized" / "unknown_pink_hair_2" / "a.png"));
+  }
+}
+
+#if defined(_WIN32)
+// Strict lazy creation (design D7): the destination folder appears only
+// once the copy's bytes reached the staging file, so a failed copy leaves no
+// empty folder behind.
+TEST_CASE("a failed copy leaves no empty destination folder", "[organize]") {
+  auto temp = TempDir{};
+  auto const source = testutils::writeTextFile(temp.path / "a.png", "content-a");
+  auto items = std::vector<organize::ImageItem>{
+    {.path = source, .contentHash = core::sha256Hex("content-a"), .folderName = "miku"},
+  };
+
+  auto const lock = ExclusivelyLockedFile{source};
+  REQUIRE(lock.isLocked());
+
+  auto const stats = organize::executeOrganize(temp.path, items, false);
+  CHECK(stats.copied == 0);
+  REQUIRE(stats.errors.size() == 1);
+  CHECK_FALSE(fs::exists(temp.path / "organized" / "miku"));
+}
+#endif
+
+// The disposition walk runs before the engines load (design D8): exactly one
+// notice line names incremental mode and the reference count, recursive runs
+// print nothing new, and virgin directories are not incremental.
+TEST_CASE("incremental entry is announced once, and only incrementally", "[organize]") {
+  auto const runCommand = [](fs::path const& dir, bool recursive) {
+    auto cmd = CmdParseResult{};
+    cmd.organizeDir = dir.string();
+    cmd.recursive = recursive;
+    auto exitCode = 1;
+    auto const captured =
+      testutils::captureStdout([&] { exitCode = organize::runOrganizeCommand(cmd); });
+    return std::pair{exitCode, captured};
+  };
+
+  auto temp = TempDir{};
+  auto const pics = temp.path / "pics";
+  fs::create_directories(pics / "角色A");
+  fs::create_directories(pics / "mix");
+  auto const bytes = std::string{"miku-bytes"};
+  testutils::writeTextFile(pics / "miku.png", bytes);
+  testutils::writeTextFile(pics / "角色A" / "ref.png", "ref");
+  auto const fixture = temp.path / "fixture.json";
+  testutils::writeTextFile(
+    fixture,
+    std::format(
+      R"({{"{}": {{"character": [["hatsune_miku", 0.9]]}}}})",
+      core::sha256Hex(bytes)
+    )
+  );
+  auto const fakeEngine = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", fixture.string()};
+
+  auto const [exitCode, captured] = runCommand(pics, false);
+  CHECK(exitCode == 0);
+  CHECK(testutils::countOccurrences(captured, "incremental organize") == 1);
+  CHECK(captured.find("1 reference folder") != std::string::npos);
+
+  auto const [recursiveExit, recursiveCaptured] = runCommand(pics, true);
+  CHECK(recursiveExit == 0);
+  CHECK(recursiveCaptured.find("incremental organize") == std::string::npos);
+
+  auto virgin = TempDir{};
+  testutils::writeTextFile(virgin.path / "miku.png", bytes);
+  auto const [virginExit, virginCaptured] = runCommand(virgin.path, false);
+  CHECK(virginExit == 0);
+  CHECK(virginCaptured.find("incremental organize") == std::string::npos);
+}
+
+// The report surface of an incremental run: the disposition list rides the
+// ReportData, and zero-match references appear as zero rows.
+TEST_CASE(
+  "an incremental run reports dispositions and zero-match references",
+  "[organize]"
+) {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "角色A" / "member.png", "member");
+  testutils::writeTextFile(temp.path / "角色B" / "member.png", "member-b");
+  testutils::writeTextFile(temp.path / "mix" / "x.png", "x");
+  testutils::writeTextFile(temp.path / "new.png", "new");
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["member.png"] = {.general = {tag("pink_hair", 0.9)}};
+  engine.byName["x.png"] = {.general = {tag("pink_hair", 0.9)}};
+  engine.byName["new.png"] = {.general = {tag("pink_hair", 0.9)}};
+  // 角色B's member disagrees on tags and feature: no capture, zero row.
+  engine.byName["member-b.png"] = {.general = {tag("black_hair", 0.9)}};
+  features.byName["member.png"] = testutils::unitFeature(1.0);
+  features.byName["member-b.png"] = testutils::unitFeature(-1.0);
+  features.byName["x.png"] = testutils::unitFeature(0.99);
+  features.byName["new.png"] = testutils::unitFeature(0.95);
+
+  auto const report =
+    organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
+  REQUIRE(report.has_value());
+  REQUIRE(report->dispositions.size() == 3);
+  CHECK(report->dispositions[0].folder == "mix");
+  CHECK(report->dispositions[0].kind == organize::DispositionKind::Input);
+  CHECK(report->dispositions[1].folder == "角色A");
+  CHECK(report->dispositions[1].kind == organize::DispositionKind::Reference);
+  CHECK_FALSE(report->dispositions[1].demoted);
+
+  auto const text = organize::renderReport(*report, 80);
+  // The zero row keeps the table's columns: the count sits at the same
+  // display column as every counted row.
+  auto zeroRow = std::string{};
+  for (auto const& line: text | std::views::split('\n')) {
+    auto const row = std::string{line.begin(), line.end()};
+    if (row.find("角色B") == 0) {
+      zeroRow = row;
+      break;
+    }
+  }
+  REQUIRE_FALSE(zeroRow.empty());
+  auto const countPos = zeroRow.find("     0");
+  REQUIRE(countPos != std::string::npos);
+  CHECK(displaytext::displayWidth(zeroRow.substr(0, countPos)) == 31);
+  CHECK(text.find("角色B: reference") != std::string::npos);
+}
+
 TEST_CASE(
   "organize reports a stop request instead of an error or a report",
   "[organize][stop-signal]"

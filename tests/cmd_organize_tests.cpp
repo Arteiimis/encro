@@ -205,3 +205,88 @@ TEST_CASE("organize help shows the directory as optional", "[cmd][organize]") {
   CHECK(result.helpText().find("encro organize [dir]") != std::string::npos);
   CHECK(result.helpText().find("no dir: fetch only") != std::string::npos);
 }
+
+// --ingest / --ignore-folder: repeatable, one name per occurrence (change
+// organize-existing-structure task 2.1).
+TEST_CASE("ingest and ignore-folder flags parse repeatable", "[cmd][organize]") {
+  auto temp = TempDir{};
+  fs::create_directories(temp.path / "mix");
+  fs::create_directories(temp.path / "角色A");
+  fs::create_directories(temp.path / ".stash");
+
+  auto const result = testutils::parseArgs({
+    "encro",
+    "organize",
+    temp.path.string(),
+    "--ingest",
+    "mix",
+    "--ingest",
+    "角色A",
+    "--ignore-folder",
+    ".stash",
+  });
+  REQUIRE_FALSE(result.error.has_value());
+  REQUIRE(result.organizeIngest.has_value());
+  CHECK(*result.organizeIngest == std::vector<std::string>{"mix", "角色A"});
+  REQUIRE(result.organizeIgnoreFolder.has_value());
+  CHECK(*result.organizeIgnoreFolder == std::vector<std::string>{".stash"});
+}
+
+TEST_CASE(
+  "an ingest name that is not a first-level folder is an argument error",
+  "[cmd][organize]"
+) {
+  auto temp = TempDir{};
+  fs::create_directories(temp.path / "mix");
+  fs::create_directories(temp.path / "organized" / "miku");
+
+  auto const unknown = testutils::parseArgs(
+    {"encro", "organize", temp.path.string(), "--ingest", "nonexistent"}
+  );
+  REQUIRE(unknown.error.has_value());
+  CHECK(unknown.error->find("--ingest") != std::string::npos);
+  CHECK(unknown.error->find("nonexistent") != std::string::npos);
+
+  // The output tree is not an ingestable folder either.
+  auto const output = testutils::parseArgs(
+    {"encro", "organize", temp.path.string(), "--ingest", "organized"}
+  );
+  CHECK(output.error.has_value());
+}
+
+TEST_CASE("the same folder in both flags is an argument error", "[cmd][organize]") {
+  auto temp = TempDir{};
+  fs::create_directories(temp.path / "mix");
+
+  auto const result = testutils::parseArgs({
+    "encro",
+    "organize",
+    temp.path.string(),
+    "--ingest",
+    "mix",
+    "--ignore-folder",
+    "mix",
+  });
+  REQUIRE(result.error.has_value());
+  CHECK(result.error->find("mix") != std::string::npos);
+}
+
+TEST_CASE("ingest parses with the directory before the flag", "[cmd][organize]") {
+  auto temp = TempDir{};
+  fs::create_directories(temp.path / "mix");
+
+  auto const result =
+    testutils::parseArgs({"encro", "organize", temp.path.string(), "--ingest", "mix"});
+  REQUIRE_FALSE(result.error.has_value());
+  REQUIRE(result.organizeDir.has_value());
+  CHECK(*result.organizeDir == temp.path.string());
+  REQUIRE(result.organizeIngest.has_value());
+  CHECK(*result.organizeIngest == std::vector<std::string>{"mix"});
+}
+
+TEST_CASE("organize help lists the disposition flags", "[cmd][organize]") {
+  auto const columnsVar = testutils::ScopedEnvVar{"COLUMNS", "120"};
+  auto const result = testutils::parseArgs({"encro", "organize", "-h"});
+  CHECK(result.helpText().find("--ingest") != std::string::npos);
+  CHECK(result.helpText().find("--ignore-folder") != std::string::npos);
+}

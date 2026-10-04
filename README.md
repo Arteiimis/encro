@@ -114,10 +114,12 @@ With one input, `preview` runs the probe phase on the source, encodes the window
 ### Grouping images by character (`organize`)
 
 ```sh
-xmake run encro organize <dir> [-r] [--min-confidence F] [--model-dir <dir>] [--identity-tau F] [--dry-run]
+xmake run encro organize <dir> [-r] [--min-confidence F] [--model-dir <dir>] [--identity-tau F] [--ingest <folder>] [--ignore-folder <folder>] [--dry-run]
 ```
 
 `organize` sorts a folder of images into per-character folders under `<dir>/organized/` using two local AI models (a tagger and an identity model). Analysis is fully local: image content never leaves this machine. Known characters file by their tag (`organized/hatsune_miku/`); everything else clusters by appearance into `unknown_<tags>/` folders; multi-subject images land in `mixed/`. Originals are always copied, never moved.
+
+When `<dir>` already holds first-level folders (and `-r` is not given), the run is **incremental**: each first-level folder becomes a reference to learn from — up to 20 of its images are sampled (deterministically, by content hash, cached like any analysis so re-runs cost nothing) — and matching images file into `<dir>/organized/<that folder's name>/`, mirroring your structure without touching it. Folders named like a miscellaneous bin (`mix`, `杂项`, `その他`, …) are treated as input instead: their images are sorted together with the loose ones. Dot-prefixed folders are skipped. `--ingest <folder>` forces any first-level folder to be input, `--ignore-folder <folder>` skips one entirely; both are repeatable. A reference whose sample splits into two distinct characters is demoted with a hint in the report. The first incremental run pays the sampling inferences once (20 per reference folder); every later run reads them from the cache. With `-r`, the run keeps its whole-tree behavior: every first-level folder is scanned as input and nothing is mirrored.
 
 The first run needs the model files (~530 MB, one time):
 

@@ -51,29 +51,55 @@ auto buildReference(fs::path const& folderDir, AnalysisCache const& cache)
 
 }  // namespace
 
-auto buildFolderReferences(fs::path const& root, AnalysisCache const& cache)
-  -> std::vector<FolderReference> {
+auto outputRootFolderNames(fs::path const& root) -> std::vector<fs::path> {
   auto const outputRoot = root / "organized";
   auto ec = std::error_code{};
-  if (!fs::exists(outputRoot, ec) || ec) { return {}; }
-
-  auto entries = std::vector<fs::path>{};
+  auto names = std::vector<fs::path>{};
+  if (!fs::exists(outputRoot, ec) || ec) { return names; }
   for (auto const& entry: fs::directory_iterator{outputRoot, ec}) {
     // Skip cache-internal directories; only character/unknown/mixed folders
-    // teach.
-    if (!entry.is_directory() || entry.path().filename() == ".cache") { continue; }
-    entries.push_back(entry.path());
+    // count.
+    if (ec || !entry.is_directory() || entry.path().filename() == ".cache") { continue; }
+    names.push_back(entry.path());
   }
-  std::sort(entries.begin(), entries.end(), [](fs::path const& a, fs::path const& b) {
+  std::sort(names.begin(), names.end(), [](fs::path const& a, fs::path const& b) {
     // UTF-8 order, like the names this list is compared against.
     return displaytext::pathToUtf8String(a) < displaytext::pathToUtf8String(b);
   });
+  return names;
+}
 
-  auto references = std::vector<FolderReference>{};
+auto buildFolderReferences(
+  fs::path const& root,
+  AnalysisCache const& cache,
+  std::vector<FolderSample> const& firstLevelSamples
+) -> std::vector<FolderReference> {
+  auto const entries = outputRootFolderNames(root);
+
+  // Keyed by display name so a first-level sample of the same name folds
+  // into the on-disk reference: one reference, union membership (design D5).
+  auto byName = std::map<std::string, FolderReference>{};
   for (auto const& entry: entries) {
     auto reference = buildReference(entry, cache);
-    if (reference.analyzableMembers > 0) { references.push_back(std::move(reference)); }
+    byName.emplace(displaytext::pathToUtf8String(reference.name), std::move(reference));
   }
+  for (auto const& sample: firstLevelSamples) {
+    auto& reference = byName[displaytext::pathToUtf8String(sample.name)];
+    if (reference.name.empty()) { reference.name = sample.name; }
+    for (auto const& member: sample.members) {
+      if (!member.analysis.has_value()) { continue; }
+      accumulateMember(reference, *member.analysis);
+    }
+  }
+
+  auto references = std::vector<FolderReference>{};
+  references.reserve(byName.size());
+  for (auto& entry: byName) {
+    if (entry.second.analyzableMembers > 0) {
+      references.push_back(std::move(entry.second));
+    }
+  }
+  // Map iteration is name order, the invariant a tie in the capture relies on.
   return references;
 }
 
