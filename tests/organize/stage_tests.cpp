@@ -1,9 +1,11 @@
 // Ported pipeline stages: cache, naming sanitizer, execute, report
 // (change add-local-character-grouping tasks 1.2-1.4).
 #include "organize/cache.h"
+#include "organize/disposition.h"
 #include "organize/execute.h"
 #include "organize/naming.h"
 #include "organize/report.h"
+#include "core/display_text.h"
 #include "core/sha256.h"
 #include "infra/stop_signal.h"
 
@@ -11,6 +13,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
+#include <format>
+#include <ranges>
 #include <set>
 #include <string>
 
@@ -316,6 +320,100 @@ TEST_CASE("executeOrganize dry run copies nothing", "[organize]") {
   auto const stats = organize::executeOrganize(temp.path, items, true);
   CHECK(stats.copied == 0);
   CHECK(!fs::exists(temp.path / "organized" / "miku"));
+}
+
+// ── Incremental report surface (change organize-existing-structure task 6.1):
+// disposition summary, zero-match rows, alignment ──
+
+TEST_CASE("renderReport lists dispositions with the demotion hint", "[organize]") {
+  auto report = organize::ReportData{
+    .dispositions = {
+      {"角色A", organize::DispositionKind::Reference, false},
+      {"mix", organize::DispositionKind::Input, false},
+      {".stash", organize::DispositionKind::Ignored, false},
+      {"杂物", organize::DispositionKind::Reference, true},
+    },
+  };
+
+  auto const text = organize::renderReport(report, 80);
+  CHECK(text.find("角色A: reference") != std::string::npos);
+  CHECK(text.find("mix: input") != std::string::npos);
+  CHECK(text.find(".stash: ignored") != std::string::npos);
+  CHECK(text.find("杂物: demoted") != std::string::npos);
+  CHECK(text.find("--ingest 杂物") != std::string::npos);
+
+  // Outside incremental runs the section is absent entirely.
+  auto plain = organize::ReportData{
+    .folders = {organize::FolderReportLine{
+      .folder = "miku",
+      .images = 1,
+      .source = organize::FolderSource::CharacterTag,
+    }}
+  };
+  CHECK(organize::renderReport(plain, 80).find("dispositions:") == std::string::npos);
+}
+
+TEST_CASE("renderReport adds zero-count rows for unmatched references", "[organize]") {
+  auto report = organize::ReportData{
+    .folders = {organize::FolderReportLine{
+      .folder = "角色A",
+      .images = 5,
+      .source = organize::FolderSource::FolderMatch,
+    }},
+    .dispositions = {
+      {"角色A", organize::DispositionKind::Reference, false},
+      {"角色B", organize::DispositionKind::Reference, false},
+      // Demoted folders are named in the summary, not as zero rows.
+      {"杂物", organize::DispositionKind::Reference, true},
+      {"mix", organize::DispositionKind::Input, false},
+    },
+  };
+
+  auto const text = organize::renderReport(report, 80);
+  CHECK(text.find("角色B") != std::string::npos);
+  // The zero row keeps the table's columns: the count sits at the same
+  // offset as every counted row (folder width 30 + one space).
+  auto zeroRow = std::string{};
+  for (auto const& line: text | std::views::split('\n')) {
+    auto const row = std::string{line.begin(), line.end()};
+    if (row.find("角色B") != std::string::npos && row != "  角色B: reference") {
+      zeroRow = row;
+      break;
+    }
+  }
+  REQUIRE_FALSE(zeroRow.empty());
+  // The count sits at display column 31 like every counted row; its position
+  // in bytes depends on the name's width, so locate it and measure the prefix.
+  auto const countPos = zeroRow.find("     0");
+  REQUIRE(countPos != std::string::npos);
+  CHECK(displaytext::displayWidth(zeroRow.substr(0, countPos)) == 31);
+  // No zero row for the folder the table already counts, none for demoted or
+  // input folders; 杂物 shows on one summary line (its hint names it again).
+  CHECK(testutils::countOccurrences(text, "角色A") == 2);  // table + summary
+  auto miscLines = std::size_t{0};
+  for (auto const& line: text | std::views::split('\n')) {
+    auto const row = std::string{line.begin(), line.end()};
+    if (row.find("杂物") != std::string::npos) { ++miscLines; }
+  }
+  CHECK(miscLines == 1);                                 // the summary line only
+  CHECK(testutils::countOccurrences(text, "mix") == 1);  // summary only
+}
+
+TEST_CASE("zero-match rows keep the table aligned for long names", "[organize]") {
+  auto const longName = std::string{"unknown_animal_ears_eyepatch_black_hair"};
+  auto report = organize::ReportData{
+    .dispositions = {{longName, organize::DispositionKind::Reference, false}},
+  };
+
+  auto const text = organize::renderReport(report, 50);
+  auto lines = std::vector<std::string>{};
+  for (auto const& line: text | std::views::split('\n')) {
+    lines.emplace_back(line.begin(), line.end());
+  }
+  REQUIRE(lines.size() >= 3);  // header, rule, zero-match row
+  CHECK(text.find("...") != std::string::npos);
+  // The count sits in the same 6-wide column as the header's images label.
+  CHECK(lines[2].substr(31, 6) == "     0");
 }
 
 TEST_CASE("buildFoldersSection aggregates counts and sources", "[organize]") {

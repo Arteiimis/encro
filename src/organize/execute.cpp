@@ -12,22 +12,30 @@ namespace organize {
 
 namespace {
 
-// Copies via a staging file outside the visible output tree (organized/
-// .cache/tmp), so an interrupted copy never leaves a partial image behind;
-// the final rename is atomic within the same volume.
-bool copySafely(
+// Stages the source bytes outside the visible output tree
+// (organized/.cache/tmp) so an interrupted copy never leaves a partial image
+// behind. The caller creates the destination folder only once this
+// succeeded (strict lazy creation), then finalizeCopy() completes it.
+auto stageCopy(
   fs::path const& source,
   fs::path const& stagingDir,
   fs::path const& destination
-) {
+) -> std::optional<fs::path> {
   auto ec = std::error_code{};
   auto const tempPath =
     stagingDir / std::format("{}.part", destination.filename().string());
   fs::copy_file(source, tempPath, fs::copy_options::overwrite_existing, ec);
-  if (ec) { return false; }
-  fs::rename(tempPath, destination, ec);
+  if (ec) { return std::nullopt; }
+  return tempPath;
+}
+
+// Atomic final rename within the same volume; a failed rename drops the
+// staging file so the cache directory never accumulates .part litter.
+bool finalizeCopy(fs::path const& staged, fs::path const& destination) {
+  auto ec = std::error_code{};
+  fs::rename(staged, destination, ec);
   if (ec) {
-    fs::remove(tempPath, ec);
+    fs::remove(staged, ec);
     return false;
   }
   return true;
@@ -83,17 +91,27 @@ auto executeOrganize(
       item.folderName.empty() ? fs::path{kUncategorizedFolder} : item.folderName;
 
     auto const folderDir = outputRoot / folder;
-    auto const folderExisted = dryRun ? false : fs::exists(folderDir, ec);
-    if (!dryRun) { fs::create_directories(folderDir, ec); }
-
     auto const destination = resolveDestination(folderDir, item, dryRun);
     if (!destination.has_value()) {
       ++stats.skippedExisting;
       continue;
     }
     if (dryRun) { continue; }
+
+    // Stage the bytes first: a failed copy must not leave an empty folder
+    // behind (strict lazy creation, design D7).
+    auto const staged = stageCopy(item.path, stagingDir, *destination);
+    if (!staged.has_value()) {
+      stats.errors.push_back(
+        std::format("copy failed: {} -> {}", item.path.string(), destination->string())
+      );
+      continue;
+    }
+
+    auto const folderExisted = fs::exists(folderDir, ec);
+    fs::create_directories(folderDir, ec);
     if (!folderExisted) { ++stats.createdFolders; }
-    if (copySafely(item.path, stagingDir, *destination)) {
+    if (finalizeCopy(*staged, *destination)) {
       ++stats.copied;
     } else {
       stats.errors.push_back(

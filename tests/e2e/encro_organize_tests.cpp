@@ -156,6 +156,72 @@ TEST_CASE("organize re-run resumes from the cache", "[e2e][organize]") {
   CHECK(second.stdoutText.find("skipped existing 2") != std::string::npos);
 }
 
+// Incremental organize (change organize-existing-structure task 7.1): a
+// directory with hand-made first-level character folders, a misc folder and
+// loose images — matching images file into the mirrored skeleton, nothing
+// pre-existing changes, zero-match references create no folder, and the
+// second run analyzes nothing.
+TEST_CASE("organize files into an existing structure incrementally", "[e2e][organize]") {
+  auto temp = TempDir{};
+  auto const pics = temp.path / "pics";
+  fs::create_directories(pics / "角色A");
+  fs::create_directories(pics / "角色B");
+  fs::create_directories(pics / "mix" / "sub");
+  writeImage(pics / "角色A" / "ref.png", "ref-a");
+  writeImage(pics / "角色B" / "ref.png", "ref-b");
+  writeImage(pics / "mix" / "x.png", "mix-x");
+  writeImage(pics / "mix" / "sub" / "y.png", "mix-y");
+  writeImage(pics / "new.png", "new");
+
+  auto fixture = temp.path / "fixture.json";
+  writeFixture(
+    fixture,
+    {},
+    {{"ref-a", {"pink_hair", 0.9}},
+     {"ref-b", {"black_hair", 0.9}},
+     {"new", {"pink_hair", 0.9}},
+     {"mix-x", {"pink_hair", 0.9}},
+     {"mix-y", {"pink_hair", 0.9}}},
+    {{"ref-a", {1.0F, 0.0F}},
+     {"ref-b", {-1.0F, 0.0F}},
+     {"new", {0.995F, 0.1F}},
+     {"mix-x", {0.99F, 0.1F}},
+     {"mix-y", {0.98F, 0.15F}}}
+  );
+
+  auto const env =
+    std::map<std::string, std::string>{{"ENCRO_FAKE_TAGGER", fixture.string()}};
+  auto const run = e2e::runEncro({"organize", pics.string()}, std::nullopt, env);
+  REQUIRE_SUCCESS(run);
+
+  // The loose image and the misc folder's images (nested included) file
+  // into the mirrored skeleton of the matching reference.
+  CHECK(fs::exists(pics / "organized" / "角色A" / "new.png"));
+  CHECK(fs::exists(pics / "organized" / "角色A" / "x.png"));
+  CHECK(fs::exists(pics / "organized" / "角色A" / "y.png"));
+  // Zero-match reference: listed, no folder created.
+  CHECK(!fs::exists(pics / "organized" / "角色B"));
+  CHECK(run.stdoutText.find("角色B") != std::string::npos);
+  // Nothing pre-existing changed: the hand-made folders and their members
+  // are untouched, the loose originals stay in place.
+  CHECK(fs::exists(pics / "角色A" / "ref.png"));
+  CHECK(fs::exists(pics / "角色B" / "ref.png"));
+  CHECK(fs::exists(pics / "mix" / "x.png"));
+  CHECK(fs::exists(pics / "new.png"));
+  // The mode notice and the disposition summary are part of the contract.
+  CHECK(
+    run.stdoutText.find("incremental organize: 2 reference folders") != std::string::npos
+  );
+  CHECK(run.stdoutText.find("mix: input") != std::string::npos);
+
+  // Second run over the unchanged directory: every image is a cache hit, so
+  // no inference runs and nothing is copied again.
+  auto const second = e2e::runEncro({"organize", pics.string()}, std::nullopt, env);
+  REQUIRE_SUCCESS(second);
+  CHECK(second.stdoutText.find("(3 cache hits)") != std::string::npos);
+  CHECK(second.stdoutText.find("copied 0") != std::string::npos);
+}
+
 TEST_CASE("renamed character folder teaches a later e2e run", "[e2e][organize]") {
   auto temp = TempDir{};
   auto const pics = temp.path / "pics";

@@ -63,6 +63,8 @@ struct CmdParseResult {
   std::optional<double> organizeMinConfidence;
   std::optional<std::string> organizeModelDir;
   std::optional<double> organizeIdentityTau;
+  std::optional<std::vector<std::string>> organizeIngest;
+  std::optional<std::vector<std::string>> organizeIgnoreFolder;
   bool organizeDownloadModels = false;
   bool organizeRecluster = false;
 

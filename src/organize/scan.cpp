@@ -23,18 +23,49 @@ bool isInsideOutputTree(fs::path const& candidate, fs::path const& root) {
   return mismatch == outputRoot.end();
 }
 
-}  // namespace
-
-auto scanImages(fs::path const& root, bool recursive)
-  -> eh::Result<std::vector<ImageItem>> {
-  auto scanRes = media::scanByExtensions(root, kImageExtensions, recursive);
-  if (!scanRes) { return std::unexpected(std::move(scanRes).error()); }
-
+// Hashes each match and drops anything inside the output tree.
+auto hashedItems(fs::path const& root, std::vector<fs::path> const& paths)
+  -> std::vector<ImageItem> {
   auto items = std::vector<ImageItem>{};
-  items.reserve(scanRes->matches.size());
-  for (auto const& path: scanRes->matches) {
+  items.reserve(paths.size());
+  for (auto const& path: paths) {
     if (isInsideOutputTree(path, root)) { continue; }
     items.push_back(ImageItem{.path = path, .contentHash = core::sha256File(path)});
+  }
+  return items;
+}
+
+}  // namespace
+
+auto scanImages(
+  fs::path const& root,
+  bool recursive,
+  std::vector<FolderDisposition> const& dispositions
+) -> eh::Result<std::vector<ImageItem>> {
+  if (dispositions.empty()) {
+    auto scanRes = media::scanByExtensions(root, kImageExtensions, recursive);
+    if (!scanRes) { return std::unexpected(std::move(scanRes).error()); }
+    return hashedItems(root, scanRes->matches);
+  }
+
+  // Disposition-driven input assembly: the root's loose images plus each
+  // input folder collected recursively (recursive runs dispose every
+  // non-ignored folder as input, so the whole tree is scanned as before).
+  auto items = std::vector<ImageItem>{};
+  auto loose = media::scanByExtensions(root, kImageExtensions, false);
+  if (!loose) { return std::unexpected(std::move(loose).error()); }
+  items = hashedItems(root, loose->matches);
+  for (auto const& disposition: dispositions) {
+    if (disposition.kind != DispositionKind::Input) { continue; }
+    auto scanned =
+      media::scanByExtensions(root / disposition.name, kImageExtensions, true);
+    if (!scanned) { return std::unexpected(std::move(scanned).error()); }
+    auto hashed = hashedItems(root, scanned->matches);
+    items.insert(
+      items.end(),
+      std::make_move_iterator(hashed.begin()),
+      std::make_move_iterator(hashed.end())
+    );
   }
   return items;
 }
