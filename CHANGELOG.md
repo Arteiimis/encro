@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.0-rc.1] - 2026-10-05
+
+### Added
+
+- `organize` can group images into an existing folder structure instead of only creating a new one.
+- `ENCRO_DEBUG_DUMP_RENDER` writes the exact bytes each stream received, in write order, for diagnosing the terminal layout without a screen.
+
+### Changed
+
+- Identity matching normalizes the input before embedding, so the same character is recognized across differently prepared crops.
+- Tag fusion and average linkage make folder grouping order-independent: the same image set produces the same groups regardless of input order.
+- A single run's folder set no longer differs from the previous run's when the same images are grouped again.
+- The organize spinner and its report now line up with the rest of the output.
+
 ## [2.0.0-alpha.3] - 2026-09-28
 
 ### Added
@@ -202,7 +216,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.3...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.0-rc.1...HEAD
+[2.0.0-rc.1]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.3...v2.0.0-rc.1
 [2.0.0-alpha.3]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.2...v2.0.0-alpha.3
 [2.0.0-alpha.2]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.1...v2.0.0-alpha.2
 [2.0.0-alpha.1]: https://github.com/Arteiimis/encro/compare/v1.7.0...v2.0.0-alpha.1
