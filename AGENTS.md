@@ -30,7 +30,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 | Namespaces     | lowercase, no separators, no indent inside                           |
 | Header guards  | `#pragma once` only                                                  |
 | Include order  | own header → project headers by module → third-party → stdlib; relative to `src/` |
-| Comments       | Minimal, no Doxygen                                         |
+| Comments       | Minimal, no Doxygen, in English                             |
 | Template params| `Ty` (single), `Tys` (pack)                                          |
 
 ## Testing
@@ -51,13 +51,9 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 - **Stop tests:** request a stop at most once per case execution — put a fresh `testutils::ScopedStopSignalReset` in every loop iteration instead of one guard for the loop, because a second `stopsignal::requestStop()` while the force-exit deadline is armed calls `ExitProcess(130)` and takes the whole test binary down (symptom: exit 130 mid-run, no Catch2 summary, empty JUnit — while `--tag`/shard runs still pass, since the deadline only arms after a handler-installing case ran).
 - **Render-touching changes** (terminal styling, summary lines, progress bars): self-check the visually blind output with `ENCRO_DEBUG_DUMP_RENDER=<file>` (plus `--color always`); the dump records the exact bytes per stream in write order — read it for layout/interleaving, `rg -o $'\x1b\[[0-9;]*m' | sort | uniq -c` for color-span structure. Contract: `openspec/specs/render-debug-dump`.
 
-## Communication
-
-- 与用户对话使用中文（代码注释、git 提交、OpenSpec 文档仍为英文）。
-
 ## Development Workflows
 
-- **OpenSpec:** features follow proposal → specs → design → tasks → implementation via the `openspec-*` skills (artifacts in `openspec/changes/`). Every skill lives once in `.agents/skills/`, which all harnesses read — never fork a copy per tool. **Before starting any OpenSpec step, read the corresponding skill first (`.agents/skills/openspec-<step>/SKILL.md`) and follow its workflow exactly.** Every feature needs ≥1 test; spec documents are written in English (see Communication).
+- **OpenSpec:** features follow proposal → specs → design → tasks → implementation via the `openspec-*` skills (artifacts in `openspec/changes/`). Every skill lives once in `.agents/skills/`, which all harnesses read — never fork a copy per tool. **Before starting any OpenSpec step, read the corresponding skill first (`.agents/skills/openspec-<step>/SKILL.md`) and follow its workflow exactly.** Every feature needs ≥1 test; spec documents are written in English.
 - **OpenSpec explore trigger:** when the user's request is exploratory — "探索下"/"explore", feasibility or options discussion, or similar exploratory intent — automatically start with the `openspec-explore` skill (read `.agents/skills/openspec-explore/SKILL.md` and enter explore mode) instead of answering or implementing directly.
 - **OpenSpec review timing:** write all planning artifacts (proposal → specs → design → tasks) before reviewing the proposal against the complete set — a proposal review without its specs/design/tasks cannot validate the contract between them. Then run the planning-artifact stage of the `code-review` skill: one fresh reviewer against the written artifacts (not the author's intent), whose findings and verdicts are recorded in the change's `tasks.md`.
 - **OpenSpec archive auto-sync:** when archiving a change whose delta specs are not yet applied to the main specs, run the sync step automatically (inline, as the archive skill prescribes) without prompting; never archive with stale main specs. Skip the sync only when the user explicitly says so. This overrides the archive skill's sync prompt and stays here on purpose — an openspec skill update would drop it from the skill.
