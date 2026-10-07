@@ -111,6 +111,36 @@ local function copyOrtRuntimeDlls(target)
   end
 end
 
+-- All src/ code compiles exactly once into this static lib, linked by both
+-- encro and tests. Per-target compilation duplicated ~66 TUs with per-target
+-- command lines (test defines vs LTO), which also defeated the build cache
+-- (its key is the full command line).
+target("encro_core")
+  set_kind("static")
+  set_default(false)
+
+  if is_mode("release") then
+    set_policy("build.optimization.lto", true)
+  end
+
+  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11", {public = true})
+  if is_plat("windows") then
+    add_packages("onnxruntime-gpu", {public = true})
+    add_syslinks("dbghelp", "shell32", "ole32", {public = true})
+  else
+    add_syslinks("dl", {public = true})
+  end
+
+  add_includedirs("src", {public = true})
+  add_files("src/**.cpp|main.cpp")
+  -- ONNX inference links win-x64-only ORT binaries, and onnx_runtime.cpp plus
+  -- every engine over it include the ORT headers; other hosts get the
+  -- engine_factory stubs instead.
+  if not is_plat("windows") then
+    remove_files("src/tagger/onnx_*.cpp")
+  end
+target_end()
+
 target("encro")
   set_kind("binary")
 
@@ -118,22 +148,9 @@ target("encro")
     set_policy("build.optimization.lto", true)
   end
 
-  add_packages("boost", "thread-pool", "indicators", "libzippp", "fmt", "spdlog", "cli11")
-  if is_plat("windows") then
-    add_packages("onnxruntime-gpu")
-    add_syslinks("dbghelp", "shell32", "ole32")
-  else
-    add_syslinks("dl")
-  end
+  add_deps("encro_core")
 
-  add_includedirs("src", {public = true})
-  add_files("src/**.cpp")
-  -- ONNX inference links win-x64-only ORT binaries, and onnx_runtime.cpp plus
-  -- every engine over it include the ORT headers; other hosts get the
-  -- engine_factory stubs instead.
-  if not is_plat("windows") then
-    remove_files("src/tagger/onnx_*.cpp")
-  end
+  add_files("src/main.cpp")
   after_build(copyOrtRuntimeDlls)
 target_end()
 
@@ -167,14 +184,9 @@ target("tests")
   set_kind("binary")
   set_default(false)
 
-  add_packages("catch2", "boost", "thread-pool", "indicators", "fmt", "spdlog", "libzippp", "cli11", "cpp-httplib")
-  if is_plat("windows") then
-    add_packages("onnxruntime-gpu")
-    add_syslinks("dbghelp", "shell32", "ole32")
-  else
-    add_syslinks("dl")
-  end
-  add_includedirs("src", "tests")
+  -- Shared deps (boost/spdlog/... + src includes) arrive via encro_core.
+  add_packages("catch2", "cpp-httplib")
+  add_includedirs("tests")
   add_files("tests/*.cpp")
   add_files("tests/app/*.cpp")
   add_files("tests/infra/*.cpp")
@@ -187,14 +199,9 @@ target("tests")
     remove_files("tests/tagger/real_model_tests.cpp")
   end
   add_files("tests/video/*.cpp")
-  add_files("src/**.cpp|main.cpp")
-  -- Mirrors the encro target: the ORT engine implementations are windows-only.
-  if not is_plat("windows") then
-    remove_files("src/tagger/onnx_*.cpp")
-  end
 
   -- Unit tests spawn the fake media tool exe directly (no cmd.exe layer).
-  add_deps("encro_e2e_tool")
+  add_deps("encro_e2e_tool", "encro_core")
   after_load(function(target)
     injectFakeToolDefine(target)
     injectTestSourceDirDefine(target)
@@ -218,8 +225,6 @@ target("e2e_tests")
   after_load(injectFakeToolDefine)
   after_build(copyOrtRuntimeDlls)
   add_files("tests/e2e/*.cpp|fake_media_tool.cpp")
-  -- The organize e2e fixtures hash file contents with the shared SHA-256.
-  add_files("src/core/sha256.cpp")
 target_end()
 
 includes("@builtin/xpack")
