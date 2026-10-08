@@ -2,7 +2,7 @@
 
 ## Why
 
-A green run does not yet mean the same thing in every invocation mode: the suite's verdict still depends on process-global state left behind by earlier test cases, on the reporter and stdio mode, and on how a parallel run partitions and judges its shards. The 2026-09-16 CI SIGSEGV (run 35102342170, debug and coverage jobs) was one instance of that class — a test-local guard cleared four process-global completion registries that another file read, and Catch2's execution order decided whether it crashed. Catch2 v3.15 randomises that order on every run (`docs/backlog.md:83`), so an order-sensitive case does not fail once on an unlucky build; it fails intermittently forever. The instance is fixed (`e9d6cdd`); the class is not.
+A green run does not yet mean the same thing in every invocation mode: the suite's verdict still depends on process-global state left behind by earlier test cases, on the reporter and stdio mode, and on how a parallel run partitions and judges its shards. The 2026-09-16 CI SIGSEGV (run 35102342170, debug and coverage jobs) was one instance of that class — a test-local guard cleared four process-global completion registries that another file read, and Catch2's execution order decided whether it crashed. Catch2 v3.15 randomises that order on every run (`docs/backlog.md:83`), so an order-sensitive case does not fail once on an unlucky build; it fails intermittently forever. The instance is fixed (`1ad71f7`); the class is not.
 
 Evidence collected on 2026-09-16 (Windows, release build, `build/windows/x64/release/tests.exe`, full suite = 713 cases / 31827 assertions):
 

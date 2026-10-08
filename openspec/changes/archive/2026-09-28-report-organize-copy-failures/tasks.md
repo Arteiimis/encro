@@ -21,7 +21,7 @@
 - [x] 3.2 `xmake fmt` twice with no second-run diff.
 - [x] 3.3 `xmake tidy` with no new diagnostics against the baseline count taken before the change (report-only task in this repo).
 
-      Verification after 3ec5c7f: full suite `test cases: 821 | 810 passed | 11
+      Verification after 55ea80b: full suite `test cases: 821 | 810 passed | 11
       skipped`, `assertions: 16361 | 16361 passed | 0 skipped`. `xmake fmt` run
       twice: both runs produced the same diff
       (sha256 c3f781aaf29284f626bac287122712da9a0354fb3aa4b812dc1cc99b4828d051),

@@ -101,7 +101,7 @@ The same run also reproduced the routing shape (2443 tag-placed / 81 mixed / 135
 
 ### Code-diff review findings (task 7.1)
 
-Fixed point `0ce754d` (the identity-input change's archive commit), so the reviewed diff is this change's implementation only: `git diff 0ce754d -- src tests README.md`, 18 files / +743 -88. Three axes ran in parallel, each reading the diff itself; every finding below was accepted, none rejected — the two axes that independently flagged the same duplication (the calibration constants and the `TagVector` alias) outweighed my initial plan to keep those.
+Fixed point `cb47379` (the identity-input change's archive commit), so the reviewed diff is this change's implementation only: `git diff cb47379 -- src tests README.md`, 18 files / +743 -88. Three axes ran in parallel, each reading the diff itself; every finding below was accepted, none rejected — the two axes that independently flagged the same duplication (the calibration constants and the `TagVector` alias) outweighed my initial plan to keep those.
 
 **[high][Spec] The knob is ignored below the built-in default in the agglomeration path.** `seedCandidates`/`absorbCluster` queue only pairs at or above `kCombinedTau` and the merge loop breaks there, so `--identity-tau 0.62` can never merge a combined pair scoring in [0.62, 0.70) even though folder-match and the above-ceiling greedy pass read the knob and would match it — the spec tells users a lower value keeps a character's varied artwork together. **resolved:** the cutoff becomes the lower of the two thresholds the modes can use (`std::min(combinedTau, kFeatureOnlyTau)`), in seeding, requeueing and the break test.
 

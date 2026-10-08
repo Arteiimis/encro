@@ -37,4 +37,4 @@
 
 - [x] 5.1 Run `xmake test-report` after each batch (D1–D4) before committing; nothing but the batch's own deletions may fail
 - [x] 5.2 Run `xmake test-parallel` after D2 and D4
-- [x] 5.3 Commit per batch (English, conventional: `refactor:`; `test:` where test files dominate), ticking the change's `tasks.md` checkboxes in the same commit (planning `docs:` commit already landed as f4004b4)
+- [x] 5.3 Commit per batch (English, conventional: `refactor:`; `test:` where test files dominate), ticking the change's `tasks.md` checkboxes in the same commit (planning `docs:` commit already landed as cd63601)

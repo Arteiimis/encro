@@ -28,7 +28,7 @@ Fresh reviewer, planning-artifact stage (Coherence + Ground-truth), 2026-10-02; 
 
 ## Code review
 
-Two reviewers (tier M: standards+leanness, spec), 2026-10-02, over the working-tree diff since fb1ecff; fixes verified by a fresh verifier pass (all resolved; the quiet-gate pin needed a second round to make the dump var non-empty).
+Two reviewers (tier M: standards+leanness, spec), 2026-10-02, over the working-tree diff since 07674be; fixes verified by a fresh verifier pass (all resolved; the quiet-gate pin needed a second round to make the dump var non-empty).
 
 - [leanness] `renderDumpMutex()` accessor → file-scope `g_renderDumpMutex` beside the other globals → resolved.
 - [leanness] redundant `is_open` guard before `ofstream::write` (write on a failed stream is a no-op) → resolved (deleted).

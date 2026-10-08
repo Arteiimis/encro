@@ -25,7 +25,7 @@
 
 ## 5. Pin the picture-compression cancellation at the process level
 
-- [x] 5.1 Add an e2e case (`tests/e2e/encro_e2e_tests.cpp`, `[e2e][picture][interrupt][fake-toolchain]`): a picture compression held open by the fake toolchain's gate receives a real console Ctrl+C through `runEncroAsync` + `sendCtrlC` (`SKIP()` when `consoleCtrlEventsAvailable()` is false) and then reports exit 130, `warning: Compression task canceled by user.` on stderr, and no `<path>: exit code <n>` line on stdout; verify with `xmake build e2e_tests && xmake run e2e_tests` — the unit guard `picture pipeline compress cancel prints no per-file failure lines` (added in commit 79046a5) already covers the contract, and this task proves it over a real console event.
+- [x] 5.1 Add an e2e case (`tests/e2e/encro_e2e_tests.cpp`, `[e2e][picture][interrupt][fake-toolchain]`): a picture compression held open by the fake toolchain's gate receives a real console Ctrl+C through `runEncroAsync` + `sendCtrlC` (`SKIP()` when `consoleCtrlEventsAvailable()` is false) and then reports exit 130, `warning: Compression task canceled by user.` on stderr, and no `<path>: exit code <n>` line on stdout; verify with `xmake build e2e_tests && xmake run e2e_tests` — the unit guard `picture pipeline compress cancel prints no per-file failure lines` (added in commit c852248) already covers the contract, and this task proves it over a real console event.
 
 ## 6. Integration verification
 
@@ -35,7 +35,7 @@
 
 ## Planning-artifact review (before implementation)
 
-Two fresh-reviewer rounds on the artifacts, per the `code-review` skill; every finding was fixed in the planning commit `b989438` and re-verified by a second fresh reviewer.
+Two fresh-reviewer rounds on the artifacts, per the `code-review` skill; every finding was fixed in the planning commit `3c4e7f0` and re-verified by a second fresh reviewer.
 
 - `[blocker]` the specs claimed the encode stage already announced a stop, but `Encoding tasks canceled by user.` came only from `confirmEncodingStart`'s declined prompt while `maybeHandleInterruptedEncoding` returned 130 silently — resolved: the requirement, proposal, design and tasks now own the encode stop notice (tasks 2.3/2.4).
 - `[major]` "the stop's victims are never reported as failures" over-reached into durable state, which records a stop-killed encode task as `failed` because resume needs it — resolved: the requirement is scoped to what the user is shown, with a resume scenario.
