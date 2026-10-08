@@ -115,11 +115,9 @@ inline auto truncateWithEllipsis(std::string_view text, std::size_t maxWidth)
 
 inline auto formatSignedPercent(double ratio) -> std::string {
   auto const percent = std::llround((ratio - 1.0) * 100.0);
-  auto out = std::string{};
-  out += percent < 0 ? "\xE2\x88\x92" : "+";  // U+2212 minus
-  out += std::to_string(std::llabs(percent));
-  out += '%';
-  if (ratio > 1.0) { out += " \xE2\x86\x91"; }  // U+2191 up arrow
+  auto const sign = percent < 0 ? "\xE2\x88\x92" : "+";  // U+2212 minus
+  auto out = std::format("{}{}%", sign, std::llabs(percent));
+  if (ratio > 1.0) { out += " \xE2\x86\x91"; }           // U+2191 up arrow
   return out;
 }
 

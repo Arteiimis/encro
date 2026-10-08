@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -71,7 +72,7 @@ auto refreshScript(fs::path const& path, std::string const& text)
 // ── Marker-guarded startup-file blocks ──────────────────────────────────────
 
 auto blockOf(std::string const& line) -> std::string {
-  return std::string{kBegin} + "\n" + line + kEnd + "\n";
+  return std::format("{}\n{}{}\n", kBegin, line, kEnd);
 }
 
 // Replaces the delimited block, or appends it when absent.
@@ -245,7 +246,7 @@ int installPowerShell(std::string const& scriptText) {
     );
   }
 
-  auto const line = ". '" + forwardSlashes(scriptPath.string()) + "'\n";
+  auto const line = std::format(". '{}'\n", forwardSlashes(scriptPath.string()));
   // A missing profile is treated as empty content: creating it is what makes a
   // first-time install work in either PowerShell edition.
   for (auto const& profile: powerShellProfiles()) {
@@ -377,7 +378,7 @@ int installBash(std::string const& scriptText) {
   }
 
   auto const bashrc = *home / ".bashrc";
-  auto const line = "source \"" + forwardSlashes(bashPath.string()) + "\"\n";
+  auto const line = std::format("source \"{}\"\n", forwardSlashes(bashPath.string()));
   auto const content = readText(bashrc).value_or("");
   if (isWiredWith(content, line)) {
     terminal::println(

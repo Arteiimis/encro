@@ -76,8 +76,10 @@ auto buildConflictHandledPictureEntryName(
 
 auto toJpgEntryName(std::string const& entryName) -> std::string {
   auto const stemEnd = entryName.rfind('.');
-  if (stemEnd != std::string::npos) { return entryName.substr(0, stemEnd) + ".jpg"; }
-  return entryName + ".jpg";
+  if (stemEnd != std::string::npos) {
+    return std::format("{}.jpg", entryName.substr(0, stemEnd));
+  }
+  return std::format("{}.jpg", entryName);
 }
 
 auto toWebpEntryName(std::string const& entryName) -> std::string {

@@ -512,7 +512,7 @@ auto injectConfigDefaults(CLI::App& app, configstore::KeyTable const& table)
 
   configstore::warnUnknownKeys(loaded, configPath);
   for (auto const& [key, value]: loaded.values) {
-    if (auto* opt = app.get_option_no_throw("--" + key)) {
+    if (auto* opt = app.get_option_no_throw(std::format("--{}", key))) {
       opt->default_str(value);
       opt->force_callback();
     }
@@ -526,7 +526,7 @@ auto injectConfigDefaults(CLI::App& app, configstore::KeyTable const& table)
     // every registered subcommand.
     for (auto* subc: app.get_subcommands([](CLI::App*) { return true; })) {
       if (subc->get_name().empty()) { continue; }  // option groups: handled above
-      if (auto* subOpt = subc->get_option_no_throw("--" + key)) {
+      if (auto* subOpt = subc->get_option_no_throw(std::format("--{}", key))) {
         subOpt->default_str(value);
       }
     }
@@ -537,10 +537,10 @@ auto injectConfigDefaults(CLI::App& app, configstore::KeyTable const& table)
   // Safe against explicit CLI values: the callback reads parsed results and
   // only fires when that subcommand is parsed.
   for (auto const& [key, value]: loaded.values) {
-    if (app.get_option_no_throw("--" + key) != nullptr) { continue; }
+    if (app.get_option_no_throw(std::format("--{}", key)) != nullptr) { continue; }
     for (auto* subc: app.get_subcommands([](CLI::App*) { return true; })) {
       if (subc->get_name().empty()) { continue; }
-      if (auto* subOpt = subc->get_option_no_throw("--" + key)) {
+      if (auto* subOpt = subc->get_option_no_throw(std::format("--{}", key))) {
         subOpt->default_str(value);
         subOpt->force_callback();
       }

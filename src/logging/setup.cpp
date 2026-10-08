@@ -272,15 +272,15 @@ void logRunSummary(SummaryData const& data) {
   // are appended last; the formatter regenerates them authoritatively)
   auto body = std::string{"RUN SUMMARY: status="};
   body += data.status;
-  if (data.jobId.has_value()) { body += " jobId=" + data.jobId.value(); }
+  if (data.jobId.has_value()) { body += fmt::format(" jobId={}", data.jobId.value()); }
   if (data.tasksTotal.has_value()) {
-    body += " tasks_total=" + std::to_string(data.tasksTotal.value());
+    body += fmt::format(" tasks_total={}", data.tasksTotal.value());
   }
   if (data.tasksFailed.has_value()) {
-    body += " tasks_failed=" + std::to_string(data.tasksFailed.value());
+    body += fmt::format(" tasks_failed={}", data.tasksFailed.value());
   }
   if (data.elapsedMs.has_value()) {
-    body += " elapsed_ms=" + std::to_string(data.elapsedMs.value());
+    body += fmt::format(" elapsed_ms={}", data.elapsedMs.value());
   }
   // Level counts (JSON, space-free) and log path complete the human-readable
   // line so it carries the same information as the NDJSON summary object.
@@ -289,7 +289,7 @@ void logRunSummary(SummaryData const& data) {
   for (auto const& [level, count]: levelCounts()) {
     if (!first) { body += ','; }
     first = false;
-    body += level + ":" + std::to_string(count);
+    body += fmt::format("{}:{}", level, count);
   }
   body += "} log=";
   body += currentLogFilePath().value_or(fs::path{}).string();

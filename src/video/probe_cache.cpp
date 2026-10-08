@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstdlib>  // IWYU pragma: keep -- needed with MSVC STL; Linux libstdc++ pulls it transitively
 #include <fstream>
+#include <format>
 #include <string_view>
 #if defined(_WIN32)
   #include <process.h>
@@ -175,7 +176,7 @@ void save(std::vector<Entry> const& updates, fs::path const& filePath) {
   // process, but a unique temp name (pid suffix) keeps two concurrent encro
   // processes from clobbering each other's staging file.
   auto const tmpPath =
-    resolvedPath.string() + "." + std::to_string(currentProcessId()) + ".tmp";
+    std::format("{}.{}.tmp", resolvedPath.string(), currentProcessId());
   auto entriesArray = boost::json::array{};
   for (auto const& entry: entries) {
     entriesArray.push_back(

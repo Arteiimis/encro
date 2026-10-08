@@ -37,7 +37,11 @@ auto ImageCompressConfig::buildCMD() const -> std::string {
 
 auto partialTempPath(fs::path const& outputPath) -> fs::path {
   return outputPath.parent_path()
-    / (outputPath.stem().string() + ".partial" + outputPath.extension().string());
+    / std::format(
+           "{}.partial{}",
+           outputPath.stem().string(),
+           outputPath.extension().string()
+    );
 }
 
 auto finalizePartialOutput(fs::path const& outputPath) -> std::error_code {
