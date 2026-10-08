@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <format>
 #include <system_error>
 #include <utility>
 
@@ -206,7 +207,7 @@ void AnalysisCache::saveLocked() {
   auto ec = std::error_code{};
   fs::create_directories(filePath_.parent_path(), ec);
 
-  auto const tempPath = filePath_.string() + ".tmp";
+  auto const tempPath = std::format("{}.tmp", filePath_.string());
   if (
     fileio::writeStagingFile(tempPath, content, std::ios::binary)
     != fileio::StagingStatus::Written

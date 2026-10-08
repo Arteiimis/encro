@@ -7,6 +7,7 @@
 #include <CLI/CLI.hpp>
 
 #include <algorithm>
+#include <format>
 #include <map>
 #include <sstream>
 #include <utility>
@@ -27,8 +28,12 @@ auto normalizedId(std::string name) -> std::string {
 
 auto displayNames(CLI::Option const* option) -> std::vector<std::string> {
   auto names = std::vector<std::string>{};
-  for (auto const& lname: option->get_lnames()) { names.push_back("--" + lname); }
-  for (auto const& sname: option->get_snames()) { names.push_back("-" + sname); }
+  for (auto const& lname: option->get_lnames()) {
+    names.push_back(std::format("--{}", lname));
+  }
+  for (auto const& sname: option->get_snames()) {
+    names.push_back(std::format("-{}", sname));
+  }
   std::ranges::sort(names);
   return names;
 }

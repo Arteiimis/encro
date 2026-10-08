@@ -46,15 +46,16 @@ auto fileNameOf(RemoteFile const& file) -> std::string {
 // capturing if that ever feels blind.
 auto fetchOnce(std::string const& endpoint, RemoteFile const& file, fs::path const& dest)
   -> eh::Result<void> {
-  auto const partPath = dest.string() + ".part";
+  auto const partPath = std::format("{}.part", dest.string());
   // A previous attempt may have left a partial file; start each attempt
   // fresh so a corrupt or foreign partial can never verify by accident.
   auto removeEc = std::error_code{};
   fs::remove(partPath, removeEc);
   auto const command = std::format(
-    "curl -fsSL --retry 3 --connect-timeout 30 -o \"{}\" \"{}\"",
+    "curl -fsSL --retry 3 --connect-timeout 30 -o \"{}\" \"{}{}\"",
     partPath,
-    endpoint + file.urlPath
+    endpoint,
+    file.urlPath
   );
   auto const result = exec2(command, true);
   if (result.exitCode != 0) {
@@ -87,11 +88,11 @@ auto modelFiles() -> std::vector<RemoteFile> {
     "/deepghs/ccip_onnx/resolve/main/ccip-caformer-24-randaug-pruned";
   return std::vector<RemoteFile>{
     {.logical = "wd-vit-tagger-v3/model.onnx",
-     .urlPath = std::string{prefix} + "/model.onnx",
+     .urlPath = std::format("{}/model.onnx", prefix),
      .size = 378536310,
      .sha256 = "35f23693620b668f4d53fd3c62bf65e40af739bc52c7eb0fbc49258b58d065b6"},
     {.logical = "wd-vit-tagger-v3/selected_tags.csv",
-     .urlPath = std::string{prefix} + "/selected_tags.csv",
+     .urlPath = std::format("{}/selected_tags.csv", prefix),
      .size = 308468,
      .sha256 = "298633d94d0031d2081c0893f29c82eab7f0df00b08483ba8f29d1e979441217"},
     // The identity model's similarity metric is a fixed function of the
@@ -100,7 +101,7 @@ auto modelFiles() -> std::vector<RemoteFile> {
     // resampling filter (preprocess.cpp), rgb24 as planar NCHW floats scaled to
     // 0..1 and normalized per channel (mapping.cpp).
     {.logical = "ccip-caformer-24-randaug-pruned/model_feat.onnx",
-     .urlPath = std::string{identityPrefix} + "/model_feat.onnx",
+     .urlPath = std::format("{}/model_feat.onnx", identityPrefix),
      .size = 150248245,
      .sha256 = "4ea118d16496274f4f6e08d3afc768cc592389e8f7f32f8732ce2215c228ac5f"},
   };
@@ -179,7 +180,7 @@ enum class VerifyOutcome {
 auto verifyDownload(fs::path const& dest, RemoteFile const& file, bool retrying)
   -> std::pair<VerifyOutcome, std::string> {
   auto ec = std::error_code{};
-  auto const partPath = dest.string() + ".part";
+  auto const partPath = std::format("{}.part", dest.string());
   if (file.size != 0) {
     auto const actual = fs::file_size(partPath, ec);
     if (ec || actual != file.size) {
@@ -236,7 +237,7 @@ auto downloadFile(
     if (outcome == VerifyOutcome::Reject) { return eh::makeError("{}", errorText); }
     if (outcome == VerifyOutcome::Mismatch) { continue; }
     auto renameEc = std::error_code{};
-    fs::rename(dest.string() + ".part", dest, renameEc);
+    fs::rename(std::format("{}.part", dest.string()), dest, renameEc);
     if (renameEc) {
       return eh::makeError("cannot finalize download of {}", file.logical);
     }

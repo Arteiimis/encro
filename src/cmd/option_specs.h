@@ -14,6 +14,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdlib>
+#include <format>
 #include <functional>
 #include <initializer_list>
 #include <optional>
@@ -29,7 +30,7 @@ namespace cfg {
 // key; nullopt for positionals (they have no long name to complete).
 inline auto captureLongName(CLI::Option const* option) -> std::optional<std::string> {
   if (option->get_lnames().empty()) { return std::nullopt; }
-  return "--" + option->get_lnames().front();
+  return std::format("--{}", option->get_lnames().front());
 }
 
 struct OptionalDefault {

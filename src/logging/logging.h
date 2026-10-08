@@ -314,11 +314,7 @@ inline auto formatContextChain() -> std::string {
 
   std::string chain;
   auto const truncated = truncatedFrameCount();
-  if (truncated > 0) {
-    chain += "[truncated: ";
-    chain += std::to_string(truncated);
-    chain += "] > ";
-  }
+  if (truncated > 0) { chain += fmt::format("[truncated: {}] > ", truncated); }
 
   for (auto i = std::size_t{0}; i < stack.size(); ++i) {
     if (i > 0) { chain += " > "; }
@@ -330,7 +326,7 @@ inline auto formatContextChain() -> std::string {
     }
   }
 
-  return " [context: " + chain + "]";
+  return fmt::format(" [context: {}]", chain);
 }
 
 }  // namespace detail

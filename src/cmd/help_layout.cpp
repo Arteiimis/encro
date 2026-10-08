@@ -58,7 +58,7 @@ auto formatShortCell(CLI::Option const* opt) -> std::string {
   if (opt->get_positional() || snames.empty()) {
     return std::string(kShortCellWidth, ' ');
   }
-  return "-" + std::string{snames.front()} + ", ";
+  return std::format("-{}, ", snames.front());
 }
 
 auto formatLongCell(CLI::Option const* opt) -> std::string {
@@ -76,7 +76,8 @@ auto formatLongCell(CLI::Option const* opt) -> std::string {
     if (ln.starts_with("no-") && hasLongName(ln.substr(3))) { continue; }
     if (!first) names += ',';
     first = false;
-    names += hasLongName("no-" + ln) ? "--[no-]" + ln : "--" + ln;
+    names += hasLongName(std::format("no-{}", ln)) ? std::format("--[no-]{}", ln)
+                                                   : std::format("--{}", ln);
   }
   return names;
 }
@@ -176,7 +177,7 @@ unsigned descriptionWrapWidth(unsigned descriptionColumn, unsigned lineLength) {
 
 auto formatDefaultStr(CLI::Option const* opt) -> std::string {
   auto const defaultStr = opt->get_default_str();
-  return defaultStr.empty() ? std::string{} : " (=" + defaultStr + ")";
+  return defaultStr.empty() ? std::string{} : std::format(" (={})", defaultStr);
 }
 
 auto formatOptionHelp(CLI::Option const* opt, unsigned colWidth, unsigned lineLength)
