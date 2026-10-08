@@ -88,21 +88,36 @@ Tidy's findings (or `tidy: clean`) go into the Standards brief verbatim — the 
 
 - **Exempt** — typo, docs-only, one-liner, mechanical refactor: skip the stage entirely and say so.
 - **Hard guard** — more than 1500 changed lines or more than 30 changed files: tier **L**, no call needed.
-- Otherwise, **one classifier call** in the main agent (codemode), with the stat line, the commit subjects, the changed-file list and the first ~1500 characters of the diff as state:
+- Otherwise, **one classifier call** in the main agent (codemode), with the stat line, the commit subjects, the changed-file list, the repo's module list and the first ~1500 characters of the diff as state. The tier question judges review surface only; mechanicalness is a separate question over the same state, and every policy (tie-breaks, thresholds) lives in the code, not in the prompt:
 
 ```js
-const jev = await models.getModelOfType('classifier', 'opencode', 'jev-1.13-free'); // needs OPENCODE_API_KEY
-const r = await models.classify(jev, { state: { stat, subjects, files, excerpt }, questions: {
+const jev = await models.getModelOfType('classifier', 'opencode', 'jev-1.13'); // OpenCode Zen paid tier; needs OPENCODE_API_KEY
+const r = await models.classify(jev, { state: { stat, subjects, files, excerpt,
+  modules: ['video','picture','pack','organize','tagger','preview','cmd','core','infra','logging','utils','app','tests','build','docs'] }, questions: {
   tier: { type: 'choice',
-    instructions: 'Pick the code-review tier for this C++ CLI repo commit. Judge by review surface - what a reviewer must actually read and understand - not raw line count. When genuinely unsure, pick the larger tier.',
+    instructions: 'Pick the code-review tier for this C++ CLI repo change (the whole diff since the fixed point, summarised by the state). Judge by review surface - what a reviewer must actually read and understand - not raw line count.',
     criteria: {
-      S: 'small: one reviewer, single context. Effective (non-mechanical) change roughly <=200 lines, OR large but purely mechanical (code moves/renames, comment or style shifts, bulk deletions, generated or table data). Shallow per-file edits, single topic.',
+      S: 'small: one reviewer, single context. Effective (non-mechanical) change roughly <=200 lines. Shallow per-file edits, single topic.',
       M: 'medium: two reviewers (standards+leanness vs spec). Effective change roughly 200-800 lines, or moderate multi-file surface with real logic changes, or heavy spec cross-checking.',
-      L: 'large: three or more reviewers, shard by functional area. Effective change >800 lines of new logic across 3+ modules, or a clearly multi-area feature.' } } } });
+      L: 'large: three or more reviewers, shard by functional area. Effective change >800 lines of new logic across 3+ modules, or a clearly multi-area feature.' } },
+  mechanical: { type: 'bool',
+    instructions: 'Is this change purely mechanical - code moves/renames, comment or style shifts, formatting reflows, bulk deletions, generated or table data, docs-only edits - leaving no new logic or behaviour for a reviewer to reason about?',
+    criteria: {
+      true: 'Every hunk is a mechanical transform or docs text; nothing changes behaviour or needs design understanding.',
+      false: 'Somewhere a reviewer must read, the change adds, fixes or reworks logic, behaviour or contracts.' } } } });
+// Policy lives here, not in the prompt. mechTier = the mechanical thresholds below.
+const p = r.answers.tier.probabilities, order = ['S', 'M', 'L'];
+const top = order.map(t => [t, p[t]]).sort((a, b) => b[1] - a[1]);
+let tier = top[0][0];
+if (Math.abs(order.indexOf(top[0][0]) - order.indexOf(top[1][0])) === 1 && top[0][1] - top[1][1] < 0.10) {
+  tier = order[Math.max(order.indexOf(top[0][0]), order.indexOf(top[1][0]))];              // near-tie on adjacent tiers -> the larger
+}
+if (r.answers.tier.confidence < 0.5 && order.indexOf(tier) < order.indexOf(mechTier)) tier = mechTier; // never under-provision a low-confidence call
+if (r.answers.mechanical.probability >= 0.6) tier = 'S';                                   // purely mechanical -> one reviewer, whatever the size
 ```
 
-- **Fallbacks**: no classifier configured, or the call errors — use the **mechanical thresholds** (≤200 changed lines and ≤8 files → S; >800 lines or >20 files → L; else M). Confidence below 0.5 — take the **larger** of the classifier pick and the mechanical pick. Never go below the mechanical pick on a low-confidence call.
-- Calibrated 2026-09-30 on 43 repo commits: 88% tier agreement with full-information labels (guard included); misses skew safe — over-provisioning, never under-reviewing. Do not tune the thresholds ad hoc; re-calibrate deliberately if the review mix changes.
+- **Fallbacks**: no classifier configured, or the call errors — use the **mechanical thresholds** (≤200 changed lines and ≤8 files → S; >800 lines or >20 files → L; else M) as `mechTier`.
+- Calibrated 2026-10-09 on 60 repo commits (`git log --first-parent --until=2026-10-09 -n 60`): 98% tier agreement with full-information labels (guard included); the one miss over-provisions (a long docs-only plan read as M), and no miss under-provisions - over-reviewing, never under-reviewing. Docs/mechanical commits score mechanical >= 0.63, real-logic commits <= 0.12, so the 0.6 cut has margin on both sides; the adjacent-tier tie-break never fired in-sample (distributions are decisive, median confidence ~0.97). Do not tune the thresholds ad hoc; re-calibrate deliberately if the review mix changes.
 
 ### 4. Identify the spec source
 
