@@ -2,7 +2,7 @@
 
 ## Context
 
-`xmake test-parallel` runs 8 unit + 4 e2e Catch2 shard processes concurrently, each with an isolated TMP/TEMP root; shards are processes, test cases inside a shard are sequential, and verdicts are parsed from shard logs. Audit found no cross-shard shared writable state — every flake mechanism is a test-body timing assumption: fixed sleeps that must land inside an async window, fixed waits for async effects, and tight elapsed-time upper bounds. Windows process spawn under saturated load is slow and unbounded, which is what breaks them. One fix already landed this way (e86a35d: `ENCRO_FAKE_FFMPEG_GATE_FILE` + polling the invocation log in `video_batch_execution_tests.cpp`); this change generalizes it.
+`xmake test-parallel` runs 8 unit + 4 e2e Catch2 shard processes concurrently, each with an isolated TMP/TEMP root; shards are processes, test cases inside a shard are sequential, and verdicts are parsed from shard logs. Audit found no cross-shard shared writable state — every flake mechanism is a test-body timing assumption: fixed sleeps that must land inside an async window, fixed waits for async effects, and tight elapsed-time upper bounds. Windows process spawn under saturated load is slow and unbounded, which is what breaks them. One fix already landed this way (15484cd: `ENCRO_FAKE_FFMPEG_GATE_FILE` + polling the invocation log in `video_batch_execution_tests.cpp`); this change generalizes it.
 
 ## Goals / Non-Goals
 

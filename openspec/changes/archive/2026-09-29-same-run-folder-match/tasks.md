@@ -60,7 +60,7 @@ Reviewer's not-checked list, recorded rather than treated as findings: the offli
 
 ### Code-diff review findings (task 5.1)
 
-Fixed point `ce72af5` (the archived companion change), so the reviewed diff is this change's implementation only: `git diff ce72af5 -- src tests README.md`. Three axes ran in parallel, each reading the diff itself. Triage: six findings accepted, two rejected with reasons, and the three spec-axis gaps accepted as wording/coverage fixes.
+Fixed point `29b5bd4` (the archived companion change), so the reviewed diff is this change's implementation only: `git diff 29b5bd4 -- src tests README.md`. Three axes ran in parallel, each reading the diff itself. Triage: six findings accepted, two rejected with reasons, and the three spec-axis gaps accepted as wording/coverage fixes.
 
 **[hard][Standards, Leanness] The new e2e case re-asserts the new unit case** — `tests/e2e/encro_organize_tests.cpp` "a first run files a cluster into the folder its routing created" pays for a subprocess to assert the contract `tests/organize/pipeline_tests.cpp` already owns, and this change adds no process boundary, which the testing rules keep e2e for. **Accepted**: the case is deleted, and task 1.4's requirement is met at the pipeline level instead (the CLI path itself stays covered by the neighbouring e2e case). Recorded as a deliberate deviation from the task's wording.
 

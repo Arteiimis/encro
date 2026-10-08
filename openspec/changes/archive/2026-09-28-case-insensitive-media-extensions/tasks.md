@@ -21,13 +21,13 @@
 
 ### Planning-artifact review findings (task 4.1)
 
-One fresh reviewer ran the planning-artifact stage (Coherence, then Ground truth) against the artifacts at `d3febdb`, resolving citations against that commit because the working tree already carried the implementation. Five findings:
+One fresh reviewer ran the planning-artifact stage (Coherence, then Ground truth) against the artifacts at `5c630ed`, resolving citations against that commit because the working tree already carried the implementation. Five findings:
 
 1. [medium][Coherence] The `picture-video-webp` scenario "Uppercase video extension is scanned" (`specs/picture-video-webp/spec.md`: "**WHEN** the input holds a clip named `CLIP.MP4` and the run enables conversion") is implemented by no task: task 1.2 covers `readAllVids`/`readAllVidsFromFiles` and task 2.4 only reruns existing tags. — **rejected: the picture run's conversion scan reaches the same shared matcher (`src/video/video_info.cpp:294` -> `media::scanByExtensions`, caller `src/picture/picture_process.cpp:834`); the rule is pinned at the cheapest level by the task 1.1 `[media-scanner]` case, and the flow by the existing `[picture-process][video-webp]` case (`tests/picture/picture_video_webp_tests.cpp:163`), so a duplicate uppercase case would re-assert what a unit test already covers.**
-2. [medium][Ground truth] proposal "Every media extension list in the program holds lowercase spellings" vs `d3febdb:src/organize/scan.h:25` `std::string_view{".JPG"},` (and `.JPEG`/`.PNG`/`.WEBP` at `:26-28`); design repeated it ("Every list holds lowercase spellings."). — **resolved (2ac958b)**: both now say every other list holds lowercase spellings only.
-3. [low][Ground truth] design "the video workflow (`src/video/video_info.cpp:300`, `:571`)" vs `d3febdb:src/video/video_info.cpp:291` "// Probe-free, size-gated video scan for the picture run's WebP conversion." — **resolved (2ac958b)**: `:300` is now named as the picture run's conversion scan.
-4. [low][Ground truth] tasks 1.1 sketch `scanByExtensions(mixedFile, {".jpg"}, false)` vs `d3febdb:src/core/media_scanner.h:27` `std::span<std::string_view const> extensions` — `std::span` has no initializer-list constructor, so the sketch cannot compile. — **resolved (2ac958b)**: the sketch now uses the `std::array{".jpg"sv}` form the tests use.
-5. [low][Ground truth] `videoinfo::isKnownVideoExtension` (proposal, design, tasks) vs `d3febdb:src/video/video_info.cpp:26`/`:286` — the helper sits in the file's anonymous namespace, with only the internal caller at `:153`. — **resolved (2ac958b)**: the qualifier is dropped in all four places.
+2. [medium][Ground truth] proposal "Every media extension list in the program holds lowercase spellings" vs `5c630ed:src/organize/scan.h:25` `std::string_view{".JPG"},` (and `.JPEG`/`.PNG`/`.WEBP` at `:26-28`); design repeated it ("Every list holds lowercase spellings."). — **resolved (43e7b25)**: both now say every other list holds lowercase spellings only.
+3. [low][Ground truth] design "the video workflow (`src/video/video_info.cpp:300`, `:571`)" vs `5c630ed:src/video/video_info.cpp:291` "// Probe-free, size-gated video scan for the picture run's WebP conversion." — **resolved (43e7b25)**: `:300` is now named as the picture run's conversion scan.
+4. [low][Ground truth] tasks 1.1 sketch `scanByExtensions(mixedFile, {".jpg"}, false)` vs `5c630ed:src/core/media_scanner.h:27` `std::span<std::string_view const> extensions` — `std::span` has no initializer-list constructor, so the sketch cannot compile. — **resolved (43e7b25)**: the sketch now uses the `std::array{".jpg"sv}` form the tests use.
+5. [low][Ground truth] `videoinfo::isKnownVideoExtension` (proposal, design, tasks) vs `5c630ed:src/video/video_info.cpp:26`/`:286` — the helper sits in the file's anonymous namespace, with only the internal caller at `:153`. — **resolved (43e7b25)**: the qualifier is dropped in all four places.
 
 The reviewer also listed what it could not check: the tidy baseline count (recorded in this session's report, not in the repo) and the red/green transitions of tasks 1.1-1.2 (the tree already carried the implementation when it ran).
 
@@ -37,7 +37,7 @@ The reviewer also listed what it could not check: the tidy baseline count (recor
 
 ### Code-diff review findings (task 5.1)
 
-Three fresh reviewers ran the code-diff stage in parallel (Standards, Spec, Leanness) against `git diff d3febdb -- src tests`; a fresh verifier then re-read the tree and the diff and returned a verdict per finding. All 15 findings resolved or soundly rejected:
+Three fresh reviewers ran the code-diff stage in parallel (Standards, Spec, Leanness) against `git diff 5c630ed -- src tests`; a fresh verifier then re-read the tree and the diff and returned a verdict per finding. All 15 findings resolved or soundly rejected:
 
 **Standards**
 
@@ -49,7 +49,7 @@ Three fresh reviewers ran the code-diff stage in parallel (Standards, Spec, Lean
 
 **Spec**
 
-- pack's `pack::shouldStoreEntry` folds with locale-dependent `std::tolower`, so the media-scan "SHALL NOT depend on the process locale" sentence reads wider than the implementation. — **rejected: `src/pack/` is another workstream's (design Non-Goals) and the requirement is scoped to scans; `git diff d3febdb -- src/pack` is empty.** Flagged for the pack owner in the change report.
+- pack's `pack::shouldStoreEntry` folds with locale-dependent `std::tolower`, so the media-scan "SHALL NOT depend on the process locale" sentence reads wider than the implementation. — **rejected: `src/pack/` is another workstream's (design Non-Goals) and the requirement is scoped to scans; `git diff 5c630ed -- src/pack` is empty.** Flagged for the pack owner in the change report.
 - picture-video-webp's `CLIP.MP4` scenario is not driven end to end. — **rejected: same reason as planning finding 1.**
 - No test pins non-ASCII exactness / locale independence. — **resolved in part: the A-Z-only probe pins the fold's extent, which is D2's locale-independence mechanism; a non-ASCII filename probe would depend on `fs::path::string()`'s code-page conversion, the variable under test, so it is deliberately not asserted.** Residual: nothing goes red if `asciiLower` became `std::tolower` under a non-C locale.
 - Scope creep: none. Implemented-but-wrong: none.

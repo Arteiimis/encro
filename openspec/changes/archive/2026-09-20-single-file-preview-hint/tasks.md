@@ -16,4 +16,4 @@
 - [x] 3.3 Confirm the README encode section needs no change (it documents `preview` and probing, not the summary hint), and record the outcome in this task list
   - Outcome: the README documents the `preview` subcommand and the probe plan, but never the post-encode `Compare:` hint; no README edit needed.
 - [x] 3.4 Run `xmake fmt` before committing; verify a second run produces no further changes
-- [x] 3.5 Commit the implementation + tests + ticked `tasks.md` in one `fix:` commit (English, conventional, subject < 72 chars, body wrapped at 80); the planning artifacts are already committed as `3aabee9 docs: add openspec change single-file-preview-hint`, so do NOT re-commit them; verify with `git log --oneline -2` that HEAD is the fix commit and its parent is the docs commit
+- [x] 3.5 Commit the implementation + tests + ticked `tasks.md` in one `fix:` commit (English, conventional, subject < 72 chars, body wrapped at 80); the planning artifacts are already committed as `f36ba4b docs: add openspec change single-file-preview-hint`, so do NOT re-commit them; verify with `git log --oneline -2` that HEAD is the fix commit and its parent is the docs commit

@@ -38,7 +38,7 @@
 
 ## 6. Post-Change Review follow-up
 
-- [x] Run the `code-review` skill over `c28497f..HEAD` on all three axes, with the change as the spec source.
+- [x] Run the `code-review` skill over `6a319a2..HEAD` on all three axes, with the change as the spec source.
 - [x] Apply the accepted findings: drop `target()` from the concept and organize's dead `targetPath`/`planTargets`; make `printFailures` take a mutable span and delete the const `outcome()` overloads it forced; collapse the conversion's backed/pending split into one pass keyed by item address; delete picture's filtered `readyItems` copy in favour of `isPackable`; make `closeConvertedConversion` return `void`; share `closeCanceledStage`; delete `StageSpec::hideCursor`; trim `media_item.h`'s prose; record the red-first compile errors in the commit body, which task 1.1 specified and the first commit omitted.
 - [x] Rejected: `FakeItem` in `tests/media_item_tests.cpp` is not a forbidden mock — the runner is a template over a concept, so testing it requires a type satisfying the concept, and reusing a flow's item type would tie the runner's test to a flow.
 - [x] Rejected: `StageResult::total` and `attempted` stay. They are the runner's result contract, design D8 names them, and the runner's own case asserts the accounting invariant that needs them.

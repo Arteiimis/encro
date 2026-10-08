@@ -64,7 +64,7 @@ Measurement method, recorded so the numbers can be re-derived: the collection is
 
 ### Code-diff review findings (task 5.1)
 
-Three axes ran in parallel over `git diff 350617d -- src tests` (8 files, +81/−28), each reading the diff itself and editing nothing.
+Three axes ran in parallel over `git diff 7bd229d -- src tests` (8 files, +81/−28), each reading the diff itself and editing nothing.
 
 **Standards — 0 hard violations, 5 judgement calls, all resolved:**
 - [worst] `src/tagger/preprocess.h:31` still advertised the identity input as `NCHW float32 0..1, RGB, plain stretch`, which this change makes false and which contradicts the new `mapping.h` contract — the next model swapper would have read the wrong file, exactly the failure this change exists to prevent. **resolved**: the enum arm, the constant's comment and the builder's comment now state the bilinear stretch and the per-channel normalization, and point at `mapping.h`.
