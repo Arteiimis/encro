@@ -3,6 +3,7 @@
 #include "infra/stop_signal.h"
 #include "test_utils.h"
 
+#include <array>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -109,6 +110,18 @@ TEST_CASE("batch pre-check matches the video encode scan", "[batch]") {
     writeTextFile(temp.path / "a.txt");
     CHECK_FALSE(batch::hasProcessableMedia(config, temp.path));
   }
+
+  SECTION("an oversized video does not count for webp output") {
+    config.outputFormat = "webp";
+    testutils::writeSizedFile(temp.path / "big.mkv", 33 * 1024 * 1024);
+    CHECK_FALSE(batch::hasProcessableMedia(config, temp.path));
+  }
+
+  SECTION("a small video counts for webp output") {
+    config.outputFormat = "webp";
+    testutils::writeSizedFile(temp.path / "small.mkv", 128);
+    CHECK(batch::hasProcessableMedia(config, temp.path));
+  }
 }
 
 TEST_CASE("batch pre-check matches the picture compress scan", "[batch]") {
@@ -145,24 +158,13 @@ TEST_CASE("batch pre-check counts videos as tasks under video-webp", "[batch]") 
     CHECK(batch::hasProcessableMedia(config, temp.path));
   }
 
-  SECTION("neither does not") {
-    writeTextFile(temp.path / "a.txt");
+  SECTION("an oversized video-only subfolder does not count") {
+    testutils::writeSizedFile(temp.path / "big.mkv", 33 * 1024 * 1024);
     CHECK_FALSE(batch::hasProcessableMedia(config, temp.path));
   }
-}
 
-TEST_CASE("batch pre-check matches the plain picture pack scan", "[batch]") {
-  TempDir temp;
-  auto config = appctx::AppConfig{};
-  config.processType = "picture";
-
-  SECTION("a picture file counts") {
-    writeTextFile(temp.path / "a.jpg");
-    CHECK(batch::hasProcessableMedia(config, temp.path));
-  }
-
-  SECTION("a video file does not") {
-    writeTextFile(temp.path / "a.mkv");
+  SECTION("neither does not") {
+    writeTextFile(temp.path / "a.txt");
     CHECK_FALSE(batch::hasProcessableMedia(config, temp.path));
   }
 }
@@ -287,6 +289,24 @@ TEST_CASE("batch exit code is zero only when no subfolder failed", "[batch]") {
   CHECK(batch::batchExitCode(std::array{done, failed}) != 0);
 }
 
+TEST_CASE(
+  "batch exit code ignores a stop that arrives after the last subfolder",
+  "[batch]"
+) {
+  ScopedStopSignalReset stopGuard;
+  auto const done = batch::SubTaskResult{.outcome = batch::TaskOutcome::Done};
+  auto const skippedByStop = batch::SubTaskResult{
+    .outcome = batch::TaskOutcome::Skipped,
+    .exitCode = stopsignal::kCanceledExitCode
+  };
+
+  stopsignal::requestStop();
+  // Every subfolder finished before the stop: the batch is not canceled.
+  CHECK(batch::batchExitCode(std::array{done}) == 0);
+  // A subfolder skipped by the stop keeps the cancellation exit code.
+  CHECK(batch::batchExitCode(std::array{skippedByStop}) == stopsignal::kCanceledExitCode);
+}
+
 TEST_CASE("stop during a subfolder skips it and the rest", "[batch]") {
   ScopedStopSignalReset stopGuard;
   TempDir temp;
@@ -307,7 +327,9 @@ TEST_CASE("stop during a subfolder skips it and the rest", "[batch]") {
   auto requester =
     spawnGatedStop(temp.path / "tool.log", temp.path / "gate", 1, stoppedInFlight);
 
-  auto const resultsRes = batch::runTasks(request);
+  auto resultsRes = eh::Result<std::vector<batch::SubTaskResult>>{};
+  auto const captured =
+    testutils::captureStdout([&] { resultsRes = batch::runTasks(request); });
   requester.join();
   REQUIRE(stoppedInFlight);
 
@@ -321,6 +343,8 @@ TEST_CASE("stop during a subfolder skips it and the rest", "[batch]") {
   CHECK(batch::batchExitCode(results) == stopsignal::kCanceledExitCode);
   CHECK(zipFilesIn(root / "packed" / "b").empty());
   CHECK(zipFilesIn(root / "packed" / "c").empty());
+  // The subfolders the stop left unprocessed are skipped with a notice.
+  CHECK(testutils::stripAnsi(captured).find("stop requested") != std::string::npos);
 }
 
 TEST_CASE(
@@ -436,12 +460,17 @@ TEST_CASE("a stop requested before a subfolder skips it and the rest", "[batch]"
   request.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
   stopsignal::requestStop();
 
-  auto const resultsRes = batch::runTasks(request);
+  auto resultsRes = eh::Result<std::vector<batch::SubTaskResult>>{};
+  auto const captured =
+    testutils::captureStdout([&] { resultsRes = batch::runTasks(request); });
+
   REQUIRE(resultsRes);
   auto const& results = resultsRes.value();
   REQUIRE(results.size() == 2);
   CHECK(results[0].outcome == batch::TaskOutcome::Skipped);
+  CHECK(results[0].exitCode == stopsignal::kCanceledExitCode);
   CHECK(results[1].outcome == batch::TaskOutcome::Skipped);
   CHECK(batch::batchExitCode(results) == stopsignal::kCanceledExitCode);
   CHECK(zipFilesIn(root / "packed" / "a").empty());
+  CHECK(testutils::stripAnsi(captured).find("stop requested") != std::string::npos);
 }

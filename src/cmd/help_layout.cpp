@@ -547,7 +547,7 @@ auto installOrganizeHelpFormatter(CLI::App& subApp) -> void {
   subApp.formatter_fn(makeSubcommandHelpFormatter(&subApp, kOrganizeUsageLines));
 }
 
-auto installBatchHelpFormatter(CLI::App& subApp) -> void {
+void installBatchHelpFormatter(CLI::App& subApp) {
   subApp.formatter_fn(makeSubcommandHelpFormatter(&subApp, kBatchUsageLines));
 }
 

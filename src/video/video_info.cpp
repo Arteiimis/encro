@@ -38,6 +38,12 @@ constexpr auto kVideoTypes = std::array{
 };
 constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 
+// The WebP input size gate, one place for the video scan, the conversion scan,
+// and the batch pre-check that mirrors them.
+bool isWithinWebpSizeLimit(std::optional<std::uintmax_t> const& fileSize) {
+  return fileSize.has_value() && fileSize.value() < kWebpInputMaxSize;
+}
+
 auto jsonValToString(boost::json::value const& val) -> std::string {
   if (val.is_string()) { return std::string{val.as_string()}; }
   if (val.is_int64()) { return std::to_string(val.as_int64()); }
@@ -124,21 +130,6 @@ auto tryReadFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t> 
   return std::nullopt;
 }
 
-bool keepsWebpInputSizeLimit(appctx::AppConfig const& config, fs::path const& filePath) {
-  if (config.outputFormat != "webp") { return true; }
-
-  auto const fileSize = tryReadFileSize(filePath);
-  if (!fileSize.has_value()) { return false; }
-  if (fileSize.value() < kWebpInputMaxSize) { return true; }
-
-  LOG_DEBUG(
-    "Skipping large video file for webp output: {} ({} bytes)",
-    filePath.string(),
-    fileSize.value()
-  );
-  return false;
-}
-
 auto tryCollectVideoInput(appctx::AppConfig const& config, fs::path const& filePath)
   -> std::optional<fs::path> {
 
@@ -149,16 +140,9 @@ auto tryCollectVideoInput(appctx::AppConfig const& config, fs::path const& fileP
 
   if (!isKnownVideoExtension(filePath)) { return std::nullopt; }
 
-  if (!keepsWebpInputSizeLimit(config, filePath)) { return std::nullopt; }
+  if (!videoinfo::keepsForEncoding(config, filePath)) { return std::nullopt; }
 
   return filePath;
-}
-
-bool keepScannedVideoCandidate(
-  appctx::AppConfig const& config,
-  fs::path const& filePath
-) {
-  return keepsWebpInputSizeLimit(config, filePath);
 }
 
 auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPath)
@@ -287,6 +271,27 @@ auto videoinfo::videoExtensions() -> std::span<std::string_view const> {
   return kVideoTypes;
 }
 
+auto videoinfo::keepsForEncoding(
+  appctx::AppConfig const& config,
+  fs::path const& filePath
+) -> bool {
+  if (config.outputFormat != "webp") { return true; }
+
+  auto const fileSize = tryReadFileSize(filePath);
+  if (isWithinWebpSizeLimit(fileSize)) { return true; }
+
+  LOG_DEBUG(
+    "Skipping large video file for webp output: {} ({} bytes)",
+    filePath.string(),
+    fileSize.value_or(0)
+  );
+  return false;
+}
+
+auto videoinfo::keepsForConversion(fs::path const& filePath) -> bool {
+  return isWithinWebpSizeLimit(tryReadFileSize(filePath));
+}
+
 // Probe-free, size-gated video scan for the picture run's WebP conversion.
 // Oversized clips warn: a picture run that silently dropped a clip the user
 // asked to convert would look like the flag did nothing for it.
@@ -304,7 +309,7 @@ auto videoinfo::scanVideosForConversion(fs::path const& dirPath, bool recursive)
   vids.reserve(scanRes->matches.size());
   for (auto const& candidate: scanRes->matches) {
     auto const fileSize = tryReadFileSize(candidate);
-    if (!fileSize.has_value() || fileSize.value() >= kWebpInputMaxSize) {
+    if (!isWithinWebpSizeLimit(fileSize)) {
       terminal::messageln(
         terminal::MessageKind::Warning,
         "Skipping oversized video for WebP conversion: {} ({})",
@@ -572,7 +577,9 @@ auto readAllVids(
     for (auto const& warning: scanRes->warnings) { LOG_WARN("{}", warning); }
 
     for (auto const& candidate: scanRes->matches) {
-      if (keepScannedVideoCandidate(config, candidate)) { vids.emplace_back(candidate); }
+      if (videoinfo::keepsForEncoding(config, candidate)) {
+        vids.emplace_back(candidate);
+      }
     }
   }
 

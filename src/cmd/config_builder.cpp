@@ -308,6 +308,10 @@ auto applyInputSelection(appctx::AppConfig& config, CmdParseResult const& result
 
 }  // namespace
 
+bool isOutputAlias(std::string_view value) {
+  return parseOutputPathAlias(value).has_value();
+}
+
 auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> {
   auto config = appctx::AppConfig{};
 

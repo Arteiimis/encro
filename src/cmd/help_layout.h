@@ -26,6 +26,6 @@ auto installHelpFormatter(
 // Per-subcommand help: the subcommand's own options with its usage lines.
 auto installPreviewHelpFormatter(CLI::App& subApp) -> void;
 auto installOrganizeHelpFormatter(CLI::App& subApp) -> void;
-auto installBatchHelpFormatter(CLI::App& subApp) -> void;
+void installBatchHelpFormatter(CLI::App& subApp);
 auto installConfigHelpFormatter(CLI::App& subApp) -> void;
 auto installCompletionHelpFormatter(CLI::App& subApp) -> void;
