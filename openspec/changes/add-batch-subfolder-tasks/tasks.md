@@ -49,3 +49,23 @@ Planning-artifact review (code-review skill, planning stage): one fresh reviewer
 - [P2] G8 Unconditional per-sub job-state requirement vs `shouldEnableJobState` → fixed: spec R5 scoped to "created exactly when the equivalent single-directory run would create one"; proposal and task 2.3 aligned. resolved (planning review)
 - [P2] G9 Unconditional toolchain requirement vs pack-only exemption → fixed: spec R10 scoped to per-type tool requirements including the exemption. resolved (planning review)
 - [P2] G10 `-o` output-alias language undefined under batch → fixed: spec R4 + scenario reject alias forms; design D3 rejects at parse; tasks 4.1/4.2 updated. resolved (planning review)
+
+## Code review record
+
+Code-diff review (code-review skill, tier L by the hard guard: 30 files / 1609 changed lines since the planning commit `3ae9227`): three fresh reviewers, one per axis (Standards / Spec / Leanness), against the implementation commit `13b3788`; a fresh verifier then checked every fix against the working tree at `76465ba` + `0d6402c` and confirmed 14/14 accepted findings resolved, with the one rejected finding's reason verified. Limitation: the reviewers had no shell access, so they reviewed the committed tree rather than a rendered diff.
+
+- [P1] S1 Scalar trailing returns in the batch module (`-> bool`, `-> int`) violate the repo's prefix-style rule → fixed: prefix style in header and definitions. resolved (76465ba)
+- [P2] S2 `installBatchHelpFormatter(...) -> void` → fixed: prefix style. resolved (76465ba)
+- [P2] S3 The batch alias reject-list duplicated the single-run alias grammar → fixed: `cmd::isOutputAlias` exported from config_builder and shared. resolved (76465ba)
+- [P2] S4 Two switches on `TaskOutcome` plus an unreachable fallback → fixed: one label+role table serves both lookups. resolved (76465ba)
+- [P2] S5 Duplicate pre-check test case (picture compress vs plain pack exercise one code path) → fixed: the redundant case deleted. resolved (76465ba)
+- [P2] S6 Missing `<array>` include in the batch tests → fixed. resolved (76465ba)
+- [P1] P1 Suffixed output-alias forms (`-o +/2024`, `input://x`) passed the exact-token check and became literal directories, violating R4 → fixed via the shared grammar; tests cover all eight alias forms. resolved (76465ba)
+- [P2] P2 The pre-check was extension-only, so a subfolder of clips >= 32 MB failed the picture conversion or finished empty under `-f webp`, violating R3 → fixed: the WebP size gate lives once in video_info (`keepsForEncoding` / `keepsForConversion`) and the pre-check mirrors it in both branches; oversized-video cases added. resolved (76465ba)
+- [P2] P3 Subfolders skipped by a stop printed no notice, violating R7's scenario → fixed: the stop branch prints "Skipping <path>: stop requested."; tests assert it. resolved (76465ba)
+- [P2] P4 `batchExitCode` read the live stop flag, so a stop after the last subfolder turned a successful batch into a cancellation, violating R6 → fixed: result-based rule (a subfolder skipped by the stop carries the cancellation code); tested with a stop requested over all-done results. resolved (76465ba)
+- [P2] L1 Dead stores of the request config/toolchain into the process-wide ctx → fixed: `runBatch` no longer touches ctx. resolved (76465ba)
+- [P2] L2 Redundant base-config resets (`cmd::buildConfig` never sets them; `subConfigFor` owns per-sub clearing) → fixed: deleted. resolved (76465ba)
+- [P2] L3 `conversionMediaExtensions` merged two spans for one call site → fixed: two scans with `||`. resolved (76465ba)
+- [P2] L5 Hand-rolled iterator bookkeeping in `hasAnyRegularFile` → fixed: range-for over the ec-taking iterator with the in-loop check (the media_scanner idiom). resolved (0d6402c)
+- [P2] L4 (rejected) `SubTaskResult::exitCode`/`error` called dead fields → rejected: `error` is the failure record the spec requires ("A subfolder task failure SHALL be recorded") and `exitCode` is the cancellation marker the result-based exit rule reads; the verifier confirmed both readers. rejected: reason verified
