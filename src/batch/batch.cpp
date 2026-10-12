@@ -37,21 +37,19 @@ bool hasKeptVideo(fs::path const& dir, bool recursive, Keep const& keep) {
 }
 
 bool hasAnyRegularFile(fs::path const& dir) {
+  // The scanner's own idiom: the ec-taking constructor plus an in-loop check
+  // keeps a missing or unreadable root from throwing.
   auto ec = std::error_code{};
-  auto const end = fs::recursive_directory_iterator{};
   for (
-    auto it =
-      fs::recursive_directory_iterator{
-        dir,
-        fs::directory_options::skip_permission_denied,
-        ec
-      };
-    it != end;
-    it.increment(ec)
+    auto const& entry: fs::recursive_directory_iterator{
+      dir,
+      fs::directory_options::skip_permission_denied,
+      ec
+    }
   ) {
     if (ec) { return false; }
     auto entryEc = std::error_code{};
-    if (it->is_regular_file(entryEc) && !entryEc) { return true; }
+    if (entry.is_regular_file(entryEc) && !entryEc) { return true; }
   }
   return false;
 }
