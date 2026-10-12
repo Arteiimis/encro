@@ -3126,3 +3126,114 @@ TEST_CASE("encro config overrides and store failures work standalone", "[e2e][co
     REQUIRE_SUCCESS(pathRun);
   }
 }
+
+TEST_CASE(
+  "encro batch packs each subfolder into its own output directory",
+  "[e2e][batch][fake-toolchain]"
+) {
+  TempDir temp;
+  auto const root = temp.path / "library";
+  fs::create_directories(root / "2024-01");
+  fs::create_directories(root / "2024-02");
+  fs::create_directories(root / "empty");
+  testutils::writeSizedFile(root / "2024-01" / "a.jpg", 64);
+  testutils::writeSizedFile(root / "2024-02" / "b.jpg", 64);
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+
+  auto const result = e2e::runEncro({
+    "batch",
+    root.string(),
+    "--type",
+    "picture",
+    "--pack",
+    "-y",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  });
+  REQUIRE_SUCCESS(result);
+  CAPTURE(result.stdoutText);
+
+  // The media-less subfolder is skipped with a notice, not failed.
+  CHECK(result.stdoutText.find("Skipping") != std::string::npos);
+  CHECK(result.stdoutText.find("empty") != std::string::npos);
+  // The summary table names every subfolder and the totals.
+  CHECK(result.stdoutText.find("done") != std::string::npos);
+  CHECK(result.stdoutText.find("skipped") != std::string::npos);
+  CHECK(result.stdoutText.find("Processed 2/3 subfolders") != std::string::npos);
+
+  CHECK(listFilesWithExtension(root / "packed" / "2024-01", ".zip").size() == 1);
+  CHECK(listFilesWithExtension(root / "packed" / "2024-02", ".zip").size() == 1);
+  CHECK_FALSE(fs::exists(root / "packed" / "empty"));
+}
+
+TEST_CASE(
+  "encro batch resumes an interrupted subfolder and skips the finished one",
+  "[e2e][batch][interrupt][fake-toolchain]"
+) {
+  requireConsoleCtrlOrSkip();
+
+  TempDir temp;
+  auto const root = temp.path / "library";
+  fs::create_directories(root / "2024-01");
+  fs::create_directories(root / "2024-02");
+  testutils::writeSizedFile(root / "2024-01" / "a.avi", 128);
+  testutils::writeSizedFile(root / "2024-02" / "b1.avi", 128);
+  testutils::writeSizedFile(root / "2024-02" / "b2.avi", 128);
+
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
+  auto const countPath = temp.path / "call-count.txt";
+  auto const markerDir = temp.path / "first-markers";
+  auto const resumeMarkerDir = temp.path / "resume-markers";
+  // One ffmpeg call per video (the 1-byte fake output beats the source on the
+  // first quality attempt): call 1 is subfolder 1's encode, call 2 subfolder
+  // 2's first video, and call 3 — the interrupted one — sleeps far longer than
+  // the stop needs to arrive.
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "1"},
+    {"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countPath.string()},
+    {"ENCRO_FAKE_FFMPEG_CALL_PLAN", "3-:15000:0"},
+    {"ENCRO_FAKE_FFMPEG_MARKER_DIR", markerDir.string()},
+  };
+  auto const baseArgs = std::vector<std::string>{
+    "batch",
+    root.string(),
+    "-f",
+    "webp",
+    "--pack",
+    "-y",
+    "-j",
+    "1",
+    "--ffmpeg-path",
+    toolchain.root.string(),
+  };
+
+  auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, env);
+  auto const thirdStarted = testutils::waitUntil(
+    [&] { return countMarkerFiles(markerDir) >= 3; },
+    std::chrono::seconds{20}
+  );
+  CHECK(proc.sendCtrlC());
+  auto const interrupted = proc.wait(std::chrono::seconds{20});
+  REQUIRE(thirdStarted);
+  REQUIRE(interrupted.has_value());
+  CHECK(interrupted->exitCode == stopsignal::kCanceledExitCode);
+  // The finished subfolder packed; the interrupted one kept the state of its
+  // completed first video (its work root for webp output) and produced no
+  // archive.
+  CHECK(listFilesWithExtension(root / "packed" / "2024-01", ".zip").size() == 1);
+  CHECK(listFilesWithExtension(root / "packed" / "2024-02", ".zip").empty());
+  CHECK(fs::exists(root / "2024-02" / "encoded_webp" / ".encro" / "job-state.json"));
+
+  auto resumeEnv = env;
+  resumeEnv["ENCRO_FAKE_FFMPEG_MARKER_DIR"] = resumeMarkerDir.string();
+  auto const resumed = e2e::runEncro(baseArgs, std::nullopt, resumeEnv);
+  REQUIRE_SUCCESS(resumed);
+
+  // The finished subfolder did no work (its encode target and archive both
+  // existed), and the interrupted one resumed: only its unfinished second
+  // video re-encoded (a restart would have re-encoded both).
+  CHECK(countMarkerFiles(resumeMarkerDir) == 1);
+  CHECK(listFilesWithExtension(root / "packed" / "2024-01", ".zip").size() == 1);
+  CHECK(listFilesWithExtension(root / "packed" / "2024-02", ".zip").size() == 1);
+}

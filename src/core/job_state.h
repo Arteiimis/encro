@@ -45,6 +45,9 @@ struct ConfigSnapshot {
   bool videoWebp = false;
   std::vector<fs::path> inputPaths;
   std::optional<fs::path> outputPath;
+  // Where packed archives land when it differs from outputPath/"packed"; set
+  // per subfolder by the batch driver. Absent for single-run states.
+  std::optional<fs::path> packOutputDir;
 };
 
 struct TaskRecord {

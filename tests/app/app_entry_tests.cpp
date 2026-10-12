@@ -1,10 +1,14 @@
 #include "app/app_entry.h"
 
 #include "infra/stop_signal.h"
+#include "test_utils.h"
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
+#include <filesystem>
 #include <string_view>
+
+namespace fs = std::filesystem;
 
 TEST_CASE("help intro line includes description and build timestamp", "[appentry]") {
   auto const line = appentry::helpIntroLine();
@@ -30,4 +34,95 @@ TEST_CASE("run status maps the exit code and the stop fact", "[appentry]") {
   CHECK(appentry::runStatus(1, false) == "failed");
   // A genuine failure while a stop is pending still reads interrupted.
   CHECK(appentry::runStatus(1, true) == "interrupted");
+}
+
+TEST_CASE(
+  "batch request resolves the packed root and clears batch-level paths",
+  "[appentry][batch]"
+) {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  fs::create_directories(root / "2024-01");
+
+  auto const cmd = testutils::parseArgs(
+    {"encro", "batch", root.string(), "--type", "picture", "--compress"}
+  );
+  REQUIRE_FALSE(cmd.error.has_value());
+
+  auto const requestRes = appentry::buildBatchRequest(cmd);
+  REQUIRE(requestRes);
+  auto const& request = requestRes.value();
+  CHECK(request.root == root);
+  CHECK(request.packedRoot == root / "packed");
+  CHECK(request.baseConfig.processType == "picture");
+  CHECK(request.baseConfig.compressImages);
+  CHECK_FALSE(request.baseConfig.outputPath.has_value());
+  CHECK_FALSE(request.baseConfig.stateFilePath.has_value());
+  CHECK_FALSE(request.baseConfig.packOutputDir.has_value());
+}
+
+TEST_CASE(
+  "batch request takes the output override as a plain directory",
+  "[appentry][batch]"
+) {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  auto const out = temp.path / "out";
+  fs::create_directories(root);
+
+  auto const cmd = testutils::parseArgs(
+    {"encro", "batch", root.string(), "-o", out.string(), "--pack-only"}
+  );
+  REQUIRE_FALSE(cmd.error.has_value());
+
+  auto const requestRes = appentry::buildBatchRequest(cmd);
+  REQUIRE(requestRes);
+  CHECK(requestRes.value().packedRoot == out);
+}
+
+TEST_CASE(
+  "batch toolchain resolution fails up front when ffmpeg is missing",
+  "[appentry][batch]"
+) {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  auto const emptyDir = temp.path / "empty";
+  fs::create_directories(root);
+  fs::create_directories(emptyDir);
+
+  auto const cmd = testutils::parseArgs({
+    "encro",
+    "batch",
+    root.string(),
+    "--type",
+    "picture",
+    "--compress",
+    "-x",
+    emptyDir.string(),
+  });
+  REQUIRE_FALSE(cmd.error.has_value());
+
+  auto const requestRes = appentry::buildBatchRequest(cmd);
+  REQUIRE_FALSE(requestRes);
+  CHECK(requestRes.error().find("FFmpeg not found") != std::string::npos);
+}
+
+TEST_CASE(
+  "batch toolchain resolution is skipped for pack-only runs",
+  "[appentry][batch]"
+) {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  auto const emptyDir = temp.path / "empty";
+  fs::create_directories(root);
+  fs::create_directories(emptyDir);
+
+  auto const cmd = testutils::parseArgs(
+    {"encro", "batch", root.string(), "--pack-only", "-x", emptyDir.string()}
+  );
+  REQUIRE_FALSE(cmd.error.has_value());
+
+  auto const requestRes = appentry::buildBatchRequest(cmd);
+  REQUIRE(requestRes);
+  CHECK_FALSE(requestRes.value().toolchain.ffmpegPath.has_value());
 }

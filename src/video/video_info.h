@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <span>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -19,6 +20,9 @@ namespace videoinfo {
 // is skipped with a user-visible warning.
 auto scanVideosForConversion(std::filesystem::path const& dirPath, bool recursive)
   -> eh::Result<std::vector<std::filesystem::path>>;
+
+// The video extensions the video scans recognize.
+auto videoExtensions() -> std::span<std::string_view const>;
 
 // Whole-json read of the process-scoped video info cache: the cached value
 // when present, otherwise one ffprobe whose result is cached. This module owns

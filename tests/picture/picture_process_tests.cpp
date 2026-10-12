@@ -32,6 +32,29 @@ TEST_CASE("runPicturePackWorkflow packs directory", "[picture-process]") {
 }
 
 TEST_CASE(
+  "runPicturePackWorkflow writes archives to an explicit pack output dir",
+  "[picture-process][pack]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const explicitDir = temp.path / "out" / "2024-01";
+  fs::create_directories(inputDir);
+  testutils::writeSizedFile(inputDir / "a.jpg", 32);
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.processType = "picture";
+  ctx.config.yesToAll = true;
+  ctx.config.inputPath = inputDir;
+  ctx.config.packOutputDir = explicitDir;
+
+  auto const runRes = runPicturePackWorkflow(ctx, inputDir);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+  CHECK(fs::exists(explicitDir / "pics_part1[1~1#1p].zip"));
+  CHECK_FALSE(fs::exists(inputDir / "packed"));
+}
+
+TEST_CASE(
   "runPicturePackWorkflow without video conversion prints no conversion line",
   "[picture-process]"
 ) {

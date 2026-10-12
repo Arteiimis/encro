@@ -405,3 +405,19 @@ TEST_CASE(
   auto const packPath = resolveVideoPackOutputPath(config, temp.path);
   CHECK(packPath == customOutput / "packed");
 }
+
+TEST_CASE(
+  "resolveVideoPackOutputPath honors an explicit pack output dir verbatim",
+  "[video-process][pack]"
+) {
+  TempDir temp;
+  auto const explicitDir = temp.path / "out" / "2024-01";
+
+  auto config = appctx::AppConfig{};
+  config.outputPath = temp.path / "out";
+  config.outputFormat = "mp4";
+  config.packOutputDir = explicitDir;
+
+  auto const packPath = resolveVideoPackOutputPath(config, temp.path);
+  CHECK(packPath == explicitDir);
+}

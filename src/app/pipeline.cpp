@@ -105,7 +105,9 @@ auto runPackOnly(appctx::AppContext& ctx) -> eh::Result<int> {
     return eh::makeError("pack-only mode requires input to be a directory.");
   }
 
-  auto const outputDir = ctx.config.outputPath.value_or(ctx.config.inputPath) / "packed";
+  auto const outputDir =
+    ctx.config.packOutputDir
+      .value_or(ctx.config.outputPath.value_or(ctx.config.inputPath) / "packed");
 
   auto const packRes = pack::execute({
     .entries = {ctx.config.inputPath},

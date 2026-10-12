@@ -793,22 +793,20 @@ auto executeCompressPackWorkflow(
   return executePicturePack(outputDir, tempDir, std::move(packInputs), ctx);
 }
 
+// Common picture file extensions; the picture scan and the batch pre-check are
+// the only consumers.
+constexpr auto kPictureTypes =
+  std::array{".jpg"sv, ".jpeg"sv, ".png"sv, ".bmp"sv, ".tiff"sv, ".gif"sv, ".heic"sv};
+
 }  // namespace
+
+auto pictureExtensions() -> std::span<std::string_view const> {
+  return kPictureTypes;
+}
 
 auto readAllPics(appctx::AppConfig const& config, fs::path const& dirPath)
   -> eh::Result<std::vector<fs::path>> {
-  constexpr auto pictureTypes = std::array{
-    // Common picture file extensions
-    ".jpg"sv,
-    ".jpeg"sv,
-    ".png"sv,
-    ".bmp"sv,
-    ".tiff"sv,
-    ".gif"sv,
-    ".heic"sv
-  };
-
-  auto const scanRes = media::scanByExtensions(dirPath, pictureTypes, config.recursive);
+  auto const scanRes = media::scanByExtensions(dirPath, kPictureTypes, config.recursive);
   if (!scanRes) { return eh::makeError("Failed to scan pictures: {}", scanRes.error()); }
   for (auto const& warning: scanRes->warnings) { LOG_WARN("{}", warning); }
   return scanRes->matches;
@@ -816,7 +814,8 @@ auto readAllPics(appctx::AppConfig const& config, fs::path const& dirPath)
 
 auto runPicturePackWorkflow(appctx::AppContext& ctx, fs::path const& dirPath)
   -> eh::Result<int> {
-  auto const outputDir = ctx.config.outputPath.value_or(dirPath) / "packed";
+  auto const outputDir =
+    ctx.config.packOutputDir.value_or(ctx.config.outputPath.value_or(dirPath) / "packed");
 
   if (ctx.config.compressImages) {
     return executeCompressPackWorkflow(ctx, dirPath, outputDir);
