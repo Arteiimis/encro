@@ -16,6 +16,7 @@ See proposal.md — Why.
 
 - One confirmation per batch, asked by the first subfolder that reaches one, at the same pipeline point a single-directory run asks it.
 - A decline ends the batch: the declining subfolder and every remaining subfolder are skipped, and the batch exits 0.
+- The `batch` subcommand is documented in the README like every other subcommand.
 - No behavior change for single-directory runs, for `--yes`, and for prompt-free paths (pack-only, dry-run, media-less subfolders).
 
 **Non-Goals:**
@@ -23,6 +24,7 @@ See proposal.md — Why.
 - Moving the prompt earlier (before scanning or probing) or prompting unconditionally before the first subfolder: the driver must not duplicate the workflows' prompt preconditions.
 - Changing the exit code a declined single-directory run produces.
 - Suppressing prompts for batch entirely — `--yes` stays the opt-out.
+- A separate `docs/` page for batch: the README section is the deliverable.
 - Keying the shared answer by question text (see D2).
 
 ## Decisions
@@ -57,6 +59,10 @@ After `pipeline::run(ctx)` returns, `runTasks` checks the shared answer: a store
 **D5 — Testing seams stay the existing ones.**
 
 Unit tests drive prompts through `testutils::ScopedCinBuf` (an `istringstream` as `std::cin`) plus `captureStdout`. The accepted path must not set `yesToAll` — that flag returns before the prompt is printed or read, so it can only prove the no-prompt case; the batch tests therefore drive the accepted path with stdin (one `y` line, which also proves the ask happened once, since a second prompt would read EOF and decline) and cover `--yes` as its own case. No new mocks or fakes.
+
+**D6 — The batch documentation lives in the README.**
+
+`## Usage` is where the README documents the command-line subcommands (the config, `preview`, and `organize` sections; `## Shell completion` is the one subcommand with its own top-level section, because it is an installation flow rather than a processing run), while `docs/` holds developer notes (backlog, CI debugging), so batch gets a `### Batch processing (batch)` subsection under `## Usage` in the same voice plus one Quick start example — no new file. The section documents the batch contract the `batch-subfolder-tasks` spec defines and must state the once-per-batch confirmation with `--yes` as the scripted mode, because that is the behavior this change introduces.
 
 ## Risks / Trade-offs
 
