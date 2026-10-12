@@ -950,11 +950,22 @@ TEST_CASE("batch rejects an explicit state file", "[cmd][batch]") {
 }
 
 TEST_CASE("batch rejects output alias forms", "[cmd][batch]") {
-  for (auto const* alias: {"+", "=", "input://", "common://"}) {
+  for (
+    auto const* alias: {
+      "+",
+      "+/2024",
+      "=",
+      "=\\2024",
+      "input://",
+      "input://2024",
+      "common://",
+      "common://2024",
+    }
+  ) {
     INFO("alias: " << alias);
     auto const result = testutils::parseArgs({"encro", "batch", "C:/media", "-o", alias});
     REQUIRE(result.error.has_value());
-    CHECK(result.error.value().find(alias) != std::string::npos);
+    CHECK(result.error.value().find("not supported with batch") != std::string::npos);
   }
 }
 

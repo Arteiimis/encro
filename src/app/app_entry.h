@@ -15,7 +15,8 @@ auto runStatus(int exitCode, bool stopRequested) -> std::string;
 // config builder fills the processing options (with the root in the input
 // slot), the packed root resolves to -o or <root>/packed, and the toolchain is
 // resolved once for the whole batch (skipped for pack-only runs, like the
-// single-run path).
+// single-run path). Per-subfolder output and state locations are the driver's
+// to derive.
 auto buildBatchRequest(CmdParseResult const& cmd) -> eh::Result<batch::BatchRequest>;
 
 int run(int argc, char* argv[]);

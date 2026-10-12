@@ -1,6 +1,7 @@
 #include "cmd/cmd.h"
 
 #include "cmd/completion_registry.h"
+#include "cmd/config_builder.h"
 #include "cmd/config_store.h"
 #include "cmd/help_layout.h"
 #include "cmd/option_specs.h"
@@ -676,16 +677,12 @@ auto batchOptionError(CmdParseResult const& result) -> std::optional<std::string
       "job state file"
     };
   }
-  if (result.batchOutput.has_value()) {
-    for (auto const* alias: {"+", "=", "input://", "common://"}) {
-      if (result.batchOutput.value() == alias) {
-        return std::format(
-          "output alias '{}' is not supported with batch: -o takes a plain "
-          "directory path",
-          alias
-        );
-      }
-    }
+  if (result.batchOutput.has_value() && cmd::isOutputAlias(result.batchOutput.value())) {
+    return std::format(
+      "output alias '{}' is not supported with batch: -o takes a plain directory "
+      "path",
+      result.batchOutput.value()
+    );
   }
   return std::nullopt;
 }

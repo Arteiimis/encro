@@ -24,6 +24,18 @@ auto scanVideosForConversion(std::filesystem::path const& dirPath, bool recursiv
 // The video extensions the video scans recognize.
 auto videoExtensions() -> std::span<std::string_view const>;
 
+// True when the video run's scan keeps this file for encoding: a known video
+// extension and, for webp output, under the WebP input size limit. The batch
+// pre-check mirrors the scan through this predicate.
+auto keepsForEncoding(
+  appctx::AppConfig const& config,
+  std::filesystem::path const& filePath
+) -> bool;
+
+// True when the picture run's conversion scan keeps this file: the WebP
+// conversion applies the size limit to every clip.
+auto keepsForConversion(std::filesystem::path const& filePath) -> bool;
+
 // Whole-json read of the process-scoped video info cache: the cached value
 // when present, otherwise one ffprobe whose result is cached. This module owns
 // the cache; other modules read metadata through this function.

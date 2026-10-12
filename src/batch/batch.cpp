@@ -9,6 +9,7 @@
 #include "video/video_info.h"
 
 #include <algorithm>
+#include <array>
 #include <system_error>
 
 using enum terminal::MessageKind;
@@ -17,36 +18,37 @@ namespace batch {
 
 namespace {
 
-// The picture set plus the video set, for a picture run that converts videos:
-// a video-only subfolder is a task there.
-auto conversionMediaExtensions() -> std::vector<std::string_view> {
-  auto extensions = std::vector<std::string_view>{};
-  auto const pics = pictureExtensions();
-  auto const vids = videoinfo::videoExtensions();
-  extensions.reserve(pics.size() + vids.size());
-  extensions.insert(extensions.end(), pics.begin(), pics.end());
-  extensions.insert(extensions.end(), vids.begin(), vids.end());
-  return extensions;
-}
-
-auto hasMediaFile(
+bool hasMediaFile(
   fs::path const& dir,
   std::span<std::string_view const> extensions,
   bool recursive
-) -> bool {
+) {
   auto const scanRes = media::scanByExtensions(dir, extensions, recursive);
   return scanRes && !scanRes->matches.empty();
 }
 
-auto hasAnyRegularFile(fs::path const& dir) -> bool {
+// Video files the scan would keep for the given config: the webp size gate
+// lives in the video module, so the pre-check cannot drift from it.
+template<class Keep>
+bool hasKeptVideo(fs::path const& dir, bool recursive, Keep const& keep) {
+  auto const scanRes =
+    media::scanByExtensions(dir, videoinfo::videoExtensions(), recursive);
+  return scanRes && std::ranges::any_of(scanRes->matches, keep);
+}
+
+bool hasAnyRegularFile(fs::path const& dir) {
   auto ec = std::error_code{};
-  auto it = fs::recursive_directory_iterator{
-    dir,
-    fs::directory_options::skip_permission_denied,
-    ec
-  };
   auto const end = fs::recursive_directory_iterator{};
-  for (; it != end; it.increment(ec)) {
+  for (
+    auto it =
+      fs::recursive_directory_iterator{
+        dir,
+        fs::directory_options::skip_permission_denied,
+        ec
+      };
+    it != end;
+    it.increment(ec)
+  ) {
     if (ec) { return false; }
     auto entryEc = std::error_code{};
     if (it->is_regular_file(entryEc) && !entryEc) { return true; }
@@ -54,13 +56,20 @@ auto hasAnyRegularFile(fs::path const& dir) -> bool {
   return false;
 }
 
-auto outcomeLabel(TaskOutcome outcome) -> std::string_view {
-  switch (outcome) {
-    case TaskOutcome::Done   : return "done";
-    case TaskOutcome::Failed : return "failed";
-    case TaskOutcome::Skipped: return "skipped";
-  }
-  return "skipped";
+// One row style per outcome: the label and its role always travel together.
+struct OutcomeStyle {
+  std::string_view label;
+  terminal::Role role;
+};
+
+constexpr auto kOutcomeStyles = std::array{
+  OutcomeStyle{"done", terminal::Role::Good},
+  OutcomeStyle{"failed", terminal::Role::Bad},
+  OutcomeStyle{"skipped", terminal::Role::Warn},
+};
+
+auto outcomeStyle(TaskOutcome outcome) -> OutcomeStyle {
+  return kOutcomeStyles[static_cast<std::size_t>(outcome)];
 }
 
 }  // namespace
@@ -90,19 +99,20 @@ auto enumerateSubfolders(fs::path const& root, fs::path const& packedRoot)
   return subfolders;
 }
 
-auto hasProcessableMedia(appctx::AppConfig const& config, fs::path const& dir) -> bool {
+bool hasProcessableMedia(appctx::AppConfig const& config, fs::path const& dir) {
   if (config.packOnly) { return hasAnyRegularFile(dir); }
 
   if (config.processType == "video") {
-    return hasMediaFile(dir, videoinfo::videoExtensions(), config.recursive);
+    return hasKeptVideo(dir, config.recursive, [&config](fs::path const& file) {
+      return videoinfo::keepsForEncoding(config, file);
+    });
   }
 
-  if (config.videoWebp) {
-    auto const extensions = conversionMediaExtensions();
-    return hasMediaFile(dir, extensions, config.recursive);
-  }
-
-  return hasMediaFile(dir, pictureExtensions(), config.recursive);
+  if (hasMediaFile(dir, pictureExtensions(), config.recursive)) { return true; }
+  if (!config.videoWebp) { return false; }
+  return hasKeptVideo(dir, config.recursive, [](fs::path const& file) {
+    return videoinfo::keepsForConversion(file);
+  });
 }
 
 auto resolvePackedRoot(
@@ -134,6 +144,8 @@ auto runTasks(BatchRequest const& request) -> eh::Result<std::vector<SubTaskResu
     auto result = SubTaskResult{.subfolder = subfolder};
 
     if (stopsignal::isStopRequested()) {
+      terminal::println(Info, "Skipping {}: stop requested.", terminal::path(subfolder));
+      result.exitCode = stopsignal::kCanceledExitCode;
       results.push_back(std::move(result));
       continue;
     }
@@ -178,8 +190,14 @@ auto runTasks(BatchRequest const& request) -> eh::Result<std::vector<SubTaskResu
   return results;
 }
 
-auto batchExitCode(std::span<SubTaskResult const> results) -> int {
-  if (stopsignal::isStopRequested()) { return stopsignal::kCanceledExitCode; }
+int batchExitCode(std::span<SubTaskResult const> results) {
+  // Result-based, not flag-based: a stop that arrives after every subfolder
+  // finished is not a canceled batch.
+  if (std::ranges::any_of(results, [](SubTaskResult const& result) {
+        return result.exitCode == stopsignal::kCanceledExitCode;
+      })) {
+    return stopsignal::kCanceledExitCode;
+  }
 
   auto const failed = std::ranges::any_of(results, [](SubTaskResult const& result) {
     return result.outcome == TaskOutcome::Failed;
@@ -193,18 +211,16 @@ void printSummary(std::span<SubTaskResult const> results) {
   auto skipped = std::size_t{0};
 
   for (auto const& result: results) {
-    auto const role = [&]() -> terminal::Role {
-      switch (result.outcome) {
-        case TaskOutcome::Done   : ++done; return terminal::Role::Good;
-        case TaskOutcome::Failed : ++failed; return terminal::Role::Bad;
-        case TaskOutcome::Skipped: ++skipped; return terminal::Role::Warn;
-      }
-      return terminal::Role::Default;
-    }();
+    auto const style = outcomeStyle(result.outcome);
+    switch (result.outcome) {
+      case TaskOutcome::Done   : ++done; break;
+      case TaskOutcome::Failed : ++failed; break;
+      case TaskOutcome::Skipped: ++skipped; break;
+    }
     terminal::println(
       Plain,
       "  {}  {}",
-      terminal::withRole(role, outcomeLabel(result.outcome)),
+      terminal::withRole(style.role, style.label),
       terminal::path(result.subfolder)
     );
   }

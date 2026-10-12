@@ -43,11 +43,12 @@ auto enumerateSubfolders(fs::path const& root, fs::path const& packedRoot)
   -> eh::Result<std::vector<fs::path>>;
 
 // True when `dir` holds at least one file the effective option combination
-// would process: video encode → video extensions; picture → picture
-// extensions (plus videos when the run converts them); pack-only → any regular
-// file. Mirrors the pipeline's own scans so a subfolder is skipped exactly
-// when its single-directory run would find nothing to do.
-auto hasProcessableMedia(appctx::AppConfig const& config, fs::path const& dir) -> bool;
+// would process: video encode → video extensions the scan keeps for the output
+// format; picture → picture extensions (plus videos the conversion scan keeps
+// when the run converts them); pack-only → any regular file. Mirrors the
+// pipeline's own scans so a subfolder is skipped exactly when its
+// single-directory run would find nothing to do.
+bool hasProcessableMedia(appctx::AppConfig const& config, fs::path const& dir);
 
 // The per-subfolder config: the batch's options with the subfolder as the
 // input, its archives redirected under the packed root, and no batch-level
@@ -68,9 +69,10 @@ auto resolvePackedRoot(
 // the remaining subfolders skipped.
 auto runTasks(BatchRequest const& request) -> eh::Result<std::vector<SubTaskResult>>;
 
-// The batch exit code for a finished run: the cancellation code when a stop
-// was requested, non-zero when any subfolder failed, zero otherwise.
-auto batchExitCode(std::span<SubTaskResult const> results) -> int;
+// The batch exit code for a finished run: the cancellation code when a
+// subfolder was canceled or skipped by a stop, non-zero when any subfolder
+// failed, zero otherwise.
+int batchExitCode(std::span<SubTaskResult const> results);
 
 // The product-facing summary table: one row per enumerated subfolder with its
 // status, then the count line (stdout, console-output-conventions).

@@ -230,13 +230,11 @@ int runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& start
   return runRes.value();
 }
 
-int runBatch(appctx::AppContext& ctx, prelude::StartupContext const& startup) {
+int runBatch(prelude::StartupContext const& startup) {
   auto const requestRes = appentry::buildBatchRequest(startup.cmd);
   if (!requestRes) { return failRun(requestRes.error(), false); }
 
   auto const& request = requestRes.value();
-  ctx.config = request.baseConfig;
-  ctx.toolchain = request.toolchain;
   prelude::logConfigSummary(request.baseConfig);
 
   auto const runRes = batch::runBatch(request);
@@ -286,12 +284,6 @@ auto buildBatchRequest(CmdParseResult const& cmd) -> eh::Result<batch::BatchRequ
   }
   request.packedRoot = batch::resolvePackedRoot(request.root, outputOverride);
 
-  // Every subfolder config derives its own output and state locations; a
-  // batch-level one would leak into all of them.
-  request.baseConfig.outputPath.reset();
-  request.baseConfig.stateFilePath.reset();
-  request.baseConfig.packOutputDir.reset();
-
   if (!request.baseConfig.packOnly) {
     auto const toolRes = toolchain::resolve(request.baseConfig, request.toolchain);
     if (!toolRes) { return eh::makeError("Tool check failed: {}", toolRes.error()); }
@@ -319,7 +311,7 @@ int run(int argc, char* argv[]) {
   } else if (startup.cmd.organize) {
     exitCode = organize::runOrganizeCommand(startup.cmd);
   } else if (startup.cmd.batch) {
-    exitCode = runBatch(ctx, startup);
+    exitCode = runBatch(startup);
   } else if (startup.cmd.config) {
     exitCode = cmd::runConfigCommand(startup.cmd);
   } else if (startup.cmd.completion) {
