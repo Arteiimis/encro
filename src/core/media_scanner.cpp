@@ -21,14 +21,6 @@ constexpr char asciiLower(char ch) {
   return ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch - 'A' + 'a') : ch;
 }
 
-// True for entries whose filename starts with a dot (e.g. ".encro"). These
-// are the program's own hidden work directories and hidden files; they are
-// never scanned as input (media-scan spec).
-bool isDotEntry(fs::path const& path) {
-  auto const name = path.filename().string();
-  return !name.empty() && name.front() == '.';
-}
-
 void scanDir(
   fs::path const& dirPath,
   std::span<std::string_view const> extensions,
@@ -36,7 +28,7 @@ void scanDir(
   ScanResult& out
 ) {
   auto collectEntry = [&](fs::directory_entry const& entry) {
-    if (isDotEntry(entry.path())) { return; }
+    if (isHiddenEntry(entry.path())) { return; }
     auto ec = std::error_code{};
     if (!entry.is_regular_file(ec) || ec) { return; }
     if (extensionMatches(entry.path(), extensions)) {
@@ -59,7 +51,7 @@ void scanDir(
         break;
       }
       auto const& entry = *it;
-      if (entry.is_directory() && isDotEntry(entry.path())) {
+      if (entry.is_directory() && isHiddenEntry(entry.path())) {
         // Do not descend into hidden work directories (.encro, legacy
         // .compress_tmp*); silently skip them and their contents.
         it.disable_recursion_pending();
@@ -95,6 +87,11 @@ bool extensionMatches(
       asciiLower
     );
   });
+}
+
+bool isHiddenEntry(fs::path const& path) {
+  auto const name = path.filename().string();
+  return !name.empty() && name.front() == '.';
 }
 
 auto scanByExtensions(

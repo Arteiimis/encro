@@ -5,10 +5,15 @@
 #include "picture/picture_video_webp.h"
 
 #include <filesystem>
+#include <span>
+#include <string_view>
 #include <vector>
 
 auto readAllPics(appctx::AppConfig const& config, std::filesystem::path const& dirPath)
   -> eh::Result<std::vector<std::filesystem::path>>;
+
+// The picture extensions the picture scan recognizes.
+auto pictureExtensions() -> std::span<std::string_view const>;
 
 // Scans the input for clips and plans their conversions when the run converts
 // videos: the archive entry name per the picture naming scheme, the cached

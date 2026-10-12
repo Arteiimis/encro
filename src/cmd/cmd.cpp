@@ -93,6 +93,171 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
   return sub;
 }
 
+auto registerBatchSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
+  auto* sub = app.add_subcommand(
+    "batch",
+    "process every first-level subfolder of a root directory as its own task"
+  );
+  sub->set_help_flag("-h,--help", "show batch help");
+  // The processing options mirror the main workflow's bindings (no config-key
+  // tokens: the keys are owned by the main options, and the injection step
+  // syncs these twins' displayed defaults).
+  auto const options = std::tuple{
+    opt(
+      "-o,--output",
+      &result.batchOutput,
+      "packed output root (default: <root>/packed); plain directory path only",
+      cfg::Path{}
+    ),
+    opt(
+      "-t,--type",
+      &result.processType,
+      "process type: video(vid)|picture(pic)",
+      cfg::OptionalDefault{"video"},
+      cfg::CheckedTransformer{{"vid", "video"}, {"pic", "picture"}}
+    ),
+    opt(
+      "-j,--jobs",
+      &result.maxJobs,
+      "max parallel jobs (>=1)",
+      cfg::OptionalDefault{"10"},
+      cfg::PositiveNumber{}
+    ),
+    opt(
+      "--resume",
+      &result.resume,
+      "require matching previous job state; error if missing or mismatched",
+      cfg::Excludes{"--restart"}
+    ),
+    opt("--restart", &result.restart, "ignore previous job state and start a fresh run"),
+    opt(
+      "-x,--ffmpeg-path",
+      &result.ffmpegPath,
+      "custom ffmpeg install path",
+      cfg::Path{}
+    ),
+    opt(
+      "-c,--compress,--no-compress{false}",
+      &result.compress,
+      "enable JPEG compression during picture processing"
+    ),
+    opt(
+      "--video-webp",
+      &result.videoWebp,
+      "convert videos found in a picture input to animated WebP"
+    ),
+    opt(
+      "-q,--image-quality",
+      &result.imageQuality,
+      "JPEG compression quality (2-31, lower=better)",
+      cfg::RequiredDefault{"2"},
+      cfg::Range{2, 31},
+      cfg::Needs{"--compress"}
+    ),
+    opt(
+      "--crf",
+      &result.crf,
+      "video encode quality (0-51, lower=better)",
+      cfg::RequiredDefault{"28"},
+      cfg::Range{0, 51}
+    ),
+    opt(
+      "--min-vmaf",
+      &result.minVmaf,
+      "minimum p5-VMAF quality floor for probing (0-100)",
+      cfg::OptionalDefault{"95"},
+      cfg::Range{0, 100}
+    ),
+    opt(
+      "--dry-run",
+      &result.dryRun,
+      "probe and print the encoding plan, then exit without encoding",
+      cfg::Excludes{"--crf"}
+    ),
+    opt(
+      "--preset",
+      &result.nvencPreset,
+      "NVENC preset (p1-p7; auto picks by resolution)",
+      cfg::RequiredDefault{"auto"},
+      cfg::Members{"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}
+    ),
+    opt(
+      "--video-codec",
+      &result.videoCodec,
+      "video encoder (default hevc_nvenc; libx265/libx264 on cpu)",
+      cfg::DefaultValue{"hevc_nvenc"}
+    ),
+    opt(
+      "-p,--pack,--no-pack{false}",
+      &result.pack,
+      "pack encoded video outputs into zip files",
+      cfg::Excludes{"--pack-only"}
+    ),
+    opt(
+      "-z,--pack-only",
+      &result.packOnly,
+      "pack only: zip all files in input directory"
+    ),
+    opt(
+      "-f,--output-format",
+      &result.outputFormat,
+      "target format: mp4 or webp",
+      cfg::OptionalDefault{"mp4"},
+      cfg::Members{"mp4", "webp"}
+    ),
+    opt(
+      "--keep,--no-keep{false}",
+      &result.keep,
+      "preserve relative input subdirectories inside the output directory "
+      "(default: flatten)"
+    ),
+    opt(
+      "--force-conflict-handling",
+      &result.forceConflictHandling,
+      "same-name collisions in flat output: y=auto-rename, n=allow duplicates",
+      cfg::OptionalDefault{"y"},
+      cfg::CheckedTransformer{{"y", "y"}, {"Y", "y"}, {"n", "n"}, {"N", "n"}}
+    ),
+    opt(
+      "-s,--folder-summary,--no-folder-summary{false}",
+      &result.folderSummary,
+      "enable picture-mode folder summary images in flat packs"
+    ),
+    opt(
+      "-r,--recursive,--no-recursive{false}",
+      &result.recursive,
+      "enable recursively search"
+    ),
+    opt("-y,--yes,--no-yes{false}", &result.yesToAll, "automatic yes to prompts"),
+  };
+  // The positional root and the exclusion stubs are registered by hand: the
+  // exclusion pair is wired by pointer (cfg::Excludes resolves long names, and
+  // the root positional has none).
+  auto* rootOpt = sub->add_option(
+    "root",
+    result.batchRoot,
+    "root directory whose first-level subfolders are the tasks"
+  );
+  cfg::Required{}(rootOpt);
+  registerAll(sub, options, result.keyEntries);
+  auto* inputsStub = sub->add_option(
+    "-I,--inputs",
+    result.batchInputsStub,
+    "not supported with batch: the positional root replaces input lists"
+  );
+  cfg::Expected{0, 1000000}(inputsStub);
+  cfg::Path{}(inputsStub);
+  inputsStub->excludes(rootOpt);
+  auto* stateFileStub = sub->add_option(
+    "--state-file",
+    result.stateFile,
+    "not supported with batch: each subfolder keeps its own state file"
+  );
+  cfg::Path{}(stateFileStub);
+  installBatchHelpFormatter(*sub);
+  return sub;
+}
+
 auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
   auto* sub = app.add_subcommand(
     "preview",
@@ -501,6 +666,30 @@ void registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) {
   registerAll(fileop, options, result.keyEntries);
 }
 
+// Batch keeps per-subfolder state files, so an explicit single state file has
+// no meaning; the output aliases resolve against input lists batch does not
+// have, so -o takes a plain directory path only.
+auto batchOptionError(CmdParseResult const& result) -> std::optional<std::string> {
+  if (result.stateFile.has_value()) {
+    return std::string{
+      "--state-file is not supported with batch: each subfolder keeps its own "
+      "job state file"
+    };
+  }
+  if (result.batchOutput.has_value()) {
+    for (auto const* alias: {"+", "=", "input://", "common://"}) {
+      if (result.batchOutput.value() == alias) {
+        return std::format(
+          "output alias '{}' is not supported with batch: -o takes a plain "
+          "directory path",
+          alias
+        );
+      }
+    }
+  }
+  return std::nullopt;
+}
+
 // Loads the user config and applies each stored value as a forced option
 // default (design D1). The table supplies the known-key set. Returns a
 // load-error message, or nullopt.
@@ -517,13 +706,13 @@ auto injectConfigDefaults(CLI::App& app, configstore::KeyTable const& table)
       opt->force_callback();
     }
     // Named subcommands may register their own copy of a config-key option
-    // (preview's encode twins); get_option lookup only descends into nameless
-    // groups, so sync the twins here. Display only, never force_callback: the
-    // main option's forced callback already writes the binding (registration
-    // order), and a forced subcommand callback would run after an explicit
-    // main value and clobber it. Note: the no-arg get_subcommands() returns
-    // parsed subcommands only (empty pre-parse); the filter overload returns
-    // every registered subcommand.
+    // (preview's and batch's twins); get_option lookup only descends into
+    // nameless groups, so sync the twins here. Display only, never
+    // force_callback: the main option's forced callback already writes the
+    // binding (registration order), and a forced subcommand callback would run
+    // after an explicit main value and clobber it. Note: the no-arg
+    // get_subcommands() returns parsed subcommands only (empty pre-parse); the
+    // filter overload returns every registered subcommand.
     for (auto* subc: app.get_subcommands([](CLI::App*) { return true; })) {
       if (subc->get_name().empty()) { continue; }  // option groups: handled above
       if (auto* subOpt = subc->get_option_no_throw(std::format("--{}", key))) {
@@ -590,6 +779,12 @@ auto buildAndParse(
         }
       }
     }
+    if (tree.app->got_subcommand(tree.batchSub)) {
+      result.batch = true;
+      if (auto const error = batchOptionError(result); error.has_value()) {
+        result.error = *error;
+      }
+    }
     if (tree.app->got_subcommand(tree.configSub)) {
       result.config = true;
       result.helpApp_ = tree.configSub;
@@ -610,6 +805,8 @@ auto buildAndParse(
       result.helpApp_ = tree.completionSub;
     } else if (tree.app->got_subcommand(tree.configSub)) {
       result.helpApp_ = tree.configSub;
+    } else if (tree.app->got_subcommand(tree.batchSub)) {
+      result.helpApp_ = tree.batchSub;
     } else if (tree.app->got_subcommand(tree.organizeSub)) {
       result.helpApp_ = tree.organizeSub;
     } else {
@@ -654,14 +851,20 @@ auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool inj
 
   auto* previewSub = registerPreviewSubcommand(*app, result);
   auto* organizeSub = registerOrganizeSubcommand(*app, result);
+  auto* batchSub = registerBatchSubcommand(*app, result);
   auto* configSub = registerConfigSubcommand(*app, result);
   auto* completionSub = registerCompletionSubcommand(*app, result);
   // Option groups are CLI11 subcommands too, so the commands section is given
   // the real subcommand apps explicitly. The array is leaked with the app:
   // the formatter lambda captures the span by value, while parse and help
   // rendering happen after this call returns.
-  auto* const commandSubs =
-    new std::array<CLI::App const*, 4>{previewSub, organizeSub, configSub, completionSub};
+  auto* const commandSubs = new std::array<CLI::App const*, 5>{
+    previewSub,
+    organizeSub,
+    batchSub,
+    configSub,
+    completionSub
+  };
 
   // The leaked commandSubs array outlives the formatter's span.
   installHelpFormatter(
@@ -701,7 +904,7 @@ auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool inj
       result.error = *error;
     }
   }
-  return AppTree{app, previewSub, organizeSub, configSub, completionSub};
+  return AppTree{app, previewSub, organizeSub, batchSub, configSub, completionSub};
 }
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)

@@ -2,33 +2,33 @@
 
 ## 1. Output redirection seam
 
-- [ ] 1.1 Write a failing `jobstate` snapshot test (different set `packOutputDir` values must not match, equal set values must, and a snapshot saved without the field must still match a config with it unset — the absent-field compatibility pattern), then add the optional `packOutputDir` field to `ConfigSnapshot`, `buildConfigSnapshot`, serialization, and `configMatches`; verify the test passes and existing snapshot-matching tests stay green
-- [ ] 1.2 Write a failing test for `resolveVideoPackOutputPath` honoring `config.packOutputDir` verbatim (unset keeps today's `outputPath|input / "packed"` behavior), add the optional `AppConfig::packOutputDir` field and the resolver branch; verify both cases pass
-- [ ] 1.3 Write a failing fake-tool picture test asserting a picture pack run with `packOutputDir` set writes archives there (not under `<dir>/packed`), then apply the same seam in the picture workflow's output-dir resolution; verify it passes
-- [ ] 1.4 Write a failing fake-tool pack-only test asserting a `-z` run with `packOutputDir` set writes archives there, then apply the seam in `runPackOnly` (`src/app/pipeline.cpp`); verify it passes
+- [x] 1.1 Write a failing `jobstate` snapshot test (different set `packOutputDir` values must not match, equal set values must, and a snapshot saved without the field must still match a config with it unset — the absent-field compatibility pattern), then add the optional `packOutputDir` field to `ConfigSnapshot`, `buildConfigSnapshot`, serialization, and `configMatches`; verify the test passes and existing snapshot-matching tests stay green
+- [x] 1.2 Write a failing test for `resolveVideoPackOutputPath` honoring `config.packOutputDir` verbatim (unset keeps today's `outputPath|input / "packed"` behavior), add the optional `AppConfig::packOutputDir` field and the resolver branch; verify both cases pass
+- [x] 1.3 Write a failing fake-tool picture test asserting a picture pack run with `packOutputDir` set writes archives there (not under `<dir>/packed`), then apply the same seam in the picture workflow's output-dir resolution; verify it passes
+- [x] 1.4 Write a failing fake-tool pack-only test asserting a `-z` run with `packOutputDir` set writes archives there, then apply the seam in `runPackOnly` (`src/app/pipeline.cpp`); verify it passes
 
 ## 2. Batch driver core
 
-- [ ] 2.1 Write failing unit tests for subfolder enumeration (first-level directories only, loose files ignored, hidden dirs / `.encro` / the resolved packed root excluded, name-sorted, empty result allowed), then implement the enumerator in the new `src/batch/` module; verify the tests pass
-- [ ] 2.2 Write failing unit tests for the media presence pre-check mirroring the effective option combination (video encode → video extensions; picture + `--compress` → picture extensions; picture + `--video-webp` → pictures ∪ videos; picture plain pack → picture extensions; pack-only → any regular file), then implement it on exported scan predicates (export the module-private video set and function-local picture set as helpers); verify the tests pass
-- [ ] 2.3 Write failing fake-tool unit tests for the sequential run loop (per-sub `AppContext` with `inputPath=<root>/<sub>`, `packOutputDir=<packedRoot>/<sub>`, fresh store per sub created exactly when the equivalent single-directory run would create one; done/failed/skipped classification; a failing sub does not stop later subs; exit code non-zero exactly when a sub failed; media-less sub skipped with notice), then implement the loop; verify the tests pass
-- [ ] 2.4 Write failing stop-semantics unit tests (a sub's cancellation exit stops iteration and marks remaining subs skipped with the cancellation exit code; a stop requested between subs skips the next one), then implement the driver's stop checks using the existing `stopsignal` API; verify the tests pass with a fresh `ScopedStopSignalReset` per iteration
+- [x] 2.1 Write failing unit tests for subfolder enumeration (first-level directories only, loose files ignored, hidden dirs / `.encro` / the resolved packed root excluded, name-sorted, empty result allowed), then implement the enumerator in the new `src/batch/` module; verify the tests pass
+- [x] 2.2 Write failing unit tests for the media presence pre-check mirroring the effective option combination (video encode → video extensions; picture + `--compress` → picture extensions; picture + `--video-webp` → pictures ∪ videos; picture plain pack → picture extensions; pack-only → any regular file), then implement it on exported scan predicates (export the module-private video set and function-local picture set as helpers); verify the tests pass
+- [x] 2.3 Write failing fake-tool unit tests for the sequential run loop (per-sub `AppContext` with `inputPath=<root>/<sub>`, `packOutputDir=<packedRoot>/<sub>`, fresh store per sub created exactly when the equivalent single-directory run would create one; done/failed/skipped classification; a failing sub does not stop later subs; exit code non-zero exactly when a sub failed; media-less sub skipped with notice), then implement the loop; verify the tests pass
+- [x] 2.4 Write failing stop-semantics unit tests (a sub's cancellation exit stops iteration and marks remaining subs skipped with the cancellation exit code; a stop requested between subs skips the next one), then implement the driver's stop checks using the existing `stopsignal` API; verify the tests pass with a fresh `ScopedStopSignalReset` per iteration
 
 ## 3. Batch summary
 
-- [ ] 3.1 Write failing unit tests for the summary table (one row per enumerated subfolder with done/failed/skipped status, count line, stdout, `console-output-conventions` prefixes), then implement the renderer; verify the tests pass and self-check the output with `ENCRO_DEBUG_DUMP_RENDER` for stream/placement
+- [x] 3.1 Write failing unit tests for the summary table (one row per enumerated subfolder with done/failed/skipped status, count line, stdout, `console-output-conventions` prefixes), then implement the renderer; verify the tests pass and self-check the output with `ENCRO_DEBUG_DUMP_RENDER` for stream/placement
 
 ## 4. CLI surface and dispatch
 
-- [ ] 4.1 Write failing parse tests (`encro batch <root>` accepts the processing options for the chosen type; `-I`/positional-multi and `--state-file` rejected with native-style exclusion errors naming the options; `-o` alias forms (`+`, `=`, `input://`, `common://`) rejected as unsupported for batch; batch help renders), then register the subcommand in `cmd.cpp` following the `organize` pattern plus explicit exclusion stubs; verify the tests pass
-- [ ] 4.2 Write failing unit tests for batch-config → per-sub-config mapping (options copied, `inputPaths` cleared, `outputPath`/`stateFilePath` nullopt, packed root default `<root>/packed` with `-o` taking a plain directory path), then implement the mapping; verify the tests pass
-- [ ] 4.3 Write failing fake-tool tests for toolchain-once resolution (missing ffmpeg fails the batch with the tool check error before any sub runs; resolved paths shared across subs), then implement the up-front resolution and dispatch branch in `app_entry.cpp`; verify the tests pass
+- [x] 4.1 Write failing parse tests (`encro batch <root>` accepts the processing options for the chosen type; `-I`/positional-multi and `--state-file` rejected with native-style exclusion errors naming the options; `-o` alias forms (`+`, `=`, `input://`, `common://`) rejected as unsupported for batch; batch help renders), then register the subcommand in `cmd.cpp` following the `organize` pattern plus explicit exclusion stubs; verify the tests pass
+- [x] 4.2 Write failing unit tests for batch-config → per-sub-config mapping (options copied, `inputPaths` cleared, `outputPath`/`stateFilePath` nullopt, packed root default `<root>/packed` with `-o` taking a plain directory path), then implement the mapping; verify the tests pass
+- [x] 4.3 Write failing fake-tool tests for toolchain-once resolution (missing ffmpeg fails the batch with the tool check error before any sub runs; resolved paths shared across subs), then implement the up-front resolution and dispatch branch in `app_entry.cpp`; verify the tests pass
 
 ## 5. Integration and completion
 
-- [ ] 5.1 Add an e2e case: real `encro` binary runs a picture-pack batch over three subfolders (one media-less) with the fake ffmpeg on PATH, asserting archives under `<root>/packed/<sub>/`, the skip notice, the summary table, and exit code 0; verify it passes
-- [ ] 5.2 Add an e2e resume case: interrupt a batch mid-subfolder and re-run, asserting the finished sub performs no work and the interrupted sub resumes; verify it passes
-- [ ] 5.3 Extend the completion registry tests to assert `batch` is offered at the main-command position and its options respect subcommand context; verify `xmake test-report` stays green
+- [x] 5.1 Add an e2e case: real `encro` binary runs a picture-pack batch over three subfolders (one media-less) with the fake ffmpeg on PATH, asserting archives under `<root>/packed/<sub>/`, the skip notice, the summary table, and exit code 0; verify it passes
+- [x] 5.2 Add an e2e resume case: interrupt a batch mid-subfolder and re-run, asserting the finished sub performs no work and the interrupted sub resumes; verify it passes
+- [x] 5.3 Extend the completion registry tests to assert `batch` is offered at the main-command position and its options respect subcommand context; verify `xmake test-report` stays green
 
 ## Workflow follow-up
 

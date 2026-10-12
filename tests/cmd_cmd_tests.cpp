@@ -899,3 +899,78 @@ TEST_CASE("cli11 rejects negative preview --start", "[cmd][cli11-native]") {
   REQUIRE(result.error.has_value());
   CHECK(result.error.value().find("--start") != std::string::npos);
 }
+
+// ── batch subcommand ───────────────────────────────────────────────────────
+
+TEST_CASE("batch parses a root and processing options", "[cmd][batch]") {
+  auto const result = testutils::parseArgs({
+    "encro",
+    "batch",
+    "C:/media",
+    "--type",
+    "picture",
+    "--compress",
+    "-y",
+    "-o",
+    "C:/out",
+  });
+
+  CHECK(result.batch);
+  REQUIRE(result.batchRoot.has_value());
+  CHECK(result.batchRoot.value() == "C:/media");
+  CHECK(result.processType == "picture");
+  CHECK(result.compress);
+  CHECK(result.yesToAll);
+  REQUIRE(result.batchOutput.has_value());
+  CHECK(result.batchOutput.value() == "C:/out");
+  CHECK_FALSE(result.error.has_value());
+}
+
+TEST_CASE("batch requires a root directory", "[cmd][batch]") {
+  auto const result = testutils::parseArgs({"encro", "batch"});
+
+  CHECK_FALSE(result.batch);
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("root") != std::string::npos);
+}
+
+TEST_CASE("batch rejects the multi-input form", "[cmd][batch]") {
+  auto const result = testutils::parseArgs({"encro", "batch", "C:/media", "-I", "a.mp4"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("--inputs") != std::string::npos);
+}
+
+TEST_CASE("batch rejects an explicit state file", "[cmd][batch]") {
+  auto const result =
+    testutils::parseArgs({"encro", "batch", "C:/media", "--state-file", "state.json"});
+
+  REQUIRE(result.error.has_value());
+  CHECK(result.error.value().find("state file") != std::string::npos);
+}
+
+TEST_CASE("batch rejects output alias forms", "[cmd][batch]") {
+  for (auto const* alias: {"+", "=", "input://", "common://"}) {
+    INFO("alias: " << alias);
+    auto const result = testutils::parseArgs({"encro", "batch", "C:/media", "-o", alias});
+    REQUIRE(result.error.has_value());
+    CHECK(result.error.value().find(alias) != std::string::npos);
+  }
+}
+
+TEST_CASE("batch -h renders batch help text", "[cmd][batch]") {
+  auto const result = testutils::parseArgs({"encro", "batch", "-h"});
+
+  CHECK(result.help);
+  CHECK_FALSE(result.error.has_value());
+  CHECK(result.helpText().find("encro batch <root>") != std::string::npos);
+  CHECK(result.helpText().find("--state-file") != std::string::npos);
+}
+
+TEST_CASE("main help lists the batch subcommand", "[cmd][batch]") {
+  auto const help = stripAnsi(testutils::parseArgs({"encro", "-h"}).helpText());
+
+  CHECK(help.find("encro commands:") != std::string::npos);
+  CHECK(help.find("  batch") != std::string::npos);
+  CHECK(help.find("process every first-level subfolder") != std::string::npos);
+}

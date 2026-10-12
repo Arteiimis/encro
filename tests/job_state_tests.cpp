@@ -907,3 +907,71 @@ TEST_CASE("encode and archive task ids use normalized path form", "[job-state]")
     archiveTask.id == std::format("archive:{}", collisionnaming::stablePathString(zip))
   );
 }
+
+// ── 3.7 — the packed-output dir is part of the job identity ─────────────────
+
+TEST_CASE(
+  "job state treats a changed pack output dir as a different job",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputDir = temp.path / "pics";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeTextFile(inputDir / "a.png", "fake-image");
+
+  auto config = makeConfig(inputDir, statePath);
+  config.processType = "picture";
+  config.packOutputDir = temp.path / "packed-a";
+
+  auto store = jobstate::Store{statePath};
+  REQUIRE(store.initialize(config, false));
+
+  // The same packed root is the same job.
+  auto matchingStore = jobstate::Store{statePath};
+  auto const matchRes = matchingStore.initialize(config, false);
+  REQUIRE(matchRes);
+  CHECK(matchRes.value());
+
+  // A different packed root is a different job: restart, not resume.
+  auto changedConfig = config;
+  changedConfig.packOutputDir = temp.path / "packed-b";
+  auto mismatchedStore = jobstate::Store{statePath};
+  auto discardedMismatched = false;
+  auto const mismatchRes =
+    mismatchedStore.initialize(changedConfig, false, &discardedMismatched);
+  REQUIRE(mismatchRes);
+  CHECK_FALSE(mismatchRes.value());
+  CHECK(discardedMismatched);
+}
+
+TEST_CASE(
+  "job state keeps a legacy state without packOutputDir compatible",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeTextFile(inputPath);
+
+  auto const config = makeConfig(inputPath, statePath);
+  auto store = jobstate::Store{statePath};
+  REQUIRE(store.initialize(config, false));
+
+  // A pre-batch writer never serialized the member: drop it when present so
+  // the file looks exactly like one written before the field existed.
+  auto text = testutils::readTextFile(statePath);
+  if (auto const at = text.find("\"packOutputDir\":"); at != std::string::npos) {
+    auto const end = text.find_first_of(",}", at);
+    REQUIRE(end != std::string::npos);
+    auto const precedingComma = text.rfind(',', at);
+    auto const start = precedingComma == std::string::npos ? at : precedingComma;
+    text.erase(start, end - start);
+    testutils::writeTextFile(statePath, text);
+  }
+
+  // An unset packOutputDir still matches the legacy snapshot.
+  auto legacyStore = jobstate::Store{statePath};
+  auto const legacyRes = legacyStore.initialize(config, false);
+  REQUIRE(legacyRes);
+  CHECK(legacyRes.value());
+}

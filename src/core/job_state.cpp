@@ -253,6 +253,9 @@ auto toJson(ConfigSnapshot const& config) -> json::object {
   object["videoWebp"] = config.videoWebp;
   object["inputPaths"] = pathsToJson(config.inputPaths);
   object["outputPath"] = pathToJson(config.outputPath);
+  if (config.packOutputDir.has_value()) {
+    object["packOutputDir"] = pathToJson(config.packOutputDir);
+  }
   return object;
 }
 
@@ -271,6 +274,7 @@ auto fromJsonConfig(json::object const& object) -> ConfigSnapshot {
     .videoWebp = object.if_contains("videoWebp") && object.at("videoWebp").as_bool(),
     .inputPaths = optionalStringArrayFrom(object, "inputPaths"),
     .outputPath = optionalPathFrom(object, "outputPath"),
+    .packOutputDir = optionalPathFrom(object, "packOutputDir"),
   };
 }
 
@@ -552,6 +556,7 @@ auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot {
     .videoWebp = config.videoWebp,
     .inputPaths = std::move(inputPaths),
     .outputPath = config.outputPath,
+    .packOutputDir = config.packOutputDir,
   };
 }
 
@@ -566,7 +571,8 @@ bool configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) {
     && lhs.pictureFolderSummary == rhs.pictureFolderSummary
     && lhs.videoWebp == rhs.videoWebp
     && lhs.inputPaths == rhs.inputPaths
-    && lhs.outputPath == rhs.outputPath;
+    && lhs.outputPath == rhs.outputPath
+    && lhs.packOutputDir == rhs.packOutputDir;
 }
 
 auto makeEncodeTask(fs::path const& inputPath, fs::path const& plannedOutputFile)

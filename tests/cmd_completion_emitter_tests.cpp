@@ -240,6 +240,30 @@ TEST_CASE("emission is independent of stored config", "[completion]") {
   REQUIRE(underEnv == baseline);
 }
 
+TEST_CASE(
+  "model offers batch as a main command with its own option scope",
+  "[completion][batch]"
+) {
+  auto const model = completion::buildCompletionModel();
+
+  auto const* batch = findScope(model, "batch");
+  REQUIRE(batch != nullptr);
+
+  // The main-command position offers the new subcommand (sorted list, so
+  // batch leads it).
+  auto const bash = completion::emitBashScript(model);
+  CHECK(contains(bash, "_ENCRO_SUB_NAMES=\"batch "));
+
+  // The scope carries batch's own options and none of the main-only ones.
+  auto const* type = findOption(*batch, "type");
+  REQUIRE(type != nullptr);
+  CHECK(type->candidates == std::vector<std::string>{"video", "picture"});
+  CHECK(findOption(*batch, "output") != nullptr);      // -o packed-root override
+  CHECK(findOption(*batch, "state_file") != nullptr);  // rejected, but named
+  CHECK(findOption(*batch, "inputs") != nullptr);
+  CHECK(findOption(*batch, "verbose") == nullptr);     // main-only
+}
+
 TEST_CASE("scope model keeps a short-only option", "[completion]") {
   // The registry is keyed by long name; an option registered without one
   // (legal in CLI11) must still reach the model with a usable id rather than

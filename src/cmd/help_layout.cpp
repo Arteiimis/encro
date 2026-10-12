@@ -523,6 +523,10 @@ constexpr auto kOrganizeUsageLines = std::array{
   "[--identity-tau <f>] [--download-models] [--dry-run]"sv,
 };
 
+constexpr auto kBatchUsageLines = std::array{
+  "encro batch <root> [-t <type>] [--compress] [-p|-z] [-o <dir>] [options]"sv,
+};
+
 }  // namespace
 
 auto installHelpFormatter(
@@ -541,6 +545,10 @@ auto installHelpFormatter(
 
 auto installOrganizeHelpFormatter(CLI::App& subApp) -> void {
   subApp.formatter_fn(makeSubcommandHelpFormatter(&subApp, kOrganizeUsageLines));
+}
+
+auto installBatchHelpFormatter(CLI::App& subApp) -> void {
+  subApp.formatter_fn(makeSubcommandHelpFormatter(&subApp, kBatchUsageLines));
 }
 
 auto installPreviewHelpFormatter(CLI::App& subApp) -> void {

@@ -283,6 +283,10 @@ void prewarmWebpVideoInfoCache(
 
 }  // namespace
 
+auto videoinfo::videoExtensions() -> std::span<std::string_view const> {
+  return kVideoTypes;
+}
+
 // Probe-free, size-gated video scan for the picture run's WebP conversion.
 // Oversized clips warn: a picture run that silently dropped a clip the user
 // asked to convert would look like the flag did nothing for it.

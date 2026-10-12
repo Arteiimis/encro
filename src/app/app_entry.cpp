@@ -1,5 +1,6 @@
 #include "app/app_entry.h"
 
+#include "batch/batch.h"
 #include "cmd/completion_command.h"
 #include "cmd/config_builder.h"
 #include "cmd/config_command.h"
@@ -229,6 +230,21 @@ int runAppPipeline(appctx::AppContext& ctx, prelude::StartupContext const& start
   return runRes.value();
 }
 
+int runBatch(appctx::AppContext& ctx, prelude::StartupContext const& startup) {
+  auto const requestRes = appentry::buildBatchRequest(startup.cmd);
+  if (!requestRes) { return failRun(requestRes.error(), false); }
+
+  auto const& request = requestRes.value();
+  ctx.config = request.baseConfig;
+  ctx.toolchain = request.toolchain;
+  prelude::logConfigSummary(request.baseConfig);
+
+  auto const runRes = batch::runBatch(request);
+  if (!runRes) { return failRun(std::format("Batch failed: {}", runRes.error()), false); }
+
+  return runRes.value();
+}
+
 }  // namespace
 
 namespace appentry {
@@ -252,6 +268,38 @@ auto runStatus(int exitCode, bool stopRequested) -> std::string {
   return "failed";
 }
 
+auto buildBatchRequest(CmdParseResult const& cmd) -> eh::Result<batch::BatchRequest> {
+  // The single-run builder owns the processing-option mapping and its
+  // combination validation; the root fills its required input slot.
+  auto cmdForConfig = cmd;
+  if (cmd.batchRoot.has_value()) { cmdForConfig.input = cmd.batchRoot; }
+  auto configRes = cmd::buildConfig(cmdForConfig);
+  if (!configRes) { return eh::makeError("{}", configRes.error()); }
+
+  auto request = batch::BatchRequest{};
+  request.baseConfig = std::move(configRes.value());
+  request.root = request.baseConfig.inputPath;
+
+  auto outputOverride = std::optional<fs::path>{};
+  if (cmd.batchOutput.has_value()) {
+    outputOverride = fs::absolute(fs::path{cmd.batchOutput.value()}).lexically_normal();
+  }
+  request.packedRoot = batch::resolvePackedRoot(request.root, outputOverride);
+
+  // Every subfolder config derives its own output and state locations; a
+  // batch-level one would leak into all of them.
+  request.baseConfig.outputPath.reset();
+  request.baseConfig.stateFilePath.reset();
+  request.baseConfig.packOutputDir.reset();
+
+  if (!request.baseConfig.packOnly) {
+    auto const toolRes = toolchain::resolve(request.baseConfig, request.toolchain);
+    if (!toolRes) { return eh::makeError("Tool check failed: {}", toolRes.error()); }
+  }
+
+  return request;
+}
+
 int run(int argc, char* argv[]) {
   stopsignal::installHandler();
   stopsignal::reset();
@@ -270,6 +318,8 @@ int run(int argc, char* argv[]) {
     exitCode = runPreview(startup);
   } else if (startup.cmd.organize) {
     exitCode = organize::runOrganizeCommand(startup.cmd);
+  } else if (startup.cmd.batch) {
+    exitCode = runBatch(ctx, startup);
   } else if (startup.cmd.config) {
     exitCode = cmd::runConfigCommand(startup.cmd);
   } else if (startup.cmd.completion) {

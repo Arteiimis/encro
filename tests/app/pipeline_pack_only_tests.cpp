@@ -45,6 +45,26 @@ TEST_CASE("pack-only pipeline packs directory", "[pipeline]") {
   CHECK(fs::exists(inputDir / "packed" / "input_part1[1~1#1p].zip"));
 }
 
+TEST_CASE("pack-only pipeline honors an explicit pack output dir", "[pipeline]") {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  auto const explicitDir = temp.path / "out" / "2024-01";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.bin");
+
+  auto ctx = appctx::AppContext{};
+  ctx.config.packOnly = true;
+  ctx.config.processType = "video";
+  ctx.config.inputPath = inputDir;
+  ctx.config.packOutputDir = explicitDir;
+
+  auto runRes = pipeline::run(ctx);
+  REQUIRE(runRes);
+  CHECK(runRes.value() == 0);
+  CHECK(fs::exists(explicitDir / "input_part1[1~1#1p].zip"));
+  CHECK_FALSE(fs::exists(inputDir / "packed"));
+}
+
 TEST_CASE("pack-only pipeline skips job state by default", "[pipeline]") {
   TempDir temp;
   auto const inputDir = temp.path / "input";

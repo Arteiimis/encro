@@ -58,6 +58,9 @@ struct AppConfig {
   fs::path inputPath;
   std::vector<fs::path> inputPaths;
   std::optional<fs::path> outputPath;
+  // Explicit packed-archive destination; when unset, pack output resolves to
+  // outputPath or the input root with a "packed" suffix.
+  std::optional<fs::path> packOutputDir;
   std::optional<fs::path> stateFilePath;
   std::optional<fs::path> ffmpegInstallDir;
 };

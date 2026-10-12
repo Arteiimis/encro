@@ -68,6 +68,12 @@ struct CmdParseResult {
   bool organizeDownloadModels = false;
   bool organizeRecluster = false;
 
+  // ── batch subcommand ───────────────────────────────────────────
+  bool batch = false;
+  std::optional<std::string> batchRoot;    // positional root directory
+  std::optional<std::string> batchOutput;  // -o packed-root override (plain path)
+  std::optional<std::vector<std::string>> batchInputsStub;  // rejected -I form
+
   // ── File operation options ─────────────────────────────────────
   bool pack = false;
   bool packOnly = false;
@@ -114,6 +120,7 @@ struct AppTree {
   CLI::App* app = nullptr;
   CLI::App* previewSub = nullptr;
   CLI::App* organizeSub = nullptr;
+  CLI::App* batchSub = nullptr;
   CLI::App* configSub = nullptr;
   CLI::App* completionSub = nullptr;
 };

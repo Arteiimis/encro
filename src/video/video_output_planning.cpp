@@ -161,6 +161,8 @@ auto resolveVideoPackOutputPath(
   appctx::AppConfig const& config,
   fs::path const& inputPath
 ) -> fs::path {
+  if (config.packOutputDir.has_value()) { return config.packOutputDir.value(); }
+
   if (config.outputPath.has_value()) { return config.outputPath.value() / "packed"; }
 
   auto const basePath = fs::is_directory(inputPath) ? inputPath : inputPath.parent_path();

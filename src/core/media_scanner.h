@@ -26,6 +26,10 @@ bool extensionMatches(
   std::span<std::string_view const> extensions
 );
 
+// True for entries whose filename starts with a dot (e.g. ".encro") — the
+// program's own hidden work entries; never scanned as input.
+bool isHiddenEntry(fs::path const& path);
+
 // Scans `root` (a file or directory) for entries whose extension matches.
 // Returns an error when `root` is not a readable directory (missing, not a
 // directory, permission denied) — never a silently empty result.
