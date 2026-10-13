@@ -58,7 +58,7 @@ After `pipeline::run(ctx)` returns, `runTasks` checks the shared answer: a store
 
 **D5 — Testing seams stay the existing ones.**
 
-Unit tests drive prompts through `testutils::ScopedCinBuf` (an `istringstream` as `std::cin`) plus `captureStdout`. The accepted path must not set `yesToAll` — that flag returns before the prompt is printed or read, so it can only prove the no-prompt case; the batch tests therefore drive the accepted path with stdin (one `y` line, which also proves the ask happened once, since a second prompt would read EOF and decline) and cover `--yes` as its own case. No new mocks or fakes.
+Unit tests drive prompts through `testutils::ScopedCinBuf` (an `istringstream` as `std::cin`) plus `captureStdout`. The accepted path must not set `yesToAll` — that flag returns before the prompt is printed or read, so it can only prove the no-prompt case; the batch tests therefore drive the accepted path with stdin (one `y` line, which also proves the ask happened once, since a second prompt would read EOF and decline) and cover `--yes` as its own case. Two helpers carry what those seams cannot: `testutils::StopDuringReadBuf`, a stdin buffer that raises a one-shot stop request from its first `underflow()`, so the stop lands *inside* the read that is waiting for input; and a batch-test helper that captures stdout and stderr together, because the workflows' notices go to stderr while prompts, skip notices and the summary go to stdout. No new mocks or fakes of the module under test.
 
 **D6 — The batch documentation lives in the README.**
 

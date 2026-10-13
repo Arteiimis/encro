@@ -152,7 +152,7 @@ Each subfolder keeps its own state, so `--resume` continues a batch subfolder by
 
 ffmpeg and ffprobe are resolved once before the first subfolder, so a missing tool fails the batch before any work starts (`--pack-only` needs no tool at all).
 
-The confirmation prompt is asked once per batch: the first subfolder that reaches it asks, and that answer covers every remaining subfolder. Declining it ends the batch with the remaining subfolders skipped and exit code 0. `--yes` skips the prompt entirely and is the mode to use in scripts.
+The confirmation prompt is asked once per batch: the first subfolder that reaches it asks, and that answer covers every remaining subfolder. Declining it ends the batch — the subfolder that asked and every remaining one are skipped, and the run exits 0. `--yes` skips the prompt entirely and is the mode to use in scripts.
 
 ## Building
 

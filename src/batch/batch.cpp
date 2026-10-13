@@ -140,35 +140,29 @@ auto runTasks(BatchRequest const& request) -> eh::Result<std::vector<SubTaskResu
   // One confirmation for the whole batch: the first subfolder that reaches a
   // prompt stores its answer here and every later subfolder reuses it.
   auto consent = std::optional<bool>{};
-  auto declined = false;
 
   for (auto const& subfolder: subfoldersRes.value()) {
     auto result = SubTaskResult{.subfolder = subfolder};
+    auto const skip = [&](std::string_view reason) {
+      terminal::println(Info, "Skipping {}: {}", terminal::path(subfolder), reason);
+      results.push_back(std::move(result));
+    };
 
     if (stopsignal::isStopRequested()) {
-      terminal::println(Info, "Skipping {}: stop requested.", terminal::path(subfolder));
       result.exitCode = stopsignal::kCanceledExitCode;
-      results.push_back(std::move(result));
+      skip("stop requested.");
       continue;
     }
 
-    if (declined) {
-      terminal::println(
-        Info,
-        "Skipping {}: confirmation declined.",
-        terminal::path(subfolder)
-      );
-      results.push_back(std::move(result));
+    // A declined confirmation (\(consent == false\)) ends the batch: the subfolder
+    // that asked and every later one are skipped, without being failed.
+    if (consent == false) {
+      skip("confirmation declined.");
       continue;
     }
 
     if (!hasProcessableMedia(request.baseConfig, subfolder)) {
-      terminal::println(
-        Info,
-        "Skipping {}: no processable media.",
-        terminal::path(subfolder)
-      );
-      results.push_back(std::move(result));
+      skip("no processable media.");
       continue;
     }
 
@@ -191,13 +185,12 @@ auto runTasks(BatchRequest const& request) -> eh::Result<std::vector<SubTaskResu
       result.exitCode = runRes.value();
       if (result.exitCode == stopsignal::kCanceledExitCode) {
         result.outcome = TaskOutcome::Skipped;
-      } else if (result.exitCode == 0 && consent.has_value() && !consent.value()) {
+      } else if (result.exitCode == 0 && consent == false) {
         // The workflow stopped at the confirmation: it printed its decline
         // notice and did no work, so this subfolder and every remaining one are
         // skipped. The exit code stays the prompt-abort zero, so a decline is
         // never reported as a cancellation or a failure.
         result.outcome = TaskOutcome::Skipped;
-        declined = true;
       } else if (result.exitCode == 0) {
         result.outcome = TaskOutcome::Done;
       } else {
