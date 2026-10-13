@@ -79,7 +79,6 @@ TEST_CASE("commandLineInit parses non-conflicting flags and option values", "[cm
      "--color=always",
      "--verbose",
      "--full-progress",
-     "--overwrite",
      "--compress"}
   );
 
@@ -90,7 +89,6 @@ TEST_CASE("commandLineInit parses non-conflicting flags and option values", "[cm
   CHECK(result.color == "always");
   CHECK(result.verbosity == 1);
   CHECK(result.fullProgress == true);
-  CHECK(result.overwrite == true);
   CHECK(result.compress == true);
 }
 
@@ -183,6 +181,14 @@ TEST_CASE("commandLineInit rejects removed flags", "[cmd]") {
   auto const e = testutils::parseArgs({"encro", "-e", "-i", "input.mp4"});
   REQUIRE(e.error.has_value());
   CHECK(e.error.value().find("-e") != std::string::npos);
+
+  // Never did anything: the workflows overwrite their outputs and the
+  // confirmation prompt is what -y answers, so the flag was removed rather
+  // than kept as a no-op the batch subcommand would also have to mirror.
+  auto const overwrite =
+    testutils::parseArgs({"encro", "--overwrite", "-i", "input.mp4"});
+  REQUIRE(overwrite.error.has_value());
+  CHECK(overwrite.error.value().find("overwrite") != std::string::npos);
 }
 
 TEST_CASE("commandLineInit rejects --resume with --restart", "[cmd]") {

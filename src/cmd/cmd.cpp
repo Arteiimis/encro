@@ -662,7 +662,6 @@ void registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) {
       &result.packOnly,
       "pack only: zip all files in input directory"
     ),
-    opt("-w,--overwrite", &result.overwrite, "overwrite existing files without prompt"),
   };
   registerAll(fileop, options, result.keyEntries);
 }

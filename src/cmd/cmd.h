@@ -77,7 +77,6 @@ struct CmdParseResult {
   // ── File operation options ─────────────────────────────────────
   bool pack = false;
   bool packOnly = false;
-  bool overwrite = false;
 
   // ── config subcommand (positional action verbs) ──────
   bool config = false;
