@@ -14,6 +14,7 @@
 namespace fs = std::filesystem;
 
 using testutils::copyFakeTool;
+using testutils::countOccurrences;
 using testutils::readTextFile;
 using testutils::ScopedEnvVar;
 using testutils::ScopedStopSignalReset;
@@ -32,38 +33,26 @@ auto zipFilesIn(fs::path const& dir) -> std::vector<fs::path> {
   return zips;
 }
 
-auto makePictureCompressRequest(fs::path const& root, fs::path const& packedRoot)
+// Picture request for the batch tests; leaving the answer unset keeps the
+// workflow's confirmation enabled, which the ask-once cases drive through
+// stdin (they pack without compressing, so they need no ffmpeg).
+auto makePictureRequest(fs::path const& root, fs::path const& packedRoot)
   -> batch::BatchRequest {
   auto request = batch::BatchRequest{};
   request.root = root;
   request.packedRoot = packedRoot;
   request.baseConfig.processType = "picture";
+  return request;
+}
+
+// The same request with compression and consent pre-set: for the cases that
+// care about the work rather than about the prompt.
+auto makePictureCompressRequest(fs::path const& root, fs::path const& packedRoot)
+  -> batch::BatchRequest {
+  auto request = makePictureRequest(root, packedRoot);
   request.baseConfig.compressImages = true;
   request.baseConfig.yesToAll = true;
   return request;
-}
-
-// Plain picture pack with the prompt left enabled: every subfolder with
-// pictures reaches the workflow's confirmation, which the ask-once tests drive
-// through stdin. Plain packing also needs no ffmpeg, so the cases stay fast.
-auto makePromptingPackRequest(fs::path const& root, fs::path const& packedRoot)
-  -> batch::BatchRequest {
-  auto request = batch::BatchRequest{};
-  request.root = root;
-  request.packedRoot = packedRoot;
-  request.baseConfig.processType = "picture";
-  return request;
-}
-
-auto countOccurrences(std::string const& text, std::string_view needle) -> std::size_t {
-  auto count = std::size_t{};
-  for (
-    auto pos = text.find(needle); pos != std::string::npos;
-    pos = text.find(needle, pos + needle.size())
-  ) {
-    ++count;
-  }
-  return count;
 }
 
 // Two subfolders with one picture each, both reaching the confirmation.
@@ -543,7 +532,7 @@ TEST_CASE("a batch asks the confirmation once and reuses the answer", "[batch]")
   auto input = std::istringstream{"y\n"};
   auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto request = makePromptingPackRequest(root, root / "packed");
+  auto request = makePictureRequest(root, root / "packed");
   auto resultsRes = eh::Result<std::vector<batch::SubTaskResult>>{};
   auto const captured =
     testutils::captureStdout([&] { resultsRes = batch::runTasks(request); });
@@ -571,7 +560,7 @@ TEST_CASE("a declined confirmation skips the batch's remaining subfolders", "[ba
   auto input = std::istringstream{"n\n"};
   auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto request = makePromptingPackRequest(root, root / "packed");
+  auto request = makePictureRequest(root, root / "packed");
   auto resultsRes = eh::Result<std::vector<batch::SubTaskResult>>{};
   auto const [stdoutText, stderrText] =
     runWithCapturedOutputs([&] { resultsRes = batch::runTasks(request); }, temp.path);
@@ -604,7 +593,7 @@ TEST_CASE("a stop during the confirmation keeps the stop path", "[batch]") {
   auto input = std::istream{&buffer};
   auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto request = makePromptingPackRequest(root, root / "packed");
+  auto request = makePictureRequest(root, root / "packed");
   auto resultsRes = eh::Result<std::vector<batch::SubTaskResult>>{};
   auto const [stdoutText, stderrText] =
     runWithCapturedOutputs([&] { resultsRes = batch::runTasks(request); }, temp.path);
@@ -631,7 +620,7 @@ TEST_CASE("a batch with --yes asks nothing", "[batch]") {
   TempDir temp;
   auto const root = makeTwoPictureSubfolders(temp);
 
-  auto request = makePromptingPackRequest(root, root / "packed");
+  auto request = makePictureRequest(root, root / "packed");
   request.baseConfig.yesToAll = true;
 
   auto resultsRes = eh::Result<std::vector<batch::SubTaskResult>>{};

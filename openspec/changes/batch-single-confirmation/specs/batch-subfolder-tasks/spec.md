@@ -4,7 +4,7 @@
 
 ### Requirement: Confirmation is requested once per batch
 
-A batch run SHALL ask a workflow confirmation prompt at most once: the first subfolder that reaches a confirmation asks the user, and every later subfolder SHALL reuse that answer without prompting — including a later subfolder whose confirmation has a different question text. For a batch run, this rule governs the single-directory workflows' confirmation requirements (the encode plan's prompt and the resumed-encode packing question); single-directory runs keep them unchanged.
+A batch run SHALL ask a workflow confirmation prompt at most once: the first subfolder that reaches a confirmation asks the user, and every later subfolder SHALL reuse that answer without prompting — including a later subfolder whose confirmation has a different question text. For a batch run, this rule governs the single-directory confirmation requirements (the picture-packing prompt, the encode plan's prompt and the resumed-encode packing question); single-directory runs keep them unchanged.
 
 #### Scenario: One prompt covers every subfolder
 

@@ -30,8 +30,8 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <streambuf>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <utility>
@@ -193,7 +193,7 @@ public:
   explicit StopDuringReadBuf(std::string text): text_(std::move(text)) { }
 
 protected:
-  auto underflow() -> int_type override {
+  int_type underflow() override {
     if (served_) { return traits_type::eof(); }
     served_ = true;
     stopsignal::requestStop();
