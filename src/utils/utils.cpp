@@ -479,6 +479,21 @@ bool readUserIpt(bool yesToAll, std::string_view prompt) {
   return response == 'y' || response == 'Y';
 }
 
+bool readUserIptOnce(
+  bool yesToAll,
+  std::string_view prompt,
+  std::optional<bool>* shared
+) {
+  if (shared != nullptr && shared->has_value()) { return shared->value(); }
+
+  auto const accepted = readUserIpt(yesToAll, prompt);
+  // A stop pending before the prompt and one landing while it waited both come
+  // back as the false a decline produces; storing it would report a canceled
+  // batch as a declined one.
+  if (shared != nullptr && !stopsignal::isStopRequested()) { *shared = accepted; }
+  return accepted;
+}
+
 // exec2 resolves the quoted exe token itself (posix find_executable cannot
 // handle absolute paths), so quotes are safe on both platforms here.
 bool probeTool(fs::path const& toolPath) {

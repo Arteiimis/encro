@@ -501,12 +501,13 @@ void logBatchStart(
 
 // Prompts before encoding starts; false when the user declined.
 bool confirmEncodingStart(appctx::AppContext& ctx) {
-  auto const proceed = readUserIpt(
+  auto const proceed = readUserIptOnce(
     ctx.config.yesToAll,
     std::format(
       "do you want to encode the video to {} format? (Y/n): ",
       terminal::accent(ctx.config.outputFormat)
-    )
+    ),
+    ctx.runtime.promptConsent
   );
   if (!proceed) {
     terminal::messageln(Warning, "Encoding tasks canceled by user.");

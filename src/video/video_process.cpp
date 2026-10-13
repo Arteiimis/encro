@@ -386,9 +386,10 @@ int runScannedEncodingWorkflow(
   if (
     prepared.pendingItems.empty() && prepared.recoveredCount != 0 && ctx.config.packOutput
   ) {
-    auto const proceed = readUserIpt(
+    auto const proceed = readUserIptOnce(
       ctx.config.yesToAll,
-      "All encodes already complete. Do you want to proceed with packing? (Y/n): "
+      "All encodes already complete. Do you want to proceed with packing? (Y/n): ",
+      ctx.runtime.promptConsent
     );
     if (!proceed) {
       // A stop that forced the decline is the packing stage's cancellation, not

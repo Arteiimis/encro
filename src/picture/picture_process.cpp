@@ -221,10 +221,11 @@ void addCompressTask(
   );
 }
 
-bool confirmPicturePack(appctx::AppConfig const& config) {
-  return readUserIpt(
-    config.yesToAll,
-    "do you want to proceed with packing the pictures? (Y/n): "
+bool confirmPicturePack(appctx::AppContext const& ctx) {
+  return readUserIptOnce(
+    ctx.config.yesToAll,
+    "do you want to proceed with packing the pictures? (Y/n): ",
+    ctx.runtime.promptConsent
   );
 }
 
@@ -450,7 +451,7 @@ auto executeDirectPackWorkflow(
   auto conversion = planPictureVideoConversions(ctx, dirPath);
   if (!conversion) { return eh::makeError("{}", conversion.error()); }
 
-  if (!confirmPicturePack(ctx.config)) {
+  if (!confirmPicturePack(ctx)) {
     terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
     return canceledExitCodeForPromptAbort();
   }
@@ -740,7 +741,7 @@ auto executeCompressPackWorkflow(
   auto conversion = planPictureVideoConversions(ctx, dirPath);
   if (!conversion) { return eh::makeError("{}", conversion.error()); }
 
-  if (!confirmPicturePack(ctx.config)) {
+  if (!confirmPicturePack(ctx)) {
     terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
     return canceledExitCodeForPromptAbort();
   }

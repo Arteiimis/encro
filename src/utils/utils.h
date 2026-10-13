@@ -51,6 +51,12 @@ auto extractFailureReason(
 
 bool readUserIpt(bool yesToAll, std::string_view prompt);
 
+// One confirmation per run: a non-null shared slot returns its stored answer
+// without printing or reading anything, and otherwise stores this call's
+// answer for later callers — except while a stop is pending, which is a
+// cancellation rather than a consent decision.
+bool readUserIptOnce(bool yesToAll, std::string_view prompt, std::optional<bool>* shared);
+
 auto findFFprobe(std::optional<fs::path> const& installDir) -> std::optional<fs::path>;
 
 auto findFFmpeg(std::optional<fs::path> const& installDir) -> std::optional<fs::path>;
