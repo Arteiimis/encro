@@ -31,6 +31,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <streambuf>
 #include <system_error>
 #include <thread>
 #include <utility>
@@ -180,6 +181,29 @@ public:
 
 private:
   std::streambuf* oldBuf_;
+};
+
+// Serves its text with an empty get area, so the reader's first call lands in
+// underflow — the read waiting for input — where the stop request is raised:
+// the stop arrives inside the blocking read, not before it. One-shot, because
+// a second requestStop while the force-exit deadline is armed would end the
+// whole test process.
+class StopDuringReadBuf: public std::streambuf {
+public:
+  explicit StopDuringReadBuf(std::string text): text_(std::move(text)) { }
+
+protected:
+  auto underflow() -> int_type override {
+    if (served_) { return traits_type::eof(); }
+    served_ = true;
+    stopsignal::requestStop();
+    setg(text_.data(), text_.data(), text_.data() + text_.size());
+    return traits_type::to_int_type(*text_.data());
+  }
+
+private:
+  std::string text_;
+  bool served_ = false;
 };
 
 // Polls predicate until it holds or timeout expires. The deadline is a hang

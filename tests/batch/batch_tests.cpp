@@ -5,7 +5,10 @@
 
 #include <array>
 #include <filesystem>
+#include <istream>
+#include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -38,6 +41,58 @@ auto makePictureCompressRequest(fs::path const& root, fs::path const& packedRoot
   request.baseConfig.compressImages = true;
   request.baseConfig.yesToAll = true;
   return request;
+}
+
+// Plain picture pack with the prompt left enabled: every subfolder with
+// pictures reaches the workflow's confirmation, which the ask-once tests drive
+// through stdin. Plain packing also needs no ffmpeg, so the cases stay fast.
+auto makePromptingPackRequest(fs::path const& root, fs::path const& packedRoot)
+  -> batch::BatchRequest {
+  auto request = batch::BatchRequest{};
+  request.root = root;
+  request.packedRoot = packedRoot;
+  request.baseConfig.processType = "picture";
+  return request;
+}
+
+auto countOccurrences(std::string const& text, std::string_view needle) -> std::size_t {
+  auto count = std::size_t{};
+  for (
+    auto pos = text.find(needle); pos != std::string::npos;
+    pos = text.find(needle, pos + needle.size())
+  ) {
+    ++count;
+  }
+  return count;
+}
+
+// Two subfolders with one picture each, both reaching the confirmation.
+auto makeTwoPictureSubfolders(TempDir const& temp) -> fs::path {
+  auto const root = temp.path / "root";
+  for (auto const* name: {"a", "b"}) {
+    fs::create_directories(root / name);
+    writeTextFile(root / name / "one.jpg");
+  }
+  return root;
+}
+
+// Runs a batch with both product streams captured: narration, prompts and skip
+// notices land on stdout, the workflows' warnings on stderr. Assertions stay
+// outside the redirect windows.
+template<typename Ty>
+auto runWithCapturedOutputs(Ty&& action, fs::path const& scratchDir)
+  -> std::pair<std::string, std::string> {
+  auto const stdoutPath = scratchDir / "stdout.txt";
+  auto const stderrPath = scratchDir / "stderr.txt";
+  {
+    auto const stdoutCapture = testutils::StdoutCapture{stdoutPath};
+    auto const stderrCapture = testutils::StderrCapture{stderrPath};
+    std::forward<Ty>(action)();
+  }
+  return {
+    testutils::stripAnsi(readTextFile(stdoutPath)),
+    testutils::stripAnsi(readTextFile(stderrPath))
+  };
 }
 
 auto namesOf(std::vector<fs::path> const& paths) -> std::vector<std::string> {
@@ -473,4 +528,124 @@ TEST_CASE("a stop requested before a subfolder skips it and the rest", "[batch]"
   CHECK(batch::batchExitCode(results) == stopsignal::kCanceledExitCode);
   CHECK(zipFilesIn(root / "packed" / "a").empty());
   CHECK(testutils::stripAnsi(captured).find("stop requested") != std::string::npos);
+}
+
+TEST_CASE("a batch asks the confirmation once and reuses the answer", "[batch]") {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  for (auto const* name: {"a", "b", "c"}) {
+    fs::create_directories(root / name);
+    writeTextFile(root / name / "one.jpg");
+  }
+
+  // One 'y' line for the whole batch: a second prompt would read EOF and
+  // decline, so all three subfolders packing proves the ask happened once.
+  auto input = std::istringstream{"y\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+
+  auto request = makePromptingPackRequest(root, root / "packed");
+  auto resultsRes = eh::Result<std::vector<batch::SubTaskResult>>{};
+  auto const captured =
+    testutils::captureStdout([&] { resultsRes = batch::runTasks(request); });
+
+  REQUIRE(resultsRes);
+  auto const& results = resultsRes.value();
+  REQUIRE(results.size() == 3);
+  for (auto const& result: results) { CHECK(result.outcome == batch::TaskOutcome::Done); }
+  CHECK(
+    countOccurrences(
+      testutils::stripAnsi(captured),
+      "do you want to proceed with packing the pictures?"
+    )
+    == 1
+  );
+  CHECK(zipFilesIn(root / "packed" / "a").size() == 1);
+  CHECK(zipFilesIn(root / "packed" / "b").size() == 1);
+  CHECK(zipFilesIn(root / "packed" / "c").size() == 1);
+}
+
+TEST_CASE("a declined confirmation skips the batch's remaining subfolders", "[batch]") {
+  TempDir temp;
+  auto const root = makeTwoPictureSubfolders(temp);
+
+  auto input = std::istringstream{"n\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+
+  auto request = makePromptingPackRequest(root, root / "packed");
+  auto resultsRes = eh::Result<std::vector<batch::SubTaskResult>>{};
+  auto const [stdoutText, stderrText] =
+    runWithCapturedOutputs([&] { resultsRes = batch::runTasks(request); }, temp.path);
+
+  REQUIRE(resultsRes);
+  auto const& results = resultsRes.value();
+  REQUIRE(results.size() == 2);
+  CHECK(results[0].outcome == batch::TaskOutcome::Skipped);
+  CHECK(results[1].outcome == batch::TaskOutcome::Skipped);
+  // A decline is not a failure and not a cancellation: single-directory parity.
+  CHECK(batch::batchExitCode(results) == 0);
+  CHECK(zipFilesIn(root / "packed" / "a").empty());
+  CHECK(zipFilesIn(root / "packed" / "b").empty());
+
+  // The workflow's decline notice prints once (stderr), the prompt is asked
+  // once (stdout), and the subfolder the driver never asked is skipped with
+  // its own notice naming it.
+  CHECK(countOccurrences(stderrText, "Packing task canceled by user.") == 1);
+  CHECK(countOccurrences(stdoutText, "do you want to proceed with packing") == 1);
+  CHECK(stdoutText.find("confirmation declined") != std::string::npos);
+  CHECK(stdoutText.find((root / "b").string()) != std::string::npos);
+}
+
+TEST_CASE("a stop during the confirmation keeps the stop path", "[batch]") {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const root = makeTwoPictureSubfolders(temp);
+
+  auto buffer = testutils::StopDuringReadBuf{"y\n"};
+  auto input = std::istream{&buffer};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+
+  auto request = makePromptingPackRequest(root, root / "packed");
+  auto resultsRes = eh::Result<std::vector<batch::SubTaskResult>>{};
+  auto const [stdoutText, stderrText] =
+    runWithCapturedOutputs([&] { resultsRes = batch::runTasks(request); }, temp.path);
+
+  REQUIRE(resultsRes);
+  auto const& results = resultsRes.value();
+  REQUIRE(results.size() == 2);
+  CHECK(results[0].outcome == batch::TaskOutcome::Skipped);
+  CHECK(results[0].exitCode == stopsignal::kCanceledExitCode);
+  CHECK(results[1].outcome == batch::TaskOutcome::Skipped);
+  CHECK(batch::batchExitCode(results) == stopsignal::kCanceledExitCode);
+
+  // The stop is a cancellation, never a decline: the workflow picks its
+  // canceled notice, the remaining subfolder is skipped as a stop, and nothing
+  // is reported as declined.
+  CHECK(stderrText.find("Packing canceled by user.") != std::string::npos);
+  CHECK(stderrText.find("Packing task canceled by user.") == std::string::npos);
+  CHECK(countOccurrences(stdoutText, "do you want to proceed with packing") == 1);
+  CHECK(stdoutText.find("confirmation declined") == std::string::npos);
+  CHECK(stdoutText.find("stop requested") != std::string::npos);
+}
+
+TEST_CASE("a batch with --yes asks nothing", "[batch]") {
+  TempDir temp;
+  auto const root = makeTwoPictureSubfolders(temp);
+
+  auto request = makePromptingPackRequest(root, root / "packed");
+  request.baseConfig.yesToAll = true;
+
+  auto resultsRes = eh::Result<std::vector<batch::SubTaskResult>>{};
+  auto const captured =
+    testutils::captureStdout([&] { resultsRes = batch::runTasks(request); });
+
+  REQUIRE(resultsRes);
+  for (auto const& result: resultsRes.value()) {
+    CHECK(result.outcome == batch::TaskOutcome::Done);
+  }
+  CHECK(
+    testutils::stripAnsi(captured).find("do you want to proceed with packing")
+    == std::string::npos
+  );
+  CHECK(zipFilesIn(root / "packed" / "a").size() == 1);
+  CHECK(zipFilesIn(root / "packed" / "b").size() == 1);
 }

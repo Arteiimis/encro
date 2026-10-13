@@ -26,6 +26,9 @@ xmake run encro -z -i ./assets -o ./out
 
 # Resume an interrupted job
 xmake run encro -t video -i ./videos -o ./out --resume
+
+# Process every first-level subfolder of a directory as its own task
+xmake run encro batch ./releases -t picture -c
 ```
 
 > Note: `xmake run encro` passes extra arguments directly to the program; do not use `--` before them.
@@ -134,6 +137,22 @@ xmake run encro organize <dir> --download-models
 A first run already groups what it can: the character folder this run's own tag routing creates becomes a reference, so a cluster whose profile matches it is filed there in the same run instead of waiting for a second one.
 
 Rename any output folder to rename a character — e.g. `hatsune_miku` → `初音ミク`; later runs file new images of that character under your name. `--dry-run` prints the plan without copying; results are cached by content hash, so re-runs and interrupted runs re-analyze nothing (`--recluster` discards the cache). On NVIDIA GPUs the model runs on CUDA; install the CUDA runtime once with `scoop install versions/cuda12.9` (cuDNN is downloaded automatically by `--download-models`). Without it, everything falls back to the CPU with a notice.
+
+### Batch processing (`batch`)
+
+```sh
+xmake run encro batch <root> [processing options]
+```
+
+`batch` treats every first-level subdirectory of `<root>` as its own task and runs the single-directory pipeline over each one, in name order, with the same processing options — one task type per run, so `-t video` encodes every subfolder and `-t picture -c` recompresses each one. Hidden directories, the packed root and loose files at the top level are not tasks, and a subfolder with nothing for the current options is skipped with a notice instead of failing the run.
+
+Packed archives land under `<root>/packed/<subfolder>/`, and `-o/--output` overrides that packed root as a plain directory path: the single-run alias forms (`+`, `=`, `input://`, `common://`) are rejected, because a batch has no single input root to resolve them against. So are the options a batch cannot apply — `-I/--inputs` and `--state-file` (each subfolder keeps its own job state under its own work root) — while every other option follows the single-directory rules and their validation.
+
+Each subfolder keeps its own state, so `--resume` continues a batch subfolder by subfolder and a state mismatch is discarded for that subfolder alone. A subfolder that fails does not stop the batch, a stop request ends it at the current subfolder's safe point, and the run closes with a per-subfolder summary table. The exit code is non-zero exactly when a subfolder failed; a canceled batch keeps the cancellation exit code.
+
+ffmpeg and ffprobe are resolved once before the first subfolder, so a missing tool fails the batch before any work starts (`--pack-only` needs no tool at all).
+
+The confirmation prompt is asked once per batch: the first subfolder that reaches it asks, and that answer covers every remaining subfolder. Declining it ends the batch with the remaining subfolders skipped and exit code 0. `--yes` skips the prompt entirely and is the mode to use in scripts.
 
 ## Building
 

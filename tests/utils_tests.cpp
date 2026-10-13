@@ -7,6 +7,7 @@
 #include <iostream>
 #include <optional>
 #include <sstream>
+#include <streambuf>
 #include <thread>
 #include <vector>
 
@@ -108,6 +109,117 @@ TEST_CASE("readUserIpt treats stop request as cancel even with yesToAll", "[util
   stopsignal::requestStop();
 
   CHECK_FALSE(readUserIpt(true, ""));
+}
+
+TEST_CASE("readUserIptOnce stores the first answer and reuses it", "[utils]") {
+  auto input = std::istringstream{"y\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+
+  auto shared = std::optional<bool>{};
+
+  auto accepted = false;
+  auto const firstOutput = testutils::captureStdout([&] {
+    accepted = readUserIptOnce(false, "Proceed? (Y/n): ", &shared);
+  });
+
+  CHECK(accepted);
+  REQUIRE(shared.has_value());
+  CHECK(shared.value());
+  CHECK(firstOutput == "Proceed? (Y/n): ");
+
+  // A different question text on the second call, and no second line in the
+  // stream: the stored answer has to cover it, or this call declines on EOF.
+  auto second = false;
+  auto const secondOutput = testutils::captureStdout([&] {
+    second = readUserIptOnce(false, "Pack? (Y/n): ", &shared);
+  });
+
+  CHECK(second);
+  CHECK(secondOutput.empty());
+}
+
+TEST_CASE("readUserIptOnce stores a declined answer for the caller", "[utils]") {
+  auto input = std::istringstream{"n\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+
+  auto shared = std::optional<bool>{};
+
+  auto first = true;
+  auto const firstOutput = testutils::captureStdout([&] {
+    first = readUserIptOnce(false, "Proceed? (Y/n): ", &shared);
+  });
+
+  CHECK_FALSE(first);
+  CHECK(firstOutput == "Proceed? (Y/n): ");
+  REQUIRE(shared.has_value());
+  CHECK_FALSE(shared.value());
+
+  // The stored decline is reused too, and it is what a batch driver reads to
+  // tell a declined subfolder from a completed one.
+  auto second = true;
+  auto const secondOutput = testutils::captureStdout([&] {
+    second = readUserIptOnce(false, "Pack? (Y/n): ", &shared);
+  });
+
+  CHECK_FALSE(second);
+  CHECK(secondOutput.empty());
+}
+
+TEST_CASE("readUserIptOnce asks again without a shared slot", "[utils]") {
+  auto input = std::istringstream{"y\nn\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+
+  auto first = false;
+  auto const firstOutput = testutils::captureStdout([&] {
+    first = readUserIptOnce(false, "First? (Y/n): ", nullptr);
+  });
+
+  auto second = true;
+  auto const secondOutput = testutils::captureStdout([&] {
+    second = readUserIptOnce(false, "Second? (Y/n): ", nullptr);
+  });
+
+  // Single-directory runs pass no slot, so every call is its own prompt.
+  CHECK(first);
+  CHECK(firstOutput == "First? (Y/n): ");
+  CHECK_FALSE(second);
+  CHECK(secondOutput == "Second? (Y/n): ");
+}
+
+TEST_CASE("readUserIptOnce stores nothing while a stop is pending", "[utils]") {
+  testutils::ScopedStopSignalReset stopGuard;
+  stopsignal::requestStop();
+
+  auto shared = std::optional<bool>{};
+
+  CHECK_FALSE(readUserIptOnce(false, "Proceed? (Y/n): ", &shared));
+  CHECK_FALSE(shared.has_value());
+}
+
+TEST_CASE(
+  "readUserIptOnce stores nothing when a stop lands during the prompt",
+  "[utils]"
+) {
+  testutils::ScopedStopSignalReset stopGuard;
+
+  auto buffer = testutils::StopDuringReadBuf{"y\n"};
+  auto input = std::istream{&buffer};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+
+  auto shared = std::optional<bool>{};
+
+  auto accepted = true;
+  auto const output = testutils::captureStdout([&] {
+    accepted = readUserIptOnce(false, "Proceed? (Y/n): ", &shared);
+  });
+
+  // The 'y' arrives with a stop already pending, so the answer is a
+  // cancellation rather than a consent: storing it would report a stopped
+  // batch as a declined one. The prompt itself is still shown, as in any run
+  // whose stop lands once it is already waiting for input.
+  CHECK_FALSE(accepted);
+  CHECK(output == "Proceed? (Y/n): ");
+  CHECK_FALSE(shared.has_value());
 }
 
 TEST_CASE("exec2 terminates child process when stop is requested", "[utils]") {

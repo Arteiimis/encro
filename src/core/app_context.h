@@ -95,6 +95,9 @@ struct RuntimeContext {
 
   std::shared_ptr<::jobstate::Store> jobState;
   bool jobStateMatched = false;
+  // Batch-owned answer to the workflow's confirmation prompt, shared by every
+  // subfolder of one batch; null for single-directory runs, which ask per run.
+  std::optional<bool>* promptConsent = nullptr;
 };
 
 struct AppContext {
