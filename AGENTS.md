@@ -15,7 +15,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 - **Tests (parallel):** `xmake test-parallel` shards both suites by case name (`--unit-shards` / `--e2e-shards` override the counts, `--selftest` checks the partitioning helpers on fixtures). A shard's JUnit report decides pass/fail, and a shard that runs fewer cases than assigned fails — so green means every case ran; artifacts land in `build/.test-parallel/`.
 - **Tooling tasks:** `fmt` / `tidy` (report-only) / `coverage` / `size` / `include-cleaner` live in `plugins/*/xmake.lua` — `xmake <task> --help` lists the options.
 - **ASan:** `xmake f -m releasedbg && xmake build encro` (config then build; `xmake f` alone only reconfigures)
-- **Dependency headers:** read `build/compile_commands.json` for absolute include paths — they live there, not in the repo (never search `~/.xmake`). Extract one fast: `rg -o -- '-I[^"]*<pkg>[^"]*' build/compile_commands.json -m1` (e.g. `<pkg>` = indicators).
+- **Dependency headers:** read `build/compile_commands.json` for absolute include paths — they live there, not in the repo (never hunt them in xmake's dirs; for xmake's own Lua source the `xmake` skill sends you to `os.programdir()`). Extract one fast: `rg -o -- '-I[^"]*<pkg>[^"]*' build/compile_commands.json -m1` (e.g. `<pkg>` = indicators).
 
 ## Code Conventions (repo-specific — observed by hand, only layout is tooling-checked)
 
