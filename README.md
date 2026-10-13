@@ -80,7 +80,7 @@ During a run, encro writes intermediates to three places:
 | `--preset p1..p7` | NVENC preset (auto by resolution) |
 | `-s, --folder-summary` | folder summary images in flat packs |
 | `-r, --recursive` | recursive input search |
-| `-w, --overwrite` / `-y, --yes` | overwrite files / auto-confirm prompts |
+| `-y, --yes` | auto-confirm prompts |
 | `--keep` | preserve relative subdirectories in output (default: flatten) |
 
 Run `encro -hh` for the full option list, `encro -h` for the brief view.

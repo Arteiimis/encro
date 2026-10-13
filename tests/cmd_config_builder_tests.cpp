@@ -54,7 +54,6 @@ auto makeResult(
     else if (flag == "compress") result.compress = true;
     else if (flag == "video-webp") result.videoWebp = true;
     else if (flag == "full-progress") result.fullProgress = true;
-    else if (flag == "overwrite") result.overwrite = true;
     else if (flag == "help") result.help = true;
     else if (flag == "dry-run") result.dryRun = true;
   }
