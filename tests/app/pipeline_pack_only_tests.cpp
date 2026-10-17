@@ -16,6 +16,44 @@ using testutils::StderrCapture;
 using testutils::StdoutCapture;
 using testutils::writeTextFile;
 
+TEST_CASE("pipeline discards saved state when an encode setting changed", "[pipeline]") {
+  TempDir temp;
+  auto const inputDir = temp.path / "input";
+  auto const stateFilePath = temp.path / "state.json";
+  fs::create_directories(inputDir);
+  writeTextFile(inputDir / "a.bin");
+
+  auto ctxA = appctx::AppContext{};
+  ctxA.config.packOnly = true;
+  ctxA.config.processType = "video";
+  ctxA.config.inputPath = inputDir;
+  ctxA.config.stateFilePath = stateFilePath;
+  ctxA.config.crf = 28;
+  auto const runResA = pipeline::run(ctxA);
+  REQUIRE(runResA);
+
+  auto ctxB = appctx::AppContext{};
+  ctxB.config.packOnly = true;
+  ctxB.config.processType = "video";
+  ctxB.config.inputPath = inputDir;
+  ctxB.config.stateFilePath = stateFilePath;
+  ctxB.config.crf = 32;
+
+  auto const stderrPath = temp.path / "stderr.txt";
+  auto const stdoutPath = temp.path / "stdout.txt";
+  {
+    auto const stderrCapture = StderrCapture{stderrPath};
+    auto const stdoutCapture = StdoutCapture{stdoutPath};
+    auto const runResB = pipeline::run(ctxB);
+    REQUIRE(runResB);
+  }
+
+  auto const captured = readTextFile(stderrPath);
+  CHECK(captured.find("does not match") != std::string::npos);
+  CHECK(captured.find("discarding") != std::string::npos);
+  CHECK(readTextFile(stdoutPath).find("Resuming job state") == std::string::npos);
+}
+
 TEST_CASE("pack-only pipeline rejects non-video type", "[pipeline]") {
   TempDir temp;
   auto ctx = appctx::AppContext{};

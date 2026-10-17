@@ -10,9 +10,9 @@ Each group is one commit: the failing test first (RED), the fix, then the checkb
 
 ## 2. Encoding settings in state matching (spec `job-state-resume-matching`)
 
-- [ ] 2.1 RED: add `tests/job_state_tests.cpp` cases — a state written with default settings is not resumed by a run with a different `crf`, a state with identical settings resumes, and a state without recorded settings resumes; verify: the first two fail before 2.2.
-- [ ] 2.2 Add `crf`, `videoCodec`, `nvencPreset`, `minVmaf`, `imageQuality` to `ConfigSnapshot`, `toJson`/`fromJsonConfig` (absent = legacy match) and `configMatches`; verify: the 2.1 cases pass and `tests/cmd_config_builder_tests.cpp` stays green.
-- [ ] 2.3 Add a case asserting the discard warning text for a settings-caused mismatch (the message lives in `src/app/pipeline.cpp`, printed through `terminal::messageln`, captured with `testutils::captureStdout` and asserted outside the capture window); verify: the new case passes.
+- [x] 2.1 RED: add `tests/job_state_tests.cpp` cases — a state written with one set of settings is not resumed by a run with a different `crf`, codec, preset or floor, a state with identical settings resumes, and a state without recorded settings resumes; verify: the mismatch cases and the legacy case went red before 2.2 (5 mismatch pairs plus the missing-field `REQUIRE`).
+- [x] 2.2 Add `crf`, `videoCodec`, `nvencPreset` and `minVmaf` to a nested optional `EncodeSettings` on `ConfigSnapshot` (absent parent = legacy match), `toJson`/`fromJsonConfig` and `configMatches`; verify: the 2.1 cases pass and `tests/cmd_config_builder_tests.cpp` stays green. `imageQuality` is deliberately out: it changes no video output's bytes, and `tests/picture/picture_video_webp_tests.cpp` pins that a quality change keeps the conversion cache reusable.
+- [x] 2.3 Add a case asserting the discard warning text for a settings-caused mismatch: `tests/app/pipeline_pack_only_tests.cpp` runs the same input twice with a changed `crf`, captures stderr around the second run and asserts the "does not match" / "discarding" message plus the absent resume notice; verify: the case passed only after 2.2.
 
 ## 3. Crash-safe state replace (spec `job-state-resume-matching`)
 

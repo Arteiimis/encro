@@ -240,6 +240,11 @@ auto currentFingerprint(TaskRecord const& task) -> std::string {
   return buildFingerprint(task.kind, task.sourcePaths, task.targetPaths);
 }
 
+template<class Ty>
+auto jsonOrNull(std::optional<Ty> const& value) -> json::value {
+  return value.has_value() ? json::value(*value) : json::value(nullptr);
+}
+
 auto toJson(ConfigSnapshot const& config) -> json::object {
   auto object = json::object{};
   object["processType"] = config.processType;
@@ -256,7 +261,28 @@ auto toJson(ConfigSnapshot const& config) -> json::object {
   if (config.packOutputDir.has_value()) {
     object["packOutputDir"] = pathToJson(config.packOutputDir);
   }
+  if (config.encodeSettings.has_value()) {
+    auto const& settings = config.encodeSettings.value();
+    auto settingsObject = json::object{};
+    settingsObject["crf"] = jsonOrNull(settings.crf);
+    settingsObject["videoCodec"] = jsonOrNull(settings.videoCodec);
+    settingsObject["nvencPreset"] = jsonOrNull(settings.nvencPreset);
+    settingsObject["minVmaf"] = settings.minVmaf;
+    object["encodeSettings"] = std::move(settingsObject);
+  }
   return object;
+}
+
+auto encodeSettingsFromJson(json::object const& object) -> std::optional<EncodeSettings> {
+  auto const* settingsValue = object.if_contains("encodeSettings");
+  if (settingsValue == nullptr || !settingsValue->is_object()) { return std::nullopt; }
+  auto const& settings = settingsValue->as_object();
+  return EncodeSettings{
+    .crf = optionalNumberFrom<int>(settings, "crf"),
+    .videoCodec = optionalStringFrom(settings, "videoCodec"),
+    .nvencPreset = optionalStringFrom(settings, "nvencPreset"),
+    .minVmaf = optionalNumberFrom<int>(settings, "minVmaf").value_or(95),
+  };
 }
 
 auto fromJsonConfig(json::object const& object) -> ConfigSnapshot {
@@ -275,12 +301,8 @@ auto fromJsonConfig(json::object const& object) -> ConfigSnapshot {
     .inputPaths = optionalStringArrayFrom(object, "inputPaths"),
     .outputPath = optionalPathFrom(object, "outputPath"),
     .packOutputDir = optionalPathFrom(object, "packOutputDir"),
+    .encodeSettings = encodeSettingsFromJson(object),
   };
-}
-
-template<class Ty>
-auto jsonOrNull(std::optional<Ty> const& value) -> json::value {
-  return value.has_value() ? json::value(*value) : json::value(nullptr);
 }
 
 auto toJson(TaskRecord const& task) -> json::object {
@@ -557,6 +579,12 @@ auto buildConfigSnapshot(appctx::AppConfig const& config) -> ConfigSnapshot {
     .inputPaths = std::move(inputPaths),
     .outputPath = config.outputPath,
     .packOutputDir = config.packOutputDir,
+    .encodeSettings = EncodeSettings{
+      .crf = config.crf,
+      .videoCodec = config.videoCodec,
+      .nvencPreset = config.nvencPreset,
+      .minVmaf = config.minVmaf,
+    },
   };
 }
 
@@ -572,7 +600,10 @@ bool configMatches(ConfigSnapshot const& lhs, ConfigSnapshot const& rhs) {
     && lhs.videoWebp == rhs.videoWebp
     && lhs.inputPaths == rhs.inputPaths
     && lhs.outputPath == rhs.outputPath
-    && lhs.packOutputDir == rhs.packOutputDir;
+    && lhs.packOutputDir == rhs.packOutputDir
+    // A state that never recorded the settings (written by an older build)
+    // matches any setting, so upgrading does not discard in-progress work.
+    && (!lhs.encodeSettings.has_value() || lhs.encodeSettings == rhs.encodeSettings);
 }
 
 auto makeEncodeTask(fs::path const& inputPath, fs::path const& plannedOutputFile)

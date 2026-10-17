@@ -31,6 +31,17 @@ enum class TaskStatus {
   Interrupted,
 };
 
+// The settings a resume must compare: each one changes the encoded output,
+// and an unset optional means the run let the encoder or the probe decide.
+struct EncodeSettings {
+  std::optional<int> crf;
+  std::optional<std::string> videoCodec;
+  std::optional<std::string> nvencPreset;
+  int minVmaf = 95;
+
+  bool operator==(EncodeSettings const&) const = default;
+};
+
 struct ConfigSnapshot {
   std::string processType;
   std::string outputFormat;
@@ -48,6 +59,9 @@ struct ConfigSnapshot {
   // Where packed archives land when it differs from outputPath/"packed"; set
   // per subfolder by the batch driver. Absent for single-run states.
   std::optional<fs::path> packOutputDir;
+  // Encode settings that change the bytes of an output. Absent in states
+  // written before they were recorded, which therefore match any settings.
+  std::optional<EncodeSettings> encodeSettings;
 };
 
 struct TaskRecord {

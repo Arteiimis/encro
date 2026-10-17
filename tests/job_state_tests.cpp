@@ -936,6 +936,90 @@ TEST_CASE("inputs differing only in case stay distinct tasks", "[job-state]") {
 #endif
 }
 
+// ── encode settings are part of the job identity ───────────────────────────
+
+TEST_CASE("job state treats changed encode settings as a different job", "[job-state]") {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeTextFile(inputPath);
+
+  auto config = makeConfig(inputPath, statePath);
+  config.crf = 28;
+  config.videoCodec = "hevc_nvenc";
+  config.nvencPreset = "p5";
+  config.minVmaf = 95;
+
+  auto store = jobstate::Store{statePath};
+  REQUIRE(store.initialize(config, false));
+
+  auto sameStore = jobstate::Store{statePath};
+  auto const sameRes = sameStore.initialize(config, false);
+  REQUIRE(sameRes);
+  CHECK(sameRes.value());
+
+  auto changedConfigs = std::vector<appctx::AppConfig>{};
+  auto byCrf = config;
+  byCrf.crf = 30;
+  changedConfigs.push_back(byCrf);
+  auto byCodec = config;
+  byCodec.videoCodec = "libx265";
+  changedConfigs.push_back(byCodec);
+  auto byPreset = config;
+  byPreset.nvencPreset = "p7";
+  changedConfigs.push_back(byPreset);
+  auto byFloor = config;
+  byFloor.minVmaf = 97;
+  changedConfigs.push_back(byFloor);
+
+  for (auto const& changed: changedConfigs) {
+    auto baselineStore = jobstate::Store{statePath};
+    REQUIRE(baselineStore.initialize(config, true));
+
+    auto changedStore = jobstate::Store{statePath};
+    auto discardedMismatched = false;
+    auto const mismatchRes =
+      changedStore.initialize(changed, false, &discardedMismatched);
+    REQUIRE(mismatchRes);
+    CHECK_FALSE(mismatchRes.value());
+    CHECK(discardedMismatched);
+  }
+}
+
+TEST_CASE(
+  "job state keeps a state written before settings were recorded",
+  "[job-state]"
+) {
+  TempDir temp;
+  auto const inputPath = temp.path / "input.mp4";
+  auto const statePath = temp.path / "encro.job-state.json";
+  writeTextFile(inputPath);
+
+  auto config = makeConfig(inputPath, statePath);
+  auto store = jobstate::Store{statePath};
+  REQUIRE(store.initialize(config, false));
+
+  // Drop the field so the file looks exactly like one written before it existed.
+  auto text = testutils::readTextFile(statePath);
+  auto const at = text.find("\"encodeSettings\":");
+  REQUIRE(at != std::string::npos);
+  auto const precedingComma = text.rfind(',', at);
+  REQUIRE(precedingComma != std::string::npos);
+  auto const endOfValue = text.find_first_of("}", at);
+  REQUIRE(endOfValue != std::string::npos);
+  // Erase through the inner object's closing brace, leaving the config's own.
+  text.erase(precedingComma, endOfValue + 1 - precedingComma);
+  testutils::writeTextFile(statePath, text);
+
+  auto legacyConfig = config;
+  legacyConfig.crf = 31;
+  legacyConfig.nvencPreset = "p7";
+  auto legacyStore = jobstate::Store{statePath};
+  auto const legacyRes = legacyStore.initialize(legacyConfig, false);
+  REQUIRE(legacyRes);
+  CHECK(legacyRes.value());
+}
+
 // ── 3.7 — the packed-output dir is part of the job identity ─────────────────
 
 TEST_CASE(
