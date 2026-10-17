@@ -16,9 +16,9 @@ Each group is one commit: the failing test first (RED), the fix, then the checkb
 
 ## 3. Crash-safe state replace (spec `job-state-resume-matching`)
 
-- [ ] 3.1 Extract the current commit path into `jobstate::detail::replaceStateFile(staged, state)` as a pure move — no behaviour change, the remove-then-retry stays inside it; verify: the helper is called by `flushSnapshot` and the existing `tests/job_state_tests.cpp` plus `tests/logging_error_context_tests.cpp` stay green.
-- [ ] 3.2 RED: add `tests/job_state_tests.cpp` cases against `replaceStateFile` — a missing staged file must fail and leave the state file untouched (the extracted remove-first retry deletes it), and a successful replace must leave no `.tmp`/`.bak` sibling; verify: the first case goes red against the 3.1 extraction.
-- [ ] 3.3 Implement the stage-survives-on-failure semantics (rename current to `.bak`, replace, restore `.bak` on failure, delete `.bak` on success) and drop the remove-then-retry step; verify: 3.2 passes and the suites named in 3.1 stay green.
+- [x] 3.1 Extract the current commit path into `jobstate::detail::replaceStateFile(staged, state)` as a pure move — no behaviour change, the remove-then-retry stays inside it; verify: the helper is called by `flushSnapshot` and the existing `tests/job_state_tests.cpp` plus `tests/logging_error_context_tests.cpp` stay green.
+- [x] 3.2 RED: add `tests/job_state_tests.cpp` cases against `replaceStateFile` — a missing staged file must fail and leave the state file untouched (the extracted remove-first retry deletes it), and a successful replace must leave no `.tmp`/`.bak` sibling; verify: the first case goes red against the 3.1 extraction.
+- [x] 3.3 Implement the stage-survives-on-failure semantics (rename current to `.bak`, replace, restore `.bak` on failure, delete `.bak` on success) and drop the remove-then-retry step; verify: 3.2 passes and the suites named in 3.1 stay green. The existing failure-injection in `job state mark operations report persistence failures` moved from "make the state path a non-empty directory" (which the backup step now simply renames out of the way) to "block the `.bak` slot", so it still exercises a commit that cannot complete.
 
 ## 4. Probe cache never fatal (spec `video-encode-probing`)
 

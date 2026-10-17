@@ -1,5 +1,6 @@
 #include "core/collision_naming.h"
 #include "core/job_state.h"
+#include "core/job_state_detail.h"
 #include "logging/log_tags.h"
 #include "logging/setup.h"
 #include "test_utils.h"
@@ -834,12 +835,11 @@ TEST_CASE("job state mark operations report persistence failures", "[job-state]"
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
 
-  // Replace the state file with a non-empty directory: the temp file still
-  // writes, but the final rename cannot succeed (remove of the non-empty
-  // directory fails, so both fallback attempts fail).
-  fs::remove(statePath);
-  fs::create_directory(statePath);
-  writeTextFile(statePath / "keep.txt");
+  // Block the backup slot with a non-empty directory: the temp file still
+  // writes, but the current snapshot cannot be moved aside, so the commit fails.
+  auto const backupPath = fs::path{statePath}.concat(".bak");
+  fs::create_directory(backupPath);
+  writeTextFile(backupPath / "keep.txt");
 
   // Best-effort mutators report persistence failures through the log.
   auto const [logger, log] = testutils::registerCapturingLogger(logtags::CORE_JOB);
@@ -934,6 +934,40 @@ TEST_CASE("inputs differing only in case stay distinct tasks", "[job-state]") {
   REQUIRE(tasks.size() == 2);
   CHECK(tasks[0].id != tasks[1].id);
 #endif
+}
+
+// ── replacing the state file never empties it ──────────────────────────────
+
+TEST_CASE("a failed state replace keeps the previous snapshot", "[job-state]") {
+  TempDir temp;
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const stagedPath = temp.path / "encro.job-state.json.tmp";
+  testutils::writeTextFile(statePath, R"({"version":1})");
+
+  // Nothing was staged, so the replacement cannot complete.
+  auto const result = jobstate::detail::replaceStateFile(stagedPath, statePath);
+  CHECK_FALSE(result);
+
+  REQUIRE(fs::exists(statePath));
+  CHECK(testutils::readTextFile(statePath) == R"({"version":1})");
+}
+
+TEST_CASE("a successful state replace leaves no staging files", "[job-state]") {
+  TempDir temp;
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const stagedPath = temp.path / "encro.job-state.json.tmp";
+  testutils::writeTextFile(statePath, R"({"version":1})");
+  testutils::writeTextFile(stagedPath, R"({"version":1,"stage":"encoding"})");
+
+  REQUIRE(jobstate::detail::replaceStateFile(stagedPath, statePath));
+
+  CHECK(testutils::readTextFile(statePath).find("encoding") != std::string::npos);
+  auto names = std::vector<std::string>{};
+  for (auto const& entry: fs::directory_iterator{temp.path}) {
+    names.push_back(entry.path().filename().string());
+  }
+  REQUIRE(names.size() == 1);
+  CHECK(names.front() == statePath.filename().string());
 }
 
 // ── encode settings are part of the job identity ───────────────────────────

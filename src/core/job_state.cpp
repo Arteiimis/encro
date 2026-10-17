@@ -518,23 +518,56 @@ auto flushSnapshot(
     return eh::makeError("Failed to write state snapshot to: {}", tempPath.string());
   }
 
-  auto ec = std::error_code{};
-  fs::rename(tempPath, stateFilePath, ec);
-  if (ec) {
-    fs::remove(stateFilePath, ec);
-    ec.clear();
-    fs::rename(tempPath, stateFilePath, ec);
-  }
-  if (ec) {
-    return eh::makeError(
-      "Failed to move state file into place: {} -> {}: {}",
-      tempPath.string(),
-      stateFilePath.string(),
-      ec.message()
-    );
+  if (auto const replaced = replaceStateFile(tempPath, stateFilePath); !replaced) {
+    return replaced;
   }
 
   lastFlushAtMs = now;
+  return {};
+}
+
+auto replaceStateFile(fs::path const& stagedPath, fs::path const& stateFilePath)
+  -> eh::Result<void> {
+  // shortcut: a crash between the two renames leaves the snapshot only in
+  // <state>.bak; add load-time recovery if that window ever bites.
+  auto const backupPath = fs::path{stateFilePath}.concat(".bak");
+  auto ec = std::error_code{};
+  fs::remove(backupPath, ec);  // a leftover from an interrupted commit
+  ec.clear();
+
+  auto const hadExisting = fs::exists(stateFilePath, ec) && !ec;
+  ec.clear();
+  if (hadExisting) {
+    fs::rename(stateFilePath, backupPath, ec);
+    if (ec) {
+      return eh::makeError(
+        "Failed to move the current state file aside: {} -> {}: {}",
+        stateFilePath.string(),
+        backupPath.string(),
+        ec.message()
+      );
+    }
+  }
+
+  fs::rename(stagedPath, stateFilePath, ec);
+  if (ec) {
+    auto const replaceMessage = ec.message();
+    if (hadExisting) {
+      auto restoreEc = std::error_code{};
+      fs::rename(backupPath, stateFilePath, restoreEc);
+    }
+    return eh::makeError(
+      "Failed to move state file into place: {} -> {}: {}",
+      stagedPath.string(),
+      stateFilePath.string(),
+      replaceMessage
+    );
+  }
+
+  if (hadExisting) {
+    auto cleanupEc = std::error_code{};
+    fs::remove(backupPath, cleanupEc);
+  }
   return {};
 }
 
