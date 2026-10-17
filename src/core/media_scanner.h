@@ -41,4 +41,16 @@ auto scanByExtensions(
   bool recursive
 ) -> eh::Result<ScanResult>;
 
+// Lists the regular files under `root`, skipping any directory whose name is
+// in `skippedDirNames` (e.g. the program's own ".encro" work directory) and
+// everything inside it. Same tolerance as scanByExtensions: an unreadable
+// entry or a mid-walk failure is a warning, never an exception; `root` itself
+// being unreadable is an error. Unlike a media scan, hidden files are kept —
+// packing a user tree must keep its .gitignore.
+auto listFiles(
+  fs::path const& root,
+  bool recursive,
+  std::span<std::string_view const> skippedDirNames = {}
+) -> eh::Result<ScanResult>;
+
 }  // namespace media

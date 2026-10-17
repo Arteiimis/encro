@@ -501,44 +501,46 @@ bool probeTool(fs::path const& toolPath) {
   return exec2(cmd).exitCode == 0;
 }
 
-auto findFFprobe(std::optional<fs::path> const& installDir) -> std::optional<fs::path> {
-  auto const systemFFprobeAvailable = exec2("ffprobe -version").exitCode == 0;
+// One resolver for both tools: the system copy when no install dir was given,
+// otherwise a guarded walk of the install dir.
+auto findTool(std::string_view toolName, std::optional<fs::path> const& installDir)
+  -> std::optional<fs::path> {
+  auto const systemAvailable = exec2(std::format("{} -version", toolName)).exitCode == 0;
 
-  if (!installDir.has_value() && systemFFprobeAvailable) { return fs::path{"ffprobe"}; }
+  if (!installDir.has_value() && systemAvailable) { return fs::path{toolName}; }
 
   if (!installDir.has_value() || !fs::is_directory(installDir.value())) {
     return std::nullopt;
   }
 
-  auto pathIter = fs::recursive_directory_iterator{installDir.value()};
-
-  for (auto const& entry: pathIter) {
-    if (entry.is_regular_file() && entry.path().filename() == "ffprobe") {
-      if (probeTool(entry.path())) { return entry.path(); }
+  auto ec = std::error_code{};
+  auto walk = fs::recursive_directory_iterator{
+    installDir.value(),
+    fs::directory_options::skip_permission_denied,
+    ec
+  };
+  auto const end = fs::recursive_directory_iterator{};
+  for (; walk != end; walk.increment(ec)) {
+    if (ec) {
+      LOG_WARN("Failed while searching {}: {}", installDir->string(), ec.message());
+      break;
     }
+    auto const& entry = *walk;
+    auto entryEc = std::error_code{};
+    if (!entry.is_regular_file(entryEc) || entryEc) { continue; }
+    if (entry.path().filename() != toolName) { continue; }
+    if (probeTool(entry.path())) { return entry.path(); }
   }
 
   return std::nullopt;
 }
 
+auto findFFprobe(std::optional<fs::path> const& installDir) -> std::optional<fs::path> {
+  return findTool("ffprobe", installDir);
+}
+
 auto findFFmpeg(std::optional<fs::path> const& installDir) -> std::optional<fs::path> {
-  auto const systemFFmpegAvailable = exec2("ffmpeg -version").exitCode == 0;
-
-  if (!installDir.has_value() && systemFFmpegAvailable) { return fs::path{"ffmpeg"}; }
-
-  if (!installDir.has_value() || !fs::is_directory(installDir.value())) {
-    return std::nullopt;
-  }
-
-  auto pathIter = fs::recursive_directory_iterator{installDir.value()};
-
-  for (auto const& entry: pathIter) {
-    if (entry.is_regular_file() && entry.path().filename() == "ffmpeg") {
-      if (probeTool(entry.path())) { return entry.path(); }
-    }
-  }
-
-  return std::nullopt;
+  return findTool("ffmpeg", installDir);
 }
 
 std::string getUUID() {

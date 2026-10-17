@@ -177,6 +177,73 @@ TEST_CASE(
   CHECK(scanRes->matches.front() == filePath);
 }
 
+TEST_CASE("listFiles reports a missing root as an error", "[media-scanner]") {
+  TempDir temp;
+  // Not a directory: an error, never a silently empty listing.
+  auto const missing = media::listFiles(temp.path / "nope", true);
+  REQUIRE_FALSE(missing);
+  CHECK(missing.error().find("not a readable directory") != std::string::npos);
+
+  auto const file = testutils::writeTextFile(temp.path / "a.txt");
+  CHECK_FALSE(media::listFiles(file, true));
+}
+
+TEST_CASE(
+  "listFiles keeps hidden files but can skip work directories",
+  "[media-scanner]"
+) {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  fs::create_directories(root / ".encro" / "segments");
+  fs::create_directories(root / "sub");
+  testutils::writeTextFile(root / ".gitignore", "x");
+  testutils::writeTextFile(root / ".encro" / "job-state.json", "x");
+  testutils::writeTextFile(root / ".encro" / "segments" / "seg_0.ts", "x");
+  testutils::writeTextFile(root / "sub" / "clip.mp4", "x");
+  testutils::writeTextFile(root / "sub" / ".hidden.txt", "x");
+
+  // Packing a user tree keeps its hidden files...
+  auto const plain = media::listFiles(root, true);
+  REQUIRE(plain);
+  CHECK(plain->matches.size() == 5);
+
+  // ...but a work directory named by the caller is never descended into.
+  constexpr auto kSkipped = std::array<std::string_view, 1>{".encro"};
+  auto const filtered = media::listFiles(root, true, kSkipped);
+  REQUIRE(filtered);
+  CHECK(filtered->matches.size() == 3);
+  CHECK(std::ranges::none_of(filtered->matches, [](fs::path const& path) {
+    return path.string().find(".encro") != std::string::npos;
+  }));
+}
+
+#if !defined(_WIN32)
+TEST_CASE(
+  "listFiles warns about an unreadable entry and keeps walking",
+  "[media-scanner]"
+) {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  auto const locked = root / "locked";
+  fs::create_directories(locked);
+  testutils::writeTextFile(root / "a.txt", "x");
+  testutils::writeTextFile(locked / "b.txt", "x");
+
+  fs::permissions(locked, fs::perms::none);
+  auto const listed = media::listFiles(root, true);
+  fs::permissions(locked, fs::perms::owner_all);
+
+  REQUIRE(listed);
+  CHECK_FALSE(listed->warnings.empty());
+  CHECK(std::ranges::any_of(listed->warnings, [](std::string const& warning) {
+    return warning.find("locked") != std::string::npos;
+  }));
+  CHECK(std::ranges::any_of(listed->matches, [](fs::path const& path) {
+    return path.filename() == "a.txt";
+  }));
+}
+#endif
+
 TEST_CASE("scanByExtensions does not fold letters outside A-Z", "[media-scanner]") {
   TempDir temp;
   // A `ch | 0x20` fold would turn '[' (0x5B) into '{' (0x7B) and match.

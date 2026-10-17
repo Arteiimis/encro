@@ -515,7 +515,19 @@ void prepareCompressTempDir(
   auto const keepCache = jobStateMatched && fs::exists(tempDir, ec) && !ec;
   auto removeSiblings = [&](fs::path const& parent, std::string_view prefix) {
     if (!fs::is_directory(parent, ec) || ec) { return; }
-    for (auto const& de: fs::directory_iterator(parent)) {
+    auto walkEc = std::error_code{};
+    auto walk = fs::directory_iterator{
+      parent,
+      fs::directory_options::skip_permission_denied,
+      walkEc
+    };
+    auto const end = fs::directory_iterator{};
+    for (; walk != end; walk.increment(walkEc)) {
+      if (walkEc) {
+        LOG_WARN("Failed while listing {}: {}", parent.string(), walkEc.message());
+        break;
+      }
+      auto const& de = *walk;
       auto deEc = std::error_code{};
       if (!de.is_directory(deEc) || deEc) { continue; }
       if (de.path().filename().string().starts_with(prefix) && de.path() != tempDir) {

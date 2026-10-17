@@ -1,6 +1,8 @@
 #include "organize/disposition.h"
 
 #include "core/display_text.h"
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 
 #include <algorithm>
 #include <format>
@@ -9,6 +11,9 @@
 #include <system_error>
 
 namespace organize {
+
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
+DEFINE_LOGGER(logtags::CORE_SCAN);
 
 namespace {
 
@@ -46,8 +51,18 @@ auto computeFolderDispositions(
   if (!fs::exists(root, ec) || ec) { return {}; }
 
   auto dispositions = std::vector<FolderDisposition>{};
-  for (auto const& entry: fs::directory_iterator{root, ec}) {
-    if (ec || !entry.is_directory()) { continue; }
+  // Guarded walk: an entry that cannot be read is reported and skipped instead
+  // of throwing out of the pre-pass (spec: every directory walk tolerates it).
+  auto it =
+    fs::directory_iterator{root, fs::directory_options::skip_permission_denied, ec};
+  auto const end = fs::directory_iterator{};
+  for (; it != end; it.increment(ec)) {
+    if (ec) {
+      LOG_WARN("Failed while listing {}: {}", root.string(), ec.message());
+      break;
+    }
+    auto const& entry = *it;
+    if (!entry.is_directory()) { continue; }
     auto const name = displaytext::pathToUtf8String(entry.path().filename());
     if (name == "organized") { continue; }
 
