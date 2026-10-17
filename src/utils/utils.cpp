@@ -530,13 +530,15 @@ auto findTool(std::string_view toolName, std::optional<fs::path> const& installD
     installDir.value(),
     media::WalkOptions{.recursive = true},
     [&](fs::directory_entry const& entry) {
-      if (found.has_value()) { return; }
       auto entryEc = std::error_code{};
-      if (!entry.is_regular_file(entryEc) || entryEc) { return; }
-      if (entry.path().filename() != toolName) { return; }
-      if (probeTool(entry.path())) { found = entry.path(); }
+      if (!entry.is_regular_file(entryEc) || entryEc) { return true; }
+      if (entry.path().filename() != toolName) { return true; }
+      if (!probeTool(entry.path())) { return true; }
+      found = entry.path();
+      return false;  // found it: stop walking the install tree
     },
     [&](std::error_code const& failure) {
+      if (found.has_value()) { return; }
       LOG_WARN("Failed while searching {}: {}", installDir->string(), failure.message());
     }
   );

@@ -58,9 +58,9 @@ auto computeFolderDispositions(
     root,
     {},
     [&](fs::directory_entry const& entry) {
-      if (!entry.is_directory()) { return; }
+      if (!entry.is_directory()) { return true; }
       auto const name = displaytext::pathToUtf8String(entry.path().filename());
-      if (name == "organized") { return; }
+      if (name == "organized") { return true; }
 
       auto kind = DispositionKind::Reference;
       auto reason = DispositionReason::Default;
@@ -83,6 +83,7 @@ auto computeFolderDispositions(
       dispositions.push_back(
         FolderDisposition{.name = entry.path().filename(), .kind = kind, .reason = reason}
       );
+      return true;
     },
     [&](std::error_code const& failure) {
       LOG_WARN("Failed while listing {}: {}", root.string(), failure.message());

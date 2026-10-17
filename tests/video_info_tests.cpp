@@ -52,6 +52,32 @@ TEST_CASE("a scan that filters already-HEVC files says so once", "[video-info]")
     CHECK(captured.find("HEVC") != std::string::npos);
   }
 
+  SECTION("a file named on the command line keeps its own message") {
+    // The hint reconciles a directory count with the directory's files; a file
+    // named directly reports itself, so the hint must not print for it.
+    auto const hevcJson = temp.path / "fake-ffprobe-hevc-named.json";
+    testutils::writeTextFile(
+      hevcJson,
+      R"({"streams":[{"codec_type":"video","codec_name":"hevc"}]})"
+    );
+    auto const jsonEnv =
+      testutils::ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", hevcJson.string()};
+
+    auto const stderrPath = temp.path / "stderr-named.txt";
+    auto vids = eh::Result<std::vector<fs::path>>{};
+    {
+      auto const capture = testutils::StderrCapture{stderrPath};
+      vids = readAllVids(config, toolchain, runtime, root / "a.mp4");
+    }
+
+    REQUIRE(vids);
+    CHECK(vids->empty());
+    CHECK(
+      testutils::readTextFile(stderrPath).find("already encoded as HEVC")
+      == std::string::npos
+    );
+  }
+
   SECTION("nothing filtered: no hint at all") {
     auto const stderrPath = temp.path / "stderr-quiet.txt";
     auto vids = eh::Result<std::vector<fs::path>>{};
@@ -103,15 +129,14 @@ TEST_CASE("every pack media video extension is a video input", "[media-scanner]"
   // One-way containment: packing stores these as video, so the scan must accept
   // them too (the two lists drifted apart before).
   auto const videoExtensions = videoinfo::videoExtensions();
+  // Every container packing stores as video is a scan input...
   for (auto const extension: pack::kVideoStoredExtensions) {
     CHECK(std::ranges::find(videoExtensions, extension) != videoExtensions.end());
   }
-  // The whitelist is built from that shared list, so it carries all of them.
-  for (auto const extension: pack::kVideoStoredExtensions) {
-    CHECK(
-      std::ranges::find(pack::kStoredMediaExtensions, extension)
-      != pack::kStoredMediaExtensions.end()
-    );
+  // ...and the whitelist's other half carries no video container, so the two
+  // halves together really are the whole whitelist.
+  for (auto const extension: pack::kOtherStoredExtensions) {
+    CHECK(std::ranges::find(videoExtensions, extension) == videoExtensions.end());
   }
 }
 

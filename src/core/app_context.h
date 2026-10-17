@@ -31,8 +31,11 @@ enum class OutputLayout {
   Keep,
 };
 
-// The probe's quality floor when no --min-vmaf is given: the one place the
-// default is written down (job-state snapshots and their JSON reader share it).
+// The probe's quality floor when no --min-vmaf is given, shared by the config,
+// the job-state snapshot and its JSON reader. The CLI layer spells the same
+// value in its own header (cmd.h) and in the option's default text (cmd.cpp),
+// which is where a user reads it; those cannot see this header without
+// inverting the cmd -> core dependency.
 inline constexpr int kDefaultMinVmaf = 95;
 
 struct AppConfig {

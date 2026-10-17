@@ -39,15 +39,19 @@ struct WalkOptions {
   std::span<std::string_view const> skippedDirNames = {};
 };
 
-// The one tolerant directory walk every consumer shares: calls `onEntry` for
-// each entry and `onFailure` for a failure the walk itself reports (an
-// unreadable entry the platform surfaces, or a mid-walk error), then stops that
-// walk instead of throwing. The caller decides what a failure means — a warning
-// for a best-effort sweep, an error for a listing that must be complete.
+// The tolerant directory walk the scans and the best-effort sweeps share:
+// calls `onEntry` for each entry — a false return ends the walk early, so a
+// caller that already found what it came for stops paying for the tree — and
+// `onFailure` for a failure the walk itself reports (an unreadable entry the
+// platform surfaces, or a mid-walk error), then stops that walk instead of
+// throwing. The caller decides what a failure means.
+//
+// A walk whose root must list completely (batch subfolder discovery) keeps its
+// own loop and turns an unlistable root into an error naming it.
 void walkDirectory(
   fs::path const& root,
   WalkOptions const& options,
-  std::function<void(fs::directory_entry const&)> const& onEntry,
+  std::function<bool(fs::directory_entry const&)> const& onEntry,
   std::function<void(std::error_code const&)> const& onFailure = {}
 );
 

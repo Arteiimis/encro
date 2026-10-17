@@ -106,14 +106,14 @@ Reported, not fixed: S1 (design D2 does not mention the replacing rename that no
 
 ## Code review (tier L: Standards / Spec / Leanness, one reviewer each)
 
-16 findings, no P0/P1. Verdicts after the fix round (commit `4623403`):
+16 findings, no P0/P1. Two fix rounds: the first recorded four findings as fixed that were not (see the note at the end of this section), the verification round caught that, and the second round made all of them real. Verdicts below describe the tree after the second round.
 
 **Fixed**
 
 - Spec P2 — the HEVC hint fired for a file named directly too, so that filter printed two stderr lines while the spec says one and D10 says directory roots only. Fixed: the guard now also requires `fs::is_directory(dirPath)`.
-- Spec P2 — the proposal still claimed picture quality joins the snapshot after D1 dropped it. Fixed: proposal wording aligned with D1.
-- Spec P2 — "SHALL NOT empty the state path" read absolute while the locked-target fallback does move the file aside. Fixed: the requirement now scopes the guarantee to a completed commit and names the fallback window.
-- Spec P2 — "batch subfolder discovery" promised a warning, while that walk reports a failed root as an error. Fixed: the requirement carries the root-level carve-out its disposition scenario already had.
+- Spec P2 — the proposal still claimed picture quality joins the snapshot after D1 dropped it. Fixed in the second round: proposal.md's fix bullet and capability line now name the codec/quality/preset/floor and say why picture quality stays out.
+- Spec P2 — "SHALL NOT empty the state path" read absolute while the locked-target fallback does move the file aside. Fixed in the second round: the requirement now scopes the guarantee to a completed commit, says the staged snapshot replaces the file in one rename, and keeps the fallback described.
+- Spec P2 — "batch subfolder discovery" promised a warning, while that walk reports a failed root as an error. Fixed in the second round: the requirement states that an unlistable root is that walk's own error, and the header comment on `media::walkDirectory` says why that walk keeps its own loop.
 - Standards P2 — assertion inside a `StderrCapture` window in the new pipeline case. Fixed: the run result is captured, the `REQUIRE` runs after the window.
 - Standards P2 — `template<class TyCollect>` broke the `Ty` rule. Fixed: the template is gone; the walker is a plain function.
 - Standards P2 — one function in two return styles (`.h` trailing, `.cpp` prefix). Fixed: the four definitions use the trailing form.
@@ -130,6 +130,24 @@ Reported, not fixed: S1 (design D2 does not mention the replacing rename that no
 
 - Standards P2 — `ensureCudnn` exceeds clang-tidy's function-size threshold; the suggestion was to extract the staged-rename loop. Rejected: the loop is cohesive (install the staged set, marker last) and extracting it would exist only to satisfy a size metric, which the leanness rules forbid; six other pre-existing functions in this repo carry the same tidy warning.
 - Leanness P2 `[merge]` — `kVideoStoredExtensions` deleted in favour of `std::span{kStoredMediaExtensions}.first(12)` in the test. Rejected as stated (it trades one duplication for a vacuity check that can no longer fail when the block is reordered); the same finding was accepted in its other form — the whitelist is now derived from the video list, so there is one source and no copy.
+
+**Verification round (fresh reviewer, findings + fix diff)**
+
+Verdicts: 12 resolved; 3 not resolved (the proposal and the two spec sentences above — recorded as fixed while no artifact had been touched); the two rejections judged defensible.
+
+Second round, from the same report's P2 notes:
+
+- The walker's `onEntry` now returns `bool`, so `findTool` stops at the tool it found instead of walking the rest of the install tree, and its warning no longer fires after a success.
+- The unanswerable encode prompt logs `LOG_ERROR` again, so the failure reaches the run's log file and not just the console.
+- A named already-HEVC file is pinned by a new section asserting the hint does **not** print for it.
+- `kStoredMediaExtensions` is gone: the whitelist is `isStoredMediaExtension` over the video list plus the audio/image list, so there is no concat helper, no second array, and the containment case now also asserts the other half carries no video container.
+- The `minVmaf` literal stays in `src/cmd/cmd.h`: moving it needs a core header in the CLI layer, which inverts the dependency; `kDefaultMinVmaf`'s comment now says so instead of claiming to be the only spelling.
+
+**Recorded, not fixed**
+
+- Design D2 does not mention that a commit now tries one replacing rename first — added to D2 (see the verify section).
+- Three scenarios are pinned indirectly: the directory-scan container case, the resume half of the path-identity scenario, and the cuDNN write-failure trigger (the case drives a rename failure instead).
+- `ensureCudnn` still exceeds clang-tidy's function-size threshold; rejected as a smell-only flag (see Rejected).
 
 ## Workflow follow-up
 

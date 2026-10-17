@@ -559,6 +559,9 @@ auto videobatch::runEncodingTasks(
     case PromptOutcome::Declined: return EncodingBatchSummary{.canceled = true};
     case PromptOutcome::NoAnswer:
       terminal::messageln(Error, "{}", confirmEncodingQuestion(ctx));
+      // The log file is where a failed run is diagnosed from; the console line
+      // is not enough.
+      LOG_ERROR("{}", confirmEncodingQuestion(ctx));
       return EncodingBatchSummary{.promptUnanswered = true};
   }
 
