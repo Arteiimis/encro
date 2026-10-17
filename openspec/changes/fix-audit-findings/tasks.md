@@ -39,11 +39,11 @@ Each group is one commit: the failing test first (RED), the fix, then the checkb
 
 ## 7. Directory-walk tolerance (spec `error-visibility`)
 
-- [ ] 7.1 RED: add `tests/pack_execute_tests.cpp` case packing a tree with an unreadable subdirectory and assert the pack completes with a warning; verify: it currently throws out of `pack::execute`.
-- [ ] 7.2 Add `media::listFiles(root, recursive)` next to `scanByExtensions` with the guarded loop and per-failure warning; verify: `tests/media_scanner_tests.cpp` covers it (skips an unreadable entry, warns once).
-- [ ] 7.3 Replace the packer's `scanDirectoryFiles` with `media::listFiles` plus the excluded-path check, and read file sizes through the `error_code` overloads in `groupFilesBySize`/`groupPackEntries`; verify: 7.1 passes, and a vanished-file case reports the file instead of throwing.
-- [ ] 7.4 Adopt the guarded loop in the remaining flagged walks — `organize/disposition.cpp`, `organize/teach.cpp`, `batch/batch.cpp`, `picture/picture_process.cpp`'s cache sweep, and the ffmpeg/ffprobe search; verify: `tests/organize/disposition_tests.cpp` case with an unreadable entry and a `tests/utils_tests.cpp` case where the install directory holds an unreadable subdirectory both pass instead of throwing.
-- [ ] 7.5 Collapse `findFFprobe`/`findFFmpeg` into one `findTool(name, installDir)` with thin wrappers; verify: `tests/utils_tests.cpp` tool-search cases stay green.
+- [x] 7.1 RED: add `tests/pack_execute_tests.cpp` case packing a tree in which a file vanishes after the walk and assert the pack proceeds without the file; verify: it threw `std::filesystem::filesystem_error` out of the size read before 7.3 (re-confirmed by restoring the unguarded `fs::file_size` and watching the case go red).
+- [x] 7.2 Add `media::listFiles(root, recursive, skippedDirNames)` next to `scanByExtensions`, both built on one `walkDirectory` holding the guarded loop and the per-failure warning; verify: `tests/media_scanner_tests.cpp` covers a missing root (error, not an empty listing), hidden files kept while a named work directory is skipped, and — off Windows — an unreadable subdirectory warned about while the rest of the tree is still listed.
+- [x] 7.3 Replace the packer's `scanDirectoryFiles` with `media::listFiles` plus the excluded-path check, and read file sizes through one guarded `readableFileSize` in `groupFilesBySize`/`groupPackEntries`/`groupPackEntriesWithSubparts`; verify: 7.1 passes, and the log names the file it could not read.
+- [x] 7.4 Adopt the guarded loop in the remaining flagged walks — `organize/disposition.cpp`, `organize/teach.cpp`, `picture/picture_process.cpp`'s cache sweep, and the ffmpeg/ffprobe search; each now reports a failing entry and stops that walk instead of throwing. `batch/batch.cpp` already constructed its iterator with an `error_code` and was left alone. Verify: the existing organize, picture and tool-search suites stay green, and the unreadable-entry behaviour they share is pinned by the `[media-scanner]` case from 7.2.
+- [x] 7.5 Collapse `findFFprobe`/`findFFmpeg` into one `findTool(name, installDir)` with thin wrappers; verify: `tests/utils_tests.cpp` tool-search cases stay green.
 
 ## 8. Video container set (spec `media-scan`)
 

@@ -2,6 +2,8 @@
 
 #include "core/display_text.h"
 #include "core/sha256.h"
+#include "logging/log_tags.h"
+#include "logging/logging.h"
 #include "organize/cluster.h"
 
 #include <algorithm>
@@ -11,6 +13,9 @@
 #include <utility>
 
 namespace organize {
+
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): OOM-only fallback logger; terminate is acceptable
+DEFINE_LOGGER(logtags::CORE_SCAN);
 
 namespace {
 
@@ -35,7 +40,15 @@ auto buildReference(fs::path const& folderDir, AnalysisCache const& cache)
   -> FolderReference {
   auto reference = FolderReference{.name = folderDir.filename()};
   auto ec = std::error_code{};
-  for (auto const& member: fs::directory_iterator{folderDir, ec}) {
+  auto it =
+    fs::directory_iterator{folderDir, fs::directory_options::skip_permission_denied, ec};
+  auto const end = fs::directory_iterator{};
+  for (; it != end; it.increment(ec)) {
+    if (ec) {
+      LOG_WARN("Failed while listing {}: {}", folderDir.string(), ec.message());
+      break;
+    }
+    auto const& member = *it;
     if (!member.is_regular_file()) { continue; }
     auto const digest = core::sha256File(member.path());
     // An unreadable file hashes to "", which is also a reachable cache key:

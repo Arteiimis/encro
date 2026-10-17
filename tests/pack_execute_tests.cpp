@@ -13,6 +13,7 @@
 // - execute() with jobState!=nullptr and cancel requested → returns kCanceledExitCode
 
 #include "pack/pack.h"
+#include "pack/packer.h"
 #include "pack/pack_types.h"
 #include "pack/pack_plan_internal.h"
 #include "core/job_state.h"
@@ -28,6 +29,36 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+
+TEST_CASE("a pack skips a file that vanished and does not throw", "[packer]") {
+  TempDir temp;
+  auto const dir = temp.path / "input";
+  fs::create_directories(dir);
+  auto const survive = testutils::writeSizedFile(dir / "keep.bin", 32);
+  auto const vanish = testutils::writeSizedFile(dir / "gone.bin", 32);
+
+  // The file disappears between the walk and the size read.
+  auto const plan = pack::Packer{}.buildDirectoryPackPlan(dir, temp.path / "packed");
+  REQUIRE(plan);
+  fs::remove(vanish);
+
+  auto const groups = pack::Packer{}.groupPackEntries(
+    std::vector<pack::detail::PackEntryInput>{
+      pack::detail::PackEntryInput{
+        .entry = pack::PackFileEntry{.sourcePath = survive, .zipEntryName = "keep.bin"},
+        .sourceDir = dir,
+      },
+      pack::detail::PackEntryInput{
+        .entry = pack::PackFileEntry{.sourcePath = vanish, .zipEntryName = "gone.bin"},
+        .sourceDir = dir,
+      },
+    }
+  );
+
+  REQUIRE(groups.size() == 1);
+  auto const names = std::vector<fs::path>{groups.front().front().sourcePath};
+  CHECK(names == std::vector<fs::path>{survive});
+}
 
 namespace {
 

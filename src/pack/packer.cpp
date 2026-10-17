@@ -1,6 +1,7 @@
 #include "pack/packer.h"
 
 #include "core/collision_naming.h"
+#include "core/media_scanner.h"
 #include "core/progress.h"
 #include "infra/stop_signal.h"
 #include "infra/terminal.h"
@@ -37,6 +38,18 @@ using namespace pack::detail;
 using enum terminal::MessageKind;
 
 namespace {
+
+// A file whose size cannot be read (removed mid-pack, unreadable) is skipped
+// with a warning instead of aborting the pack.
+auto readableFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t> {
+  auto ec = std::error_code{};
+  auto const size = fs::file_size(filePath, ec);
+  if (ec) {
+    LOG_WARN("Skipping unreadable file: {} ({})", filePath.string(), ec.message());
+    return std::nullopt;
+  }
+  return size;
+}
 
 struct ZipWriter {
   libzippp::ZipArchive zip;
@@ -527,12 +540,14 @@ auto pack::Packer::groupFilesBySize(
   auto preparedEntries = std::vector<PreparedPackEntry>{};
   preparedEntries.reserve(filePaths.size());
   for (auto const& filePath: filePaths) {
+    auto const size = readableFileSize(filePath);
+    if (!size.has_value()) { continue; }
     preparedEntries.emplace_back(
       PreparedPackEntry{
         .entry = PackFileEntry{.sourcePath = filePath, .zipEntryName = {}},
         .sourceKey = {},
         .fileKey = {},
-        .fileSize = fs::file_size(filePath),
+        .fileSize = size.value(),
       }
     );
   }
@@ -553,13 +568,15 @@ auto pack::Packer::groupPackEntries(
   auto preparedEntries = std::vector<PreparedPackEntry>{};
   preparedEntries.reserve(entries.size());
   for (auto const& input: entries) {
+    auto const size = readableFileSize(input.entry.sourcePath);
+    if (!size.has_value()) { continue; }
     preparedEntries.emplace_back(
       PreparedPackEntry{
         .entry = input.entry,
         .sourceKey =
           input.sourceKey.value_or(naming::pathIdentityString(input.sourceDir)),
         .fileKey = input.fileKey.value_or(buildPackEntryStableKey(input.entry)),
-        .fileSize = fs::file_size(input.entry.sourcePath),
+        .fileSize = size.value(),
       }
     );
   }
@@ -590,7 +607,9 @@ auto pack::Packer::groupPackEntriesWithSubparts(
   auto metadataByEntryKey = std::unordered_map<std::string, EntryMetadata>{};
   metadataByEntryKey.reserve(entries.size());
   for (auto const& input: entries) {
-    totalInputSize += fs::file_size(input.entry.sourcePath);
+    auto const size = readableFileSize(input.entry.sourcePath);
+    if (!size.has_value()) { continue; }
+    totalInputSize += size.value();
     metadataByEntryKey.emplace(
       buildPackEntryStableKey(input.entry),
       EntryMetadata{
@@ -662,39 +681,6 @@ auto pack::Packer::groupPackEntriesWithSubparts(
   return groupedPartitions;
 }
 
-auto scanDirectoryFiles(
-  fs::path const& dirPath,
-  bool recursive,
-  std::optional<fs::path> const& excludedPath
-) -> std::vector<fs::path> {  // kept const& after format
-
-  auto allFiles = std::vector<fs::path>{};
-  if (recursive) {
-    for (auto const& entry: fs::recursive_directory_iterator(dirPath)) {
-      if (!entry.is_regular_file()) { continue; }
-      if (
-        excludedPath.has_value()
-        && entry.path().lexically_normal() == excludedPath->lexically_normal()
-      ) {
-        continue;
-      }
-      allFiles.emplace_back(entry.path());
-    }
-  } else {
-    for (auto const& entry: fs::directory_iterator(dirPath)) {
-      if (!entry.is_regular_file()) { continue; }
-      if (
-        excludedPath.has_value()
-        && entry.path().lexically_normal() == excludedPath->lexically_normal()
-      ) {
-        continue;
-      }
-      allFiles.emplace_back(entry.path());
-    }
-  }
-  return allFiles;
-}
-
 auto pack::Packer::buildGroupedEntries(
   std::vector<std::vector<fs::path>> const& groupedFiles,
   fs::path const& dirPath,
@@ -744,8 +730,24 @@ auto pack::Packer::buildDirectoryPackPlan(
     terminal::println(Info, "Scanning for files...");
   }
 
-  auto const allFiles =
-    scanDirectoryFiles(dirPath, options.recursive, options.excludedPath);
+  // The pack walk shares the scanner's tolerance: unreadable entries warn
+  // instead of throwing, and the program's own work directory is never packed.
+  constexpr auto kSkippedDirNames = std::array<std::string_view, 1>{".encro"};
+  auto const listed = media::listFiles(dirPath, options.recursive, kSkippedDirNames);
+  if (!listed) { return eh::makeError("{}", listed.error()); }
+  for (auto const& warning: listed->warnings) { LOG_WARN("{}", warning); }
+
+  auto allFiles = std::vector<fs::path>{};
+  allFiles.reserve(listed->matches.size());
+  for (auto const& filePath: listed->matches) {
+    if (
+      options.excludedPath.has_value()
+      && filePath.lexically_normal() == options.excludedPath->lexically_normal()
+    ) {
+      continue;
+    }
+    allFiles.emplace_back(filePath);
+  }
 
   if (allFiles.empty()) {
     return eh::makeError("No files found to pack in directory: {}", dirPath.string());
