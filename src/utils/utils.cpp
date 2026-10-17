@@ -459,8 +459,8 @@ auto extractFailureReason(
   return reason;
 }
 
-bool readUserIpt(bool yesToAll, std::string_view prompt) {
-  if (stopsignal::isStopRequested()) { return false; }
+std::optional<bool> readUserIpt(bool yesToAll, std::string_view prompt) {
+  if (stopsignal::isStopRequested()) { return std::nullopt; }
   if (yesToAll) { return true; }
 
   auto const promptShown = !prompt.empty();
@@ -471,27 +471,30 @@ bool readUserIpt(bool yesToAll, std::string_view prompt) {
   if (!std::getline(std::cin, input)) {
     std::cin.clear();
     if (promptShown) { terminal::write(terminal::Stream::Stdout, "", true); }
-    return false;
+    return std::nullopt;
   }
-  if (stopsignal::isStopRequested()) { return false; }
+  if (stopsignal::isStopRequested()) { return std::nullopt; }
   if (!input.empty()) { std::istringstream(input) >> response; }
 
   return response == 'y' || response == 'Y';
 }
 
-bool readUserIptOnce(
-  bool yesToAll,
-  std::string_view prompt,
-  std::optional<bool>* shared
-) {
+std::optional<bool>
+readUserIptOnce(bool yesToAll, std::string_view prompt, std::optional<bool>* shared) {
   if (shared != nullptr && shared->has_value()) { return shared->value(); }
 
   auto const accepted = readUserIpt(yesToAll, prompt);
-  // A stop pending before the prompt and one landing while it waited both come
-  // back as the false a decline produces; storing it would report a canceled
-  // batch as a declined one.
-  if (shared != nullptr && !stopsignal::isStopRequested()) { *shared = accepted; }
+  // Only a real answer is memoized: storing the no-answer state would report a
+  // canceled or unanswerable batch as a decided one for every later prompt.
+  if (shared != nullptr && accepted.has_value()) { *shared = accepted; }
   return accepted;
+}
+
+auto unansweredPromptNotice(std::string_view prompt) -> std::string {
+  return std::format(
+    "Could not read an answer for \"{}\"; pass --yes to skip confirmation prompts.",
+    prompt
+  );
 }
 
 // exec2 resolves the quoted exe token itself (posix find_executable cannot

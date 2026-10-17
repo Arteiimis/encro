@@ -49,13 +49,21 @@ auto extractFailureReason(
   std::function<bool(std::string_view)> const& acceptedLine = {}
 ) -> std::string;
 
-bool readUserIpt(bool yesToAll, std::string_view prompt);
+// Reads one confirmation. `nullopt` means no answer was read — stdin is at
+// end-of-file, or a stop landed before or during the prompt — which is not a
+// decline and must not be reported as one.
+auto readUserIpt(bool yesToAll, std::string_view prompt) -> std::optional<bool>;
+
+// The message for a prompt that could not read an answer: names the question
+// and the way to skip prompts entirely.
+auto unansweredPromptNotice(std::string_view prompt) -> std::string;
 
 // One confirmation per run: a non-null shared slot returns its stored answer
 // without printing or reading anything, and otherwise stores this call's
 // answer for later callers — except while a stop is pending, which is a
 // cancellation rather than a consent decision.
-bool readUserIptOnce(bool yesToAll, std::string_view prompt, std::optional<bool>* shared);
+auto readUserIptOnce(bool yesToAll, std::string_view prompt, std::optional<bool>* shared)
+  -> std::optional<bool>;
 
 auto findFFprobe(std::optional<fs::path> const& installDir) -> std::optional<fs::path>;
 

@@ -59,9 +59,9 @@ Each group is one commit: the failing test first (RED), the fix, then the checkb
 
 ## 10. Prompt with no readable stdin (spec `console-output-conventions`)
 
-- [ ] 10.1 RED: update `tests/utils_tests.cpp` — the interrupted-input, stop-request and prompt-shape cases now assert "no answer" instead of `false`, and a new case asserts an unavailable stdin stays out of the shared consent slot; verify: the updated cases fail against today's `bool`.
-- [ ] 10.2 Change `readUserIpt`/`readUserIptOnce` to `std::optional<bool>` (`nullopt` = no answer) and keep the shared slot `true`/`false` only; verify: 10.1 passes.
-- [ ] 10.3 Map `nullopt` at all three prompt call sites (`video_process.cpp`, `video_batch_execution.cpp`, `picture_process.cpp`) — stop pending keeps today's cancellation path, otherwise an error naming `--yes` and exit code 1; verify: one case per site asserting the message and the exit code, plus a case pinning that a typed `n` still prints the decline notice and exits 0.
+- [x] 10.1 RED: update `tests/utils_tests.cpp` — the interrupted-input, stop-request and prompt-shape cases now assert "no answer" instead of `false`, and a new case asserts an unavailable stdin stays out of the shared consent slot; verify: the updated cases failed against today's `bool` (compile), and the new case pins the slot staying empty at EOF while a real answer still fills it.
+- [x] 10.2 Change `readUserIpt`/`readUserIptOnce` to `std::optional<bool>` (`nullopt` = no answer), add `unansweredPromptNotice(prompt)` naming the question and `--yes`, and keep the shared slot `true`/`false` only; verify: 10.1 passes.
+- [x] 10.3 Map `nullopt` at all three prompt call sites (`video_process.cpp`, `video_batch_execution.cpp`, `picture_process.cpp`): a stop pending keeps today's cancellation path, an unreadable prompt becomes an error naming `--yes` with the ordinary failure exit. Verify: a new `[video-batch-execution]` case asserts the message and `promptUnanswered` while the existing decline case now asserts a typed `n` still yields `canceled`, and the `[batch]` stop-during-prompt case still asserts the cancellation path end to end — that case caught the first cut of this change mapping a stop to a failure, which is exactly the distinction the requirement is about. The video pipeline's packing prompt (`video_process.cpp`) maps the same way but has no case of its own: reaching it needs a completed encode batch.
 
 ## 11. Already-HEVC scan hint (spec `pipeline-narration`)
 
