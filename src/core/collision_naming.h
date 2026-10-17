@@ -25,15 +25,14 @@ inline auto stablePathString(fs::path const& path) -> std::string {
 }
 
 // Identity key: two paths name the same file exactly when the filesystem says
-// so, so case folds only on the platform whose filesystem folds it.
+// so, so case folds only on the platform whose filesystem folds it. Built on the
+// ordering key, so there is one fold to keep correct.
 inline auto pathIdentityString(fs::path const& path) -> std::string {
-  auto normalized = path.lexically_normal().generic_string();
 #if defined(_WIN32)
-  std::ranges::transform(normalized, normalized.begin(), [](unsigned char ch) {
-    return static_cast<char>(std::tolower(ch));
-  });
+  return stablePathString(path);
+#else
+  return path.lexically_normal().generic_string();
 #endif
-  return normalized;
 }
 
 // Case-folded path ordering — the sort every conflict-grouped naming site

@@ -2,6 +2,7 @@
 
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
+#include "core/media_scanner.h"
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
@@ -459,7 +460,7 @@ auto extractFailureReason(
   return reason;
 }
 
-std::optional<bool> readUserIpt(bool yesToAll, std::string_view prompt) {
+auto readUserIpt(bool yesToAll, std::string_view prompt) -> std::optional<bool> {
   if (stopsignal::isStopRequested()) { return std::nullopt; }
   if (yesToAll) { return true; }
 
@@ -479,8 +480,8 @@ std::optional<bool> readUserIpt(bool yesToAll, std::string_view prompt) {
   return response == 'y' || response == 'Y';
 }
 
-std::optional<bool>
-readUserIptOnce(bool yesToAll, std::string_view prompt, std::optional<bool>* shared) {
+auto readUserIptOnce(bool yesToAll, std::string_view prompt, std::optional<bool>* shared)
+  -> std::optional<bool> {
   if (shared != nullptr && shared->has_value()) { return shared->value(); }
 
   auto const accepted = readUserIpt(yesToAll, prompt);
@@ -488,6 +489,14 @@ readUserIptOnce(bool yesToAll, std::string_view prompt, std::optional<bool>* sha
   // canceled or unanswerable batch as a decided one for every later prompt.
   if (shared != nullptr && accepted.has_value()) { *shared = accepted.value(); }
   return accepted;
+}
+
+auto classifyPromptAnswer(std::optional<bool> answer) -> PromptOutcome {
+  if (answer.has_value()) {
+    return answer.value() ? PromptOutcome::Accepted : PromptOutcome::Declined;
+  }
+  return stopsignal::isStopRequested() ? PromptOutcome::Canceled
+                                       : PromptOutcome::NoAnswer;
 }
 
 auto unansweredPromptNotice(std::string_view prompt) -> std::string {
@@ -516,26 +525,23 @@ auto findTool(std::string_view toolName, std::optional<fs::path> const& installD
     return std::nullopt;
   }
 
-  auto ec = std::error_code{};
-  auto walk = fs::recursive_directory_iterator{
+  auto found = std::optional<fs::path>{};
+  media::walkDirectory(
     installDir.value(),
-    fs::directory_options::skip_permission_denied,
-    ec
-  };
-  auto const end = fs::recursive_directory_iterator{};
-  for (; walk != end; walk.increment(ec)) {
-    if (ec) {
-      LOG_WARN("Failed while searching {}: {}", installDir->string(), ec.message());
-      break;
+    media::WalkOptions{.recursive = true},
+    [&](fs::directory_entry const& entry) {
+      if (found.has_value()) { return; }
+      auto entryEc = std::error_code{};
+      if (!entry.is_regular_file(entryEc) || entryEc) { return; }
+      if (entry.path().filename() != toolName) { return; }
+      if (probeTool(entry.path())) { found = entry.path(); }
+    },
+    [&](std::error_code const& failure) {
+      LOG_WARN("Failed while searching {}: {}", installDir->string(), failure.message());
     }
-    auto const& entry = *walk;
-    auto entryEc = std::error_code{};
-    if (!entry.is_regular_file(entryEc) || entryEc) { continue; }
-    if (entry.path().filename() != toolName) { continue; }
-    if (probeTool(entry.path())) { return entry.path(); }
-  }
+  );
 
-  return std::nullopt;
+  return found;
 }
 
 auto findFFprobe(std::optional<fs::path> const& installDir) -> std::optional<fs::path> {

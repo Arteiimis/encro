@@ -31,6 +31,10 @@ enum class OutputLayout {
   Keep,
 };
 
+// The probe's quality floor when no --min-vmaf is given: the one place the
+// default is written down (job-state snapshots and their JSON reader share it).
+inline constexpr int kDefaultMinVmaf = 95;
+
 struct AppConfig {
   bool yesToAll = false;
   bool recursive = false;
@@ -44,7 +48,7 @@ struct AppConfig {
   bool videoWebp = false;
   std::optional<int> imageQuality;
   std::optional<int> crf;
-  int minVmaf = 95;
+  int minVmaf = kDefaultMinVmaf;
   bool dryRun = false;
   std::optional<std::string> nvencPreset;
   std::optional<std::string> videoCodec;

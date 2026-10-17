@@ -501,25 +501,28 @@ void logBatchStart(
 
 // Prompts before encoding starts; false when the user declined, nullopt when
 // no answer could be read (which is a failure, not a decline).
-std::optional<bool> confirmEncodingStart(appctx::AppContext& ctx) {
+auto confirmEncodingQuestion(appctx::AppContext const& ctx) -> std::string {
+  return unansweredPromptNotice(
+    std::format(
+      "do you want to encode the video to {} format? (Y/n): ",
+      terminal::accent(ctx.config.outputFormat)
+    )
+  );
+}
+
+auto confirmEncodingStart(appctx::AppContext& ctx) -> PromptOutcome {
   auto const question = std::format(
     "do you want to encode the video to {} format? (Y/n): ",
     terminal::accent(ctx.config.outputFormat)
   );
-  auto const proceed =
-    readUserIptOnce(ctx.config.yesToAll, question, ctx.runtime.promptConsent);
-  if (!proceed.has_value()) {
-    if (stopsignal::isStopRequested()) { return std::nullopt; }
-    terminal::messageln(Error, "{}", unansweredPromptNotice(question));
-    LOG_ERROR("{}", unansweredPromptNotice(question));
-    return std::nullopt;
-  }
-  if (!proceed.value()) {
+  auto const outcome = classifyPromptAnswer(
+    readUserIptOnce(ctx.config.yesToAll, question, ctx.runtime.promptConsent)
+  );
+  if (outcome == PromptOutcome::Declined || outcome == PromptOutcome::Canceled) {
     terminal::messageln(Warning, "Encoding tasks canceled by user.");
     LOG_INFO("Encoding canceled by user.");
-    return false;
   }
-  return true;
+  return outcome;
 }
 
 auto videobatch::runEncodingTasks(
@@ -548,14 +551,15 @@ auto videobatch::runEncodingTasks(
     case ProbeStageStatus::Failed : return EncodingBatchSummary{.canceled = true};
   }
 
-  auto const encodeConfirmed = confirmEncodingStart(ctx);
-  if (!encodeConfirmed.value_or(false)) {
+  switch (confirmEncodingStart(ctx)) {
+    case PromptOutcome::Accepted: break;
     // A typed decline, or a stop that made the prompt unanswerable, is the
     // cancellation this batch has always reported.
-    if (encodeConfirmed.has_value() || stopsignal::isStopRequested()) {
-      return EncodingBatchSummary{.canceled = true};
-    }
-    return EncodingBatchSummary{.promptUnanswered = true};
+    case PromptOutcome::Canceled:
+    case PromptOutcome::Declined: return EncodingBatchSummary{.canceled = true};
+    case PromptOutcome::NoAnswer:
+      terminal::messageln(Error, "{}", confirmEncodingQuestion(ctx));
+      return EncodingBatchSummary{.promptUnanswered = true};
   }
 
   // The encode phase's own clock starts after the prompt: waiting for the

@@ -226,13 +226,11 @@ void addCompressTask(
 constexpr auto kPicturePackQuestion =
   "do you want to proceed with packing the pictures? (Y/n): ";
 
-// nullopt: no answer could be read (stdin at end-of-file) — a failure, not a
-// decline.
-std::optional<bool> confirmPicturePack(appctx::AppContext const& ctx) {
-  return readUserIptOnce(
-    ctx.config.yesToAll,
-    kPicturePackQuestion,
-    ctx.runtime.promptConsent
+// `NoAnswer`: no answer could be read (stdin at end-of-file) — a failure, not
+// a decline.
+auto confirmPicturePack(appctx::AppContext const& ctx) -> PromptOutcome {
+  return classifyPromptAnswer(
+    readUserIptOnce(ctx.config.yesToAll, kPicturePackQuestion, ctx.runtime.promptConsent)
   );
 }
 
@@ -458,15 +456,16 @@ auto executeDirectPackWorkflow(
   auto conversion = planPictureVideoConversions(ctx, dirPath);
   if (!conversion) { return eh::makeError("{}", conversion.error()); }
 
-  auto const packConfirmed = confirmPicturePack(ctx);
-  if (!packConfirmed.value_or(false)) {
-    if (packConfirmed.has_value() || stopsignal::isStopRequested()) {
+  switch (confirmPicturePack(ctx)) {
+    case PromptOutcome::Accepted: break;
+    case PromptOutcome::Canceled:
+    case PromptOutcome::Declined:
       // A typed decline — or a stop that made the prompt unanswerable — keeps
       // the cancellation path (0 without a stop, the cancel code with one).
       terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
       return canceledExitCodeForPromptAbort();
-    }
-    return eh::makeError("{}", unansweredPromptNotice(kPicturePackQuestion));
+    case PromptOutcome::NoAnswer:
+      return eh::makeError("{}", unansweredPromptNotice(kPicturePackQuestion));
   }
 
   auto const converted = runVideoConversionPhase(ctx, conversion.value());
@@ -528,25 +527,20 @@ void prepareCompressTempDir(
   auto const keepCache = jobStateMatched && fs::exists(tempDir, ec) && !ec;
   auto removeSiblings = [&](fs::path const& parent, std::string_view prefix) {
     if (!fs::is_directory(parent, ec) || ec) { return; }
-    auto walkEc = std::error_code{};
-    auto walk = fs::directory_iterator{
+    media::walkDirectory(
       parent,
-      fs::directory_options::skip_permission_denied,
-      walkEc
-    };
-    auto const end = fs::directory_iterator{};
-    for (; walk != end; walk.increment(walkEc)) {
-      if (walkEc) {
-        LOG_WARN("Failed while listing {}: {}", parent.string(), walkEc.message());
-        break;
+      {},
+      [&](fs::directory_entry const& de) {
+        auto deEc = std::error_code{};
+        if (!de.is_directory(deEc) || deEc) { return; }
+        if (de.path().filename().string().starts_with(prefix) && de.path() != tempDir) {
+          fs::remove_all(de.path(), deEc);
+        }
+      },
+      [&](std::error_code const& failure) {
+        LOG_WARN("Failed while listing {}: {}", parent.string(), failure.message());
       }
-      auto const& de = *walk;
-      auto deEc = std::error_code{};
-      if (!de.is_directory(deEc) || deEc) { continue; }
-      if (de.path().filename().string().starts_with(prefix) && de.path() != tempDir) {
-        fs::remove_all(de.path(), deEc);
-      }
-    }
+    );
   };
   // New layout: sibling quality caches under the hidden .encro dir.
   removeSiblings(workdirs::encroDir(workRoot), "compress_");
@@ -766,13 +760,14 @@ auto executeCompressPackWorkflow(
   auto conversion = planPictureVideoConversions(ctx, dirPath);
   if (!conversion) { return eh::makeError("{}", conversion.error()); }
 
-  auto const packConfirmed = confirmPicturePack(ctx);
-  if (!packConfirmed.value_or(false)) {
-    if (packConfirmed.has_value() || stopsignal::isStopRequested()) {
+  switch (confirmPicturePack(ctx)) {
+    case PromptOutcome::Accepted: break;
+    case PromptOutcome::Canceled:
+    case PromptOutcome::Declined:
       terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
       return canceledExitCodeForPromptAbort();
-    }
-    return eh::makeError("{}", unansweredPromptNotice(kPicturePackQuestion));
+    case PromptOutcome::NoAnswer:
+      return eh::makeError("{}", unansweredPromptNotice(kPicturePackQuestion));
   }
 
   auto const workRootRes = workdirs::resolveWorkRoot(ctx.config);

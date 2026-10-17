@@ -146,24 +146,16 @@ auto renderReport(ReportData const& report, std::size_t terminalColumns) -> std:
       row.label
     );
   }
-  if (report.dryRun) {
-    // Nothing was copied: the counters are destinations, so the line says so.
-    text += std::format(
-      "\nscanned {} images: would copy {}, would skip {} ({} cache hits)\n",
-      report.scanned,
-      report.copied,
-      report.skippedExisting,
-      report.cacheHits
-    );
-  } else {
-    text += std::format(
-      "\nscanned {} images: copied {}, skipped existing {} ({} cache hits)\n",
-      report.scanned,
-      report.copied,
-      report.skippedExisting,
-      report.cacheHits
-    );
-  }
+  // A dry run counted destinations, not copies: the verbs say so.
+  text += std::format(
+    "\nscanned {} images: {} {}, {} {} ({} cache hits)\n",
+    report.scanned,
+    report.dryRun ? "would copy" : "copied",
+    report.copied,
+    report.dryRun ? "would skip" : "skipped existing",
+    report.skippedExisting,
+    report.cacheHits
+  );
   // Disposition summary, incremental runs only: every first-level folder,
   // demoted rows carrying the --ingest hint.
   if (!report.dispositions.empty()) {

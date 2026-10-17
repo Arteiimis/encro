@@ -41,12 +41,13 @@ TEST_CASE("pipeline discards saved state when an encode setting changed", "[pipe
 
   auto const stderrPath = temp.path / "stderr.txt";
   auto const stdoutPath = temp.path / "stdout.txt";
+  auto runResult = eh::Result<int>{};
   {
     auto const stderrCapture = StderrCapture{stderrPath};
     auto const stdoutCapture = StdoutCapture{stdoutPath};
-    auto const runResB = pipeline::run(ctxB);
-    REQUIRE(runResB);
+    runResult = pipeline::run(ctxB);
   }
+  REQUIRE(runResult);
 
   auto const captured = readTextFile(stderrPath);
   CHECK(captured.find("does not match") != std::string::npos);

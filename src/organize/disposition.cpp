@@ -1,6 +1,7 @@
 #include "organize/disposition.h"
 
 #include "core/display_text.h"
+#include "core/media_scanner.h"
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 
@@ -51,43 +52,42 @@ auto computeFolderDispositions(
   if (!fs::exists(root, ec) || ec) { return {}; }
 
   auto dispositions = std::vector<FolderDisposition>{};
-  // Guarded walk: an entry that cannot be read is reported and skipped instead
-  // of throwing out of the pre-pass (spec: every directory walk tolerates it).
-  auto it =
-    fs::directory_iterator{root, fs::directory_options::skip_permission_denied, ec};
-  auto const end = fs::directory_iterator{};
-  for (; it != end; it.increment(ec)) {
-    if (ec) {
-      LOG_WARN("Failed while listing {}: {}", root.string(), ec.message());
-      break;
-    }
-    auto const& entry = *it;
-    if (!entry.is_directory()) { continue; }
-    auto const name = displaytext::pathToUtf8String(entry.path().filename());
-    if (name == "organized") { continue; }
+  // The shared tolerant walk: an entry that cannot be read is reported and
+  // skipped instead of throwing out of the pre-pass.
+  media::walkDirectory(
+    root,
+    {},
+    [&](fs::directory_entry const& entry) {
+      if (!entry.is_directory()) { return; }
+      auto const name = displaytext::pathToUtf8String(entry.path().filename());
+      if (name == "organized") { return; }
 
-    auto kind = DispositionKind::Reference;
-    auto reason = DispositionReason::Default;
-    if (std::ranges::find(ignoreNames, name) != ignoreNames.end()) {
-      kind = DispositionKind::Ignored;
-      reason = DispositionReason::Flag;
-    } else if (recursive) {
-      // Whole-set behavior: everything not ignored is input, dot folders
-      // included.
-      kind = DispositionKind::Input;
-    } else if (std::ranges::find(ingestNames, name) != ingestNames.end()) {
-      kind = DispositionKind::Input;
-      reason = DispositionReason::Flag;
-    } else if (name.starts_with('.')) {
-      kind = DispositionKind::Ignored;
-    } else if (isMiscFolderName(name)) {
-      kind = DispositionKind::Input;
-      reason = DispositionReason::NameList;
+      auto kind = DispositionKind::Reference;
+      auto reason = DispositionReason::Default;
+      if (std::ranges::find(ignoreNames, name) != ignoreNames.end()) {
+        kind = DispositionKind::Ignored;
+        reason = DispositionReason::Flag;
+      } else if (recursive) {
+        // Whole-set behavior: everything not ignored is input, dot folders
+        // included.
+        kind = DispositionKind::Input;
+      } else if (std::ranges::find(ingestNames, name) != ingestNames.end()) {
+        kind = DispositionKind::Input;
+        reason = DispositionReason::Flag;
+      } else if (name.starts_with('.')) {
+        kind = DispositionKind::Ignored;
+      } else if (isMiscFolderName(name)) {
+        kind = DispositionKind::Input;
+        reason = DispositionReason::NameList;
+      }
+      dispositions.push_back(
+        FolderDisposition{.name = entry.path().filename(), .kind = kind, .reason = reason}
+      );
+    },
+    [&](std::error_code const& failure) {
+      LOG_WARN("Failed while listing {}: {}", root.string(), failure.message());
     }
-    dispositions.push_back(
-      FolderDisposition{.name = entry.path().filename(), .kind = kind, .reason = reason}
-    );
-  }
+  );
 
   // Folder-name order, like every list the run compares names across; the
   // directory walk's order is unspecified.

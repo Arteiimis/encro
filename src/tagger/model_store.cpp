@@ -144,10 +144,6 @@ bool hasNvidiaDriver() {
 #endif
 }
 
-bool allFilesPresent(fs::path const& dir, std::vector<RemoteFile> const& files) {
-  return missingFiles(dir, files).empty();
-}
-
 auto missingFiles(fs::path const& dir, std::vector<RemoteFile> const& files)
   -> std::vector<std::string> {
   auto missing = std::vector<std::string>{};
@@ -367,14 +363,12 @@ auto downloadMissing(
   std::function<void(std::string_view)> const& report
 ) -> eh::Result<void> {
   auto const models = modelFiles();
-  {
-    for (auto const& file: filesToFetch(modelDir, models)) {
-      if (report) { report(std::format("downloading {}", file.logical)); }
-      auto const installed =
-        downloadFile(modelDir, file, primaryEndpoint(), mirrorEndpoint());
-      if (!installed) { return std::unexpected(installed.error()); }
-      if (report) { report(std::format("installed {}", installed->string())); }
-    }
+  for (auto const& file: filesToFetch(modelDir, models)) {
+    if (report) { report(std::format("downloading {}", file.logical)); }
+    auto const installed =
+      downloadFile(modelDir, file, primaryEndpoint(), mirrorEndpoint());
+    if (!installed) { return std::unexpected(installed.error()); }
+    if (report) { report(std::format("installed {}", installed->string())); }
   }
 
   auto const cudnn = ensureCudnn(encroLibDir());
