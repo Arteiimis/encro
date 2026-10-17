@@ -285,16 +285,24 @@ auto ensureCudnn(fs::path const& libDir, bool driverPresent) -> eh::Result<bool>
   return true;
 }
 
+auto filesToFetch(fs::path const& dir, std::vector<RemoteFile> const& files)
+  -> std::vector<RemoteFile> {
+  auto const missing = missingFiles(dir, files);
+  auto toFetch = std::vector<RemoteFile>{};
+  for (auto const& file: files) {
+    if (std::ranges::find(missing, fileNameOf(file)) == missing.end()) { continue; }
+    toFetch.push_back(file);
+  }
+  return toFetch;
+}
+
 auto downloadMissing(
   fs::path const& modelDir,
   std::function<void(std::string_view)> const& report
 ) -> eh::Result<void> {
   auto const models = modelFiles();
-  if (!allFilesPresent(modelDir, models)) {
-    for (auto const& file: models) {
-      auto const dest = modelDir / fileNameOf(file);
-      auto ec = std::error_code{};
-      if (fs::exists(dest, ec) && !ec) { continue; }
+  {
+    for (auto const& file: filesToFetch(modelDir, models)) {
       if (report) { report(std::format("downloading {}", file.logical)); }
       auto const installed =
         downloadFile(modelDir, file, primaryEndpoint(), mirrorEndpoint());
