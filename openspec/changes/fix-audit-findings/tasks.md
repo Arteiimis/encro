@@ -94,6 +94,16 @@ One reviewer, two lenses, run before implementation; 10 findings, verdicts below
 - [P1] The settings set omitted `videoCodec`, contradicting its universal claim. — **resolved**: `videoCodec` joined the snapshot fields in the delta, design and task 2.2.
 - [P2] The impact list and three verify clauses pointed at material that does not exist. — **resolved**: the impact names the suites and files the tasks touch, the missing cases became "add a case" tasks, the tag is `[media-scanner]`, and task 10.1 updates the existing `readUserIpt` cases that pin the removed behaviour.
 
+## Verify pass (openspec-verify-change, before the code review)
+
+No CRITICAL. Three warnings, all resolved here before the code review opened:
+
+- **W1** — the new packer case created only `a.bin` and asserted two entries, so on a case-sensitive filesystem the second entry was dropped and the case failed: `.github/workflows/ci.yml` runs the unit binary on ubuntu-24.04, so this would have gone red there. Resolved: `tests/packer_tests.cpp` now writes both spellings (one file on Windows, two elsewhere).
+- **W2** — the delta promised a warning for an unreadable *entry*, which the walk cannot deliver: `skip_permission_denied` suppresses the error rather than surfacing it, and the POSIX case asserting that warning would have failed on Linux. Resolved on both sides: the requirement and its packer scenario now say the walk skips what it cannot read and continues (a warning is promised for a failure the walk itself reports), and the case asserts continuity plus the entries it could read.
+- **W3** — the organize pre-pass scenario promised the run would name the unreadable entry, while that walk reports the directory it failed to list. Resolved by rewording the scenario to the behaviour the code has: the failure is recorded and the run continues with what it could read.
+
+Reported, not fixed: S1 (design D2 does not mention the replacing rename that now runs first — added to D2) and S2 (three scenarios pinned indirectly: the directory-scan container case, the resume half of the path-identity scenario, and the cuDNN write-failure trigger).
+
 ## Workflow follow-up
 
 - Run the code-review skill over the implementation before archiving.
