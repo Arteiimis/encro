@@ -6,6 +6,7 @@
 #include "test_utils.h"
 
 #include <httplib.h>
+#include <libzippp/libzippp.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
@@ -45,6 +46,28 @@ private:
   std::thread thread_;
   int port_ = 0;
 };
+
+// A tiny stand-in for the pinned cuDNN archive: the install-check DLL first,
+// a sibling DLL second, so an ordering regression is observable.
+auto makeCudnnArchive(fs::path const& dir) -> fs::path {
+  auto const zipPath = dir / "cudnn.zip";
+  auto zip = libzippp::ZipArchive{zipPath.string()};
+  zip.open(libzippp::ZipArchive::New);
+  auto const markerBytes = std::string{"marker-bytes"};
+  auto const otherBytes = std::string{"other-bytes"};
+  zip.addData(
+    "cudnn-windows-x86_64-9.0/bin/cudnn64_9.dll",
+    markerBytes.data(),
+    markerBytes.size()
+  );
+  zip.addData(
+    "cudnn-windows-x86_64-9.0/bin/cudnn_ops64_9.dll",
+    otherBytes.data(),
+    otherBytes.size()
+  );
+  zip.close();
+  return zipPath;
+}
 
 auto goodFile() -> tagger::RemoteFile {
   return tagger::RemoteFile{
@@ -170,6 +193,45 @@ TEST_CASE("ensureCudnn skips when no NVIDIA driver is reported", "[tagger]") {
   REQUIRE(result.has_value());
   CHECK(!result.value());
   CHECK(fs::is_empty(temp.path));
+}
+
+TEST_CASE("an interrupted cuDNN extraction does not look installed", "[tagger]") {
+  auto temp = TempDir{};
+  auto const libDir = temp.path / "lib";
+  fs::create_directories(libDir);
+  auto const archivePath = makeCudnnArchive(temp.path);
+
+  // A directory where a DLL belongs makes that file impossible to install.
+  fs::create_directory(libDir / "cudnn_ops64_9.dll");
+
+  auto const result = tagger::ensureCudnn(libDir, true, archivePath);
+  CHECK_FALSE(result);
+  CHECK_FALSE(fs::exists(libDir / "cudnn64_9.dll"));
+}
+
+TEST_CASE("a complete cuDNN extraction is installed and then skipped", "[tagger]") {
+  auto temp = TempDir{};
+  auto const libDir = temp.path / "lib";
+  fs::create_directories(libDir);
+  auto const archivePath = makeCudnnArchive(temp.path);
+
+  auto const result = tagger::ensureCudnn(libDir, true, archivePath);
+  REQUIRE(result);
+  CHECK(result.value());
+  CHECK(testutils::readTextFile(libDir / "cudnn64_9.dll") == "marker-bytes");
+  CHECK(testutils::readTextFile(libDir / "cudnn_ops64_9.dll") == "other-bytes");
+
+  // No staging leftovers.
+  auto names = std::vector<std::string>{};
+  for (auto const& entry: fs::directory_iterator{libDir}) {
+    names.push_back(entry.path().filename().string());
+  }
+  CHECK(names.size() == 2);
+
+  // Installed: the archive is never touched again.
+  auto const again = tagger::ensureCudnn(libDir, true, temp.path / "missing.zip");
+  REQUIRE(again);
+  CHECK(again.value());
 }
 
 TEST_CASE("HF_ENDPOINT overrides the primary endpoint", "[tagger]") {

@@ -73,8 +73,13 @@ auto downloadFile(
 // Installs the pinned cuDNN archive into `libDir` (extract bin/*.dll via
 // libzippp). No-op success when the driver is absent; returns false then.
 // `driverPresent` defaults to the live probe (tests inject it).
-auto ensureCudnn(fs::path const& libDir, bool driverPresent = hasNvidiaDriver())
-  -> eh::Result<bool>;
+// `archivePath` injects an already-downloaded archive (tests); empty fetches
+// the pinned one.
+auto ensureCudnn(
+  fs::path const& libDir,
+  bool driverPresent = hasNvidiaDriver(),
+  std::optional<fs::path> archivePath = std::nullopt
+) -> eh::Result<bool>;
 
 // Full --download-models action: fetch missing model files, then cuDNN when
 // an NVIDIA driver is present. `report` receives per-file progress lines.

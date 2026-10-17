@@ -33,9 +33,9 @@ Each group is one commit: the failing test first (RED), the fix, then the checkb
 
 ## 6. Staged cuDNN extraction (spec `image-character-organize`)
 
-- [ ] 6.1 RED: add a `tests/tagger/model_store_tests.cpp` case where an extraction fails after the first DLL and asserts `cudnn64_9.dll` does not exist; verify: it fails today (files are written directly under their final names).
-- [ ] 6.2 Stage each DLL as `<name>.part`, check the write, then rename the staged files in one pass with `cudnn64_9.dll` last; verify: 6.1 passes.
-- [ ] 6.3 Add the complete-extraction case: every DLL lands, `cudnn64_9.dll` exists, and a following `ensureCudnn` call skips the download; verify: the new case passes.
+- [x] 6.1 RED: add a `tests/tagger/model_store_tests.cpp` case where an extraction fails after the first DLL and asserts `cudnn64_9.dll` does not exist; verify: the failure is injected by a directory standing where the second DLL belongs (its install then cannot complete), and dropping the marker-last ordering makes the case go red — the marker is there while the extraction never finished.
+- [x] 6.2 Stage each DLL as `<name>.part`, check the write, then rename the staged files in one pass with `cudnn64_9.dll` last; verify: 6.1 passes, and a failed rename removes the staged leftovers. `ensureCudnn` gained an optional archive path so both cases run against a local archive instead of downloading the pinned 557 MB one.
+- [x] 6.3 Add the complete-extraction case: every DLL lands, `cudnn64_9.dll` exists, a second call skips the archive entirely (it is pointed at a path that does not exist), and no `.part` file is left behind; verify: the new case passes.
 
 ## 7. Directory-walk tolerance (spec `error-visibility`)
 
