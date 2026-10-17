@@ -281,7 +281,8 @@ auto encodeSettingsFromJson(json::object const& object) -> std::optional<EncodeS
     .crf = optionalNumberFrom<int>(settings, "crf"),
     .videoCodec = optionalStringFrom(settings, "videoCodec"),
     .nvencPreset = optionalStringFrom(settings, "nvencPreset"),
-    .minVmaf = optionalNumberFrom<int>(settings, "minVmaf").value_or(95),
+    .minVmaf =
+      optionalNumberFrom<int>(settings, "minVmaf").value_or(appctx::kDefaultMinVmaf),
   };
 }
 

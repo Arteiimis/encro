@@ -37,7 +37,7 @@ struct EncodeSettings {
   std::optional<int> crf;
   std::optional<std::string> videoCodec;
   std::optional<std::string> nvencPreset;
-  int minVmaf = 95;
+  int minVmaf = appctx::kDefaultMinVmaf;
 
   bool operator==(EncodeSettings const&) const = default;
 };

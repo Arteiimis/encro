@@ -100,14 +100,13 @@ TEST_CASE("a named file with a known video container is collected", "[video-info
 }
 
 TEST_CASE("every pack media video extension is a video input", "[media-scanner]") {
-  // One-way containment: packing already treats these as video, so scanning
-  // must accept them too (the two lists drifted apart before).
+  // One-way containment: packing stores these as video, so the scan must accept
+  // them too (the two lists drifted apart before).
   auto const videoExtensions = videoinfo::videoExtensions();
   for (auto const extension: pack::kVideoStoredExtensions) {
     CHECK(std::ranges::find(videoExtensions, extension) != videoExtensions.end());
   }
-  // The whitelist really does carry that video block: a stale copy here would
-  // make the loop above vacuous.
+  // The whitelist is built from that shared list, so it carries all of them.
   for (auto const extension: pack::kVideoStoredExtensions) {
     CHECK(
       std::ranges::find(pack::kStoredMediaExtensions, extension)

@@ -44,10 +44,6 @@ auto encroLibDir() -> fs::path;
 // True when an NVIDIA driver is present (nvcuda.dll loads).
 bool hasNvidiaDriver();
 
-// True when every file in `files` exists under `dir` (size-checked when the
-// manifest pins a size).
-bool allFilesPresent(fs::path const& dir, std::vector<RemoteFile> const& files);
-
 // The basenames of `files` that are absent or size-mismatched under `dir`, in
 // manifest order. The presence check and the fail-fast message read this one
 // list, so a model cannot be pinned into the manifest and forgotten by the

@@ -157,18 +157,6 @@ TEST_CASE("a missing identity model is named as missing", "[tagger]") {
   CHECK(tagger::missingFiles(temp.path, {}).empty());
 }
 
-TEST_CASE("allFilesPresent checks existence and size", "[tagger]") {
-  auto temp = TempDir{};
-  auto files = std::vector{goodFile()};
-
-  CHECK(!tagger::allFilesPresent(temp.path, files));
-  testutils::writeTextFile(temp.path / "file.bin", kGoodBody);
-  CHECK(tagger::allFilesPresent(temp.path, files));
-
-  files.front().size = kGoodBody.size() + 1;
-  CHECK(!tagger::allFilesPresent(temp.path, files));
-}
-
 TEST_CASE("a file that fails its pin is fetched again", "[tagger]") {
   auto temp = TempDir{};
   auto const file = goodFile();

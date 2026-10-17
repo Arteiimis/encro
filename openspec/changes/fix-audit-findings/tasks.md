@@ -104,6 +104,33 @@ No CRITICAL. Three warnings, all resolved here before the code review opened:
 
 Reported, not fixed: S1 (design D2 does not mention the replacing rename that now runs first — added to D2) and S2 (three scenarios pinned indirectly: the directory-scan container case, the resume half of the path-identity scenario, and the cuDNN write-failure trigger).
 
+## Code review (tier L: Standards / Spec / Leanness, one reviewer each)
+
+16 findings, no P0/P1. Verdicts after the fix round (commit `TBD`):
+
+**Fixed**
+
+- Spec P2 — the HEVC hint fired for a file named directly too, so that filter printed two stderr lines while the spec says one and D10 says directory roots only. Fixed: the guard now also requires `fs::is_directory(dirPath)`.
+- Spec P2 — the proposal still claimed picture quality joins the snapshot after D1 dropped it. Fixed: proposal wording aligned with D1.
+- Spec P2 — "SHALL NOT empty the state path" read absolute while the locked-target fallback does move the file aside. Fixed: the requirement now scopes the guarantee to a completed commit and names the fallback window.
+- Spec P2 — "batch subfolder discovery" promised a warning, while that walk reports a failed root as an error. Fixed: the requirement carries the root-level carve-out its disposition scenario already had.
+- Standards P2 — assertion inside a `StderrCapture` window in the new pipeline case. Fixed: the run result is captured, the `REQUIRE` runs after the window.
+- Standards P2 — `template<class TyCollect>` broke the `Ty` rule. Fixed: the template is gone; the walker is a plain function.
+- Standards P2 — one function in two return styles (`.h` trailing, `.cpp` prefix). Fixed: the four definitions use the trailing form.
+- Standards P2 — the prompt verdict policy was restated at four call sites (two byte-identical). Fixed: `utils::classifyPromptAnswer` returns `PromptOutcome`, every site switches on it once.
+- Standards P2 + Leanness P2 — `report.cpp` had two copies of the same totals format. Fixed: one format with conditional verbs.
+- Standards P2 + Leanness P2 — `kVideoStoredExtensions` restated the whitelist's video block. Fixed: the video list is the single source and the whitelist is built from it (`concatExtensions`).
+- Standards P2 — the `minVmaf` default was written three times. Fixed: `appctx::kDefaultMinVmaf`.
+- Standards P2 — `allFilesPresent` lost its last production caller; `downloadMissing` kept a bare block. Fixed: both deleted.
+- Leanness P2 `[reuse]` — four hand-rolled guarded walks while `media::walkDirectory` stayed private. Fixed: the walker is public (`WalkOptions` + an entry and a failure callback) and the disposition pre-pass, reference sampling, picture cache sweep and tool search call it.
+- Leanness P2 `[merge]` — `pathIdentityString` re-implemented `stablePathString`'s fold. Fixed: on Windows it calls `stablePathString`.
+- Leanness P2 `[delete]` — `finalizeVideoList`'s `skippedHevcCount = nullptr` default had no caller left. Fixed: the parameter is required.
+
+**Rejected**
+
+- Standards P2 — `ensureCudnn` exceeds clang-tidy's function-size threshold; the suggestion was to extract the staged-rename loop. Rejected: the loop is cohesive (install the staged set, marker last) and extracting it would exist only to satisfy a size metric, which the leanness rules forbid; six other pre-existing functions in this repo carry the same tidy warning.
+- Leanness P2 `[merge]` — `kVideoStoredExtensions` deleted in favour of `std::span{kStoredMediaExtensions}.first(12)` in the test. Rejected as stated (it trades one duplication for a vacuity check that can no longer fail when the block is reordered); the same finding was accepted in its other form — the whitelist is now derived from the video list, so there is one source and no copy.
+
 ## Workflow follow-up
 
 - Run the code-review skill over the implementation before archiving.

@@ -3,6 +3,7 @@
 #include "core/error_handle.h"
 
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -29,6 +30,26 @@ bool extensionMatches(
 // True for entries whose filename starts with a dot (e.g. ".encro") — the
 // program's own hidden work entries; never scanned as input.
 bool isHiddenEntry(fs::path const& path);
+
+// What a walk may skip: how deep it goes, and which entries it never enters.
+struct WalkOptions {
+  bool recursive = false;
+  // scanByExtensions drops hidden entries; packing keeps them.
+  bool skipHiddenEntries = false;
+  std::span<std::string_view const> skippedDirNames = {};
+};
+
+// The one tolerant directory walk every consumer shares: calls `onEntry` for
+// each entry and `onFailure` for a failure the walk itself reports (an
+// unreadable entry the platform surfaces, or a mid-walk error), then stops that
+// walk instead of throwing. The caller decides what a failure means — a warning
+// for a best-effort sweep, an error for a listing that must be complete.
+void walkDirectory(
+  fs::path const& root,
+  WalkOptions const& options,
+  std::function<void(fs::directory_entry const&)> const& onEntry,
+  std::function<void(std::error_code const&)> const& onFailure = {}
+);
 
 // Scans `root` (a file or directory) for entries whose extension matches.
 // Returns an error when `root` is not a readable directory (missing, not a

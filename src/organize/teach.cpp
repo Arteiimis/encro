@@ -1,6 +1,7 @@
 #include "organize/teach.h"
 
 #include "core/display_text.h"
+#include "core/media_scanner.h"
 #include "core/sha256.h"
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -39,26 +40,24 @@ void accumulateMember(FolderReference& reference, AnalysisResult const& analysis
 auto buildReference(fs::path const& folderDir, AnalysisCache const& cache)
   -> FolderReference {
   auto reference = FolderReference{.name = folderDir.filename()};
-  auto ec = std::error_code{};
-  auto it =
-    fs::directory_iterator{folderDir, fs::directory_options::skip_permission_denied, ec};
-  auto const end = fs::directory_iterator{};
-  for (; it != end; it.increment(ec)) {
-    if (ec) {
-      LOG_WARN("Failed while listing {}: {}", folderDir.string(), ec.message());
-      break;
+  media::walkDirectory(
+    folderDir,
+    {},
+    [&](fs::directory_entry const& member) {
+      if (!member.is_regular_file()) { return; }
+      auto const digest = core::sha256File(member.path());
+      // An unreadable file hashes to "", which is also a reachable cache key:
+      // the analysis stage stores under whatever scan computed. Skip instead of
+      // looking it up, so an unrelated analysis never joins the reference.
+      if (digest.empty()) { return; }
+      auto const cached = cache.get(digest);
+      if (!cached.has_value()) { return; }
+      accumulateMember(reference, *cached);
+    },
+    [&](std::error_code const& failure) {
+      LOG_WARN("Failed while listing {}: {}", folderDir.string(), failure.message());
     }
-    auto const& member = *it;
-    if (!member.is_regular_file()) { continue; }
-    auto const digest = core::sha256File(member.path());
-    // An unreadable file hashes to "", which is also a reachable cache key:
-    // the analysis stage stores under whatever scan computed. Skip instead of
-    // looking it up, so an unrelated analysis never joins the reference.
-    if (digest.empty()) { continue; }
-    auto const cached = cache.get(digest);
-    if (!cached.has_value()) { continue; }
-    accumulateMember(reference, *cached);
-  }
+  );
   return reference;
 }
 

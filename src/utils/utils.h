@@ -58,6 +58,18 @@ auto readUserIpt(bool yesToAll, std::string_view prompt) -> std::optional<bool>;
 // and the way to skip prompts entirely.
 auto unansweredPromptNotice(std::string_view prompt) -> std::string;
 
+// What a confirmation's answer means to its caller, with the stop rule applied
+// once: a stop that left the prompt unanswerable is a cancellation (the caller's
+// cancel path), and only a truly unreadable prompt is `NoAnswer` — a failure.
+enum class PromptOutcome {
+  Accepted,
+  Declined,
+  Canceled,
+  NoAnswer,
+};
+
+auto classifyPromptAnswer(std::optional<bool> answer) -> PromptOutcome;
+
 // One confirmation per run: a non-null shared slot returns its stored answer
 // without printing or reading anything, and otherwise stores this call's
 // answer for later callers — except while a stop is pending, which is a

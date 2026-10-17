@@ -1,5 +1,7 @@
 #include "video/video_info.h"
 
+#include "pack/pack_types.h"
+
 #include "core/media_scanner.h"
 #include "core/task_executor.h"
 #include "infra/terminal.h"
@@ -25,29 +27,22 @@ using namespace std::literals;
 
 namespace {
 
-// Video extensions both workflows recognize, and the WebP input size limit
-// (inputs at or above it are not converted). Module-private: the video scan and
-// the picture run's conversion scan are the only consumers.
-//
-// The container set packs already store (pack::kStoredMediaExtensions' video
-// entries) plus .m2ts, which only the scan knows: a file one workflow treats as
-// video must never be silently refused by the other. `[media-scanner]` pins
-// the containment.
-constexpr auto kVideoTypes = std::array{
-  ".mp4"sv,
-  ".mkv"sv,
-  ".avi"sv,
-  ".mov"sv,
-  ".flv"sv,
-  ".wmv"sv,
-  ".webm"sv,
-  ".m4v"sv,
-  ".ts"sv,
-  ".mpg"sv,
-  ".mpeg"sv,
-  ".3gp"sv,
-  ".m2ts"sv,
-};
+// The container set packs already store, plus .m2ts which only the scan knows:
+// a file one workflow treats as video must never be silently refused by the
+// other, so the shared list is the video half of this one and a
+// `[media-scanner]` case pins the containment.
+constexpr auto kVideoTypes = [] {
+  // The pack module owns the shared list; the scan adds the one container only
+  // it knows about.
+  auto types = std::array<std::string_view, pack::kVideoStoredExtensions.size() + 1>{};
+  for (
+    auto index = std::size_t{0}; index < pack::kVideoStoredExtensions.size(); ++index
+  ) {
+    types[index] = pack::kVideoStoredExtensions[index];
+  }
+  types.back() = ".m2ts";
+  return types;
+}();
 constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 
 // The WebP input size gate, one place for the video scan, the conversion scan,
@@ -194,7 +189,7 @@ auto finalizeVideoList(
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
   std::span<fs::path const> vids,
-  std::size_t* skippedHevcCount = nullptr
+  std::size_t* skippedHevcCount
 ) -> std::vector<fs::path> {
   if (vids.empty()) { return {}; }
 
@@ -613,7 +608,7 @@ auto readAllVids(
   // A scan that silently encodes fewer files than the directory holds is
   // indistinguishable from one that lost them: say so, once, for directory
   // roots only (a file named on the command line reports itself).
-  if (skippedHevc != 0) {
+  if (skippedHevc != 0 && fs::is_directory(dirPath)) {
     terminal::messageln(
       terminal::MessageKind::Hint,
       "Skipped {} video(s) already encoded as HEVC; they are not encoded again.",

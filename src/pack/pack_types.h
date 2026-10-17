@@ -15,13 +15,10 @@ namespace fs = std::filesystem;
 
 namespace pack {
 
-// Already-compressed media containers; pack stores them without deflate
-// (STORE method) since compression on them costs CPU for ~nothing. The list
-// is the spec'd contract: uncompressed containers (.wav/.aiff/.bmp/.ppm/.tif)
-// deliberately stay deflated.
-// The video half of the whitelist below, spelled out so the media scan can be
-// held to it: the video scan accepts every one of these (plus .m2ts, which only
-// packing ignores), and a [media-scanner] case pins that containment.
+// The video containers this program's scans accept, plus .m2ts which only the
+// scan knows (packing stores it as an ordinary file). The video scan reads this
+// list and the media whitelist below is built from it, so the two cannot drift:
+// a file one workflow treats as video is never silently refused by the other.
 inline constexpr auto kVideoStoredExtensions = std::array<std::string_view, 12>{
   ".mp4",
   ".mkv",
@@ -37,20 +34,11 @@ inline constexpr auto kVideoStoredExtensions = std::array<std::string_view, 12>{
   ".3gp",
 };
 
-inline constexpr auto kStoredMediaExtensions = std::array<std::string_view, 27>{
-  // video
-  ".mp4",
-  ".mkv",
-  ".mov",
-  ".avi",
-  ".webm",
-  ".flv",
-  ".wmv",
-  ".m4v",
-  ".ts",
-  ".mpg",
-  ".mpeg",
-  ".3gp",
+// Already-compressed media containers; pack stores them without deflate
+// (STORE method) since compression on them costs CPU for ~nothing. The list
+// is the spec'd contract: uncompressed containers (.wav/.aiff/.bmp/.ppm/.tif)
+// deliberately stay deflated.
+inline constexpr auto kOtherStoredExtensions = std::array<std::string_view, 15>{
   // audio
   ".m4a",
   ".aac",
@@ -69,6 +57,24 @@ inline constexpr auto kStoredMediaExtensions = std::array<std::string_view, 27>{
   ".heic",
   ".avif",
 };
+
+template<std::size_t TyFirst, std::size_t TySecond>
+constexpr auto concatExtensions(
+  std::array<std::string_view, TyFirst> const& first,
+  std::array<std::string_view, TySecond> const& second
+) -> std::array<std::string_view, TyFirst + TySecond> {
+  auto combined = std::array<std::string_view, TyFirst + TySecond>{};
+  for (auto index = std::size_t{0}; index < TyFirst; ++index) {
+    combined[index] = first[index];
+  }
+  for (auto index = std::size_t{0}; index < TySecond; ++index) {
+    combined[TyFirst + index] = second[index];
+  }
+  return combined;
+}
+
+inline constexpr auto kStoredMediaExtensions =
+  concatExtensions(kVideoStoredExtensions, kOtherStoredExtensions);
 
 inline bool shouldStoreEntry(fs::path const& sourcePath) {
   auto ext = sourcePath.extension().string();

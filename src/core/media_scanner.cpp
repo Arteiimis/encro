@@ -21,34 +21,24 @@ constexpr char asciiLower(char ch) {
   return ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch - 'A' + 'a') : ch;
 }
 
-struct WalkOptions {
-  bool recursive = false;
-  // scanByExtensions drops hidden entries; packing keeps them.
-  bool skipHiddenEntries = false;
-  std::span<std::string_view const> skippedDirNames = {};
-};
+auto shouldDescend(fs::directory_entry const& entry, WalkOptions const& options) {
+  auto const& path = entry.path();
+  if (options.skipHiddenEntries && isHiddenEntry(path)) { return false; }
+  auto const name = path.filename().string();
+  return std::ranges::find(options.skippedDirNames, name)
+    == options.skippedDirNames.end();
+}
 
-// The single tolerant walk every directory consumer shares: an unreadable
-// entry or a mid-walk failure becomes a warning instead of an exception, and a
-// directory the caller excluded is never descended into.
-template<class TyCollect>
+}  // namespace
+
 void walkDirectory(
   fs::path const& dirPath,
   WalkOptions const& options,
-  ScanResult& out,
-  TyCollect const& collect
+  std::function<void(fs::directory_entry const&)> const& onEntry,
+  std::function<void(std::error_code const&)> const& onFailure
 ) {
   auto noteWalkFailure = [&](std::error_code const& ec) {
-    out.warnings.emplace_back(
-      std::format("Failed while scanning {}: {}", dirPath.string(), ec.message())
-    );
-  };
-  auto shouldDescend = [&](fs::directory_entry const& entry) {
-    auto const& path = entry.path();
-    if (options.skipHiddenEntries && isHiddenEntry(path)) { return false; }
-    auto const name = path.filename().string();
-    return std::ranges::find(options.skippedDirNames, name)
-      == options.skippedDirNames.end();
+    if (onFailure) { onFailure(ec); }
   };
 
   if (options.recursive) {
@@ -61,13 +51,13 @@ void walkDirectory(
         break;
       }
       auto const& entry = *it;
-      if (entry.is_directory() && !shouldDescend(entry)) {
+      if (entry.is_directory() && !shouldDescend(entry, options)) {
         // Skipped directories (.encro, legacy .compress_tmp*, hidden work
         // dirs) are not descended into; their contents are not collected.
         it.disable_recursion_pending();
         continue;
       }
-      collect(entry);
+      onEntry(entry);
     }
     return;
   }
@@ -78,9 +68,11 @@ void walkDirectory(
       noteWalkFailure(ec);
       break;
     }
-    collect(entry);
+    onEntry(entry);
   }
 }
+
+namespace {
 
 void scanDir(
   fs::path const& dirPath,
@@ -91,7 +83,6 @@ void scanDir(
   walkDirectory(
     dirPath,
     WalkOptions{.recursive = recursive, .skipHiddenEntries = true},
-    out,
     [&](fs::directory_entry const& entry) {
       if (isHiddenEntry(entry.path())) { return; }
       auto ec = std::error_code{};
@@ -99,6 +90,11 @@ void scanDir(
       if (extensionMatches(entry.path(), extensions)) {
         out.matches.emplace_back(entry.path());
       }
+    },
+    [&](std::error_code const& ec) {
+      out.warnings.emplace_back(
+        std::format("Failed while scanning {}: {}", dirPath.string(), ec.message())
+      );
     }
   );
 }
@@ -170,11 +166,15 @@ auto listFiles(
   walkDirectory(
     root,
     WalkOptions{.recursive = recursive, .skippedDirNames = skippedDirNames},
-    result,
     [&](fs::directory_entry const& entry) {
       auto entryEc = std::error_code{};
       if (!entry.is_regular_file(entryEc) || entryEc) { return; }
       result.matches.emplace_back(entry.path());
+    },
+    [&](std::error_code const& ec) {
+      result.warnings.emplace_back(
+        std::format("Failed while scanning {}: {}", root.string(), ec.message())
+      );
     }
   );
   return result;

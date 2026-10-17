@@ -389,19 +389,20 @@ int runScannedEncodingWorkflow(
   ) {
     constexpr auto kPackingQuestion =
       "All encodes already complete. Do you want to proceed with packing? (Y/n): ";
-    auto const proceed =
-      readUserIptOnce(ctx.config.yesToAll, kPackingQuestion, ctx.runtime.promptConsent);
-    if (!proceed.has_value()) {
-      if (!stopsignal::isStopRequested()) {
+    auto const outcome = classifyPromptAnswer(
+      readUserIptOnce(ctx.config.yesToAll, kPackingQuestion, ctx.runtime.promptConsent)
+    );
+    switch (outcome) {
+      case PromptOutcome::Accepted: break;
+      case PromptOutcome::Canceled:
+      case PromptOutcome::Declined:
+        // A stop that forced the decline is the packing stage's cancellation,
+        // not a user decline; the helper picks the notice for the event.
+        terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
+        return canceledExitCodeForPromptAbort();
+      case PromptOutcome::NoAnswer:
         terminal::messageln(Error, "{}", unansweredPromptNotice(kPackingQuestion));
         return 1;
-      }
-    }
-    // A stop that forced the decline is the packing stage's cancellation, not
-    // a user decline; the helper picks the notice for the event.
-    if (!proceed.value_or(false)) {
-      terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
-      return canceledExitCodeForPromptAbort();
     }
   }
 
