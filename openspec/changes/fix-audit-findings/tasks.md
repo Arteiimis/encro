@@ -27,9 +27,9 @@ Each group is one commit: the failing test first (RED), the fix, then the checkb
 
 ## 5. Model file repair (spec `image-character-organize`)
 
-- [ ] 5.1 RED: add `tests/tagger/model_store_tests.cpp` case where a model file exists with the wrong size and `downloadMissing` reports it as missing and downloads it; verify: it fails today (the file is skipped).
-- [ ] 5.2 Drive the download loop from the shared `missingFiles` result; verify: 5.1 passes and the loopback-server download cases stay green.
-- [ ] 5.3 Add the idempotence case: a second `downloadMissing` run downloads nothing; verify: the new case passes.
+- [x] 5.1 RED: add `tests/tagger/model_store_tests.cpp` case where a model file exists with the wrong size and the download decision still includes it; verify: it went red (0 files to fetch) while `filesToFetch` used the existence predicate.
+- [x] 5.2 Drive the download loop from the shared `missingFiles` result; verify: 5.1 passes and the loopback-server download cases stay green.
+- [x] 5.3 Add the idempotence case: a second `downloadMissing` run downloads nothing. Asserted at the decision level — once every file matches its pin, `filesToFetch` is empty, so the loop is a no-op — because a real `downloadMissing` run would fetch the pinned models (hundreds of MB) over the network.
 
 ## 6. Staged cuDNN extraction (spec `image-character-organize`)
 

@@ -146,6 +146,24 @@ TEST_CASE("allFilesPresent checks existence and size", "[tagger]") {
   CHECK(!tagger::allFilesPresent(temp.path, files));
 }
 
+TEST_CASE("a file that fails its pin is fetched again", "[tagger]") {
+  auto temp = TempDir{};
+  auto const file = goodFile();
+
+  // Absent: fetch.
+  CHECK(tagger::filesToFetch(temp.path, {file}).size() == 1);
+
+  // Present at the pinned size: nothing to fetch, so a re-run converges.
+  testutils::writeTextFile(temp.path / "file.bin", kGoodBody);
+  CHECK(tagger::filesToFetch(temp.path, {file}).empty());
+
+  // Present with the wrong size: the pin, not existence, decides.
+  testutils::writeTextFile(temp.path / "file.bin", "short");
+  auto const toFetch = tagger::filesToFetch(temp.path, {file});
+  REQUIRE(toFetch.size() == 1);
+  CHECK(toFetch.front().logical == file.logical);
+}
+
 TEST_CASE("ensureCudnn skips when no NVIDIA driver is reported", "[tagger]") {
   auto temp = TempDir{};
   auto const result = tagger::ensureCudnn(temp.path, false);

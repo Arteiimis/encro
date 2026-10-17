@@ -55,6 +55,11 @@ bool allFilesPresent(fs::path const& dir, std::vector<RemoteFile> const& files);
 auto missingFiles(fs::path const& dir, std::vector<RemoteFile> const& files)
   -> std::vector<std::string>;
 
+// The files worth fetching: exactly those the presence check reports missing,
+// so a file that fails its size pin is downloaded again instead of skipped.
+auto filesToFetch(fs::path const& dir, std::vector<RemoteFile> const& files)
+  -> std::vector<RemoteFile>;
+
 // Downloads `file` to dir/<filename>: primary host first, mirror fallback,
 // .part streaming, checksum verify (when pinned), bounded retry on mismatch,
 // atomic rename. Returns the installed path.
