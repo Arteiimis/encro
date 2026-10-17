@@ -835,8 +835,12 @@ TEST_CASE("job state mark operations report persistence failures", "[job-state]"
   REQUIRE(initRes);
   store.mergeTasks(std::array{task});
 
-  // Block the backup slot with a non-empty directory: the temp file still
-  // writes, but the current snapshot cannot be moved aside, so the commit fails.
+  // Block both the state path and the backup slot with non-empty directories:
+  // the staged file still writes, but the snapshot can neither be replaced nor
+  // moved aside, so the commit fails with the previous state left in the way.
+  fs::remove(statePath);
+  fs::create_directory(statePath);
+  writeTextFile(statePath / "keep.txt");
   auto const backupPath = fs::path{statePath}.concat(".bak");
   fs::create_directory(backupPath);
   writeTextFile(backupPath / "keep.txt");

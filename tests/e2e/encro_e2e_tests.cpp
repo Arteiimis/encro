@@ -1282,7 +1282,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-  "encro prompts before overwriting output and cancels on EOF",
+  "encro fails an unanswerable overwrite prompt without touching the output",
   "[e2e][cli][prompt][fake-toolchain]"
 ) {
   TempDir temp;
@@ -1310,7 +1310,8 @@ TEST_CASE(
   auto const firstWriteTime = fs::last_write_time(outputPath);
 
   // Without -y, --restart re-encodes: the confirm prompt hits EOF (null
-  // stdin) and the run cancels without touching the existing output.
+  // stdin). No answer is not a decline, so the run fails and leaves the
+  // existing output untouched.
   auto restartArgs = baseArgs;
   restartArgs.insert(restartArgs.begin(), "--restart");
   auto const prompted = e2e::runEncro(restartArgs);
@@ -1318,11 +1319,11 @@ TEST_CASE(
     prompted.stdoutText.find("do you want to encode the video to webp format")
     != std::string::npos
   );
-  // The standalone cancellation notice is a warning: stderr, not stdout.
-  CHECK(
-    prompted.stderrText.find("warning: Encoding tasks canceled by user.")
-    != std::string::npos
-  );
+  CHECK(prompted.exitCode == 1);
+  // The question and the remedy are named; nothing claims a decision.
+  CHECK(prompted.stderrText.find("Could not read an answer") != std::string::npos);
+  CHECK(prompted.stderrText.find("--yes") != std::string::npos);
+  CHECK(prompted.stderrText.find("canceled by user") == std::string::npos);
   CHECK(prompted.stdoutText.find("canceled by user") == std::string::npos);
   REQUIRE(fs::exists(outputPath));
   CHECK(fs::last_write_time(outputPath) == firstWriteTime);

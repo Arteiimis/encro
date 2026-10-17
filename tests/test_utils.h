@@ -534,12 +534,24 @@ inline auto readTextFile(
   std::chrono::milliseconds timeout = std::chrono::milliseconds{10'000}
 ) -> std::string {
   auto const startedAt = std::chrono::steady_clock::now();
-  auto const appeared = waitUntil([&] { return fs::exists(filePath); }, timeout);
+  // A writer that replaces the file between the existence check and the open
+  // (job-state commits its snapshot on a timer) is a normal condition, so the
+  // open retries until the deadline instead of failing on one lost race.
+  auto appeared = false;
+  auto ifs = std::ifstream{};
+  auto const opened = waitUntil(
+    [&] {
+      ifs = std::ifstream{filePath};
+      if (ifs.is_open()) { return true; }
+      appeared = appeared || fs::exists(filePath);
+      return false;
+    },
+    timeout
+  );
   auto const waited = std::chrono::duration_cast<std::chrono::milliseconds>(
     std::chrono::steady_clock::now() - startedAt
   );
 
-  auto ifs = std::ifstream{filePath};
   // One short line per fact: Catch2 wraps failure text at 79 columns, and a
   // wrap inside a line would break a field apart mid-token.
   INFO("readTextFile: " << filePath.string());
@@ -551,7 +563,7 @@ inline auto readTextFile(
     << (appeared ? "appeared, but opening it failed"
                  : "never appeared within the deadline")
   );
-  REQUIRE(ifs.is_open());
+  REQUIRE(opened);
   return {std::istreambuf_iterator<char>{ifs}, std::istreambuf_iterator<char>{}};
 }
 
