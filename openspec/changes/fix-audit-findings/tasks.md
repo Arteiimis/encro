@@ -22,8 +22,8 @@ Each group is one commit: the failing test first (RED), the fix, then the checkb
 
 ## 4. Probe cache never fatal (spec `video-encode-probing`)
 
-- [ ] 4.1 RED: add `tests/video/probe_cache_tests.cpp` case writing `{"version":1}` (no `entries`) and asserting `load()` yields an empty cache; verify: it currently throws.
-- [ ] 4.2 Guard the entries read in `probecache::load` with `contains` + `is_array`; verify: 4.1 passes and the existing corrupt-JSON/version cases stay green.
+- [x] 4.1 RED: add `tests/video/probe_cache_tests.cpp` case writing `{"version":1}` (no `entries`) and asserting `load()` yields an empty cache; verify: it threw `boost.json: out of range ... try_at` before the fix.
+- [x] 4.2 Guard the entries read in `probecache::load` with `contains` + `is_array`; verify: 4.1 passes and the existing corrupt-JSON/version cases stay green.
 
 ## 5. Model file repair (spec `image-character-organize`)
 
