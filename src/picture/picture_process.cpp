@@ -221,10 +221,17 @@ void addCompressTask(
   );
 }
 
-bool confirmPicturePack(appctx::AppContext const& ctx) {
+// The packing prompt's question, shared by both call sites and by the error
+// they print when it cannot be answered.
+constexpr auto kPicturePackQuestion =
+  "do you want to proceed with packing the pictures? (Y/n): ";
+
+// nullopt: no answer could be read (stdin at end-of-file) — a failure, not a
+// decline.
+std::optional<bool> confirmPicturePack(appctx::AppContext const& ctx) {
   return readUserIptOnce(
     ctx.config.yesToAll,
-    "do you want to proceed with packing the pictures? (Y/n): ",
+    kPicturePackQuestion,
     ctx.runtime.promptConsent
   );
 }
@@ -451,9 +458,15 @@ auto executeDirectPackWorkflow(
   auto conversion = planPictureVideoConversions(ctx, dirPath);
   if (!conversion) { return eh::makeError("{}", conversion.error()); }
 
-  if (!confirmPicturePack(ctx)) {
-    terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
-    return canceledExitCodeForPromptAbort();
+  auto const packConfirmed = confirmPicturePack(ctx);
+  if (!packConfirmed.value_or(false)) {
+    if (packConfirmed.has_value() || stopsignal::isStopRequested()) {
+      // A typed decline — or a stop that made the prompt unanswerable — keeps
+      // the cancellation path (0 without a stop, the cancel code with one).
+      terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
+      return canceledExitCodeForPromptAbort();
+    }
+    return eh::makeError("{}", unansweredPromptNotice(kPicturePackQuestion));
   }
 
   auto const converted = runVideoConversionPhase(ctx, conversion.value());
@@ -753,9 +766,13 @@ auto executeCompressPackWorkflow(
   auto conversion = planPictureVideoConversions(ctx, dirPath);
   if (!conversion) { return eh::makeError("{}", conversion.error()); }
 
-  if (!confirmPicturePack(ctx)) {
-    terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
-    return canceledExitCodeForPromptAbort();
+  auto const packConfirmed = confirmPicturePack(ctx);
+  if (!packConfirmed.value_or(false)) {
+    if (packConfirmed.has_value() || stopsignal::isStopRequested()) {
+      terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
+      return canceledExitCodeForPromptAbort();
+    }
+    return eh::makeError("{}", unansweredPromptNotice(kPicturePackQuestion));
   }
 
   auto const workRootRes = workdirs::resolveWorkRoot(ctx.config);

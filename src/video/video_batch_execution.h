@@ -22,6 +22,9 @@ struct EncodingBatchSummary {
   // Probe aborted or failed, or the confirmation was declined: the caller
   // returns the cancel exit code and prints no summary.
   bool canceled = false;
+  // The confirmation could not read an answer (stdin at end-of-file): a
+  // failure with the ordinary exit code, not a cancellation.
+  bool promptUnanswered = false;
   std::vector<std::string> attentionWarnings;  // unreachable-floor files
   bool dryRun = false;  // probe plan printed; exit without encoding
   // Files dropped before encoding (estimated output larger than the source);

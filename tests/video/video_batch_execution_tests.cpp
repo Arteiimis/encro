@@ -354,19 +354,50 @@ TEST_CASE(
   auto s = BatchScaffold{};
   s.ctx.config.yesToAll = false;
 
-  // stdin EOF: the confirmation prompt reads no answer and declines.
-  auto eofInput = std::istringstream{};
-  auto const cinGuard = testutils::ScopedCinBuf{eofInput};
+  auto input = std::istringstream{"n\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
 
   auto items =
     BatchScaffold::singleFileItem(s.inputPath, s.temp.path / "encoded" / "sample.mp4");
   auto const outcome = videobatch::runEncodingTasks(s.ctx, items, 1, 0);
 
   CHECK(outcome.canceled);
+  CHECK_FALSE(outcome.promptUnanswered);
   CHECK(items[0]->outcome().state == mediaitem::ItemState::Pending);
   CHECK(outcome.attentionWarnings.empty());
   // The probe stage ran, but no production encode was started (encode outputs
   // land in the planned "encoded" directory).
+  auto const log = testutils::readTextFile(s.logPath);
+  CHECK(log.find("encoded") == std::string::npos);
+}
+
+TEST_CASE(
+  "runEncodingTasks fails when the confirmation cannot read an answer",
+  "[video-batch-execution]"
+) {
+  auto s = BatchScaffold{};
+  s.ctx.config.yesToAll = false;
+
+  // stdin EOF: no answer, which is a failure rather than a decline.
+  auto eofInput = std::istringstream{};
+  auto const cinGuard = testutils::ScopedCinBuf{eofInput};
+
+  auto const stderrPath = s.temp.path / "stderr.txt";
+  auto items =
+    BatchScaffold::singleFileItem(s.inputPath, s.temp.path / "encoded" / "sample.mp4");
+  auto outcome = videobatch::EncodingBatchSummary{};
+  {
+    auto const capture = testutils::StderrCapture{stderrPath};
+    outcome = videobatch::runEncodingTasks(s.ctx, items, 1, 0);
+  }
+
+  CHECK(outcome.promptUnanswered);
+  CHECK_FALSE(outcome.canceled);
+  CHECK(testutils::readTextFile(stderrPath).find("--yes") != std::string::npos);
+  CHECK(
+    testutils::readTextFile(stderrPath).find("Could not read an answer")
+    != std::string::npos
+  );
   auto const log = testutils::readTextFile(s.logPath);
   CHECK(log.find("encoded") == std::string::npos);
 }

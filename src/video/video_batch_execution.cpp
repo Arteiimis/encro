@@ -499,17 +499,22 @@ void logBatchStart(
   );
 }
 
-// Prompts before encoding starts; false when the user declined.
-bool confirmEncodingStart(appctx::AppContext& ctx) {
-  auto const proceed = readUserIptOnce(
-    ctx.config.yesToAll,
-    std::format(
-      "do you want to encode the video to {} format? (Y/n): ",
-      terminal::accent(ctx.config.outputFormat)
-    ),
-    ctx.runtime.promptConsent
+// Prompts before encoding starts; false when the user declined, nullopt when
+// no answer could be read (which is a failure, not a decline).
+std::optional<bool> confirmEncodingStart(appctx::AppContext& ctx) {
+  auto const question = std::format(
+    "do you want to encode the video to {} format? (Y/n): ",
+    terminal::accent(ctx.config.outputFormat)
   );
-  if (!proceed) {
+  auto const proceed =
+    readUserIptOnce(ctx.config.yesToAll, question, ctx.runtime.promptConsent);
+  if (!proceed.has_value()) {
+    if (stopsignal::isStopRequested()) { return std::nullopt; }
+    terminal::messageln(Error, "{}", unansweredPromptNotice(question));
+    LOG_ERROR("{}", unansweredPromptNotice(question));
+    return std::nullopt;
+  }
+  if (!proceed.value()) {
     terminal::messageln(Warning, "Encoding tasks canceled by user.");
     LOG_INFO("Encoding canceled by user.");
     return false;
@@ -543,7 +548,15 @@ auto videobatch::runEncodingTasks(
     case ProbeStageStatus::Failed : return EncodingBatchSummary{.canceled = true};
   }
 
-  if (!confirmEncodingStart(ctx)) { return EncodingBatchSummary{.canceled = true}; }
+  auto const encodeConfirmed = confirmEncodingStart(ctx);
+  if (!encodeConfirmed.value_or(false)) {
+    // A typed decline, or a stop that made the prompt unanswerable, is the
+    // cancellation this batch has always reported.
+    if (encodeConfirmed.has_value() || stopsignal::isStopRequested()) {
+      return EncodingBatchSummary{.canceled = true};
+    }
+    return EncodingBatchSummary{.promptUnanswered = true};
+  }
 
   // The encode phase's own clock starts after the prompt: waiting for the
   // user is not encode time.

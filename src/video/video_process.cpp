@@ -356,6 +356,7 @@ int runScannedEncodingWorkflow(
       prepared.totalActions,
       prepared.recoveredCount
     );
+    if (outcome.promptUnanswered) { return 1; }
     if (outcome.canceled) { return canceledExitCodeForPromptAbort(); }
     if (outcome.dryRun) {
       LOG_INFO("Dry run completed; no files were encoded.");
@@ -386,14 +387,19 @@ int runScannedEncodingWorkflow(
   if (
     prepared.pendingItems.empty() && prepared.recoveredCount != 0 && ctx.config.packOutput
   ) {
-    auto const proceed = readUserIptOnce(
-      ctx.config.yesToAll,
-      "All encodes already complete. Do you want to proceed with packing? (Y/n): ",
-      ctx.runtime.promptConsent
-    );
-    if (!proceed) {
-      // A stop that forced the decline is the packing stage's cancellation, not
-      // a user decline; the helper picks the notice for the event.
+    constexpr auto kPackingQuestion =
+      "All encodes already complete. Do you want to proceed with packing? (Y/n): ";
+    auto const proceed =
+      readUserIptOnce(ctx.config.yesToAll, kPackingQuestion, ctx.runtime.promptConsent);
+    if (!proceed.has_value()) {
+      if (!stopsignal::isStopRequested()) {
+        terminal::messageln(Error, "{}", unansweredPromptNotice(kPackingQuestion));
+        return 1;
+      }
+    }
+    // A stop that forced the decline is the packing stage's cancellation, not
+    // a user decline; the helper picks the notice for the event.
+    if (!proceed.value_or(false)) {
       terminal::messageln(Warning, "{}", pack::promptDeclineNotice());
       return canceledExitCodeForPromptAbort();
     }

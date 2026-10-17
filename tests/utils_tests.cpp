@@ -57,13 +57,13 @@ TEST_CASE("readUserIpt renders the prompt as a plain question", "[utils]") {
   auto input = std::istringstream{"\n"};
   auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto accepted = false;
+  auto accepted = std::optional<bool>{};
   auto const output =
     testutils::captureStdout([&] { accepted = readUserIpt(false, "Proceed? (Y/n): "); });
 
   // No leading badge or severity prefix: the question text and its choice
   // marker are the whole prompt.
-  CHECK(accepted);
+  CHECK(accepted.value_or(false));
   CHECK(output == "Proceed? (Y/n): ");
 }
 
@@ -81,13 +81,15 @@ TEST_CASE("readUserIpt defaults to yes on empty input", "[utils]") {
   CHECK(readUserIpt(false, ""));
 }
 
-TEST_CASE("readUserIpt returns false when input read is interrupted", "[utils]") {
+TEST_CASE("readUserIpt reports no answer when the read is interrupted", "[utils]") {
   testutils::ScopedStopSignalReset stopGuard;
 
   auto input = std::istringstream{};
   auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  CHECK_FALSE(readUserIpt(false, ""));
+  // No answer, which is neither a yes nor a decline: a closed stdin must never
+  // be reported as the user declining.
+  CHECK_FALSE(readUserIpt(false, "").has_value());
 }
 
 TEST_CASE("readUserIpt ends interrupted prompt on a new line", "[utils]") {
@@ -96,11 +98,11 @@ TEST_CASE("readUserIpt ends interrupted prompt on a new line", "[utils]") {
   auto input = std::istringstream{};
   auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto accepted = false;
+  auto accepted = std::optional<bool>{};
   auto const output =
     testutils::captureStdout([&] { accepted = readUserIpt(false, "confirm? (Y/n): "); });
 
-  CHECK_FALSE(accepted);
+  CHECK_FALSE(accepted.has_value());
   CHECK(output == "confirm? (Y/n): \n");
 }
 
@@ -108,7 +110,7 @@ TEST_CASE("readUserIpt treats stop request as cancel even with yesToAll", "[util
   testutils::ScopedStopSignalReset stopGuard;
   stopsignal::requestStop();
 
-  CHECK_FALSE(readUserIpt(true, ""));
+  CHECK_FALSE(readUserIpt(true, "").has_value());
 }
 
 TEST_CASE("readUserIptOnce stores the first answer and reuses it", "[utils]") {
@@ -117,24 +119,24 @@ TEST_CASE("readUserIptOnce stores the first answer and reuses it", "[utils]") {
 
   auto shared = std::optional<bool>{};
 
-  auto accepted = false;
+  auto accepted = std::optional<bool>{};
   auto const firstOutput = testutils::captureStdout([&] {
     accepted = readUserIptOnce(false, "Proceed? (Y/n): ", &shared);
   });
 
-  CHECK(accepted);
+  CHECK(accepted.value_or(false));
   REQUIRE(shared.has_value());
   CHECK(shared.value());
   CHECK(firstOutput == "Proceed? (Y/n): ");
 
   // A different question text on the second call, and no second line in the
   // stream: the stored answer has to cover it, or this call declines on EOF.
-  auto second = false;
+  auto second = std::optional<bool>{};
   auto const secondOutput = testutils::captureStdout([&] {
     second = readUserIptOnce(false, "Pack? (Y/n): ", &shared);
   });
 
-  CHECK(second);
+  CHECK(second.value_or(false));
   CHECK(secondOutput.empty());
 }
 
@@ -144,45 +146,67 @@ TEST_CASE("readUserIptOnce stores a declined answer for the caller", "[utils]") 
 
   auto shared = std::optional<bool>{};
 
-  auto first = true;
+  auto first = std::optional<bool>{true};
   auto const firstOutput = testutils::captureStdout([&] {
     first = readUserIptOnce(false, "Proceed? (Y/n): ", &shared);
   });
 
-  CHECK_FALSE(first);
+  CHECK_FALSE(first.value_or(true));
   CHECK(firstOutput == "Proceed? (Y/n): ");
   REQUIRE(shared.has_value());
   CHECK_FALSE(shared.value());
 
   // The stored decline is reused too, and it is what a batch driver reads to
   // tell a declined subfolder from a completed one.
-  auto second = true;
+  auto second = std::optional<bool>{true};
   auto const secondOutput = testutils::captureStdout([&] {
     second = readUserIptOnce(false, "Pack? (Y/n): ", &shared);
   });
 
-  CHECK_FALSE(second);
+  CHECK_FALSE(second.value_or(true));
   CHECK(secondOutput.empty());
+}
+
+TEST_CASE(
+  "readUserIptOnce keeps an unavailable answer out of the shared slot",
+  "[utils]"
+) {
+  auto shared = std::optional<bool>{};
+
+  // Closed stdin: the caller gets no answer and the slot stays empty, so a
+  // later prompt is asked again instead of inheriting a phantom answer.
+  auto eofInput = std::istringstream{};
+  auto const cinGuard = testutils::ScopedCinBuf{eofInput};
+
+  CHECK_FALSE(readUserIptOnce(false, "Proceed? (Y/n): ", &shared).has_value());
+  CHECK_FALSE(shared.has_value());
+
+  // With an answer available the slot is filled as before.
+  auto yesInput = std::istringstream{"y\n"};
+  auto const secondGuard = testutils::ScopedCinBuf{yesInput};
+  CHECK(readUserIptOnce(false, "Proceed? (Y/n): ", &shared).value_or(false));
+  REQUIRE(shared.has_value());
+  CHECK(shared.value());
 }
 
 TEST_CASE("readUserIptOnce asks again without a shared slot", "[utils]") {
   auto input = std::istringstream{"y\nn\n"};
   auto const cinGuard = testutils::ScopedCinBuf{input};
 
-  auto first = false;
+  auto first = std::optional<bool>{};
   auto const firstOutput = testutils::captureStdout([&] {
     first = readUserIptOnce(false, "First? (Y/n): ", nullptr);
   });
 
-  auto second = true;
+  auto second = std::optional<bool>{};
   auto const secondOutput = testutils::captureStdout([&] {
     second = readUserIptOnce(false, "Second? (Y/n): ", nullptr);
   });
 
   // Single-directory runs pass no slot, so every call is its own prompt.
-  CHECK(first);
+  CHECK(first.value_or(false));
   CHECK(firstOutput == "First? (Y/n): ");
-  CHECK_FALSE(second);
+  CHECK_FALSE(second.value_or(true));
   CHECK(secondOutput == "Second? (Y/n): ");
 }
 
@@ -192,7 +216,7 @@ TEST_CASE("readUserIptOnce stores nothing while a stop is pending", "[utils]") {
 
   auto shared = std::optional<bool>{};
 
-  CHECK_FALSE(readUserIptOnce(false, "Proceed? (Y/n): ", &shared));
+  CHECK_FALSE(readUserIptOnce(false, "Proceed? (Y/n): ", &shared).has_value());
   CHECK_FALSE(shared.has_value());
 }
 
@@ -208,16 +232,16 @@ TEST_CASE(
 
   auto shared = std::optional<bool>{};
 
-  auto accepted = true;
+  auto accepted = std::optional<bool>{true};
   auto const output = testutils::captureStdout([&] {
     accepted = readUserIptOnce(false, "Proceed? (Y/n): ", &shared);
   });
 
-  // The 'y' arrives with a stop already pending, so the answer is a
-  // cancellation rather than a consent: storing it would report a stopped
-  // batch as a declined one. The prompt itself is still shown, as in any run
-  // whose stop lands once it is already waiting for input.
-  CHECK_FALSE(accepted);
+  // The 'y' arrives with a stop already pending, so there is no answer to
+  // record: storing one would report a stopped batch as a consented or a
+  // declined one. The prompt itself is still shown, as in any run whose stop
+  // lands once it is already waiting for input.
+  CHECK_FALSE(accepted.has_value());
   CHECK(output == "Proceed? (Y/n): ");
   CHECK_FALSE(shared.has_value());
 }
