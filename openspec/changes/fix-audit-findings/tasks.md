@@ -75,9 +75,9 @@ Each group is one commit: the failing test first (RED), the fix, then the checkb
 
 ## 13. Integration verification
 
-- [ ] 13.1 Run the full unit suite and the e2e suite; verify: `xmake test-report` reports 0 failures and `xmake build e2e_tests && xmake run e2e_tests` passes.
-- [ ] 13.2 Run the reporter-mode probe; verify: `build/windows/x64/release/tests.exe -r console -s` reports 0 failures.
-- [ ] 13.3 Run `openspec validate fix-audit-findings --strict`; verify: valid.
+- [x] 13.1 Run the full unit suite and the e2e suite; verify: `xmake test-report` reports 0 failures (17597 assertions) and `xmake run e2e_tests` passes (876 assertions, 59 cases).
+- [x] 13.2 Run the reporter-mode probe; verify: `build/windows/x64/release/tests.exe -r console -s` reports 0 failures (17584 assertions, 13 explicitly skipped).
+- [x] 13.3 Run `openspec validate fix-audit-findings --strict`; verify: valid. Two flakes surfaced here and were fixed rather than retried: the state-file commit now tries one replacing rename first (no window where the state path is absent, and readers no longer lose a race with a timer-driven rewrite), and `testutils::readTextFile` retries its open until the deadline instead of failing on a single lost race; the e2e prompt case was rewritten for the new no-answer contract, and the job-state failure-injection fixture now blocks both the state path and the backup slot.
 
 ## Planning-artifact review
 

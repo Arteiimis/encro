@@ -530,8 +530,18 @@ auto replaceStateFile(fs::path const& stagedPath, fs::path const& stateFilePath)
   -> eh::Result<void> {
   // shortcut: a crash between the two renames leaves the snapshot only in
   // <state>.bak; add load-time recovery if that window ever bites.
-  auto const backupPath = fs::path{stateFilePath}.concat(".bak");
+  // The common path: one replacing rename. Both platforms replace an existing
+  // target atomically, so a reader that opens the state path while a snapshot
+  // is being committed sees either the old file or the new one, never nothing.
   auto ec = std::error_code{};
+  fs::rename(stagedPath, stateFilePath, ec);
+  if (!ec) { return {}; }
+
+  // Fallback for a target the OS refuses to replace (Windows can lock it while
+  // something reads it): move the current snapshot aside, then put the new one
+  // in place. Never delete first — a failure here restores the old snapshot.
+  auto const backupPath = fs::path{stateFilePath}.concat(".bak");
+  ec.clear();
   fs::remove(backupPath, ec);  // a leftover from an interrupted commit
   ec.clear();
 
