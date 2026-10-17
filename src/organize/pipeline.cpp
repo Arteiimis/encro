@@ -547,6 +547,7 @@ auto runOrganize(
     .copied = stats.copied,
     .skippedExisting = stats.skippedExisting,
     .cacheHits = cacheHits,
+    .dryRun = options.dryRun,
     .copyErrors = stats.errors,
     .dispositions = std::move(dispositionLines),
   };

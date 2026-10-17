@@ -12,6 +12,60 @@ using testutils::copyFakeTool;
 
 namespace fs = std::filesystem;
 
+TEST_CASE("a scan that filters already-HEVC files says so once", "[video-info]") {
+  TempDir temp;
+  auto const root = temp.path / "vids";
+  fs::create_directories(root);
+  for (auto const* name: {"a.mp4", "b.mp4", "c.mp4", "d.mp4", "e.mp4"}) {
+    testutils::writeSizedFile(root / name, 4096);
+  }
+
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "mp4";
+  auto probeEnv = copyFakeProbe(temp.path);
+  auto toolchain = appctx::ToolchainPaths{};
+  toolchain.ffprobePath = copyFakeTool(temp.path, "ffprobe");
+  auto runtime = appctx::RuntimeContext{};
+
+  SECTION("every file already HEVC: one hint naming the count") {
+    auto const hevcJson = temp.path / "fake-ffprobe-hevc.json";
+    testutils::writeTextFile(
+      hevcJson,
+      R"({"streams":[{"codec_type":"video","codec_name":"hevc"}]})"
+    );
+    auto const jsonEnv =
+      testutils::ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", hevcJson.string()};
+
+    auto const stderrPath = temp.path / "stderr.txt";
+    auto vids = eh::Result<std::vector<fs::path>>{};
+    {
+      auto const capture = testutils::StderrCapture{stderrPath};
+      vids = readAllVids(config, toolchain, runtime, root);
+    }
+
+    REQUIRE(vids);
+    CHECK(vids->empty());
+
+    auto const captured = testutils::readTextFile(stderrPath);
+    CHECK(std::ranges::count(captured, '\n') == 1);
+    CHECK(captured.find("5") != std::string::npos);
+    CHECK(captured.find("HEVC") != std::string::npos);
+  }
+
+  SECTION("nothing filtered: no hint at all") {
+    auto const stderrPath = temp.path / "stderr-quiet.txt";
+    auto vids = eh::Result<std::vector<fs::path>>{};
+    {
+      auto const capture = testutils::StderrCapture{stderrPath};
+      vids = readAllVids(config, toolchain, runtime, root);
+    }
+
+    REQUIRE(vids);
+    CHECK(vids->size() == 5);
+    CHECK(testutils::readTextFile(stderrPath).find("HEVC") == std::string::npos);
+  }
+}
+
 TEST_CASE("a named file with a known video container is collected", "[video-info]") {
   TempDir temp;
   auto config = appctx::AppConfig{};

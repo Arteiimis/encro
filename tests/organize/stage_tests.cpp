@@ -318,7 +318,9 @@ TEST_CASE("executeOrganize dry run copies nothing", "[organize]") {
   };
 
   auto const stats = organize::executeOrganize(temp.path, items, true);
-  CHECK(stats.copied == 0);
+  // The counter is the destination the run would use; the disk stays untouched.
+  CHECK(stats.copied == 1);
+  CHECK(stats.errors.empty());
   CHECK(!fs::exists(temp.path / "organized" / "miku"));
 }
 
