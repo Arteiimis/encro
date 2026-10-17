@@ -1,3 +1,4 @@
+#include "core/collision_naming.h"
 #include "core/encoding_state.h"
 #include "core/media_item.h"
 #include "core/progress.h"
@@ -68,10 +69,14 @@ TEST_CASE("EncodingState is video's item", "[media-item]") {
   CHECK(item.outcome().state == mediaitem::ItemState::Pending);
 
   // Without a job-state action id the item reports the same "encode:<path>"
-  // id the task specs and the verbose path derived on their own.
+  // id the task specs derive, so both name the file by one rule — which
+  // keeps its letter case where the filesystem does (POSIX).
   auto planned = appctx::EncodingState{};
   planned.inputPath = fs::path{"videos"} / "A.mp4";
-  CHECK(planned.id() == "encode:videos/a.mp4");
+  CHECK(
+    planned.id()
+    == std::format("encode:{}", collisionnaming::pathIdentityString(planned.inputPath))
+  );
 }
 
 TEST_CASE(
