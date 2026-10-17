@@ -4,7 +4,7 @@
 
 ### Requirement: Encoding settings participate in state matching
 
-Every setting that changes the bytes of an encoded output — video codec, video quality, encoder preset, the probe quality floor and picture quality — SHALL be recorded in the job-state config snapshot, and a saved state SHALL be resumed only when a recorded value equals the current run's value. A saved state that does not record a setting SHALL match any value for it, so upgrading the tool does not discard in-progress work.
+Every setting that changes the bytes of an encoded output — video codec, video quality, encoder preset and the probe quality floor — SHALL be recorded in the job-state config snapshot, and a saved state SHALL be resumed only when a recorded value equals the current run's value. A saved state that does not record a setting SHALL match any value for it, so upgrading the tool does not discard in-progress work.
 
 #### Scenario: Changed quality is not resumed
 
