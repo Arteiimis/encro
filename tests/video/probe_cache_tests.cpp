@@ -114,6 +114,16 @@ TEST_CASE("probe cache discards on schema version mismatch", "[probe-cache]") {
   CHECK(probecache::load(cachePath).empty());
 }
 
+TEST_CASE("probe cache discards a file without its entries array", "[probe-cache]") {
+  TempDir temp;
+  auto const cachePath = temp.path / "probe-cache.json";
+  {
+    std::ofstream out{cachePath};
+    out << R"({"version": 1})";
+  }
+  CHECK(probecache::load(cachePath).empty());
+}
+
 TEST_CASE("probe cache evicts oldest entries beyond the cap", "[probe-cache]") {
   TempDir temp;
   auto const cachePath = temp.path / "probe-cache.json";

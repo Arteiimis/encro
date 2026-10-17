@@ -133,11 +133,11 @@ auto load(fs::path const& filePath) -> std::vector<Entry> {
     ? static_cast<int>(obj.at("version").as_int64())
     : -1;
   if (version != kSchemaVersion) { return {}; }
-  auto const& entries = obj.at("entries");
-  if (!entries.is_array()) { return {}; }
+  auto const* entriesValue = obj.if_contains("entries");
+  if (entriesValue == nullptr || !entriesValue->is_array()) { return {}; }
 
   auto result = std::vector<Entry>{};
-  for (auto const& item: entries.as_array()) {
+  for (auto const& item: entriesValue->as_array()) {
     if (auto const entry = parseEntry(item); entry.has_value()) {
       result.push_back(entry.value());
     }
