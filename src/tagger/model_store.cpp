@@ -246,42 +246,108 @@ auto downloadFile(
   return eh::makeError("download failed: {}", file.logical);
 }
 
-auto ensureCudnn(fs::path const& libDir, bool driverPresent) -> eh::Result<bool> {
+namespace {
+
+// The DLL whose presence means "fully installed": it is renamed into place
+// last, so an interrupted extraction can never look complete.
+constexpr auto kCudnnMarkerDll = std::string_view{"cudnn64_9.dll"};
+
+struct StagedDll {
+  fs::path stagedPath;
+  fs::path finalPath;
+};
+
+}  // namespace
+
+auto ensureCudnn(
+  fs::path const& libDir,
+  bool driverPresent,
+  std::optional<fs::path> archivePath
+) -> eh::Result<bool> {
   if (!driverPresent) { return false; }
 
   auto ec = std::error_code{};
-  auto const marker = libDir / "cudnn64_9.dll";
+  auto const marker = libDir / kCudnnMarkerDll;
   if (fs::exists(marker, ec) && !ec) { return true; }
 
-  auto const archive = cudnnArchive();
-  auto const zipPath = downloadFile(
-    defaultModelDir(),
-    archive,
-    "https://developer.download.nvidia.com",
-    "https://developer.download.nvidia.com"
-  );
-  if (!zipPath) { return std::unexpected(zipPath.error()); }
+  auto resolvedArchivePath = fs::path{};
+  if (archivePath.has_value()) {
+    resolvedArchivePath = archivePath.value();
+  } else {
+    auto const archive = cudnnArchive();
+    auto const downloaded = downloadFile(
+      defaultModelDir(),
+      archive,
+      "https://developer.download.nvidia.com",
+      "https://developer.download.nvidia.com"
+    );
+    if (!downloaded) { return std::unexpected(downloaded.error()); }
+    resolvedArchivePath = downloaded.value();
+  }
 
-  auto zip = libzippp::ZipArchive{zipPath->string()};
+  auto zip = libzippp::ZipArchive{resolvedArchivePath.string()};
   if (!zip.open()) {
-    return eh::makeError("cannot open cuDNN archive: {}", zipPath->string());
+    return eh::makeError("cannot open cuDNN archive: {}", resolvedArchivePath.string());
   }
   fs::create_directories(libDir, ec);
-  auto extracted = std::size_t{0};
+
+  auto staged = std::vector<StagedDll>{};
+  auto const discardStaged = [&staged]() {
+    for (auto const& item: staged) {
+      auto discardEc = std::error_code{};
+      fs::remove(item.stagedPath, discardEc);
+    }
+  };
+
   for (auto const& entry: zip.getEntries()) {
     auto const name = entry.getName();
     if (entry.isDirectory()) { continue; }
     if (name.find("bin/") == std::string::npos || !name.ends_with(".dll")) { continue; }
     auto const slash = name.find_last_of('/');
-    auto const dest = libDir / name.substr(slash + 1);
+    auto const finalPath = libDir / name.substr(slash + 1);
+    auto const stagedPath = fs::path{finalPath}.concat(".part");
+
     auto const bytes = entry.readAsText();
-    auto out = std::ofstream{dest, std::ios::binary};
-    if (!out.is_open()) { return eh::makeError("cannot write {}", dest.string()); }
+    auto out = std::ofstream{stagedPath, std::ios::binary};
+    if (!out.is_open()) {
+      discardStaged();
+      zip.close();
+      return eh::makeError("cannot write {}", stagedPath.string());
+    }
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-    ++extracted;
+    out.flush();
+    if (!out) {
+      discardStaged();
+      zip.close();
+      return eh::makeError("cannot write {}", stagedPath.string());
+    }
+    staged.push_back(StagedDll{.stagedPath = stagedPath, .finalPath = finalPath});
   }
   zip.close();
-  if (extracted == 0) { return eh::makeError("no DLLs found in cuDNN archive"); }
+
+  if (staged.empty()) { return eh::makeError("no DLLs found in cuDNN archive"); }
+
+  // Everything but the marker first, then the marker: its presence is the
+  // install check, so it must land last.
+  auto const isMarker = [](StagedDll const& item) {
+    return item.finalPath.filename() == kCudnnMarkerDll;
+  };
+  std::ranges::stable_partition(staged, [&](StagedDll const& item) {
+    return !isMarker(item);
+  });
+
+  for (auto const& item: staged) {
+    auto renameEc = std::error_code{};
+    fs::rename(item.stagedPath, item.finalPath, renameEc);
+    if (renameEc) {
+      discardStaged();
+      return eh::makeError(
+        "cannot install cuDNN runtime {}: {}",
+        item.finalPath.string(),
+        renameEc.message()
+      );
+    }
+  }
   return true;
 }
 
