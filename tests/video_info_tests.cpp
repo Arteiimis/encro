@@ -1,14 +1,66 @@
 #include "core/app_context.h"
+#include "pack/pack_types.h"
 #include "test_utils.h"
 #include "video/video_info.h"
 
 #include <algorithm>
+#include <array>
 #include <vector>
 
 using testutils::copyFakeProbe;
 using testutils::copyFakeTool;
 
 namespace fs = std::filesystem;
+
+TEST_CASE("a named file with a known video container is collected", "[video-info]") {
+  TempDir temp;
+  auto config = appctx::AppConfig{};
+  config.outputFormat = "mp4";
+  auto toolchain = appctx::ToolchainPaths{};
+  auto runtime = appctx::RuntimeContext{};
+
+  static constexpr auto kContainers = std::array{
+    "clip.webm",
+    "clip.m4v",
+    "clip.ts",
+    "clip.m2ts",
+    "clip.mpg",
+    "clip.mpeg",
+    "clip.3gp",
+  };
+  for (auto const* name: kContainers) {
+    auto const clip = temp.path / name;
+    testutils::writeSizedFile(clip, 64);
+    auto const vids = readAllVids(config, toolchain, runtime, clip);
+    REQUIRE(vids);
+    REQUIRE(vids->size() == 1);
+    CHECK(vids->front() == clip);
+  }
+
+  // An extension nobody demuxes stays out, even when named directly.
+  auto const subtitle = temp.path / "clip.srt";
+  testutils::writeSizedFile(subtitle, 64);
+  auto const refused = readAllVids(config, toolchain, runtime, subtitle);
+  REQUIRE(refused);
+  CHECK(refused->empty());
+}
+
+TEST_CASE("every pack media video extension is a video input", "[media-scanner]") {
+  // One-way containment: packing already treats these as video, so scanning
+  // must accept them too (the two lists drifted apart before).
+  auto const videoExtensions = videoinfo::videoExtensions();
+  for (auto const extension: pack::kVideoStoredExtensions) {
+    CHECK(std::ranges::find(videoExtensions, extension) != videoExtensions.end());
+  }
+  // The whitelist really does carry that video block: a stale copy here would
+  // make the loop above vacuous.
+  for (auto const extension: pack::kVideoStoredExtensions) {
+    CHECK(
+      std::ranges::find(pack::kStoredMediaExtensions, extension)
+      != pack::kStoredMediaExtensions.end()
+    );
+  }
+}
 
 TEST_CASE("readAllVids applies the 32MB size boundary for webp", "[video-info]") {
   TempDir temp;
