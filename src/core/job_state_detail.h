@@ -16,6 +16,10 @@ void clearExecutionState(TaskRecord& task);
 
 void normalizeExistingTask(TaskRecord& task);
 
+// Moves the staged snapshot over the state file without ever emptying it.
+auto replaceStateFile(fs::path const& stagedPath, fs::path const& stateFilePath)
+  -> eh::Result<void>;
+
 auto flushSnapshot(
   fs::path const& stateFilePath,
   Snapshot& snapshot,
