@@ -21,12 +21,13 @@ schema: spec-driven
 
 # Per-operation guidance (optional)
 # Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+# This is separate from artifact rules above. Pointers only: ordering and gates
+# for our review flow live in AGENTS.md, so nothing here restates them.
+operations:
+  apply:
+    guidance:
+      - Finish by checking off tasks.md; before committing, follow the review chain in AGENTS.md (verify first, then code review).
+  archive:
+    guidance:
+      - The change should already carry a verify report; any REMOVED/RENAMED entry that report marks not verified is either resolved or explicitly accepted.
+      - Two or more changes ready at once are archived through the bulk-archive workflow, not as repeated single archives.
