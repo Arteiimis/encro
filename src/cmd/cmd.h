@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cmd/config_store.h"
+#include "core/app_context.h"
 
 #include <CLI/CLI.hpp>
 
@@ -43,7 +44,7 @@ struct CmdParseResult {
   bool videoWebp = false;
   std::optional<int> imageQuality;
   std::optional<int> crf;
-  int minVmaf = 95;  // the CLI-layer default; the runtime fallback is kDefaultMinVmaf
+  int minVmaf = appctx::kDefaultMinVmaf;
   bool dryRun = false;
   std::optional<std::string> nvencPreset;
   std::optional<std::string> videoCodec;
