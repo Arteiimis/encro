@@ -486,7 +486,7 @@ readUserIptOnce(bool yesToAll, std::string_view prompt, std::optional<bool>* sha
   auto const accepted = readUserIpt(yesToAll, prompt);
   // Only a real answer is memoized: storing the no-answer state would report a
   // canceled or unanswerable batch as a decided one for every later prompt.
-  if (shared != nullptr && accepted.has_value()) { *shared = accepted; }
+  if (shared != nullptr && accepted.has_value()) { *shared = accepted.value(); }
   return accepted;
 }
 
