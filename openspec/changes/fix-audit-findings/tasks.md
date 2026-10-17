@@ -141,7 +141,7 @@ Second round, from the same report's P2 notes:
 - The unanswerable encode prompt logs `LOG_ERROR` again, so the failure reaches the run's log file and not just the console.
 - A named already-HEVC file is pinned by a new section asserting the hint does **not** print for it.
 - `kStoredMediaExtensions` is gone: the whitelist is `isStoredMediaExtension` over the video list plus the audio/image list, so there is no concat helper, no second array, and the containment case now also asserts the other half carries no video container.
-- The `minVmaf` literal stays in `src/cmd/cmd.h`: moving it needs a core header in the CLI layer, which inverts the dependency; `kDefaultMinVmaf`'s comment now says so instead of claiming to be the only spelling.
+- `minVmaf`: the literal is gone everywhere — `src/cmd/cmd.h` includes `core/app_context.h` (as `cmd/config_builder.h` already does) and the three CLI default texts use `std::to_string(appctx::kDefaultMinVmaf)`. The first attempt kept the literal and justified it with a dependency claim the second verification round showed to be false; this landed after the loop's two-round cap, so it is unverified by a fresh reviewer (the unit, e2e and reporter suites were re-run green).
 
 **Recorded, not fixed**
 

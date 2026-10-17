@@ -166,7 +166,7 @@ auto registerBatchSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App*
       "--min-vmaf",
       &result.minVmaf,
       "minimum p5-VMAF quality floor for probing (0-100)",
-      cfg::OptionalDefault{"95"},
+      cfg::OptionalDefault{std::to_string(appctx::kDefaultMinVmaf)},
       cfg::Range{0, 100}
     ),
     opt(
@@ -306,7 +306,7 @@ auto registerPreviewSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::Ap
       "--min-vmaf",
       &result.minVmaf,
       "minimum p5-VMAF quality floor for probing (0-100)",
-      cfg::OptionalDefault{"95"},
+      cfg::OptionalDefault{std::to_string(appctx::kDefaultMinVmaf)},
       cfg::Range{0, 100}
     ),
     opt(
@@ -619,7 +619,7 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       "--min-vmaf",
       &result.minVmaf,
       "minimum p5-VMAF quality floor for probing (0-100)",
-      cfg::OptionalDefault{"95"},
+      cfg::OptionalDefault{std::to_string(appctx::kDefaultMinVmaf)},
       cfg::ConfigKey{"min-vmaf"},
       cfg::Range{0, 100}
     ),
