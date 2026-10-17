@@ -572,7 +572,8 @@ TEST_CASE(
 TEST_CASE("pack grouping keys follow path identity", "[packer]") {
   TempDir temp;
   auto const lowerPath = testutils::writeSizedFile(temp.path / "a.bin", 16);
-  auto const upperPath = temp.path / "A.bin";
+  // One file on a case-insensitive filesystem, a second one where case matters.
+  auto const upperPath = testutils::writeSizedFile(temp.path / "A.bin", 16);
 
   auto const entries = std::vector<PackEntryInput>{
     PackEntryInput{
