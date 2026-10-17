@@ -106,7 +106,7 @@ Reported, not fixed: S1 (design D2 does not mention the replacing rename that no
 
 ## Code review (tier L: Standards / Spec / Leanness, one reviewer each)
 
-16 findings, no P0/P1. Verdicts after the fix round (commit `TBD`):
+16 findings, no P0/P1. Verdicts after the fix round (commit `4623403`):
 
 **Fixed**
 
