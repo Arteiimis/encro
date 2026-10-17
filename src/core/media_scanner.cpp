@@ -34,7 +34,7 @@ auto shouldDescend(fs::directory_entry const& entry, WalkOptions const& options)
 void walkDirectory(
   fs::path const& dirPath,
   WalkOptions const& options,
-  std::function<void(fs::directory_entry const&)> const& onEntry,
+  std::function<bool(fs::directory_entry const&)> const& onEntry,
   std::function<void(std::error_code const&)> const& onFailure
 ) {
   auto noteWalkFailure = [&](std::error_code const& ec) {
@@ -57,7 +57,7 @@ void walkDirectory(
         it.disable_recursion_pending();
         continue;
       }
-      onEntry(entry);
+      if (!onEntry(entry)) { break; }
     }
     return;
   }
@@ -68,7 +68,7 @@ void walkDirectory(
       noteWalkFailure(ec);
       break;
     }
-    onEntry(entry);
+    if (!onEntry(entry)) { break; }
   }
 }
 
@@ -84,12 +84,13 @@ void scanDir(
     dirPath,
     WalkOptions{.recursive = recursive, .skipHiddenEntries = true},
     [&](fs::directory_entry const& entry) {
-      if (isHiddenEntry(entry.path())) { return; }
+      if (isHiddenEntry(entry.path())) { return true; }
       auto ec = std::error_code{};
-      if (!entry.is_regular_file(ec) || ec) { return; }
+      if (!entry.is_regular_file(ec) || ec) { return true; }
       if (extensionMatches(entry.path(), extensions)) {
         out.matches.emplace_back(entry.path());
       }
+      return true;
     },
     [&](std::error_code const& ec) {
       out.warnings.emplace_back(
@@ -168,8 +169,9 @@ auto listFiles(
     WalkOptions{.recursive = recursive, .skippedDirNames = skippedDirNames},
     [&](fs::directory_entry const& entry) {
       auto entryEc = std::error_code{};
-      if (!entry.is_regular_file(entryEc) || entryEc) { return; }
+      if (!entry.is_regular_file(entryEc) || entryEc) { return true; }
       result.matches.emplace_back(entry.path());
+      return true;
     },
     [&](std::error_code const& ec) {
       result.warnings.emplace_back(

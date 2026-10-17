@@ -58,30 +58,22 @@ inline constexpr auto kOtherStoredExtensions = std::array<std::string_view, 15>{
   ".avif",
 };
 
-template<std::size_t TyFirst, std::size_t TySecond>
-constexpr auto concatExtensions(
-  std::array<std::string_view, TyFirst> const& first,
-  std::array<std::string_view, TySecond> const& second
-) -> std::array<std::string_view, TyFirst + TySecond> {
-  auto combined = std::array<std::string_view, TyFirst + TySecond>{};
-  for (auto index = std::size_t{0}; index < TyFirst; ++index) {
-    combined[index] = first[index];
-  }
-  for (auto index = std::size_t{0}; index < TySecond; ++index) {
-    combined[TyFirst + index] = second[index];
-  }
-  return combined;
+// The whitelist is these two lists, so the video half has exactly one
+// definition: a container packing stores as video cannot go missing from the
+// scan's set behind a second copy.
+inline bool isStoredMediaExtension(std::string_view extension) {
+  return std::ranges::find(kVideoStoredExtensions, extension)
+    != kVideoStoredExtensions.end()
+    || std::ranges::find(kOtherStoredExtensions, extension)
+    != kOtherStoredExtensions.end();
 }
-
-inline constexpr auto kStoredMediaExtensions =
-  concatExtensions(kVideoStoredExtensions, kOtherStoredExtensions);
 
 inline bool shouldStoreEntry(fs::path const& sourcePath) {
   auto ext = sourcePath.extension().string();
   std::ranges::transform(ext, ext.begin(), [](unsigned char c) {
     return static_cast<char>(std::tolower(c));
   });
-  return std::ranges::find(kStoredMediaExtensions, ext) != kStoredMediaExtensions.end();
+  return isStoredMediaExtension(ext);
 }
 
 struct PackFileEntry {

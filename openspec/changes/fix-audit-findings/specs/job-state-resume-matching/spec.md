@@ -23,7 +23,7 @@ Every setting that changes the bytes of an encoded output — video codec, video
 
 ### Requirement: A replacement that cannot complete keeps the previous snapshot
 
-Committing a snapshot SHALL NOT empty the state path to make room for the new snapshot: when the replacement cannot complete, the previous snapshot SHALL remain at the state path and the failure SHALL be logged at error level. A successful commit SHALL leave no staging or backup file behind, so a reader that opens the state path always finds a complete, parseable snapshot.
+A completed commit SHALL leave the state path holding the new snapshot, and SHALL NOT have emptied it to get there: the staged snapshot replaces the file in one rename, and only a target the platform refuses to replace falls back to moving the current snapshot aside. When the replacement cannot complete, the previous snapshot SHALL be back at the state path and the failure SHALL be logged at error level. A successful commit SHALL leave no staging or backup file behind, so a reader that opens the state path always finds a complete, parseable snapshot.
 
 #### Scenario: A failed replacement keeps the previous snapshot
 

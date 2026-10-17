@@ -43,7 +43,7 @@ struct CmdParseResult {
   bool videoWebp = false;
   std::optional<int> imageQuality;
   std::optional<int> crf;
-  int minVmaf = 95;
+  int minVmaf = 95;  // the CLI-layer default; the runtime fallback is kDefaultMinVmaf
   bool dryRun = false;
   std::optional<std::string> nvencPreset;
   std::optional<std::string> videoCodec;

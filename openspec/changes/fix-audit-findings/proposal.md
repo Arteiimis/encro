@@ -6,7 +6,7 @@ A full-repo audit found fourteen defects that share one property: they fail sile
 
 ## What Changes
 
-- **Encoding settings join job-state matching.** `--crf`, `--preset`, `--min-vmaf` and the picture quality join the config snapshot, so a run with different settings no longer resumes a state that was written with other settings.
+- **Encoding settings join job-state matching.** The video codec, `--crf`, `--preset` and `--min-vmaf` join the config snapshot, so a run with different settings no longer resumes a state that was written with other settings. Picture quality stays out: it changes no video output's bytes, and the conversion cache it does affect is already keyed by quality.
 - **State persistence is crash-safe.** The snapshot is replaced by renaming the staged file over a `.bak` of the previous one, so no window exists in which the state file is absent.
 - **A malformed probe cache is discarded, never fatal.** A cache file that parses but lacks its `entries` array is treated like unparseable JSON: discarded and re-probed.
 - **Path identity follows the filesystem's case rule.** Task ids, grouping keys and hashes case-fold only on platforms whose filesystem does, so two distinct Linux paths stay two distinct tasks.
@@ -28,7 +28,7 @@ A full-repo audit found fourteen defects that share one property: they fail sile
 
 ### Modified Capabilities
 
-- `job-state-resume-matching`: encoding settings and picture quality participate in state matching; state persistence never leaves the state file absent.
+- `job-state-resume-matching`: the settings that change an encoded output participate in state matching; state persistence never leaves the state file absent when a commit completes.
 - `video-encode-probing`: a probe cache that cannot be read in full is discarded, never a fatal error.
 - `media-scan`: the video container set covers every container the pack whitelist already treats as video.
 - `pack-media-store`: a directory pack never packs the program's own work directory.

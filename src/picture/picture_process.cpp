@@ -532,10 +532,11 @@ void prepareCompressTempDir(
       {},
       [&](fs::directory_entry const& de) {
         auto deEc = std::error_code{};
-        if (!de.is_directory(deEc) || deEc) { return; }
+        if (!de.is_directory(deEc) || deEc) { return true; }
         if (de.path().filename().string().starts_with(prefix) && de.path() != tempDir) {
           fs::remove_all(de.path(), deEc);
         }
+        return true;
       },
       [&](std::error_code const& failure) {
         LOG_WARN("Failed while listing {}: {}", parent.string(), failure.message());

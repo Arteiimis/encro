@@ -44,15 +44,16 @@ auto buildReference(fs::path const& folderDir, AnalysisCache const& cache)
     folderDir,
     {},
     [&](fs::directory_entry const& member) {
-      if (!member.is_regular_file()) { return; }
+      if (!member.is_regular_file()) { return true; }
       auto const digest = core::sha256File(member.path());
       // An unreadable file hashes to "", which is also a reachable cache key:
       // the analysis stage stores under whatever scan computed. Skip instead of
       // looking it up, so an unrelated analysis never joins the reference.
-      if (digest.empty()) { return; }
+      if (digest.empty()) { return true; }
       auto const cached = cache.get(digest);
-      if (!cached.has_value()) { return; }
+      if (!cached.has_value()) { return true; }
       accumulateMember(reference, *cached);
+      return true;
     },
     [&](std::error_code const& failure) {
       LOG_WARN("Failed while listing {}: {}", folderDir.string(), failure.message());

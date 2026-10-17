@@ -4,7 +4,7 @@
 
 ### Requirement: Every directory walk tolerates unreadable entries
 
-Every directory walk in the program besides the media scanner — the directory packer's file collection, organize's disposition pre-pass and reference sampling, batch subfolder discovery, the picture cache sweep, and the ffmpeg/ffprobe install-directory search — SHALL tolerate what it cannot read: an entry it cannot read is left out and the walk continues with the rest, a failure the walk itself reports is recorded as a warning naming the directory, and a file that disappears between listing and use is reported rather than throwing. No walk SHALL abort the run with an uncaught filesystem error.
+Every directory walk in the program besides the media scanner — the directory packer's file collection, organize's disposition pre-pass and reference sampling, batch subfolder discovery, the picture cache sweep, and the ffmpeg/ffprobe install-directory search — SHALL tolerate what it cannot read: an entry it cannot read is left out and the walk continues with the rest, a failure the walk itself reports is recorded as a warning naming the directory, and a file that disappears between listing and use is reported rather than throwing. No walk SHALL abort the run with an uncaught filesystem error. A root a walk cannot list at all is that walk's own failure: batch subfolder discovery reports it as an error naming the root, because a subfolder it cannot read has nothing to offer the run.
 
 #### Scenario: The packer's walk tolerates an unreadable subdirectory
 
