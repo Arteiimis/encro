@@ -64,7 +64,7 @@ struct EncodingState {
   // does not depend on whether job-state was enabled.
   auto id() const -> std::string {
     return actionId
-      .value_or(std::format("encode:{}", collisionnaming::stablePathString(inputPath)));
+      .value_or(std::format("encode:{}", collisionnaming::pathIdentityString(inputPath)));
   }
   auto label() const -> std::string { return inputPath.filename().string(); }
   auto source() const -> fs::path const& { return inputPath; }

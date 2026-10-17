@@ -574,7 +574,7 @@ auto buildProbeTaskSpec(
 ) -> taskexec::TaskSpec {
   auto const fileName = vids[index].filename().string();
   return taskexec::TaskSpec{
-    .id = std::format("probe:{}", collisionnaming::stablePathString(vids[index])),
+    .id = std::format("probe:{}", collisionnaming::pathIdentityString(vids[index])),
     .label = fileName,
     .input = vids[index].string(),
     // NOLINTNEXTLINE(bugprone-exception-escape): taskexec::runTasks catches

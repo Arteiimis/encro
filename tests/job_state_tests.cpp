@@ -899,13 +899,41 @@ TEST_CASE("encode and archive task ids use normalized path form", "[job-state]")
 
   auto const encodeTask = jobstate::makeEncodeTask(input, output);
   CHECK(
-    encodeTask.id == std::format("encode:{}", collisionnaming::stablePathString(input))
+    encodeTask.id == std::format("encode:{}", collisionnaming::pathIdentityString(input))
   );
 
   auto const archiveTask = jobstate::makeArchiveTask(zip, std::array{input}, "label");
   CHECK(
-    archiveTask.id == std::format("archive:{}", collisionnaming::stablePathString(zip))
+    archiveTask.id == std::format("archive:{}", collisionnaming::pathIdentityString(zip))
   );
+}
+
+TEST_CASE("inputs differing only in case stay distinct tasks", "[job-state]") {
+  TempDir temp;
+  auto const statePath = temp.path / "encro.job-state.json";
+  auto const lowerPath = temp.path / "dir" / "a.mp4";
+  auto const upperPath = temp.path / "dir" / "A.mp4";
+  writeTextFile(lowerPath);
+  writeTextFile(upperPath);
+
+  auto store = jobstate::Store{statePath};
+  REQUIRE(store.initialize(makeConfig(lowerPath, statePath), false));
+  store.mergeTasks(
+    std::array{
+      jobstate::makeEncodeTask(lowerPath, temp.path / "out" / "a.mp4"),
+      jobstate::makeEncodeTask(upperPath, temp.path / "out" / "A.mp4"),
+    }
+  );
+
+  auto const tasks = store.tasks();
+#if defined(_WIN32)
+  // One case-insensitive file: both spellings are one task.
+  CHECK(tasks.size() == 1);
+#else
+  // Two files on disk: two tasks, so neither can be recovered as the other.
+  REQUIRE(tasks.size() == 2);
+  CHECK(tasks[0].id != tasks[1].id);
+#endif
 }
 
 // ── 3.7 — the packed-output dir is part of the job identity ─────────────────

@@ -261,8 +261,8 @@ void pack::Packer::packSourceEntryChunks(
 auto pack::Packer::buildPackEntryStableKey(PackFileEntry const& entry) -> std::string {
   return std::format(
     "{}|{}",
-    naming::stablePathString(entry.sourcePath),
-    naming::stablePathString(fs::path{entry.zipEntryName})
+    naming::pathIdentityString(entry.sourcePath),
+    naming::pathIdentityString(fs::path{entry.zipEntryName})
   );
 }
 
@@ -556,7 +556,8 @@ auto pack::Packer::groupPackEntries(
     preparedEntries.emplace_back(
       PreparedPackEntry{
         .entry = input.entry,
-        .sourceKey = input.sourceKey.value_or(naming::stablePathString(input.sourceDir)),
+        .sourceKey =
+          input.sourceKey.value_or(naming::pathIdentityString(input.sourceDir)),
         .fileKey = input.fileKey.value_or(buildPackEntryStableKey(input.entry)),
         .fileSize = fs::file_size(input.entry.sourcePath),
       }

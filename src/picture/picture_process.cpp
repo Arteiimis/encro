@@ -173,7 +173,7 @@ auto collectFolderSummaryPictures(
     auto const relativeParent = filePath.parent_path().lexically_relative(dirPath);
     if (relativeParent.empty() || relativeParent == fs::path{"."}) { continue; }
 
-    auto const dirKey = naming::stablePathString(filePath.parent_path());
+    auto const dirKey = naming::pathIdentityString(filePath.parent_path());
     picturesByDirKey[dirKey].push_back(filePath);
   }
 
@@ -280,8 +280,8 @@ auto buildPackEntryInputs(
             .isSummary = true,
           },
         .sourceDir = summaryPic.parent_path(),
-        .sourceKey = naming::stablePathString(summaryPic.parent_path()),
-        .fileKey = naming::stablePathString(summaryPic),
+        .sourceKey = naming::pathIdentityString(summaryPic.parent_path()),
+        .fileKey = naming::pathIdentityString(summaryPic),
         .isSummary = true,
       }
     );
@@ -302,8 +302,8 @@ auto buildPackEntryInputs(
             .zipEntryName = resolved->second,
           },
         .sourceDir = picPath.parent_path(),
-        .sourceKey = naming::stablePathString(picPath.parent_path()),
-        .fileKey = naming::stablePathString(picPath),
+        .sourceKey = naming::pathIdentityString(picPath.parent_path()),
+        .fileKey = naming::pathIdentityString(picPath),
       }
     );
   }
@@ -425,8 +425,8 @@ auto appendVideoPackInputs(
             .zipEntryName = item.entryName,
           },
         .sourceDir = sourceDir,
-        .sourceKey = naming::stablePathString(sourceDir),
-        .fileKey = naming::stablePathString(item.sourcePath),
+        .sourceKey = naming::pathIdentityString(sourceDir),
+        .fileKey = naming::pathIdentityString(item.sourcePath),
       }
     );
   }

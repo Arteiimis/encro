@@ -559,7 +559,7 @@ bool runSegmentedEncoding(
   std::size_t workerCount
 ) {
   auto const taskId = state.actionId.value_or(
-    std::format("encode:{}", collisionnaming::stablePathString(state.inputPath))
+    std::format("encode:{}", collisionnaming::pathIdentityString(state.inputPath))
   );
   auto const workRootRes = workdirs::resolveWorkRoot(ctx.config);
   if (!workRootRes) { return failEncoding(state, workRootRes.error()); }
