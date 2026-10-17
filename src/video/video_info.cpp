@@ -28,6 +28,11 @@ namespace {
 // Video extensions both workflows recognize, and the WebP input size limit
 // (inputs at or above it are not converted). Module-private: the video scan and
 // the picture run's conversion scan are the only consumers.
+//
+// The container set packs already store (pack::kStoredMediaExtensions' video
+// entries) plus .m2ts, which only the scan knows: a file one workflow treats as
+// video must never be silently refused by the other. `[media-scanner]` pins
+// the containment.
 constexpr auto kVideoTypes = std::array{
   ".mp4"sv,
   ".mkv"sv,
@@ -35,6 +40,13 @@ constexpr auto kVideoTypes = std::array{
   ".mov"sv,
   ".flv"sv,
   ".wmv"sv,
+  ".webm"sv,
+  ".m4v"sv,
+  ".ts"sv,
+  ".mpg"sv,
+  ".mpeg"sv,
+  ".3gp"sv,
+  ".m2ts"sv,
 };
 constexpr std::uintmax_t kWebpInputMaxSize = 32ULL * 1024ULL * 1024ULL;
 

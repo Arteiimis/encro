@@ -47,15 +47,15 @@ Each group is one commit: the failing test first (RED), the fix, then the checkb
 
 ## 8. Video container set (spec `media-scan`)
 
-- [ ] 8.1 RED: add `tests/video_info_tests.cpp` case naming a `.webm` file directly and asserting it is collected; verify: it fails today.
-- [ ] 8.2 Extend `kVideoTypes` with `.webm`, `.m4v`, `.ts`, `.m2ts`, `.mpg`, `.mpeg`, `.3gp`; verify: 8.1 passes plus a directory-scan case finding `.webm`/`.mkv` and a case rejecting `.srt`/`.txt`.
-- [ ] 8.3 Verify the two lists agree one way: every video extension in `kStoredMediaExtensions` (`src/pack/pack_types.h`) is a video input; verify: a case in `tests/media_scanner_tests.cpp` (tag `[media-scanner]`) comparing `videoinfo::videoExtensions()` against that array's video entries.
+- [x] 8.1 RED: add `tests/video_info_tests.cpp` case naming one file per new container directly and asserting each is collected, plus a `.srt` that stays out; verify: the `.webm`/`.m4v`/`.ts`/`.m2ts`/`.mpg`/`.mpeg`/`.3gp` rows failed before 8.2 (`readAllVids` returned empty).
+- [x] 8.2 Extend `kVideoTypes` with `.webm`, `.m4v`, `.ts`, `.m2ts`, `.mpg`, `.mpeg`, `.3gp`; the same set applies to a named file and to a directory scan because both go through `media::extensionMatches`. Verify: 8.1 passes, and the existing directory-scan cases stay green.
+- [x] 8.3 Verify the two lists agree one way: `kStoredMediaExtensions`' video entries are spelled out as `kVideoStoredExtensions` (`src/pack/pack_types.h`), and a `[media-scanner]` case in `tests/video_info_tests.cpp` asserts every one of them is a video input — plus that the whitelist still carries each of them, so a stale copy cannot make the check vacuous.
 
 ## 9. Packer: work directory and dead code (spec `pack-media-store`)
 
-- [ ] 9.1 RED: add `tests/pack_execute_tests.cpp` case packing a root containing `.encro/job-state.json` and asserting no archive entry is under `.encro`, plus a case asserting `.config/app.json` is still packed; verify: the first fails today.
-- [ ] 9.2 Filter `.encro` directories out of the packer's walk; verify: 9.1 passes, including a case where a subdirectory carries its own `.encro`.
-- [ ] 9.3 Delete the unused `ZipWriter` struct and confirm the two `packFilesToZip` overloads still close their archive on every path; verify: `xmake build encro` plus the existing packer cases.
+- [x] 9.1 RED: add `tests/pack_execute_tests.cpp` case planning a pack of a root holding `.encro/job-state.json`, a nested `sub/.encro` and `.config/app.json`, asserting no planned entry is under any `.encro` while `.config/app.json`, `.gitignore` and `sub/clip.mp4` are planned; verify: it failed before 7.3's walk change (every `.encro` file was planned).
+- [x] 9.2 Filter `.encro` directories out of the packer's walk (`media::listFiles`' skipped-name list); verify: 9.1 passes, including the nested case, and dot entries that are not `.encro` stay packed.
+- [x] 9.3 Delete the unused `ZipWriter` struct; verify: `xmake build tests` plus the existing packer and pack-execute cases stay green (the struct had no callers; both `packFilesToZip` overloads close their archive directly).
 
 ## 10. Prompt with no readable stdin (spec `console-output-conventions`)
 

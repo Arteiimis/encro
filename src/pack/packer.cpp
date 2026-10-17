@@ -51,30 +51,6 @@ auto readableFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t>
   return size;
 }
 
-struct ZipWriter {
-  libzippp::ZipArchive zip;
-  bool opened = false;
-
-  explicit ZipWriter(std::string const& path): zip(path) { }
-
-  void open() {
-    zip.open(libzippp::ZipArchive::New);
-    opened = true;
-  }
-
-  ~ZipWriter() {
-    if (opened) {
-      try {
-        zip.close();
-      } catch (...) { /* NOLINT(bugprone-empty-catch): destructor must never throw */
-      }
-    }
-  }
-
-  ZipWriter(ZipWriter const&) = delete;
-  ZipWriter& operator=(ZipWriter const&) = delete;
-};
-
 }  // namespace
 
 struct pack::Packer::PreparedPackEntry {

@@ -30,6 +30,41 @@
 
 namespace fs = std::filesystem;
 
+TEST_CASE("a directory pack never packs the program's work directory", "[packer]") {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  auto const sub = root / "sub";
+  fs::create_directories(root / ".encro" / "segments");
+  fs::create_directories(sub / ".encro");
+  fs::create_directories(root / ".config");
+  testutils::writeTextFile(root / ".encro" / "job-state.json", "state");
+  testutils::writeTextFile(root / ".encro" / "segments" / "seg_0.ts", "segment");
+  testutils::writeTextFile(sub / ".encro" / "job-state.json", "nested-state");
+  testutils::writeTextFile(sub / "clip.mp4", "clip");
+  testutils::writeTextFile(root / ".config" / "app.json", "config");
+  testutils::writeTextFile(root / ".gitignore", "ignored");
+
+  auto const plan = pack::Packer{}.buildDirectoryPackPlan(root, temp.path / "packed");
+  REQUIRE(plan);
+
+  auto names = std::vector<std::string>{};
+  for (auto const& group: plan->groups) {
+    for (auto const& entry: group) {
+      names.emplace_back(entry.sourcePath.lexically_relative(root).generic_string());
+    }
+  }
+  std::ranges::sort(names);
+
+  CHECK(std::ranges::none_of(names, [](std::string const& name) {
+    return name.starts_with(".encro") || name.find("/.encro") != std::string::npos;
+  }));
+  // Other hidden entries stay: packing a user tree keeps its dotfiles,
+  // whatever depth they sit at.
+  CHECK(std::ranges::find(names, ".config/app.json") != names.end());
+  CHECK(std::ranges::find(names, ".gitignore") != names.end());
+  CHECK(std::ranges::find(names, "sub/clip.mp4") != names.end());
+}
+
 TEST_CASE("a pack skips a file that vanished and does not throw", "[packer]") {
   TempDir temp;
   auto const dir = temp.path / "input";
