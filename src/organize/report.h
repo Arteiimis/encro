@@ -32,6 +32,9 @@ struct ReportData {
   std::size_t copied = 0;
   std::size_t skippedExisting = 0;
   std::size_t cacheHits = 0;
+  // A dry run counted destinations instead of copies: the totals line words
+  // the copy count as what a real run would do.
+  bool dryRun = false;
   std::vector<std::string> copyErrors;  // per-file copy failures; visible in report
   // First-level dispositions; empty outside incremental runs, so the
   // disposition summary is an incremental-only report section.

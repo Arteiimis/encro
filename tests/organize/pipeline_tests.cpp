@@ -381,9 +381,42 @@ TEST_CASE("dry run reports but copies nothing", "[organize]") {
   options.dryRun = true;
   auto const report = organize::runOrganize(options, engine, features, nullptr);
   REQUIRE(report.has_value());
-  CHECK(report->copied == 0);
+  // Nothing is copied; the counter is the destination the run would use.
+  CHECK(report->copied == 1);
+  CHECK(report->dryRun);
   CHECK(report->folders.size() == 1);
   CHECK(!fs::exists(temp.path / "organized" / "hatsune_miku"));
+}
+
+TEST_CASE("a dry run counts what a real run would copy and skip", "[organize]") {
+  auto temp = TempDir{};
+  testutils::writeTextFile(temp.path / "miku.png", "miku");
+  testutils::writeTextFile(temp.path / "rin.png", "rin");
+
+  auto engine = FakeTagger{};
+  auto features = FakeFeatureEngine{};
+  engine.byName["miku.png"] = {.character = {tag("hatsune_miku", 0.9)}};
+  engine.byName["rin.png"] = {.character = {tag("kagamine_rin", 0.9)}};
+
+  auto options = makeOptions(temp.path);
+  REQUIRE(organize::runOrganize(options, engine, features, nullptr));
+
+  // Both images now sit at their destinations; one more arrives.
+  testutils::writeTextFile(temp.path / "miku_new.png", "miku2");
+  engine.byName["miku_new.png"] = {.character = {tag("hatsune_miku", 0.9)}};
+
+  options.dryRun = true;
+  auto const report = organize::runOrganize(options, engine, features, nullptr);
+  REQUIRE(report.has_value());
+  CHECK(report->copied == 1);           // miku_new.png would be copied
+  CHECK(report->skippedExisting == 2);  // miku.png and rin.png are already there
+  CHECK(fs::exists(temp.path / "organized" / "hatsune_miku" / "miku.png"));
+  CHECK_FALSE(fs::exists(temp.path / "organized" / "hatsune_miku" / "miku_new.png"));
+
+  auto const rendered = organize::renderReport(*report, 120);
+  CHECK(rendered.find("would copy 1") != std::string::npos);
+  CHECK(rendered.find("would skip 2") != std::string::npos);
+  CHECK(rendered.find("copied ") == std::string::npos);
 }
 
 TEST_CASE("re-run resumes from cache without re-classifying", "[organize]") {

@@ -187,11 +187,14 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
   }
 }
 
+// `skippedHevcCount`, when given, receives how many files the HEVC filter
+// dropped, so the caller can say so instead of quietly encoding fewer files.
 auto finalizeVideoList(
   appctx::AppConfig const& config,
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
-  std::span<fs::path const> vids
+  std::span<fs::path const> vids,
+  std::size_t* skippedHevcCount = nullptr
 ) -> std::vector<fs::path> {
   if (vids.empty()) { return {}; }
 
@@ -233,10 +236,16 @@ auto finalizeVideoList(
 
   auto filtered = std::vector<fs::path>{};
   filtered.reserve(vids.size());
+  auto skipped = std::size_t{0};
   for (auto index = std::size_t{0}; index < vids.size(); ++index) {
-    if (keep[index] == 1) { filtered.emplace_back(vids[index]); }
+    if (keep[index] == 1) {
+      filtered.emplace_back(vids[index]);
+      continue;
+    }
+    ++skipped;
   }
 
+  if (skippedHevcCount != nullptr) { *skippedHevcCount = skipped; }
   return filtered;
 }
 
@@ -549,12 +558,13 @@ std::vector<fs::path> finalizeScannedVids(
   appctx::AppConfig const& config,
   appctx::ToolchainPaths const& toolchain,
   appctx::RuntimeContext& runtime,
-  std::vector<fs::path> vids
+  std::vector<fs::path> vids,
+  std::size_t* skippedHevcCount = nullptr
 ) {
   if (vids.empty()) { return vids; }
 
   if (config.outputFormat == "mp4") {
-    return finalizeVideoList(config, toolchain, runtime, vids);
+    return finalizeVideoList(config, toolchain, runtime, vids, skippedHevcCount);
   }
 
   if (config.outputFormat == "webp") {
@@ -597,7 +607,26 @@ auto readAllVids(
 
   if (vids.empty()) { return vids; }
 
-  return finalizeScannedVids(config, toolchain, runtime, std::move(vids));
+  auto skippedHevc = std::size_t{0};
+  auto filtered =
+    finalizeScannedVids(config, toolchain, runtime, std::move(vids), &skippedHevc);
+  // A scan that silently encodes fewer files than the directory holds is
+  // indistinguishable from one that lost them: say so, once, for directory
+  // roots only (a file named on the command line reports itself).
+  if (skippedHevc != 0) {
+    terminal::messageln(
+      terminal::MessageKind::Hint,
+      "Skipped {} video(s) already encoded as HEVC; they are not encoded again.",
+      terminal::count(skippedHevc)
+    );
+    LOG_INFO(
+      "Skipped {} video(s) already encoded as HEVC under {}",
+      skippedHevc,
+      dirPath.string()
+    );
+  }
+
+  return filtered;
 }
 
 auto readAllVidsFromFiles(

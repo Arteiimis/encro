@@ -65,13 +65,13 @@ Each group is one commit: the failing test first (RED), the fix, then the checkb
 
 ## 11. Already-HEVC scan hint (spec `pipeline-narration`)
 
-- [ ] 11.1 RED: add a `tests/video_info_tests.cpp` case scanning a directory where the fake ffprobe reports two HEVC files among five and asserting one hint line naming the count; verify: it fails today (only a debug log).
-- [ ] 11.2 Return the dropped count from the HEVC filter and print the single hint from the directory-scan path; verify: 11.1 passes, a no-skip case prints no line, and the single-file message stays unchanged.
+- [x] 11.1 RED: add a `tests/video_info_tests.cpp` case scanning a directory of five clips the fake probe reports as HEVC and asserting exactly one hint line naming the count and the reason, plus a no-skip section asserting no hint at all; verify: both went red before 11.2 (no line printed), and the first cut printed nothing because `Info` messages go to stdout while the requirement puts the hint on stderr — the hint uses `MessageKind::Hint`, which is the severity kind that lands on stderr.
+- [x] 11.2 Return the dropped count from the HEVC filter (`finalizeVideoList`'s out-parameter, threaded through `finalizeScannedVids`) and print the single hint from `readAllVids`' directory branch only, so a file named on the command line keeps its existing message; verify: 11.1 passes and the existing scan suites stay green.
 
 ## 12. Dry-run counts (spec `image-character-organize`)
 
-- [ ] 12.1 RED: add `tests/organize/pipeline_tests.cpp` case running a dry run where one image is already at its destination with identical content and another is not, asserting one skipped and one would-copy in the report; verify: it fails today (both counters are zero).
-- [ ] 12.2 Count destination decisions in a dry run and word the totals line conditionally; verify: 12.1 passes, and the real-run report wording is unchanged.
+- [x] 12.1 RED: add a `tests/organize/pipeline_tests.cpp` case that runs a real organize, adds one new image, then dry-runs: one would-copy, two already-there, and the rendered totals line reading `would copy`/`would skip`; verify: it went red before 12.2 (both counters were zero and the line claimed `copied 0`).
+- [x] 12.2 Resolve the destination identically in a dry run (the identity check included), count the decision, add `ReportData::dryRun` and word the totals line conditionally; verify: 12.1 passes, the real-run wording stays byte-identical, and the two existing dry-run cases (`tests/organize/pipeline_tests.cpp`, `tests/organize/stage_tests.cpp`) now assert the counted destination instead of a zero copy count.
 
 ## 13. Integration verification
 

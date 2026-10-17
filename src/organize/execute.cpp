@@ -43,11 +43,14 @@ bool finalizeCopy(fs::path const& staged, fs::path const& destination) {
 
 // How many copies of "<stem><ext>" already exist in the folder; the next
 // free slot for a different-content collision is stem_<n><ext>.
-auto resolveDestination(fs::path const& folderDir, ImageItem const& item, bool dryRun)
+//
+// The same answer for a dry run as for a real one: which destination an image
+// would land in is exactly what a dry run is meant to report.
+auto resolveDestination(fs::path const& folderDir, ImageItem const& item)
   -> std::optional<fs::path> {
   auto ec = std::error_code{};
   auto destination = folderDir / item.path.filename();
-  if (dryRun || !fs::exists(destination, ec)) { return destination; }
+  if (!fs::exists(destination, ec)) { return destination; }
 
   // Same-named file already there: identical content is a no-op, a
   // different one keeps both via a numeric suffix.
@@ -91,12 +94,16 @@ auto executeOrganize(
       item.folderName.empty() ? fs::path{kUncategorizedFolder} : item.folderName;
 
     auto const folderDir = outputRoot / folder;
-    auto const destination = resolveDestination(folderDir, item, dryRun);
+    auto const destination = resolveDestination(folderDir, item);
     if (!destination.has_value()) {
       ++stats.skippedExisting;
       continue;
     }
-    if (dryRun) { continue; }
+    if (dryRun) {
+      // Counted, not copied: the report says what a real run would do.
+      ++stats.copied;
+      continue;
+    }
 
     // Stage the bytes first: a failed copy must not leave an empty folder
     // behind (strict lazy creation, design D7).
