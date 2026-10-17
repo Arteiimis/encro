@@ -288,7 +288,7 @@ auto runPackTaskPlan(
     auto const label = internal::defaultProgressLabelForZipName(zipName);
 
     tasks.push_back({
-      .id = std::format("archive:{}", collisionnaming::stablePathString(zipPath)),
+      .id = std::format("archive:{}", collisionnaming::pathIdentityString(zipPath)),
       .label = label,
       .input = zipPath.string(),
       // NOLINTNEXTLINE(bugprone-exception-escape): taskexec::runTasks catches

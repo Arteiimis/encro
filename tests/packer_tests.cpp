@@ -569,6 +569,36 @@ TEST_CASE(
   CHECK_FALSE(pack::shouldStoreEntry(fs::path{"noext"}));
 }
 
+TEST_CASE("pack grouping keys follow path identity", "[packer]") {
+  TempDir temp;
+  auto const lowerPath = testutils::writeSizedFile(temp.path / "a.bin", 16);
+  auto const upperPath = temp.path / "A.bin";
+
+  auto const entries = std::vector<PackEntryInput>{
+    PackEntryInput{
+      .entry = pack::PackFileEntry{.sourcePath = lowerPath, .zipEntryName = "x.bin"},
+      .sourceDir = temp.path,
+    },
+    PackEntryInput{
+      .entry = pack::PackFileEntry{.sourcePath = upperPath, .zipEntryName = "x.bin"},
+      .sourceDir = temp.path,
+    },
+  };
+
+  // keepSourceDirsTogether with a threshold below the entry count sorts by the
+  // derived grouping keys, so the resulting order exposes the key rule.
+  auto const groups =
+    pack::Packer{}
+      .groupPackEntries(entries, std::uintmax_t{1} << 30, std::nullopt, std::size_t{0});
+  REQUIRE(groups.size() == 1);
+  auto const paths = sourcePaths(groups.front());
+  REQUIRE(paths.size() == 2);
+#if !defined(_WIN32)
+  // Case-sensitive keys: 'A' sorts before 'a', so the inputs are reordered.
+  CHECK(paths.front() == upperPath);
+#endif
+}
+
 TEST_CASE("pack stores media entries and deflates non-media", "[packer][store]") {
   TempDir temp;
   auto const mediaFile = testutils::writeSizedFile(temp.path / "clip.mp4", 128);

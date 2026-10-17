@@ -13,11 +13,26 @@ namespace collisionnaming {
 
 namespace fs = std::filesystem;
 
+// Ordering key: folds case everywhere so every sort site shares one total
+// order. Identity uses pathIdentityString below, which folds only where the
+// filesystem does.
 inline auto stablePathString(fs::path const& path) -> std::string {
   auto normalized = path.lexically_normal().generic_string();
   std::ranges::transform(normalized, normalized.begin(), [](unsigned char ch) {
     return static_cast<char>(std::tolower(ch));
   });
+  return normalized;
+}
+
+// Identity key: two paths name the same file exactly when the filesystem says
+// so, so case folds only on the platform whose filesystem folds it.
+inline auto pathIdentityString(fs::path const& path) -> std::string {
+  auto normalized = path.lexically_normal().generic_string();
+#if defined(_WIN32)
+  std::ranges::transform(normalized, normalized.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+#endif
   return normalized;
 }
 
@@ -37,7 +52,7 @@ inline std::uint32_t fnv1a32(std::string_view text) {
 }
 
 inline auto shortPathHash(fs::path const& path) -> std::string {
-  return std::format("{:08x}", fnv1a32(stablePathString(path)));
+  return std::format("{:08x}", fnv1a32(pathIdentityString(path)));
 }
 
 inline auto sanitizeLabel(std::string_view text) -> std::string {

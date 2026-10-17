@@ -153,7 +153,7 @@ auto optionalStringArrayFrom(json::object const& object, std::string_view key)
 auto toFingerprintToken(fs::path const& path) -> std::string {
   return std::format(
     "{}#{}#{}",
-    collisionnaming::stablePathString(path),
+    collisionnaming::pathIdentityString(path),
     inputSize(path)
       .transform([](auto value) { return std::to_string(value); })
       .value_or("missing"),
@@ -176,7 +176,7 @@ auto buildFingerprint(
   }
   payload += "|dst=";
   for (auto const& path: targetPaths) {
-    payload += collisionnaming::stablePathString(path);
+    payload += collisionnaming::pathIdentityString(path);
     payload += ';';
   }
   return collisionnaming::shortPathHash(payload);
@@ -581,7 +581,7 @@ auto makeEncodeTask(fs::path const& inputPath, fs::path const& plannedOutputFile
   auto const targetPaths = std::vector<fs::path>{plannedOutputFile};
 
   return TaskRecord{
-    .id = std::format("encode:{}", collisionnaming::stablePathString(inputPath)),
+    .id = std::format("encode:{}", collisionnaming::pathIdentityString(inputPath)),
     .kind = std::string{kEncodeVideoKind},
     .status = TaskStatus::Pending,
     .label = inputPath.filename().string(),
@@ -608,7 +608,7 @@ auto makeArchiveTask(
   auto const targetPaths = std::vector<fs::path>{archiveFile};
 
   return TaskRecord{
-    .id = std::format("archive:{}", collisionnaming::stablePathString(archiveFile)),
+    .id = std::format("archive:{}", collisionnaming::pathIdentityString(archiveFile)),
     .kind = std::string{kBuildArchiveKind},
     .status = TaskStatus::Pending,
     .label = std::move(label),

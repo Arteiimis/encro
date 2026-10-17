@@ -74,7 +74,7 @@ auto outcomeStyle(TaskOutcome outcome) -> OutcomeStyle {
 
 auto enumerateSubfolders(fs::path const& root, fs::path const& packedRoot)
   -> eh::Result<std::vector<fs::path>> {
-  auto const packedKey = collisionnaming::stablePathString(packedRoot);
+  auto const packedKey = collisionnaming::pathIdentityString(packedRoot);
   auto subfolders = std::vector<fs::path>{};
 
   auto ec = std::error_code{};
@@ -85,7 +85,7 @@ auto enumerateSubfolders(fs::path const& root, fs::path const& packedRoot)
     if (ec) { break; }
     auto const& path = entry.path();
     if (media::isHiddenEntry(path)) { continue; }
-    if (collisionnaming::stablePathString(path) == packedKey) { continue; }
+    if (collisionnaming::pathIdentityString(path) == packedKey) { continue; }
     if (!entry.is_directory(ec)) { continue; }
     subfolders.push_back(path);
   }

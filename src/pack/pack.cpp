@@ -177,8 +177,8 @@ auto collectPackInputs(PackRequest const& request)
           .zipEntryName = std::move(zipName),
         },
       .sourceDir = entry.parent_path(),
-      .sourceKey = naming::stablePathString(entry.parent_path()),
-      .fileKey = naming::stablePathString(entry),
+      .sourceKey = naming::pathIdentityString(entry.parent_path()),
+      .fileKey = naming::pathIdentityString(entry),
     });
   }
   return packInputs;
@@ -201,8 +201,8 @@ void appendSummaryEntries(
           .isSummary = true,
         },
       .sourceDir = summaryEntry.sourcePath.parent_path(),
-      .sourceKey = naming::stablePathString(summaryEntry.sourcePath.parent_path()),
-      .fileKey = naming::stablePathString(summaryEntry.sourcePath),
+      .sourceKey = naming::pathIdentityString(summaryEntry.sourcePath.parent_path()),
+      .fileKey = naming::pathIdentityString(summaryEntry.sourcePath),
       .isSummary = true,
     });
   }
