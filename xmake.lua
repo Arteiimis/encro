@@ -41,6 +41,12 @@ if is_mode("releasedbg") then
 end
 
 if is_plat("windows") then
+  -- utf-8 both ways. clang-cl defaults to the system code page for source and
+  -- execution character sets, so on an English-locale machine a UTF-8 literal
+  -- like "初音ミク" is split into single bytes and every non-ASCII comparison
+  -- fails. Linux clang defaults to UTF-8, so this only ever showed up on
+  -- Windows — first when CI ran the suite there.
+  add_cxxflags("/utf-8")
   add_defines("NOMINMAX")
   add_defines("WIN32_LEAN_AND_MEAN")
   -- C++26 hardened MSVC STL: precondition violations trap (ud2 under clang-cl,
