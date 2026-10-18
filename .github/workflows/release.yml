@@ -1,0 +1,141 @@
+name: release
+
+# Entry points (design D5):
+#   workflow_dispatch mode=dry-run  build both platforms, publish nothing
+#   workflow_dispatch mode=publish  publish a named tag (also: tag push)
+#   workflow_dispatch mode=backfill record missing entries up to a version
+#
+# A tag push cannot trigger a workflow that did not exist at the tagged commit,
+# which is why the manual paths exist rather than being a convenience.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry-run builds both platforms and publishes nothing'
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+
+concurrency:
+  # Never cancel a release in flight: half-published assets are exactly what
+  # this workflow exists to prevent.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# xmake disables its content-addressed build cache when CI=true unless this is
+# set (see ci.yml for the same reason).
+env:
+  XMAKE_ACTION_BUILD_CACHE: '1'
+
+jobs:
+  windows:
+    name: windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The tag-contract script reads `git tag -l` and
+          # `git rev-list main --first-parent`; a default shallow checkout has
+          # neither, so the gate would fail on its first line.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Report the toolchain the runner provides
+        shell: pwsh
+        run: |
+          xmake --version
+          clang-cl --version
+          lld-link --version
+          llvm-ar --version
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - uses: actions/cache/restore@v6
+        id: xmake-cache
+        with:
+          # The ONNX package downloads a prebuilt runtime and unpacks a tree
+          # several times its size; paying that on every run is the difference
+          # between a usable pipeline and an unusable one.
+          path: ~/.xmake/packages
+          key: xmake-packages-${{ hashFiles('xmake.lua') }}
+          restore-keys: |
+            xmake-packages-
+
+      - name: Configure
+        run: xmake f -m release -y
+
+      - name: Build
+        timeout-minutes: 60
+        run: xmake build -vD encro
+
+      - name: Locate the VC redistributable source
+        shell: pwsh
+        run: |
+          # The five DLLs the package ships must come from the Visual Studio
+          # redistributable directory, so their version follows the build
+          # rather than the machine. Never from C:\Windows\System32.
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere not found" }
+          $vsPath = & $vswhere -latest -products * -property installationPath
+          "VS install: $vsPath"
+          $crt = Get-ChildItem (Join-Path $vsPath 'VC\Redist\MSVC') -Recurse -Directory -Filter 'Microsoft.VC*.CRT' |
+            Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $crt) { throw "no x64 VC redistributable directory under $vsPath" }
+          "redist dir: $($crt.FullName)"
+          $wanted = 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'
+          foreach ($n in $wanted) {
+            $f = Join-Path $crt.FullName $n
+            if (Test-Path $f) { '{0,-30} {1,9} bytes' -f $n, (Get-Item $f).Length }
+            else { throw "$n missing from $($crt.FullName)" }
+          }
+
+      - name: Save xmake packages cache
+        # Save even when the job failed, or every run pays the full download.
+        if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.xmake/packages
+          key: xmake-packages-${{ hashFiles('xmake.lua') }}
+
+  linux:
+    name: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - uses: actions/cache/restore@v6
+        id: xmake-cache
+        with:
+          path: ~/.xmake/packages
+          key: xmake-packages-${{ hashFiles('xmake.lua') }}
+          restore-keys: |
+            xmake-packages-
+
+      - name: Install toolchain and dependencies
+        timeout-minutes: 10
+        run: bash scripts/setup-linux-env.sh
+
+      - name: Configure
+        run: xmake f -m release -y
+
+      - name: Build
+        timeout-minutes: 60
+        run: xmake build -vD encro
+
+      - name: Save xmake packages cache
+        if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.xmake/packages
+          key: xmake-packages-${{ hashFiles('xmake.lua') }}
