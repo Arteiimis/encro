@@ -60,13 +60,13 @@ jobs:
       - name: Pin xmake's global directory to a path the cache can name
         shell: pwsh
         run: |
-          # xmake prefers %APPDATA%\.xmake over ~/.xmake on Windows when that
-          # directory exists, so `~/.xmake/packages` can be an empty path and the
-          # cache silently stores nothing. Pinning it makes the cached path and
-          # the real one identical on both platforms.
-          $global = Join-Path $env:USERPROFILE ".xmake"
-          "XMAKE_GLOBALDIR=$global" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "pinned: $global"
+          # xmake appends `.xmake` to XMAKE_GLOBALDIR, so the variable names the
+          # PARENT directory. Without this pin xmake prefers
+          # %APPDATA%\.xmake on Windows, which makes `~/.xmake/packages` an empty
+          # path and the cache silently stores nothing.
+          "XMAKE_GLOBALDIR=$env:USERPROFILE" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8NoBOM
+          "pinned XMAKE_GLOBALDIR=$env:USERPROFILE"
+          "expected packages dir: $env:USERPROFILE\.xmake\packages"
 
       - uses: actions/cache/restore@v6
         id: xmake-cache
@@ -144,8 +144,10 @@ jobs:
 
       - name: Pin xmake's global directory to a path the cache can name
         run: |
-          echo "XMAKE_GLOBALDIR=$HOME/.xmake" >> "$GITHUB_ENV"
-          echo "pinned: $HOME/.xmake"
+          # xmake appends `.xmake` to this variable, so it names the parent dir.
+          echo "XMAKE_GLOBALDIR=$HOME" >> "$GITHUB_ENV"
+          echo "pinned XMAKE_GLOBALDIR=$HOME"
+          echo "expected packages dir: $HOME/.xmake/packages"
 
       - uses: actions/cache/restore@v6
         id: xmake-cache
