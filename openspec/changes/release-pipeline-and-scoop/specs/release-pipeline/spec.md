@@ -82,18 +82,24 @@ Every tag that predates the project's distribution SHALL have a release entry on
 
 ### Requirement: The Windows artifact starts on a machine that has never seen encro
 
-The Windows artifact SHALL contain the executable and every library the executable loads at process start other than the operating system's own runtime libraries. Unpacking it into an empty directory and running it SHALL produce working output without any further download or installation beyond the documented external prerequisites.
+The Windows artifact SHALL contain the executable and every library the executable and the libraries it loads require at process start, other than components of the operating system itself. Unpacking it into an empty directory on a machine that has never run a Visual C++ program SHALL leave it runnable, with no download, installation or environment change beyond the documented external prerequisites.
 
 #### Scenario: The archive alone is enough to run
 
-- **WHEN** the Windows artifact is unpacked into an empty directory and the executable is run there
+- **WHEN** the Windows artifact is unpacked into an empty directory on a machine without the Visual C++ redistributable installed, and the executable is run there
 - **THEN** it starts and reports its version
 - **AND** it does not fail on a missing library
+
+#### Scenario: Operating-system components are not bundled
+
+- **WHEN** the Windows artifact's contents are listed
+- **THEN** it carries the runtime libraries that the Visual C++ redistributable provides
+- **AND** it does not carry components that ship with Windows itself
 
 #### Scenario: Libraries loaded only on demand stay out
 
 - **WHEN** the Windows artifact is inspected
-- **THEN** it contains the startup library the executable imports
+- **THEN** it contains the startup libraries the executable and its libraries import
 - **AND** it contains no GPU or provider libraries that are only loaded when an optional execution provider is requested
 
 ### Requirement: A package carries no build-time residue

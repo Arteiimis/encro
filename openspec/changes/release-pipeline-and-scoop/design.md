@@ -46,7 +46,7 @@ The version in the name comes from the single declaration in `xmake.lua`, not fr
 
 ### D3 — The package contains only what a user needs to run the tool
 
-Windows: `bin/encro.exe`, `bin/onnxruntime.dll`, `LICENSE`, `README.md`. Linux: `bin/encro`, `LICENSE`, `README.md`.
+Windows: `bin/encro.exe`, `bin/onnxruntime.dll`, the five VC-redistributable DLLs, `LICENSE`, `README.md`. Linux: `bin/encro`, `LICENSE`, `README.md`.
 
 Everything about that list was checked by packing the current tree rather than reasoned out, and two assumptions turned out wrong.
 
@@ -54,12 +54,13 @@ First, the runtime library is **already packaged automatically**. xpack installs
 
 Second, the debug symbols are kept out of the runtime archive and published beside it. `bin/encro.pdb` is 41.5 MB and would be most of the download for a file no one runs; xpack copies a target's symbol file into `bin/` unconditionally and the DSL offers no declarative exclude, so removing it from the runtime archive is an install-time hook. It is not discarded: the same file is uploaded as its own asset, because the project's own crash reporting promises that a Windows release build's stack traces resolve to `module!function`, and a user reporting a crash needs exactly the symbols their version was built with. Building from source would produce *different* symbols, so "buy a compiler" is not an answer.
 
-Third, and most consequential, the executable does not run on a clean machine even with its ONNX library present. Its import table names four VC-redistributable DLLs, so "the executable plus its startup library" is not a complete package. Three ways out, and the spike decides between them on evidence rather than preference:
+Third, and most consequential, the executable does not run on a clean machine even with its ONNX library present. Its import table names four VC-redistributable DLLs, and `onnxruntime.dll` — a prebuilt binary this project does not compile — names four of its own, so the union is five: `MSVCP140.dll`, `MSVCP140_1.dll`, `MSVCP140_ATOMIC_WAIT.dll`, `VCRUNTIME140.dll`, `VCRUNTIME140_1.dll`.
 
-- Static CRT (`set_runtimes("MT")`) — the package becomes truly dependency-free and gains a few hundred KB. Preferred if the build stays green, since it removes the problem instead of shipping it.
-- Package the four redistributable DLLs — reliable, but adds files whose licensing and provenance need stating in the README and keeps them in sync with whatever toolchain built the binary.
+Two facts narrow the choice. Static linking the CRT (`set_runtimes("MT")`) does **not** fix this: it only affects the executables this project compiles, while the ORT library keeps its dynamic dependency, so the package would still fail. And these are genuinely not operating-system libraries — the Universal C Runtime (`ucrtbase.dll` and the `api-ms-win-crt-*` forwarders) has shipped with Windows since 10, which is why those imports are ignorable, but the `VCRUNTIME140`/`MSVCP140` family is part of the Visual C++ Redistributable and is absent from a machine that has never installed one.
 
-A package-manager dependency is deliberately **not** on that list. The requirement is that the downloaded archive starts on a machine that has never seen encro, and "install something else first" is a different promise — it also only helps the reader who installs through the package manager, leaving the tarball user to work it out alone.
+The five DLLs are therefore packaged, taken from the Visual C++ redistributable directory that ships inside the Visual Studio installation used to build them (`<VS install>\VC\Redist\MSVC\<toolset>\x64\Microsoft.VC143.CRT\`), so the version is the one the build actually links against rather than whatever a given machine happens to have. They total 0.78 MB. Microsoft permits redistributing these files to licensed Visual Studio users, which this project is by construction — clang-cl builds against the MSVC toolchain — and the README says so.
+
+This is Microsoft's "local deployment", which they do not recommend for libraries that change often, because a locally deployed copy is not updated by Windows Update. For a runtime that changes rarely the trade is worth taking: the alternative makes the download incomplete, and the alternative to *that* — declaring a package-manager dependency — helps only the reader who installs through the package manager while leaving the tarball user to discover the problem from a loader error.
 
 Whichever wins, the requirement is the same: what is downloaded must start on a machine that has never seen encro. The spike's job is to find out which one satisfies it.
 
@@ -138,5 +139,5 @@ ffmpeg and ffprobe are stated in `notes`, not in `depends`. A `depends` entry wo
 ## Open Questions
 
 - The wall-clock cost of a cold `windows-latest` build, and whether the ORT cache key is right, is answered by the spike rather than assumed here.
-- Whether the executable also needs the MSVC runtime libraries (`vcruntime140.dll`, `msvcp140.dll`) at load time is unverified — clang-cl's default runtime linking was never checked, and the repository sets no `set_runtimes`. The spike measures it by running the unpacked archive on a machine without the redistributable; if it fails, D3's file list grows and the README's prerequisite section changes with it.
+- Whether the packaged archive really starts on a machine that has never had the Visual C++ redistributable installed. The imports are known and the five DLLs are bundled, but no round ever ran the archive on such a machine — task 2.4 does, and it is the only thing that proves the requirement rather than arguing it.
 - Whether a CUDA package variant is worth publishing is out of scope; the light package is defined so a future variant can be added without changing the naming scheme.
