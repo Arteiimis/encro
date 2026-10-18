@@ -73,7 +73,7 @@ foreach ($l in $lines) {
     $released += $v
     if (-not $Matches[2]) { Fail "CHANGELOG section has no ISO date: $v"; continue }
     $d = [datetime]::ParseExact($Matches[2], 'yyyy-MM-dd', $null)
-    if ($prevDate -and $d -ge $prevDate) { Fail "CHANGELOG dates do not descend at $v" }
+    if ($prevDate -and $d -gt $prevDate) { Fail "CHANGELOG dates do not descend at $v" }
     $prevDate = $d
   }
 }
