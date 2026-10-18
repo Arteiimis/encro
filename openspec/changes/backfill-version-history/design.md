@@ -66,22 +66,21 @@ Four breaking boundaries: 08-03, 08-19, 09-26, 09-28. Each is a real removal, re
 Four consecutive MAJOR bumps would produce `v2.0.0 → v5.0.0` for versions nobody ever installed. semver §9 exists for this: a pre-release "indicates that the version is unstable and might not satisfy the intended compatibility requirements". Every milestone after `v1.7.0` was never published, so each becomes a pre-release of the version the first release belongs to:
 
 ```
-v1.7.0                 05-23   (rebuilt from its original message)
-v2.0.0-alpha.1         08-03   cli-help-tiering            ← breaking
-v2.0.0-alpha.2..N      08-07…  positional input, structured logging, cross-platform build, …
-v2.0.0-alpha.N         08-19   consolidate-intermediates   ← breaking
-v2.0.0-beta.1..N       08-30…  probe/preview, persistent config, shell completion, organize v1, …
-v2.0.0-beta.N          09-26   unify-cancel-reporting      ← breaking
-v2.0.0-beta.N          09-28   identity-embedding          ← breaking
+v1.7.0                 05-23   logging milestone, last of the old line
+v2.0.0-alpha.1         08-03   cli-help-tiering                ← breaking
+v2.0.0-alpha.2         08-19   consolidate-intermediate-files  ← breaking
+v2.0.0-alpha.3         09-28   identity-embedding              ← breaking (also carries 09-26)
 v2.0.0-rc.1            10-05   organize-existing-structure
 v2.0.0                 10-18   first public release
 ```
 
-`alpha` covers the span where breaking changes are still landing; `beta` starts once the declared surfaces stop moving; `rc.1` is the last pre-release before the first publish. Precedence must read `alpha.1 < … < alpha.N < beta.1 < … < beta.N < rc.1 < 2.0.0`, and the claimed anchors must ascend in ancestry order (D4).
+Four pre-release tags is the floor: each of the three `alpha` tags ends a span whose last commit introduced an incompatible change — 08-03, 08-19, and 09-28, the last also covering 09-26's exit-code change — and `rc.1` marks the point after which only release preparation remained. A `beta` stage was considered and dropped: the last incompatible change landed 09-28, so a `beta.1` would split a three-week span containing no incompatible change, adding a tag that records nothing. Dropping `alpha.2` instead would leave the 08-19 job-state move without a tag of its own, which is the boundary D2 spent the most effort establishing.
+
+Precedence must read `alpha.1 < alpha.2 < alpha.3 < rc.1 < 2.0.0`, and the claimed anchors must ascend in ancestry order (D4).
 
 *Alternative rejected:* giving each breaking boundary its own MAJOR (`v2.0.0`, `v3.0.0`, `v4.0.0`, `v5.0.0`) — semver-legal but it makes the first scoop release `v5.0.0` and encodes four "releases" that never existed. *Alternative rejected:* collapsing everything since `v1.7.0` into a single `v2.0.0` — loses the milestone narrative the backfill exists for.
 
-Milestone granularity is the archived-change boundaries: one tag per archived change in a contiguous functional cluster, anchored at that change's functional close point per task 2.3, not one per commit. The exact anchor list is task 2.x output, not a design decision, so the total is `10 rebuilt + 3 early 0.x + N pre-release milestones + 1 normal release`; N is whatever task 2.3 lands, and every tag must satisfy D4. The changelog section count must equal the final tag count — no artifact states a number before 2.3 produces it.
+Milestone granularity is the breaking-change boundaries plus the release candidate: a tag wherever an incompatible change landed and one where only release preparation remained — not one per archived change and not one per commit. The exact anchor list is task 2.x output, not a design decision, so the total is `10 rebuilt + 3 early 0.x + 4 pre-release + 1 normal release = 18`; that count follows from D2's four boundaries and the first-public-release commitment rather than from a target, and every tag must satisfy D4. The changelog section count must equal the final tag count.
 
 ### D4 — Anchors are located by archaeology against the rewritten history
 
