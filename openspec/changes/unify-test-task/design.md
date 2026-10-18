@@ -54,7 +54,7 @@ Consequences handled explicitly: the requested shard count is clamped to the enu
 
 Paths: unit → `build/last-test-report.xml` and `build/last-test-console.log` (unchanged); e2e → `build/last-e2e-report.xml` and `build/last-e2e-console.log`.
 
-With more than one shard, the task writes each shard's own report and log under the run directory (`build/.test-parallel/<suite>/shard-N.{xml,log}`) and then builds the documented file: the report aggregate splices every shard's `<testsuite>…</testsuite>` block under one `<testsuites>` root, and the console aggregate concatenates the shard logs in shard order. With one shard the shard file *is* the documented file (written directly to that path).
+With more than one shard, the task writes each shard's own report and log under the run directory (`build/.test-parallel/<suite>/shard-N.{xml,log}`) and then builds the documented file: the report aggregate splices every shard's `<testsuite>…</testsuite>` block under one `<testsuites>` root, and the console aggregate concatenates the shard logs in shard order. With one shard the same aggregate holds that shard's single block, so the path and its shape do not depend on the mode.
 
 Rationale: the JUnit here is read by humans, by agents grepping `<failure>`, and by the task's own `failures=`/`errors=` verdict; a splice preserves each shard's own counts and needs no XML dependency or attribute arithmetic. Rejected alternative: rewriting one merged `<testsuite>` with summed attributes — more code, and it would discard the per-shard filter/seed properties that make a failure reproducible.
 

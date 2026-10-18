@@ -463,9 +463,9 @@ task("test-report")
 
     -- Spawn one process per shard without waiting: they all run concurrently,
     -- then a single wait pass collects every result. Each shard writes its own
-    -- console log (evidence and counts) and its own JUnit report (the verdict);
-    -- a one-shard suite writes them straight to the documented paths, so a
-    -- post-run read does not depend on the shard count.
+    -- console log (evidence and counts) and its own JUnit report (the verdict)
+    -- under the run directory; the documented paths then hold the aggregate, so
+    -- a post-run read does not depend on the shard count.
     local function spawn_shards(binary, shards, workdir, suite)
       local procs = {}
       for i, shard in ipairs(shards) do
@@ -901,7 +901,7 @@ task("test-report")
     end
     local running, skipped = split_by_work(suite_names, counts)
     for _, name in ipairs(skipped) do
-      cprint("${yellow}%s: skipped - the filter %q selects no case in this suite", name, filter)
+      cprint("${yellow}%s: skipped - the filter %q selects no case in this suite", name, filter or "")
       -- Remove the previous run's files: a post-run read of a documented path
       -- must not see a report this run never wrote.
       for _, stale in ipairs({documented[name].report, documented[name].console}) do
@@ -1000,9 +1000,7 @@ task("test-report")
     for _, plan in ipairs(plans) do
       local measured = {}
       for _, shard in ipairs(plan.shards) do
-        -- The shard's own log path: a one-shard suite writes the documented
-        -- console file instead, and reading the per-shard name there would
-        -- silently drop every measurement.
+        -- The shard's own log path, recorded when it was spawned.
         for name, seconds in pairs(parse_durations(read_content(shard.logfile) or "")) do
           if measured[name] == nil then
             measured[name] = seconds
