@@ -63,13 +63,27 @@ jobs:
           # The ONNX package downloads a prebuilt runtime and unpacks a tree
           # several times its size; paying that on every run is the difference
           # between a usable pipeline and an unusable one.
+          #
+          # runner.os is part of the key because the two platforms resolve
+          # different packages from the same xmake.lua: without it they fight
+          # over one entry and whichever saves first wins, leaving the Windows
+          # build to restore a package tree that has no ONNX runtime in it.
           path: ~/.xmake/packages
-          key: xmake-packages-${{ hashFiles('xmake.lua') }}
+          key: xmake-packages-${{ runner.os }}-${{ hashFiles('xmake.lua') }}
           restore-keys: |
-            xmake-packages-
+            xmake-packages-${{ runner.os }}-
 
       - name: Configure
         run: xmake f -m release -y
+
+      - name: Report the package cache size
+        shell: pwsh
+        run: |
+          $p = Join-Path $env:USERPROFILE ".xmake\packages"
+          if (Test-Path $p) {
+            $bytes = (Get-ChildItem $p -Recurse -File | Measure-Object Length -Sum).Sum
+            "packages: {0:N0} bytes" -f $bytes
+          } else { "packages dir does not exist" }
 
       - name: Build
         timeout-minutes: 60
@@ -102,7 +116,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ~/.xmake/packages
-          key: xmake-packages-${{ hashFiles('xmake.lua') }}
+          key: xmake-packages-${{ runner.os }}-${{ hashFiles('xmake.lua') }}
 
   linux:
     name: linux
@@ -121,9 +135,9 @@ jobs:
         id: xmake-cache
         with:
           path: ~/.xmake/packages
-          key: xmake-packages-${{ hashFiles('xmake.lua') }}
+          key: xmake-packages-${{ runner.os }}-${{ hashFiles('xmake.lua') }}
           restore-keys: |
-            xmake-packages-
+            xmake-packages-${{ runner.os }}-
 
       - name: Install toolchain and dependencies
         timeout-minutes: 10
@@ -141,4 +155,4 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ~/.xmake/packages
-          key: xmake-packages-${{ hashFiles('xmake.lua') }}
+          key: xmake-packages-${{ runner.os }}-${{ hashFiles('xmake.lua') }}
