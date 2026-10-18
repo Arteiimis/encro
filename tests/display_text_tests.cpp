@@ -82,7 +82,9 @@ TEST_CASE("truncateWithEllipsis preserves valid long Chinese text", "[display-te
 
   auto const truncated = displaytext::truncateWithEllipsis(text, 18);
 
-  CHECK(unicode::display_width(truncated) >= 0);
+  // Not unicode::display_width here: that helper decodes through the process
+  // locale and returns -1 on a machine whose locale is not UTF-8, so asserting
+  // on it tested the library's locale rather than the truncation.
   CHECK(displaytext::displayWidth(truncated) <= 18);
   CHECK(truncated.ends_with("..."));
 }

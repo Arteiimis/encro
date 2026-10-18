@@ -261,9 +261,21 @@ jobs:
           $code = $LASTEXITCODE
           if ($code -ne 0) {
             Write-Host "::error::unit tests failed on Windows"
-            Select-String -Path "$env:TEMP\ut.xml" -Pattern "<failure" | Select-Object -First 10
+            Select-String -Path "$env:TEMP\ut.xml" -Pattern "<failure" | Select-Object -First 20
           }
           exit $code
+
+      - name: Upload the test output
+        # Only on failure, and it is the whole point: a tail of 25 lines was not
+        # enough to tell nine failures apart.
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-test-output
+          path: |
+            ${{ runner.temp }}/ut.xml
+            ${{ runner.temp }}/ut.log
+          if-no-files-found: warn
 
       - name: End-to-end tests
         timeout-minutes: 20
