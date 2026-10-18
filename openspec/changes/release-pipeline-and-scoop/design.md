@@ -6,9 +6,9 @@
 
 Three facts about the current state shape every decision below.
 
-`xpack("encro")` already exists and is wrong in two ways. It declares five formats (`nsis`, `srczip`, `srctarxz`, `zip`, `tarxz`) where two are wanted, and it packages only `add_targets("encro")` — the executable — while `encro.exe` has a **load-time** import on `onnxruntime.dll`. A package built from the current block starts on the maintainer's machine (where `copyOrtRuntimeDlls` has already placed the DLL next to the binary) and fails on a clean one. Verified against the installed xmake's pack generator, `D:\scoop\apps\xmake\current\plugins\pack\xpack.lua` (not a file in this repository): `licensefile` is only a specvar consumed by the inno and wix generators, so a zip does not get the licence unless `add_installfiles` puts it there.
+`xpack("encro")` already exists and is wrong in three ways, all measured by packing the current tree (`xmake pack -f zip encro` → `build/xpack/encro/encro-2.0.0.zip`, 15,065,278 bytes) rather than reasoned out. It declares five formats where two are wanted. The archive contains `bin/encro.exe`, `bin/onnxruntime.dll` and a 41.5 MB `bin/encro.pdb`, but neither the licence nor the README. And the executable's own import table names four VC-redistributable DLLs — `MSVCP140`, `MSVCP140_ATOMIC_WAIT`, `VCRUNTIME140`, `VCRUNTIME140_1` — which a machine that has never run a Visual C++ program does not have; `xmake.lua` sets `set_symbols("debug")` but no `set_runtimes`, so the CRT is linked dynamically. Measured against the installed xmake's pack generator (`D:\scoop\apps\xmake\current\plugins\pack\xpack.lua`, not a file in this repository): `licensefile` is only a specvar consumed by the inno and wix generators, and the PDB is copied into `bin/` unconditionally by `plugins\pack\batchcmds.lua`, with no declarative exclude in the xpack DSL.
 
-Windows has never been built by CI. `.github/workflows/ci.yml` runs `ubuntu-24.04` only. The ONNX runtime comes from `build-repo`, a package definition committed to this repository (`xmake.lua:90`), which downloads a 314 MB zip and unpacks a 1.9 GB tree — so the Windows job is a caching problem, not a feasibility problem.
+Windows has never been built by CI. `.github/workflows/ci.yml` runs `ubuntu-24.04` only. The ONNX runtime comes from `build-repo`, a package definition committed to this repository (`xmake.lua:90`), which downloads a large prebuilt runtime and unpacks it into a tree several times that size — so the Windows job is a caching problem, not a feasibility problem. The exact sizes are not recorded here because nothing measured them.
 
 The historical tags cannot produce artifacts, and neither can `v2.0.0`. Each tag carries its own `xmake.lua`: `v0.1.0` has none of the `xpack` machinery, and nothing before `v2.0.0` has the ONNX dependency at all. `v2.0.0` is worse than useless as a source of downloads — its `xmake.lua` still declares the five broken formats, so a build from that tag yields exactly the package this change exists to fix. A released version's assets are built from its own tag, and a published tag is never moved; therefore the first version that can be distributed is **a new tag created after this work lands**, not `v2.0.0`.
 
@@ -44,19 +44,34 @@ The architecture token is **whatever `os.subarch()` reports on that platform**, 
 
 The version in the name comes from the single declaration in `xmake.lua`, not from the tag, so a gate asserts they agree: the release run compares `encroVersion` with the pushed tag minus its `v` and aborts on any difference. Without that check, tagging without bumping the declaration would produce assets named after the previous version and a manifest pointing at them.
 
-### D3 — The package contains the startup dependency and nothing that loads on demand
+### D3 — The package contains only what a user needs to run the tool
 
 Windows: `bin/encro.exe`, `bin/onnxruntime.dll`, `LICENSE`, `README.md`. Linux: `bin/encro`, `LICENSE`, `README.md`.
 
-xpack installs a target's executable under `bin/`, not at the archive root, so a runtime library added with a plain `add_installfiles` would land beside `bin/` rather than beside the executable — reproducing the exact "cannot start" failure the package exists to prevent. The DLL is therefore installed with `{prefixdir = "bin"}`, and the README states the layout so a user unpacking the archive knows where the executable is.
+Everything about that list was checked by packing the current tree rather than reasoned out, and two assumptions turned out wrong.
 
-`copyOrtRuntimeDlls` currently copies three DLLs into the build directory — the startup library and two provider libraries that are only loaded when a CUDA execution provider is registered. Packaging all three would add ~307 MB to satisfy a capability the light package does not offer. The package therefore selects `onnxruntime.dll` explicitly rather than packaging whatever sits beside the executable, and the build-directory copy stays as it is so local CUDA work is unaffected.
+First, the runtime library is **already packaged automatically**. xpack installs a target under `bin/` and carries the shared libraries the target links through `add_packages`; `onnxruntime.dll` arrives that way and needs no `add_installfiles`. The two provider DLLs that `copyOrtRuntimeDlls` also drops into the build directory do **not** appear, because they are not link-time dependencies — they load only when a CUDA execution provider is registered. The light package therefore falls out of the existing dependency graph instead of a hand-maintained file list, which is strictly better: a hand-written list is a list that goes stale.
 
-The licence and README go in through `add_installfiles`: `licensefile` is a specvar for installer generators, not a file that lands in a zip.
+Second, the debug symbols are kept out of the runtime archive and published beside it. `bin/encro.pdb` is 41.5 MB and would be most of the download for a file no one runs; xpack copies a target's symbol file into `bin/` unconditionally and the DSL offers no declarative exclude, so removing it from the runtime archive is an install-time hook. It is not discarded: the same file is uploaded as its own asset, because the project's own crash reporting promises that a Windows release build's stack traces resolve to `module!function`, and a user reporting a crash needs exactly the symbols their version was built with. Building from source would produce *different* symbols, so "buy a compiler" is not an answer.
+
+Third, and most consequential, the executable does not run on a clean machine even with its ONNX library present. Its import table names four VC-redistributable DLLs, so "the executable plus its startup library" is not a complete package. Three ways out, and the spike decides between them on evidence rather than preference:
+
+- Static CRT (`set_runtimes("MT")`) — the package becomes truly dependency-free and gains a few hundred KB. Preferred if the build stays green, since it removes the problem instead of shipping it.
+- Package the four redistributable DLLs — reliable, but adds files whose licensing and provenance need stating in the README and keeps them in sync with whatever toolchain built the binary.
+
+A package-manager dependency is deliberately **not** on that list. The requirement is that the downloaded archive starts on a machine that has never seen encro, and "install something else first" is a different promise — it also only helps the reader who installs through the package manager, leaving the tarball user to work it out alone.
+
+Whichever wins, the requirement is the same: what is downloaded must start on a machine that has never seen encro. The spike's job is to find out which one satisfies it.
+
+The licence and README go in through `add_installfiles`: `licensefile` is a specvar for installer generators, not a file that lands in a zip, so without it a zip carries neither.
 
 ### D4 — Gates run before anything is built
 
-`xmake test-report --suite=all` (unit + e2e), `scripts/verify-release-tags.ps1`, and the version-agreement check of D2 run as a job that the build job depends on. Nothing is packaged, uploaded or published when any of the three fails. Ordering the gate first means a broken commit costs one failed job rather than two platform builds followed by a failure.
+`xmake test-report --suite=all` (unit + e2e), `scripts/verify-release-tags.ps1`, and the version-agreement check of D2 run as a job that both builds depend on. Nothing is packaged, uploaded or published when any of the three fails. Ordering the gate first means a broken commit costs one failed job rather than two platform builds followed by a failure.
+
+The gate runs on Linux; the Windows job re-runs the same suite before packaging. Publishing a Windows binary that was never tested on Windows would be the same class of mistake as publishing one that cannot start — the suite is cheap there relative to the ONNX package install, and it is the only thing that exercises that platform's code paths.
+
+The tag-contract script reads `git tag -l` and `git rev-list main --first-parent`, so the gate job checks out with full history and all tags (`fetch-depth: 0`, `fetch-tags: true`) and explicitly checks out the branch rather than the triggering ref — a tag-push checkout leaves `main` unresolvable, which would fail the script on its first line instead of testing anything.
 
 `verify-release-tags.ps1` gets the entry point it has been missing since `backfill-version-history`: the release gate is exactly the moment when "every tag still satisfies its contract" is worth asserting, and it is the only automated evidence for those scenarios.
 
@@ -66,7 +81,7 @@ The licence and README go in through `add_installfiles`: `licensefile` is a spec
 - `workflow_dispatch` with `mode=publish` and a tag input — for a tag pushed before this workflow existed.
 - `workflow_dispatch` with `mode=backfill` and an `until` version — records every tag at or below that version that has no entry, creating no artifacts. The boundary is what keeps it safe to re-run: tags above it are untouched, so a version whose publish failed cannot be reclassified as "never distributed".
 
-Backfill is a mode of the same workflow rather than a one-off script because it must be re-runnable: creating 18 entries by hand invites a partially completed history that nothing ever notices. Both dispatch modes refuse to run on a tag that does not match the version grammar.
+Both dispatch modes refuse to run on a tag that does not match the version grammar. `mode=publish` additionally refuses any version at or below **2.0.0** — the recorded boundary, written as a constant in the workflow next to the grammar pattern, because every tag up to and including that one predates the packaging work and would build a package that cannot start. The refusal is a version comparison, not a judgement about whether some tree happens to build.
 
 A tag pushed before this workflow existed cannot trigger it — GitHub executes the workflow file as it exists at the tag's commit, and those commits predate `release.yml`. That is why the manual path is needed rather than optional.
 
@@ -88,13 +103,13 @@ The manifest is written to `Arteiimis/scoop-encro` with a `contents` API call us
 
 `version`, `description`, `homepage`, `license`, `architecture.64bit.url`, `architecture.64bit.hash`, `bin`, `notes`, plus `checkver` and `autoupdate`. The hash is computed from the artifact that was just built and uploaded, so it is always the hash of the bytes a user will download.
 
-`bin` is a list of executable names — this is what replaces the hand-written shim: Scoop generates `encro.shim` in its own shims directory, which is the same directory the current hand-written file occupies, so installing overwrites it rather than competing with it.
+`bin` names the executable by its path inside the installation — `bin\\encro.exe` — because the runtime archive puts it under `bin/` rather than at the root. This is what replaces the hand-written shim: Scoop generates `encro.shim` in its own shims directory, which is the same directory the current hand-written file occupies, so installing overwrites it rather than competing with it.
 
-ffmpeg is stated in `notes`, not in `depends`. A `depends` entry would make Scoop install ffmpeg into the same root and hand the user a second copy with its own update path; the tool already resolves `ffmpeg` from `PATH` or `--ffmpeg-path`, and the README explains it.
+ffmpeg and ffprobe are stated in `notes`, not in `depends`. A `depends` entry would make Scoop install ffmpeg into the same root and hand the user a second copy with its own update path; the tool already resolves both from `PATH` or `--ffmpeg-path`, and the README explains them.
 
 ### D10 — The Windows job caches the unpacked ONNX package, not the download
 
-`actions/cache` on `~/.xmake/packages`, keyed by `hashFiles('xmake.lua')` with a prefix restore-key — the pattern `ci.yml` already uses for the Linux legs. The first run pays the full 314 MB download and 1.9 GB unpack; later runs restore the unpacked tree. Keying on `xmake.lua` is deliberate: the ORT version is pinned there, so any change that could invalidate the cached package also invalidates the key.
+`actions/cache` on `~/.xmake/packages`, keyed by `hashFiles('xmake.lua')` with a prefix restore-key — the pattern `ci.yml` already uses for the Linux legs. The first run pays the runtime package's full download and unpack; later runs restore the unpacked tree, which is large enough that paying it on every run is the difference between a usable pipeline and an unusable one. Keying on `xmake.lua` is deliberate: the runtime version is pinned there, so any change that could invalidate the cached package also invalidates the key.
 
 ## Risks / Trade-offs
 

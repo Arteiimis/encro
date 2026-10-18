@@ -8,24 +8,40 @@ Turns a version tag into something a stranger can download and run: one archive 
 
 ### Requirement: Each distributed release publishes one artifact per platform
 
-A release that distributes binaries SHALL publish exactly two downloadable artifacts: one for Windows and one for Linux. Each platform SHALL contribute only its own archive format, so the asset count equals the platform count. Releases recorded before the project distributed anything are governed by the historical-release requirement instead.
+A release that distributes binaries SHALL publish one runtime archive per platform: one for Windows and one for Linux. Each platform SHALL contribute only its own archive format. Releases recorded before the project distributed anything are governed by the historical-release requirement instead.
 
-#### Scenario: A published release carries both artifacts
+#### Scenario: A published release carries both runtime artifacts
 
 - **WHEN** a distributed release for version 2.0.1 is published
-- **THEN** it carries exactly one Windows artifact and one Linux artifact
+- **THEN** it carries exactly one Windows runtime archive and one Linux runtime archive
 
 #### Scenario: No other archive kinds are published
 
 - **WHEN** a distributed release is published
 - **THEN** it carries no installer, no source archive and no checksum-only companion file
-- **AND** the number of assets equals the number of platforms
+- **AND** every asset is either a runtime archive or a symbol archive
 
-#### Scenario: Each platform contributes one file, not one per format
+#### Scenario: Each platform contributes one runtime file, not one per format
 
 - **WHEN** a distributed release is published
-- **THEN** the Windows entry is an archive and the Linux entry is a tarball
+- **THEN** the Windows runtime archive is a zip and the Linux one is a tarball
 - **AND** neither platform contributes both formats
+
+### Requirement: Debug symbols ship as their own archive
+
+A release SHALL publish the debug symbols that build produced as a separate downloadable archive, so that a crash trace can be symbolised without downloading them as part of the run. A symbol archive SHALL NOT be merged into a runtime archive, and the platform whose crash traces need symbols SHALL have one available for every distributed version.
+
+#### Scenario: Symbols are published separately from the run
+
+- **WHEN** a distributed release is published
+- **THEN** the platform whose crash traces need symbols has its symbols in a separate downloadable archive
+- **AND** the runtime archive does not contain them
+
+#### Scenario: The symbols that build produced are obtainable
+
+- **WHEN** a user has a crash trace from a published build and wants it symbolised
+- **THEN** the symbols for that exact version are downloadable from the same release
+- **AND** placing them beside the executable is enough to resolve application frames
 
 ### Requirement: An artifact name identifies its version, architecture and platform
 
@@ -79,6 +95,38 @@ The Windows artifact SHALL contain the executable and every library the executab
 - **WHEN** the Windows artifact is inspected
 - **THEN** it contains the startup library the executable imports
 - **AND** it contains no GPU or provider libraries that are only loaded when an optional execution provider is requested
+
+### Requirement: A package carries no build-time residue
+
+A package SHALL contain the files a user needs to run the tool and nothing that exists only to build or debug it. Debug symbols, object files and intermediate output SHALL NOT be packaged; the symbols are published as their own archive beside the runtime archive, so a user who needs symbolised crash traces can obtain exactly the symbols that build produced.
+
+#### Scenario: Debug symbols are not inside the runtime archive
+
+- **WHEN** either runtime archive is unpacked
+- **THEN** it contains no debug-symbol file
+- **AND** the executable is still present and runnable
+
+#### Scenario: The package is close to the size of what it runs
+
+- **WHEN** the Windows artifact's contents and its compressed size are compared
+- **THEN** the compressed size is accounted for by the executable, its startup libraries, the licence and the README
+- **AND** no single file dwarfs the executable without being needed at run time
+
+### Requirement: The repository documents how to install the tool
+
+The repository's README SHALL state how to install the tool on each distributed platform, and SHALL distinguish the versions that can be downloaded from the entries that only record history. It SHALL name the external programs required and the platform-specific capability limits that a reader must know before installing.
+
+#### Scenario: A reader can install from the README alone
+
+- **WHEN** a reader who has never used the tool follows the README's installation section on a clean machine
+- **THEN** they end up with a working `encro` command
+- **AND** they did not need to consult any other document
+
+#### Scenario: The Releases page is explained
+
+- **WHEN** the README describes where downloads come from
+- **THEN** it states that earlier entries are recorded history without downloads
+- **AND** a reader does not conclude that those versions are obtainable
 
 ### Requirement: Each artifact states what its platform can and cannot do
 
@@ -141,7 +189,7 @@ Pushing a tag that names a version SHALL publish that version without further in
 
 ### Requirement: An existing tag can be published on demand
 
-A maintainer SHALL be able to publish a tag that already exists and was pushed before this pipeline existed by naming that tag explicitly, with the same result a fresh push would give. A tag whose source cannot produce a working package SHALL be refused, with the reason stated.
+A maintainer SHALL be able to publish a tag that already exists and was pushed before this pipeline existed by naming that tag explicitly, with the same result a fresh push would give. A tag whose version predates the first version this pipeline can package SHALL be refused, with the reason stated — the decision is a version comparison against a recorded boundary, not a guess about whether that tree happens to build.
 
 #### Scenario: A tag that predates the pipeline is published on demand
 
@@ -150,7 +198,7 @@ A maintainer SHALL be able to publish a tag that already exists and was pushed b
 
 #### Scenario: A tag that predates the packaging fix is refused
 
-- **WHEN** a maintainer names an already-existing tag whose own tree cannot produce a working package
+- **WHEN** a maintainer names an already-existing tag whose version is below the recorded boundary
 - **THEN** the run refuses before packaging anything
 - **AND** it names that reason rather than publishing a package known to be broken
 

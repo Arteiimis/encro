@@ -4,11 +4,11 @@
 
 encro now has 18 tags and a CHANGELOG covering every one of them, but **not a single Release** — and no one has ever installed the tool from anywhere except a hand-written shim at `D:\scoop\shims\encro.shim` that points into a local build directory. The versioning work is finished; nothing yet turns a tag into something a user can download.
 
-That gap is the whole distance between a repository and a released program. It matters now because the versioning work is finished and nothing consumes it: the tags exist, and every day they stay unpublished the tag line is only a historical record. Publishing also exposes a second gap — the packaging is wrong in a way that would produce a broken download, because `xpack` is configured but ships the executable alone, and the executable cannot start without `onnxruntime.dll` beside it.
+That gap is the whole distance between a repository and a released program. It matters now because the versioning work is finished and nothing consumes it: the tags exist, and every day they stay unpublished the tag line is only a historical record. Publishing also exposes a second gap: the packaging as it stands would ship a download that fails on a clean machine — five format definitions, no licence, no README, a 41 MB debug-symbol file inside, and an executable that still expects the Visual C++ runtime to be present.
 
 ## What Changes
 
-- **Fix the package shape.** `xpack` currently declares five formats and copies only the executable. It will ship exactly two artifacts — a Windows `.zip` and a Linux `.tar.gz` — each containing the licence, the README, and on Windows the runtime DLL the binary loads at startup. The extra formats (installer, source archives) go away: GitHub already serves the source, and Scoop consumes zips.
+- **Fix the package shape.** `xpack` currently declares five formats where two are wanted, packages a 41.5 MB debug-symbol file while omitting the licence and README, and produces an executable that still needs four VC-redistributable DLLs a clean machine does not have. It will ship exactly two artifacts — a Windows `.zip` and a Linux `.tar.gz` — each containing the licence and the README, and on Windows whatever the binary needs at process start and nothing else: no debug symbols, no installer, no source archive.
 - **Add a release workflow.** A tag push builds both platforms and creates a GitHub Release whose body is that version's CHANGELOG section. It refuses to publish unless the test suite, the tag contract and the version declaration all agree first. Manual entry points exist for the two cases a tag push cannot cover: publishing a tag that already exists, and filling in the tags that have no release entry yet.
 - **Complete the release history.** All 18 existing tags get an entry, so the Releases page and the tag list finally agree. Those versions predate distribution, so their entries are their changelog section plus a statement that they were never distributed and carry nothing to download — they are recorded, not announced.
 - **Ship the first downloadable version as a new tag.** No existing tag can produce a working package: `v2.0.0` was cut before the packaging was fixed, and a published tag is never moved. The first distributed release is therefore a patch version tagged after this work lands, and `v2.0.0` stands as the recorded milestone it is.
@@ -29,7 +29,7 @@ None. `ci-artifacts` describes what the CI pipeline publishes about a test run (
 
 ## Impact
 
-- `xmake.lua` — the `xpack` block: formats reduced to two, licence and runtime files added to the package contents.
+- `xmake.lua` — the `xpack` block: formats reduced to two, the debug-symbol file excluded, and licence plus README added to the package contents.
 - `.github/workflows/release.yml` — new. Builds Linux and Windows, gates on the tests, the tag contract and the version agreement, then creates the Release and updates the bucket.
 - `scripts/verify-release-tags.ps1` — gains the entry point it currently lacks; it becomes part of the release gate rather than a script nobody runs.
 - The GitHub Releases page — one entry per existing tag, none of them downloadable, plus the first distributed release published by the new pipeline.
