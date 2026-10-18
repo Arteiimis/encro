@@ -25,6 +25,7 @@ See proposal.md — Why. The current state that shapes the approach:
 - Changing the product's exit codes or stop-signal behaviour in `src/` (the grace fix is test-side only).
 - Merging the shard JUnit reports with an XML library, or summing their attributes to rebuild one `<testsuite>`.
 - Changing the CI job, which invokes the test binaries directly.
+- Rewriting history: the 104 archived change documents that name `test-parallel`/`test-report` describe what landed when they landed, and `docs/backlog.md`'s resolved entries stay as written; only the new backlog entry and the current documentation move to the merged task.
 - Raising the shard-count ceiling: the measured ceiling is what the suites' deadlines support.
 
 ## Decisions
