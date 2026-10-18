@@ -78,7 +78,7 @@ A milestone that was never published SHALL NOT be tagged as a normal version; it
 
 ### Requirement: Breaking change classification
 
-A version increment SHALL follow semver 2.0.0 §6-§8 applied to the declared public API: an incompatible change to a declared surface MUST raise MAJOR, a backward-compatible addition MUST raise MINOR, and a backward-compatible fix MUST raise PATCH.
+A version increment SHALL follow semver 2.0.0 §6-§8 applied to the declared public API: an incompatible change to a declared surface MUST raise MAJOR, a backward-compatible addition MUST raise MINOR, and a backward-compatible fix MUST raise PATCH. §8 governs increments between *published* versions, so incompatible changes landing before the next publication accumulate under that version's single MAJOR rather than each raising one.
 
 #### Scenario: Internal and cosmetic changes are not breaking
 
@@ -88,4 +88,9 @@ A version increment SHALL follow semver 2.0.0 §6-§8 applied to the declared pu
 #### Scenario: A declared surface change is breaking
 
 - **WHEN** a change removes or renames a flag, changes a flag's accepted values, changes an exit code, changes a `config.json` key or its type, or moves the default job-state path
-- **THEN** it is a breaking change and the next version raises MAJOR
+- **THEN** it is a breaking change and the next published version raises MAJOR
+
+#### Scenario: Several breaking changes share one unpublished MAJOR
+
+- **WHEN** two or more incompatible changes land with no publication between them
+- **THEN** they accumulate under one MAJOR, each carrying its own pre-release tag instead of its own MAJOR
