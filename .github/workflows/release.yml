@@ -1,22 +1,35 @@
 name: release
 
 # Entry points (design D5):
-#   workflow_dispatch mode=dry-run  build both platforms, publish nothing
-#   workflow_dispatch mode=publish  publish a named tag (also: tag push)
-#   workflow_dispatch mode=backfill record missing entries up to a version
+#   push of a `v*` tag       publish that version
+#   workflow_dispatch publish   publish a tag that already exists
+#   workflow_dispatch backfill  record every tag up to a version, no artifacts
+#   workflow_dispatch dry-run   gate + build + pack, publish nothing
 #
-# A tag push cannot trigger a workflow that did not exist at the tagged commit,
-# which is why the manual paths exist rather than being a convenience.
+# A tag pushed before this workflow existed cannot trigger it — GitHub runs the
+# workflow file as it exists at the tagged commit — which is why the manual
+# paths exist rather than being a convenience.
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'dry-run builds both platforms and publishes nothing'
+        description: 'what to do'
         required: true
         default: dry-run
         type: choice
         options:
           - dry-run
+          - publish
+          - backfill
+      tag:
+        description: 'tag to publish (mode=publish)'
+        required: false
+      until:
+        description: 'record every tag at or below this version (mode=backfill)'
+        required: false
 
 concurrency:
   # Never cancel a release in flight: half-published assets are exactly what
@@ -24,61 +37,177 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# xmake disables its content-addressed build cache when CI=true unless this is
-# set (see ci.yml for the same reason).
 env:
   XMAKE_ACTION_BUILD_CACHE: '1'
 
 jobs:
-  windows:
-    name: windows
-    runs-on: windows-latest
+  resolve:
+    name: resolve
+    runs-on: ubuntu-24.04
+    outputs:
+      mode: ${{ steps.resolve.outputs.mode }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      until: ${{ steps.resolve.outputs.until }}
     steps:
       - uses: actions/checkout@v7
         with:
-          # The tag-contract script reads `git tag -l` and
-          # `git rev-list main --first-parent`; a default shallow checkout has
-          # neither, so the gate would fail on its first line.
           fetch-depth: 0
           fetch-tags: true
+          ref: main
+
+      - name: Work out the mode, tag and version
+        id: resolve
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            mode=publish
+            tag="${GITHUB_REF_NAME}"
+          else
+            mode="${{ inputs.mode }}"
+            tag="${{ inputs.tag }}"
+          fi
+
+          if [ "$mode" = "publish" ]; then
+            if ! printf '%s' "$tag" | grep -qE '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
+              echo "::error::'$tag' does not name a version; nothing to publish"
+              exit 1
+            fi
+            version="${tag#v}"
+            echo "publishing $tag ($version)"
+          elif [ "$mode" = "backfill" ]; then
+            version="${{ inputs.until }}"
+            if [ -z "$version" ]; then
+              echo "::error::mode=backfill needs an 'until' version"
+              exit 1
+            fi
+            echo "completing history up to $version"
+          else
+            # dry-run: no tag, so no version to agree with — the agreement check
+            # is skipped and only the suite and the tag contract run.
+            version=""
+            echo "dry run: gate, build and pack, publish nothing"
+          fi
+
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "until=${{ inputs.until }}" >> "$GITHUB_OUTPUT"
+
+  gate:
+    name: gate
+    needs: resolve
+    if: needs.resolve.outputs.mode != 'backfill'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # verify-release-tags.ps1 reads `git tag -l` and
+          # `git rev-list main --first-parent`; a default shallow, single-ref
+          # checkout has neither, so the gate would fail on its first line
+          # rather than test anything.
+          fetch-depth: 0
+          fetch-tags: true
+          ref: main
 
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
 
-      - name: Report the toolchain the runner provides
-        shell: pwsh
-        run: |
-          # Recorded because this is the first Windows CI build of this project:
-          # the versions below are what any later "why did the release differ"
-          # question has to be answered against.
-          xmake --version
-          clang-cl --version
-          lld-link --version
-          llvm-ar --version
-
       - name: Pin xmake's global directory to a path the cache can name
-        shell: pwsh
         run: |
-          # xmake appends `.xmake` to XMAKE_GLOBALDIR, so the variable names the
-          # PARENT directory. Without this pin xmake prefers
-          # %APPDATA%\.xmake on Windows, which makes `~/.xmake/packages` an empty
-          # path and the cache silently stores nothing.
-          "XMAKE_GLOBALDIR=$env:USERPROFILE" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8NoBOM
-          "pinned XMAKE_GLOBALDIR=$env:USERPROFILE"
-          "expected packages dir: $env:USERPROFILE\.xmake\packages"
+          # xmake appends `.xmake` to this variable, so it names the parent dir.
+          echo "XMAKE_GLOBALDIR=$HOME" >> "$GITHUB_ENV"
 
       - uses: actions/cache/restore@v6
         id: xmake-cache
         with:
-          # The ONNX package downloads a prebuilt runtime and unpacks a tree
-          # several times its size; paying that on every run is the difference
-          # between a usable pipeline and an unusable one.
+          path: ~/.xmake/packages
+          key: xmake-packages-${{ runner.os }}-${{ hashFiles('xmake.lua') }}
+          restore-keys: |
+            xmake-packages-${{ runner.os }}-
+
+      - name: Install toolchain and dependencies
+        timeout-minutes: 10
+        run: bash scripts/setup-linux-env.sh
+
+      - name: Check the build will stamp the version the tag names
+        if: needs.resolve.outputs.mode == 'publish'
+        run: |
+          set -euo pipefail
+          declared=$(grep -oE 'local encroVersion = "[^"]+"' xmake.lua | sed -E 's/.*"([^"]+)"/\1/')
+          if [ -z "$declared" ]; then
+            echo "::error::could not read the version declaration from xmake.lua"
+            exit 1
+          fi
+          if [ "$declared" != "${{ needs.resolve.outputs.version }}" ]; then
+            echo "::error::the tag names ${{ needs.resolve.outputs.version }} but the build stamps $declared."
+            echo "Nothing is packaged: the artifacts and the manifest would name the wrong version."
+            exit 1
+          fi
+          echo "declared version $declared agrees with the tag"
+
+      - name: Refuse a version this pipeline cannot package
+        if: needs.resolve.outputs.mode == 'publish'
+        shell: pwsh
+        run: |
+          # Every tag at or below 2.0.0 predates the packaging work: its xmake.lua
+          # still declares the five broken formats, so building from it would ship
+          # the defect this pipeline exists to remove.
           #
-          # runner.os is part of the key because the two platforms resolve
-          # different packages from the same xmake.lua: without it they fight
-          # over one entry and whichever saves first wins, leaving the Windows
-          # build to restore a package tree that has no ONNX runtime in it.
+          # The comparison is semver, not version-sort: version-sort places 2.0.0
+          # BEFORE 2.0.0-alpha.1, while semver places every pre-release below its
+          # release — so a version-sort check would let the pre-release tags through.
+          $version = [semver]"${{ needs.resolve.outputs.version }}"
+          $boundary = [semver]"2.0.0"
+          if ($version -le $boundary) {
+            Write-Host "::error::$version is at or below the last version that predates this pipeline ($boundary); that tree cannot produce a working package."
+            exit 1
+          }
+          "version $version is above $boundary"
+
+      - name: Unit and end-to-end tests
+        timeout-minutes: 40
+        run: xmake test-report --suite=all
+
+      - name: Tag contract
+        run: pwsh -NoProfile -File scripts/verify-release-tags.ps1
+
+      - name: Save xmake packages cache
+        if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.xmake/packages
+          key: xmake-packages-${{ runner.os }}-${{ hashFiles('xmake.lua') }}
+
+  windows:
+    name: windows
+    needs: [resolve, gate]
+    if: needs.resolve.outputs.mode != 'backfill'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: main
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Pin xmake's global directory to a path the cache can name
+        shell: pwsh
+        run: |
+          # xmake appends `.xmake` to this variable, so it names the parent
+          # directory. Without the pin xmake prefers %APPDATA%\.xmake on
+          # Windows, which makes `~/.xmake/packages` an empty path and the
+          # cache silently stores nothing.
+          "XMAKE_GLOBALDIR=$env:USERPROFILE" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8NoBOM
+
+      - uses: actions/cache/restore@v6
+        id: xmake-cache
+        with:
           path: ~/.xmake/packages
           key: xmake-packages-${{ runner.os }}-${{ hashFiles('xmake.lua') }}
           restore-keys: |
@@ -90,15 +219,24 @@ jobs:
       - name: Report the package cache size
         shell: pwsh
         run: |
+          # A silently empty cache path is how the first attempt failed twice
+          # while reporting success, so its size is asserted every run.
           $p = Join-Path $env:USERPROFILE ".xmake\packages"
           if (Test-Path $p) {
             $bytes = (Get-ChildItem $p -Recurse -File | Measure-Object Length -Sum).Sum
             "packages: {0:N0} bytes" -f $bytes
-          } else { "packages dir does not exist" }
+          } else { throw "packages dir does not exist: $p" }
 
       - name: Build
         timeout-minutes: 60
         run: xmake build -vD encro
+
+      - name: Run the same suite on the platform being published
+        # The gate ran it on Linux. Publishing a Windows binary that was never
+        # tested on Windows would be the same class of mistake as publishing one
+        # that cannot start.
+        timeout-minutes: 40
+        run: xmake test-report --suite=all
 
       - name: Pack the runtime archive
         run: xmake pack -f zip encro
@@ -106,17 +244,16 @@ jobs:
       - name: Pack the debug symbols as their own asset
         shell: pwsh
         run: |
-          # xpack cannot exclude a target's symbol file declaratively and the
-          # runtime archive strips it in after_installcmd, so the symbols travel
-          # separately: a crash report can be symbolised with exactly the build
-          # that produced it, without every user downloading 41 MB of PDB.
+          # xpack copies a target's symbol file into bin/ unconditionally and has
+          # no declarative exclude, so after_installcmd strips it from the
+          # runtime archive; the symbols ship separately so a crash report can be
+          # symbolised by exactly the build that produced it.
           $runtime = Get-ChildItem build/xpack/encro/*.zip | Where-Object { $_.Name -notlike '*symbols*' } | Select-Object -First 1
           if (-not $runtime) { throw "no runtime archive was produced" }
-          $base = $runtime.BaseName
           $stage = Join-Path $env:RUNNER_TEMP "symbols-stage"
           New-Item -ItemType Directory -Path (Join-Path $stage "bin") -Force | Out-Null
           Copy-Item "build/windows/x64/release/encro.pdb" (Join-Path $stage "bin/encro.pdb")
-          Compress-Archive -Path (Join-Path $stage "bin") -DestinationPath "build/xpack/encro/$base-symbols.zip"
+          Compress-Archive -Path (Join-Path $stage "bin") -DestinationPath "build/xpack/encro/$($runtime.BaseName)-symbols.zip"
 
       - name: List the produced archives
         shell: pwsh
@@ -135,29 +272,7 @@ jobs:
           path: build/xpack/encro/*.zip
           if-no-files-found: error
 
-      - name: Locate the VC redistributable source
-        shell: pwsh
-        run: |
-          # The five DLLs the package ships must come from the Visual Studio
-          # redistributable directory, so their version follows the build
-          # rather than the machine. Never from C:\Windows\System32.
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          if (-not (Test-Path $vswhere)) { throw "vswhere not found" }
-          $vsPath = & $vswhere -latest -products * -property installationPath
-          "VS install: $vsPath"
-          $crt = Get-ChildItem (Join-Path $vsPath 'VC\Redist\MSVC') -Recurse -Directory -Filter 'Microsoft.VC*.CRT' |
-            Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $crt) { throw "no x64 VC redistributable directory under $vsPath" }
-          "redist dir: $($crt.FullName)"
-          $wanted = 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'
-          foreach ($n in $wanted) {
-            $f = Join-Path $crt.FullName $n
-            if (Test-Path $f) { '{0,-30} {1,9} bytes' -f $n, (Get-Item $f).Length }
-            else { throw "$n missing from $($crt.FullName)" }
-          }
-
       - name: Save xmake packages cache
-        # Save even when the job failed, or every run pays the full download.
         if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
@@ -166,12 +281,15 @@ jobs:
 
   linux:
     name: linux
+    needs: [resolve, gate]
+    if: needs.resolve.outputs.mode != 'backfill'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
+          ref: main
 
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
@@ -179,10 +297,7 @@ jobs:
 
       - name: Pin xmake's global directory to a path the cache can name
         run: |
-          # xmake appends `.xmake` to this variable, so it names the parent dir.
           echo "XMAKE_GLOBALDIR=$HOME" >> "$GITHUB_ENV"
-          echo "pinned XMAKE_GLOBALDIR=$HOME"
-          echo "expected packages dir: $HOME/.xmake/packages"
 
       - uses: actions/cache/restore@v6
         id: xmake-cache
@@ -225,3 +340,150 @@ jobs:
         with:
           path: ~/.xmake/packages
           key: xmake-packages-${{ runner.os }}-${{ hashFiles('xmake.lua') }}
+
+  publish:
+    name: publish
+    needs: [resolve, gate, windows, linux]
+    if: needs.resolve.outputs.mode == 'publish'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: main
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Show what will be published
+        run: ls -la dist
+
+      - name: Stop if this version is already published
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "v$VERSION is already published — leaving it untouched."
+            # Build and publish are separate here, so a re-run can still report
+            # whether the same source reproduces the same bytes, which is the
+            # only way "same source, same artifact" stays checkable after the
+            # fact. Reporting a difference never replaces anything.
+            mkdir -p published
+            gh release download "v$VERSION" --dir published --pattern '*.zip' --pattern '*.tar.gz' || true
+            for f in dist/*; do
+              base=$(basename "$f")
+              if [ -f "published/$base" ]; then
+                a=$(sha256sum "$f" | cut -d' ' -f1)
+                b=$(sha256sum "published/$base" | cut -d' ' -f1)
+                if [ "$a" = "$b" ]; then
+                  echo "  $base: identical to the published asset"
+                else
+                  echo "::warning::$base differs from the published asset; the published one is kept"
+                fi
+              else
+                echo "  $base: not present in the published release"
+              fi
+            done
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish the release
+        if: steps.existing.outputs.already != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File scripts/get-changelog-section.ps1 -Version "$VERSION" > body.md
+          if [ ! -s body.md ]; then
+            echo "::error::the changelog has no section for $VERSION; refusing to publish an invented body"
+            exit 1
+          fi
+          head -3 body.md
+          gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --notes-file body.md \
+            dist/*
+          echo "published v$VERSION"
+
+      - name: Publish the Scoop manifest
+        id: bucket
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          asset="encro-$VERSION-x64-windows.zip"
+          url="https://github.com/${{ github.repository }}/releases/download/v$VERSION/$asset"
+          hash=$(sha256sum "dist/$asset" | cut -d' ' -f1)
+          mkdir -p bucket
+          cat > bucket/encro.json <<EOF
+          {
+            "version": "$VERSION",
+            "description": "Batch media processing CLI built on ffmpeg",
+            "homepage": "https://github.com/${{ github.repository }}",
+            "license": "MIT",
+            "architecture": {
+              "64bit": {
+                "url": "$url",
+                "hash": "$hash"
+              }
+            },
+            "bin": "bin\\\\encro.exe",
+            "notes": "encro drives ffmpeg and ffprobe; install both and make sure they are on PATH (or pass --ffmpeg-path).",
+            "checkver": {
+              "github": "https://github.com/${{ github.repository }}"
+            },
+            "autoupdate": {
+              "architecture": {
+                "64bit": {
+                  "url": "https://github.com/${{ github.repository }}/releases/download/v\$version/encro-\$version-x64-windows.zip"
+                }
+              }
+            }
+          }
+          EOF
+          # The bucket is a separate repository; a stale token or an outage must
+          # never take the release down, which is why this step cannot fail the run.
+          gh api --method PUT "repos/Arteiimis/scoop-encro/contents/bucket/encro.json" \
+            -f message="encro $VERSION" \
+            -f content="$(base64 -w0 bucket/encro.json)" \
+            -f branch=main > /dev/null
+          echo "bucket manifest updated to $VERSION"
+
+      - name: Report a stale bucket
+        if: steps.bucket.outcome == 'failure'
+        run: |
+          echo "::warning::the release is published but the Scoop bucket was not updated; re-run this step by hand"
+
+  backfill:
+    name: backfill
+    needs: resolve
+    if: needs.resolve.outputs.mode == 'backfill'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: main
+
+      - name: Record every tag up to the boundary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File scripts/record-release-history.ps1 -Until "${{ needs.resolve.outputs.until }}"
