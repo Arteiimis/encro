@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/media_scanner.h"
 
 #include "logging/log_tags.h"
@@ -24,7 +25,7 @@ constexpr char asciiLower(char ch) {
 auto shouldDescend(fs::directory_entry const& entry, WalkOptions const& options) {
   auto const& path = entry.path();
   if (options.skipHiddenEntries && isHiddenEntry(path)) { return false; }
-  auto const name = path.filename().string();
+  auto const name = pathutf8::fromPath(path.filename());
   return std::ranges::find(options.skippedDirNames, name)
     == options.skippedDirNames.end();
 }
@@ -94,7 +95,11 @@ void scanDir(
     },
     [&](std::error_code const& ec) {
       out.warnings.emplace_back(
-        std::format("Failed while scanning {}: {}", dirPath.string(), ec.message())
+        std::format(
+          "Failed while scanning {}: {}",
+          pathutf8::fromPath(dirPath),
+          ec.message()
+        )
       );
     }
   );
@@ -106,7 +111,7 @@ bool extensionMatches(
   fs::path const& filePath,
   std::span<std::string_view const> extensions
 ) {
-  auto const ext = filePath.extension().string();
+  auto const ext = pathutf8::fromPath(filePath.extension());
   return std::ranges::any_of(extensions, [&ext](std::string_view candidate) {
     return std::ranges::equal(
       candidate,
@@ -119,7 +124,7 @@ bool extensionMatches(
 }
 
 bool isHiddenEntry(fs::path const& path) {
-  auto const name = path.filename().string();
+  auto const name = pathutf8::fromPath(path.filename());
   return !name.empty() && name.front() == '.';
 }
 
@@ -139,7 +144,7 @@ auto scanByExtensions(
   if (!fs::is_directory(root, ec) || ec) {
     return eh::makeError(
       "Input path is not a readable directory: {} ({})",
-      root.string(),
+      pathutf8::fromPath(root),
       ec ? ec.message() : std::string_view{"not a directory"}
     );
   }
@@ -158,7 +163,7 @@ auto listFiles(
   if (!fs::is_directory(root, ec) || ec) {
     return eh::makeError(
       "Input path is not a readable directory: {} ({})",
-      root.string(),
+      pathutf8::fromPath(root),
       ec ? ec.message() : std::string_view{"not a directory"}
     );
   }
@@ -175,7 +180,11 @@ auto listFiles(
     },
     [&](std::error_code const& ec) {
       result.warnings.emplace_back(
-        std::format("Failed while scanning {}: {}", root.string(), ec.message())
+        std::format(
+          "Failed while scanning {}: {}",
+          pathutf8::fromPath(root),
+          ec.message()
+        )
       );
     }
   );

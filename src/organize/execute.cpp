@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "organize/execute.h"
 
 #include "core/sha256.h"
@@ -23,7 +24,7 @@ auto stageCopy(
 ) -> std::optional<fs::path> {
   auto ec = std::error_code{};
   auto const tempPath =
-    stagingDir / std::format("{}.part", destination.filename().string());
+    stagingDir / std::format("{}.part", pathutf8::fromPath(destination.filename()));
   fs::copy_file(source, tempPath, fs::copy_options::overwrite_existing, ec);
   if (ec) { return std::nullopt; }
   return tempPath;
@@ -56,8 +57,8 @@ auto resolveDestination(fs::path const& folderDir, ImageItem const& item)
   // different one keeps both via a numeric suffix.
   auto const existingHash = core::sha256File(destination);
   if (!existingHash.empty() && existingHash == item.contentHash) { return std::nullopt; }
-  auto const stem = item.path.stem().string();
-  auto const extension = item.path.extension().string();
+  auto const stem = pathutf8::fromPath(item.path.stem());
+  auto const extension = pathutf8::fromPath(item.path.extension());
   auto suffix = 2;
   for (;; ++suffix) {
     destination = folderDir / std::format("{}_{}{}", stem, suffix, extension);
@@ -110,7 +111,11 @@ auto executeOrganize(
     auto const staged = stageCopy(item.path, stagingDir, *destination);
     if (!staged.has_value()) {
       stats.errors.push_back(
-        std::format("copy failed: {} -> {}", item.path.string(), destination->string())
+        std::format(
+          "copy failed: {} -> {}",
+          pathutf8::fromPath(item.path),
+          destination->string()
+        )
       );
       continue;
     }
@@ -122,7 +127,11 @@ auto executeOrganize(
       ++stats.copied;
     } else {
       stats.errors.push_back(
-        std::format("copy failed: {} -> {}", item.path.string(), destination->string())
+        std::format(
+          "copy failed: {} -> {}",
+          pathutf8::fromPath(item.path),
+          destination->string()
+        )
       );
     }
   }

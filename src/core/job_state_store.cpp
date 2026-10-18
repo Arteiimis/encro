@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/job_state_detail.h"
 
 #include "core/work_dirs.h"
@@ -39,7 +40,7 @@ auto Store::tryRestoreExistingLocked(
     if (resumeState) {
       return eh::makeError(
         "State file does not match current command: {}",
-        stateFilePath_.string()
+        pathutf8::fromPath(stateFilePath_)
       );
     }
     if (discardedMismatched != nullptr) { *discardedMismatched = true; }
@@ -60,7 +61,7 @@ auto Store::tryRestoreExistingLocked(
   if (!flushLocked(true)) {
     return eh::makeError(
       "Failed to persist loaded job state: {}",
-      stateFilePath_.string()
+      pathutf8::fromPath(stateFilePath_)
     );
   }
   return true;
@@ -82,7 +83,7 @@ auto Store::initialize(
   if (!restart && !stateExists && config.resumeState) {
     return eh::makeError(
       "Resume requested but no state file was found: {}",
-      stateFilePath_.string()
+      pathutf8::fromPath(stateFilePath_)
     );
   }
 
@@ -106,7 +107,7 @@ auto Store::initialize(
   if (!flushLocked(true)) {
     return eh::makeError(
       "Failed to persist initial job state: {}",
-      stateFilePath_.string()
+      pathutf8::fromPath(stateFilePath_)
     );
   }
   return false;

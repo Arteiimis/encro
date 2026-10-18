@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "organize/teach.h"
 
 #include "core/display_text.h"
@@ -56,7 +57,11 @@ auto buildReference(fs::path const& folderDir, AnalysisCache const& cache)
       return true;
     },
     [&](std::error_code const& failure) {
-      LOG_WARN("Failed while listing {}: {}", folderDir.string(), failure.message());
+      LOG_WARN(
+        "Failed while listing {}: {}",
+        pathutf8::fromPath(folderDir),
+        failure.message()
+      );
     }
   );
   return reference;

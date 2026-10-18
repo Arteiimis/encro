@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/encode_probe.h"
 
 #include "core/collision_naming.h"
@@ -99,7 +100,7 @@ auto measurePoint(
     LOG_WARN(
       "Probe windows scored with different metrics for {} at cq={} ({}/{}); discarding "
       "point",
-      inputPath.string(),
+      pathutf8::fromPath(inputPath),
       cq,
       videoquality::metricName(first->value().metric),
       videoquality::metricName(second->value().metric)
@@ -166,14 +167,14 @@ auto probeSingleFile(
 
   auto const durationRes = getVidTotalDurationUs(ctx.toolchain, ctx.runtime, inputPath);
   if (!durationRes.has_value()) {
-    LOG_DEBUG("Probing skipped (no duration): {}", inputPath.string());
+    LOG_DEBUG("Probing skipped (no duration): {}", pathutf8::fromPath(inputPath));
     plan.skipReason = "no duration";
     return plan;
   }
   auto const totalDurationUs = durationRes.value();
   auto const windows = pickProbeWindows(totalDurationUs);
   if (!windows.has_value()) {
-    LOG_DEBUG("Probing skipped (short video): {}", inputPath.string());
+    LOG_DEBUG("Probing skipped (short video): {}", pathutf8::fromPath(inputPath));
     plan.skipReason = "short video";
     return plan;
   }
@@ -207,7 +208,7 @@ auto probeSingleFile(
   if (!points.has_value()) {
     LOG_WARN(
       "Probing failed for {}; using default CQ {}",
-      inputPath.string(),
+      pathutf8::fromPath(inputPath),
       kDefaultCq
     );
     plan.skipReason = "scoring failed";
@@ -271,7 +272,7 @@ bool runProbeEncode(
       extractFailureReason(result.output, result.stderrText, result.exitCode);
     LOG_WARN(
       "Probe encode failed: input={} cq={} exitCode={} reason={}",
-      inputPath.string(),
+      pathutf8::fromPath(inputPath),
       cq,
       result.exitCode,
       reason
@@ -296,7 +297,7 @@ auto measureWindow(appctx::AppContext& ctx, WindowMeasureRequest const& request)
     return eh::makeError(
       "Window encode failed at {}us of {} (cq={})",
       request.window.startUs,
-      request.inputPath.string(),
+      pathutf8::fromPath(request.inputPath),
       request.cq
     );
   }
@@ -317,7 +318,7 @@ auto measureWindow(appctx::AppContext& ctx, WindowMeasureRequest const& request)
   if (!scores.has_value()) {
     LOG_WARN(
       "Window scoring failed for {} at cq={}: {}",
-      request.inputPath.string(),
+      pathutf8::fromPath(request.inputPath),
       request.cq,
       scores.error()
     );
@@ -572,11 +573,11 @@ auto buildProbeTaskSpec(
   std::vector<ProbePlan>& plans,
   std::size_t workerCount
 ) -> taskexec::TaskSpec {
-  auto const fileName = vids[index].filename().string();
+  auto const fileName = pathutf8::fromPath(vids[index].filename());
   return taskexec::TaskSpec{
     .id = std::format("probe:{}", collisionnaming::pathIdentityString(vids[index])),
     .label = fileName,
-    .input = vids[index].string(),
+    .input = pathutf8::fromPath(vids[index]),
     // NOLINTNEXTLINE(bugprone-exception-escape): taskexec::runTasks catches
     .run = [&, index, fileName, vids, progress, probeRoot, workerCount](
              // probeRoot/workerCount captured by value: this frame returns before the
@@ -788,7 +789,7 @@ auto collectProbeResults(
       result.attentionWarnings.push_back(
         std::format(
           "{}: quality floor unreachable (p5 {:.2f} at CQ {}); encoding at CQ {}",
-          vids[index].string(),
+          pathutf8::fromPath(vids[index]),
           plan.p5.value_or(0.0),
           plan.chosenCq,
           plan.chosenCq
@@ -824,7 +825,7 @@ void scanProbeCache(
         plans[index] = planFromCache(*it, vids[index]);
         LOG_DEBUG(
           "Probe cache hit: {} (CQ {})",
-          vids[index].string(),
+          pathutf8::fromPath(vids[index]),
           plans[index].chosenCq
         );
         continue;

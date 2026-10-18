@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/video_info.h"
 
 #include "pack/pack_types.h"
@@ -130,7 +131,7 @@ auto tryReadFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t> 
 
   LOG_DEBUG(
     "Skipping file with unreadable size metadata: {} ({})",
-    filePath.string(),
+    pathutf8::fromPath(filePath),
     ec.message()
   );
 
@@ -141,7 +142,7 @@ auto tryCollectVideoInput(appctx::AppConfig const& config, fs::path const& fileP
   -> std::optional<fs::path> {
 
   if (!fs::is_regular_file(filePath)) {
-    LOG_DEBUG("Skipping non-regular file: {}", filePath.string());
+    LOG_DEBUG("Skipping non-regular file: {}", pathutf8::fromPath(filePath));
     return std::nullopt;
   }
 
@@ -158,7 +159,7 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
 
   auto const cmd = quoteToolPath(toolchain.ffprobePath.value_or("ffprobe"))
     + " -v quiet -print_format json -show_format -show_streams \""
-    + videoPath.string()
+    + pathutf8::fromPath(videoPath)
     + "\"";
 
   auto const [exitCode, output, pid, stderrText] = exec2(cmd, false);
@@ -167,7 +168,7 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
     LOG_DEBUG(
       "ffprobe exit code {} for {} (output bytes: {}, stderr bytes: {})",
       exitCode,
-      videoPath.string(),
+      pathutf8::fromPath(videoPath),
       output.size(),
       stderrText.size()
     );
@@ -177,7 +178,11 @@ auto getVidInfo(appctx::ToolchainPaths const& toolchain, fs::path const& videoPa
   try {
     return json::parse(output);
   } catch (std::exception const& ex) {
-    LOG_DEBUG("Failed to parse ffprobe output for {}: {}", videoPath.string(), ex.what());
+    LOG_DEBUG(
+      "Failed to parse ffprobe output for {}: {}",
+      pathutf8::fromPath(videoPath),
+      ex.what()
+    );
     return json::object{};
   }
 }
@@ -203,15 +208,18 @@ auto finalizeVideoList(
 
   for (auto index = std::size_t{0}; index < vids.size(); ++index) {
     tasks.push_back({
-      .id = vids[index].string(),
-      .label = vids[index].filename().string(),
+      .id = pathutf8::fromPath(vids[index]),
+      .label = pathutf8::fromPath(vids[index].filename()),
       .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
         auto const& vidPath = vids[index];
         auto const vidInfo = getVidInfo(toolchain, vidPath);
 
         if (config.outputFormat == "mp4" && isHevcEncodedInfo(vidInfo)) {
           // NOLINTNEXTLINE(bugprone-lambda-function-name): SPDLOG_FUNCTION in task lambda
-          LOG_DEBUG("Skipping already HEVC encoded file: {}", vidPath.string());
+          LOG_DEBUG(
+            "Skipping already HEVC encoded file: {}",
+            pathutf8::fromPath(vidPath)
+          );
           return {};
         }
 
@@ -263,8 +271,8 @@ void prewarmWebpVideoInfoCache(
 
   for (auto index = std::size_t{0}; index < prewarmCount; ++index) {
     tasks.push_back({
-      .id = vids[index].string(),
-      .label = vids[index].filename().string(),
+      .id = pathutf8::fromPath(vids[index]),
+      .label = pathutf8::fromPath(vids[index].filename()),
       .run = [&, index](taskexec::TaskContext&) -> eh::Result<void> {
         auto const& vidPath = vids[index];
         runtime.videoInfoCache.set(vidPath, getVidInfo(toolchain, vidPath));
@@ -298,7 +306,7 @@ auto videoinfo::keepsForEncoding(
 
   LOG_DEBUG(
     "Skipping large video file for webp output: {} ({} bytes)",
-    filePath.string(),
+    pathutf8::fromPath(filePath),
     fileSize.value_or(0)
   );
   return false;
@@ -314,7 +322,10 @@ auto videoinfo::keepsForConversion(fs::path const& filePath) -> bool {
 auto videoinfo::scanVideosForConversion(fs::path const& dirPath, bool recursive)
   -> eh::Result<std::vector<fs::path>> {
   if (!fs::is_directory(dirPath)) {
-    return eh::makeError("Provided path is not a directory: {}", dirPath.string());
+    return eh::makeError(
+      "Provided path is not a directory: {}",
+      pathutf8::fromPath(dirPath)
+    );
   }
 
   auto const scanRes = media::scanByExtensions(dirPath, kVideoTypes, recursive);
@@ -368,7 +379,7 @@ auto getVidTotalFrames(
   auto const& obj = vidInfo.as_object();
   auto const streamsIt = obj.find("streams");
   if (streamsIt == obj.end() || !streamsIt->value().is_array()) {
-    LOG_DEBUG("Missing stream info for {}", videoPath.string());
+    LOG_DEBUG("Missing stream info for {}", pathutf8::fromPath(videoPath));
     return eh::makeError("Missing stream info");
   }
 
@@ -411,7 +422,7 @@ auto getVidTotalFrames(
   if (!debug.hasVideoStream) {
     LOG_DEBUG(
       "No video stream found for {} (streams: {})",
-      videoPath.string(),
+      pathutf8::fromPath(videoPath),
       streamsIt->value().as_array().size()
     );
     return eh::makeError("Failed to retrieve total frames");
@@ -420,7 +431,7 @@ auto getVidTotalFrames(
   LOG_DEBUG(
     "No nb_frames for {}. format.duration={}, avg_frame_rate={}, r_frame_rate={}, "
     "duration={}, duration_ts={}, time_base={}",
-    videoPath.string(),
+    pathutf8::fromPath(videoPath),
     formatDuration,
     debug.avgRate,
     debug.rRate,
@@ -463,7 +474,7 @@ auto getVidTotalDurationUs(
     return static_cast<std::uint64_t>(std::llround(durationValue.value() * 1'000'000.0));
   }
 
-  LOG_DEBUG("Missing format duration for {}", videoPath.string());
+  LOG_DEBUG("Missing format duration for {}", pathutf8::fromPath(videoPath));
   return eh::makeError("Failed to retrieve video duration");
 }
 
@@ -538,7 +549,7 @@ auto getVidDimensions(
     }
   }
 
-  LOG_DEBUG("Missing video dimensions for {}", videoPath.string());
+  LOG_DEBUG("Missing video dimensions for {}", pathutf8::fromPath(videoPath));
   return eh::makeError("Failed to retrieve video dimensions");
 }
 
@@ -578,7 +589,7 @@ auto readAllVids(
   if (!fs::is_directory(dirPath) && !fs::is_regular_file(dirPath)) {
     return eh::makeError(
       "Provided path is not a file or directory: {}",
-      dirPath.string()
+      pathutf8::fromPath(dirPath)
     );
   }
 
@@ -617,7 +628,7 @@ auto readAllVids(
     LOG_INFO(
       "Skipped {} video(s) already encoded as HEVC under {}",
       skippedHevc,
-      dirPath.string()
+      pathutf8::fromPath(dirPath)
     );
   }
 

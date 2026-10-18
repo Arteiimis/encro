@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "tagger/model_store.h"
 
 #include "core/sha256.h"
@@ -46,7 +47,7 @@ auto fileNameOf(RemoteFile const& file) -> std::string {
 // capturing if that ever feels blind.
 auto fetchOnce(std::string const& endpoint, RemoteFile const& file, fs::path const& dest)
   -> eh::Result<void> {
-  auto const partPath = std::format("{}.part", dest.string());
+  auto const partPath = std::format("{}.part", pathutf8::fromPath(dest));
   // A previous attempt may have left a partial file; start each attempt
   // fresh so a corrupt or foreign partial can never verify by accident.
   auto removeEc = std::error_code{};
@@ -176,7 +177,7 @@ enum class VerifyOutcome {
 auto verifyDownload(fs::path const& dest, RemoteFile const& file, bool retrying)
   -> std::pair<VerifyOutcome, std::string> {
   auto ec = std::error_code{};
-  auto const partPath = std::format("{}.part", dest.string());
+  auto const partPath = std::format("{}.part", pathutf8::fromPath(dest));
   if (file.size != 0) {
     auto const actual = fs::file_size(partPath, ec);
     if (ec || actual != file.size) {
@@ -233,7 +234,7 @@ auto downloadFile(
     if (outcome == VerifyOutcome::Reject) { return eh::makeError("{}", errorText); }
     if (outcome == VerifyOutcome::Mismatch) { continue; }
     auto renameEc = std::error_code{};
-    fs::rename(std::format("{}.part", dest.string()), dest, renameEc);
+    fs::rename(std::format("{}.part", pathutf8::fromPath(dest)), dest, renameEc);
     if (renameEc) {
       return eh::makeError("cannot finalize download of {}", file.logical);
     }
@@ -281,9 +282,12 @@ auto ensureCudnn(
     resolvedArchivePath = downloaded.value();
   }
 
-  auto zip = libzippp::ZipArchive{resolvedArchivePath.string()};
+  auto zip = libzippp::ZipArchive{pathutf8::fromPath(resolvedArchivePath)};
   if (!zip.open()) {
-    return eh::makeError("cannot open cuDNN archive: {}", resolvedArchivePath.string());
+    return eh::makeError(
+      "cannot open cuDNN archive: {}",
+      pathutf8::fromPath(resolvedArchivePath)
+    );
   }
   fs::create_directories(libDir, ec);
 
@@ -308,14 +312,14 @@ auto ensureCudnn(
     if (!out.is_open()) {
       discardStaged();
       zip.close();
-      return eh::makeError("cannot write {}", stagedPath.string());
+      return eh::makeError("cannot write {}", pathutf8::fromPath(stagedPath));
     }
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     out.flush();
     if (!out) {
       discardStaged();
       zip.close();
-      return eh::makeError("cannot write {}", stagedPath.string());
+      return eh::makeError("cannot write {}", pathutf8::fromPath(stagedPath));
     }
     staged.push_back(StagedDll{.stagedPath = stagedPath, .finalPath = finalPath});
   }
@@ -339,7 +343,7 @@ auto ensureCudnn(
       discardStaged();
       return eh::makeError(
         "cannot install cuDNN runtime {}: {}",
-        item.finalPath.string(),
+        pathutf8::fromPath(item.finalPath),
         renameEc.message()
       );
     }

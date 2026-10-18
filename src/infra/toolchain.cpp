@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "infra/toolchain.h"
 
 #include "utils/utils.h"
@@ -26,8 +27,8 @@ auto resolve(appctx::AppConfig const& config, appctx::ToolchainPaths& out)
     );
   }
 
-  LOG_INFO("Using FFmpeg at: {}", out.ffmpegPath.value().string());
-  LOG_INFO("Using FFprobe at: {}", out.ffprobePath.value().string());
+  LOG_INFO("Using FFmpeg at: {}", pathutf8::fromPath(out.ffmpegPath.value()));
+  LOG_INFO("Using FFprobe at: {}", pathutf8::fromPath(out.ffprobePath.value()));
 
   return {};
 }

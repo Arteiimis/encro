@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "utils/utils.h"
 
 #include "infra/terminal.h"
@@ -509,7 +510,7 @@ auto unansweredPromptNotice(std::string_view prompt) -> std::string {
 // exec2 resolves the quoted exe token itself (posix find_executable cannot
 // handle absolute paths), so quotes are safe on both platforms here.
 bool probeTool(fs::path const& toolPath) {
-  auto const cmd = std::format("\"{}\" -version", toolPath.string());
+  auto const cmd = std::format("\"{}\" -version", pathutf8::fromPath(toolPath));
   return exec2(cmd).exitCode == 0;
 }
 

@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "organize/cache.h"
 
 #include "organize/assign.h"
@@ -207,7 +208,7 @@ void AnalysisCache::saveLocked() {
   auto ec = std::error_code{};
   fs::create_directories(filePath_.parent_path(), ec);
 
-  auto const tempPath = std::format("{}.tmp", filePath_.string());
+  auto const tempPath = std::format("{}.tmp", pathutf8::fromPath(filePath_));
   if (
     fileio::writeStagingFile(tempPath, content, std::ios::binary)
     != fileio::StagingStatus::Written

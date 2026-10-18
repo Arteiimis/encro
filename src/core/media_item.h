@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/path_utf8.h"
 #include "core/collision_naming.h"
 #include "core/progress.h"
 #include "core/task_executor.h"
@@ -140,7 +141,7 @@ auto runStage(
     taskSpecs.push_back({
       .id = item->id(),
       .label = item->label(),
-      .input = item->source().string(),
+      .input = pathutf8::fromPath(item->source()),
       .run = [item, &runOne](taskexec::TaskContext& taskCtx) {
         return runOne(*item, taskCtx);
       },

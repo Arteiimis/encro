@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "preview/preview_filtergraph.h"
 
 #include "utils/utils.h"
@@ -166,7 +167,7 @@ auto buildPreviewCommand(
         " -ss {:.6f} -t {:.6f} -i \"{}\"",
         microsToSeconds(startUs),
         microsToSeconds(durationUs),
-        path.string()
+        pathutf8::fromPath(path)
       );
     };
   for (auto const& window: spec.windows) {
@@ -174,7 +175,7 @@ auto buildPreviewCommand(
   }
   if (spec.encodedWindowsAreSegments) {
     for (auto const& encodedPath: encodedPaths) {
-      cmd += std::format(" -i \"{}\"", encodedPath.string());
+      cmd += std::format(" -i \"{}\"", pathutf8::fromPath(encodedPath));
     }
   } else {
     for (auto const& window: spec.windows) {
@@ -203,7 +204,7 @@ auto buildPreviewCommand(
     auto const preset = encoder.codec.starts_with("libx") ? " -preset veryfast" : "";
     cmd += std::format(" -c:v {} -crf 14{} -pix_fmt yuv420p", encoder.codec, preset);
   }
-  cmd += std::format(" \"{}\"", outputPath.string());
+  cmd += std::format(" \"{}\"", pathutf8::fromPath(outputPath));
   return cmd;
 }
 

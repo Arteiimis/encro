@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "tagger/vocabulary.h"
 
 #include <charconv>
@@ -30,7 +31,7 @@ auto splitCsvLine(std::string_view line) -> std::vector<std::string_view> {
 auto loadVocabulary(fs::path const& csvPath) -> eh::Result<Vocabulary> {
   auto file = std::ifstream{csvPath, std::ios::binary};
   if (!file.is_open()) {
-    return eh::makeError("cannot open vocabulary file: {}", csvPath.string());
+    return eh::makeError("cannot open vocabulary file: {}", pathutf8::fromPath(csvPath));
   }
 
   auto vocabulary = Vocabulary{};

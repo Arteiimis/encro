@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/path_utf8.h"
 #include "core/app_context.h"
 #include "core/work_dirs.h"
 #include "infra/stop_signal.h"
@@ -91,7 +92,9 @@ struct ProbeRootCleanupGuard {
       if (!ec) { return; }
       std::this_thread::sleep_for(retryDelay);
     }
-    if (warnOnFailure) { LOG_WARN("Probe temp dir cleanup failed: {}", root.string()); }
+    if (warnOnFailure) {
+      LOG_WARN("Probe temp dir cleanup failed: {}", pathutf8::fromPath(root));
+    }
   }
 };
 
@@ -104,7 +107,7 @@ inline auto createScratchProbeRoot(std::string_view prefix, std::string_view err
     return eh::makeError(
       "Failed to create {} directory: {} ({})",
       errorKind,
-      root.string(),
+      pathutf8::fromPath(root),
       ec.message()
     );
   }

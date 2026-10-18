@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "batch/batch.h"
 
 #include "app/pipeline.h"
@@ -90,7 +91,11 @@ auto enumerateSubfolders(fs::path const& root, fs::path const& packedRoot)
     subfolders.push_back(path);
   }
   if (ec) {
-    return eh::makeError("Failed to scan batch root {}: {}", root.string(), ec.message());
+    return eh::makeError(
+      "Failed to scan batch root {}: {}",
+      pathutf8::fromPath(root),
+      ec.message()
+    );
   }
 
   std::ranges::sort(subfolders, collisionnaming::stablePathLess);

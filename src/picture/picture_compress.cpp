@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "picture/picture_compress.h"
 
 #include "core/display_text.h"
@@ -29,9 +30,9 @@ auto truncateForLabel(std::string const& text, std::size_t maxLen = 48) -> std::
 auto ImageCompressConfig::buildCMD() const -> std::string {
   auto cmd = quoteToolPath(ffmpegPath.value_or(fs::path{"ffmpeg"}));
   cmd += " -hide_banner -nostats -loglevel error -y";
-  cmd += std::format(" -i \"{}\"", inputPath.string());
+  cmd += std::format(" -i \"{}\"", pathutf8::fromPath(inputPath));
   cmd += std::format(" -q:v {}", quality);
-  cmd += std::format(" \"{}\"", outputPath.string());
+  cmd += std::format(" \"{}\"", pathutf8::fromPath(outputPath));
   return cmd;
 }
 
@@ -39,8 +40,8 @@ auto partialTempPath(fs::path const& outputPath) -> fs::path {
   return outputPath.parent_path()
     / std::format(
            "{}.partial{}",
-           outputPath.stem().string(),
-           outputPath.extension().string()
+           pathutf8::fromPath(outputPath.stem()),
+           pathutf8::fromPath(outputPath.extension())
     );
 }
 
@@ -76,7 +77,7 @@ bool compressImage(
     auto const reason = extractFailureReason(output, "", exitCode);
     LOG_WARN(
       "Image compression failed: input={} exitCode={} reason={}",
-      inputPath.string(),
+      pathutf8::fromPath(inputPath),
       exitCode,
       reason
     );
@@ -87,8 +88,8 @@ bool compressImage(
   if (!fs::exists(partialPath)) {
     LOG_WARN(
       "Image compression produced no output: input={} expected={}",
-      inputPath.string(),
-      partialPath.string()
+      pathutf8::fromPath(inputPath),
+      pathutf8::fromPath(partialPath)
     );
     return false;
   }
@@ -96,8 +97,8 @@ bool compressImage(
   if (auto const ec = finalizePartialOutput(outputPath)) {
     LOG_WARN(
       "Image compression output rename failed: input={} output={} error={}",
-      inputPath.string(),
-      outputPath.string(),
+      pathutf8::fromPath(inputPath),
+      pathutf8::fromPath(outputPath),
       ec.message()
     );
     return false;
@@ -105,8 +106,8 @@ bool compressImage(
 
   LOG_DEBUG(
     "Image compressed: {} -> {} ({} bytes)",
-    inputPath.string(),
-    outputPath.string(),
+    pathutf8::fromPath(inputPath),
+    pathutf8::fromPath(outputPath),
     fs::file_size(outputPath)
   );
 

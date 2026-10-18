@@ -4,6 +4,7 @@
 #include "core/collision_naming.h"
 #include "core/file_write.h"
 #include "core/work_dirs.h"
+#include "core/path_utf8.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -57,7 +58,7 @@ auto inputSize(fs::path const& path) -> std::optional<std::uintmax_t> {
 }
 
 auto makeTempStatePath(fs::path const& path) -> fs::path {
-  return path.parent_path() / std::format("{}.tmp", path.filename().string());
+  return path.parent_path() / std::format("{}.tmp", pathutf8::fromPath(path.filename()));
 }
 
 auto outputLayoutToString(appctx::OutputLayout layout) -> std::string {
@@ -104,7 +105,7 @@ auto optionalPathFrom(json::object const& object, std::string_view key)
   auto const& value = object.at(key);
   if (value.is_null()) { return std::nullopt; }
   if (!value.is_string()) { return std::nullopt; }
-  return fs::path{value.as_string().c_str()};
+  return pathutf8::toPath(value.as_string());
 }
 
 auto optionalStringFrom(json::object const& object, std::string_view key)
@@ -145,7 +146,7 @@ auto optionalStringArrayFrom(json::object const& object, std::string_view key)
   if (!object.contains(key) || !object.at(key).is_array()) { return values; }
   for (auto const& value: object.at(key).as_array()) {
     if (!value.is_string()) { continue; }
-    values.emplace_back(fs::path{value.as_string().c_str()});
+    values.emplace_back(pathutf8::toPath(value.as_string()));
   }
   return values;
 }
@@ -410,7 +411,7 @@ auto fromJsonSnapshot(json::object const& object) -> Snapshot {
 auto loadSnapshot(fs::path const& path) -> eh::Result<Snapshot> {
   auto input = std::ifstream{path};
   if (!input.is_open()) {
-    return eh::makeError("Failed to open state file: {}", path.string());
+    return eh::makeError("Failed to open state file: {}", pathutf8::fromPath(path));
   }
 
   auto content =
@@ -419,11 +420,18 @@ auto loadSnapshot(fs::path const& path) -> eh::Result<Snapshot> {
   try {
     auto value = json::parse(content);
     if (!value.is_object()) {
-      return eh::makeError("State file root must be a JSON object: {}", path.string());
+      return eh::makeError(
+        "State file root must be a JSON object: {}",
+        pathutf8::fromPath(path)
+      );
     }
     return fromJsonSnapshot(value.as_object());
   } catch (std::exception const& ex) {
-    return eh::makeError("Failed to parse state file {}: {}", path.string(), ex.what());
+    return eh::makeError(
+      "Failed to parse state file {}: {}",
+      pathutf8::fromPath(path),
+      ex.what()
+    );
   }
 }
 
@@ -512,11 +520,14 @@ auto flushSnapshot(
   if (status == fileio::StagingStatus::OpenFailed) {
     return eh::makeError(
       "Failed to open state temp file for writing: {}",
-      tempPath.string()
+      pathutf8::fromPath(tempPath)
     );
   }
   if (status == fileio::StagingStatus::WriteFailed) {
-    return eh::makeError("Failed to write state snapshot to: {}", tempPath.string());
+    return eh::makeError(
+      "Failed to write state snapshot to: {}",
+      pathutf8::fromPath(tempPath)
+    );
   }
 
   if (auto const replaced = replaceStateFile(tempPath, stateFilePath); !replaced) {
@@ -553,8 +564,8 @@ auto replaceStateFile(fs::path const& stagedPath, fs::path const& stateFilePath)
     if (ec) {
       return eh::makeError(
         "Failed to move the current state file aside: {} -> {}: {}",
-        stateFilePath.string(),
-        backupPath.string(),
+        pathutf8::fromPath(stateFilePath),
+        pathutf8::fromPath(backupPath),
         ec.message()
       );
     }
@@ -569,8 +580,8 @@ auto replaceStateFile(fs::path const& stagedPath, fs::path const& stateFilePath)
     }
     return eh::makeError(
       "Failed to move state file into place: {} -> {}: {}",
-      stagedPath.string(),
-      stateFilePath.string(),
+      pathutf8::fromPath(stagedPath),
+      pathutf8::fromPath(stateFilePath),
       replaceMessage
     );
   }
@@ -659,7 +670,7 @@ auto makeEncodeTask(fs::path const& inputPath, fs::path const& plannedOutputFile
     .id = std::format("encode:{}", collisionnaming::pathIdentityString(inputPath)),
     .kind = std::string{kEncodeVideoKind},
     .status = TaskStatus::Pending,
-    .label = inputPath.filename().string(),
+    .label = pathutf8::fromPath(inputPath.filename()),
     .attemptCount = 0,
     .fingerprint = detail::buildFingerprint(kEncodeVideoKind, sourcePaths, targetPaths),
     .sourcePaths = sourcePaths,

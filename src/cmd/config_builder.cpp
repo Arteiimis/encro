@@ -1,6 +1,7 @@
 #include "cmd/config_builder.h"
 
 #include "core/path_roots.h"
+#include "core/path_utf8.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -25,7 +26,7 @@ auto requireDir(fs::path const& path, std::string_view label) -> eh::Result<void
     return eh::makeError(
       "The specified {} path is not a directory: {}",
       label,
-      path.string()
+      pathutf8::fromPath(path)
     );
   }
 
@@ -43,7 +44,7 @@ auto requireExists(fs::path const& path, std::string_view label) -> eh::Result<v
     return eh::makeError(
       "The specified {} path/file does not exist: {}",
       label,
-      path.string()
+      pathutf8::fromPath(path)
     );
   }
 
@@ -53,7 +54,11 @@ auto requireExists(fs::path const& path, std::string_view label) -> eh::Result<v
 auto requireRegularFile(fs::path const& path, std::string_view label)
   -> eh::Result<void> {
   if (!fs::is_regular_file(path)) {
-    return eh::makeError("The specified {} path is not a file: {}", label, path.string());
+    return eh::makeError(
+      "The specified {} path is not a file: {}",
+      label,
+      pathutf8::fromPath(path)
+    );
   }
 
   return {};
@@ -176,7 +181,7 @@ auto resolveOutputAliasBasePath(appctx::AppConfig const& config, OutputPathAlias
 auto resolveOutputPathSpec(appctx::AppConfig const& config, std::string_view raw)
   -> eh::Result<fs::path> {
   auto const alias = parseOutputPathAlias(raw);
-  if (!alias.has_value()) { return fs::path{raw}; }
+  if (!alias.has_value()) { return pathutf8::toPath(raw); }
 
   auto basePathRes = resolveOutputAliasBasePath(config, alias->kind);
   if (!basePathRes) { return eh::makeError("{}", basePathRes.error()); }
@@ -184,7 +189,7 @@ auto resolveOutputPathSpec(appctx::AppConfig const& config, std::string_view raw
   auto resolvedPath = basePathRes.value();
   if (alias->suffix.empty()) { return resolvedPath.lexically_normal(); }
 
-  auto const suffixPath = fs::path{alias->suffix};
+  auto const suffixPath = pathutf8::toPath(alias->suffix);
   if (suffixPath.is_absolute() || suffixPath.has_root_name()) {
     return eh::makeError(
       "Output alias suffix must be a relative path: {}",
@@ -207,7 +212,7 @@ auto resolveSingleInputPath(CmdParseResult const& result) -> eh::Result<fs::path
     if (result.input.has_value()) { return *result.input; }
     return result.positionalInputs.value().front();
   }();
-  auto path = fs::absolute(fs::path{input}).lexically_normal();
+  auto path = fs::absolute(pathutf8::toPath(input)).lexically_normal();
   if (auto const exists = requireExists(path, "input"); !exists) {
     return eh::makeError("{}", exists.error());
   }
@@ -221,7 +226,7 @@ auto resolveInputPaths(std::vector<std::string> const& inputs)
   auto paths = std::vector<fs::path>{};
   paths.reserve(inputs.size());
   for (auto const& input: inputs) {
-    auto const path = fs::absolute(fs::path{input}).lexically_normal();
+    auto const path = fs::absolute(pathutf8::toPath(input)).lexically_normal();
     if (auto const exists = requireExists(path, "input"); !exists) {
       return eh::makeError("{}", exists.error());
     }
@@ -347,11 +352,11 @@ auto buildConfig(CmdParseResult const& result) -> eh::Result<appctx::AppConfig> 
 
   if (result.stateFile.has_value()) {
     config.stateFilePath =
-      fs::absolute(fs::path{result.stateFile.value()}).lexically_normal();
+      fs::absolute(pathutf8::toPath(result.stateFile.value())).lexically_normal();
   }
 
   if (result.ffmpegPath.has_value()) {
-    auto const iptPath = fs::path{result.ffmpegPath.value()};
+    auto const iptPath = pathutf8::toPath(result.ffmpegPath.value());
     if (auto const validDir = requireDir(iptPath, "FFmpeg"); !validDir) {
       return eh::makeError("{}", validDir.error());
     }

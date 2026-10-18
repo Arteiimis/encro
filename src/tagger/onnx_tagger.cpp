@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "tagger/onnx_tagger.h"
 
 #include "tagger/mapping.h"
@@ -65,7 +66,10 @@ auto OnnxTagger::classify(fs::path const& path) -> eh::Result<TaggerOutput> {
   auto outputs =
     session.Run(Ort::RunOptions{nullptr}, names, &inputTensor, 1, outNames, 1);
   if (outputs.empty() || !outputs.front().IsTensor()) {
-    return eh::makeError("tagger produced no tensor output for {}", path.string());
+    return eh::makeError(
+      "tagger produced no tensor output for {}",
+      pathutf8::fromPath(path)
+    );
   }
 
   auto const scores = outputs.front().GetTensorMutableData<float>();

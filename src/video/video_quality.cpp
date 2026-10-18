@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/video_quality.h"
 
 #include "core/work_dirs.h"
@@ -183,15 +184,19 @@ auto runScoringFilter(
   auto const chain = buildTrimmedPairChain(request.durationUs);
   auto const startSec = microsToSeconds(request.startUs);
   auto const encodedInput = !request.encodedHasLocalPts
-    ? std::format("-ss {:.6f} -i \"{}\"", startSec, request.encodedPath.string())
-    : std::format("-i \"{}\"", request.encodedPath.string());
+    ? std::format(
+        "-ss {:.6f} -i \"{}\"",
+        startSec,
+        pathutf8::fromPath(request.encodedPath)
+      )
+    : std::format("-i \"{}\"", pathutf8::fromPath(request.encodedPath));
   auto const cmd = std::format(
     "{} -hide_banner -nostats -loglevel error -y -ss {:.6f} -i \"{}\" {} "
     "-filter_complex \"{};[enc][ref]{}={}[{}]\" "
     "-map \"[{}]\" -f null -",
     quoteToolPath(request.ffmpegPath),
     startSec,
-    request.originalPath.string(),
+    pathutf8::fromPath(request.originalPath),
     encodedInput,
     chain,
     filterClause,
@@ -339,7 +344,7 @@ bool isHdrVideo(boost::json::value const& vidInfo) {
 auto parseVmafLog(fs::path const& logPath) -> eh::Result<std::vector<double>> {
   auto input = std::ifstream{logPath, std::ios::binary};
   if (!input.is_open()) {
-    return eh::makeError("VMAF log not found: {}", logPath.string());
+    return eh::makeError("VMAF log not found: {}", pathutf8::fromPath(logPath));
   }
 
   auto content = std::string{std::istreambuf_iterator<char>{input}, {}};
@@ -347,12 +352,19 @@ auto parseVmafLog(fs::path const& logPath) -> eh::Result<std::vector<double>> {
   try {
     log = boost::json::parse(content);
   } catch (std::exception const& ex) {
-    return eh::makeError("Failed to parse VMAF log {}: {}", logPath.string(), ex.what());
+    return eh::makeError(
+      "Failed to parse VMAF log {}: {}",
+      pathutf8::fromPath(logPath),
+      ex.what()
+    );
   }
 
   auto scores = parseVmafFrameScores(log);
   if (scores.empty()) {
-    return eh::makeError("VMAF log contains no frame scores: {}", logPath.string());
+    return eh::makeError(
+      "VMAF log contains no frame scores: {}",
+      pathutf8::fromPath(logPath)
+    );
   }
   return scores;
 }
@@ -360,7 +372,7 @@ auto parseVmafLog(fs::path const& logPath) -> eh::Result<std::vector<double>> {
 auto parseSsimStats(fs::path const& statsPath) -> eh::Result<std::vector<double>> {
   auto input = std::ifstream{statsPath, std::ios::binary};
   if (!input.is_open()) {
-    return eh::makeError("SSIM stats file not found: {}", statsPath.string());
+    return eh::makeError("SSIM stats file not found: {}", pathutf8::fromPath(statsPath));
   }
 
   auto scores = std::vector<double>{};
@@ -382,7 +394,10 @@ auto parseSsimStats(fs::path const& statsPath) -> eh::Result<std::vector<double>
   }
 
   if (scores.empty()) {
-    return eh::makeError("SSIM stats file contains no scores: {}", statsPath.string());
+    return eh::makeError(
+      "SSIM stats file contains no scores: {}",
+      pathutf8::fromPath(statsPath)
+    );
   }
   return scores;
 }
@@ -390,7 +405,7 @@ auto parseSsimStats(fs::path const& statsPath) -> eh::Result<std::vector<double>
 auto parseXpsnrStats(fs::path const& statsPath) -> eh::Result<std::vector<double>> {
   auto input = std::ifstream{statsPath, std::ios::binary};
   if (!input.is_open()) {
-    return eh::makeError("XPSNR stats file not found: {}", statsPath.string());
+    return eh::makeError("XPSNR stats file not found: {}", pathutf8::fromPath(statsPath));
   }
 
   auto const content = std::string{std::istreambuf_iterator<char>{input}, {}};
@@ -398,7 +413,7 @@ auto parseXpsnrStats(fs::path const& statsPath) -> eh::Result<std::vector<double
   if (scores.empty()) {
     return eh::makeError(
       "XPSNR stats file contains no frame scores: {}",
-      statsPath.string()
+      pathutf8::fromPath(statsPath)
     );
   }
   return scores;
@@ -432,7 +447,7 @@ auto measureSegmentQuality(QualityRequest const& request) -> eh::Result<SegmentS
     }
     LOG_WARN(
       "VMAF unavailable for segment (original={} start={}us); falling back to XPSNR: {}",
-      request.originalPath.string(),
+      pathutf8::fromPath(request.originalPath),
       request.startUs,
       vmafRes.error()
     );
@@ -444,7 +459,7 @@ auto measureSegmentQuality(QualityRequest const& request) -> eh::Result<SegmentS
     }
     LOG_WARN(
       "XPSNR unavailable for segment (original={} start={}us); falling back to SSIM: {}",
-      request.originalPath.string(),
+      pathutf8::fromPath(request.originalPath),
       request.startUs,
       xpsnrRes.error()
     );
@@ -455,7 +470,7 @@ auto measureSegmentQuality(QualityRequest const& request) -> eh::Result<SegmentS
   if (!ssimRes) {
     return eh::makeError(
       "Quality scores unparsable for segment of {}: {}",
-      request.originalPath.string(),
+      pathutf8::fromPath(request.originalPath),
       ssimRes.error()
     );
   }

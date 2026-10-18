@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "preview/preview_process.h"
 
 #include "infra/open_file.h"
@@ -58,7 +59,7 @@ auto applyVideoStreamFields(
     if (codecName == "webp" || codecName == "webp_anim") {
       return eh::makeError(
         "Preview supports video comparison only; input is WebP: {}",
-        path.string()
+        pathutf8::fromPath(path)
       );
     }
   }
@@ -175,22 +176,25 @@ auto probeVideo(
 ) -> eh::Result<VideoProbe> {
   auto const info = videoinfo::cachedVidInfo(toolchain, runtime, path);
   if (!info.is_object()) {
-    return eh::makeError("Failed to probe video: {}", path.string());
+    return eh::makeError("Failed to probe video: {}", pathutf8::fromPath(path));
   }
 
   auto const streamsIt = info.as_object().find("streams");
   if (streamsIt == info.as_object().end() || !streamsIt->value().is_array()) {
-    return eh::makeError("Failed to probe video: {}", path.string());
+    return eh::makeError("Failed to probe video: {}", pathutf8::fromPath(path));
   }
 
   auto probe = VideoProbe{};
   auto const foundVideo = probeStreamMetadata(streamsIt->value(), probe, path);
   if (!foundVideo) { return eh::makeError("{}", foundVideo.error()); }
   if (!foundVideo.value()) {
-    return eh::makeError("Not a video file: {}", path.string());
+    return eh::makeError("Not a video file: {}", pathutf8::fromPath(path));
   }
   if (probe.width == 0 || probe.height == 0) {
-    return eh::makeError("No video stream dimensions found for: {}", path.string());
+    return eh::makeError(
+      "No video stream dimensions found for: {}",
+      pathutf8::fromPath(path)
+    );
   }
 
   probe.durationUs = probeVideoStreamDurationUs(info);
@@ -420,7 +424,7 @@ auto encodeAndScoreWindow(
     return eh::makeError(
       "Preview window encode failed at {}us of {}",
       item.window.startUs,
-      item.sourcePath.string()
+      pathutf8::fromPath(item.sourcePath)
     );
   }
   if (!measured->has_value()) { return {}; }
@@ -644,7 +648,7 @@ auto runSingleInput(
 
   auto progressCtx = progress::ProgressContext{};
   auto cursorGuard = progress::CursorGuard{};
-  auto const fileName = options.original.filename().string();
+  auto const fileName = pathutf8::fromPath(options.original.filename());
   // One bar spans the whole pipeline: probe 0-40%, windows 40-85%, render 85-100%.
   auto const bar =
     progressCtx.addBar(std::format("Previewing: {}", fileName), terminal::Role::Accent);
@@ -733,14 +737,14 @@ auto resolveManualRange(PreviewOptions const& options)
 auto resolvePreviewOutputPath(PreviewOptions const& options) -> eh::Result<fs::path> {
   auto outputPath = options.output.has_value() ? options.output.value()
                                                : options.original.parent_path()
-      / std::format("{}.preview.mp4", options.original.stem().string());
+      / std::format("{}.preview.mp4", pathutf8::fromPath(options.original.stem()));
   if (
     outputPath == options.original
     || (options.encoded.has_value() && outputPath == options.encoded.value())
   ) {
     return eh::makeError(
       "Preview output would overwrite an input file: {}",
-      outputPath.string()
+      pathutf8::fromPath(outputPath)
     );
   }
   return outputPath;
@@ -809,7 +813,7 @@ auto runTwoInput(
 ) -> eh::Result<int> {
   auto progressCtx = progress::ProgressContext{};
   auto cursorGuard = progress::CursorGuard{};
-  auto const fileName = options.original.filename().string();
+  auto const fileName = pathutf8::fromPath(options.original.filename());
   auto const bar =
     progressCtx.addBar(std::format("Previewing: {}", fileName), terminal::Role::Accent);
   auto const startedAt = std::chrono::steady_clock::now();
@@ -830,11 +834,11 @@ auto runTwoInput(
     progressCtx.eraseBars();
     return eh::makeError(
       "Cannot preview a video with zero duration: {}",
-      options.original.string()
+      pathutf8::fromPath(options.original)
     );
   }
 
-  auto const encodedName = encodedPath.filename().string();
+  auto const encodedName = pathutf8::fromPath(encodedPath.filename());
   progressCtx.setProgress(bar, 5.0f);
   progressCtx.setPostfixText(bar, std::format("Probing: {}", encodedName));
   auto const encodedRes = probeVideo(ctx.toolchain, ctx.runtime, encodedPath);
@@ -848,7 +852,7 @@ auto runTwoInput(
     progressCtx.eraseBars();
     return eh::makeError(
       "Cannot preview a video with zero duration: {}",
-      encodedPath.string()
+      pathutf8::fromPath(encodedPath)
     );
   }
 
@@ -911,12 +915,15 @@ auto runTwoInput(
 
 auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<int> {
   if (!fs::is_regular_file(options.original)) {
-    return eh::makeError("Preview input does not exist: {}", options.original.string());
+    return eh::makeError(
+      "Preview input does not exist: {}",
+      pathutf8::fromPath(options.original)
+    );
   }
   if (options.encoded.has_value() && !fs::is_regular_file(options.encoded.value())) {
     return eh::makeError(
       "Preview input does not exist: {}",
-      options.encoded.value().string()
+      pathutf8::fromPath(options.encoded.value())
     );
   }
 
@@ -938,7 +945,7 @@ auto run(appctx::AppContext& ctx, PreviewOptions const& options) -> eh::Result<i
   if (original.durationUs == 0) {
     return eh::makeError(
       "Cannot preview a video with zero duration: {}",
-      options.original.string()
+      pathutf8::fromPath(options.original)
     );
   }
 

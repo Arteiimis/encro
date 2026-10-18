@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/video_output_planning.h"
 
 #include "core/collision_naming.h"
@@ -35,8 +36,8 @@ auto buildConflictHandledOutputPath(
     / naming::buildConflictHandledFlatName(
       sourceRootDir,
       inputPath,
-      candidatePath.stem().string(),
-      candidatePath.extension().string()
+      pathutf8::fromPath(candidatePath.stem()),
+      pathutf8::fromPath(candidatePath.extension())
     );
 }
 
@@ -75,8 +76,8 @@ void ensureUniqueOutputPaths(appctx::path_map<fs::path>& plannedOutputFiles) {
       if (inputPaths.size() < 2) { continue; }
 
       hadDuplicates = true;
-      auto const stem = outputPath.stem().string();
-      auto const extension = outputPath.extension().string();
+      auto const stem = pathutf8::fromPath(outputPath.stem());
+      auto const extension = pathutf8::fromPath(outputPath.extension());
       for (auto const& inputPath: inputPaths) {
         plannedOutputFiles[inputPath] = outputPath.parent_path()
           / std::format("{}__{}{}", stem, naming::shortPathHash(inputPath), extension);

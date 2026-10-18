@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/probe_cache.h"
 
 #include "core/file_write.h"
@@ -91,7 +92,7 @@ auto probeCacheKey(
   auto const presetValue = preset.value_or(std::string{});
   return boost::json::serialize(
     boost::json::array{
-      inputPath.string(),
+      pathutf8::fromPath(inputPath),
       static_cast<std::uint64_t>(fileSize),
       mtimeMs,
       codec,
@@ -176,7 +177,7 @@ void save(std::vector<Entry> const& updates, fs::path const& filePath) {
   // process, but a unique temp name (pid suffix) keeps two concurrent encro
   // processes from clobbering each other's staging file.
   auto const tmpPath =
-    std::format("{}.{}.tmp", resolvedPath.string(), currentProcessId());
+    std::format("{}.{}.tmp", pathutf8::fromPath(resolvedPath), currentProcessId());
   auto entriesArray = boost::json::array{};
   for (auto const& entry: entries) {
     entriesArray.push_back(

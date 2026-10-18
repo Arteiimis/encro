@@ -5,6 +5,7 @@
 // Resumable execution (D-11) is fully internalized here.
 // All internal types (PackPlan, PackFileEntry, pack::detail::) remain invisible to consumers.
 
+#include "core/path_utf8.h"
 #include "pack/pack.h"
 #include "pack/pack_types.h"
 #include "pack/pack_plan_internal.h"
@@ -158,8 +159,8 @@ auto collectPackInputs(PackRequest const& request)
         zipName = naming::buildConflictHandledFlatName(
           entry.parent_path(),
           entry,
-          entry.stem().string(),
-          entry.extension().string()
+          pathutf8::fromPath(entry.stem()),
+          pathutf8::fromPath(entry.extension())
         );
         break;
       case NamingStrategy::Keep:

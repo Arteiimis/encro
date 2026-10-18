@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/video_encode_runner.h"
 
 #include "video/video_info.h"
@@ -111,7 +112,7 @@ auto prepareEncodeExecution(appctx::EncodingState& state)
   if (!plannedOutputFile.has_value()) {
     return eh::makeError(
       "Failed to resolve output file for input: {}",
-      state.inputPath.string()
+      pathutf8::fromPath(state.inputPath)
     );
   }
 
@@ -149,9 +150,9 @@ auto runWebpEncodingStep(
 
   LOG_DEBUG(
     "WebP encoding step: input={} quality={} output={}",
-    encodeCtx.inputVidPath.string(),
+    pathutf8::fromPath(encodeCtx.inputVidPath),
     quality,
-    outputFile.string()
+    pathutf8::fromPath(outputFile)
   );
 
   auto const cfg = EncodeConfig{
@@ -179,7 +180,7 @@ auto runWebpEncodingStep(
       extractFailureReason(capturedOutput, stderrText, exitCode, isLikelyFfmpegErrorLine);
     LOG_WARN(
       "WebP encoding step failed: input={} quality={} exitCode={} reason={}",
-      encodeCtx.inputVidPath.string(),
+      pathutf8::fromPath(encodeCtx.inputVidPath),
       quality,
       exitCode,
       reason
@@ -192,7 +193,7 @@ auto runWebpEncodingStep(
   }
   if (!fs::exists(outputFile)) {
     auto const reason =
-      std::format("encoder produced no output file: {}", outputFile.string());
+      std::format("encoder produced no output file: {}", pathutf8::fromPath(outputFile));
     {
       auto lock = std::scoped_lock{encodeCtx.state.mtx};
       encodeCtx.state.lastError = reason;
@@ -202,7 +203,7 @@ auto runWebpEncodingStep(
 
   LOG_DEBUG(
     "WebP encoding step output size: input={} quality={} bytes={}",
-    encodeCtx.inputVidPath.string(),
+    pathutf8::fromPath(encodeCtx.inputVidPath),
     quality,
     fs::file_size(outputFile)
   );
@@ -236,7 +237,7 @@ auto runWebpAdaptiveAttempt(
   if (stepRes.exitCode != 0) {
     LOG_ERROR(
       "WebP encoding step failed permanently: input={} quality={} exitCode={}",
-      encodeCtx.inputVidPath.string(),
+      pathutf8::fromPath(encodeCtx.inputVidPath),
       quality,
       stepRes.exitCode
     );
@@ -245,9 +246,9 @@ auto runWebpAdaptiveAttempt(
   if (!stepRes.outputSize.has_value()) {
     LOG_ERROR(
       "WebP encoding step produced no output file: input={} quality={} output={}",
-      encodeCtx.inputVidPath.string(),
+      pathutf8::fromPath(encodeCtx.inputVidPath),
       quality,
-      outputFile.string()
+      pathutf8::fromPath(outputFile)
     );
     return WebpAttemptResult::Aborted;
   }
@@ -256,7 +257,7 @@ auto runWebpAdaptiveAttempt(
   if (outputSize < kWebpTargetMaxSize) {
     LOG_DEBUG(
       "WebP encoded under target size: {} ({} bytes, q={})",
-      outputFile.string(),
+      pathutf8::fromPath(outputFile),
       outputSize,
       quality
     );
@@ -284,8 +285,8 @@ bool abortWebpForStopRequest(
   clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
   LOG_INFO(
     "WebP adaptive encoding canceled: input={} output={}",
-    encodeCtx.inputVidPath.string(),
-    outputFile.string()
+    pathutf8::fromPath(encodeCtx.inputVidPath),
+    pathutf8::fromPath(outputFile)
   );
   return false;
 }
@@ -299,8 +300,8 @@ bool webpMinQualityFallback(
   LOG_WARN(
     "WebP encoding reached minimum quality but still over target: input={} "
     "output={} bytes={}",
-    encodeCtx.inputVidPath.string(),
-    outputFile.string(),
+    pathutf8::fromPath(encodeCtx.inputVidPath),
+    pathutf8::fromPath(outputFile),
     fs::file_size(outputFile)
   );
   if (encodeCtx.statusUpdater) {
@@ -319,12 +320,12 @@ bool encodeWebpWithTargetSize(
 
   LOG_DEBUG(
     "WebP adaptive encoding start: input={} output={} target={} bytes",
-    encodeCtx.inputVidPath.string(),
-    outputFile.string(),
+    pathutf8::fromPath(encodeCtx.inputVidPath),
+    pathutf8::fromPath(outputFile),
     kWebpTargetMaxSize
   );
 
-  auto const inputPathStr = encodeCtx.inputVidPath.string();
+  auto const inputPathStr = pathutf8::fromPath(encodeCtx.inputVidPath);
   logging::ScopedErrorContext ctx("video.encode.webp", inputPathStr);
 
   auto quality = 80u;
@@ -361,8 +362,8 @@ bool encodeWebpWithTargetSize(
   clearWebpStaleFiles(encodeCtx.progressFilePath, outputFile);
   LOG_ERROR(
     "WebP adaptive encoding failed: input={} output={}",
-    encodeCtx.inputVidPath.string(),
-    outputFile.string()
+    pathutf8::fromPath(encodeCtx.inputVidPath),
+    pathutf8::fromPath(outputFile)
   );
 
   return false;
@@ -437,7 +438,7 @@ bool runEncoderSeries(
   LOG_WARN(
     "Segment series encode exited with non-zero code: input={} completed={} exitCode={} "
     "reason={}",
-    state.inputPath.string(),
+    pathutf8::fromPath(state.inputPath),
     watch.completedSegments.load(),
     exitCode,
     reason
@@ -459,7 +460,7 @@ auto ensureAudioFile(
   if (fs::exists(fallbackAudio)) { return fallbackAudio; }
 
   auto copyAudio =
-    segmentDir / std::format("audio{}", state.inputPath.extension().string());
+    segmentDir / std::format("audio{}", pathutf8::fromPath(state.inputPath.extension()));
   if (fs::exists(copyAudio)) { return copyAudio; }
 
   auto const hasAudioRes = getVidHasAudio(ctx.toolchain, ctx.runtime, state.inputPath);
@@ -490,7 +491,10 @@ auto ensureAudioFile(
 
   if (runExtraction(true, fallbackAudio)) { return fallbackAudio; }
 
-  return eh::makeError("Failed to extract audio from: {}", state.inputPath.string());
+  return eh::makeError(
+    "Failed to extract audio from: {}",
+    pathutf8::fromPath(state.inputPath)
+  );
 }
 
 bool assembleSegments(
@@ -528,7 +532,7 @@ bool assembleSegments(
       extractFailureReason(capturedOutput, stderrText, exitCode, isLikelyFfmpegErrorLine);
     LOG_WARN(
       "Segment assembly exited with non-zero code: input={} exitCode={} reason={}",
-      state.inputPath.string(),
+      pathutf8::fromPath(state.inputPath),
       exitCode,
       reason
     );
@@ -541,8 +545,8 @@ bool assembleSegments(
   if (!fs::exists(plan.outputFilePath)) {
     LOG_WARN(
       "Segment assembly produced no output: input={} output={}",
-      state.inputPath.string(),
-      plan.outputFilePath.string()
+      pathutf8::fromPath(state.inputPath),
+      pathutf8::fromPath(plan.outputFilePath)
     );
     return false;
   }
@@ -583,7 +587,10 @@ bool runSegmentedEncoding(
   if (totalDurationUs == 0) {
     return failEncoding(
       state,
-      std::format("Cannot segment video with zero duration: {}", state.inputPath.string())
+      std::format(
+        "Cannot segment video with zero duration: {}",
+        pathutf8::fromPath(state.inputPath)
+      )
     );
   }
   auto const audioRes = ensureAudioFile(ctx, state, segmentDir, statusUpdater);
@@ -624,7 +631,7 @@ bool runSegmentedEncoding(
     LOG_DEBUG(
       "All {} segment(s) already encoded; assembling only: input={}",
       startNumber,
-      state.inputPath.string()
+      pathutf8::fromPath(state.inputPath)
     );
     return assemble(std::move(segmentPlan.reusableNames));
   }
@@ -664,7 +671,7 @@ bool runSegmentedEncoding(
       state,
       std::format(
         "Segment series config invalid: input={} error={}",
-        state.inputPath.string(),
+        pathutf8::fromPath(state.inputPath),
         validationResult.error()
       )
     );
@@ -672,7 +679,7 @@ bool runSegmentedEncoding(
 
   LOG_DEBUG(
     "Encoding segment series: input={} resume={}us completed={}/{}",
-    state.inputPath.string(),
+    pathutf8::fromPath(state.inputPath),
     resumeUs,
     startNumber,
     segmentTotal
@@ -707,7 +714,10 @@ bool runSegmentedEncoding(
   if (names.size() <= startNumber) {
     return failEncoding(
       state,
-      std::format("Segment encode produced no segments: {}", state.inputPath.string())
+      std::format(
+        "Segment encode produced no segments: {}",
+        pathutf8::fromPath(state.inputPath)
+      )
     );
   }
 
@@ -724,7 +734,7 @@ bool writeConcatManifest(
 ) {
   auto out = std::ofstream{listPath};
   if (!out) {
-    LOG_ERROR("Failed to write segment list: {}", listPath.string());
+    LOG_ERROR("Failed to write segment list: {}", pathutf8::fromPath(listPath));
     return false;
   }
   for (auto const& name: segmentNames) { out << "file '" << name << "'" << "\n"; }
@@ -742,14 +752,15 @@ bool encodeVideo(
   if (!executionPlanRes) { return failEncoding(state, executionPlanRes.error()); }
 
   auto const& executionPlan = executionPlanRes.value();
-  logging::ScopedErrorContext scopedCtx("video.encode", state.inputPath.string());
+  logging::ScopedErrorContext
+    scopedCtx("video.encode", pathutf8::fromPath(state.inputPath));
 
   LOG_DEBUG(
     "Encoding video: input={} output-format={} output-file={} progress-file={}",
-    state.inputPath.string(),
+    pathutf8::fromPath(state.inputPath),
     outputFormat,
-    executionPlan.outputFilePath.string(),
-    executionPlan.progressFilePath.string()
+    pathutf8::fromPath(executionPlan.outputFilePath),
+    pathutf8::fromPath(executionPlan.progressFilePath)
   );
 
   if (outputFormat == "webp") {

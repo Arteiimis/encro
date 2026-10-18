@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "infra/crash_runtime.h"
 
 #include "infra/stacktrace.h"
@@ -173,7 +174,7 @@ void writeCrashMessage(std::string const& message) {
     );
     auto stderrLine = std::string{firstLine};
     if (auto const logPath = logging::currentLogFilePath(); logPath.has_value()) {
-      stderrLine += std::format(" [log: {}]", logPath.value().string());
+      stderrLine += std::format(" [log: {}]", pathutf8::fromPath(logPath.value()));
     }
     stderrLine += '\n';
     writeToStderr(stderrLine);

@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "app/pipeline.h"
 
 #include "core/job_state.h"
@@ -61,7 +62,7 @@ auto ensureJobState(appctx::AppContext& ctx) -> eh::Result<void> {
     auto const message = std::format(
       "Saved job state does not match the current command; discarding it and starting "
       "a fresh run: {}",
-      stateFilePath.string()
+      pathutf8::fromPath(stateFilePath)
     );
     // Under -v the LOG_WARN echo is the console warning; avoid double printing.
     if (!ctx.config.verbose) { terminal::messageln(Warning, "{}", message); }
@@ -139,7 +140,7 @@ auto runVideo(appctx::AppContext& ctx) -> eh::Result<int> {
 
   return eh::makeError(
     "The specified path is neither a directory nor a regular file: {}",
-    inputPath.string()
+    pathutf8::fromPath(inputPath)
   );
 }
 
@@ -147,7 +148,7 @@ auto runPicture(appctx::AppContext& ctx) -> eh::Result<int> {
   if (!fs::is_directory(ctx.config.inputPath)) {
     return eh::makeError(
       "The specified path is neither a directory nor a regular file: {}",
-      ctx.config.inputPath.string()
+      pathutf8::fromPath(ctx.config.inputPath)
     );
   }
 

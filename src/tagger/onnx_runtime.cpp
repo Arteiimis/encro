@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "tagger/onnx_runtime.h"
 
 #include "infra/crash_runtime.h"
@@ -114,7 +115,7 @@ void ensureGpuRuntimePaths(fs::path const& modelDir) {
     if (dir.empty() || !fs::exists(dir, ec) || ec) { continue; }
     if (!containsCudart(dir) && dir != libDir && dir != modelDir) { continue; }
     AddDllDirectory(dir.c_str());
-    prepended += dir.string() + ";";
+    prepended += pathutf8::fromPath(dir) + ";";
   }
   if (!prepended.empty()) {
     auto currentPath = processenv::readEnvVar("PATH").value_or("");
@@ -207,7 +208,7 @@ OnnxModel::OnnxModel(
       std::format(
         "cannot load {} model {}: {}",
         modelKind,
-        modelPath.string(),
+        pathutf8::fromPath(modelPath),
         error.what()
       )
     );

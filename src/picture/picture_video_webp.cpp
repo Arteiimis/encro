@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "picture/picture_video_webp.h"
 
 #include "core/encoding_state.h"
@@ -61,7 +62,7 @@ bool finalizeConvertedOutput(fs::path const& outputPath) {
   if (auto const ec = finalizePartialOutput(outputPath)) {
     LOG_WARN(
       "Video conversion output rename failed: output={} error={}",
-      outputPath.string(),
+      pathutf8::fromPath(outputPath),
       ec.message()
     );
     return false;

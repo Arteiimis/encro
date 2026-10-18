@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/path_utf8.h"
 #include "core/app_context.h"
 #include "core/error_handle.h"
 #include "utils/utils.h"
@@ -106,10 +107,15 @@ struct EncodeConfig {
     }();
 
     if (format == "webp") {
-      return std::format("{}.{}", inputPath->stem().string(), format);
+      return std::format("{}.{}", pathutf8::fromPath(inputPath->stem()), format);
     }
 
-    return std::format("{}.{}.{}", inputPath->stem().string(), codecTag, format);
+    return std::format(
+      "{}.{}.{}",
+      pathutf8::fromPath(inputPath->stem()),
+      codecTag,
+      format
+    );
   }
 
   fs::path buildOutputPath() const {
@@ -188,7 +194,7 @@ struct EncodeConfig {
 
     if (!isSeries) {
       auto const outputVidPath = tempOutputPath.value_or(buildOutputPath());
-      cmd += std::format(" \"{}\"", outputVidPath.string());
+      cmd += std::format(" \"{}\"", pathutf8::fromPath(outputVidPath));
     }
 
     if (progressFilePath.has_value()) {
@@ -226,9 +232,9 @@ private:
     auto const pattern = series.segmentDir / kSegmentFilePattern;
     cmd += std::format(
       " -segment_list \"{}\" -segment_list_type csv -segment_list_flags +live",
-      listPath.string()
+      pathutf8::fromPath(listPath)
     );
-    cmd += std::format(" \"{}\"", pattern.string());
+    cmd += std::format(" \"{}\"", pathutf8::fromPath(pattern));
     return cmd;
   }
 };
@@ -365,9 +371,9 @@ inline auto buildAudioExtractionCmd(
 ) -> std::string {
   auto cmd = quoteToolPath(ffmpegPath);
   cmd += " -hide_banner -nostats -loglevel error -y";
-  cmd += std::format(" -i \"{}\"", inputPath.string());
+  cmd += std::format(" -i \"{}\"", pathutf8::fromPath(inputPath));
   cmd += aacFallback ? " -vn -c:a aac -b:a 192k" : " -vn -c:a copy";
-  cmd += std::format(" \"{}\"", audioPath.string());
+  cmd += std::format(" \"{}\"", pathutf8::fromPath(audioPath));
   return cmd;
 }
 
@@ -379,11 +385,11 @@ inline auto buildSegmentAssemblyCmd(
 ) -> std::string {
   auto cmd = quoteToolPath(ffmpegPath);
   cmd += " -hide_banner -nostats -loglevel error -y";
-  cmd += std::format(" -f concat -safe 0 -i \"{}\"", listPath.string());
+  cmd += std::format(" -f concat -safe 0 -i \"{}\"", pathutf8::fromPath(listPath));
   if (audioPath.has_value()) { cmd += std::format(" -i \"{}\"", audioPath->string()); }
   cmd += " -map 0:v";
   if (audioPath.has_value()) { cmd += " -map 1:a"; }
   cmd += " -c copy";
-  cmd += std::format(" \"{}\"", outputPath.string());
+  cmd += std::format(" \"{}\"", pathutf8::fromPath(outputPath));
   return cmd;
 }

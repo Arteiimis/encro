@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/path_utf8.h"
 #include "core/app_context.h"
 #include "core/error_handle.h"
 #include "core/progress.h"
@@ -206,7 +207,11 @@ void printProbePlan(
 // One-line summary hint pointing at the comparison tool.
 inline auto previewHint(fs::path const& original, fs::path const& encoded)
   -> std::string {
-  return std::format("encro preview \"{}\" \"{}\"", original.string(), encoded.string());
+  return std::format(
+    "encro preview \"{}\" \"{}\"",
+    pathutf8::fromPath(original),
+    pathutf8::fromPath(encoded)
+  );
 }
 
 }  // namespace encodeprobe

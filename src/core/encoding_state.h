@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/path_utf8.h"
 #include "core/collision_naming.h"
 #include "core/media_item.h"
 
@@ -66,7 +67,7 @@ struct EncodingState {
     return actionId
       .value_or(std::format("encode:{}", collisionnaming::pathIdentityString(inputPath)));
   }
-  auto label() const -> std::string { return inputPath.filename().string(); }
+  auto label() const -> std::string { return pathutf8::fromPath(inputPath.filename()); }
   auto source() const -> fs::path const& { return inputPath; }
   auto outcome() -> mediaitem::ItemOutcome& { return result; }
 };

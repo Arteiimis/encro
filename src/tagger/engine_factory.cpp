@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "tagger/engine_factory.h"
 
 #include "core/sha256.h"
@@ -36,7 +37,7 @@ auto readFixtureObject(fs::path const& fixturePath) -> boost::json::object {
   auto file = std::ifstream{fixturePath, std::ios::binary};
   if (!file.is_open()) {
     throw std::runtime_error(
-      std::format("cannot open fake tagger fixture: {}", fixturePath.string())
+      std::format("cannot open fake tagger fixture: {}", pathutf8::fromPath(fixturePath))
     );
   }
   auto const content = std::string{std::istreambuf_iterator<char>{file}, {}};
@@ -111,10 +112,12 @@ public:
 
   auto classify(fs::path const& path) -> eh::Result<TaggerOutput> override {
     auto const hash = contentHashOf(path);
-    if (hash.empty()) { return eh::makeError("cannot read {}", path.string()); }
+    if (hash.empty()) {
+      return eh::makeError("cannot read {}", pathutf8::fromPath(path));
+    }
     auto const it = fixtures_.find(hash);
     if (it == fixtures_.end()) {
-      return eh::makeError("no fixture for {}", path.filename().string());
+      return eh::makeError("no fixture for {}", pathutf8::fromPath(path.filename()));
     }
     return it->second;
   }
@@ -134,10 +137,12 @@ public:
 
   auto extract(fs::path const& path) -> eh::Result<std::vector<float>> override {
     auto const hash = contentHashOf(path);
-    if (hash.empty()) { return eh::makeError("cannot read {}", path.string()); }
+    if (hash.empty()) {
+      return eh::makeError("cannot read {}", pathutf8::fromPath(path));
+    }
     auto const it = fixtures_.find(hash);
     if (it == fixtures_.end()) {
-      return eh::makeError("no fixture for {}", path.filename().string());
+      return eh::makeError("no fixture for {}", pathutf8::fromPath(path.filename()));
     }
     auto feature = it->second;
     normalizeFeature(feature);

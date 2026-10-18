@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "tagger/preprocess.h"
 
 #include "utils/utils.h"
@@ -56,7 +57,7 @@ auto buildPreprocessCommand(fs::path const& ffmpeg, fs::path const& input, Input
     R"({} -hide_banner -loglevel quiet -y -i "{}" {}-filter_complex "{}" )"
     R"(-frames:v 1 -f rawvideo -)",
     quoteToolPath(ffmpeg),
-    input.string(),
+    pathutf8::fromPath(input),
     spec.backdrop,
     spec.filterGraph
   );
@@ -72,7 +73,7 @@ auto runPreprocess(fs::path const& ffmpeg, fs::path const& input, InputKind kind
     return eh::makeError(
       "ffmpeg preprocess failed (exit {}) for {}",
       exitCode,
-      input.string()
+      pathutf8::fromPath(input)
     );
   }
   auto const expected = rgb24Bytes(specOf(kind).edge);

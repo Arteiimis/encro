@@ -2,6 +2,7 @@
 
 #include "cmd/cmd.h"
 #include "core/display_text.h"
+#include "core/path_utf8.h"
 #include "core/progress.h"
 #include "infra/console_width.h"
 #include "infra/stop_signal.h"
@@ -52,7 +53,7 @@ void notifyProviders(
 
 auto resolveModelDir(CmdParseResult const& cmd) -> fs::path {
   if (cmd.organizeModelDir.has_value() && !cmd.organizeModelDir->empty()) {
-    return fs::path{*cmd.organizeModelDir};
+    return pathutf8::toPath(*cmd.organizeModelDir);
   }
   return tagger::defaultModelDir();
 }
@@ -146,7 +147,7 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
   if (!cmd.organizeDir.has_value()) { return 0; }
 
   auto const ffmpegPath = cmd.ffmpegPath.has_value()
-    ? std::optional<fs::path>{fs::path{*cmd.ffmpegPath}}
+    ? std::optional<fs::path>{pathutf8::toPath(*cmd.ffmpegPath)}
     : std::nullopt;
 
   // Incremental entry (design D8): the disposition walk needs no models, so
@@ -154,7 +155,7 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
   // spinner. Recursive runs keep whole-set behavior and stay silent.
   if (!cmd.recursive) {
     auto const dispositions = computeFolderDispositions(
-      fs::path{cmd.organizeDir.value_or(".")},
+      pathutf8::toPath(cmd.organizeDir.value_or(".")),
       /*recursive=*/false,
       cmd.organizeIngest.value_or(std::vector<std::string>{}),
       cmd.organizeIgnoreFolder.value_or(std::vector<std::string>{})
@@ -199,7 +200,7 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
   if (!fakeEngine) { notifyProviders(*engines.tagger, *engines.features); }
 
   auto options = Options{
-    .root = fs::path{cmd.organizeDir.value_or(".")},
+    .root = pathutf8::toPath(cmd.organizeDir.value_or(".")),
     .recursive = cmd.recursive,
     .minConfidence = cmd.organizeMinConfidence.value_or(0.35),
     .modelDir = modelDir,

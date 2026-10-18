@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "tagger/onnx_features.h"
 
 #include "tagger/mapping.h"
@@ -57,7 +58,7 @@ auto OnnxFeatureEngine::extract(fs::path const& path) -> eh::Result<std::vector<
   if (outputs.empty() || !outputs.front().IsTensor()) {
     return eh::makeError(
       "identity model produced no tensor output for {}",
-      path.string()
+      pathutf8::fromPath(path)
     );
   }
 

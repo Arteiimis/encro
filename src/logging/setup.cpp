@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "logging/setup.h"
 
 #include "core/app_context.h"
@@ -94,7 +95,7 @@ std::size_t retainRecentLogs(fs::path const& logDir, int const maxKeep) {
     for (auto const& entry: fs::directory_iterator{logDir, ec}) {
       if (ec) { break; }
       if (!entry.is_regular_file()) { continue; }
-      auto const filename = entry.path().filename().string();
+      auto const filename = pathutf8::fromPath(entry.path().filename());
       if (!filename.starts_with("encro_")) { continue; }
       auto hasLogExt = filename.find(".log") != std::string::npos;
       auto hasNdjsonExt = filename.find(".ndjson") != std::string::npos;
@@ -292,7 +293,7 @@ void logRunSummary(SummaryData const& data) {
     body += fmt::format("{}:{}", level, count);
   }
   body += "} log=";
-  body += currentLogFilePath().value_or(fs::path{}).string();
+  body += pathutf8::fromPath(currentLogFilePath().value_or(fs::path{}));
 
   auto* logger = spdlog::default_logger_raw();
   if (logger != nullptr) { logger->info(body); }
@@ -387,7 +388,7 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
     // D-17~D-18: human-readable rotating file sink
     auto hrSink = std::make_shared<
       spdlog::sinks::rotating_file_sink_mt
-    >(filePath.string(), 10 * 1024 * 1024, 3);
+    >(pathutf8::fromPath(filePath), 10 * 1024 * 1024, 3);
     hrSink->set_pattern(kLogPattern);
     sinks.emplace_back(std::move(hrSink));
 
@@ -397,7 +398,7 @@ auto setup(LogConfig const& config) -> std::optional<fs::path> {
       ndjsonPath.replace_extension(".ndjson");
       auto jsonSink = std::make_shared<
         spdlog::sinks::rotating_file_sink_mt
-      >(ndjsonPath.string(), 10 * 1024 * 1024, 3);
+      >(pathutf8::fromPath(ndjsonPath), 10 * 1024 * 1024, 3);
       jsonSink->set_formatter(std::make_unique<logging::JsonFormatter>());
       sinks.emplace_back(std::move(jsonSink));
       // D8: remember the companion path for crash-handler direct writes

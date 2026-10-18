@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "cmd/config_store.h"
 
 #include "infra/env.h"
@@ -186,7 +187,7 @@ void warnUnknownKeys(LoadResult const& loaded, fs::path const& path) {
       Warning,
       "ignoring unknown config key \"{}\" in {}",
       key,
-      path.string()
+      pathutf8::fromPath(path)
     );
   }
 }
@@ -199,7 +200,7 @@ auto load(fs::path const& path, KeyTable const& table) -> LoadResult {
 
   auto file = std::ifstream{path, std::ios::binary};
   if (!file.is_open()) {
-    result.error = std::format("cannot open config file: {}", path.string());
+    result.error = std::format("cannot open config file: {}", pathutf8::fromPath(path));
     return result;
   }
 
@@ -207,14 +208,17 @@ auto load(fs::path const& path, KeyTable const& table) -> LoadResult {
   auto jsonEc = boost::system::error_code{};
   auto const parsed = json::parse(content, jsonEc);
   if (jsonEc) {
-    result.error =
-      std::format("invalid config file {}: {}", path.string(), jsonEc.message());
+    result.error = std::format(
+      "invalid config file {}: {}",
+      pathutf8::fromPath(path),
+      jsonEc.message()
+    );
     return result;
   }
   if (!parsed.is_object()) {
     result.error = std::format(
       "invalid config file {}: top-level value must be a JSON object",
-      path.string()
+      pathutf8::fromPath(path)
     );
     return result;
   }
@@ -229,7 +233,7 @@ auto load(fs::path const& path, KeyTable const& table) -> LoadResult {
     } else {
       result.error = std::format(
         "invalid config file {}: key \"{}\" must be a scalar value",
-        path.string(),
+        pathutf8::fromPath(path),
         entry.key()
       );
       return result;
@@ -249,7 +253,7 @@ auto save(
     if (ec) {
       return std::format(
         "cannot create config directory {}: {}",
-        path.parent_path().string(),
+        pathutf8::fromPath(path.parent_path()),
         ec.message()
       );
     }
@@ -257,7 +261,7 @@ auto save(
 
   auto out = std::ofstream{path, std::ios::binary};
   if (!out.is_open()) {
-    return std::format("cannot write config file: {}", path.string());
+    return std::format("cannot write config file: {}", pathutf8::fromPath(path));
   }
 
   // Flat object, pretty-printed by hand: one key per line in canonical table
@@ -277,7 +281,9 @@ auto save(
   }
   out << (first ? "}\n" : "\n}\n");
   out.flush();
-  if (!out) { return std::format("failed to write config file: {}", path.string()); }
+  if (!out) {
+    return std::format("failed to write config file: {}", pathutf8::fromPath(path));
+  }
   return std::nullopt;
 }
 

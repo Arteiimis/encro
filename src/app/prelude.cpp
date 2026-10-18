@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "app/prelude.h"
 
 #include "core/work_dirs.h"
@@ -78,16 +79,22 @@ void logConfigSummary(appctx::AppConfig const& config) {
   if (config.ffmpegInstallDir.has_value()) {
     LOG_INFO(
       "Using custom FFmpeg install directory: {}",
-      config.ffmpegInstallDir.value().string()
+      pathutf8::fromPath(config.ffmpegInstallDir.value())
     );
   }
 
   if (config.outputPath.has_value()) {
-    LOG_INFO("Using custom output path: {}", config.outputPath.value().string());
+    LOG_INFO(
+      "Using custom output path: {}",
+      pathutf8::fromPath(config.outputPath.value())
+    );
   }
 
   if (config.stateFilePath.has_value()) {
-    LOG_INFO("Using custom state file: {}", config.stateFilePath.value().string());
+    LOG_INFO(
+      "Using custom state file: {}",
+      pathutf8::fromPath(config.stateFilePath.value())
+    );
   }
 
   if (config.maxParallelJobs.has_value()) {

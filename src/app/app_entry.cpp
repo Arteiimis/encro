@@ -6,6 +6,7 @@
 #include "cmd/config_command.h"
 #include "core/app_context.h"
 #include "core/job_state.h"
+#include "core/path_utf8.h"
 #include "app/pipeline.h"
 #include "app/prelude.h"
 #include "app/version.h"
@@ -191,20 +192,20 @@ int runPreview(prelude::StartupContext const& startup) {
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access): guarded by the !configRes check above; expected's operator bool is not recognized
   ctx.config = *configRes;
   // NOLINTNEXTLINE(bugprone-unchecked-optional-access): guarded by the has_value() check above
-  ctx.config.inputPath = fs::path{startup.cmd.previewOriginal.value()};
+  ctx.config.inputPath = pathutf8::toPath(startup.cmd.previewOriginal.value());
 
   if (startup.cmd.ffmpegPath.has_value()) {
-    ctx.config.ffmpegInstallDir = fs::path{startup.cmd.ffmpegPath.value()};
+    ctx.config.ffmpegInstallDir = pathutf8::toPath(startup.cmd.ffmpegPath.value());
   }
 
   if (!ensureToolchainReady(ctx, startup)) { return 1; }
 
   auto options = preview::PreviewOptions{.original = ctx.config.inputPath};
   if (startup.cmd.previewEncoded.has_value()) {
-    options.encoded = fs::path{startup.cmd.previewEncoded.value()};
+    options.encoded = pathutf8::toPath(startup.cmd.previewEncoded.value());
   }
   if (startup.cmd.previewOutput.has_value()) {
-    options.output = fs::path{startup.cmd.previewOutput.value()};
+    options.output = pathutf8::toPath(startup.cmd.previewOutput.value());
   }
   if (startup.cmd.previewStart.has_value()) {
     options.startSeconds = startup.cmd.previewStart;
@@ -281,7 +282,8 @@ auto buildBatchRequest(CmdParseResult const& cmd) -> eh::Result<batch::BatchRequ
 
   auto outputOverride = std::optional<fs::path>{};
   if (cmd.batchOutput.has_value()) {
-    outputOverride = fs::absolute(fs::path{cmd.batchOutput.value()}).lexically_normal();
+    outputOverride =
+      fs::absolute(pathutf8::toPath(cmd.batchOutput.value())).lexically_normal();
   }
   request.packedRoot = batch::resolvePackedRoot(request.root, outputOverride);
 

@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/video_batch_execution.h"
 
 #include "video/encode_probe.h"
@@ -206,7 +207,7 @@ auto runEncodingTask(
     slot + 1,
     taskIndex + 1,
     executionCtx.pendingTotal(),
-    item->inputPath.string()
+    pathutf8::fromPath(item->inputPath)
   );
   auto const barIndex = executionCtx.barIndexOpt(slot);
   startEncodingState(*item, barIndex);
@@ -243,7 +244,7 @@ auto runEncodingTask(
       slot + 1,
       taskIndex + 1,
       executionCtx.pendingTotal(),
-      item->inputPath.string(),
+      pathutf8::fromPath(item->inputPath),
       outcome.elapsedMs_
     );
   } else {
@@ -252,7 +253,7 @@ auto runEncodingTask(
       slot + 1,
       taskIndex + 1,
       executionCtx.pendingTotal(),
-      item->inputPath.string(),
+      pathutf8::fromPath(item->inputPath),
       outcome.outputFile_.has_value() ? outcome.outputFile_->string() : "<unknown>",
       outcome.elapsedMs_
     );
@@ -277,7 +278,7 @@ auto runEncodingTask(
 // with no reason of its own prints no summary line (as it always did here).
 auto runVerboseEncodingItem(appctx::AppContext& ctx, appctx::EncodingState& item)
   -> eh::Result<void> {
-  LOG_DEBUG("Start encoding (no-progress): {}", item.inputPath.string());
+  LOG_DEBUG("Start encoding (no-progress): {}", pathutf8::fromPath(item.inputPath));
   auto const failureText = encodeOneItem(ctx, item, {});
   if (failureText.has_value()) {
     // A child the stop killed is the cancellation's victim: the item keeps no
@@ -285,13 +286,16 @@ auto runVerboseEncodingItem(appctx::AppContext& ctx, appctx::EncodingState& item
     // (cancellation-reporting).
     if (stopsignal::isStopRequested()) {
       item.stopVictim = true;
-      LOG_WARN("Encoded canceled by the stop (no-progress): {}", item.inputPath.string());
+      LOG_WARN(
+        "Encoded canceled by the stop (no-progress): {}",
+        pathutf8::fromPath(item.inputPath)
+      );
       return eh::makeError("{}", failureText.value());
     }
-    LOG_WARN("Encoded failed (no-progress): {}", item.inputPath.string());
+    LOG_WARN("Encoded failed (no-progress): {}", pathutf8::fromPath(item.inputPath));
     return eh::makeError("{}", failureText.value());
   }
-  LOG_INFO("Encoded success (no-progress): {}", item.inputPath.string());
+  LOG_INFO("Encoded success (no-progress): {}", pathutf8::fromPath(item.inputPath));
   return {};
 }
 

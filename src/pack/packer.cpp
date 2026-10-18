@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "pack/packer.h"
 
 #include "core/collision_naming.h"
@@ -45,7 +46,11 @@ auto readableFileSize(fs::path const& filePath) -> std::optional<std::uintmax_t>
   auto ec = std::error_code{};
   auto const size = fs::file_size(filePath, ec);
   if (ec) {
-    LOG_WARN("Skipping unreadable file: {} ({})", filePath.string(), ec.message());
+    LOG_WARN(
+      "Skipping unreadable file: {} ({})",
+      pathutf8::fromPath(filePath),
+      ec.message()
+    );
     return std::nullopt;
   }
   return size;
@@ -73,8 +78,8 @@ auto pack::Packer::buildConflictHandledPackEntryName(
   return naming::buildConflictHandledFlatName(
     dirPath,
     filePath,
-    filePath.stem().string(),
-    filePath.extension().string()
+    pathutf8::fromPath(filePath.stem()),
+    pathutf8::fromPath(filePath.extension())
   );
 }
 
@@ -97,8 +102,8 @@ auto pack::Packer::makeUniqueZipEntryName(
   auto const entryPath = fs::path{normalizedEntryName};
   auto const suffix = std::format("__{}", naming::shortPathHash(filePath));
   auto const parentPath = entryPath.parent_path();
-  auto const stem = entryPath.stem().string();
-  auto const extension = entryPath.extension().string();
+  auto const stem = pathutf8::fromPath(entryPath.stem());
+  auto const extension = pathutf8::fromPath(entryPath.extension());
 
   auto candidate =
     (parentPath / std::format("{}{}{}", stem, suffix, extension)).generic_string();
@@ -380,7 +385,7 @@ auto pack::Packer::packFilesToZip(
   progress::ProgressContext& progressCtx,
   std::string_view progressText
 ) -> eh::Result<void> try {
-  auto zip = libzippp::ZipArchive(zipFilePath.string());
+  auto zip = libzippp::ZipArchive(pathutf8::fromPath(zipFilePath));
   auto fileCount = entries.size();
   auto const progressBarIndex = progressCtx.addBar(progressText, terminal::Role::Warn);
   auto usedEntryNames = std::unordered_set<std::string>{};
@@ -402,7 +407,7 @@ auto pack::Packer::packFilesToZip(
     if (fs::is_regular_file(entry.sourcePath)) {
       auto const entryName =
         makeUniqueZipEntryName(entry.zipEntryName, entry.sourcePath, usedEntryNames);
-      if (!zip.addFile(entryName, entry.sourcePath.string())) {
+      if (!zip.addFile(entryName, pathutf8::fromPath(entry.sourcePath))) {
         return eh::makeError("Failed to add entry to zip: {}", entryName);
       }
       if (
@@ -416,7 +421,7 @@ auto pack::Packer::packFilesToZip(
     LOG_DEBUG(
       "Packing progress: {}%, File: {} -> {}",
       progress,
-      entry.sourcePath.string(),
+      pathutf8::fromPath(entry.sourcePath),
       entry.zipEntryName
     );
   }
@@ -448,7 +453,7 @@ auto pack::Packer::packFilesToZip(
 
   return eh::makeError(
     "Exception while packing files to zip {}: {}",
-    zipFilePath.string(),
+    pathutf8::fromPath(zipFilePath),
     e.what()
   );
 }
@@ -460,7 +465,7 @@ auto pack::Packer::packFilesToZip(
   std::atomic<std::size_t>* finalizingCount,
   std::function<void()> const& onBeforeClose
 ) -> eh::Result<void> try {
-  auto zip = libzippp::ZipArchive(zipFilePath.string());
+  auto zip = libzippp::ZipArchive(pathutf8::fromPath(zipFilePath));
   zip.open(libzippp::ZipArchive::New);
 
   auto processedCount = std::size_t{0};
@@ -473,7 +478,7 @@ auto pack::Packer::packFilesToZip(
     }
 
     if (fs::is_regular_file(entry.sourcePath)) {
-      if (!zip.addFile(entry.zipEntryName, entry.sourcePath.string())) {
+      if (!zip.addFile(entry.zipEntryName, pathutf8::fromPath(entry.sourcePath))) {
         return eh::makeError("Failed to add entry to zip: {}", entry.zipEntryName);
       }
       if (
@@ -487,7 +492,7 @@ auto pack::Packer::packFilesToZip(
     if (onEntryPacked) { onEntryPacked(processedCount, totalCount); }
     LOG_DEBUG(
       "Packing (no-progress): {} -> {}",
-      entry.sourcePath.string(),
+      pathutf8::fromPath(entry.sourcePath),
       entry.zipEntryName
     );
   }
@@ -503,7 +508,7 @@ auto pack::Packer::packFilesToZip(
 } catch (std::exception const& ex) {
   return eh::makeError(
     "Failed to create zip file: {} ({})",
-    zipFilePath.string(),
+    pathutf8::fromPath(zipFilePath),
     ex.what()
   );
 }
@@ -699,7 +704,10 @@ auto pack::Packer::buildDirectoryPackPlan(
   DirectoryPackOptions const& options
 ) -> eh::Result<pack::PackPlan> {
   if (!fs::is_directory(dirPath)) {
-    return eh::makeError("Input path is not a directory: {}", dirPath.string());
+    return eh::makeError(
+      "Input path is not a directory: {}",
+      pathutf8::fromPath(dirPath)
+    );
   }
 
   if (terminal::streamIsTerminal(terminal::Stream::Stdout)) {
@@ -726,7 +734,10 @@ auto pack::Packer::buildDirectoryPackPlan(
   }
 
   if (allFiles.empty()) {
-    return eh::makeError("No files found to pack in directory: {}", dirPath.string());
+    return eh::makeError(
+      "No files found to pack in directory: {}",
+      pathutf8::fromPath(dirPath)
+    );
   }
 
   terminal::println(
@@ -746,7 +757,7 @@ auto pack::Packer::buildDirectoryPackPlan(
     .outputDir = zipFileDir,
     .zipNameForIndex =
       // NOLINTNEXTLINE(bugprone-exception-escape): .at() throws intentionally on logic errors
-    [dirName = dirPath.filename().string(), ordinalRanges](std::size_t index) {
+    [dirName = pathutf8::fromPath(dirPath.filename()), ordinalRanges](std::size_t index) {
       return pack::internal::appendOrdinalRangeSuffix(
         std::format("{}_part{}.zip", dirName, index + 1),
         ordinalRanges.at(index)

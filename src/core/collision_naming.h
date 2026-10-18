@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #pragma once
 
 #include <algorithm>
@@ -108,11 +109,11 @@ inline auto buildCollisionGroupLabel(
   ) {
     label = sanitizeLabel(relativePath->generic_string());
   } else if (!inputPath.parent_path().filename().empty()) {
-    label = sanitizeLabel(inputPath.parent_path().filename().string());
+    label = sanitizeLabel(pathutf8::fromPath(inputPath.parent_path().filename()));
   }
 
   if (label.empty() && inputPath.has_extension()) {
-    auto const extension = inputPath.extension().string();
+    auto const extension = pathutf8::fromPath(inputPath.extension());
     auto const extensionView =
       std::string_view{extension}.substr(extension.starts_with('.') ? 1 : 0);
     label = sanitizeLabel(extensionView);

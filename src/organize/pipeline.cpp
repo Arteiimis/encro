@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "organize/pipeline.h"
 
 #include "core/display_text.h"
@@ -211,7 +212,7 @@ auto routeItems(
 // the same download share a "<work>_<index>" stem prefix, and pages of one
 // work almost always share its character cast.
 auto sourceWorkKey(fs::path const& path) -> std::string {
-  auto const stem = path.stem().string();
+  auto const stem = pathutf8::fromPath(path.stem());
   auto const split = stem.find_last_of('_');
   if (split == std::string::npos) { return {}; }
   auto prefix = stem.substr(0, split);

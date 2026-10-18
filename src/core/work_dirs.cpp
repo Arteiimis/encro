@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/work_dirs.h"
 
 #include "core/path_roots.h"
@@ -84,7 +85,7 @@ auto ensureEncroDir(fs::path const& workRoot) -> eh::Result<fs::path> {
   if (ec) {
     return eh::makeError(
       "Failed to create work directory: {} ({})",
-      dir.string(),
+      pathutf8::fromPath(dir),
       ec.message()
     );
   }

@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "organize/disposition.h"
 
 #include "core/display_text.h"
@@ -86,7 +87,11 @@ auto computeFolderDispositions(
       return true;
     },
     [&](std::error_code const& failure) {
-      LOG_WARN("Failed while listing {}: {}", root.string(), failure.message());
+      LOG_WARN(
+        "Failed while listing {}: {}",
+        pathutf8::fromPath(root),
+        failure.message()
+      );
     }
   );
 

@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/video_batch_execution.h"
 
 #include "video/video_info.h"
@@ -78,7 +79,7 @@ auto tryReadProgressData(fs::path const& progressFilePath)
       LOG_WARN(
         "Failed to parse ffmpeg progress file ({} bytes): {}",
         size,
-        progressFilePath.string()
+        pathutf8::fromPath(progressFilePath)
       );
     }
   }

@@ -1,6 +1,7 @@
 // Pipeline data model shared by the organize stages (design D3/D6).
 #pragma once
 
+#include "core/path_utf8.h"
 #include "core/media_item.h"
 #include "tagger/tagger_types.h"
 
@@ -52,7 +53,7 @@ struct ImageItem {
   mediaitem::ItemOutcome result;
 
   auto id() const -> std::string { return contentHash; }
-  auto label() const -> std::string { return path.filename().string(); }
+  auto label() const -> std::string { return pathutf8::fromPath(path.filename()); }
   auto source() const -> fs::path const& { return path; }
   auto outcome() -> mediaitem::ItemOutcome& { return result; }
 };

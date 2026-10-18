@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #pragma once
 
 #include <algorithm>
@@ -69,7 +70,7 @@ inline bool isStoredMediaExtension(std::string_view extension) {
 }
 
 inline bool shouldStoreEntry(fs::path const& sourcePath) {
-  auto ext = sourcePath.extension().string();
+  auto ext = pathutf8::fromPath(sourcePath.extension());
   std::ranges::transform(ext, ext.begin(), [](unsigned char c) {
     return static_cast<char>(std::tolower(c));
   });

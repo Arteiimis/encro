@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "picture/picture_process.h"
 
 #include "picture/picture_compress.h"
@@ -69,8 +70,8 @@ auto buildConflictHandledPictureEntryName(
   return naming::buildConflictHandledFlatName(
     dirPath,
     filePath,
-    filePath.stem().string(),
-    filePath.extension().string()
+    pathutf8::fromPath(filePath.stem()),
+    pathutf8::fromPath(filePath.extension())
   );
 }
 
@@ -320,13 +321,16 @@ auto scanPictures(appctx::AppContext& ctx, fs::path const& dirPath)
   -> eh::Result<std::vector<fs::path>> {
   auto const scannedPics = [&]() {
     logging::ScopedTimer timer("picture.scan");
-    auto const scanPathStr = dirPath.string();
+    auto const scanPathStr = pathutf8::fromPath(dirPath);
     logging::ScopedErrorContext scopedCtx("picture.scan", scanPathStr);
     return readAllPics(ctx.config, dirPath);
   }();
   if (!scannedPics) { return eh::makeError("{}", scannedPics.error()); }
   if (scannedPics->empty()) {
-    return eh::makeError("No pictures found in directory: {}", dirPath.string());
+    return eh::makeError(
+      "No pictures found in directory: {}",
+      pathutf8::fromPath(dirPath)
+    );
   }
   return scannedPics.value();
 }
@@ -533,13 +537,20 @@ void prepareCompressTempDir(
       [&](fs::directory_entry const& de) {
         auto deEc = std::error_code{};
         if (!de.is_directory(deEc) || deEc) { return true; }
-        if (de.path().filename().string().starts_with(prefix) && de.path() != tempDir) {
+        if (
+          pathutf8::fromPath(de.path().filename()).starts_with(prefix)
+          && de.path() != tempDir
+        ) {
           fs::remove_all(de.path(), deEc);
         }
         return true;
       },
       [&](std::error_code const& failure) {
-        LOG_WARN("Failed while listing {}: {}", parent.string(), failure.message());
+        LOG_WARN(
+          "Failed while listing {}: {}",
+          pathutf8::fromPath(parent),
+          failure.message()
+        );
       }
     );
   };

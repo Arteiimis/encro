@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/path_utf8.h"
 #include "core/job_state.h"
 #include "core/media_item.h"
 
@@ -26,7 +27,7 @@ struct MediaItem {
   auto id() const -> std::string {
     return jobstate::makeEncodeTask(sourcePath, outputPath).id;
   }
-  auto label() const -> std::string { return sourcePath.filename().string(); }
+  auto label() const -> std::string { return pathutf8::fromPath(sourcePath.filename()); }
   auto source() const -> fs::path const& { return sourcePath; }
   auto outcome() -> mediaitem::ItemOutcome& { return result; }
 };

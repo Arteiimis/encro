@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/video_process.h"
 
 #include "core/path_roots.h"
@@ -159,12 +160,12 @@ void printNoEncodableVideosMessage(
 auto scanInputVideos(appctx::AppContext& ctx, fs::path const& inputPath)
   -> eh::Result<std::vector<fs::path>> {
   logging::ScopedTimer timer("video.scan");
-  auto const scanPathStr = inputPath.string();
+  auto const scanPathStr = pathutf8::fromPath(inputPath);
   logging::ScopedErrorContext scopedCtx("video.scan", scanPathStr);
   if (terminal::streamIsTerminal(terminal::Stream::Stdout)) {
     terminal::println(Info, "Scanning for videos...");
   }
-  LOG_INFO("Scanning input path: {}", inputPath.string());
+  LOG_INFO("Scanning input path: {}", pathutf8::fromPath(inputPath));
   auto vids = readAllVids(ctx.config, ctx.toolchain, ctx.runtime, inputPath);
   if (!vids) { return eh::makeError("Failed to scan input videos: {}", vids.error()); }
   terminal::println(
@@ -468,9 +469,9 @@ int packEncodedVideos(
   std::span<appctx::EncodingStatePtr const> items
 ) {
   logging::ScopedTimer timer("video.pack");
-  auto const packPathStr = inputPath.string();
+  auto const packPathStr = pathutf8::fromPath(inputPath);
   logging::ScopedErrorContext scopedCtx("video.pack", packPathStr);
-  LOG_INFO("Packing encoded outputs for input: {}", inputPath.string());
+  LOG_INFO("Packing encoded outputs for input: {}", pathutf8::fromPath(inputPath));
   auto const encodedOutputFiles = collectEncodedOutputFiles(ctx, items);
   if (encodedOutputFiles.empty()) {
     terminal::messageln(Hint, "No encoded output files found to pack.");
@@ -495,7 +496,7 @@ int packEncodedVideos(
   LOG_INFO(
     "Packing plan: files={} output-dir={}",
     filePaths.size(),
-    zipOutputDir.string()
+    pathutf8::fromPath(zipOutputDir)
   );
 
   auto const packStartedAt = std::chrono::steady_clock::now();
@@ -621,7 +622,7 @@ int handleSingleFileEncoding(appctx::AppContext& ctx, fs::path const& videoPath)
 }
 
 int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
-  LOG_INFO("Handle path encoding: {}", inputPath.string());
+  LOG_INFO("Handle path encoding: {}", pathutf8::fromPath(inputPath));
   auto const scanRes = scanInputVideos(ctx, inputPath);
   if (!scanRes) {
     LOG_ERROR("{}", scanRes.error());
@@ -638,7 +639,7 @@ int handlePathEncoding(appctx::AppContext& ctx, fs::path const& inputPath) {
   auto const sourceRootDir = normalizeInputRootDir(inputPath);
   return runScannedEncodingWorkflow(ctx, vids, sourceRootDir, inputPath, [&] {
     // NOLINTNEXTLINE(bugprone-lambda-function-name): SPDLOG_FUNCTION in completion lambda
-    LOG_INFO("Path encoding done: {}", inputPath.string());
+    LOG_INFO("Path encoding done: {}", pathutf8::fromPath(inputPath));
   });
 }
 

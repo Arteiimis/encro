@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "infra/terminal.h"
 
 #include "infra/env.h"
@@ -263,7 +264,7 @@ auto streamFor(MessageKind kind) -> Stream {
 }
 
 auto path(std::filesystem::path const& valuePath, Stream stream) -> std::string {
-  return accent(valuePath.string(), stream);
+  return accent(pathutf8::fromPath(valuePath), stream);
 }
 
 auto renderMessage(Stream stream, MessageKind kind, std::string_view text)

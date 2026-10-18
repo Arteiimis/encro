@@ -5,6 +5,8 @@
 #include <functional>
 #include <optional>
 
+#include "core/path_utf8.h"
+
 namespace fs = std::filesystem;
 
 // Microseconds to seconds as double (ffmpeg timing math).
@@ -17,9 +19,9 @@ inline double microsToSeconds(std::uint64_t micros) {
 // paths with spaces and its exe resolution strips them.
 inline auto quoteToolPath(fs::path const& toolPath) -> std::string {
 #if defined(_WIN32)
-  return toolPath.string();
+  return pathutf8::fromPath(toolPath);
 #else
-  return std::format("\"{}\"", toolPath.string());
+  return std::format("\"{}\"", pathutf8::fromPath(toolPath));
 #endif
 }
 

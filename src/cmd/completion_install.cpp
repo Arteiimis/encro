@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "cmd/completion_install.h"
 
 #include "cmd/cmd.h"
@@ -126,14 +127,14 @@ auto unwireFile(fs::path const& path) -> Unwire {
       terminal::eprintln(
         terminal::MessageKind::Error,
         "cannot remove {}",
-        terminal::accent(forwardSlashes(path.string()))
+        terminal::accent(forwardSlashes(pathutf8::fromPath(path)))
       );
       return Unwire::Failed;
     }
     terminal::println(
       terminal::MessageKind::Success,
       "removed: {}",
-      terminal::accent(forwardSlashes(path.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(path)))
     );
     return Unwire::Changed;
   }
@@ -141,14 +142,14 @@ auto unwireFile(fs::path const& path) -> Unwire {
     terminal::eprintln(
       terminal::MessageKind::Error,
       "cannot write {}",
-      terminal::accent(forwardSlashes(path.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(path)))
     );
     return Unwire::Failed;
   }
   terminal::println(
     terminal::MessageKind::Success,
     "unwired: {}",
-    terminal::accent(forwardSlashes(path.string()))
+    terminal::accent(forwardSlashes(pathutf8::fromPath(path)))
   );
   return Unwire::Changed;
 }
@@ -228,7 +229,7 @@ int installPowerShell(std::string const& scriptText) {
     terminal::eprintln(
       terminal::MessageKind::Error,
       "cannot write {}",
-      terminal::accent(forwardSlashes(scriptPath.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(scriptPath)))
     );
     return 1;
   }
@@ -236,17 +237,18 @@ int installPowerShell(std::string const& scriptText) {
     terminal::println(
       terminal::MessageKind::Info,
       "completion script already current: {}",
-      terminal::accent(forwardSlashes(scriptPath.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(scriptPath)))
     );
   } else {
     terminal::println(
       terminal::MessageKind::Success,
       "installed completion script: {}",
-      terminal::accent(forwardSlashes(scriptPath.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(scriptPath)))
     );
   }
 
-  auto const line = std::format(". '{}'\n", forwardSlashes(scriptPath.string()));
+  auto const line =
+    std::format(". '{}'\n", forwardSlashes(pathutf8::fromPath(scriptPath)));
   // A missing profile is treated as empty content: creating it is what makes a
   // first-time install work in either PowerShell edition.
   for (auto const& profile: powerShellProfiles()) {
@@ -255,7 +257,7 @@ int installPowerShell(std::string const& scriptText) {
       terminal::println(
         terminal::MessageKind::Info,
         "already wired: {}",
-        terminal::accent(forwardSlashes(profile.string()))
+        terminal::accent(forwardSlashes(pathutf8::fromPath(profile)))
       );
       continue;
     }
@@ -263,14 +265,14 @@ int installPowerShell(std::string const& scriptText) {
       terminal::eprintln(
         terminal::MessageKind::Error,
         "cannot write {}",
-        terminal::accent(forwardSlashes(profile.string()))
+        terminal::accent(forwardSlashes(pathutf8::fromPath(profile)))
       );
       return 1;
     }
     terminal::println(
       terminal::MessageKind::Success,
       "wired: {}",
-      terminal::accent(forwardSlashes(profile.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(profile)))
     );
   }
 
@@ -294,7 +296,7 @@ int uninstallPowerShell() {
     terminal::println(
       terminal::MessageKind::Success,
       "removed: {}",
-      terminal::accent(forwardSlashes(scriptPath.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(scriptPath)))
     );
     anything = true;
   }
@@ -328,7 +330,7 @@ int installBash(std::string const& scriptText) {
       terminal::eprintln(
         terminal::MessageKind::Error,
         "cannot write {}",
-        terminal::accent(forwardSlashes(target.string()))
+        terminal::accent(forwardSlashes(pathutf8::fromPath(target)))
       );
       return 1;
     }
@@ -336,13 +338,13 @@ int installBash(std::string const& scriptText) {
       terminal::println(
         terminal::MessageKind::Info,
         "completion script already current: {}",
-        terminal::accent(forwardSlashes(target.string()))
+        terminal::accent(forwardSlashes(pathutf8::fromPath(target)))
       );
     } else {
       terminal::println(
         terminal::MessageKind::Success,
         "installed completion script: {}",
-        terminal::accent(forwardSlashes(target.string()))
+        terminal::accent(forwardSlashes(pathutf8::fromPath(target)))
       );
     }
     terminal::messageln(
@@ -359,7 +361,7 @@ int installBash(std::string const& scriptText) {
     terminal::eprintln(
       terminal::MessageKind::Error,
       "cannot write {}",
-      terminal::accent(forwardSlashes(bashPath.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(bashPath)))
     );
     return 1;
   }
@@ -367,24 +369,25 @@ int installBash(std::string const& scriptText) {
     terminal::println(
       terminal::MessageKind::Success,
       "installed completion script: {}",
-      terminal::accent(forwardSlashes(bashPath.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(bashPath)))
     );
   } else {
     terminal::println(
       terminal::MessageKind::Info,
       "completion script already current: {}",
-      terminal::accent(forwardSlashes(bashPath.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(bashPath)))
     );
   }
 
   auto const bashrc = *home / ".bashrc";
-  auto const line = std::format("source \"{}\"\n", forwardSlashes(bashPath.string()));
+  auto const line =
+    std::format("source \"{}\"\n", forwardSlashes(pathutf8::fromPath(bashPath)));
   auto const content = readText(bashrc).value_or("");
   if (isWiredWith(content, line)) {
     terminal::println(
       terminal::MessageKind::Info,
       "already wired: {}",
-      terminal::accent(forwardSlashes(bashrc.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(bashrc)))
     );
     return 0;
   }
@@ -392,14 +395,14 @@ int installBash(std::string const& scriptText) {
     terminal::eprintln(
       terminal::MessageKind::Error,
       "cannot write {}",
-      terminal::accent(forwardSlashes(bashrc.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(bashrc)))
     );
     return 1;
   }
   terminal::println(
     terminal::MessageKind::Success,
     "wired: {}",
-    terminal::accent(forwardSlashes(bashrc.string()))
+    terminal::accent(forwardSlashes(pathutf8::fromPath(bashrc)))
   );
   terminal::messageln(
     terminal::MessageKind::Hint,
@@ -426,7 +429,7 @@ int uninstallBash() {
     terminal::println(
       terminal::MessageKind::Success,
       "removed: {}",
-      terminal::accent(forwardSlashes(lazy.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(lazy)))
     );
     anything = true;
   }
@@ -440,7 +443,7 @@ int uninstallBash() {
     terminal::println(
       terminal::MessageKind::Success,
       "removed: {}",
-      terminal::accent(forwardSlashes(bashPath.string()))
+      terminal::accent(forwardSlashes(pathutf8::fromPath(bashPath)))
     );
     anything = true;
   }

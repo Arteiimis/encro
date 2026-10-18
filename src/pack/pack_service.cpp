@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "pack/pack_service.h"
 #include "pack/pack_internal.h"
 
@@ -290,7 +291,7 @@ auto runPackTaskPlan(
     tasks.push_back({
       .id = std::format("archive:{}", collisionnaming::pathIdentityString(zipPath)),
       .label = label,
-      .input = zipPath.string(),
+      .input = pathutf8::fromPath(zipPath),
       // NOLINTNEXTLINE(bugprone-exception-escape): taskexec::runTasks catches
       .run = [&, index, zipPath, label](taskexec::TaskContext& taskCtx) {
         recorder.notifyGroupStart(index);
@@ -426,9 +427,9 @@ auto appendOrdinalRangeSuffix(std::string_view fileName, FileOrdinalRange const&
   auto const suffix = std::format("[{}~{}#{}p]", range.first, range.last, range.count);
   return std::format(
     "{}{}{}",
-    filePath.stem().string(),
+    pathutf8::fromPath(filePath.stem()),
     suffix,
-    filePath.extension().string()
+    pathutf8::fromPath(filePath.extension())
   );
 }
 
