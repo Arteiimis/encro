@@ -159,6 +159,33 @@ One independent reviewer, two lenses (Coherence, Ground truth), against the four
 
 **Cap:** the fix→verify loop reached its two-round cap at round 2. The round-2 follow-up fixes above are recorded but were not independently re-verified; the next reader of this change should treat them as unaudited.
 
+## Verification report (`openspec-verify-change`)
+
+### Summary
+
+| Dimension | Status |
+|---|---|
+| Completeness | 20/20 tasks; 12/12 requirements present in `docs/public-api.md`, `CHANGELOG.md`, `xmake.lua`, `version.h.in`, `app_entry.cpp`, the tag line |
+| Correctness | 12/12 requirements mapped; 16/25 scenarios have automated evidence, 8 rely on judgement or a one-off manual check, 1 not applicable |
+| Coherence | D1-D9 followed; two implementation deviations found and `design.md` corrected to match reality |
+
+### Issues
+
+**CRITICAL** — none.
+
+**WARNING**
+
+1. Eight scenarios have no automated evidence. Five are judgement calls that cannot be tested — a change being "classified against a written surface", an undeclared surface never silently becoming contract, internal changes not being breaking, a declared-surface change being breaking, and changelog entries reading as prose rather than a commit dump. Three could be automated but are not: "a stale literal cannot survive" (needs an `xmake.lua` edit plus a rebuild, verified by hand in 4.2), "an out-of-order tag is caught" (needs a pre-creation hook, which does not exist yet), "noise stays out" (currently a repo-wide subject scan in 3.1, not a committed check). Recommendation: the first three are inherent to D9's "the rewrite cannot be validated by tests"; the last three belong to the follow-up `release-pipeline-and-scoop` change, which owns the tag-creation step.
+2. Two design deviations existed and are now fixed in `design.md` rather than left as prose in `tasks.md`: D5 prescribed `git push --mirror --force` but the push must use explicit refspecs (a bare `--mirror` targets GitHub's unwritable `refs/pull/*`), and D7 prescribed `project.version()` which xmake 3.1.2 does not expose, so a Lua local carries the single declaration. Both are recorded with their reasons.
+
+**SUGGESTION**
+
+1. `scripts/verify-release-tags.ps1` has no entry point — nothing in `README.md`, `AGENTS.md` or an xmake task points at it. It is the only automated evidence for 15 of the scenarios. Recommendation: wire it into an `xmake` task and mention it in the release documentation as part of `release-pipeline-and-scoop`.
+
+### Final assessment
+
+No critical issues. 1 warning, 1 suggestion. Ready for archive (with noted improvements).
+
 ## Workflow follow-up
 
 - Run `openspec-verify-change` for this change, then the `code-review` skill with the change's spec path, per AGENTS.md.

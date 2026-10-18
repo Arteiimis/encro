@@ -19,8 +19,17 @@ if ($tags.Count -eq 0) { Write-Output 'no tags found'; exit 1 }
 $id = '(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
 $grammar = "^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-$id(\.$id)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$"
 foreach ($t in $tags) {
-  if ($t -notmatch $grammar) { Fail "tag name does not conform to semver: $t" }
+  if ($t -cnotmatch $grammar) { Fail "tag name does not conform to semver: $t" }
   if ((git cat-file -t $t) -ne 'tag') { Fail "tag is not annotated: $t" }
+}
+
+# the grammar must reject non-conforming names, not merely accept the ones we have.
+# -cmatch, because -match is case-insensitive and would accept 'V1.7.0'.
+foreach ($bad in @('v1.7', 'V1.7.0', 'release-1.7.0', 'v2.0.0-alpha.01', 'v01.0.0', 'v2.0.0-', 'v1.7.0.1')) {
+  if ($bad -cmatch $grammar) { Fail "the tag grammar wrongly accepts '$bad'" }
+}
+foreach ($good in @('v2.0.0', 'v2.0.0-alpha.1', 'v1.7.0', 'v2.0.0+build.1', 'v0.1.0')) {
+  if ($good -cnotmatch $grammar) { Fail "the tag grammar wrongly rejects '$good'" }
 }
 
 # --- 2. the commit order of the tags agrees with their precedence --------
