@@ -44,24 +44,24 @@ The scope addition (documenting the `batch` subcommand in the README) went throu
 
 ## Code review record
 
-Code-stage review (code-review skill) run after implementation and self-verification, over the implementation diff since the last planning commit (`1a27173`): implementation `1c36e92`, review fixes `749b952`. The skill's tier classifier put it at **M** (confidence 0.97, mechanical 0.02), so two reviewers ran concurrently — Standards + Leanness in one context, Spec in the other — each with the repo, a shell and the full diff (pasted as `build/review-diff.txt`, 600 lines; its 11 `diff --git` headers omit only this change's own `tasks.md` checkbox update). `xmake fmt -k` passed for all 243 files before the review; clang-tidy reported 128 warnings with none on a line this diff adds (the two `33 * 1024 * 1024` widening warnings in `tests/batch/batch_tests.cpp` predate it, which the reviewer verified).
+Code-stage review (code-review skill) run after implementation and self-verification, over the implementation diff since the last planning commit (`6962222`): implementation `041f725`, review fixes `12f7d3c`. The skill's tier classifier put it at **M** (confidence 0.97, mechanical 0.02), so two reviewers ran concurrently — Standards + Leanness in one context, Spec in the other — each with the repo, a shell and the full diff (pasted as `build/review-diff.txt`, 600 lines; its 11 `diff --git` headers omit only this change's own `tasks.md` checkbox update). `xmake fmt -k` passed for all 243 files before the review; clang-tidy reported 128 warnings with none on a line this diff adds (the two `33 * 1024 * 1024` widening warnings in `tests/batch/batch_tests.cpp` predate it, which the reviewer verified).
 
-Findings: 9, all accepted, none rejected or deferred. All landed in `749b952`, and a fresh verifier then judged each against the current text: **9/9 resolved, none regressed**.
+Findings: 9, all accepted, none rejected or deferred. All landed in `12f7d3c`, and a fresh verifier then judged each against the current text: **9/9 resolved, none regressed**.
 
 Standards:
 
-- S1 (P1) — `tests/batch/batch_tests.cpp` reintroduced a local `countOccurrences` although `testutils::countOccurrences` already exists (`tests/test_utils.h:619`), against the testing rules' reuse rule: the local copy is deleted, the shared helper is used through a `using` declaration. resolved (749b952).
-- S2 (P2) — `tests/test_utils.h` declared a scalar with a trailing return (`auto underflow() -> int_type override`), against the conventions' prefix style for scalars: now `int_type underflow() override`. resolved (749b952).
-- S3 (P2) — design D5 still claimed the tests use only the `ScopedCinBuf`/`captureStdout` seams and "No new mocks or fakes", while the diff added `testutils::StopDuringReadBuf` and a dual-stream capture helper: D5 now names both and why they exist, and the proposal's matching phrase says "stream-capture seams". resolved (749b952).
-- S4a (P2) — the driver's skip triplet was copied a third time: one `skip(reason)` lambda now serves the three sites, and the notice comes from the same format string, so the rendered lines are unchanged. resolved (749b952).
-- S4b (P2, also the Leanness `delete` item) — the `declined` flag only cached `consent == false`: the flag is gone and both sites test the shared answer directly; the cancellation branch still comes first, so a stopped subfolder keeps the stop path. resolved (749b952).
-- S4c (P2, also the Leanness `merge` item) — `makePromptingPackRequest` near-copied `makePictureCompressRequest`: a base `makePictureRequest` plus a compress flavour now share one body. resolved (749b952).
-- S5 (P2, nit) — `<streambuf>` sat out of ASCII order in `tests/test_utils.h`, which clang-format does not sort: reordered. resolved (749b952).
+- S1 (P1) — `tests/batch/batch_tests.cpp` reintroduced a local `countOccurrences` although `testutils::countOccurrences` already exists (`tests/test_utils.h:619`), against the testing rules' reuse rule: the local copy is deleted, the shared helper is used through a `using` declaration. resolved (12f7d3c).
+- S2 (P2) — `tests/test_utils.h` declared a scalar with a trailing return (`auto underflow() -> int_type override`), against the conventions' prefix style for scalars: now `int_type underflow() override`. resolved (12f7d3c).
+- S3 (P2) — design D5 still claimed the tests use only the `ScopedCinBuf`/`captureStdout` seams and "No new mocks or fakes", while the diff added `testutils::StopDuringReadBuf` and a dual-stream capture helper: D5 now names both and why they exist, and the proposal's matching phrase says "stream-capture seams". resolved (12f7d3c).
+- S4a (P2) — the driver's skip triplet was copied a third time: one `skip(reason)` lambda now serves the three sites, and the notice comes from the same format string, so the rendered lines are unchanged. resolved (12f7d3c).
+- S4b (P2, also the Leanness `delete` item) — the `declined` flag only cached `consent == false`: the flag is gone and both sites test the shared answer directly; the cancellation branch still comes first, so a stopped subfolder keeps the stop path. resolved (12f7d3c).
+- S4c (P2, also the Leanness `merge` item) — `makePromptingPackRequest` near-copied `makePictureCompressRequest`: a base `makePictureRequest` plus a compress flavour now share one body. resolved (12f7d3c).
+- S5 (P2, nit) — `<streambuf>` sat out of ASCII order in `tests/test_utils.h`, which clang-format does not sort: reordered. resolved (12f7d3c).
 
 Spec:
 
-- SP1 (P2) — the README's decline sentence omitted that the subfolder that asked is skipped too: it now reads "the subfolder that asked and every remaining one are skipped, and the run exits 0". resolved (749b952).
-- SP2 (P2) — the delta requirement's parenthetical named only the encode and resumed-packing prompts while the change also routes — and tests — the picture-packing prompt: the requirement now names it first. resolved (749b952).
+- SP1 (P2) — the README's decline sentence omitted that the subfolder that asked is skipped too: it now reads "the subfolder that asked and every remaining one are skipped, and the run exits 0". resolved (12f7d3c).
+- SP2 (P2) — the delta requirement's parenthetical named only the encode and resumed-packing prompts while the change also routes — and tests — the picture-packing prompt: the requirement now names it first. resolved (12f7d3c).
 
 Recorded but not findings: the reviewer's note that the driver's branch reorder is behaviour-preserving churn (kept on purpose: the decline branch requires a zero exit code), and its coverage limitation about the pasted diff's header count (explained above). The verifier also reported two items outside this change: pre-existing local `countOccurrences` copies in `tests/cmd_completion_install_tests.cpp` and `tests/e2e/encro_e2e_tests.cpp`, and that the delta requirement's description sits at 498 of the 500 characters `--strict` warns about, so lengthening it will trip that warning.
 

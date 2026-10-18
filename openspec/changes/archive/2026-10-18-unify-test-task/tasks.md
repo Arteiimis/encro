@@ -50,7 +50,7 @@ One independent reviewer, two lenses (Coherence, Ground truth), against the four
 
 ## Verification
 
-`openspec-verify-change` run against the implemented tree (18/18 tasks, 9 requirements, 31 scenarios; committed in `26aa49d`, watchdog fix in `393d1fb`).
+`openspec-verify-change` run against the implemented tree (18/18 tasks, 9 requirements, 31 scenarios; committed in `cb7cdd7`, watchdog fix in `7145a07`).
 
 | Dimension    | Status |
 | ------------ | ------ |
@@ -67,9 +67,9 @@ Suggestions applied: the empty-suite skip became `split_by_work()` with a `--sel
 
 ## Code review
 
-`code-review` code stage over `git diff 07fa9da...HEAD` (1978 changed lines, 10 files — tier L by the 1500-line guard): three parallel reviewers, one per axis, each briefed with the repo's conventions table and the smell baseline (Standards), the change's delta specs plus the verify report above (Spec), and the leanness rules (Leanness). `xmake fmt -k` was clean; `xmake tidy`'s 7 findings in touched files all sit on lines this diff did not change.
+`code-review` code stage over `git diff 4fe788f...HEAD` (1978 changed lines, 10 files — tier L by the 1500-line guard): three parallel reviewers, one per axis, each briefed with the repo's conventions table and the smell baseline (Standards), the change's delta specs plus the verify report above (Spec), and the leanness rules (Leanness). `xmake fmt -k` was clean; `xmake tidy`'s 7 findings in touched files all sit on lines this diff did not change.
 
-Accepted and fixed in `b876b2e` (+ the text drift in the follow-up commit):
+Accepted and fixed in `0c2a580` (+ the text drift in the follow-up commit):
 
 - **One shard path instead of two.** A one-shard suite wrote the documented paths directly while a sharded one aggregated into them, so the report path was derived in three places and a single-shard run had a private branch. Every shard now writes `shard-N.{xml,log}` and the documented paths always hold the aggregate (resolved; also the largest leanness win, −18 lines).
 - **A shard whose every case SKIP()s failed the run** — it prints `assertions: - none -` where the count goes, which parsed as "no console summary". Found while exercising the new skip path (the opt-in `[real-model]` run is the case that has no assertions at all); fixed in `parse_summary` with a `--selftest` check (resolved).
