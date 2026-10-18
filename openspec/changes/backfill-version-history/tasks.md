@@ -216,7 +216,7 @@ Three reviewers, one per axis (tier L: 2505 changed lines / 30 files, with the 2
 | 4 | `[2.0.0-alpha.2]` re-records the CLI11 migration already listed under `1.6.0` | **resolved** — that line now says only that positional inputs are accepted alongside `-i`/`-I` |
 | 5 | `[2.0.0-alpha.3]` re-records the `run_id` correlation that landed inside alpha.2's span | **resolved** — the entry moved to alpha.2 and names the `task_id`/`input` attributes too |
 | 6 | `regenerate.ps1` cannot regenerate the snapshots (writes to the wrong directory) | **resolved** — same fix as Standards #2 |
-| 7 | The committed snapshots differ from `git show <tag>:CHANGELOG.md` by a blank line | **resolved by the second rewrite** — the corrected snapshots were re-injected and every tag's `CHANGELOG.md` now matches its snapshot in content (a `git diff -w --ignore-blank-lines` between the working file and `v2.0.0:CHANGELOG.md` is empty; only line endings and trailing blank lines differ) |
+| 7 | The committed snapshots differ from `git show <tag>:CHANGELOG.md` by a blank line | **resolved by the second and third rewrites** — every tag's `CHANGELOG.md` blob is now **byte-identical** to its snapshot's blob (`git rev-parse '<tag>:CHANGELOG.md'` == `git hash-object --path=CHANGELOG.md <snapshot>`), and both are LF |
 | 8 | `scripts/verify-release-tags.ps1` is behaviour no task asked for | **rejected as scope creep, recorded instead** — the verify report made it its only SUGGESTION (15 scenarios had no other automated evidence); task 7.3 now records it |
 | 9 | One pre-release tag carries two breaking boundaries, which the spec's scenario wording forbade | **resolved** — the scenario now allows a single pre-release tag to carry more than one boundary within the same unpublished MAJOR, which is the decision that cut the line from 15 tags to 4 |
 | 10 | D7 says `--version`'s output is outside the declared API, but `docs/public-api.md` described it | **resolved** — `public-api.md` now separates the value (a promise) from the wording and format (rendering, explicitly not covered) |
@@ -240,6 +240,17 @@ The first rewrite injected the snapshots that existed before the review, so afte
 - **Verification before the push.** For all 18 anchors: `CHANGELOG.md` present, its newest released section equal to the tag's version, and every other path byte-identical to the pre-rewrite tree (both sides filtered for `CHANGELOG.md`, since the first rewrite had already added one). Grammar, annotated-ness and precedence-vs-commit-order all hold. Only then was the push made.
 - **After the push.** `scripts/verify-release-tags.ps1` exits 0 on the refreshed working tree; `v2.0.0:CHANGELOG.md` no longer contains the test-task line and does contain the probe-cache fix; both working trees sit on the rewritten `main` with nothing uncommitted.
 - **Rollback artefact** for this pass: `%TEMP%\encro-rewrite2\pre-rewrite2.bundle`, the `97e159c` state.
+
+## Third rewrite (fixing what the second one broke)
+
+The verification pass over the fixes found that the second rewrite had stored `CHANGELOG.md` as **CRLF** — the repository's only CRLF file — because its blobs were made with `Get-Content -Raw`, which reads the autocrlf-converted working tree. That widened the snapshot-vs-tag delta from one blank line to every line, and it would have turned every later edit of that file into a 266-line rewrite.
+
+- **Normalise the source first.** `CHANGELOG.md` was rewritten to LF through .NET (not `Set-Content`, which restores platform line endings), committed, and confirmed with `git ls-files --eol`: `i/lf w/lf`.
+- **Regenerate the snapshots from the blob**, not the working tree, and keep the blank line between sections that the file itself has.
+- **Hash from file bytes.** The third rewrite's blobs are made with `git -C <mirror> hash-object -w <file>`, so no PowerShell re-encoding sits between the snapshot file and the object.
+- **Result.** 1272 commits in, 1272 out; 18 tags re-created; **every tag's `CHANGELOG.md` blob is byte-identical to its snapshot**, and the whole index is LF — `git ls-files --eol | Select-String 'i/crlf'` returns nothing.
+- **Rollback artefact**: `%TEMP%\encro-rewrite3\pre-rewrite3.bundle`, the `21fb8536` state.
+- **Lesson worth keeping:** a PowerShell script that hashes "the file" must not read it through `Get-Content -Raw` in a repo with `core.autocrlf=true`; hash the path directly and let git apply its own conversion.
 
 ## Workflow follow-up
 
