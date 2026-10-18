@@ -75,9 +75,17 @@ Tasks 3.4-3.7 create real Releases and are verified by task 5's runs; they stay 
 
 ## 4. Scoop bucket
 
-- [ ] 4.1 Create `Arteiimis/scoop-encro` with a `bucket/` directory and add its write token as the `SCOOP_BUCKET_TOKEN` secret — verified by `gh repo view Arteiimis/scoop-encro` succeeding and the secret listed on the encro repository.
+- [x] 4.1 Create `Arteiimis/scoop-encro` with a `bucket/` directory and give the release workflow write access to it — verified by `gh repo view Arteiimis/scoop-encro` succeeding, by a deploy key listed on that repository with write access, by the `SCOOP_BUCKET_DEPLOY_KEY` secret listed on the encro repository, and by a clone-push round trip made with that key alone.
 - [ ] 4.2 Generate the manifest in the publish path: version without the `v` prefix, the Windows runtime archive URL, a hash of that archive, `bin` naming the executable's path inside the install, `notes` naming both ffmpeg and ffprobe, and `checkver`/`autoupdate` — verified by inspecting a generated manifest, by an automated comparison of its version and URL against the release it was generated from, and by recomputing the sha256 of the downloaded asset and finding it equal to the manifest's hash, so the checksum the installer enforces is proven to be the hash of the bytes a user will actually download.
 - [ ] 4.3 Write the manifest to the bucket after the release, marked continue-on-error — verified by a publish run whose bucket step succeeds and leaves the manifest naming the new version, and by a run with that step forced to fail which still leaves the release and both assets published.
+
+### Group 4 record
+
+Task 4.1 — `Arteiimis/scoop-encro` exists as a public repository with an empty `bucket/` directory and a README naming the two commands a user runs. Access for the workflow is an ed25519 **deploy key** with write access on that repository only, whose private half is the `SCOOP_BUCKET_DEPLOY_KEY` secret on `Arteiimis/encro`. Two things were measured rather than assumed: `ssh-keygen -N '""'` from PowerShell writes two quote characters as the passphrase, which makes the key unusable unattended (the server answers `Permission denied (publickey)`), so the key is generated through `cmd` where `-N ""` is a real empty argument; and the key was then proven end to end by cloning the bucket with it and pushing a commit back.
+
+The design named a fine-grained personal access token for this. A deploy key replaces it because it is scoped to the one repository, has no expiry that can silently stop updates, and can be registered without a browser session — D8 and its migration step were corrected to match rather than leaving the artifacts describing a secret that does not exist.
+
+One heredoc trap worth recording, because both halves of it fail silently: inside the workflow's unquoted `<<EOF` bash consumes one backslash per pair, so the manifest's `bin` value needs **four** backslashes in the file to produce the two that JSON requires, and Scoop's autoupdate template needs an escaped dollar or the shell expands it to nothing before the manifest is written.
 
 ## 5. First release
 

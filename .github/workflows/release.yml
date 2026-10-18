@@ -470,15 +470,26 @@ jobs:
         id: bucket
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          SCOOP_BUCKET_DEPLOY_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           asset="encro-$VERSION-x64-windows.zip"
           url="https://github.com/${{ github.repository }}/releases/download/v$VERSION/$asset"
           hash=$(sha256sum "dist/$asset" | cut -d' ' -f1)
-          mkdir -p bucket
-          cat > bucket/encro.json <<EOF
+
+          # A deploy key scoped to the bucket repository, rather than a personal
+          # access token: it reaches that one repository, is useless anywhere
+          # else, and does not expire underneath the release pipeline.
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SCOOP_BUCKET_DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          work=$(mktemp -d)
+          git clone --depth 1 git@github.com:Arteiimis/scoop-encro.git "$work/bucket-repo"
+          mkdir -p "$work/bucket-repo/bucket"
+          cat > "$work/bucket-repo/bucket/encro.json" <<EOF
           {
             "version": "$VERSION",
             "description": "Batch media processing CLI built on ffmpeg",
@@ -504,13 +515,18 @@ jobs:
             }
           }
           EOF
-          # The bucket is a separate repository; a stale token or an outage must
-          # never take the release down, which is why this step cannot fail the run.
-          gh api --method PUT "repos/Arteiimis/scoop-encro/contents/bucket/encro.json" \
-            -f message="encro $VERSION" \
-            -f content="$(base64 -w0 bucket/encro.json)" \
-            -f branch=main > /dev/null
-          echo "bucket manifest updated to $VERSION"
+          cd "$work/bucket-repo"
+          # `git diff` alone would skip a manifest that is not tracked yet, which
+          # is exactly the first publish.
+          git add bucket/encro.json
+          if git diff --cached --quiet; then
+            echo "bucket manifest already names $VERSION"
+          else
+            git -c user.name="encro release" -c user.email="releases@users.noreply.github.com" \
+              commit -q -m "encro $VERSION"
+            git push -q origin HEAD:main
+            echo "bucket manifest updated to $VERSION"
+          fi
 
       - name: Report a stale bucket
         if: steps.bucket.outcome == 'failure'

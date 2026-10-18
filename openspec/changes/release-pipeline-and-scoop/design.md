@@ -98,7 +98,7 @@ A re-run still builds its artifacts and compares their hashes with the published
 
 ### D8 — The bucket update is downstream of the release and cannot fail it
 
-The manifest is written to `Arteiimis/scoop-encro` with a `contents` API call using a fine-grained token scoped to that repository. The step runs **after** the release and its assets are published, and is marked continue-on-error: when the token has expired or the bucket rejects the write, the release stands and the run says the bucket is stale. The alternative ordering — updating the bucket first — would publish a manifest pointing at an asset that does not exist yet, and a dropped connection between the two steps would leave every Scoop user broken.
+The manifest is written to `Arteiimis/scoop-encro` by cloning that repository over SSH with a **deploy key** that has write access to it alone, writing `bucket/encro.json`, and pushing. A deploy key was chosen over a personal access token because it reaches exactly one repository, is useless anywhere else, carries no expiry that can silently stop updates, and — unlike a fine-grained token — can be created and registered without a browser session. The step runs **after** the release and its assets are published, and is marked continue-on-error: when the key is revoked or the bucket rejects the write, the release stands and the run says the bucket is stale. The alternative ordering — updating the bucket first — would publish a manifest pointing at an asset that does not exist yet, and a dropped connection between the two steps would leave every Scoop user broken.
 
 ### D9 — The manifest computes what it can and states what it cannot
 
@@ -116,7 +116,7 @@ ffmpeg and ffprobe are stated in `notes`, not in `depends`. A `depends` entry wo
 
 **The first Windows run is unmeasured.** No one has built this project with clang-cl on `windows-latest`. The cost could be 15 minutes or it could exceed the job timeout, and the cache design above assumes the build itself succeeds. This is a spike task placed first, before any packaging work: if the cold build cannot complete, the whole Windows half of this change is re-scoped rather than discovered to be broken at release time.
 
-**The bucket token is an expiring external dependency.** D8's continue-on-error keeps a stale token from blocking releases, but a stale token means Scoop users silently stop receiving updates until someone reads the run log. Mitigation is that the failure is reported, not swallowed — and that the release remains manually recoverable.
+**The bucket credential is an external dependency.** D8's continue-on-error keeps a broken credential from blocking releases, but a key that stops working means Scoop users silently stop receiving updates until someone reads the run log. Mitigation is that the failure is reported, not swallowed — and that the release remains manually recoverable.
 
 **Historical entries are public and semi-permanent.** Once 18 entries exist they become part of the public history, and deleting them later would itself be a visible event. They are made honest by D1's prefix paragraph, but there is a real risk that someone reads "Release v1.0.0" without the paragraph. Accepted: the alternative — a Releases page showing one entry against 18 tags — is more misleading, not less.
 
@@ -130,7 +130,7 @@ ffmpeg and ffprobe are stated in `notes`, not in `depends`. A `depends` entry wo
 
 ## Migration Plan
 
-1. Create `Arteiimis/scoop-encro` as a public repository with a `bucket/` directory; add a fine-token with `contents: write` on it as the `SCOOP_BUCKET_TOKEN` secret. Both are manual and have no automation path.
+1. Create `Arteiimis/scoop-encro` as a public repository with a `bucket/` directory, register an ed25519 deploy key with write access on it, and store the private half as the `SCOOP_BUCKET_DEPLOY_KEY` secret on `Arteiimis/encro`. All three are one-time and scriptable with `gh`; done before the first release.
 2. Run the backfill mode with `until=2.0.0`: 18 entries appear, none with assets. It runs **before** any new tag exists, so it cannot capture a distribution attempt as a historical record.
 3. Cut the first distributable version: bump the single version declaration, add its changelog section, commit, and push the tag. The publish path runs automatically from it.
 4. On the maintainer machine, install through Scoop, then confirm `encro --version` reports the installed release rather than the local build the old shim points at — and that only one `encro` command answers.
