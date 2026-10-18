@@ -102,7 +102,7 @@ The commit hashes above are the **pre-rewrite** ones, used to decide where each 
   - **precedence:** the declared order `v0.1.0 … v1.7.0 < v2.0.0-alpha.1 < alpha.2 < alpha.3 < rc.1 < 2.0.0` is strictly ascending under semver 2.0.0 precedence, checked with a pre-release comparator that compares dot-separated identifiers numerically-or-lexically and ranks a normal version above any pre-release of the same core. (Two bugs in that comparator were found and fixed by the check itself: it compared only the leading `alpha` token, and the sign was inverted.)
   - **ancestry:** 153 pairwise `merge-base --is-ancestor` checks confirm no later version sits on an earlier commit.
   - **order:** the 1104-commit `--first-parent` sequence matches the pre-rewrite sequence exactly after mapping through `commit-map`.
-- **5.5.** Pushed with explicit refspecs, `refs/heads/main:refs/heads/main` plus `refs/tags/*:refs/tags/*`, rather than bare `--mirror`: `--mirror` also tries to delete remote refs the mirror does not have, which would have targeted GitHub's `refs/pull/*`. `origin/main` went `07710d7 → 5621ecc`, and 18 tags (all annotated) arrived. Locally, `main` was reset to `origin/main` and the pre-rewrite record commit was cherry-picked back as `07a5256` and pushed. `explore/release-process` was deleted after its worktree was detached onto the rewritten history; both working trees now sit on the rewritten commits with nothing uncommitted (the release-process worktree only carries the untracked `build/` directory).
+- **5.5.** Pushed with explicit refspecs, `refs/heads/main:refs/heads/main` plus `refs/tags/*:refs/tags/*`, rather than bare `--mirror`: `--mirror` also tries to delete remote refs the mirror does not have, which would have targeted GitHub's `refs/pull/*`. `origin/main` went `07710d7 → 5621ecc` (both hashes from the first rewrite; the second rewrite superseded them, see the section below), and 18 tags (all annotated) arrived. Locally, `main` was reset to `origin/main` and the pre-rewrite record commit was cherry-picked back as `07a5256` and pushed. `explore/release-process` was deleted after its worktree was detached onto the rewritten history; both working trees now sit on the rewritten commits with nothing uncommitted (the release-process worktree only carries the untracked `build/` directory).
 - **5.5 checks.** `git ls-remote --tags origin` yields exactly the 18 names from 2.4, set-identical to the anchor table. `encro --version` after a rebuild prints `encro 2.0.0 (build: …)`, matching the newest tag with its `v` prefix stripped and no pre-release suffix. Tag messages survived the push (spot-checked: the two 0.x tags describe themselves as rebuilt and quote their recorded commit subject; the three 0.2–0.4 tags state that no original message was recorded).
 
 ## 6. Stale pointer cleanup and spec sync
@@ -211,12 +211,12 @@ Three reviewers, one per axis (tier L: 2505 changed lines / 30 files, with the 2
 | # | Finding | Verdict |
 |---|---|---|
 | 1 | `[2.0.0]` logged test-tooling work (outside the declared API, which the spec forbids) and omitted all 14 user-facing fixes from `2026-10-18-fix-audit-findings` | **resolved** — the section was rewritten from that proposal: 9 `### Fixed` entries, 2 `### Changed`, 1 `### Added`, and the test-task line is gone |
-| 2 | Three tag messages carry an ASCII dash where the Appendix records U+2014, so the byte-for-byte check in 2.2 does not actually hold | **open** — needs the tags re-created; see below |
+| 2 | Three tag messages carry an ASCII dash where the Appendix records U+2014, so the byte-for-byte check in 2.2 does not actually hold | **resolved by the second rewrite** — the three tags were re-created from the Appendix text with a real U+2014; verified present on all three |
 | 3 | D2's audit is one row short: `unify-test-task` declares `**BREAKING**: xmake test-parallel no longer exists` with no row | **resolved** — row 17 added (not breaking: dev tooling), counts updated to 15 lines / 13 proposals / 17 rows |
 | 4 | `[2.0.0-alpha.2]` re-records the CLI11 migration already listed under `1.6.0` | **resolved** — that line now says only that positional inputs are accepted alongside `-i`/`-I` |
 | 5 | `[2.0.0-alpha.3]` re-records the `run_id` correlation that landed inside alpha.2's span | **resolved** — the entry moved to alpha.2 and names the `task_id`/`input` attributes too |
 | 6 | `regenerate.ps1` cannot regenerate the snapshots (writes to the wrong directory) | **resolved** — same fix as Standards #2 |
-| 7 | The committed snapshots differ from `git show <tag>:CHANGELOG.md` by a blank line | **open** — re-generating them now would also carry the corrected 2.0.0 section, which the tags do not have; see below |
+| 7 | The committed snapshots differ from `git show <tag>:CHANGELOG.md` by a blank line | **resolved by the second rewrite** — the corrected snapshots were re-injected and every tag's `CHANGELOG.md` now matches its snapshot in content (a `git diff -w --ignore-blank-lines` between the working file and `v2.0.0:CHANGELOG.md` is empty; only line endings and trailing blank lines differ) |
 | 8 | `scripts/verify-release-tags.ps1` is behaviour no task asked for | **rejected as scope creep, recorded instead** — the verify report made it its only SUGGESTION (15 scenarios had no other automated evidence); task 7.3 now records it |
 | 9 | One pre-release tag carries two breaking boundaries, which the spec's scenario wording forbade | **resolved** — the scenario now allows a single pre-release tag to carry more than one boundary within the same unpublished MAJOR, which is the decision that cut the line from 15 tags to 4 |
 | 10 | D7 says `--version`'s output is outside the declared API, but `docs/public-api.md` described it | **resolved** — `public-api.md` now separates the value (a promise) from the wording and format (rendering, explicitly not covered) |
@@ -229,7 +229,17 @@ Three reviewers, one per axis (tier L: 2505 changed lines / 30 files, with the 2
 | 2 | The snapshot generator hardcodes the version list | **resolved** — same fix as Standards #4 |
 | 3 | Two dead lines (`$tick`, and a `#### ` guard that can never match) | **resolved** — both deleted |
 
-Net: **20 resolved, 2 open (both needing tag/rewrite work), 2 rejected with reasons, 1 rejected-as-scope-creep recorded as task 7.3.**
+Net: **20 resolved in the first pass; the 2 open findings were closed by a second rewrite (below); 2 rejected with reasons; 1 rejected-as-scope-creep recorded as task 7.3.**
+
+## Second rewrite (closing the two open findings)
+
+The first rewrite injected the snapshots that existed before the review, so after the CHANGELOG corrections the `v2.0.0` tag still carried the pre-fix section, and three tag messages carried an ASCII dash instead of the Appendix's U+2014. Both live in repository metadata, which only a rewrite can change — and the window closes the moment anything is published, so it was taken now.
+
+- **Callback change.** The first callback skipped any commit that already carried `CHANGELOG.md`. After the first rewrite the `v2.0.0` anchor *does* carry one (the stale one), so that skip would have preserved the very content being corrected. The second callback instead **replaces** the entry: it drops any existing `CHANGELOG.md` file-change and appends `FileChange(b'M', …)`. Commits after the last anchor that themselves carried the file get `HEAD`'s version rather than the stale one baked in earlier.
+- **Result.** 1269 commits in, 1269 out; `main` moved to the rewritten equivalent of `97e159c`; 18 tags re-created, the three recorded messages now carrying a real U+2014.
+- **Verification before the push.** For all 18 anchors: `CHANGELOG.md` present, its newest released section equal to the tag's version, and every other path byte-identical to the pre-rewrite tree (both sides filtered for `CHANGELOG.md`, since the first rewrite had already added one). Grammar, annotated-ness and precedence-vs-commit-order all hold. Only then was the push made.
+- **After the push.** `scripts/verify-release-tags.ps1` exits 0 on the refreshed working tree; `v2.0.0:CHANGELOG.md` no longer contains the test-task line and does contain the probe-cache fix; both working trees sit on the rewritten `main` with nothing uncommitted.
+- **Rollback artefact** for this pass: `%TEMP%\encro-rewrite2\pre-rewrite2.bundle`, the `97e159c` state.
 
 ## Workflow follow-up
 
