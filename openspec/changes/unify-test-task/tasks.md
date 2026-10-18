@@ -20,7 +20,7 @@
 ## 3. Delete the second task
 
 - [x] 3.1 Delete `plugins/test_parallel/` and add the three new self-checks (shard clamp on a filtered enumeration, empty-suite skip, cost-model merge) to `--selftest`. Verify: `xmake test-report --selftest` exits 0 with the new checks reported; `xmake test-parallel` is no longer a known task.
-- [x] 3.2 Update the prose surface, working from this inventory (`rg -l 'test-report|test-parallel|test_report|test_parallel'` minus `openspec/changes/archive/**`): **rewrite** `AGENTS.md` — fold the two test-task bullets (:13, :15) into one covering `--suite`, the parallel default, `--tag` in every mode, the stable report paths, `--selftest` and the measured shard ceiling, repoint the e2e bullet (:14) at `xmake test-report --suite=e2e`, and keep the `[real-model]` (:11) and `[completion]` (:46) recipes, which stay correct as written. **Leave alone, and say so in the commit body:** `README.md:186`, `docs/ci-debugging.md:19` and `openspec/specs/ci-artifacts/spec.md` (the CI artifact *named* `test-reports-<mode>`, not this task), the two `xmake test-report --tag=…` recipes in `tests/cmd_completion_{install,smoke}_tests.cpp`, and every archived change under `openspec/changes/archive/` (104 files describe what landed at the time; rewriting them would falsify history). Verify: every command in `AGENTS.md` runs as written; `rg -n "test-parallel" AGENTS.md README.md docs/*.md` finds nothing outside `docs/backlog.md`.
+- [x] 3.2 Update the prose surface, working from this inventory (`rg -l 'test-report|test-parallel|test_report|test_parallel'` minus `openspec/changes/archive/**`): **rewrite** `AGENTS.md` — fold the two test-task bullets (:13, :15) into one covering `--suite`, the parallel default, `--tag` in every mode, the stable report paths, `--selftest` and the measured shard ceiling, repoint the e2e bullet (:14) at `xmake test-report --suite=e2e`, and keep the `[real-model]` (:11) and `[completion]` (:46) recipes, which stay correct as written. **Leave alone, and say so in the commit body:** `README.md:186`, `docs/ci-debugging.md:19` and `openspec/specs/ci-artifacts/spec.md` (the CI artifact *named* `test-reports-<mode>`, not this task), the two `xmake test-report --tag=…` recipes in `tests/cmd_completion_{install,smoke}_tests.cpp`, and every archived change under `openspec/changes/archive/` (104 files describe what landed at the time; rewriting them would falsify history). Verify: every command in `AGENTS.md` runs as written, and no *recipe* names the removed task — `rg -n "test-parallel" AGENTS.md README.md docs/*.md` may hit the one migration mention ("`all` is what the retired `test-parallel` did") and `docs/backlog.md`'s history, and nothing else.
 - [x] 3.3 Record the findings in `docs/backlog.md` as a resolved entry, whose first line states the rename (`xmake test-parallel` → `xmake test-report --suite=all`) so a reader arriving from the historical entries above it is not left with a command that no longer exists: the measured per-suite shard ceiling and the `REQUIRE(started)` marker-wait flake it exposes; that a failing suite exits with Catch2's session code `42` on this host (observed 4 of 4 failing runs; not a code the repo defines, so the JUnit report stays the verdict source); that exit `130` with no report means the force-exit watchdog killed the shard, which the grace fix now prevents (with the starvation reproducer's before/after: 2 of 6 deaths, then `deaths=0`). Verify: the entry states how each was measured, and `rg -n "test-parallel" docs/backlog.md` finds only the historical entries the rename leaves alone.
 
 ## 4. Integration verification
@@ -47,6 +47,23 @@ One independent reviewer, two lenses (Coherence, Ground truth), against the four
 - F10 filtering only the XML listing would trip the enumeration cross-check — resolved (both listings filtered; the check reads `N matching test cases`).
 - F11 exit code 42 was stated as if the repo defined it — resolved (attributed to Catch2's session code with the measured sample).
 - Report-only notes from the verifier (filter on both listings, `test-isolation` wording, the corroboration figure) — applied as wording fixes in the same pass.
+
+## Verification
+
+`openspec-verify-change` run against the implemented tree (18/18 tasks, 9 requirements, 31 scenarios; committed in `26aa49d`, watchdog fix in `393d1fb`).
+
+| Dimension    | Status |
+| ------------ | ------ |
+| Completeness | 18/18 tasks, 9 requirements (6 ADDED, 3 MODIFIED) |
+| Correctness  | 9/9 requirements implemented, 31/31 scenarios handled |
+| Coherence    | D1-D9 followed, 0 deviations |
+
+CRITICAL: none. Two warnings, both fixed in the follow-up commit with the checks that would have caught them:
+
+- **The failure summary could name a passing case.** Catch2 self-closes a passing `<testcase …/>`, and the inherited `[^>]*>` opener pattern consumed that `/`, pairing the passing case's name with the next case's `<failure>` body — inherited verbatim from the old `test-report`, invisible to the previous verification because a one-case tag puts the failing case first. Fixed: `failure_records()` parses with `[^>]*[^/]>`, an `--selftest` check drives it with a self-closed pass before a failure, and a single 18-case shard with one broken assertion now names that case.
+- **A single-shard suite never recorded measured durations**, so `--shards=1` and clamped one-case runs left the cost model stale: the shard log goes to the documented console path but the save step read `shard-N.log`. Fixed: each shard carries its own `logfile`; proven by planting `99.000` for one case in `build/.test-cost-unit.txt` and watching a `--shards=1` run replace it with a measured `0.000`.
+
+Suggestions applied: the empty-suite skip became `split_by_work()` with a `--selftest` check (task 3.1 promised it), and task 3.2's verification wording now allows the deliberate migration mention.
 
 ## Workflow follow-up
 

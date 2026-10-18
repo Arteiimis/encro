@@ -301,6 +301,20 @@ task("test-report")
       return math.max(1, math.min(requested, case_count))
     end
 
+    -- A filter that matches only one of the selected suites skips the other
+    -- instead of failing the run; the caller fails when nothing is left.
+    local function split_by_work(suite_names, case_counts)
+      local running, skipped = {}, {}
+      for _, name in ipairs(suite_names) do
+        if (case_counts[name] or 0) > 0 then
+          running[#running + 1] = name
+        else
+          skipped[#skipped + 1] = name
+        end
+      end
+      return running, skipped
+    end
+
     --------------------------------------------------------------- process side
 
     local platform = config.plat() or os.host()
@@ -479,6 +493,7 @@ task("test-report")
         end
         -- 1-based: the wait pass below iterates with ipairs and would skip a
         -- 0-keyed entry, leaking the process and losing its result.
+        shard.logfile = logfile
         procs[#procs + 1] = {
           name = string.format("%s shard %d", suite, i - 1),
           suite = suite,
@@ -529,19 +544,30 @@ task("test-report")
     -- The failing cases come from the report, not from grepping the log: the
     -- <failure> body carries the failing assertion's 'file(line): FAILED:' line
     -- and its message, which is the source location the summary must name.
-    local function report_failures(content)
-      local failed = 0
-      for testcase, body in content:gmatch('<testcase classname="[^"]*" name="([^"]*)"[^>]*>(.-)</testcase>') do
+    --
+    -- The opener must not be self-closed: Catch2 writes a passing case as
+    -- <testcase ... />, and a [^>]*> pattern would consume that '/' and pair
+    -- the passing case's name with the next case's <failure> body.
+    local function failure_records(content)
+      local records = {}
+      for name, body in content:gmatch('<testcase classname="[^"]*" name="([^"]*)"[^>]*[^/]>(.-)</testcase>') do
         local message = body:match("<failure[^>]*>(.-)</failure>")
         if message then
-          failed = failed + 1
-          cprint("  ${red}FAILED: %s", testcase)
-          for line in message:gmatch("[^\n]+") do
-            print("    " .. line)
-          end
+          records[#records + 1] = {name = name, message = message}
         end
       end
-      return failed
+      return records
+    end
+
+    local function report_failures(content)
+      local records = failure_records(content)
+      for _, record in ipairs(records) do
+        cprint("  ${red}FAILED: %s", record.name)
+        for line in record.message:gmatch("[^\n]+") do
+          print("    " .. line)
+        end
+      end
+      return #records
     end
 
     -- Splice each shard's <testsuite> block under one root: the shard reports
@@ -749,6 +775,33 @@ task("test-report")
         full_merge.kept == 1.0 and full_merge.measured == 2.0 and full_merge.deleted == nil
       )
 
+      -- A filter that matches one suite only: the other is skipped, not failed.
+      local run_one, skip_one = split_by_work({"unit", "e2e"}, {unit = 6, e2e = 0})
+      local run_none, skip_none = split_by_work({"unit", "e2e"}, {unit = 0, e2e = 0})
+      check(
+        "a suite without cases is skipped, not failed",
+        #run_one == 1 and run_one[1] == "unit" and #skip_one == 1 and skip_one[1] == "e2e"
+          and #run_none == 0 and #skip_none == 2,
+        string.format("run %d skip %d", #run_one, #skip_one)
+      )
+
+      -- Catch2 self-closes a passing case, so the parsing must not pair a
+      -- passing case's name with the next case's failure body.
+      local report = '<testsuite name="t" errors="0" failures="1" tests="3">\n'
+        .. '  <testcase classname="c" name="alpha passes" time="0.1" status="run"/>\n'
+        .. '  <testcase classname="c" name="beta passes" time="0.1" status="run">\n'
+        .. '    <system-out>noise</system-out>\n  </testcase>\n'
+        .. '  <testcase classname="c" name="gamma fails" time="0.1" status="run">\n'
+        .. '    <failure message="1 == 2" type="CHECK">\nFAILED:\n  CHECK( 1 == 2 )\nat tests\\x.cpp(7)\n    </failure>\n'
+        .. '  </testcase>\n</testsuite>\n'
+      local records = failure_records(report)
+      check(
+        "failure parser blames the failing case, not a passing one",
+        #records == 1 and records[1].name == "gamma fails"
+          and records[1].message:find("tests\\x.cpp(7)", 1, true) ~= nil,
+        string.format("%d record(s): %s", #records, records[1] and records[1].name or "none")
+      )
+
       if failed > 0 then
         os.raise(string.format("%d selftest check(s) failed", failed))
       end
@@ -822,36 +875,47 @@ task("test-report")
 
     -- Plan every suite first - enumeration, escaping, cost model, assignment -
     -- so no shard starts before the whole run can be accounted for.
-    local plans = {}
-    local skipped = {}
+    local enumerated, counts = {}, {}
     for _, s in ipairs(suites) do
-      local suite_dir = path.join(workdir, s.name)
-      makedirs(suite_dir)
+      makedirs(path.join(workdir, s.name))
       local names = enumerate(s.binary, workdir, s.name, filter)
-      if #names == 0 then
-        -- The filter selected nothing here: skip this suite rather than fail
-        -- the run, as long as another suite has work to do.
-        skipped[#skipped + 1] = s.name
-      else
-        preflight_escaping(s.binary, names, workdir, s.name)
+      enumerated[s.name] = names
+      counts[s.name] = #names
+    end
+    local suite_names = {}
+    for _, s in ipairs(suites) do
+      suite_names[#suite_names + 1] = s.name
+    end
+    local running, skipped = split_by_work(suite_names, counts)
+    for _, name in ipairs(skipped) do
+      cprint("${yellow}%s: skipped - the filter %q selects no case in this suite", name, filter)
+    end
+    if #running == 0 then
+      os.raise(string.format("the filter %q selects no case in any selected suite", filter or ""))
+    end
+    local plans = {}
+    for _, s in ipairs(suites) do
+      if counts[s.name] > 0 then
+        preflight_escaping(s.binary, enumerated[s.name], workdir, s.name)
         local costs = load_costs(cost_model_path(builddir, s.name))
         plans[#plans + 1] = {
           name = s.name,
           binary = s.binary,
-          dir = suite_dir,
-          names = names,
+          dir = path.join(workdir, s.name),
+          names = enumerated[s.name],
           filtered = filter ~= nil,
           model_size = #table.keys(costs),
-          shards = write_specs(names, suite_dir, s.name, effective_shard_count(s.shards, #names), costs)
+          shards = write_specs(
+            enumerated[s.name],
+            path.join(workdir, s.name),
+            s.name,
+            effective_shard_count(s.shards, counts[s.name]),
+            costs
+          )
         }
       end
     end
-    for _, name in ipairs(skipped) do
-      cprint("${yellow}%s: skipped - the filter %q selects no case in this suite", name, filter)
-    end
-    if #plans == 0 then
-      os.raise(string.format("the filter %q selects no case in any selected suite", filter or ""))
-    end
+
 
     for _, plan in ipairs(plans) do
       local counts, worst, total = {}, 0, 0
@@ -915,9 +979,11 @@ task("test-report")
     -- run must not shrink the model later full runs are packed by.
     for _, plan in ipairs(plans) do
       local measured = {}
-      for i, shard in ipairs(plan.shards) do
-        local log = path.join(plan.dir, string.format("shard-%d.log", i - 1))
-        for name, seconds in pairs(parse_durations(readcontent(log) or "")) do
+      for _, shard in ipairs(plan.shards) do
+        -- The shard's own log path: a one-shard suite writes the documented
+        -- console file instead, and reading the per-shard name there would
+        -- silently drop every measurement.
+        for name, seconds in pairs(parse_durations(readcontent(shard.logfile) or "")) do
           if measured[name] == nil then
             measured[name] = seconds
           end
