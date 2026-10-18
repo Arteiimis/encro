@@ -42,17 +42,20 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
       - name: Report the toolchain the runner provides
         shell: pwsh
         run: |
+          # Recorded because this is the first Windows CI build of this project:
+          # the versions below are what any later "why did the release differ"
+          # question has to be answered against.
           xmake --version
           clang-cl --version
           lld-link --version
           llvm-ar --version
-
-      - uses: xmake-io/github-action-setup-xmake@v1
-        with:
-          xmake-version: latest
 
       - uses: actions/cache/restore@v6
         id: xmake-cache
