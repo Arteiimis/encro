@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [2.0.1] - 2026-10-19
+## [2.0.2] - 2026-10-19
+
+### Fixed
+
+- The Windows package now carries the Visual C++ runtime the build actually linked against. The previous package took an older runtime from the build image and its executable failed to start on a machine that already had a newer one (`STATUS_DLL_INIT_FAILED`), which made `2.0.1` unusable on Windows.
+
+## [2.0.1] - 2026-10-19 [YANKED]
 
 The first version available as a download, following the `2.0.0` milestone. Every entry below `2.0.0` records history only: those versions were tagged retrospectively and were never distributed.
 
@@ -257,7 +263,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.1...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/Arteiimis/encro/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/Arteiimis/encro/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/Arteiimis/encro/compare/v2.0.0-rc.1...v2.0.0
 [2.0.0-rc.1]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.3...v2.0.0-rc.1

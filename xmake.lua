@@ -4,7 +4,7 @@ add_rules("plugin.compile_commands.autoupdate", { outputdir = "./build" })
 -- The release version is declared once, here. set_version() below and the
 -- generated version header both read this variable, so no second literal
 -- exists to drift from it.
-local encroVersion = "2.0.1"
+local encroVersion = "2.0.2"
 set_version(encroVersion)
 
 set_languages("c++26")
@@ -314,29 +314,39 @@ xpack("encro")
         local vsPath = os.iorunv(vswhere, {"-latest", "-products", "*", "-property", "installationPath"})
         vsPath = vsPath and vsPath:trim()
         if vsPath and #vsPath > 0 then
-          local redistRoot = path.join(vsPath, "VC/Redist/MSVC")
-          for _, verdir in ipairs(os.dirs(path.join(redistRoot, "*"))) do
+          -- Newest first. A runner image also carries an older redistributable
+          -- (14.29, "built by: cloudtest"), and shipping that one beside an
+          -- executable linked against a newer toolset fails to load with
+          -- STATUS_DLL_INIT_FAILED. Taking whichever directory came first is
+          -- exactly how the first published package was broken.
+          local versioned = {}
+          for _, verdir in ipairs(os.dirs(path.join(vsPath, "VC/Redist/MSVC/*"))) do
+            table.insert(versioned, verdir)
+          end
+          table.sort(versioned, function (a, b) return a > b end)
+          for _, verdir in ipairs(versioned) do
             table.insert(candidates, path.join(verdir, "x64"))
           end
         end
       end
 
-      local cruit = nil
+      local crtDirs = {}
       for _, candidate in ipairs(candidates) do
         for _, crtdir in ipairs(os.dirs(path.join(candidate, "Microsoft.VC*.CRT"))) do
-          cruit = crtdir
-          break
+          table.insert(crtDirs, crtdir)
         end
-        if cruit then break end
+        if #crtDirs > 0 then break end
       end
-      if not cruit then
+      table.sort(crtDirs, function (a, b) return a > b end)
+      local crtDir = crtDirs[1]
+      if not crtDir then
         raise("no Visual C++ redistributable directory found; the package would " ..
               "not start on a machine that never had one (set VCToolsRedistDir)")
       end
       for _, dll in ipairs(dlls) do
-        local src = path.join(cruit, dll)
+        local src = path.join(crtDir, dll)
         if not os.isfile(src) then
-          raise(dll .. " is missing from " .. cruit)
+          raise(dll .. " is missing from " .. crtDir)
         end
         batchcmds:cp(src, package:installdir("bin"))
       end

@@ -305,6 +305,23 @@ jobs:
           Copy-Item "build/windows/x64/release/encro.pdb" (Join-Path $stage "bin/encro.pdb")
           Compress-Archive -Path (Join-Path $stage "bin") -DestinationPath "build/xpack/encro/$($runtime.BaseName)-symbols.zip"
 
+      - name: Run the packaged executable
+        # The archive is what a user receives, so it is the thing to run: a
+        # package whose own binary cannot start is how 2.0.1 shipped.
+        shell: pwsh
+        run: |
+          $runtime = Get-ChildItem build/xpack/encro/*.zip | Where-Object { $_.Name -notlike '*symbols*' } | Select-Object -First 1
+          if (-not $runtime) { throw "no runtime archive was produced" }
+          $dir = Join-Path $env:RUNNER_TEMP "unpacked-package"
+          Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -Path $runtime.FullName -DestinationPath $dir
+          $exe = Join-Path $dir "bin/encro.exe"
+          if (-not (Test-Path $exe)) { throw "the archive has no bin/encro.exe" }
+          $printed = & $exe --version 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          "exit=$code output=$($printed.Trim())"
+          if ($code -ne 0) { throw "the packaged executable did not start (exit $code)" }
+
       - name: List the produced archives
         shell: pwsh
         run: |
