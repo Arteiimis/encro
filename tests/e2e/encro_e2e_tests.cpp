@@ -1544,6 +1544,9 @@ TEST_CASE("encro resume requires an existing state file", "[e2e][resume]") {
   auto const inputPath = temp.path / "sample.avi";
   auto const statePath = temp.path / "missing.job-state.json";
   testutils::writeTextFile(inputPath, "fake-video");
+  // The run reaches the resume check only once the toolchain resolves, and the
+  // suite must not depend on a real ffmpeg being installed.
+  auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
 
   auto const result = e2e::runEncro({
     "-y",
@@ -1552,6 +1555,8 @@ TEST_CASE("encro resume requires an existing state file", "[e2e][resume]") {
     "--resume",
     "--state-file",
     pathutf8::fromPath(statePath),
+    "--ffmpeg-path",
+    pathutf8::fromPath(toolchain.root),
   });
 
   REQUIRE(result.exitCode == 1);
