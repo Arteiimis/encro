@@ -8,18 +8,12 @@ Turns a version tag into something a stranger can download and run: one archive 
 
 ### Requirement: Each distributed release publishes one artifact per platform
 
-A release that distributes binaries SHALL publish exactly two downloadable artifacts: one for Windows and one for Linux. Each artifact name SHALL identify the release version, the CPU architecture and the platform, so that a version can be matched to its assets without opening them, and the version in the name SHALL appear without the tag's `v` prefix. Releases recorded before the project distributed anything are governed by the historical-release requirement instead.
+A release that distributes binaries SHALL publish exactly two downloadable artifacts: one for Windows and one for Linux. Each platform SHALL contribute only its own archive format, so the asset count equals the platform count. Releases recorded before the project distributed anything are governed by the historical-release requirement instead.
 
 #### Scenario: A published release carries both artifacts
 
-- **WHEN** a release for version 2.0.1 is published
+- **WHEN** a distributed release for version 2.0.1 is published
 - **THEN** it carries exactly one Windows artifact and one Linux artifact
-- **AND** each name contains `2.0.1`, the architecture and the platform
-
-#### Scenario: The asset name drops the tag prefix
-
-- **WHEN** the published tag is `v2.0.1`
-- **THEN** the artifacts are named `encro-2.0.1-...`, never `encro-v2.0.1-...`
 
 #### Scenario: No other archive kinds are published
 
@@ -27,9 +21,30 @@ A release that distributes binaries SHALL publish exactly two downloadable artif
 - **THEN** it carries no installer, no source archive and no checksum-only companion file
 - **AND** the number of assets equals the number of platforms
 
+#### Scenario: Each platform contributes one file, not one per format
+
+- **WHEN** a distributed release is published
+- **THEN** the Windows entry is an archive and the Linux entry is a tarball
+- **AND** neither platform contributes both formats
+
+### Requirement: An artifact name identifies its version, architecture and platform
+
+Each artifact name SHALL contain the release version, the CPU architecture and the platform, so a version can be matched to its assets without opening them. The version SHALL appear without the tag's `v` prefix, and the architecture token SHALL be the one that platform's own toolchain reports rather than a value normalised across platforms.
+
+#### Scenario: The asset name drops the tag prefix
+
+- **WHEN** the published tag is `v2.0.1`
+- **THEN** the artifact names contain `2.0.1`, never `v2.0.1`
+
+#### Scenario: Each platform names its own architecture
+
+- **WHEN** both artifacts of one release are listed
+- **THEN** each name states the architecture that platform's toolchain reports
+- **AND** the two names are not forced to spelling the architecture identically
+
 ### Requirement: A version that was never distributed is recorded without artifacts
 
-Every tag SHALL have a release entry, including the versions that predate the project's distribution. Such an entry SHALL carry no downloadable artifact, and its text SHALL state that the version was never distributed and that the entry records history rather than announcing a download. This keeps the release history aligned with the tag history without implying that those versions were ever available.
+Every tag that predates the project's distribution SHALL have a release entry once its history is completed, and that entry SHALL carry no downloadable artifact. Its text SHALL state that the version was never distributed and that the entry records history rather than announcing a download. A tag this pipeline attempted to publish gets an entry only once that attempt succeeds, so a failed attempt stays visible as a missing entry rather than being reclassified as history.
 
 #### Scenario: An early version has an entry but nothing to download
 
@@ -43,10 +58,11 @@ Every tag SHALL have a release entry, including the versions that predate the pr
 - **THEN** its entry carries both artifacts
 - **AND** the difference between it and the earlier entries is visible from the entries themselves
 
-#### Scenario: Every tag has exactly one entry
+#### Scenario: Every tag that predates the pipeline has exactly one entry
 
-- **WHEN** the repository's tags and its release entries are compared
-- **THEN** every tag has one entry and no entry lacks a tag
+- **WHEN** the repository's tags below the backfill boundary are compared with its release entries
+- **THEN** every such tag has one entry and no entry lacks a tag
+- **AND** a tag whose publish attempt failed is the only kind that may lack one
 
 ### Requirement: The Windows artifact starts on a machine that has never seen encro
 
@@ -86,7 +102,7 @@ Every distributed artifact SHALL contain the licence and a README. The README SH
 
 ### Requirement: Nothing is published unless the repository is green
 
-A release SHALL be withheld unless two checks pass first: the complete test suite (unit and end-to-end) and the tag-contract check that every tag still satisfies its naming, ordering and changelog obligations. A failing check SHALL abort the release before any artifact becomes downloadable.
+A release SHALL be withheld unless three checks pass first: the complete test suite (unit and end-to-end), the tag-contract check that every tag still satisfies its naming, ordering and changelog obligations, and an agreement check confirming that the version the build will stamp equals the version the tag names. A failing check SHALL abort the release before any artifact becomes downloadable.
 
 #### Scenario: A failing test publishes nothing
 
@@ -98,35 +114,61 @@ A release SHALL be withheld unless two checks pass first: the complete test suit
 - **WHEN** the tag-contract check fails
 - **THEN** the release is aborted even though the tests passed
 
-#### Scenario: Both checks pass and the release proceeds
+#### Scenario: A tag that does not match the built version publishes nothing
 
-- **WHEN** the test suite and the tag-contract check both pass
+- **WHEN** the tag names a version different from the one the build will stamp into the binary and its artifacts
+- **THEN** the release is aborted before packaging
+- **AND** the mismatch is reported rather than resolved by rewriting either side
+
+#### Scenario: All checks pass and the release proceeds
+
+- **WHEN** the tests, the tag contract and the version agreement all pass
 - **THEN** the release is created with both artifacts attached
 
-### Requirement: A new tag publishes automatically, and existing tags can be published on demand
+### Requirement: A new tag publishes automatically
 
-Pushing a tag that names a version SHALL publish that version without further input. Independently, a maintainer SHALL be able to publish a tag that already exists and was pushed before this behaviour existed — starting with the first distributed release — by naming that tag explicitly. A single further entry point SHALL record every existing tag that has no release entry, so the history can be completed in one action rather than one run per version.
+Pushing a tag that names a version SHALL publish that version without further input, provided the tagged source can produce a working package.
 
 #### Scenario: Pushing a new tag publishes it
 
 - **WHEN** a maintainer pushes the tag `v2.0.1`
 - **THEN** a release for `v2.0.1` is published without any further action
 
-#### Scenario: A tag that predates the pipeline is published on demand
-
-- **WHEN** a maintainer names an already-existing tag such as `v2.0.0`
-- **THEN** that version is published exactly as a newly pushed tag would be
-
-#### Scenario: Completing the history takes one action
-
-- **WHEN** a maintainer asks for the missing release entries to be recorded
-- **THEN** every tag without an entry gains one in the same run
-- **AND** the versions that were never distributed gain entries without artifacts
-
 #### Scenario: A tag that is not a version is ignored
 
 - **WHEN** a pushed tag does not name a version
 - **THEN** no release is attempted
+
+### Requirement: An existing tag can be published on demand
+
+A maintainer SHALL be able to publish a tag that already exists and was pushed before this pipeline existed by naming that tag explicitly, with the same result a fresh push would give. A tag whose source cannot produce a working package SHALL be refused, with the reason stated.
+
+#### Scenario: A tag that predates the pipeline is published on demand
+
+- **WHEN** a maintainer names an already-existing tag whose source can produce a working package
+- **THEN** that version is published exactly as a newly pushed tag would be
+
+#### Scenario: A tag that predates the packaging fix is refused
+
+- **WHEN** a maintainer names an already-existing tag whose own tree cannot produce a working package
+- **THEN** the run refuses before packaging anything
+- **AND** it names that reason rather than publishing a package known to be broken
+
+### Requirement: A history that predates the pipeline can be completed in one action
+
+A single entry point SHALL record every existing tag up to and including a version the maintainer names, limited to those that have no release entry. The named version is the boundary: tags above it are never touched, so a version whose publish failed cannot be reclassified as history. The entry point SHALL record all qualifying tags in one run rather than one run per version.
+
+#### Scenario: Completing the history takes one action
+
+- **WHEN** a maintainer asks for the missing entries up to the latest version that predates the pipeline
+- **THEN** every tag at or below that version without an entry gains one in the same run
+- **AND** the versions that were never distributed gain entries without artifacts
+
+#### Scenario: A version above the boundary is left alone
+
+- **WHEN** a publish attempt for a version failed and the same completion action is run afterwards with the previous boundary
+- **THEN** that version is not recorded as never distributed
+- **AND** it remains without an entry so the publish can be retried
 
 ### Requirement: The release body is that version's changelog entry
 
