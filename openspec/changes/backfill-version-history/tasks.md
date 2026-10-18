@@ -43,6 +43,8 @@
 
 Total: **10 rebuilt + 3 early 0.x + 4 pre-release + 1 normal release = 18 tags**, so `CHANGELOG.md` needs 18 released sections plus `[Unreleased]`.
 
+The commit hashes above are the **pre-rewrite** ones, used to decide where each tag belongs. After step 5.5 rewrote history they no longer resolve, and each tag now points at the rewritten equivalent of that commit — so the tag itself, not this column, is the durable record of the anchor. The version column is unaffected and is what group 7's cross-source check reads.
+
 ### Group 2 record
 
 - **2.1 method.** The three 0.x anchors predate OpenSpec, so they were located by feature cluster: the crash-handler work that ends March (`e0dad58`, the month's last commit), the output-layout + zip-name-collision + pack-grouping cluster that ends 04-13 (`aa5fcec`), and the resumable-pack + job-state + e2e + immer-cache cluster that ends 04-19 (`ee2b340`). All three fall in the months the 2026-10-05 exploration predicted.
@@ -117,8 +119,15 @@ Total: **10 rebuilt + 3 early 0.x + 4 pre-release + 1 normal release = 18 tags**
 
 ## 7. Integration verification
 
-- [ ] 7.1 Cross-source agreement: the newest tag's version **without its `v` prefix** (the tag is `v2.0.0`, the bare version `2.0.0`), `encro --version` (fresh release build), the top released `CHANGELOG.md` heading and the anchor table in 2.4 all name the same version. Verify: the four values printed side by side are identical once the tag name's `v` is stripped — the tag is the only one of the four that carries a prefix.
-- [ ] 7.2 Full gate on the rewritten tree: `xmake test-report --suite=all` green with every shard executing its assigned count, and `build/windows/x64/release/tests.exe -r console -s` reporting 0 failures. Verify: both pass; the report's assertion total matches the pre-rewrite baseline.
+- [x] 7.1 Cross-source agreement: the newest tag's version **without its `v` prefix** (the tag is `v2.0.0`, the bare version `2.0.0`), `encro --version` (fresh release build), the top released `CHANGELOG.md` heading and the anchor table in 2.4 all name the same version. Verify: the four values are identical once the `v` prefix is stripped from the tag name **and from the anchor table's version column** — those two hold tag names, the other two hold bare versions.
+- [x] 7.2 Full gate on the rewritten tree: `xmake test-report --suite=all` green with every shard executing its assigned count, and `build/windows/x64/release/tests.exe -r console -s` reporting 0 failures. Verify: both pass; the report's assertion total matches the pre-rewrite baseline.
+
+### Group 7 record
+
+- **7.1.** The four sources agree on `2.0.0`: the newest tag is `v2.0.0`, `encro --version` prints `encro 2.0.0 (build: …)`, the top released `CHANGELOG.md` heading is `## [2.0.0] - 2026-10-18`, and the anchor table's newest row is `v2.0.0`. Stripping the `v` from the two that carry it (the tag name and the anchor table's version column — both hold tag names) leaves four identical values. Separately, all 18 tags have exactly one released heading in `CHANGELOG.md` and no tag lacks one.
+  - The task's original wording claimed the tag was "the only one of the four that carries a prefix"; the anchor table's version column carries the same prefix because it records tag names, so the check was rewritten to strip both rather than bending the data.
+  - The anchor table's commit column still holds **pre-rewrite** hashes and cannot resolve after 5.5; a note was added there saying the tags, not that column, are the durable record of where each anchor sits.
+- **7.2.** `xmake test-report --suite=all` → **unit 17605 assertions in 967/967 cases** and **e2e 935 assertions in 59/59 cases**, both fully green, so every shard ran its assigned count. The unit total matches the pre-rewrite baseline taken in 4.2 (967 cases, 17605 assertions), which is the expected result for a rewrite that changes only repository metadata and adds `CHANGELOG.md`. `tests.exe -r console -s` reports `967 | 954 passed | 13 skipped` with `17605 | 17605 passed` and **zero failures** — the 13 skips are the pre-existing opt-in `[install]`/`[smoke]` and real-model cases, unchanged by this work.
 
 ## Planning-artifact review
 
