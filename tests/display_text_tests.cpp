@@ -2,6 +2,8 @@
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
+#include <clocale>
+
 namespace {
 
 auto asString(std::u8string_view text) -> std::string {
@@ -53,6 +55,25 @@ TEST_CASE("takeWindowByDisplayWidth keeps CJK code points whole", "[display-text
     CHECK(displaytext::displayWidth(window) <= 10);
     CHECK(hasWholeCodePoints(window));
   }
+}
+
+TEST_CASE("displayWidth does not depend on the process locale", "[display-text]") {
+  auto const cjk = asString(u8"初音ミク");
+  auto const expected = std::size_t{8};  // four full-width characters
+  CHECK(displaytext::displayWidth(cjk) == expected);
+
+  // A locale whose multibyte encoding cannot decode UTF-8 is exactly where a
+  // locale-dependent width goes wrong; it is the configuration that turned the
+  // Windows release job red. indicators' display_width converts with mbstowcs,
+  // so it yields -1 here and the caller falls back to counting bytes.
+  auto const saved = std::string{setlocale(LC_ALL, nullptr)};
+  for (auto const* name: {"C", ".1252"}) {
+    if (setlocale(LC_ALL, name) == nullptr) { continue; }
+    CHECK(displaytext::displayWidth(cjk) == expected);
+    CHECK(displaytext::displayWidth(asString(u8"…")) == 1);
+    CHECK(displaytext::displayWidth("abcdef") == 6);
+  }
+  setlocale(LC_ALL, saved.c_str());
 }
 
 TEST_CASE("truncateWithEllipsis preserves valid long Chinese text", "[display-text]") {

@@ -15,12 +15,6 @@
 
 namespace displaytext {
 
-inline std::size_t displayWidth(std::string_view text) {
-  auto const width = unicode::display_width(std::string{text});
-  if (width < 0) { return text.size(); }
-  return static_cast<std::size_t>(width);
-}
-
 inline std::size_t utf8CodePointLength(std::string_view text, std::size_t offset) {
   if (offset >= text.size()) { return 0; }
 
@@ -47,6 +41,43 @@ inline std::size_t utf8CodePointLength(std::string_view text, std::size_t offset
   }
 
   return length;
+}
+
+// The code point starting at `offset`, whose encoded length is `length` as
+// returned by utf8CodePointLength.
+inline auto
+decodeUtf8CodePoint(std::string_view text, std::size_t offset, std::size_t length)
+  -> std::uint32_t {
+  auto const lead = static_cast<unsigned char>(text[offset]);
+  if (length <= 1) { return lead; }
+  auto codePoint = static_cast<std::uint32_t>(lead & (0xFFu >> (length + 1)));
+  for (auto index = std::size_t{1}; index < length; ++index) {
+    codePoint =
+      (codePoint << 6) | (static_cast<unsigned char>(text[offset + index]) & 0x3Fu);
+  }
+  return codePoint;
+}
+
+// Columns a string occupies on a fixed-width terminal.
+//
+// Decoded here rather than through indicators' unicode::display_width, which
+// converts the string with mbstowcs under the process locale: on a machine whose
+// locale is not UTF-8 — an English Windows, for instance — every multi-byte
+// character decodes wrong and it returns -1, leaving callers to fall back to the
+// byte count. A string's width is a property of its bytes, not of the locale.
+inline std::size_t displayWidth(std::string_view text) {
+  auto width = std::size_t{0};
+  auto index = std::size_t{0};
+  while (index < text.size()) {
+    auto const length = utf8CodePointLength(text, index);
+    auto const codePoint = decodeUtf8CodePoint(text, index, length);
+    auto const cells = unicode::details::mk_wcwidth(static_cast<wchar_t>(codePoint));
+    // A control character or unassigned code point has no column width of its
+    // own; it still occupies the bytes it was written with.
+    width += cells < 0 ? length : static_cast<std::size_t>(cells);
+    index += length;
+  }
+  return width;
 }
 
 inline auto takePrefixByDisplayWidth(std::string_view text, std::size_t maxWidth)
