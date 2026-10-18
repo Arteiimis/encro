@@ -2,9 +2,13 @@
 # Each snapshot is the file as it must read in that tag's tree: the header, the
 # [Unreleased] section, that version and every earlier one, and a link block
 # cropped to those versions with [unreleased] pointing at the tag itself.
-Set-Location (Join-Path $PSScriptRoot "..\..\..\..")
-
-$lines = Get-Content CHANGELOG.md
+# Regenerates the snapshots under this directory from CHANGELOG.md. Run from
+# anywhere; the paths are derived from this file's location.
+# Each snapshot is the file as it must read in that tag's tree: the header, the
+# [Unreleased] section, that version and every earlier one, and a link block
+# cropped to those versions with [unreleased] pointing at the tag itself.
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..\..")).Path
+$lines = Get-Content (Join-Path $repoRoot "CHANGELOG.md")
 $secStarts = @()
 for ($i = 0; $i -lt $lines.Count; $i++) {
   if ($lines[$i] -match '^## \[') { $secStarts += $i }
@@ -29,15 +33,14 @@ for ($i = $linkStart; $i -lt $lines.Count; $i++) {
   if ($lines[$i] -match '^\[') { $linkLines += $lines[$i] }
 }
 
-$ascending = @(
-  "0.1.0", "0.1.5", "0.2.0", "0.3.0", "0.4.0",
-  "1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0",
-  "2.0.0-alpha.1", "2.0.0-alpha.2", "2.0.0-alpha.3", "2.0.0-rc.1", "2.0.0"
-)
+# One snapshot per released section, taken from the file itself — a hardcoded
+# list here would silently skip a version added to CHANGELOG.md later.
+$ascending = @($versions | Where-Object { $_ -ne 'Unreleased' } | Sort-Object {
+  [semver]($_)
+})
 
 foreach ($v in $ascending) {
   $idx = [array]::IndexOf($versions, $v)
-  if ($idx -lt 0) { throw "no CHANGELOG section for $v" }
   $out = @()
   $out += $header
   $out += $lines[$secs[0][0]..$secs[0][1]]
@@ -52,5 +55,5 @@ foreach ($v in $ascending) {
     if (-not $match) { throw "no link for $target" }
     $out += $match
   }
-  ($out -join "`n") + "`n" | Set-Content -Encoding utf8 -NoNewline "CHANGELOG.at-$v.md"
+  ($out -join "`n") + "`n" | Set-Content -Encoding utf8 -NoNewline (Join-Path $PSScriptRoot "CHANGELOG.at-$v.md")
 }

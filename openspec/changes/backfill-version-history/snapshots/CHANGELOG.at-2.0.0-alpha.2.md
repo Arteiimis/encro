@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Encoding plans are probed and printed before work starts, and `--dry-run` stops after printing them.
 - Probe results are cached, so a repeated run over the same inputs skips re-probing.
 - Duplicate media is stored once when packing, instead of once per output archive.
-- Structured log records correlate an item's stages, so a single item's history can be read out of an interleaved log.
+- Structured log records correlate an item's stages — every record carries the same per-run `run_id`, and task records name the task and its input — so a single item's history can be read out of an interleaved log.
 - `encro` builds and runs on POSIX systems, not only Windows.
 
 ### Changed
@@ -23,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Picture compression resumes: an interrupted JPEG pass continues where it stopped rather than starting over.
 - Video encoding efficiency improved, and NVENC quality is tuned per resolution.
 - The plan output was rewritten to be readable, and diagnostics from failed piped runs no longer interleave bar frames.
-- CLI parsing moved to CLI11, with positional inputs accepted alongside `-i` / `-I`.
+- CLI parsing accepts positional inputs alongside `-i` / `-I`.
 
 ### Fixed
 

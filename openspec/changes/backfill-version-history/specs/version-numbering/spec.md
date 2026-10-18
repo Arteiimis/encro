@@ -93,4 +93,4 @@ A version increment SHALL follow semver 2.0.0 §6-§8 applied to the declared pu
 #### Scenario: Several breaking changes share one unpublished MAJOR
 
 - **WHEN** two or more incompatible changes land with no publication between them
-- **THEN** they accumulate under one MAJOR, each carrying its own pre-release tag instead of its own MAJOR
+- **THEN** they accumulate under one MAJOR, each boundary landing somewhere in that MAJOR's pre-release line rather than getting a MAJOR of its own — a single pre-release tag may carry more than one boundary when they cluster in time

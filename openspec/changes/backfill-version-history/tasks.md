@@ -121,6 +121,7 @@ The commit hashes above are the **pre-rewrite** ones, used to decide where each 
 
 - [x] 7.1 Cross-source agreement: the newest tag's version **without its `v` prefix** (the tag is `v2.0.0`, the bare version `2.0.0`), `encro --version` (fresh release build), the top released `CHANGELOG.md` heading and the anchor table in 2.4 all name the same version. Verify: the four values are identical once the `v` prefix is stripped from the tag name **and from the anchor table's version column** — those two hold tag names, the other two hold bare versions.
 - [x] 7.2 Full gate on the rewritten tree: `xmake test-report --suite=all` green with every shard executing its assigned count, and `build/windows/x64/release/tests.exe -r console -s` reporting 0 failures. Verify: both pass; the report's assertion total matches the pre-rewrite baseline.
+- [x] 7.3 Commit the structural checks as a reusable script rather than a one-off: `scripts/verify-release-tags.ps1` reads the tags from git and asserts the name grammar (including a negative self-test that `V1.7.0`, `v1.7`, `v2.0.0-alpha.01` and friends are rejected), annotated-ness, precedence order against commit order, each tag's own newest CHANGELOG section, section/date/link coverage, and that only the six change types appear with no empty group. Verify: it exits 0 on HEAD; deleting a `## [x.y.z] - <date>` from `CHANGELOG.md` makes it exit 1.
 
 ### Group 7 record
 

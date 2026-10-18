@@ -9,7 +9,7 @@ See `proposal.md` — Why. The facts that shape the approach:
 - The repository is 1,249 commits, 83 archived OpenSpec changes, no external forks, one user. `main` is at `26aa49d`.
 - `git-filter-repo` a40bce5 is installed (`D:\scoop\apps\python\current\Scripts\git-filter-repo.exe`, Python 3.15.0).
 - `core/project/project.lua:1054` of the installed xmake declares `project.version()`, but xmake 3.1.2 does not expose a `project` binding inside the `xmake.lua` chunk — see D7 for what is used instead.
-- 14 `BREAKING` marker lines sit across 12 archived change proposals, which together with 4 proposals that state no breaking change make the 16 rows audited below.
+- 15 `BREAKING` marker lines sit across 13 archived change proposals, which together with 4 proposals that state no breaking change make the 17 rows audited below.
 - Keep a Changelog 1.1.0 rejects commit-log dumps as changelogs; git-cliff output is a draft, never the artifact.
 
 ## Goals / Non-Goals
@@ -58,8 +58,9 @@ Dates are the chosen commit's own date, which is not always the archive director
 | 14 | `case-insensitive-media-extensions` (09-28) | proposal states non-breaking | Not breaking |
 | 15 | `structured-log-correlation` (08-10) | proposal states non-breaking | Not breaking |
 | 16 | `finer-grained-video-resume` (08-02) | design states no breaking | Not breaking |
+| 17 | `unify-test-task` (10-18) | `xmake test-parallel` no longer exists | Not breaking — dev tooling |
 
-Four breaking boundaries: 08-03, 08-19, 09-26, 09-28. Each is a real removal, rename, value-set change, exit-code change or required-input change on a declared surface. The twelve other rows are either a `BREAKING` marker the declaration resolves to non-breaking (rows 2, 3, 5, 6, 7, 10, 11, 12) or a proposal that itself states no breaking change (rows 13–16); row 1 collapses three marker lines from one proposal.
+Four breaking boundaries: 08-03, 08-19, 09-26, 09-28. Each is a real removal, rename, value-set change, exit-code change or required-input change on a declared surface. The thirteen other rows are either a `BREAKING` marker the declaration resolves to non-breaking (rows 2, 3, 5, 6, 7, 10, 11, 12, 17) or a proposal that itself states no breaking change (rows 13–16); row 1 collapses three marker lines from one proposal.
 
 ### D3 — Unreleased milestones are pre-releases of v2.0.0
 
@@ -110,7 +111,7 @@ Entry content is curated from three sources per version: the archived change pro
 
 `set_version()` stays the single declaration. xmake 3.1.2 does **not** expose a `project` binding in the `xmake.lua` chunk (`project.version()` raises `attempt to index a nil value (global 'project')` at file level and inside a target block, and `xmake lua -c` behaves the same), so the version is declared once as a Lua local — `local encroVersion = "2.0.0"` — which `set_version(encroVersion)` and `set_configvar("ENCRO_VERSION", encroVersion, {quote = true})` both read. The literal still appears exactly once. `add_configfiles("src/app/version.h.in", {prefixdir = "app"})` renders `${define ENCRO_VERSION}` into `build/app/version.h`; that directory is **not** on the include path automatically, so the target also carries `add_includedirs("$(builddir)", {public = true})` (public so the test target inherits it). `app_entry.cpp` prints the macro.
 
-`app_entry.cpp:140` already prints `encro v1.6 (build: <compile timestamp>)`, so the shape is pre-existing and only the version token changes: the hard-coded `v1.6` (with its literal `v`) becomes the generated macro without one. This is not a breaking change: the value it reported was never a promise — the literal named a version no tag ever carried — and `--version`'s output text is deliberately outside the declared API (D1), so D2's rules never reach it. Its changelog entry is an `### Fixed` line under the version that carries it. *Alternative rejected:* deriving the version from `git describe` at build time — source tarballs and shallow CI clones have no tags, and a build that reports a different version than its source is worse than a stale literal.
+The `--version` branch of `src/app/app_entry.cpp` already prints `encro v1.6 (build: <compile timestamp>)`, so the shape is pre-existing and only the version token changes: the hard-coded `v1.6` (with its literal `v`) becomes the generated macro without one. This is not a breaking change: the value it reported was never a promise — the literal named a version no tag ever carried — and `--version`'s output text is deliberately outside the declared API (D1), so D2's rules never reach it. Its changelog entry is an `### Fixed` line under the version that carries it. *Alternative rejected:* deriving the version from `git describe` at build time — source tarballs and shallow CI clones have no tags, and a build that reports a different version than its source is worse than a stale literal.
 
 ### D8 — Stale hash pointers
 

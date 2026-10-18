@@ -7,7 +7,7 @@
 
 #include <string>
 
-TEST_CASE("--version reports the declared version and no other", "[app][version]") {
+TEST_CASE("--version reports the declared version and no other", "[appentry][version]") {
   int exitCode = -1;
   auto const out = testutils::captureStdout([&] {
     char arg0[] = "encro";

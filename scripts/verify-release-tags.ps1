@@ -1,30 +1,26 @@
-# Verifies the release tag line against the rules in docs/public-api.md and
-# CHANGELOG.md's own contract. Reads the tags from git, so it needs no fixture
-# and can run after any release.
+# Verifies the release tag line against its own contract: the semver grammar
+# from the change's version-numbering spec, the ancestry order, and the
+# CHANGELOG shape from the changelog-maintenance spec.
 #
 #   pwsh scripts/verify-release-tags.ps1
 #
-# Exits 1 with a list of failures when any check does not hold.
+# Reads the tags from git, so it needs no fixture and runs after any release.
+# Exits 1 and lists every failure when a check does not hold.
 $ErrorActionPreference = 'Stop'
-$tick = [char]96
-
-function Fail([string]$message) { $script:failures += $message }
-
 $failures = @()
+function Fail([string]$message) { $script:failures += $message }
 
 $tags = @(git tag -l | Sort-Object)
 if ($tags.Count -eq 0) { Write-Output 'no tags found'; exit 1 }
 
-# --- 1. every tag name is a conforming semver tag -------------------------
+# --- 1. tag names conform, and the grammar really rejects bad ones ---------
 $id = '(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
 $grammar = "^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-$id(\.$id)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$"
 foreach ($t in $tags) {
+  # -cmatch: -match is case-insensitive and would accept 'V1.7.0'.
   if ($t -cnotmatch $grammar) { Fail "tag name does not conform to semver: $t" }
   if ((git cat-file -t $t) -ne 'tag') { Fail "tag is not annotated: $t" }
 }
-
-# the grammar must reject non-conforming names, not merely accept the ones we have.
-# -cmatch, because -match is case-insensitive and would accept 'V1.7.0'.
 foreach ($bad in @('v1.7', 'V1.7.0', 'release-1.7.0', 'v2.0.0-alpha.01', 'v01.0.0', 'v2.0.0-', 'v1.7.0.1')) {
   if ($bad -cmatch $grammar) { Fail "the tag grammar wrongly accepts '$bad'" }
 }
@@ -32,41 +28,12 @@ foreach ($good in @('v2.0.0', 'v2.0.0-alpha.1', 'v1.7.0', 'v2.0.0+build.1', 'v0.
   if ($good -cnotmatch $grammar) { Fail "the tag grammar wrongly rejects '$good'" }
 }
 
-# --- 2. the commit order of the tags agrees with their precedence --------
-function Get-Key([string]$tag) {
-  $core, $pre = ($tag.Substring(1) -split '-', 2)
-  $n = $core -split '\.' | ForEach-Object { [int]$_ }
-  [pscustomobject]@{ Major = $n[0]; Minor = $n[1]; Patch = $n[2]; Pre = $pre }
-}
+# --- 2. precedence order equals commit order -------------------------------
+# [semver] is PowerShell's own semver 2.0.0 implementation, so precedence is
+# not re-derived here. -Stable keeps equal-precedence tags (build metadata
+# only) in git's order instead of comparing them equal.
+$bySemver = @($tags | Where-Object { $_ -cmatch $grammar } | Sort-Object -Stable { [semver]($_.Substring(1)) })
 
-function Compare-Pre($a, $b) {
-  if ($null -eq $a -and $null -eq $b) { return 0 }
-  if ($null -eq $a) { return 1 }        # a normal version outranks a pre-release
-  if ($null -eq $b) { return -1 }
-  $as = $a.Split('.'); $bs = $b.Split('.')
-  for ($i = 0; $i -lt [Math]::Min($as.Count, $bs.Count); $i++) {
-    $xn = 0; $yn = 0
-    $xNum = [int]::TryParse($as[$i], [ref]$xn)
-    $yNum = [int]::TryParse($bs[$i], [ref]$yn)
-    if ($xNum -and $yNum) { if ($xn -ne $yn) { return $xn - $yn } }
-    elseif ($xNum) { return -1 }        # numeric identifiers sort below alphanumeric
-    elseif ($yNum) { return 1 }
-    else { $c = [string]::CompareOrdinal($as[$i], $bs[$i]); if ($c -ne 0) { return $c } }
-  }
-  return $as.Count - $bs.Count
-}
-
-function Compare-Tag($x, $y) {
-  $a = Get-Key $x; $b = Get-Key $y
-  $c = $a.Major - $b.Major
-  if ($c -eq 0) { $c = $a.Minor - $b.Minor }
-  if ($c -eq 0) { $c = $a.Patch - $b.Patch }
-  if ($c -eq 0) { $c = Compare-Pre $a.Pre $b.Pre }
-  return $c
-}
-
-# Order the tags two ways and require the same sequence: by position in the
-# first-parent history (oldest first) and by semver precedence.
 $revs = @(git rev-list main --first-parent)
 $pos = @{}
 for ($i = 0; $i -lt $revs.Count; $i++) { $pos[$revs[$i]] = $i }
@@ -75,20 +42,11 @@ $byHistory = @($tags | Sort-Object {
   if ($pos.ContainsKey($c)) { $pos[$c] } else { [int]::MaxValue }
 } -Descending)
 
-$bySemver = @($tags)
-for ($i = 0; $i -lt $bySemver.Count; $i++) {
-  for ($j = $i + 1; $j -lt $bySemver.Count; $j++) {
-    if ((Compare-Tag $bySemver[$i] $bySemver[$j]) -gt 0) {
-      $tmp = $bySemver[$i]; $bySemver[$i] = $bySemver[$j]; $bySemver[$j] = $tmp
-    }
-  }
-}
-
 if (($byHistory -join ',') -ne ($bySemver -join ',')) {
   Fail "precedence order does not match commit order - history: [$($byHistory -join ', ')] - semver: [$($bySemver -join ', ')]"
 }
 for ($i = 1; $i -lt $bySemver.Count; $i++) {
-  if ((Compare-Tag $bySemver[$i - 1] $bySemver[$i]) -ge 0) {
+  if ([semver]$bySemver[$i - 1].Substring(1) -ge [semver]$bySemver[$i].Substring(1)) {
     Fail "two tags share a version: $($bySemver[$i - 1]) and $($bySemver[$i])"
   }
 }
@@ -104,20 +62,19 @@ foreach ($t in $tags) {
   if ($heads[1] -ne $version) { Fail "$t : newest released section is '$($heads[1])', expected '$version'" }
 }
 
-# --- 5. CHANGELOG covers every tag, newest first, with links --------------
+# --- 4. CHANGELOG covers every tag, newest first, with working links ------
 $lines = Get-Content CHANGELOG.md
 $released = @()
 $prevDate = $null
 foreach ($l in $lines) {
-  if ($l -match $headingPattern) {
+  if ($l -match '^## \[(.+?)\](?: - (\d{4}-\d{2}-\d{2}))?') {
     $v = $Matches[1]
     if ($v -eq 'Unreleased') { continue }
     $released += $v
-    if ($l -match '- (\d{4}-\d{2}-\d{2})') {
-      $d = [datetime]$Matches[1]
-      if ($prevDate -and $d -ge $prevDate) { Fail "CHANGELOG dates do not descend at $v" }
-      $prevDate = $d
-    } else { Fail "CHANGELOG section has no ISO date: $v" }
+    if (-not $Matches[2]) { Fail "CHANGELOG section has no ISO date: $v"; continue }
+    $d = [datetime]::ParseExact($Matches[2], 'yyyy-MM-dd', $null)
+    if ($prevDate -and $d -ge $prevDate) { Fail "CHANGELOG dates do not descend at $v" }
+    $prevDate = $d
   }
 }
 
@@ -136,13 +93,11 @@ foreach ($v in $released) {
   } elseif ($link.Url -notmatch '/compare/v.+\.\.\.v') { Fail "link is not a compare URL: $v" }
 }
 
-# --- 6. change types are legal and no group is empty -------------------
+# --- 5. change types are legal and no group is empty ---------------------
 $allowed = @('Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security')
 $currentType = $null
 $currentTypeHadEntry = $false
-for ($i = 0; $i -lt $lines.Count; $i++) {
-  $l = $lines[$i]
-  if ($l -match '^#### ') { continue }                # scenarios never appear in CHANGELOG, be lenient anyway
+foreach ($l in $lines) {
   if ($l -match '^### (.+)$') {
     if ($currentType -and -not $currentTypeHadEntry) { Fail "empty group '### $currentType'" }
     $type = $Matches[1].Trim()
@@ -151,8 +106,9 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
     $currentTypeHadEntry = $false
     continue
   }
-  if ($l -match '^## \[') {
-    if ($currentType -and -not $currentTypeHadEntry) { Fail "empty group '### $currentType' in section $($Matches[0])" }
+  if ($l -match '^## \[(.+?)\]') {
+    $section = $Matches[1]
+    if ($currentType -and -not $currentTypeHadEntry) { Fail "empty group '### $currentType' in section $section" }
     $currentType = $null
     $currentTypeHadEntry = $false
     continue
@@ -163,7 +119,7 @@ if ($currentType -and -not $currentTypeHadEntry) { Fail "empty group '### $curre
 
 # --- report ---------------------------------------------------------------
 if ($failures.Count -eq 0) {
-  Write-Output "OK: $($tags.Count) tags verified (grammar, annotated, precedence, ancestry, per-tag CHANGELOG, $($released.Count) CHANGELOG sections, $($links.Count) links)"
+  Write-Output "OK: $($tags.Count) tags verified (name grammar, annotated, precedence vs commit order, per-tag CHANGELOG section, $(($released | Measure-Object).Count) CHANGELOG sections, $($links.Count) links, legal change types)"
   exit 0
 }
 Write-Output "FAILURES ($($failures.Count)):"

@@ -17,7 +17,7 @@ encro has five subcommands and a default mode that runs when no subcommand is gi
 | `config` | Read and write user-level defaults |
 | `completion` | Print, install or uninstall shell completion scripts |
 
-`--version` prints one line naming the release the binary was built from; the value comes from the project's declared version (`xmake.lua`), never from a literal in source.
+`--version` prints one line naming the release the binary was built from. The **value** is a promise: it comes from the project's declared version (`xmake.lua`), never from a literal in source, so it can never name a release that does not exist. The wording and format of that line are not — they are rendering, covered by the "does not cover" section below.
 
 ### Default mode options
 

@@ -14,14 +14,25 @@ First public release. Everything below this version is reconstructed from the pr
 
 - `batch` processes every first-level subfolder of a root directory as its own task, so a season or an artist folder can be handed over in one command.
 - Batch runs ask for confirmation once and then apply the answer to every subfolder, instead of prompting per folder.
+- A directory scan that skips files by policy — video that is already HEVC — says so in one hint line instead of leaving the reader to wonder why the count is short.
 
 ### Changed
 
 - Version numbering, tagging and `CHANGELOG.md` are now part of the project's own contract, and `encro --version` reports the version declared in the build definition rather than a literal in source.
+- `organize --dry-run` resolves the same destination decisions as a real run and words its totals as "would copy".
+- The encoder settings that change an output — codec, `--crf`, `--preset`, `--min-vmaf` — now take part in job-state matching, so a resumed run can no longer mistake work done with different settings for its own.
 
 ### Fixed
 
-- Findings from the pre-release audit of the test task and its reporting.
+- An explicitly named `.webm`, `.m4v`, `.ts`, `.mpg`, `.mpeg`, `.3gp` or `.m2ts` input is treated as video instead of being silently ignored with exit code 0.
+- A probe cache that cannot be read in full is discarded and re-probed, instead of aborting the run before the first encode.
+- The job-state file is replaced atomically, so a crash can no longer leave it missing.
+- Two distinct paths on a case-sensitive filesystem stay two distinct tasks, so a resume can no longer report a never-encoded file as done.
+- `--download-models` re-downloads a model file whose size does not match its pin instead of skipping it and reporting success.
+- A cuDNN extraction is staged and verified, so an interrupted install cannot look complete.
+- An unreadable directory no longer aborts the whole pack, organize pass or toolchain search.
+- Packing a directory skips encro's own `.encro` work directory.
+- A confirmation prompt whose standard input is closed fails with a message, instead of reporting a user cancellation.
 ## [2.0.0-rc.1] - 2026-10-05
 
 ### Added
@@ -42,7 +53,6 @@ First public release. Everything below this version is reconstructed from the pr
 - `encro organize` groups a folder of artwork into per-character folders using a local model; image content never leaves the machine.
 - `organize --download-models` fetches the model files, and can fetch them without running a grouping pass.
 - Shell completion for PowerShell and bash, with `encro completion --install` / `--uninstall` managing the startup wiring.
-- `--log-json` gained correlation fields, and every record in a run now carries the same `run_id`.
 - `encro config` reads and writes user-level defaults, persisted to `config.json`, so options that never change stop being retyped.
 - Failed runs state why they failed instead of only that they did, and the log hint prints on failure rather than on every run.
 - Packing can be cancelled inside the archive write, and the partial archive is removed rather than left behind.
@@ -71,7 +81,7 @@ First public release. Everything below this version is reconstructed from the pr
 - Encoding plans are probed and printed before work starts, and `--dry-run` stops after printing them.
 - Probe results are cached, so a repeated run over the same inputs skips re-probing.
 - Duplicate media is stored once when packing, instead of once per output archive.
-- Structured log records correlate an item's stages, so a single item's history can be read out of an interleaved log.
+- Structured log records correlate an item's stages — every record carries the same per-run `run_id`, and task records name the task and its input — so a single item's history can be read out of an interleaved log.
 - `encro` builds and runs on POSIX systems, not only Windows.
 
 ### Changed
@@ -80,7 +90,7 @@ First public release. Everything below this version is reconstructed from the pr
 - Picture compression resumes: an interrupted JPEG pass continues where it stopped rather than starting over.
 - Video encoding efficiency improved, and NVENC quality is tuned per resolution.
 - The plan output was rewritten to be readable, and diagnostics from failed piped runs no longer interleave bar frames.
-- CLI parsing moved to CLI11, with positional inputs accepted alongside `-i` / `-I`.
+- CLI parsing accepts positional inputs alongside `-i` / `-I`.
 
 ### Fixed
 
