@@ -11,12 +11,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - The answer to an interactive confirmation is remembered for the rest of the run instead of being asked again.
+
 ## [1.4.0] - 2026-05-01
 
 No user-visible changes: this milestone reworked the internal packing request into a declarative structure and removed an abstraction layer nothing polymorphically used.
+
 ## [1.3.0] - 2026-04-30
 
 No user-visible changes: this milestone moved the packing subsystem onto an object-oriented API and deleted the deprecated façade in front of it.
+
 ## [1.2.0] - 2026-04-29
 
 ### Fixed
@@ -24,11 +27,13 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - The pack progress bar no longer jumps between parallel archives.
 - A finalizing indicator now appears while an archive is being closed, and stops flashing once it completes.
 - The completion hook no longer overwrites the packing text while an archive finalizes.
+
 ## [1.1.0] - 2026-04-27
 
 ### Changed
 
 - Packing in compact progress mode reports its own progress and status instead of going silent until it finishes.
+
 ## [1.0.0] - 2026-04-26
 
 ### Added
@@ -40,6 +45,7 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 
 - Video encoding runs faster on the same hardware.
 - Per-archive success lines were removed from compact mode, where the progress bars already say the same thing.
+
 ## [0.4.0] - 2026-04-19
 
 ### Added
@@ -57,6 +63,7 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 ### Fixed
 
 - Name collisions across the video and pack paths resolve through one shared set of naming rules instead of two divergent ones.
+
 ## [0.3.0] - 2026-04-13
 
 ### Added
@@ -70,6 +77,7 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 ### Fixed
 
 - Duplicate entry names inside a single archive are resolved instead of producing an unreadable zip.
+
 ## [0.2.0] - 2026-03-05
 
 ### Added
@@ -81,6 +89,7 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 ### Changed
 
 - Process-type aliases (`vid` / `pic`) are accepted alongside the full names.
+
 ## [0.1.5] - 2026-03-02
 
 ### Added
@@ -92,6 +101,7 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Video files are processed in parallel.
 - The packing phase shows progress while it finalizes an archive.
 - Command-line mistakes are reported with enough detail to fix them.
+
 ## [0.1.0] - 2026-02-27
 
 ### Added

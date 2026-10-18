@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Process-type aliases (`vid` / `pic`) are accepted alongside the full names.
+
 ## [0.1.5] - 2026-03-02
 
 ### Added
@@ -28,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Video files are processed in parallel.
 - The packing phase shows progress while it finalizes an archive.
 - Command-line mistakes are reported with enough detail to fix them.
+
 ## [0.1.0] - 2026-02-27
 
 ### Added

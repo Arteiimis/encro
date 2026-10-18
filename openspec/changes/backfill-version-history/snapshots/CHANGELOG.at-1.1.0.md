@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Packing in compact progress mode reports its own progress and status instead of going silent until it finishes.
+
 ## [1.0.0] - 2026-04-26
 
 ### Added
@@ -22,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Video encoding runs faster on the same hardware.
 - Per-archive success lines were removed from compact mode, where the progress bars already say the same thing.
+
 ## [0.4.0] - 2026-04-19
 
 ### Added
@@ -39,6 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Name collisions across the video and pack paths resolve through one shared set of naming rules instead of two divergent ones.
+
 ## [0.3.0] - 2026-04-13
 
 ### Added
@@ -52,6 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Duplicate entry names inside a single archive are resolved instead of producing an unreadable zip.
+
 ## [0.2.0] - 2026-03-05
 
 ### Added
@@ -63,6 +67,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Process-type aliases (`vid` / `pic`) are accepted alongside the full names.
+
 ## [0.1.5] - 2026-03-02
 
 ### Added
@@ -74,6 +79,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Video files are processed in parallel.
 - The packing phase shows progress while it finalizes an archive.
 - Command-line mistakes are reported with enough detail to fix them.
+
 ## [0.1.0] - 2026-02-27
 
 ### Added
