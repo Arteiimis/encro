@@ -45,10 +45,16 @@ inline int canceledExitCodeForPromptAbort() {
 using ForceExitFn = void(__stdcall*)(unsigned int);
 
 // Test-only hooks: make the force-exit watchdog observable
-// without terminating the test process. Restore defaults with nullptr / 3s.
+// without terminating the test process. A test guard reads both back and
+// restores them on exit; setForceExitHandlerForTest(nullptr) means the real
+// ::ExitProcess action.
 void setForceExitGracePeriodForTest(std::chrono::milliseconds gracePeriod);
 
 void setForceExitHandlerForTest(ForceExitFn handler);
+
+auto forceExitGracePeriodForTest() -> std::chrono::milliseconds;
+
+auto forceExitHandlerForTest() -> ForceExitFn;
 #endif
 
 }  // namespace stopsignal

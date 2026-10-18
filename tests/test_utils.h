@@ -151,16 +151,26 @@ struct ScopedTerminalReset {
 // installed kills the test process. Declare this guard before
 // ScopedStopSignalReset so the deadline is cleared first (destruction runs in
 // reverse order).
+//
+// It restores what it found rather than a hard-coded 3 s: restoring a short
+// grace would make every later requestStop() in the process a live deadline,
+// and stop cases are not the only ones a shard runs after this guard.
 struct ScopedStopSignalWatchdog {
-  ScopedStopSignalWatchdog() = default;
+  ScopedStopSignalWatchdog()
+    : gracePeriod_(stopsignal::forceExitGracePeriodForTest()),
+      handler_(stopsignal::forceExitHandlerForTest()) { }
 
   ScopedStopSignalWatchdog(ScopedStopSignalWatchdog const&) = delete;
   auto operator=(ScopedStopSignalWatchdog const&) -> ScopedStopSignalWatchdog& = delete;
 
   ~ScopedStopSignalWatchdog() {
-    stopsignal::setForceExitGracePeriodForTest(std::chrono::seconds{3});
-    stopsignal::setForceExitHandlerForTest(nullptr);
+    stopsignal::setForceExitGracePeriodForTest(gracePeriod_);
+    stopsignal::setForceExitHandlerForTest(handler_);
   }
+
+private:
+  std::chrono::milliseconds gracePeriod_;
+  stopsignal::ForceExitFn handler_;
 };
 #endif
 

@@ -130,3 +130,25 @@ TEST_CASE(
   SKIP("force-exit watchdog is Windows-only");
 #endif
 }
+
+TEST_CASE(
+  "stop-signal watchdog guard restores the grace period it found",
+  "[stop-signal]"
+) {
+#if defined(_WIN32)
+  // Regression: the guard used to write a hard-coded 3 s grace back, so every
+  // later requestStop() in the process armed a live 3 s deadline and a stop
+  // case whose tail outlived it was killed mid-case (exit 130, no report).
+  auto const original = stopsignal::forceExitGracePeriodForTest();
+  stopsignal::setForceExitGracePeriodForTest(std::chrono::seconds{7});
+  {
+    auto const watchdogGuard = testutils::ScopedStopSignalWatchdog{};
+    stopsignal::setForceExitGracePeriodForTest(std::chrono::milliseconds{50});
+    CHECK(stopsignal::forceExitGracePeriodForTest() == std::chrono::milliseconds{50});
+  }
+  CHECK(stopsignal::forceExitGracePeriodForTest() == std::chrono::seconds{7});
+  stopsignal::setForceExitGracePeriodForTest(original);
+#else
+  SKIP("force-exit watchdog is Windows-only");
+#endif
+}

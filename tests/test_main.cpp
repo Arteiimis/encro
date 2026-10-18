@@ -2,10 +2,12 @@
 
 #include "infra/crash_runtime.h"
 #include "infra/env.h"
+#include "infra/stop_signal.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -118,6 +120,14 @@ int main(int argc, char* argv[]) {
   // throws; the crash path swallows provider failures by design.
   testutils::restoreRunCrashContextProvider();
   isolateConfigEnv();
+  // Hang-guard grace: the force-exit watchdog must only fire when a stop has
+  // genuinely hung, never because a shard's stop case was scheduled late. The
+  // product's 3 s is right for a CLI; a shard running under full machine load
+  // can stretch a case's tail past it and lose the whole shard (exit 130, no
+  // report). A case that wants a short grace sets one explicitly.
+#if defined(_WIN32)
+  stopsignal::setForceExitGracePeriodForTest(std::chrono::seconds{60});
+#endif
   // Sink-less default logger: the LOG_* fallback must not reach the stdout the
   // narration tests capture. The crash-on-demand child keeps stdout logging —
   // its crash report is what the parent test reads (see docs/backlog.md).

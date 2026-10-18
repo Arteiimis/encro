@@ -284,6 +284,14 @@ void setForceExitHandlerForTest(stopsignal::ForceExitFn handler) {
     ? reinterpret_cast<stopsignal::ForceExitFn>(::ExitProcess)
     : handler;
 }
+
+auto forceExitGracePeriodForTest() -> std::chrono::milliseconds {
+  return gForceExitGracePeriod;
+}
+
+auto forceExitHandlerForTest() -> stopsignal::ForceExitFn {
+  return gForceExitFn;
+}
 #endif
 
 }  // namespace stopsignal
