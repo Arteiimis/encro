@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/app_context.h"
 #include "pack/pack_types.h"
 #include "test_utils.h"
@@ -33,8 +34,10 @@ TEST_CASE("a scan that filters already-HEVC files says so once", "[video-info]")
       hevcJson,
       R"({"streams":[{"codec_type":"video","codec_name":"hevc"}]})"
     );
-    auto const jsonEnv =
-      testutils::ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", hevcJson.string()};
+    auto const jsonEnv = testutils::ScopedEnvVar{
+      "ENCRO_FAKE_FFPROBE_JSON_FILE",
+      pathutf8::fromPath(hevcJson)
+    };
 
     auto const stderrPath = temp.path / "stderr.txt";
     auto vids = eh::Result<std::vector<fs::path>>{};
@@ -60,8 +63,10 @@ TEST_CASE("a scan that filters already-HEVC files says so once", "[video-info]")
       hevcJson,
       R"({"streams":[{"codec_type":"video","codec_name":"hevc"}]})"
     );
-    auto const jsonEnv =
-      testutils::ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", hevcJson.string()};
+    auto const jsonEnv = testutils::ScopedEnvVar{
+      "ENCRO_FAKE_FFPROBE_JSON_FILE",
+      pathutf8::fromPath(hevcJson)
+    };
 
     auto const stderrPath = temp.path / "stderr-named.txt";
     auto vids = eh::Result<std::vector<fs::path>>{};
@@ -262,10 +267,10 @@ TEST_CASE(
     R"({"streams":[{"codec_type":"video","codec_name":"hevc"}]})"
   );
   auto const probeEnv =
-    testutils::ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", hevcJson.string()};
+    testutils::ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath(hevcJson)};
   auto const toolLogPath = temp.path / "probe-invocations.log";
   auto const toolLogEnv =
-    testutils::ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", toolLogPath.string()};
+    testutils::ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(toolLogPath)};
 
   auto const flat = videoinfo::scanVideosForConversion(root, false);
   REQUIRE(flat);

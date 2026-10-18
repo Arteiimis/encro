@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/collision_naming.h"
 #include "core/encoding_state.h"
 #include "core/media_item.h"
@@ -30,7 +31,7 @@ struct FakeItem {
   mediaitem::ItemOutcome result;
 
   auto id() const -> std::string { return taskId; }
-  auto label() const -> std::string { return sourcePath.filename().string(); }
+  auto label() const -> std::string { return pathutf8::fromPath(sourcePath.filename()); }
   auto source() const -> fs::path const& { return sourcePath; }
   auto target() const -> fs::path const& { return targetPath; }
   auto outcome() -> mediaitem::ItemOutcome& { return result; }

@@ -1,5 +1,6 @@
 // organize subcommand surface: parse defaults, help privacy line, and the
 // model-dir config key (task 5.1).
+#include "core/path_utf8.h"
 #include "cmd/cmd.h"
 #include "cmd/config_command.h"
 
@@ -19,7 +20,7 @@ struct ScopedConfigFile {
   testutils::ScopedEnvVar guard;
 
   explicit ScopedConfigFile(std::string_view content)
-    : temp(), guard("ENCRO_CONFIG", write(content).string()) { }
+    : temp(), guard("ENCRO_CONFIG", pathutf8::fromPath(write(content))) { }
 
   auto path() const -> fs::path { return temp.path / "config.json"; }
   auto write(std::string_view content) const -> fs::path {
@@ -211,13 +212,13 @@ TEST_CASE("organize help shows the directory as optional", "[cmd][organize]") {
 TEST_CASE("ingest and ignore-folder flags parse repeatable", "[cmd][organize]") {
   auto temp = TempDir{};
   fs::create_directories(temp.path / "mix");
-  fs::create_directories(temp.path / "角色A");
+  fs::create_directories(temp.path / testutils::u8Path("角色A"));
   fs::create_directories(temp.path / ".stash");
 
   auto const result = testutils::parseArgs({
     "encro",
     "organize",
-    temp.path.string(),
+    pathutf8::fromPath(temp.path),
     "--ingest",
     "mix",
     "--ingest",
@@ -241,7 +242,7 @@ TEST_CASE(
   fs::create_directories(temp.path / "organized" / "miku");
 
   auto const unknown = testutils::parseArgs(
-    {"encro", "organize", temp.path.string(), "--ingest", "nonexistent"}
+    {"encro", "organize", pathutf8::fromPath(temp.path), "--ingest", "nonexistent"}
   );
   REQUIRE(unknown.error.has_value());
   CHECK(unknown.error->find("--ingest") != std::string::npos);
@@ -249,7 +250,7 @@ TEST_CASE(
 
   // The output tree is not an ingestable folder either.
   auto const output = testutils::parseArgs(
-    {"encro", "organize", temp.path.string(), "--ingest", "organized"}
+    {"encro", "organize", pathutf8::fromPath(temp.path), "--ingest", "organized"}
   );
   CHECK(output.error.has_value());
 }
@@ -261,7 +262,7 @@ TEST_CASE("the same folder in both flags is an argument error", "[cmd][organize]
   auto const result = testutils::parseArgs({
     "encro",
     "organize",
-    temp.path.string(),
+    pathutf8::fromPath(temp.path),
     "--ingest",
     "mix",
     "--ignore-folder",
@@ -275,11 +276,12 @@ TEST_CASE("ingest parses with the directory before the flag", "[cmd][organize]")
   auto temp = TempDir{};
   fs::create_directories(temp.path / "mix");
 
-  auto const result =
-    testutils::parseArgs({"encro", "organize", temp.path.string(), "--ingest", "mix"});
+  auto const result = testutils::parseArgs(
+    {"encro", "organize", pathutf8::fromPath(temp.path), "--ingest", "mix"}
+  );
   REQUIRE_FALSE(result.error.has_value());
   REQUIRE(result.organizeDir.has_value());
-  CHECK(*result.organizeDir == temp.path.string());
+  CHECK(*result.organizeDir == pathutf8::fromPath(temp.path));
   REQUIRE(result.organizeIngest.has_value());
   CHECK(*result.organizeIngest == std::vector<std::string>{"mix"});
 }

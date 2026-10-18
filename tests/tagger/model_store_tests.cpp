@@ -1,5 +1,6 @@
 // Downloader paths against a loopback fake server (task 2.4): primary ->
 // mirror fallback, checksum rejection, presence checks, cuDNN driver gate.
+#include "core/path_utf8.h"
 #include "core/sha256.h"
 #include "tagger/model_store.h"
 
@@ -51,7 +52,7 @@ private:
 // a sibling DLL second, so an ordering regression is observable.
 auto makeCudnnArchive(fs::path const& dir) -> fs::path {
   auto const zipPath = dir / "cudnn.zip";
-  auto zip = libzippp::ZipArchive{zipPath.string()};
+  auto zip = libzippp::ZipArchive{pathutf8::fromPath(zipPath)};
   zip.open(libzippp::ZipArchive::New);
   auto const markerBytes = std::string{"marker-bytes"};
   auto const otherBytes = std::string{"other-bytes"};
@@ -212,7 +213,7 @@ TEST_CASE("a complete cuDNN extraction is installed and then skipped", "[tagger]
   // No staging leftovers.
   auto names = std::vector<std::string>{};
   for (auto const& entry: fs::directory_iterator{libDir}) {
-    names.push_back(entry.path().filename().string());
+    names.push_back(pathutf8::fromPath(entry.path().filename()));
   }
   CHECK(names.size() == 2);
 

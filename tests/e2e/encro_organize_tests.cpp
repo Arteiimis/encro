@@ -1,6 +1,7 @@
 // organize e2e (task 5.2): full CLI runs against the in-process fake tagger
 // seam (ENCRO_FAKE_TAGGER), the fake_media_tool pattern applied to model
 // inference. No network, no model files.
+#include "core/path_utf8.h"
 #include "e2e_test_utils.h"
 
 #include "core/sha256.h"
@@ -92,9 +93,9 @@ TEST_CASE("organize groups images by character via the CLI", "[e2e][organize]") 
   );
 
   auto const run = e2e::runEncro(
-    {"organize", pics.string()},
+    {"organize", pathutf8::fromPath(pics)},
     std::nullopt,
-    {{"ENCRO_FAKE_TAGGER", fixture.string()}}
+    {{"ENCRO_FAKE_TAGGER", pathutf8::fromPath(fixture)}}
   );
   REQUIRE_SUCCESS(run);
   CHECK(fs::exists(pics / "organized" / "hatsune_miku" / "miku1.png"));
@@ -102,7 +103,7 @@ TEST_CASE("organize groups images by character via the CLI", "[e2e][organize]") 
   // Single-subject remainder clustered into an unknown_ folder.
   auto foundCluster = false;
   for (auto const& entry: fs::directory_iterator{pics / "organized"}) {
-    if (entry.path().filename().string().starts_with("unknown_")) {
+    if (pathutf8::fromPath(entry.path().filename()).starts_with("unknown_")) {
       foundCluster = fs::exists(entry.path() / "oc1.png");
     }
   }
@@ -123,9 +124,9 @@ TEST_CASE("organize dry run prints the plan without copying", "[e2e][organize]")
   writeFixture(fixture, {{"miku1", {"hatsune_miku", 0.9}}}, {});
 
   auto const run = e2e::runEncro(
-    {"organize", pics.string(), "--dry-run"},
+    {"organize", pathutf8::fromPath(pics), "--dry-run"},
     std::nullopt,
-    {{"ENCRO_FAKE_TAGGER", fixture.string()}}
+    {{"ENCRO_FAKE_TAGGER", pathutf8::fromPath(fixture)}}
   );
   REQUIRE_SUCCESS(run);
   CHECK(run.stdoutText.find("hatsune_miku") != std::string::npos);
@@ -146,11 +147,13 @@ TEST_CASE("organize re-run resumes from the cache", "[e2e][organize]") {
     {}
   );
 
-  auto const env =
-    std::map<std::string, std::string>{{{"ENCRO_FAKE_TAGGER", fixture.string()}}};
-  (void)e2e::runEncro({"organize", pics.string()}, std::nullopt, env);
+  auto const env = std::map<std::string, std::string>{
+    {{"ENCRO_FAKE_TAGGER", pathutf8::fromPath(fixture)}}
+  };
+  (void)e2e::runEncro({"organize", pathutf8::fromPath(pics)}, std::nullopt, env);
 
-  auto const second = e2e::runEncro({"organize", pics.string()}, std::nullopt, env);
+  auto const second =
+    e2e::runEncro({"organize", pathutf8::fromPath(pics)}, std::nullopt, env);
   REQUIRE_SUCCESS(second);
   CHECK(second.stdoutText.find("(2 cache hits)") != std::string::npos);
   CHECK(second.stdoutText.find("skipped existing 2") != std::string::npos);
@@ -164,11 +167,11 @@ TEST_CASE("organize re-run resumes from the cache", "[e2e][organize]") {
 TEST_CASE("organize files into an existing structure incrementally", "[e2e][organize]") {
   auto temp = TempDir{};
   auto const pics = temp.path / "pics";
-  fs::create_directories(pics / "角色A");
-  fs::create_directories(pics / "角色B");
+  fs::create_directories(pics / testutils::u8Path("角色A"));
+  fs::create_directories(pics / testutils::u8Path("角色B"));
   fs::create_directories(pics / "mix" / "sub");
-  writeImage(pics / "角色A" / "ref.png", "ref-a");
-  writeImage(pics / "角色B" / "ref.png", "ref-b");
+  writeImage(pics / testutils::u8Path("角色A") / "ref.png", "ref-a");
+  writeImage(pics / testutils::u8Path("角色B") / "ref.png", "ref-b");
   writeImage(pics / "mix" / "x.png", "mix-x");
   writeImage(pics / "mix" / "sub" / "y.png", "mix-y");
   writeImage(pics / "new.png", "new");
@@ -189,23 +192,25 @@ TEST_CASE("organize files into an existing structure incrementally", "[e2e][orga
      {"mix-y", {0.98F, 0.15F}}}
   );
 
-  auto const env =
-    std::map<std::string, std::string>{{"ENCRO_FAKE_TAGGER", fixture.string()}};
-  auto const run = e2e::runEncro({"organize", pics.string()}, std::nullopt, env);
+  auto const env = std::map<std::string, std::string>{
+    {"ENCRO_FAKE_TAGGER", pathutf8::fromPath(fixture)}
+  };
+  auto const run =
+    e2e::runEncro({"organize", pathutf8::fromPath(pics)}, std::nullopt, env);
   REQUIRE_SUCCESS(run);
 
   // The loose image and the misc folder's images (nested included) file
   // into the mirrored skeleton of the matching reference.
-  CHECK(fs::exists(pics / "organized" / "角色A" / "new.png"));
-  CHECK(fs::exists(pics / "organized" / "角色A" / "x.png"));
-  CHECK(fs::exists(pics / "organized" / "角色A" / "y.png"));
+  CHECK(fs::exists(pics / "organized" / testutils::u8Path("角色A") / "new.png"));
+  CHECK(fs::exists(pics / "organized" / testutils::u8Path("角色A") / "x.png"));
+  CHECK(fs::exists(pics / "organized" / testutils::u8Path("角色A") / "y.png"));
   // Zero-match reference: listed, no folder created.
-  CHECK(!fs::exists(pics / "organized" / "角色B"));
+  CHECK(!fs::exists(pics / "organized" / testutils::u8Path("角色B")));
   CHECK(run.stdoutText.find("角色B") != std::string::npos);
   // Nothing pre-existing changed: the hand-made folders and their members
   // are untouched, the loose originals stay in place.
-  CHECK(fs::exists(pics / "角色A" / "ref.png"));
-  CHECK(fs::exists(pics / "角色B" / "ref.png"));
+  CHECK(fs::exists(pics / testutils::u8Path("角色A") / "ref.png"));
+  CHECK(fs::exists(pics / testutils::u8Path("角色B") / "ref.png"));
   CHECK(fs::exists(pics / "mix" / "x.png"));
   CHECK(fs::exists(pics / "new.png"));
   // The mode notice and the disposition summary are part of the contract.
@@ -216,7 +221,8 @@ TEST_CASE("organize files into an existing structure incrementally", "[e2e][orga
 
   // Second run over the unchanged directory: every image is a cache hit, so
   // no inference runs and nothing is copied again.
-  auto const second = e2e::runEncro({"organize", pics.string()}, std::nullopt, env);
+  auto const second =
+    e2e::runEncro({"organize", pathutf8::fromPath(pics)}, std::nullopt, env);
   REQUIRE_SUCCESS(second);
   CHECK(second.stdoutText.find("(3 cache hits)") != std::string::npos);
   CHECK(second.stdoutText.find("copied 0") != std::string::npos);
@@ -235,16 +241,21 @@ TEST_CASE("renamed character folder teaches a later e2e run", "[e2e][organize]")
     {}
   );
 
-  auto const env =
-    std::map<std::string, std::string>{{{"ENCRO_FAKE_TAGGER", fixture.string()}}};
-  (void)e2e::runEncro({"organize", pics.string()}, std::nullopt, env);
+  auto const env = std::map<std::string, std::string>{
+    {{"ENCRO_FAKE_TAGGER", pathutf8::fromPath(fixture)}}
+  };
+  (void)e2e::runEncro({"organize", pathutf8::fromPath(pics)}, std::nullopt, env);
 
-  fs::rename(pics / "organized" / "hatsune_miku", pics / "organized" / "初音ミク");
+  fs::rename(
+    pics / "organized" / "hatsune_miku",
+    pics / "organized" / testutils::u8Path("初音ミク")
+  );
   writeImage(pics / "miku2.png", "miku2");
 
-  auto const second = e2e::runEncro({"organize", pics.string()}, std::nullopt, env);
+  auto const second =
+    e2e::runEncro({"organize", pathutf8::fromPath(pics)}, std::nullopt, env);
   REQUIRE_SUCCESS(second);
-  CHECK(fs::exists(pics / "organized" / "初音ミク" / "miku2.png"));
+  CHECK(fs::exists(pics / "organized" / testutils::u8Path("初音ミク") / "miku2.png"));
   CHECK(!fs::exists(pics / "organized" / "hatsune_miku"));
 }
 
@@ -256,8 +267,9 @@ TEST_CASE("missing models fail fast with guidance", "[e2e][organize]") {
   auto const emptyModels = temp.path / "models";
   fs::create_directories(emptyModels);
 
-  auto const run =
-    e2e::runEncro({"organize", pics.string(), "--model-dir", emptyModels.string()});
+  auto const run = e2e::runEncro(
+    {"organize", pathutf8::fromPath(pics), "--model-dir", pathutf8::fromPath(emptyModels)}
+  );
   CHECK(run.exitCode != 0);
   CHECK(
     (run.stdoutText.find("models not found") != std::string::npos
@@ -279,7 +291,7 @@ TEST_CASE("organize fetches models without a directory", "[e2e][organize]") {
   auto const run = e2e::runEncro(
     {"organize", "--download-models"},
     temp.path,
-    {{"ENCRO_FAKE_TAGGER", fixture.string()}}
+    {{"ENCRO_FAKE_TAGGER", pathutf8::fromPath(fixture)}}
   );
   REQUIRE_SUCCESS(run);
   CHECK(!fs::exists(temp.path / "organized"));

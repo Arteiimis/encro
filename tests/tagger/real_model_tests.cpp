@@ -1,5 +1,6 @@
 // Real-model smoke (design D9 acceptance): runs the actual ONNX tagger when
 // model files are present; SKIPs otherwise so offline suites stay green.
+#include "core/path_utf8.h"
 #include "infra/env.h"
 #include "tagger/onnx_features.h"
 #include "tagger/onnx_tagger.h"
@@ -39,7 +40,7 @@ TEST_CASE(
     std::format(
       R"("{}" -hide_banner -loglevel error -y -f lavfi -i color=c=red:s=448x448 -frames:v 1 "{}")",
       quoteToolPath(*ffmpeg),
-      input.string()
+      pathutf8::fromPath(input)
     )
   );
   REQUIRE(exitCode == 0);
@@ -90,7 +91,7 @@ TEST_CASE(
         R"("{}" -hide_banner -loglevel error -y -f lavfi -i color=c={}:s=384x384 -frames:v 1 "{}")",
         quoteToolPath(*ffmpeg),
         colour,
-        path.string()
+        pathutf8::fromPath(path)
       )
     );
     REQUIRE(exitCode == 0);

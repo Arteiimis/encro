@@ -1,7 +1,9 @@
 #pragma once
 
+#include "test_utils.h"
 #include "cmd/cmd.h"
 #include "core/job_state.h"
+#include "core/path_utf8.h"
 #include "infra/crash_runtime.h"
 #include "infra/env.h"
 #include "infra/stop_signal.h"
@@ -82,7 +84,11 @@ struct TempDir {
     // fprintf/fflush (not std::cerr): the C++ stream state is process-global
     // and other tests may leave it redirected/buffered, losing the hint.
     if (std::uncaught_exceptions() > 0) {
-      std::fprintf(stderr, "kept temp dir on failure: %s\n", path.string().c_str());
+      std::fprintf(
+        stderr,
+        "kept temp dir on failure: %s\n",
+        pathutf8::fromPath(path).c_str()
+      );
       std::fflush(stderr);
       return;
     }
@@ -92,6 +98,13 @@ struct TempDir {
 };
 
 namespace testutils {
+
+// A folder name taken from a UTF-8 literal. `path / testutils::u8Path("角色A")` converts the bytes
+// with the process code page, so the name only survives on a machine whose code
+// page is UTF-8 — the Windows CI runner's is not.
+inline auto u8Path(std::string_view utf8) -> fs::path {
+  return pathutf8::toPath(utf8);
+}
 
 struct ScopedStopSignalReset {
   ScopedStopSignalReset() { stopsignal::reset(); }
@@ -366,7 +379,7 @@ inline constexpr auto kFakeProbeJson =
 inline auto copyFakeProbe(fs::path const& dir) -> ScopedEnvVar {
   auto const probeJsonPath = dir / "fake-ffprobe.json";
   writeTextFile(probeJsonPath, kFakeProbeJson);
-  return ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string()};
+  return ScopedEnvVar{"ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath(probeJsonPath)};
 }
 
 inline auto stripCollisionSafePrefix(std::string_view entryName) -> std::string_view {
@@ -416,7 +429,7 @@ inline auto listRegularFiles(fs::path const& dirPath) -> std::vector<fs::path> {
 // view.
 inline auto listZipRegularEntryNamesInOrder(fs::path const& zipPath)
   -> std::vector<std::string> {
-  auto zip = libzippp::ZipArchive{zipPath.string()};
+  auto zip = libzippp::ZipArchive{pathutf8::fromPath(zipPath)};
   zip.open(libzippp::ZipArchive::ReadOnly);
 
   auto entryNames = std::vector<std::string>{};
@@ -459,10 +472,10 @@ struct FileCapture {
 #if defined(_WIN32)
     oldFd_ = _dup(_fileno(stream_));
     auto* cap = static_cast<std::FILE*>(nullptr);
-    fopen_s(&cap, file_.string().c_str(), "w");
+    fopen_s(&cap, pathutf8::fromPath(file_).c_str(), "w");
 #else
     oldFd_ = dup(fileno(stream_));
-    auto* cap = std::fopen(file_.string().c_str(), "w");
+    auto* cap = std::fopen(pathutf8::fromPath(file_).c_str(), "w");
 #endif
     if (oldFd_ < 0 || cap == nullptr) {
       if (cap != nullptr) { std::fclose(cap); }
@@ -474,7 +487,7 @@ struct FileCapture {
 #endif
         oldFd_ = -1;
       }
-      std::fprintf(stderr, "capture failed for %s\n", file_.string().c_str());
+      std::fprintf(stderr, "capture failed for %s\n", pathutf8::fromPath(file_).c_str());
       std::fflush(stderr);
       return;
     }
@@ -494,7 +507,11 @@ struct FileCapture {
       close(oldFd_);
 #endif
       oldFd_ = -1;
-      std::fprintf(stderr, "capture redirect failed for %s\n", file_.string().c_str());
+      std::fprintf(
+        stderr,
+        "capture redirect failed for %s\n",
+        pathutf8::fromPath(file_).c_str()
+      );
       std::fflush(stderr);
       return;
     }
@@ -564,7 +581,7 @@ inline auto readTextFile(
 
   // One short line per fact: Catch2 wraps failure text at 79 columns, and a
   // wrap inside a line would break a field apart mid-token.
-  INFO("readTextFile: " << filePath.string());
+  INFO("readTextFile: " << pathutf8::fromPath(filePath));
   INFO(
     "  waited " << waited.count() << " ms of the " << timeout.count() << " ms deadline"
   );

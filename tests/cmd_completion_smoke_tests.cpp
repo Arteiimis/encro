@@ -2,6 +2,7 @@
 // bash/powershell and drive candidate output end to end. Opt-in via
 // ENCRO_TEST_COMPLETION (see requireCompletionSmokeOrSkip); also skipped when
 // the shell is not on PATH.
+#include "core/path_utf8.h"
 #include "infra/env.h"
 #include "test_utils.h"
 
@@ -88,7 +89,7 @@ bool shellAvailable(std::string const& probeCommandLine) {
 auto emitScriptTo(TempDir const& temp, std::string const& shell, std::string const& name)
   -> fs::path {
   auto const command =
-    "\"" + forwardSlashes(encroBinary().string()) + "\" completion " + shell;
+    "\"" + forwardSlashes(pathutf8::fromPath(encroBinary())) + "\" completion " + shell;
   auto const [exitCode, output] = runCapture(command);
   REQUIRE(exitCode == 0);
   auto const path = temp.path / name;
@@ -123,7 +124,7 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
     stream
       << "set -e\n"
       << "source \""
-      << forwardSlashes(scriptPath.string())
+      << forwardSlashes(pathutf8::fromPath(scriptPath))
       << "\"\n"
       // Shadow the compopt builtin: _encro_no_candidates becomes observable
       // as a SUPPRESSED marker in the probe output (fall-through prints none).
@@ -151,7 +152,7 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
   }
 
   auto const [exitCode, output] =
-    runCapture("bash \"" + forwardSlashes(driver.string()) + "\"");
+    runCapture("bash \"" + forwardSlashes(pathutf8::fromPath(driver)) + "\"");
   REQUIRE(exitCode == 0);
   CHECK(output.find("ENUM: mp4 webp") != std::string::npos);
   // --restart is excluded by the typed --resume; --recursive still offered.
@@ -192,7 +193,7 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
 
   TempDir temp;
   auto const scriptPath = emitScriptTo(temp, "powershell", "encro-pwsh.ps1");
-  auto const scriptRef = "\"" + forwardSlashes(scriptPath.string()) + "\"";
+  auto const scriptRef = "\"" + forwardSlashes(pathutf8::fromPath(scriptPath)) + "\"";
 
   // Known file so the empty-return file fallback lists something assertable.
   { auto stream = std::ofstream{temp.path / "zzz.txt", std::ios::binary}; }
@@ -203,7 +204,7 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
     REQUIRE(stream.is_open());
     stream
       << "Set-Location -LiteralPath '"
-      << forwardSlashes(temp.path.string())
+      << forwardSlashes(pathutf8::fromPath(temp.path))
       << "'\n"
       << ". "
       << scriptRef
@@ -230,7 +231,7 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
   auto const [exitCode, output] = runCapture(
     *shell
     + " -NoProfile -ExecutionPolicy Bypass -File \""
-    + forwardSlashes(driver.string())
+    + forwardSlashes(pathutf8::fromPath(driver))
     + "\""
   );
   REQUIRE(exitCode == 0);

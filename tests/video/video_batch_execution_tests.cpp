@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/video_batch_execution.h"
 
 #include "core/encoding_state.h"
@@ -304,7 +305,9 @@ struct BatchScaffold {
       .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_VMAF_SCORES", "96.0"));
     logPath = temp.path / "invocations.log";
     envs.push_back(
-      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+      std::make_unique<
+        ScopedEnvVar
+      >("ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath))
     );
     testutils::writeSizedFile(inputPath, 1'048'576);
   }
@@ -441,8 +444,9 @@ TEST_CASE(
   // The verbose path encodes per-file in order: file a's encode precedes
   // file b's.
   auto const log = testutils::readTextFile(s.logPath);
-  auto const aEncode = log.find((s.temp.path / "encoded" / "sample.mp4").string());
-  auto const bEncode = log.find((s.temp.path / "encoded" / "b.mp4").string());
+  auto const aEncode =
+    log.find(pathutf8::fromPath((s.temp.path / "encoded" / "sample.mp4")));
+  auto const bEncode = log.find(pathutf8::fromPath((s.temp.path / "encoded" / "b.mp4")));
   CHECK(aEncode != std::string::npos);
   CHECK(bEncode != std::string::npos);
   CHECK(aEncode < bEncode);
@@ -531,9 +535,10 @@ TEST_CASE(
   // The first file's production encode fails (its output path matches); the
   // second must still run.
   s.envs.push_back(
-    std::make_unique<
-      ScopedEnvVar
-    >("ENCRO_FAKE_FFMPEG_FAIL_MATCH", (s.temp.path / "encoded" / "sample.mp4").string())
+    std::make_unique<ScopedEnvVar>(
+      "ENCRO_FAKE_FFMPEG_FAIL_MATCH",
+      pathutf8::fromPath((s.temp.path / "encoded" / "sample.mp4"))
+    )
   );
 
   auto items = appctx::EncodingStateList{
@@ -620,7 +625,9 @@ TEST_CASE(
     // the encode is in flight and the stop request cannot race ahead of it.
     auto const gateFile = s.temp.path / "encode-gate";
     s.envs.push_back(
-      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+      std::make_unique<
+        ScopedEnvVar
+      >("ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile))
     );
 
     auto stopGuard = testutils::ScopedStopSignalReset{};
@@ -648,7 +655,10 @@ TEST_CASE(
     // neither a success nor a failure.
     CHECK(items[1]->outcome().state == mediaitem::ItemState::Pending);
     auto const log = testutils::readTextFile(s.logPath);
-    CHECK(log.find((s.temp.path / "encoded" / "b.mp4").string()) == std::string::npos);
+    CHECK(
+      log.find(pathutf8::fromPath((s.temp.path / "encoded" / "b.mp4")))
+      == std::string::npos
+    );
   }
 }
 
@@ -663,7 +673,9 @@ TEST_CASE(
   s.ctx.config.crf = 28;
   auto const gateFile = s.temp.path / "encode-gate";
   s.envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile))
   );
 
   auto const stopGuard = testutils::ScopedStopSignalReset{};
@@ -718,5 +730,8 @@ TEST_CASE(
   CHECK(items[0]->outcome().state == mediaitem::ItemState::Pending);
   CHECK(items[1]->outcome().state == mediaitem::ItemState::Succeeded);
   auto const log = testutils::readTextFile(s.logPath);
-  CHECK(log.find((s.temp.path / "encoded" / "small.mp4").string()) == std::string::npos);
+  CHECK(
+    log.find(pathutf8::fromPath((s.temp.path / "encoded" / "small.mp4")))
+    == std::string::npos
+  );
 }

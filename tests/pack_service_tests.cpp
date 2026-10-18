@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "pack/pack_service.h"
 #include "pack/pack_internal.h"
 #include "pack/pack_plan_internal.h"
@@ -237,7 +238,7 @@ TEST_CASE("packGroups packs grouped files", "[pack-service]") {
   CHECK(fs::exists(outDir / "group1.zip"));
   CHECK(fs::exists(outDir / "group2.zip"));
 
-  libzippp::ZipArchive zip{(outDir / "group1.zip").string()};
+  libzippp::ZipArchive zip{pathutf8::fromPath((outDir / "group1.zip"))};
   zip.open(libzippp::ZipArchive::ReadOnly);
   CHECK(zip.getEntries().size() == 2);
   zip.close();

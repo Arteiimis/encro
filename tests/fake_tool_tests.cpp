@@ -3,6 +3,7 @@
 // fake media tool binary itself, spawned the way the orchestrations do.
 // ============================================================================
 
+#include "core/path_utf8.h"
 #include "test_utils.h"
 #include "utils/utils.h"
 
@@ -36,7 +37,7 @@ auto runFakeToolWithStderr(std::string const& args) -> ExecResult {
 }
 
 auto encodeArg(fs::path const& filePath) -> std::string {
-  return std::format("\"{}\"", filePath.string());
+  return std::format("\"{}\"", pathutf8::fromPath(filePath));
 }
 
 }  // namespace
@@ -83,8 +84,10 @@ TEST_CASE("fake tool applies per-call schedules", "[fake-tool]") {
   auto const outPath = temp.path / "seg.ts";
   auto const args = "-y " + encodeArg(outPath);
 
-  auto const cntEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", (temp.path / "calls").string()};
+  auto const cntEnv = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    pathutf8::fromPath((temp.path / "calls"))
+  };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2:80:3"};
 
   // Calls outside the schedule keep the ambient static behavior.
@@ -116,8 +119,10 @@ TEST_CASE("fake tool tail schedules persist across later calls", "[fake-tool]") 
   auto const outPath = temp.path / "out.mp4";
   auto const args = "-y " + encodeArg(outPath);
 
-  auto const cntEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", (temp.path / "calls").string()};
+  auto const cntEnv = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    pathutf8::fromPath((temp.path / "calls"))
+  };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:0:3"};
 
   CHECK(runFakeTool(args).exitCode == 0);
@@ -135,8 +140,8 @@ TEST_CASE("fake ffprobe check-input opt-in fails on missing input", "[fake-tool]
   auto const checkEnv = ScopedEnvVar{"ENCRO_FAKE_FFPROBE_CHECK_INPUT", "1"};
   auto const probeArgs = std::format(
     "\"{}\" -v quiet -print_format json \"{}\"",
-    ffprobePath.string(),
-    existing.string()
+    pathutf8::fromPath(ffprobePath),
+    pathutf8::fromPath(existing)
   );
 
   auto const okProbe = exec2(probeArgs, true);
@@ -144,8 +149,8 @@ TEST_CASE("fake ffprobe check-input opt-in fails on missing input", "[fake-tool]
 
   auto const badArgs = std::format(
     "\"{}\" -v quiet -print_format json \"{}\"",
-    ffprobePath.string(),
-    missing.string()
+    pathutf8::fromPath(ffprobePath),
+    pathutf8::fromPath(missing)
   );
   auto const badProbe = exec2(badArgs, true);
   CHECK(badProbe.exitCode == 2);
@@ -156,7 +161,8 @@ TEST_CASE("fake tool records completed inputs", "[fake-tool]") {
   TempDir temp;
   auto const logPath = temp.path / "inputs.log";
 
-  auto const inputLogEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_INPUT_LOG", logPath.string()};
+  auto const inputLogEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_INPUT_LOG", pathutf8::fromPath(logPath)};
   CHECK(
     runFakeTool(
       std::format(
@@ -170,7 +176,7 @@ TEST_CASE("fake tool records completed inputs", "[fake-tool]") {
   );
 
   auto const text = testutils::readTextFile(logPath);
-  CHECK(text == std::format("{}\n", (temp.path / "a.png").string()));
+  CHECK(text == std::format("{}\n", pathutf8::fromPath((temp.path / "a.png"))));
 }
 
 TEST_CASE("fake tool writes progress frames", "[fake-tool]") {
@@ -213,10 +219,14 @@ TEST_CASE("fake tool gates from a configured call index onwards", "[fake-tool]")
   auto const logPath = temp.path / "tool.log";
   auto const gateFile = temp.path / "gate";
 
-  auto const logEnv = ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
-  auto const countEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", (temp.path / "calls").string()};
-  auto const gateEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string()};
+  auto const logEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)};
+  auto const countEnv = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    pathutf8::fromPath((temp.path / "calls"))
+  };
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile)};
   auto const fromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
 
   // Call 1 runs to completion despite the configured gate: bounded proof,
@@ -258,8 +268,10 @@ TEST_CASE("fake tool gates every invocation without a from-call index", "[fake-t
   auto const logPath = temp.path / "tool.log";
   auto const gateFile = temp.path / "gate";
 
-  auto const logEnv = ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
-  auto const gateEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string()};
+  auto const logEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)};
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile)};
 
   auto holder = std::jthread{[&] {
     (void)runFakeTool("-hide_banner -nostats -y " + encodeArg(outPath));
@@ -286,9 +298,12 @@ TEST_CASE("fake tool names the gate file it never saw released", "[fake-tool]") 
   auto const outPath = temp.path / "out.mp4";
   auto const gateFile = temp.path / "gate";
 
-  auto const logEnv =
-    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
-  auto const gateEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string()};
+  auto const logEnv = ScopedEnvVar{
+    "ENCRO_FAKE_TOOL_LOG_FILE",
+    pathutf8::fromPath((temp.path / "tool.log"))
+  };
+  auto const gateEnv =
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile)};
   // Short fail-safe: the production deadline is 30 s.
   auto const timeoutEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_TIMEOUT_MS", "250"};
 
@@ -299,7 +314,7 @@ TEST_CASE("fake tool names the gate file it never saw released", "[fake-tool]") 
   // released cannot pass silently (portable-fake-tool).
   CHECK(res.exitCode == 0);
   CHECK(res.stderrText.find("was not released within") != std::string::npos);
-  CHECK(res.stderrText.find(gateFile.string()) != std::string::npos);
+  CHECK(res.stderrText.find(pathutf8::fromPath(gateFile)) != std::string::npos);
   CHECK(fs::exists(outPath));
 }
 
@@ -308,12 +323,14 @@ TEST_CASE("fake tool version probes neither gate nor consume an index", "[fake-t
   auto const outPath = temp.path / "out.mp4";
   auto const countPath = temp.path / "calls";
 
-  auto const logEnv =
-    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const logEnv = ScopedEnvVar{
+    "ENCRO_FAKE_TOOL_LOG_FILE",
+    pathutf8::fromPath((temp.path / "tool.log"))
+  };
   auto const countEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countPath.string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countPath)};
   auto const gateEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath((temp.path / "gate"))};
   auto const fromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
 
   // The probe answers immediately under the configured gate...

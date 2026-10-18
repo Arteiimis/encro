@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "video/encode_config.h"
 #include "test_utils.h"
 
@@ -20,11 +21,12 @@ TEST_CASE("EncodeConfig validates required fields", "[encode-config]") {
   REQUIRE(validation);
 
   auto const cmd = cfg.buildCMD();
-  CHECK(cmd.find(inputPath.string()) != std::string::npos);
+  CHECK(cmd.find(pathutf8::fromPath(inputPath)) != std::string::npos);
   // The full NVENC chain is pinned once in the segmented mp4 command test.
   CHECK(cmd.find(cfg.progressFilePath->string()) != std::string::npos);
   auto const expectedOutput =
-    (inputPath.parent_path() / std::format("{}.hevc.mp4", inputPath.stem().string()))
+    (inputPath.parent_path()
+     / std::format("{}.hevc.mp4", pathutf8::fromPath(inputPath.stem())))
       .string();
   CHECK(cmd.find(expectedOutput) != std::string::npos);
 }
@@ -135,7 +137,8 @@ TEST_CASE("EncodeConfig builds webp command", "[encode-config]") {
   CHECK(cmd.find("-crf") == std::string::npos);
 
   auto const expectedOutput =
-    (inputPath.parent_path() / std::format("{}.webp", inputPath.stem().string()))
+    (inputPath.parent_path()
+     / std::format("{}.webp", pathutf8::fromPath(inputPath.stem())))
       .string();
   CHECK(cmd.find(expectedOutput) != std::string::npos);
 }
@@ -176,7 +179,8 @@ TEST_CASE(
   CHECK(cmd.find("-c:v h264_nvenc") != std::string::npos);
 
   auto const expectedOutput =
-    (inputPath.parent_path() / std::format("{}.h264.mp4", inputPath.stem().string()))
+    (inputPath.parent_path()
+     / std::format("{}.h264.mp4", pathutf8::fromPath(inputPath.stem())))
       .string();
   CHECK(cmd.find(expectedOutput) != std::string::npos);
 }
@@ -198,7 +202,8 @@ TEST_CASE(
 
   auto const cmd = cfg.buildCMD();
   auto const expectedOutput =
-    (inputPath.parent_path() / std::format("{}.vp9.mp4", inputPath.stem().string()))
+    (inputPath.parent_path()
+     / std::format("{}.vp9.mp4", pathutf8::fromPath(inputPath.stem())))
       .string();
   CHECK(cmd.find(expectedOutput) != std::string::npos);
 }
@@ -217,7 +222,7 @@ TEST_CASE("EncodeConfig respects explicit output file path", "[encode-config]") 
   REQUIRE(validation);
 
   CHECK(cfg.buildOutputPath() == outputFile);
-  CHECK(cfg.buildCMD().find(outputFile.string()) != std::string::npos);
+  CHECK(cfg.buildCMD().find(pathutf8::fromPath(outputFile)) != std::string::npos);
 }
 
 TEST_CASE(
@@ -237,7 +242,8 @@ TEST_CASE(
 
   auto const cmd = cfg.buildCMD();
   auto const expectedOutput =
-    (inputPath.parent_path() / std::format("{}.webp", inputPath.stem().string()))
+    (inputPath.parent_path()
+     / std::format("{}.webp", pathutf8::fromPath(inputPath.stem())))
       .string();
 
   CHECK(cmd.find(expectedOutput) != std::string::npos);
@@ -290,9 +296,10 @@ TEST_CASE("EncodeConfig builds segmented mp4 command", "[encode-config]") {
     != std::string::npos
   );
   CHECK(cmd.find("-f mpegts") != std::string::npos);
-  CHECK(cmd.find(segOutput.string()) != std::string::npos);
+  CHECK(cmd.find(pathutf8::fromPath(segOutput)) != std::string::npos);
   CHECK(
-    cmd.find(std::format("{}.hevc.mp4", inputPath.stem().string())) == std::string::npos
+    cmd.find(std::format("{}.hevc.mp4", pathutf8::fromPath(inputPath.stem())))
+    == std::string::npos
   );
 }
 
@@ -348,21 +355,23 @@ TEST_CASE("EncodeConfig builds single-pass segment series command", "[encode-con
     cmd.find(
       std::format(
         "-segment_list \"{}\" -segment_list_type csv -segment_list_flags +live",
-        (segmentDir / "segments.csv").string()
+        pathutf8::fromPath((segmentDir / "segments.csv"))
       )
     )
     != std::string::npos
   );
   CHECK(
-    cmd.find(std::format("\"{}\"", (segmentDir / "seg_%d.ts").string()))
+    cmd.find(std::format("\"{}\"", pathutf8::fromPath((segmentDir / "seg_%d.ts"))))
     != std::string::npos
   );
   CHECK(
-    cmd.find(std::format("-progress \"{}\"", progressFile.string())) != std::string::npos
+    cmd.find(std::format("-progress \"{}\"", pathutf8::fromPath(progressFile)))
+    != std::string::npos
   );
   // The series mode never names the final container; assembly owns it.
   CHECK(
-    cmd.find(std::format("{}.hevc.mp4", inputPath.stem().string())) == std::string::npos
+    cmd.find(std::format("{}.hevc.mp4", pathutf8::fromPath(inputPath.stem())))
+    == std::string::npos
   );
 }
 
@@ -541,12 +550,12 @@ TEST_CASE("EncodeConfig builds audio extraction command", "[encode-config]") {
     buildAudioExtractionCmd("ffmpeg", inputPath, audioPath, /*aacFallback=*/false);
   CHECK(copyCmd.find("-vn -c:a copy") != std::string::npos);
   CHECK(copyCmd.find("-c:v") == std::string::npos);
-  CHECK(copyCmd.find(audioPath.string()) != std::string::npos);
+  CHECK(copyCmd.find(pathutf8::fromPath(audioPath)) != std::string::npos);
 
   auto const aacCmd =
     buildAudioExtractionCmd("ffmpeg", inputPath, audioPath, /*aacFallback=*/true);
   CHECK(aacCmd.find("-vn -c:a aac -b:a 192k") != std::string::npos);
-  CHECK(aacCmd.find(audioPath.string()) != std::string::npos);
+  CHECK(aacCmd.find(pathutf8::fromPath(audioPath)) != std::string::npos);
 }
 
 TEST_CASE("EncodeConfig builds segment assembly command", "[encode-config]") {
@@ -558,19 +567,32 @@ TEST_CASE("EncodeConfig builds segment assembly command", "[encode-config]") {
   auto const withAudio =
     buildSegmentAssemblyCmd("ffmpeg", listPath, audioPath, outputPath);
   CHECK(withAudio.find("-f concat -safe 0") != std::string::npos);
-  CHECK(withAudio.find(std::format("-i \"{}\"", listPath.string())) != std::string::npos);
   CHECK(
-    withAudio.find(std::format("-i \"{}\"", audioPath.string())) != std::string::npos
+    withAudio.find(std::format("-i \"{}\"", pathutf8::fromPath(listPath)))
+    != std::string::npos
+  );
+  CHECK(
+    withAudio.find(std::format("-i \"{}\"", pathutf8::fromPath(audioPath)))
+    != std::string::npos
   );
   CHECK(withAudio.find("-map 0:v") != std::string::npos);
   CHECK(withAudio.find("-map 1:a") != std::string::npos);
   CHECK(withAudio.find("-c copy") != std::string::npos);
-  CHECK(withAudio.find(std::format("\"{}\"", outputPath.string())) != std::string::npos);
+  CHECK(
+    withAudio.find(std::format("\"{}\"", pathutf8::fromPath(outputPath)))
+    != std::string::npos
+  );
 
   auto const noAudio =
     buildSegmentAssemblyCmd("ffmpeg", listPath, std::nullopt, outputPath);
-  CHECK(noAudio.find(std::format("-i \"{}\"", audioPath.string())) == std::string::npos);
+  CHECK(
+    noAudio.find(std::format("-i \"{}\"", pathutf8::fromPath(audioPath)))
+    == std::string::npos
+  );
   CHECK(noAudio.find("-map 1:a") == std::string::npos);
   CHECK(noAudio.find("-map 0:v") != std::string::npos);
-  CHECK(noAudio.find(std::format("\"{}\"", outputPath.string())) != std::string::npos);
+  CHECK(
+    noAudio.find(std::format("\"{}\"", pathutf8::fromPath(outputPath)))
+    != std::string::npos
+  );
 }

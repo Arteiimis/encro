@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/collision_naming.h"
 #include "core/job_state.h"
 #include "core/job_state_detail.h"
@@ -968,10 +969,10 @@ TEST_CASE("a successful state replace leaves no staging files", "[job-state]") {
   CHECK(testutils::readTextFile(statePath).find("encoding") != std::string::npos);
   auto names = std::vector<std::string>{};
   for (auto const& entry: fs::directory_iterator{temp.path}) {
-    names.push_back(entry.path().filename().string());
+    names.push_back(pathutf8::fromPath(entry.path().filename()));
   }
   REQUIRE(names.size() == 1);
-  CHECK(names.front() == statePath.filename().string());
+  CHECK(names.front() == pathutf8::fromPath(statePath.filename()));
 }
 
 // ── encode settings are part of the job identity ───────────────────────────

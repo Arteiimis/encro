@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "app/pipeline.h"
 #include "core/job_state.h"
 #include "core/work_dirs.h"
@@ -50,14 +51,17 @@ struct ConversionFixture {
 
     logPath = temp.path / "invocations.log";
     envs.push_back(
-      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+      std::make_unique<
+        ScopedEnvVar
+      >("ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath))
     );
     // One marker file per started encode, so a test can count encodes in
     // flight without reading the shared log.
     envs.push_back(
-      std::make_unique<
-        ScopedEnvVar
-      >("ENCRO_FAKE_FFMPEG_MARKER_DIR", (temp.path / "encode-markers").string())
+      std::make_unique<ScopedEnvVar>(
+        "ENCRO_FAKE_FFMPEG_MARKER_DIR",
+        pathutf8::fromPath((temp.path / "encode-markers"))
+      )
     );
 
     if (withJobState) {
@@ -121,7 +125,7 @@ struct ConversionFixture {
     auto const zipPath = packedZip();
     if (zipPath.empty()) { return 0; }
 
-    auto zip = libzippp::ZipArchive{zipPath.string()};
+    auto zip = libzippp::ZipArchive{pathutf8::fromPath(zipPath)};
     zip.open(libzippp::ZipArchive::ReadOnly);
     for (auto const& entry: zip.getEntries()) {
       if (!entry.getName().ends_with('/') && entry.getName().ends_with(suffix)) {
@@ -262,7 +266,9 @@ TEST_CASE(
   // encoder's own stop path then discards the partial output.
   auto const gateFile = f.temp.path / "convert-gate";
   f.envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile))
   );
 
   auto const stderrPath = f.temp.path / "stderr.txt";
@@ -295,7 +301,7 @@ TEST_CASE(
   auto const cachedEntries = fs::exists(f.cacheDir()) ? [&]() {
     auto names = std::vector<std::string>{};
     for (auto const& entry: fs::directory_iterator{f.cacheDir()}) {
-      names.push_back(entry.path().filename().string());
+      names.push_back(pathutf8::fromPath(entry.path().filename()));
     }
     return names;
   }()
@@ -619,7 +625,9 @@ TEST_CASE(
   // a conversion-specific cap below the job count would hold the third back.
   auto const gateFile = f.temp.path / "convert-gate";
   f.envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile))
   );
 
   std::optional<eh::Result<int>> outcome;
@@ -650,7 +658,9 @@ TEST_CASE(
   writeSizedFile(f.inputDir / "clip1.mp4", 64);
   auto const gateFile = f.temp.path / "convert-gate";
   f.envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile))
   );
 
   std::optional<eh::Result<int>> outcome;
@@ -688,14 +698,16 @@ TEST_CASE(
   auto const gateFile = f.temp.path / "convert-gate";
   auto const countFile = f.temp.path / "call-count.txt";
   f.envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile))
   );
   f.envs
     .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"));
   f.envs.push_back(
     std::make_unique<
       ScopedEnvVar
-    >("ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string())
+    >("ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countFile))
   );
   f.envs
     .push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_CALL_PLAN", "2:0:130"));
@@ -729,7 +741,7 @@ TEST_CASE(
   auto cachedWebps = std::vector<std::string>{};
   for (auto const& entry: fs::directory_iterator{f.cacheDir()}) {
     if (entry.path().extension() == ".webp") {
-      cachedWebps.push_back(entry.path().filename().string());
+      cachedWebps.push_back(pathutf8::fromPath(entry.path().filename()));
     }
   }
   CHECK(cachedWebps.size() == 1);

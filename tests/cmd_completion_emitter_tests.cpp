@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "cmd/completion_emitter.h"
 
 #include "cmd/cmd.h"
@@ -230,7 +231,7 @@ TEST_CASE("emission is independent of stored config", "[completion]") {
   auto const baseline = completion::emitBashScript(model);
 
   TempDir temp;
-  auto const configPath = (temp.path / "broken.json").string();
+  auto const configPath = pathutf8::fromPath((temp.path / "broken.json"));
   // ScopedEnvVar restores the runner's pinned isolation path afterwards; a
   // bare empty-string unset would unmask the real user config for later tests.
   testutils::ScopedEnvVar const envOverride{"ENCRO_CONFIG", configPath};

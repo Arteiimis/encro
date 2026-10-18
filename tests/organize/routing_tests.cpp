@@ -411,7 +411,7 @@ TEST_CASE("renamed character folder keeps teaching under its new name", "[organi
   }
 
   // User renamed hatsune_miku/ to 初音ミク/.
-  auto const renamed = temp.path / "organized" / "初音ミク";
+  auto const renamed = temp.path / "organized" / testutils::u8Path("初音ミク");
   fs::create_directories(renamed);
   for (auto index = 0; index < 5; ++index) {
     testutils::writeTextFile(

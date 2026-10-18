@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "app/pipeline.h"
 #include "core/job_state.h"
 #include "core/work_dirs.h"
@@ -296,16 +297,18 @@ TEST_CASE(
   // Call 1 completes and caches; later calls block then would exit 130.
   auto const cntEnv = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
-    (temp.path / "compress-count.txt").string()
+    pathutf8::fromPath((temp.path / "compress-count.txt"))
   };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
   // The stop lands inside a gate-held second call: no timing window. The
   // gate file created below persists into any resume phase, where fresh
   // call sequences pass through it instantly.
-  auto const toolLogEnv =
-    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const toolLogEnv = ScopedEnvVar{
+    "ENCRO_FAKE_TOOL_LOG_FILE",
+    pathutf8::fromPath((temp.path / "tool.log"))
+  };
   auto const gateEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath((temp.path / "gate"))};
   auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
@@ -357,13 +360,15 @@ TEST_CASE(
 
   auto const cntEnv = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
-    (temp.path / "compress-count.txt").string()
+    pathutf8::fromPath((temp.path / "compress-count.txt"))
   };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
-  auto const toolLogEnv =
-    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const toolLogEnv = ScopedEnvVar{
+    "ENCRO_FAKE_TOOL_LOG_FILE",
+    pathutf8::fromPath((temp.path / "tool.log"))
+  };
   auto const gateEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath((temp.path / "gate"))};
   auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
@@ -418,16 +423,18 @@ TEST_CASE(
 
   auto const cntEnv1 = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
-    (temp.path / "slow-count.txt").string()
+    pathutf8::fromPath((temp.path / "slow-count.txt"))
   };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
   // The stop lands inside a gate-held second call: no timing window. The
   // gate file created below persists into any resume phase, where fresh
   // call sequences pass through it instantly.
-  auto const toolLogEnv =
-    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const toolLogEnv = ScopedEnvVar{
+    "ENCRO_FAKE_TOOL_LOG_FILE",
+    pathutf8::fromPath((temp.path / "tool.log"))
+  };
   auto const gateEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath((temp.path / "gate"))};
   auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
@@ -458,7 +465,7 @@ TEST_CASE(
   // Resume run must re-compress only the missing file.
   auto const countFile = temp.path / "resume-count.txt";
   auto const cntEnv2 =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countFile)};
 
   auto ctx2 = appctx::AppContext{};
   ctx2.config.processType = "picture";
@@ -495,21 +502,23 @@ TEST_CASE(
 
   auto const cntEnv1 = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
-    (temp.path / "slow-count.txt").string()
+    pathutf8::fromPath((temp.path / "slow-count.txt"))
   };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
   // The stop lands inside a gate-held second call: no timing window. The
   // gate file created below persists into any resume phase, where fresh
   // call sequences pass through it instantly.
-  auto const toolLogEnv =
-    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const toolLogEnv = ScopedEnvVar{
+    "ENCRO_FAKE_TOOL_LOG_FILE",
+    pathutf8::fromPath((temp.path / "tool.log"))
+  };
   auto const gateEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath((temp.path / "gate"))};
   auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto const inputsLogEnv = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_INPUT_LOG",
-    (temp.path / "completed-inputs.log").string()
+    pathutf8::fromPath((temp.path / "completed-inputs.log"))
   };
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -546,7 +555,7 @@ TEST_CASE(
 
   auto const countFile = temp.path / "resume-count.txt";
   auto const cntEnv2 =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countFile)};
   auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
 
   auto ctx2 = appctx::AppContext{};
@@ -582,16 +591,18 @@ TEST_CASE(
 
   auto const cntEnv1 = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
-    (temp.path / "slow-count.txt").string()
+    pathutf8::fromPath((temp.path / "slow-count.txt"))
   };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
   // The stop lands inside a gate-held second call: no timing window. The
   // gate file created below persists into any resume phase, where fresh
   // call sequences pass through it instantly.
-  auto const toolLogEnv =
-    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const toolLogEnv = ScopedEnvVar{
+    "ENCRO_FAKE_TOOL_LOG_FILE",
+    pathutf8::fromPath((temp.path / "tool.log"))
+  };
   auto const gateEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath((temp.path / "gate"))};
   auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
@@ -626,7 +637,7 @@ TEST_CASE(
   fs::remove(stateFilePath);
   auto const countFile = temp.path / "rerun-count.txt";
   auto const cntEnv2 =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countFile)};
   auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
 
   auto ctx2 = appctx::AppContext{};
@@ -658,16 +669,18 @@ TEST_CASE(
 
   auto const cntEnv1 = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
-    (temp.path / "slow-count.txt").string()
+    pathutf8::fromPath((temp.path / "slow-count.txt"))
   };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
   // The stop lands inside a gate-held second call: no timing window. The
   // gate file created below persists into any resume phase, where fresh
   // call sequences pass through it instantly.
-  auto const toolLogEnv =
-    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const toolLogEnv = ScopedEnvVar{
+    "ENCRO_FAKE_TOOL_LOG_FILE",
+    pathutf8::fromPath((temp.path / "tool.log"))
+  };
   auto const gateEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath((temp.path / "gate"))};
   auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
@@ -699,7 +712,7 @@ TEST_CASE(
   // Quality change → previous cache not reused: both sources re-compress.
   auto const countFile = temp.path / "rerun-count.txt";
   auto const cntEnv2 =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countFile)};
   auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
 
   auto ctx2 = appctx::AppContext{};
@@ -732,16 +745,18 @@ TEST_CASE(
 
   auto const cntEnv1 = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
-    (temp.path / "slow-count.txt").string()
+    pathutf8::fromPath((temp.path / "slow-count.txt"))
   };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:3000:130"};
   // The stop lands inside a gate-held second call: no timing window. The
   // gate file created below persists into any resume phase, where fresh
   // call sequences pass through it instantly.
-  auto const toolLogEnv =
-    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const toolLogEnv = ScopedEnvVar{
+    "ENCRO_FAKE_TOOL_LOG_FILE",
+    pathutf8::fromPath((temp.path / "tool.log"))
+  };
   auto const gateEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath((temp.path / "gate"))};
   auto const gateFromCallEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FROM_CALL", "2"};
   auto const emptyOut1 = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "0"};
   auto ctx = appctx::AppContext{};
@@ -773,7 +788,7 @@ TEST_CASE(
   // --restart clears the stale caches: everything re-compresses.
   auto const countFile = temp.path / "rerun-count.txt";
   auto const cntEnv2 =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countFile)};
   auto const noPlan = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", ""};
 
   auto ctx2 = appctx::AppContext{};

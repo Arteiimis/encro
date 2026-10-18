@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "cmd/config_store.h"
 #include "test_utils.h"
 
@@ -17,7 +18,8 @@ namespace {
 // ScopedEnvVar with "" unsets on Windows (CRT semantics), which is exactly
 // what the fallback tests need.
 struct ConfigEnvScope {
-  explicit ConfigEnvScope(fs::path const& path): guard_("ENCRO_CONFIG", path.string()) { }
+  explicit ConfigEnvScope(fs::path const& path)
+    : guard_("ENCRO_CONFIG", pathutf8::fromPath(path)) { }
   ConfigEnvScope(std::string_view key, std::string_view value)
     : guard_(std::string{key}, std::string{value}) { }
 
@@ -61,21 +63,21 @@ TEST_CASE(
   auto const unsetLocal = ConfigEnvScope{"LOCALAPPDATA", ""};
   auto const unsetEncro = ConfigEnvScope{"ENCRO_CONFIG", ""};
   auto const appData = fs::temp_directory_path() / "encro-fake-appdata";
-  auto const roaming = ConfigEnvScope{"APPDATA", appData.string()};
+  auto const roaming = ConfigEnvScope{"APPDATA", pathutf8::fromPath(appData)};
   CHECK(configstore::resolveConfigPath() == appData / "encro" / "config.json");
 
   auto const localData = fs::temp_directory_path() / "encro-fake-localappdata";
-  auto const local = ConfigEnvScope{"LOCALAPPDATA", localData.string()};
+  auto const local = ConfigEnvScope{"LOCALAPPDATA", pathutf8::fromPath(localData)};
   CHECK(configstore::resolveConfigPath() == localData / "encro" / "config.json");
 #else
   auto const unsetHome = ConfigEnvScope{"HOME", ""};
   auto const unsetEncro = ConfigEnvScope{"ENCRO_CONFIG", ""};
   auto const configHome = temp.path / "xdg-config";
-  auto const xdg = ConfigEnvScope{"XDG_CONFIG_HOME", configHome.string()};
+  auto const xdg = ConfigEnvScope{"XDG_CONFIG_HOME", pathutf8::fromPath(configHome)};
   CHECK(configstore::resolveConfigPath() == configHome / "encro" / "config.json");
 
   auto const home = temp.path / "home";
-  auto const homeGuard = ConfigEnvScope{"HOME", home.string()};
+  auto const homeGuard = ConfigEnvScope{"HOME", pathutf8::fromPath(home)};
   auto const unsetXdg = ConfigEnvScope{"XDG_CONFIG_HOME", ""};
   CHECK(configstore::resolveConfigPath() == home / ".config" / "encro" / "config.json");
 #endif
@@ -102,7 +104,7 @@ TEST_CASE(
 
   auto const loaded = configstore::load(path, realTable());
   REQUIRE(loaded.error.has_value());
-  CHECK(loaded.error->find(path.string()) != std::string::npos);
+  CHECK(loaded.error->find(pathutf8::fromPath(path)) != std::string::npos);
 }
 
 TEST_CASE("loading a non-object config file fails", "[cmd][config-store]") {

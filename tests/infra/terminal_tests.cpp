@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "infra/terminal.h"
 
 #include "test_utils.h"
@@ -490,7 +491,7 @@ TEST_CASE(
   SECTION("quiet suppression applies before the dump") {
     terminal::setQuiet(true);
     auto const activeDumpVar =
-      testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", dumpPath.string()};
+      testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", pathutf8::fromPath(dumpPath)};
     {
       auto outCapture = testutils::StdoutCapture{outPath};
       terminal::print(terminal::MessageKind::Info, "narration");
@@ -512,7 +513,7 @@ TEST_CASE("render dump records both streams in write order", "[terminal][render-
   auto const temp = TempDir{};
   auto const dumpPath = temp.path / "render-dump.txt";
   auto const dumpVar =
-    testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", dumpPath.string()};
+    testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", pathutf8::fromPath(dumpPath)};
   {
     auto outCapture = testutils::StdoutCapture{temp.path / "out.txt"};
     auto errCapture = testutils::StderrCapture{temp.path / "err.txt"};
@@ -538,7 +539,7 @@ TEST_CASE(
   SECTION("colors forced on") {
     terminal::configure(terminal::ColorMode::Always);
     auto const dumpVar =
-      testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", dumpPath.string()};
+      testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", pathutf8::fromPath(dumpPath)};
     {
       auto outCapture = testutils::StdoutCapture{temp.path / "out.txt"};
       terminal::println(terminal::MessageKind::Success, "done");
@@ -551,7 +552,7 @@ TEST_CASE(
   SECTION("colors forced off") {
     terminal::configure(terminal::ColorMode::Never);
     auto const dumpVar =
-      testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", dumpPath.string()};
+      testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", pathutf8::fromPath(dumpPath)};
     {
       auto outCapture = testutils::StdoutCapture{temp.path / "out.txt"};
       terminal::println(terminal::MessageKind::Success, "done");

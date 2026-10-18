@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "picture/picture_compress.h"
 #include "test_utils.h"
 
@@ -51,9 +52,15 @@ TEST_CASE(
     auto const cmd = cfg.buildCMD();
 
     CHECK(cmd.find(" -hide_banner -nostats -loglevel error -y") != std::string::npos);
-    CHECK(cmd.find(std::format(" -i \"{}\"", inputPath.string())) != std::string::npos);
+    CHECK(
+      cmd.find(std::format(" -i \"{}\"", pathutf8::fromPath(inputPath)))
+      != std::string::npos
+    );
     CHECK(cmd.find(" -q:v 5") != std::string::npos);
-    CHECK(cmd.find(std::format(" \"{}\"", outputPath.string())) != std::string::npos);
+    CHECK(
+      cmd.find(std::format(" \"{}\"", pathutf8::fromPath(outputPath)))
+      != std::string::npos
+    );
   }
 
   SECTION("minimum quality") {
@@ -144,7 +151,7 @@ TEST_CASE(
   auto const result = compressImage(ctx, inputPath, outputPath, 5);
   CHECK(result == true);
   CHECK(fs::exists(outputPath));
-  CHECK_FALSE(fs::exists(std::format("{}.partial", outputPath.string())));
+  CHECK_FALSE(fs::exists(std::format("{}.partial", pathutf8::fromPath(outputPath))));
 }
 
 TEST_CASE(

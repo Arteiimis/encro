@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "picture/picture_process.h"
 #include "infra/stop_signal.h"
 #include "test_utils.h"
@@ -203,7 +204,7 @@ TEST_CASE(
   auto part11 = fs::path{};
   auto part12 = fs::path{};
   for (auto const& de: fs::directory_iterator{inputDir / "packed"}) {
-    auto const fileName = de.path().filename().string();
+    auto const fileName = pathutf8::fromPath(de.path().filename());
     if (fileName.starts_with("pics_part1.1[")) { part11 = de.path(); }
     if (fileName.starts_with("pics_part1.2[")) { part12 = de.path(); }
   }
@@ -263,7 +264,8 @@ TEST_CASE(
   fs::create_directories(inputDir);
   testutils::writeSizedFile(inputDir / "a.png", 32);
 
-  auto const logEnv = ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()};
+  auto const logEnv =
+    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)};
   auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};
   auto ctx = appctx::AppContext{};
   ctx.config.processType = "picture";
@@ -465,7 +467,7 @@ TEST_CASE(
   // Call 1 succeeds (writes a small jpg); every later call fails without output.
   auto const cntEnv = ScopedEnvVar{
     "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
-    (temp.path / "compress-count.txt").string()
+    pathutf8::fromPath((temp.path / "compress-count.txt"))
   };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:0:1"};
   auto const smallOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "16"};

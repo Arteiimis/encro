@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/display_text.h"
 #include "core/encoding_state.h"
 #include "core/media_item.h"
@@ -442,7 +443,9 @@ struct EncodingTasksScaffold {
     ctx.config.verbose = true;  // no progress bars in tests
     logPath = temp.path / "ffmpeg_invocations.log";
     envs.push_back(
-      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+      std::make_unique<
+        ScopedEnvVar
+      >("ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath))
     );
     auto item = std::make_shared<appctx::EncodingState>();
     item->inputPath = inputPath;
@@ -461,7 +464,10 @@ auto leftoverProbeDirs() -> std::vector<fs::path> {
   auto ec = std::error_code{};
   if (!fs::is_directory(scratchRoot, ec) || ec) { return dirs; }
   for (auto const& entry: fs::directory_iterator{scratchRoot}) {
-    if (entry.is_directory() && entry.path().filename().string().starts_with("probe_")) {
+    if (
+      entry.is_directory()
+      && pathutf8::fromPath(entry.path().filename()).starts_with("probe_")
+    ) {
       dirs.push_back(entry.path());
     }
   }
@@ -1331,7 +1337,9 @@ TEST_CASE(
   fillProbeContext(ctx, temp.path, original, "100.0", "96.0", envs);
   auto const logPath = temp.path / "invocations.log";
   envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath))
   );
 
   // Warm the process cache through the module-owned reader: one ffprobe.

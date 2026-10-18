@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "cmd/completion_install.h"
 
 #include "cmd/completion_command.h"
@@ -45,7 +46,9 @@ private:
   }
 
   void setAndSave(char const* name, fs::path const& value) {
-    envs_.push_back(std::make_unique<testutils::ScopedEnvVar>(name, value.string()));
+    envs_.push_back(
+      std::make_unique<testutils::ScopedEnvVar>(name, pathutf8::fromPath(value))
+    );
   }
 
   fs::path localAppData_;
@@ -163,7 +166,7 @@ TEST_CASE(
   CHECK(
     wired->find(
       ". '"
-      + forwardSlashes((env.encroRoot() / "completion" / "encro.ps1").string())
+      + forwardSlashes(pathutf8::fromPath((env.encroRoot() / "completion" / "encro.ps1")))
       + "'"
     )
     != std::string::npos
@@ -242,7 +245,7 @@ TEST_CASE(
   REQUIRE(wired.has_value());
   CHECK(wired->find("alias ll='ls -la'") != std::string::npos);
   CHECK(
-    wired->find("source \"" + forwardSlashes(bashScript.string()) + "\"")
+    wired->find("source \"" + forwardSlashes(pathutf8::fromPath(bashScript)) + "\"")
     != std::string::npos
   );
 

@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "batch/batch.h"
 #include "core/app_context.h"
 #include "infra/stop_signal.h"
@@ -87,7 +88,7 @@ auto runWithCapturedOutputs(Ty&& action, fs::path const& scratchDir)
 auto namesOf(std::vector<fs::path> const& paths) -> std::vector<std::string> {
   auto names = std::vector<std::string>{};
   names.reserve(paths.size());
-  for (auto const& path: paths) { names.push_back(path.filename().string()); }
+  for (auto const& path: paths) { names.push_back(pathutf8::fromPath(path.filename())); }
   return names;
 }
 
@@ -279,7 +280,7 @@ TEST_CASE("batch skips media-less subfolders with a notice", "[batch]") {
   CHECK(resultsRes.value()[0].outcome == batch::TaskOutcome::Done);
   CHECK(resultsRes.value()[1].outcome == batch::TaskOutcome::Skipped);
   CHECK(captured.find("Skipping") != std::string::npos);
-  CHECK(captured.find((root / "b").string()) != std::string::npos);
+  CHECK(captured.find(pathutf8::fromPath((root / "b"))) != std::string::npos);
   CHECK_FALSE(fs::exists(root / "packed" / "b"));
 }
 
@@ -362,10 +363,12 @@ TEST_CASE("stop during a subfolder skips it and the rest", "[batch]") {
 
   auto request = makePictureCompressRequest(root, root / "packed");
   request.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
-  auto const logEnv =
-    ScopedEnvVar{"ENCRO_FAKE_TOOL_LOG_FILE", (temp.path / "tool.log").string()};
+  auto const logEnv = ScopedEnvVar{
+    "ENCRO_FAKE_TOOL_LOG_FILE",
+    pathutf8::fromPath((temp.path / "tool.log"))
+  };
   auto const gateEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", (temp.path / "gate").string()};
+    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath((temp.path / "gate"))};
 
   auto stoppedInFlight = false;
   auto requester =
@@ -581,7 +584,7 @@ TEST_CASE("a declined confirmation skips the batch's remaining subfolders", "[ba
   CHECK(countOccurrences(stderrText, "Packing task canceled by user.") == 1);
   CHECK(countOccurrences(stdoutText, "do you want to proceed with packing") == 1);
   CHECK(stdoutText.find("confirmation declined") != std::string::npos);
-  CHECK(stdoutText.find((root / "b").string()) != std::string::npos);
+  CHECK(stdoutText.find(pathutf8::fromPath((root / "b"))) != std::string::npos);
 }
 
 TEST_CASE("a stop during the confirmation keeps the stop path", "[batch]") {

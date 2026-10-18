@@ -12,6 +12,7 @@
 // - execute() with jobState!=nullptr and all tasks already complete → returns exitCode 0, no packing
 // - execute() with jobState!=nullptr and cancel requested → returns kCanceledExitCode
 
+#include "core/path_utf8.h"
 #include "pack/pack.h"
 #include "pack/packer.h"
 #include "pack/pack_types.h"
@@ -226,7 +227,7 @@ TEST_CASE(
   // 4 small files fit in 1 zip
   REQUIRE(result->zippedFiles.size() == 1);
 
-  auto const zipName = result->zippedFiles[0].filename().string();
+  auto const zipName = pathutf8::fromPath(result->zippedFiles[0].filename());
   CHECK(zipName.find("pics_part1") != std::string::npos);
   CHECK(fs::exists(result->zippedFiles[0]));
   CHECK(fs::file_size(result->zippedFiles[0]) > 0);

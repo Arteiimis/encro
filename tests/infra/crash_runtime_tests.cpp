@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "infra/crash_runtime.h"
 
 #include "logging/log_tags.h"
@@ -124,7 +125,9 @@ TEST_CASE("reportCaughtException writes crash report to default logger", "[crash
   TempDir temp;
   auto const logPath = temp.path / "crash.log";
 
-  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto sink = std::make_shared<
+    spdlog::sinks::basic_file_sink_mt
+  >(pathutf8::fromPath(logPath), true);
   auto logger = std::make_shared<spdlog::logger>("crash-test", sink);
   logger->set_level(spdlog::level::trace);
 
@@ -143,7 +146,9 @@ TEST_CASE("reportUnknownException writes stacktrace section", "[crash]") {
   TempDir temp;
   auto const logPath = temp.path / "unknown.log";
 
-  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto sink = std::make_shared<
+    spdlog::sinks::basic_file_sink_mt
+  >(pathutf8::fromPath(logPath), true);
   auto logger = std::make_shared<spdlog::logger>("crash-unknown", sink);
   logger->set_level(spdlog::level::trace);
 
@@ -169,7 +174,9 @@ TEST_CASE("crash context provider annotates crash records", "[crash]") {
   TempDir temp;
   auto const logPath = temp.path / "context.log";
 
-  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto sink = std::make_shared<
+    spdlog::sinks::basic_file_sink_mt
+  >(pathutf8::fromPath(logPath), true);
   auto logger = std::make_shared<spdlog::logger>("crash-context", sink);
   logger->set_level(spdlog::level::trace);
 
@@ -201,7 +208,9 @@ TEST_CASE("cleared crash context provider is restored for later cases", "[crash]
   TempDir temp;
   auto const logPath = temp.path / "context-restore.log";
 
-  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto sink = std::make_shared<
+    spdlog::sinks::basic_file_sink_mt
+  >(pathutf8::fromPath(logPath), true);
   auto logger = std::make_shared<spdlog::logger>("crash-context-restore", sink);
   logger->set_level(spdlog::level::trace);
   auto guard = ScopedDefaultLogger(logger);
@@ -396,7 +405,7 @@ TEST_CASE("crash reason reaches stderr when the log file is writable", "[crash]"
   auto const errText = testutils::readTextFile(errFile);
   CHECK(errText.find("[CRASH] unit-test: boom") != std::string::npos);
   CHECK(errText.find("[log:") != std::string::npos);
-  CHECK(errText.find(logPath.value().string()) != std::string::npos);
+  CHECK(errText.find(pathutf8::fromPath(logPath.value())) != std::string::npos);
   CHECK(errText.find("stacktrace") == std::string::npos);
   // The full report stays in the log file.
   auto const logText = testutils::readTextFile(logPath.value());
@@ -462,7 +471,9 @@ TEST_CASE("crash reports inside a DLL-load zone omit the stacktrace", "[crash]")
   TempDir temp;
   auto const logPath = temp.path / "zoned.log";
 
-  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto sink = std::make_shared<
+    spdlog::sinks::basic_file_sink_mt
+  >(pathutf8::fromPath(logPath), true);
   auto logger = std::make_shared<spdlog::logger>("crash-zoned", sink);
   logger->set_level(spdlog::level::trace);
 
@@ -488,7 +499,9 @@ TEST_CASE(
   TempDir temp;
   auto const logPath = temp.path / "pass-through.log";
 
-  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto sink = std::make_shared<
+    spdlog::sinks::basic_file_sink_mt
+  >(pathutf8::fromPath(logPath), true);
   auto logger = std::make_shared<spdlog::logger>("crash-pass-through", sink);
   logger->set_level(spdlog::level::trace);
 
@@ -512,7 +525,9 @@ TEST_CASE(
   TempDir temp;
   auto const logPath = temp.path / "control.log";
 
-  auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logPath.string(), true);
+  auto sink = std::make_shared<
+    spdlog::sinks::basic_file_sink_mt
+  >(pathutf8::fromPath(logPath), true);
   auto logger = std::make_shared<spdlog::logger>("crash-control", sink);
   logger->set_level(spdlog::level::trace);
 

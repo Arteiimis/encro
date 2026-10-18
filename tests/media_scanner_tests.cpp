@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/media_scanner.h"
 #include "test_utils.h"
 
@@ -77,7 +78,7 @@ TEST_CASE("scanByExtensions reports an unreadable root as an error", "[media-sca
   // An unreadable root must never look like an empty scan.
   REQUIRE_FALSE(scanRes);
   CHECK(scanRes.error().find("not a readable directory") != std::string::npos);
-  CHECK(scanRes.error().find(missing.string()) != std::string::npos);
+  CHECK(scanRes.error().find(pathutf8::fromPath(missing)) != std::string::npos);
 }
 
 TEST_CASE(
@@ -213,7 +214,7 @@ TEST_CASE(
   REQUIRE(filtered);
   CHECK(filtered->matches.size() == 3);
   CHECK(std::ranges::none_of(filtered->matches, [](fs::path const& path) {
-    return path.string().find(".encro") != std::string::npos;
+    return pathutf8::fromPath(path).find(".encro") != std::string::npos;
   }));
 }
 

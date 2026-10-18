@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "logging/log_tags.h"
 #include "logging/setup.h"
 #include "test_utils.h"
@@ -37,7 +38,7 @@ std::size_t countEncroFiles(fs::path const& dir) {
     if (ec) { break; }
     if (
       entry.is_regular_file()
-      && std::regex_match(entry.path().filename().string(), logPattern)
+      && std::regex_match(pathutf8::fromPath(entry.path().filename()), logPattern)
     ) {
       ++count;
     }
@@ -53,7 +54,7 @@ auto sortedEncroFiles(fs::path const& dir) -> std::vector<fs::path> {
     if (ec) { break; }
     if (
       entry.is_regular_file()
-      && std::regex_match(entry.path().filename().string(), logPattern)
+      && std::regex_match(pathutf8::fromPath(entry.path().filename()), logPattern)
     ) {
       files.push_back(entry.path());
     }
@@ -65,7 +66,7 @@ auto sortedEncroFiles(fs::path const& dir) -> std::vector<fs::path> {
 bool isTimestampedName(fs::path const& p) {
   // Matches encro_YYYYMMDD_HHMMSS.log or encro_YYYYMMDD_HHMMSS_PID.log
   auto const pattern = std::regex{R"(encro_\d{8}_\d{6}(_\d+)?\.log)"};
-  return std::regex_match(p.filename().string(), pattern);
+  return std::regex_match(pathutf8::fromPath(p.filename()), pattern);
 }
 
 }  // namespace
@@ -87,7 +88,7 @@ TEST_CASE("setup creates a valid timestamped log file", "[logging][file_mgmt]") 
   REQUIRE(result.has_value());
 
   auto const logFilePath = result.value();
-  CAPTURE(logFilePath.string());
+  CAPTURE(pathutf8::fromPath(logFilePath));
 
   // The path must be absolute
   CHECK(logFilePath.is_absolute());
@@ -121,7 +122,7 @@ TEST_CASE("setup creates a valid timestamped log file", "[logging][file_mgmt]") 
   REQUIRE(result2.has_value());
 
   auto const logFilePath2 = result2.value();
-  CAPTURE(logFilePath2.string());
+  CAPTURE(pathutf8::fromPath(logFilePath2));
 
   // After pre-creating a file with the expected timestamp name,
   // the new file should either have a PID suffix (same-second collision)
@@ -171,7 +172,7 @@ TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
     REQUIRE(result.has_value());
 
     auto const logFilePath = result.value();
-    CAPTURE(logFilePath.string());
+    CAPTURE(pathutf8::fromPath(logFilePath));
 
     // Shutdown to release file handles
     testutils::shutdownLogging();
@@ -189,7 +190,7 @@ TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
     for (auto i = 0; i < 5; ++i) {
       auto const expectedDeleted =
         testDir / fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i);
-      CAPTURE(expectedDeleted.string());
+      CAPTURE(pathutf8::fromPath(expectedDeleted));
       CHECK_FALSE(fs::exists(expectedDeleted));
     }
 
@@ -197,7 +198,7 @@ TEST_CASE("cleanup retains at most 10 log files", "[logging][file_mgmt]") {
     for (auto i = 5; i < 15; ++i) {
       auto const expectedSurviving =
         testDir / fmt::format("encro_{:08d}_{:06d}.log", 20260523, 100000 + i);
-      CAPTURE(expectedSurviving.string());
+      CAPTURE(pathutf8::fromPath(expectedSurviving));
       CHECK(fs::exists(expectedSurviving));
     }
 
@@ -276,7 +277,7 @@ TEST_CASE("setup falls back when primary log dir is unwritable", "[logging][file
   REQUIRE(result.has_value());
 
   auto const logFilePath = result.value();
-  CAPTURE(logFilePath.string());
+  CAPTURE(pathutf8::fromPath(logFilePath));
 
   // The fallback path must exist and have a timestamped name
   CHECK(fs::exists(logFilePath));
@@ -302,7 +303,7 @@ TEST_CASE("rotating file sink is configured and functional", "[logging][file_mgm
   REQUIRE(result.has_value());
 
   auto const logFilePath = result.value();
-  CAPTURE(logFilePath.string());
+  CAPTURE(pathutf8::fromPath(logFilePath));
 
   // Verify the file sink exists by checking the default logger's sinks
   auto const* logger = spdlog::default_logger_raw();
@@ -350,7 +351,7 @@ TEST_CASE("json-only setup writes both .log and .ndjson files", "[logging][file_
   REQUIRE(result.has_value());
 
   auto const logFilePath = result.value();
-  CAPTURE(logFilePath.string());
+  CAPTURE(pathutf8::fromPath(logFilePath));
 
   auto ndjsonPath = logFilePath;
   ndjsonPath.replace_extension(".ndjson");

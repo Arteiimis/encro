@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "app/pipeline.h"
 #include "core/app_context.h"
 #include "core/encoding_state.h"
@@ -134,7 +135,7 @@ TEST_CASE(
   CHECK(result == 0);
   REQUIRE(packedFiles.size() == 1);
   CHECK(packedFiles.front().extension() == ".zip");
-  CHECK(packedFiles.front().filename().string().starts_with("videos_part1["));
+  CHECK(pathutf8::fromPath(packedFiles.front().filename()).starts_with("videos_part1["));
   CHECK_FALSE(fs::exists(strayProgress.path));
 
   // The encode summary prints before the packing result, matching the order
@@ -239,10 +240,14 @@ TEST_CASE(
   auto const logPath = temp.path / "invocations.log";
   auto envs = std::vector<std::unique_ptr<ScopedEnvVar>>{};
   envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile))
   );
   envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath))
   );
   envs.push_back(
     std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_TIMEOUT_MS", "3000")
@@ -497,7 +502,7 @@ TEST_CASE(
   CHECK(text.find("file 'seg_0.ts'") != std::string::npos);
   CHECK(text.find("file 'seg_1.ts'") != std::string::npos);
   // No absolute or slash-bearing paths may leak into the manifest.
-  CHECK(text.find(temp.path.string()) == std::string::npos);
+  CHECK(text.find(pathutf8::fromPath(temp.path)) == std::string::npos);
   CHECK(text.find('/') == std::string::npos);
 }
 TEST_CASE(
@@ -680,7 +685,7 @@ TEST_CASE(
   for (auto const* subject: {"a.mp4", "b.mp4"}) {
     // The subject is the input's full path, printed as-is.
     auto const rawItem =
-      "\n  " + (inputDir / subject).string() + ": quality floor unreachable";
+      "\n  " + pathutf8::fromPath((inputDir / subject)) + ": quality floor unreachable";
     CHECK(captured.find(rawItem) != std::string::npos);
   }
 
@@ -728,8 +733,10 @@ TEST_CASE(
 
   // First call succeeds with a >20MB output (forces a retry tier), every
   // later call fails.
-  auto const cntEnv =
-    ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", (temp.path / "calls.txt").string()};
+  auto const cntEnv = ScopedEnvVar{
+    "ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE",
+    pathutf8::fromPath((temp.path / "calls.txt"))
+  };
   auto const planEnv = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2-:0:1"};
   auto const bigOut = ScopedEnvVar{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "22020096"};
 
@@ -792,8 +799,8 @@ TEST_CASE(
     auto const captured = readTextFile(outPath);
     CHECK(result == 1);
     CHECK(captured.find("Encoded 0/2 videos") != std::string::npos);
-    auto const upperPos = captured.find((upperDir / "z.mp4").string() + ":");
-    auto const lowerPos = captured.find((lowerDir / "A.mp4").string() + ":");
+    auto const upperPos = captured.find(pathutf8::fromPath((upperDir / "z.mp4")) + ":");
+    auto const lowerPos = captured.find(pathutf8::fromPath((lowerDir / "A.mp4")) + ":");
     REQUIRE(upperPos != std::string::npos);
     REQUIRE(lowerPos != std::string::npos);
     CHECK(upperPos < lowerPos);

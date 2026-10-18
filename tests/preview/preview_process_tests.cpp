@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "preview/preview_process.h"
 
 #include "core/work_dirs.h"
@@ -349,7 +350,9 @@ TEST_CASE(
         auto const& entry:
         fs::directory_iterator(scratch, fs::directory_options::skip_permission_denied, ec)
       ) {
-        if (entry.path().filename().string().starts_with("preview_")) { leftover = true; }
+        if (pathutf8::fromPath(entry.path().filename()).starts_with("preview_")) {
+          leftover = true;
+        }
       }
     }
     CHECK_FALSE(leftover);
@@ -453,15 +456,19 @@ TEST_CASE(
     std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFPROBE_DURATION_SECS", "20.0")
   );
   envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile))
   );
   envs.push_back(
     std::make_unique<
       ScopedEnvVar
-    >("ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countFile.string())
+    >("ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countFile))
   );
   envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath))
   );
   envs.push_back(
     std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_TIMEOUT_MS", "3000")
@@ -527,7 +534,9 @@ TEST_CASE(
     envs.push_back(std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_DELAY_MS", "600"));
     auto const markerDir = temp.path / "render-markers";
     envs.push_back(
-      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_MARKER_DIR", markerDir.string())
+      std::make_unique<
+        ScopedEnvVar
+      >("ENCRO_FAKE_FFMPEG_MARKER_DIR", pathutf8::fromPath(markerDir))
     );
     auto const renderOutput = temp.path / "sample.preview.mp4";
 

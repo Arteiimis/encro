@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "infra/terminal.h"
 #include "logging/log_tags.h"
 #include "logging/logging.h"
@@ -81,7 +82,7 @@ auto rawRedirectOffenders(fs::path const& sourceDir) -> std::vector<std::string>
         std::format(
           "{}:{}: raw stdio redirection or environment write — use the scoped "
           "guards in tests/test_utils.h, or add a `// {} <reason>` marker nearby",
-          entry.path().string(),
+          pathutf8::fromPath(entry.path()),
           i + 1,
           marker
         )
@@ -108,7 +109,7 @@ TEST_CASE("TempDir names are unique per call and carry the process id", "[test-u
 #else
   auto const pid = std::format("{}", ::getpid());
 #endif
-  CHECK(first.path.filename().string().find(pid) != std::string::npos);
+  CHECK(pathutf8::fromPath(first.path.filename()).find(pid) != std::string::npos);
 }
 
 TEST_CASE("TempDir keeps its directory when destroyed during unwinding", "[test-utils]") {
@@ -128,7 +129,7 @@ TEST_CASE("TempDir keeps its directory when destroyed during unwinding", "[test-
   auto const errText = testutils::readTextFile(errFile);
   CHECK(fs::exists(keptPath));
   CHECK(errText.find("kept temp dir on failure") != std::string::npos);
-  CHECK(errText.find(keptPath.string()) != std::string::npos);
+  CHECK(errText.find(pathutf8::fromPath(keptPath)) != std::string::npos);
 
   std::error_code ec;
   fs::remove_all(keptPath, ec);
@@ -291,7 +292,7 @@ TEST_CASE("test sources carry no unmarked synchronization sleeps", "[test-utils]
         std::format(
           "{}:{}: unmarked synchronization sleep — poll observable state, "
           "or add a `// {} <reason>` marker nearby",
-          entry.path().string(),
+          pathutf8::fromPath(entry.path()),
           i + 1,
           marker
         )
@@ -427,7 +428,7 @@ TEST_CASE("test cases assert something", "[test-utils][meta]") {
         std::format(
           "{}:{}: test case asserts nothing — assert the behavior it names, "
           "or add a `// {} <reason>` marker nearby",
-          entry.path().string(),
+          pathutf8::fromPath(entry.path()),
           startLine + 1,
           marker
         )

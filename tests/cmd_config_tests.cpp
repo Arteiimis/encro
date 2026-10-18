@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "cmd/cmd.h"
 #include "cmd/config_command.h"
 #include "infra/terminal.h"
@@ -18,7 +19,7 @@ struct ScopedConfigFile {
   testutils::ScopedEnvVar guard;
 
   explicit ScopedConfigFile(std::string_view content)
-    : temp(), guard("ENCRO_CONFIG", write(content).string()) { }
+    : temp(), guard("ENCRO_CONFIG", pathutf8::fromPath(write(content))) { }
 
   auto path() const -> fs::path { return temp.path / "config.json"; }
   auto write(std::string_view content) const -> fs::path {
@@ -112,7 +113,7 @@ TEST_CASE("malformed config file fails the parse naming the file", "[cmd][config
 
   auto const result = testutils::parseArgs({"encro", "-i", "video.mp4"});
   REQUIRE(result.error.has_value());
-  CHECK(result.error->find(config.path().string()) != std::string::npos);
+  CHECK(result.error->find(pathutf8::fromPath(config.path())) != std::string::npos);
 }
 
 TEST_CASE("missing config file leaves behavior untouched", "[cmd][config]") {
@@ -280,7 +281,8 @@ TEST_CASE(
 
   auto const temp = TempDir{};
   auto const configPath = temp.path / "nested" / "config.json";
-  auto const guard = testutils::ScopedEnvVar("ENCRO_CONFIG", configPath.string());
+  auto const guard =
+    testutils::ScopedEnvVar("ENCRO_CONFIG", pathutf8::fromPath(configPath));
 
   SECTION("set writes the file, creating parent directories") {
     auto setResult = testutils::parseArgs({"encro", "config", "set", "crf", "20"});
@@ -391,7 +393,8 @@ TEST_CASE(
     }
     CHECK(pathExit == 0);
     CHECK(
-      testutils::readTextFile(temp.path / "stdout-path.txt").find(configPath.string())
+      testutils::readTextFile(temp.path / "stdout-path.txt")
+        .find(pathutf8::fromPath(configPath))
       != std::string::npos
     );
   }

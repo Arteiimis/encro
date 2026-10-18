@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/collision_naming.h"
 #include "infra/stop_signal.h"
 #include "pack/packer.h"
@@ -217,8 +218,14 @@ TEST_CASE(
 
   auto const result = pack::Packer{}.packFilesToZip(
     {
-      pack::PackFileEntry{.sourcePath = f1, .zipEntryName = f1.filename().string()},
-      pack::PackFileEntry{.sourcePath = f2, .zipEntryName = f2.filename().string()},
+      pack::PackFileEntry{
+        .sourcePath = f1,
+        .zipEntryName = pathutf8::fromPath(f1.filename())
+      },
+      pack::PackFileEntry{
+        .sourcePath = f2,
+        .zipEntryName = pathutf8::fromPath(f2.filename())
+      },
     },
     zipPath,
     progressCtx,
@@ -228,7 +235,7 @@ TEST_CASE(
   REQUIRE(result);
   REQUIRE(fs::exists(zipPath));
 
-  libzippp::ZipArchive zip{zipPath.string()};
+  libzippp::ZipArchive zip{pathutf8::fromPath(zipPath)};
   zip.open(libzippp::ZipArchive::ReadOnly);
   auto const entries = zip.getEntries();
   REQUIRE(entries.size() == 2);
@@ -237,8 +244,10 @@ TEST_CASE(
   for (auto const& entry: entries) { entryNames.emplace_back(entry.getName()); }
   std::ranges::sort(entryNames);
 
-  auto expectedNames =
-    std::vector<std::string>{f1.filename().string(), f2.filename().string()};
+  auto expectedNames = std::vector<std::string>{
+    pathutf8::fromPath(f1.filename()),
+    pathutf8::fromPath(f2.filename())
+  };
   std::ranges::sort(expectedNames);
 
   CHECK(entryNames == expectedNames);
@@ -276,7 +285,7 @@ TEST_CASE(
 
   REQUIRE(result);
 
-  libzippp::ZipArchive zip{zipPath.string()};
+  libzippp::ZipArchive zip{pathutf8::fromPath(zipPath)};
   zip.open(libzippp::ZipArchive::ReadOnly);
   auto const entries = zip.getEntries();
   REQUIRE(entries.size() == 2);
@@ -334,7 +343,7 @@ TEST_CASE(
 
   REQUIRE(result);
 
-  libzippp::ZipArchive zip{zipPath.string()};
+  libzippp::ZipArchive zip{pathutf8::fromPath(zipPath)};
   zip.open(libzippp::ZipArchive::ReadOnly);
   auto const entries = zip.getEntries();
   auto entryNames = std::vector<std::string>{};
@@ -380,7 +389,7 @@ TEST_CASE(
 
   REQUIRE(result);
 
-  libzippp::ZipArchive zip{zipPath.string()};
+  libzippp::ZipArchive zip{pathutf8::fromPath(zipPath)};
   zip.open(libzippp::ZipArchive::ReadOnly);
   auto const entries = zip.getEntries();
   REQUIRE(entries.size() == 2);
@@ -512,12 +521,12 @@ TEST_CASE(
   REQUIRE(fs::exists(outputDir / "input_part1[1~2#2p].zip"));
   REQUIRE(fs::exists(outputDir / "input_part2[3~3#1p].zip"));
 
-  libzippp::ZipArchive zip1{(outputDir / "input_part1[1~2#2p].zip").string()};
+  libzippp::ZipArchive zip1{pathutf8::fromPath((outputDir / "input_part1[1~2#2p].zip"))};
   zip1.open(libzippp::ZipArchive::ReadOnly);
   CHECK(zip1.getEntries().size() == 2);
   zip1.close();
 
-  libzippp::ZipArchive zip2{(outputDir / "input_part2[3~3#1p].zip").string()};
+  libzippp::ZipArchive zip2{pathutf8::fromPath((outputDir / "input_part2[3~3#1p].zip"))};
   zip2.open(libzippp::ZipArchive::ReadOnly);
   CHECK(zip2.getEntries().size() == 1);
   zip2.close();
@@ -541,12 +550,12 @@ TEST_CASE("directory plan respects non-recursive option", "[packer][directory-pl
   pack::PackService s;
   auto const packRes = s.packGroups(planRes.value());
   REQUIRE(packRes);
-  libzippp::ZipArchive zip{(outputDir / "input_part1[1~1#1p].zip").string()};
+  libzippp::ZipArchive zip{pathutf8::fromPath((outputDir / "input_part1[1~1#1p].zip"))};
   zip.open(libzippp::ZipArchive::ReadOnly);
   auto const entries = zip.getEntries();
   REQUIRE(entries.size() == 1);
-  CHECK(entries.front().getName() == topFile.filename().string());
-  CHECK(entries.front().getName() != nestedFile.filename().string());
+  CHECK(entries.front().getName() == pathutf8::fromPath(topFile.filename()));
+  CHECK(entries.front().getName() != pathutf8::fromPath(nestedFile.filename()));
   zip.close();
 }
 
@@ -620,7 +629,7 @@ TEST_CASE("pack stores media entries and deflates non-media", "[packer][store]")
   );
   REQUIRE(res);
 
-  libzippp::ZipArchive zip{zipPath.string()};
+  libzippp::ZipArchive zip{pathutf8::fromPath(zipPath)};
   zip.open(libzippp::ZipArchive::ReadOnly);
   auto const mediaEntry = zip.getEntry("clip.mp4");
   auto const audioEntry = zip.getEntry("audio.m4a");

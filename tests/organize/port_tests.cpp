@@ -1,5 +1,6 @@
 // Ported pipeline foundations: SHA-256 reference vectors and the scan stage
 // (change add-local-character-grouping tasks 1.1/1.2).
+#include "core/path_utf8.h"
 #include "organize/disposition.h"
 #include "organize/scan.h"
 #include "core/sha256.h"
@@ -40,14 +41,14 @@ TEST_CASE("scanImages picks up supported images flat and hashed", "[organize]") 
 
   auto hashes = std::map<std::string, std::string>{};
   for (auto const& item: *res) {
-    hashes[item.path.filename().string()] = item.contentHash;
+    hashes[pathutf8::fromPath(item.path.filename())] = item.contentHash;
   }
   // Identical content in two files -> identical hash across files.
   testutils::writeTextFile(temp.path / "a-copy.png", "png-bytes");
   auto const recopied = organize::scanImages(temp.path, false);
   REQUIRE(recopied.has_value());
   for (auto const& item: *recopied) {
-    hashes[item.path.filename().string()] = item.contentHash;
+    hashes[pathutf8::fromPath(item.path.filename())] = item.contentHash;
   }
   CHECK(hashes.at("a.png") == hashes.at("a-copy.png"));
   CHECK(!hashes.at("a.png").empty());
@@ -92,7 +93,7 @@ TEST_CASE("scanImages errors on a missing directory", "[organize]") {
 TEST_CASE("scanImages assembles input from dispositions", "[organize]") {
   auto temp = TempDir{};
   testutils::writeTextFile(temp.path / "loose.png", "loose");
-  testutils::writeTextFile(temp.path / "角色A" / "ref.png", "ref");
+  testutils::writeTextFile(temp.path / testutils::u8Path("角色A") / "ref.png", "ref");
   testutils::writeTextFile(temp.path / "mix" / "x.png", "x");
   testutils::writeTextFile(temp.path / "mix" / "nested" / "y.png", "y");
   testutils::writeTextFile(temp.path / ".stash" / "s.png", "s");
@@ -102,7 +103,7 @@ TEST_CASE("scanImages assembles input from dispositions", "[organize]") {
   auto const res = organize::scanImages(temp.path, false, dispositions);
   REQUIRE(res.has_value());
   auto names = std::map<std::string, int>{};
-  for (auto const& item: *res) { ++names[item.path.filename().string()]; }
+  for (auto const& item: *res) { ++names[pathutf8::fromPath(item.path.filename())]; }
   // mix is misc-listed input (recursively collected); 角色A is a reference
   // and .stash ignored — neither contributes scan input; the output tree is
   // excluded as always.
@@ -114,7 +115,7 @@ TEST_CASE("scanImages assembles input from dispositions", "[organize]") {
 TEST_CASE("a recursive scan disposes every folder as input", "[organize]") {
   auto temp = TempDir{};
   testutils::writeTextFile(temp.path / "loose.png", "loose");
-  testutils::writeTextFile(temp.path / "角色A" / "ref.png", "ref");
+  testutils::writeTextFile(temp.path / testutils::u8Path("角色A") / "ref.png", "ref");
   testutils::writeTextFile(temp.path / "mix" / "x.png", "x");
   testutils::writeTextFile(temp.path / ".stash" / "s.png", "s");
   testutils::writeTextFile(temp.path / "organized" / "miku" / "old.png", "old");

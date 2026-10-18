@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "infra/stop_signal.h"
 #include "utils/utils.h"
 
@@ -256,10 +257,13 @@ TEST_CASE("exec2 terminates child process when stop is requested", "[utils]") {
 
 #if defined(_WIN32)
   auto const cmd = std::string{
-    "cmd /c \"type nul >" + flagPath.string() + " & ping -n 10 127.0.0.1 >nul\""
+    "cmd /c \"type nul >"
+    + pathutf8::fromPath(flagPath)
+    + " & ping -n 10 127.0.0.1 >nul\""
   };
 #else
-  auto const cmd = std::string{"sh -c ': > " + flagPath.string() + "; sleep 10'"};
+  auto const cmd =
+    std::string{"sh -c ': > " + pathutf8::fromPath(flagPath) + "; sleep 10'"};
 #endif
 
   auto elapsed = std::chrono::duration<double>{};
@@ -389,7 +393,7 @@ TEST_CASE("exec2 resolves an unquoted tool path containing spaces", "[utils]") {
   REQUIRE(fs::copy_file(exePath, spacedExe));
 
   // Deliberately unquoted; --list-tests exits 0 without running the suite.
-  auto const result = exec2(spacedExe.string() + " --list-tests");
+  auto const result = exec2(pathutf8::fromPath(spacedExe) + " --list-tests");
   CHECK(result.exitCode == 0);
 }
 
@@ -410,12 +414,12 @@ TEST_CASE(
   // elapsed bound under load.
   auto const cmd = std::string{
     "cmd /c \"type nul >"
-    + flagPath.string()
+    + pathutf8::fromPath(flagPath)
     + " & start /b ping -n 3 127.0.0.1 & ping -n 5 127.0.0.1 >nul\""
   };
 #else
   auto const cmd =
-    std::string{"sh -c ': > " + flagPath.string() + "; sleep 3 & sleep 4'"};
+    std::string{"sh -c ': > " + pathutf8::fromPath(flagPath) + "; sleep 3 & sleep 4'"};
 #endif
 
   auto elapsed = std::chrono::duration<double>{};
@@ -518,14 +522,14 @@ TEST_CASE("exec2 returns partial output captured before stop termination", "[uti
 #if defined(_WIN32)
   auto const cmd = std::string{
     "cmd /c \"type nul >"
-    + flagPath.string()
+    + pathutf8::fromPath(flagPath)
     + " & for /l %i in (1,1,100) do @(echo tick-%i & ping -n 1 "
       "127.0.0.1 >nul)\""
   };
 #else
   auto const cmd = std::string{
     "sh -c ': > "
-    + flagPath.string()
+    + pathutf8::fromPath(flagPath)
     + "; i=1; while [ $i -le 100 ]; do echo tick-$i; i=$((i+1)); sleep 0.1; done'"
   };
 #endif

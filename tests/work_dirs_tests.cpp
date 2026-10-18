@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/app_context.h"
 #include "core/job_state.h"
 #include "core/work_dirs.h"
@@ -37,10 +38,13 @@ TEST_CASE(
   // with any concurrently running shard.
   auto const privateRoot = TempDir{};
 #if defined(_WIN32)
-  auto const tmpVar = testutils::ScopedEnvVar{"TMP", privateRoot.path.string()};
-  auto const tempVar = testutils::ScopedEnvVar{"TEMP", privateRoot.path.string()};
+  auto const tmpVar =
+    testutils::ScopedEnvVar{"TMP", pathutf8::fromPath(privateRoot.path)};
+  auto const tempVar =
+    testutils::ScopedEnvVar{"TEMP", pathutf8::fromPath(privateRoot.path)};
 #else
-  auto const tmpVar = testutils::ScopedEnvVar{"TMPDIR", privateRoot.path.string()};
+  auto const tmpVar =
+    testutils::ScopedEnvVar{"TMPDIR", pathutf8::fromPath(privateRoot.path)};
 #endif
 
   auto const scratch = workdirs::scratchDir();
@@ -269,10 +273,13 @@ TEST_CASE(
   // a concurrently running shard shares the real one.
   auto const privateRoot = TempDir{};
 #if defined(_WIN32)
-  auto const tmpVar = testutils::ScopedEnvVar{"TMP", privateRoot.path.string()};
-  auto const tempVar = testutils::ScopedEnvVar{"TEMP", privateRoot.path.string()};
+  auto const tmpVar =
+    testutils::ScopedEnvVar{"TMP", pathutf8::fromPath(privateRoot.path)};
+  auto const tempVar =
+    testutils::ScopedEnvVar{"TEMP", pathutf8::fromPath(privateRoot.path)};
 #else
-  auto const tmpVar = testutils::ScopedEnvVar{"TMPDIR", privateRoot.path.string()};
+  auto const tmpVar =
+    testutils::ScopedEnvVar{"TMPDIR", pathutf8::fromPath(privateRoot.path)};
 #endif
 
   auto const parent = workdirs::scratchDir().parent_path();

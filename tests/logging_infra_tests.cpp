@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "logging/log_tags.h"
 #include "logging/logging.h"
 #include "logging/setup.h"
@@ -75,7 +76,7 @@ TEST_CASE("logging::setup: registers the named loggers", "[logging][infra]") {
   REQUIRE(result.has_value());
 
   auto const logFilePath = result.value();
-  CAPTURE(logFilePath.string());
+  CAPTURE(pathutf8::fromPath(logFilePath));
 
   // Spot-check one logger per tier (full inventory is wiring copied from
   // setup.cpp — a change-detector, not a test)

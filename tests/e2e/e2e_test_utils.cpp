@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "e2e_test_utils.h"
 
 #include "infra/env.h"
@@ -41,7 +42,7 @@ struct PrivateLogRootEnv {
       std::filesystem::temp_directory_path() / uniqueTempName("encro-e2e-logs");
     auto ec = std::error_code{};
     std::filesystem::create_directories(root, ec);
-    auto const value = root.string();
+    auto const value = pathutf8::fromPath(root);
     // isolation-ok: the test process sets its own log root once, before any
     // test runs; no test case depends on the surrounding environment here.
 #if defined(_WIN32)
@@ -65,7 +66,13 @@ auto platformBinaryName(std::string_view stem) -> std::string {
 
 auto executableDir() -> fs::path {
   auto const programPath = boost::dll::program_location();
+  // boost::dll::fs::path is boost's own path type, so this is the lossless
+  // bridge to std::filesystem::path rather than a round trip through bytes.
+#if defined(_WIN32)
+  return fs::path{programPath.wstring()}.parent_path();
+#else
   return fs::path{programPath.string()}.parent_path();
+#endif
 }
 
 auto readProcessStream(boost::asio::readable_pipe& stream) -> std::string {
@@ -124,7 +131,7 @@ auto runChild(
   auto ctx = boost::asio::io_context{};
   auto childOut = boost::asio::readable_pipe{ctx};
   auto childErr = boost::asio::readable_pipe{ctx};
-  auto const executableText = executable.string();
+  auto const executableText = pathutf8::fromPath(executable);
   auto stdoutText = std::string{};
   auto stderrText = std::string{};
 
@@ -188,7 +195,7 @@ auto fakeMediaToolBinaryPath() -> fs::path {
 auto resolveToolOnPath(std::string_view executable) -> std::optional<fs::path> {
   auto const resolved = bp::environment::find_executable(std::string{executable});
   if (resolved.empty()) { return std::nullopt; }
-  return fs::path{resolved.string()};
+  return fs::path{resolved.wstring()};
 }
 
 auto runProcess(
@@ -275,7 +282,7 @@ auto makeChild(
   boost::asio::readable_pipe& stdoutStream,
   boost::asio::readable_pipe& stderrStream
 ) -> bp::process {
-  auto const executableText = executable.string();
+  auto const executableText = pathutf8::fromPath(executable);
 #if defined(_WIN32)
   if (workingDir.has_value()) {
     return bp::process{

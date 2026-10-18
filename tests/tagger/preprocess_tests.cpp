@@ -1,4 +1,5 @@
 // Preprocessing command construction and the real-ffmpeg contract (task 2.2).
+#include "core/path_utf8.h"
 #include "tagger/preprocess.h"
 
 #include "test_utils.h"
@@ -61,7 +62,7 @@ TEST_CASE("preprocess contract on a real ffmpeg", "[tagger][real-ffmpeg]") {
     std::format(
       R"({} -hide_banner -loglevel error -y -f lavfi -i color=c=red:s=100x50 -frames:v 1 "{}")",
       quoteToolPath(*ffmpeg),
-      input.string()
+      pathutf8::fromPath(input)
     )
   );
   REQUIRE(exitCode == 0);
@@ -94,7 +95,7 @@ TEST_CASE("identity preprocess stretches a non-square source", "[tagger][real-ff
     std::format(
       R"({} -hide_banner -loglevel error -y -f lavfi -i color=c=red:s=100x50 -frames:v 1 "{}")",
       quoteToolPath(*ffmpeg),
-      input.string()
+      pathutf8::fromPath(input)
     )
   );
   REQUIRE(exitCode == 0);

@@ -246,8 +246,8 @@ TEST_CASE(
 ) {
   TempDir temp;
   auto const inputDir = temp.path / "input";
-  auto const dirA = inputDir / "丹花イブキ(110p + 音声あり動画)";
-  auto const dirB = inputDir / "天川そら(110p + 音声あり動画)";
+  auto const dirA = inputDir / testutils::u8Path("丹花イブキ(110p + 音声あり動画)");
+  auto const dirB = inputDir / testutils::u8Path("天川そら(110p + 音声あり動画)");
   fs::create_directories(dirA);
   fs::create_directories(dirB);
   writeTextFile(dirA / "alpha.bin");

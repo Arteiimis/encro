@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "cmd/cmd.h"
 #include "cmd/completion_command.h"
 
@@ -17,7 +18,8 @@ TEST_CASE("completion parse survives a corrupt config file", "[completion]") {
     stream << "{not json";
   }
   // ScopedEnvVar restores the runner's pinned isolation path afterwards.
-  testutils::ScopedEnvVar const envOverride{"ENCRO_CONFIG", configPath.string()};
+  testutils::ScopedEnvVar const
+    envOverride{"ENCRO_CONFIG", pathutf8::fromPath(configPath)};
 
   auto const result = testutils::parseArgs({"encro", "completion", "bash"});
 

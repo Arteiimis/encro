@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "logging/setup.h"
 
 #include "test_utils.h"
@@ -157,7 +158,7 @@ TEST_CASE(
   CHECK(summary.at("tasks_total").as_int64() == 3);
   CHECK(summary.at("tasks_failed").as_int64() == 0);
   CHECK(summary.at("elapsed_ms").as_int64() == 1234);
-  CHECK(summary.at("log").as_string() == ndjsonPath.string());
+  CHECK(summary.at("log").as_string() == pathutf8::fromPath(ndjsonPath));
   CHECK(summary.at("level_counts").is_object());
 
   // Summary record also carries the run id
@@ -167,7 +168,7 @@ TEST_CASE(
   // Human-readable last line in the .log file
   auto const hrLine = lastLineOf(result.value());
   CAPTURE(hrLine);
-  CAPTURE(result.value().string());
+  CAPTURE(pathutf8::fromPath(result.value()));
   CAPTURE(fs::exists(result.value()));
   CAPTURE(fs::file_size(result.value()));
   CHECK(hrLine.find("RUN SUMMARY:") != std::string::npos);

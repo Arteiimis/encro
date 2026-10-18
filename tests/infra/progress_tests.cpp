@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/display_text.h"
 #include "core/progress.h"
 #include "infra/terminal.h"
@@ -214,7 +215,7 @@ TEST_CASE(
   auto const dumpPath = temp.path / "render-dump.txt";
   auto const capturePath = temp.path / "out.txt";
   auto const dumpVar =
-    testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", dumpPath.string()};
+    testutils::ScopedEnvVar{"ENCRO_DEBUG_DUMP_RENDER", pathutf8::fromPath(dumpPath)};
 
   {
     auto capture = testutils::StdoutCapture{capturePath};

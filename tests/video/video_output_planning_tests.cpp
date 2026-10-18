@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "test_utils.h"
 #include "video/video_output_planning.h"
 
@@ -44,8 +45,16 @@ TEST_CASE(
   CHECK(planned.at(fileA).parent_path() == temp.path / "encoded_webp");
   CHECK(planned.at(fileB).parent_path() == temp.path / "encoded_webp");
   CHECK(planned.at(fileA).filename() != planned.at(fileB).filename());
-  CHECK(hasCollisionSafePrefix(planned.at(fileA).filename().string(), "a_x", "sample"));
-  CHECK(hasCollisionSafePrefix(planned.at(fileB).filename().string(), "b_y", "sample"));
+  CHECK(hasCollisionSafePrefix(
+    pathutf8::fromPath(planned.at(fileA).filename()),
+    "a_x",
+    "sample"
+  ));
+  CHECK(hasCollisionSafePrefix(
+    pathutf8::fromPath(planned.at(fileB).filename()),
+    "b_y",
+    "sample"
+  ));
 }
 
 TEST_CASE(
@@ -78,7 +87,7 @@ TEST_CASE(
   auto sortedNames = std::vector<std::string>{};
   sortedNames.reserve(plannedRes->size());
   for (auto const& [_, outputPath]: plannedRes.value()) {
-    sortedNames.emplace_back(outputPath.filename().string());
+    sortedNames.emplace_back(pathutf8::fromPath(outputPath.filename()));
   }
   std::ranges::sort(sortedNames);
 
@@ -114,8 +123,16 @@ TEST_CASE(
     planVideoOutputFiles(config, std::vector{fileA, fileB}, temp.path);
 
   REQUIRE(plannedRes);
-  CHECK(hasCollisionSafePrefix(plannedRes->at(fileA).filename().string(), "a", "alpha"));
-  CHECK(hasCollisionSafePrefix(plannedRes->at(fileB).filename().string(), "b", "beta"));
+  CHECK(hasCollisionSafePrefix(
+    pathutf8::fromPath(plannedRes->at(fileA).filename()),
+    "a",
+    "alpha"
+  ));
+  CHECK(hasCollisionSafePrefix(
+    pathutf8::fromPath(plannedRes->at(fileB).filename()),
+    "b",
+    "beta"
+  ));
 }
 
 TEST_CASE(
@@ -123,8 +140,8 @@ TEST_CASE(
   "[video-process][plan-output]"
 ) {
   TempDir temp;
-  auto const dirA = temp.path / "丹花イブキ(110p + 音声あり動画)";
-  auto const dirB = temp.path / "天川そら(110p + 音声あり動画)";
+  auto const dirA = temp.path / testutils::u8Path("丹花イブキ(110p + 音声あり動画)");
+  auto const dirB = temp.path / testutils::u8Path("天川そら(110p + 音声あり動画)");
   auto const alphaA = dirA / "alpha.mp4";
   auto const betaA = dirA / "beta.mp4";
   auto const alphaB = dirB / "alpha.mp4";
@@ -148,7 +165,7 @@ TEST_CASE(
   auto sortedNames = std::vector<std::string>{};
   sortedNames.reserve(plannedRes->size());
   for (auto const& [_, outputPath]: plannedRes.value()) {
-    sortedNames.emplace_back(outputPath.filename().string());
+    sortedNames.emplace_back(pathutf8::fromPath(outputPath.filename()));
   }
   std::ranges::sort(sortedNames);
 
@@ -247,12 +264,16 @@ TEST_CASE(
     planVideoOutputFiles(config, std::vector{fileA, fileB}, temp.path);
 
   REQUIRE(plannedRes);
-  CHECK(
-    hasCollisionSafePrefix(plannedRes->at(fileA).filename().string(), "a", "alpha.hevc")
-  );
-  CHECK(
-    hasCollisionSafePrefix(plannedRes->at(fileB).filename().string(), "b", "beta.hevc")
-  );
+  CHECK(hasCollisionSafePrefix(
+    pathutf8::fromPath(plannedRes->at(fileA).filename()),
+    "a",
+    "alpha.hevc"
+  ));
+  CHECK(hasCollisionSafePrefix(
+    pathutf8::fromPath(plannedRes->at(fileB).filename()),
+    "b",
+    "beta.hevc"
+  ));
 }
 
 TEST_CASE(

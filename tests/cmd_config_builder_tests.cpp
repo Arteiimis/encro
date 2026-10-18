@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "cmd/cmd.h"
 #include "cmd/config_builder.h"
 #include "test_utils.h"
@@ -68,7 +69,7 @@ TEST_CASE("buildConfig uses defaults when only input is provided", "[cmd][config
   auto const inputPath = temp.path / "input.mp4";
   writeTextFile(inputPath);
 
-  auto const result = makeResult(inputPath.string());
+  auto const result = makeResult(pathutf8::fromPath(inputPath));
   auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
@@ -95,7 +96,7 @@ TEST_CASE("buildConfig reads keep output layout", "[cmd][config]") {
   writeTextFile(inputPath);
 
   auto const result = makeResult(
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     std::nullopt,
     std::nullopt,
     std::nullopt,
@@ -118,7 +119,7 @@ TEST_CASE("buildConfig reads disabled conflict handling flag", "[cmd][config]") 
   writeTextFile(inputPath);
 
   auto const result = makeResult(
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     std::nullopt,
     std::nullopt,
     std::nullopt,
@@ -137,7 +138,7 @@ TEST_CASE("buildConfig treats preset auto as unset", "[cmd][config]") {
   auto const inputPath = temp.path / "input.mp4";
   writeTextFile(inputPath);
 
-  auto result = makeResult(inputPath.string());
+  auto result = makeResult(pathutf8::fromPath(inputPath));
   result.nvencPreset = "auto";
   auto const configRes = cmd::buildConfig(result);
 
@@ -152,10 +153,10 @@ TEST_CASE("buildConfig reads resume restart and state-file options", "[cmd][conf
   writeTextFile(inputPath);
 
   auto const result = makeResult(
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     std::nullopt,
     std::nullopt,
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "video",
     "mp4",
     "y",
@@ -182,7 +183,7 @@ TEST_CASE("buildConfig maps multiple inputs to inputPaths", "[cmd][config]") {
   SECTION("via -I list") {
     auto const result = makeResult(
       std::nullopt,
-      std::vector<std::string>{inputA.string(), inputB.string()}
+      std::vector<std::string>{pathutf8::fromPath(inputA), pathutf8::fromPath(inputB)}
     );
     auto const configRes = cmd::buildConfig(result);
 
@@ -208,7 +209,7 @@ TEST_CASE("buildConfig maps multiple inputs to inputPaths", "[cmd][config]") {
       std::nullopt,
       {},
       std::nullopt,
-      std::vector<std::string>{inputA.string(), inputB.string()}
+      std::vector<std::string>{pathutf8::fromPath(inputA), pathutf8::fromPath(inputB)}
     );
     auto const configRes = cmd::buildConfig(result);
 
@@ -232,7 +233,7 @@ TEST_CASE("buildConfig rejects multi-input for picture type", "[cmd][config]") {
   SECTION("-I list form") {
     auto const result = makeResult(
       std::nullopt,
-      std::vector<std::string>{inputA.string()},
+      std::vector<std::string>{pathutf8::fromPath(inputA)},
       std::nullopt,
       std::nullopt,
       "picture"
@@ -258,7 +259,7 @@ TEST_CASE("buildConfig rejects multi-input for picture type", "[cmd][config]") {
       std::nullopt,
       {},
       std::nullopt,
-      std::vector<std::string>{inputA.string(), inputB.string()}
+      std::vector<std::string>{pathutf8::fromPath(inputA), pathutf8::fromPath(inputB)}
     );
     auto const configRes = cmd::buildConfig(result);
 
@@ -279,7 +280,7 @@ TEST_CASE("buildConfig rejects multi-input with pack-only", "[cmd][config]") {
   SECTION("-I list form") {
     auto const result = makeResult(
       std::nullopt,
-      std::vector<std::string>{inputA.string()},
+      std::vector<std::string>{pathutf8::fromPath(inputA)},
       std::nullopt,
       std::nullopt,
       "video",
@@ -308,7 +309,7 @@ TEST_CASE("buildConfig rejects multi-input with pack-only", "[cmd][config]") {
       std::nullopt,
       {"pack-only"},
       std::nullopt,
-      std::vector<std::string>{inputA.string(), inputB.string()}
+      std::vector<std::string>{pathutf8::fromPath(inputA), pathutf8::fromPath(inputB)}
     );
     auto const configRes = cmd::buildConfig(result);
 
@@ -324,7 +325,7 @@ TEST_CASE("buildConfig rejects multi-input containing a directory", "[cmd][confi
 
   SECTION("-I list form") {
     auto const result =
-      makeResult(std::nullopt, std::vector<std::string>{temp.path.string()});
+      makeResult(std::nullopt, std::vector<std::string>{pathutf8::fromPath(temp.path)});
     auto const configRes = cmd::buildConfig(result);
 
     REQUIRE_FALSE(configRes);
@@ -344,7 +345,10 @@ TEST_CASE("buildConfig rejects multi-input containing a directory", "[cmd][confi
       std::nullopt,
       {},
       std::nullopt,
-      std::vector<std::string>{temp.path.string(), inputPath.string()}
+      std::vector<std::string>{
+        pathutf8::fromPath(temp.path),
+        pathutf8::fromPath(inputPath)
+      }
     );
     auto const configRes = cmd::buildConfig(result);
 
@@ -379,7 +383,7 @@ TEST_CASE("buildConfig maps a single positional to inputPath", "[cmd][config]") 
       std::nullopt,
       {},
       std::nullopt,
-      std::vector<std::string>{inputPath.string()}
+      std::vector<std::string>{pathutf8::fromPath(inputPath)}
     );
     auto const configRes = cmd::buildConfig(result);
 
@@ -405,7 +409,7 @@ TEST_CASE("buildConfig maps a single positional to inputPath", "[cmd][config]") 
       std::nullopt,
       {"pack-only"},
       std::nullopt,
-      std::vector<std::string>{temp.path.string()}
+      std::vector<std::string>{pathutf8::fromPath(temp.path)}
     );
     auto const configRes = cmd::buildConfig(result);
 
@@ -429,7 +433,7 @@ TEST_CASE("buildConfig maps a single positional to inputPath", "[cmd][config]") 
       std::nullopt,
       {},
       std::nullopt,
-      std::vector<std::string>{temp.path.string()}
+      std::vector<std::string>{pathutf8::fromPath(temp.path)}
     );
     auto const configRes = cmd::buildConfig(result);
 
@@ -457,7 +461,7 @@ TEST_CASE("buildConfig maps multiple positionals to inputPaths", "[cmd][config]"
     std::nullopt,
     {},
     std::nullopt,
-    std::vector<std::string>{inputA.string(), inputB.string()}
+    std::vector<std::string>{pathutf8::fromPath(inputA), pathutf8::fromPath(inputB)}
   );
   auto const configRes = cmd::buildConfig(result);
 
@@ -485,7 +489,11 @@ TEST_CASE("buildConfig rejects output path that is not a directory", "[cmd][conf
   writeTextFile(inputPath);
   writeTextFile(outputFile);
 
-  auto const result = makeResult(inputPath.string(), std::nullopt, outputFile.string());
+  auto const result = makeResult(
+    pathutf8::fromPath(inputPath),
+    std::nullopt,
+    pathutf8::fromPath(outputFile)
+  );
   auto const configRes = cmd::buildConfig(result);
 
   REQUIRE_FALSE(configRes);
@@ -498,7 +506,11 @@ TEST_CASE("buildConfig accepts output path that does not exist yet", "[cmd][conf
   auto const outputDir = temp.path / "new_output";
   writeTextFile(inputPath);
 
-  auto const result = makeResult(inputPath.string(), std::nullopt, outputDir.string());
+  auto const result = makeResult(
+    pathutf8::fromPath(inputPath),
+    std::nullopt,
+    pathutf8::fromPath(outputDir)
+  );
   auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
@@ -514,7 +526,7 @@ TEST_CASE(
   auto const inputPath = temp.path / "input.mp4";
   writeTextFile(inputPath);
 
-  auto const result = makeResult(inputPath.string(), std::nullopt, "+");
+  auto const result = makeResult(pathutf8::fromPath(inputPath), std::nullopt, "+");
   auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
@@ -528,7 +540,7 @@ TEST_CASE("buildConfig resolves input alias with relative suffix", "[cmd][config
   writeTextFile(inputPath);
 
   auto const result =
-    makeResult(inputPath.string(), std::nullopt, "input://encoded/webp");
+    makeResult(pathutf8::fromPath(inputPath), std::nullopt, "input://encoded/webp");
   auto const configRes = cmd::buildConfig(result);
 
   REQUIRE(configRes);
@@ -550,7 +562,7 @@ TEST_CASE(
 
   auto const result = makeResult(
     std::nullopt,
-    std::vector<std::string>{inputA.string(), inputB.string()},
+    std::vector<std::string>{pathutf8::fromPath(inputA), pathutf8::fromPath(inputB)},
     "=/encoded"
   );
   auto const configRes = cmd::buildConfig(result);
@@ -574,7 +586,7 @@ TEST_CASE(
 
   auto const result = makeResult(
     std::nullopt,
-    std::vector<std::string>{inputA.string(), inputB.string()},
+    std::vector<std::string>{pathutf8::fromPath(inputA), pathutf8::fromPath(inputB)},
     "+/encoded"
   );
   auto const configRes = cmd::buildConfig(result);
@@ -597,7 +609,7 @@ TEST_CASE(
 
   auto const result = makeResult(
     std::nullopt,
-    std::vector<std::string>{inputA.string(), inputB.string()},
+    std::vector<std::string>{pathutf8::fromPath(inputA), pathutf8::fromPath(inputB)},
     "+\\encoded"
   );
   auto const configRes = cmd::buildConfig(result);
@@ -615,7 +627,7 @@ TEST_CASE("buildConfig rejects ffmpeg path that is not a directory", "[cmd][conf
   writeTextFile(ffmpegFile);
 
   auto const result = makeResult(
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     std::nullopt,
     std::nullopt,
     std::nullopt,
@@ -629,7 +641,7 @@ TEST_CASE("buildConfig rejects ffmpeg path that is not a directory", "[cmd][conf
   );
   // Need to set ffmpegPath manually since makeResult doesn't have it as a param
   auto overriddenResult = result;
-  overriddenResult.ffmpegPath = ffmpegFile.string();
+  overriddenResult.ffmpegPath = pathutf8::fromPath(ffmpegFile);
   auto const configRes = cmd::buildConfig(overriddenResult);
 
   REQUIRE_FALSE(configRes);
@@ -644,9 +656,9 @@ TEST_CASE("buildConfig captures flags and paths", "[cmd][config]") {
   fs::create_directories(outputDir);
 
   auto const result = makeResult(
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     std::nullopt,
-    outputDir.string(),
+    pathutf8::fromPath(outputDir),
     std::nullopt,
     "picture",
     "webp",
@@ -685,7 +697,7 @@ TEST_CASE(
   fs::create_directories(inputPath);
 
   auto const result = makeResult(
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     std::nullopt,
     std::nullopt,
     std::nullopt,
@@ -712,7 +724,7 @@ TEST_CASE(
   writeTextFile(inputPath);
 
   auto const result = makeResult(
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     std::nullopt,
     std::nullopt,
     std::nullopt,
@@ -738,7 +750,7 @@ TEST_CASE("buildConfig enables compressImages with --compress", "[cmd][config]")
   fs::create_directories(inputPath);
 
   auto const result = makeResult(
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     std::nullopt,
     std::nullopt,
     std::nullopt,
@@ -762,7 +774,7 @@ TEST_CASE("buildConfig rejects --compress without picture type", "[cmd][config]"
   writeTextFile(inputPath);
 
   auto const result = makeResult(
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     std::nullopt,
     std::nullopt,
     std::nullopt,
@@ -787,13 +799,13 @@ TEST_CASE("buildConfig reads min-vmaf default and dry-run flag", "[cmd][config]"
   auto const inputPath = temp.path / "in.mp4";
   writeTextFile(inputPath);
 
-  auto const defaults = cmd::buildConfig(makeResult(inputPath.string()));
+  auto const defaults = cmd::buildConfig(makeResult(pathutf8::fromPath(inputPath)));
   REQUIRE(defaults);
   CHECK(defaults->minVmaf == 95);
   CHECK_FALSE(defaults->dryRun);
 
   auto const custom = cmd::buildConfig(makeResult(
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     std::nullopt,
     std::nullopt,
     std::nullopt,

@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "e2e_test_utils.h"
 #include "test_utils.h"
 
@@ -98,9 +99,9 @@ void requireRealToolchainOrSkip() {
 // so a run's ndjson log can be read back without touching the user's logs.
 auto logRootEnv(fs::path const& logRoot) -> std::pair<std::string, std::string> {
 #if defined(_WIN32)
-  return {"LOCALAPPDATA", logRoot.string()};
+  return {"LOCALAPPDATA", pathutf8::fromPath(logRoot)};
 #else
-  return {"XDG_STATE_HOME", logRoot.string()};
+  return {"XDG_STATE_HOME", pathutf8::fromPath(logRoot)};
 #endif
 }
 
@@ -126,7 +127,7 @@ auto createRealSmokeVideo(
     args.push_back(std::format("comment={}", comment.value()));
   }
 
-  args.push_back(outputPath.string());
+  args.push_back(pathutf8::fromPath(outputPath));
 
   auto const result = e2e::runProcess(systemToolPath("ffmpeg"), args);
   REQUIRE_SUCCESS(result);
@@ -156,7 +157,7 @@ auto createRealSmokeVideoWithAudio(
     "-pix_fmt",
     "yuv420p",
   };
-  args.push_back(outputPath.string());
+  args.push_back(pathutf8::fromPath(outputPath));
 
   auto const result = e2e::runProcess(systemToolPath("ffmpeg"), args);
   REQUIRE_SUCCESS(result);
@@ -168,7 +169,7 @@ auto probeJson(fs::path const& mediaPath, std::vector<std::string> const& args)
   -> json::object {
   auto allArgs = std::vector<std::string>{"-v", "quiet", "-print_format", "json"};
   allArgs.insert(allArgs.end(), args.begin(), args.end());
-  allArgs.push_back(mediaPath.string());
+  allArgs.push_back(pathutf8::fromPath(mediaPath));
 
   auto const result = e2e::runProcess(systemToolPath("ffprobe"), allArgs);
   REQUIRE_SUCCESS(result);
@@ -230,7 +231,7 @@ auto probeFormatComment(fs::path const& mediaPath) -> std::string {
 // this suite runs on. The container is.
 std::size_t countWebpFrameChunks(fs::path const& webpPath) {
   auto ifs = std::ifstream{webpPath, std::ios::binary};
-  INFO("countWebpFrameChunks: " << webpPath.string());
+  INFO("countWebpFrameChunks: " << pathutf8::fromPath(webpPath));
   REQUIRE(ifs.is_open());
   auto const bytes = std::vector<char>{
     std::istreambuf_iterator<char>{ifs},
@@ -447,13 +448,13 @@ TEST_CASE(
   auto const result = e2e::runEncro({
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-f",
     "webp",
     "-j",
     "1",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   });
 
   auto const outputDir = temp.path / "encoded_webp";
@@ -469,7 +470,7 @@ TEST_CASE(
 
   REQUIRE(outputFiles.size() == 1);
   CHECK(outputFiles.front().extension() == ".webp");
-  CHECK(containsStemMarker(outputFiles.front().filename().string(), "sample"));
+  CHECK(containsStemMarker(pathutf8::fromPath(outputFiles.front().filename()), "sample"));
   CHECK(fs::file_size(outputFiles.front()) > 0);
 }
 
@@ -486,13 +487,13 @@ TEST_CASE(
     "-y",
     "-v",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-f",
     "webp",
     "-j",
     "1",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   });
   REQUIRE_SUCCESS(result);
   CAPTURE(result.stdoutText, result.stderrText);
@@ -526,13 +527,13 @@ TEST_CASE(
       "-y",
       "-v",
       "-i",
-      failedInputPath.string(),
+      pathutf8::fromPath(failedInputPath),
       "-f",
       "webp",
       "-j",
       "1",
       "--ffmpeg-path",
-      toolchain.root.string(),
+      pathutf8::fromPath(toolchain.root),
     },
     std::nullopt,
     {
@@ -558,13 +559,13 @@ TEST_CASE(
     "-y",
     "-vv",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-f",
     "webp",
     "-j",
     "1",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   });
   REQUIRE_SUCCESS(result);
   CAPTURE(result.stdoutText, result.stderrText);
@@ -585,13 +586,13 @@ TEST_CASE(
       "-y",
       "-vv",
       "-i",
-      failedInputPath.string(),
+      pathutf8::fromPath(failedInputPath),
       "-f",
       "webp",
       "-j",
       "1",
       "--ffmpeg-path",
-      toolchain.root.string(),
+      pathutf8::fromPath(toolchain.root),
     },
     std::nullopt,
     {
@@ -636,15 +637,15 @@ TEST_CASE(
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-f",
     "webp",
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
   auto const withQuiet = [&baseArgs]() {
     auto args = baseArgs;
@@ -737,7 +738,7 @@ TEST_CASE(
   auto const result = e2e::runEncro({
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-f",
     "webp",
     "-j",
@@ -766,7 +767,7 @@ TEST_CASE(
     {
       "-y",
       "-i",
-      inputPath.string(),
+      pathutf8::fromPath(inputPath),
       "-o",
       "out",
       "-j",
@@ -800,7 +801,7 @@ TEST_CASE(
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const logPath = temp.path / "fake-tool.log";
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
   };
 
   auto const result = e2e::runEncro(
@@ -809,11 +810,11 @@ TEST_CASE(
      "picture",
      "--video-webp",
      "-i",
-     inputDir.string(),
+     pathutf8::fromPath(inputDir),
      "-j",
      "1",
      "--ffmpeg-path",
-     toolchain.root.string()},
+     pathutf8::fromPath(toolchain.root)},
     std::nullopt,
     env
   );
@@ -862,13 +863,13 @@ TEST_CASE(
     "-y",
     "-p",
     "-i",
-    inputDir.string(),
+    pathutf8::fromPath(inputDir),
     "-f",
     "webp",
     "-j",
     "1",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   });
   REQUIRE_SUCCESS(result);
   CAPTURE(result.stdoutText);
@@ -904,7 +905,7 @@ TEST_CASE(
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const logPath = temp.path / "fake-tool.log";
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
   };
 
   auto const result = e2e::runEncro(
@@ -912,11 +913,11 @@ TEST_CASE(
      "--type",
      "picture",
      "-i",
-     inputDir.string(),
+     pathutf8::fromPath(inputDir),
      "-j",
      "1",
      "--ffmpeg-path",
-     toolchain.root.string()},
+     pathutf8::fromPath(toolchain.root)},
     std::nullopt,
     env
   );
@@ -949,13 +950,13 @@ TEST_CASE(
        "color=c=red:s=32x32:d=1",
        "-frames:v",
        "1",
-       png.string()}
+       pathutf8::fromPath(png)}
     )
   );
   REQUIRE(fs::exists(png));
 
   auto const result = e2e::runEncro(
-    {"-y", "--type", "picture", "-i", temp.path.string(), "-c", "-j", "1"},
+    {"-y", "--type", "picture", "-i", pathutf8::fromPath(temp.path), "-c", "-j", "1"},
     temp.path
   );
 
@@ -990,12 +991,19 @@ TEST_CASE(
        "color=c=red:s=32x32:d=1",
        "-frames:v",
        "1",
-       png.string()}
+       pathutf8::fromPath(png)}
     )
   );
 
   auto const result = e2e::runEncro(
-    {"-y", "--type", "picture", "--video-webp", "-i", temp.path.string(), "-j", "1"},
+    {"-y",
+     "--type",
+     "picture",
+     "--video-webp",
+     "-i",
+     pathutf8::fromPath(temp.path),
+     "-j",
+     "1"},
     temp.path
   );
   CAPTURE(result.stdoutText, result.stderrText);
@@ -1014,7 +1022,7 @@ TEST_CASE(
   // frame, so the entry is a real conversion and not a still or a stub.
   auto const extracted = temp.path / "entry.webp";
   {
-    libzippp::ZipArchive zip{zips.front().string()};
+    libzippp::ZipArchive zip{pathutf8::fromPath(zips.front())};
     zip.open(libzippp::ZipArchive::ReadOnly);
     auto const entry = zip.getEntry(*webpEntry);
     REQUIRE_FALSE(entry.isNull());
@@ -1045,7 +1053,7 @@ TEST_CASE(
   auto const result = e2e::runEncro({
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--video-codec",
@@ -1084,25 +1092,25 @@ TEST_CASE(
      },
      {
        "ENCRO_FAKE_TOOL_LOG_FILE",
-       invocationLog.string(),
+       pathutf8::fromPath(invocationLog),
      },
      {
        "ENCRO_FAKE_FFMPEG_GATE_FILE",
-       gateFile.string(),
+       pathutf8::fromPath(gateFile),
      }}
   };
   auto const args = std::vector<std::string>{
     "-y",
     "-i",
-    inputDir.string(),
+    pathutf8::fromPath(inputDir),
     "-f",
     "webp",
     "-j",
     "2",
     "-o",
-    outputDir.string(),
+    pathutf8::fromPath(outputDir),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   // Both encodes are in flight before either can finish: each ffmpeg
@@ -1158,15 +1166,15 @@ TEST_CASE(
       {
         "-y",
         "-i",
-        inputPath.string(),
+        pathutf8::fromPath(inputPath),
         "-f",
         "webp",
         "-j",
         "1",
         "--state-file",
-        statePath.string(),
+        pathutf8::fromPath(statePath),
         "--ffmpeg-path",
-        toolchain.root.string(),
+        pathutf8::fromPath(toolchain.root),
       },
       std::nullopt,
       {
@@ -1179,7 +1187,10 @@ TEST_CASE(
     // The count line names the failure and the output location; the failed
     // file follows as a plain path, still on stdout with the count line.
     CHECK(result.stdoutText.find("Encoded 0/1 videos") != std::string::npos);
-    CHECK(result.stdoutText.find(inputPath.filename().string()) != std::string::npos);
+    CHECK(
+      result.stdoutText.find(pathutf8::fromPath(inputPath.filename()))
+      != std::string::npos
+    );
     // The failed-file entry names the child diagnostic as the reason.
     CHECK(result.stdoutText.find("Option fake not found.") != std::string::npos);
     CHECK(result.stdoutText.find("Videos that failed to encode") == std::string::npos);
@@ -1205,18 +1216,18 @@ TEST_CASE(
       {
         "-y",
         "-I",
-        inputA.string(),
-        inputB.string(),
+        pathutf8::fromPath(inputA),
+        pathutf8::fromPath(inputB),
         "-f",
         "webp",
         "-j",
         "1",
         "-o",
-        (temp.path / "out").string(),
+        pathutf8::fromPath((temp.path / "out")),
         "--state-file",
-        statePath.string(),
+        pathutf8::fromPath(statePath),
         "--ffmpeg-path",
-        toolchain.root.string(),
+        pathutf8::fromPath(toolchain.root),
       },
       std::nullopt,
       {{"ENCRO_FAKE_FFMPEG_FAIL_MATCH", "__beta__"}}
@@ -1227,7 +1238,9 @@ TEST_CASE(
 
     auto const outputFiles = listFilesWithExtension(temp.path / "out", ".webp");
     REQUIRE(outputFiles.size() == 1);
-    CHECK(containsStemMarker(outputFiles.front().filename().string(), "alpha"));
+    CHECK(
+      containsStemMarker(pathutf8::fromPath(outputFiles.front().filename()), "alpha")
+    );
 
     auto const state = loadJsonObject(statePath);
     auto const& tasks = state.at("tasks").as_array();
@@ -1255,13 +1268,13 @@ TEST_CASE(
       "-y",
       "-p",
       "-i",
-      inputPath.string(),
+      pathutf8::fromPath(inputPath),
       "-f",
       "webp",
       "-j",
       "1",
       "--ffmpeg-path",
-      toolchain.root.string(),
+      pathutf8::fromPath(toolchain.root),
     },
     std::nullopt,
     {{"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "22000000"}}
@@ -1292,13 +1305,13 @@ TEST_CASE(
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const baseArgs = std::vector<std::string>{
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-f",
     "webp",
     "-j",
     "1",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto fullArgs = baseArgs;
@@ -1341,13 +1354,13 @@ TEST_CASE(
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-f",
     "webp",
     "-j",
     "1",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto const firstRun = e2e::runEncro(baseArgs);
@@ -1386,14 +1399,14 @@ TEST_CASE(
   auto const result = e2e::runEncro({
     "-y",
     "-I",
-    alpha.string(),
-    beta.string(),
+    pathutf8::fromPath(alpha),
+    pathutf8::fromPath(beta),
     "-f",
     "webp",
     "-j",
     "1",
     "-o",
-    outputDir.string(),
+    pathutf8::fromPath(outputDir),
   });
 
   REQUIRE_SUCCESS(result);
@@ -1418,7 +1431,7 @@ TEST_CASE(
   auto const result = e2e::runEncro({
     "-y",
     "-i",
-    inputDir.string(),
+    pathutf8::fromPath(inputDir),
     "-f",
     "webp",
     "-j",
@@ -1459,15 +1472,15 @@ TEST_CASE(
 
     auto const result = e2e::runEncro({
       "-y",
-      inputDir.string(),
+      pathutf8::fromPath(inputDir),
       "-f",
       "webp",
       "-j",
       "1",
       "-o",
-      outputDir.string(),
+      pathutf8::fromPath(outputDir),
       "--ffmpeg-path",
-      toolchain.root.string(),
+      pathutf8::fromPath(toolchain.root),
     });
 
     REQUIRE_SUCCESS(result);
@@ -1483,16 +1496,16 @@ TEST_CASE(
 
     auto const result = e2e::runEncro({
       "-y",
-      inputA.string(),
-      inputB.string(),
+      pathutf8::fromPath(inputA),
+      pathutf8::fromPath(inputB),
       "-f",
       "webp",
       "-j",
       "1",
       "-o",
-      outputDir.string(),
+      pathutf8::fromPath(outputDir),
       "--ffmpeg-path",
-      toolchain.root.string(),
+      pathutf8::fromPath(toolchain.root),
     });
 
     REQUIRE_SUCCESS(result);
@@ -1511,11 +1524,11 @@ TEST_CASE("encro fails when custom ffmpeg directory has no tools", "[e2e][toolch
   auto const result = e2e::runEncro({
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-f",
     "webp",
     "--ffmpeg-path",
-    emptyToolDir.string(),
+    pathutf8::fromPath(emptyToolDir),
   });
 
   REQUIRE(result.exitCode == 1);
@@ -1535,10 +1548,10 @@ TEST_CASE("encro resume requires an existing state file", "[e2e][resume]") {
   auto const result = e2e::runEncro({
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "--resume",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
   });
 
   REQUIRE(result.exitCode == 1);
@@ -1566,21 +1579,21 @@ TEST_CASE(
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const env = std::map<std::string, std::string>{{
     "ENCRO_FAKE_TOOL_LOG_FILE",
-    logPath.string(),
+    pathutf8::fromPath(logPath),
   }};
 
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-f",
     "webp",
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto const firstRun = e2e::runEncro(baseArgs, std::nullopt, env);
@@ -1615,23 +1628,23 @@ TEST_CASE(
   auto const framesPath = temp.path / "frames.log";
   auto const finalFramesPath = temp.path / "final-frames.log";
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
-    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
-    {"ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES_FILE", framesPath.string()},
-    {"ENCRO_FAKE_FFMPEG_SEGMENT_FINAL_FILE", finalFramesPath.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath(probeJson)},
+    {"ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES_FILE", pathutf8::fromPath(framesPath)},
+    {"ENCRO_FAKE_FFMPEG_SEGMENT_FINAL_FILE", pathutf8::fromPath(finalFramesPath)},
     // 25 s of 24 fps source: two full 10 s segments and a 5 s tail.
     {"ENCRO_FAKE_FFMPEG_SEGMENT_TAIL_FRAMES", "120"},
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   // The first attempt closes one segment and then dies mid-series.
@@ -1691,22 +1704,22 @@ TEST_CASE(
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
-    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
-    {"ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES_FILE", framesPath.string()},
-    {"ENCRO_FAKE_FFMPEG_SEGMENT_FINAL_FILE", finalFramesPath.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath(probeJson)},
+    {"ENCRO_FAKE_FFMPEG_SEGMENT_FRAMES_FILE", pathutf8::fromPath(framesPath)},
+    {"ENCRO_FAKE_FFMPEG_SEGMENT_FINAL_FILE", pathutf8::fromPath(finalFramesPath)},
     {"ENCRO_FAKE_FFMPEG_SEGMENT_TAIL_FRAMES", "120"},
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto failEnv = env;
@@ -1768,19 +1781,19 @@ TEST_CASE(
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
-    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath(probeJson)},
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto failEnv = env;
@@ -1821,19 +1834,19 @@ TEST_CASE(
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
-    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath(probeJson)},
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto failEnv = env;
@@ -1871,19 +1884,19 @@ TEST_CASE(
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
-    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath(probeJson)},
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto failEnv = env;
@@ -2018,10 +2031,10 @@ TEST_CASE(
   // Sequential conversions (-j 1); the second one sleeps long enough for the
   // stop to land inside it, so exactly one clip finishes first.
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
-    {"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countPath.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
+    {"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countPath)},
     {"ENCRO_FAKE_FFMPEG_CALL_PLAN", "2:15000:0"},
-    {"ENCRO_FAKE_FFMPEG_MARKER_DIR", markerDir.string()},
+    {"ENCRO_FAKE_FFMPEG_MARKER_DIR", pathutf8::fromPath(markerDir)},
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
@@ -2029,11 +2042,11 @@ TEST_CASE(
     "picture",
     "--video-webp",
     "-i",
-    inputDir.string(),
+    pathutf8::fromPath(inputDir),
     "-j",
     "1",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, env);
@@ -2052,13 +2065,13 @@ TEST_CASE(
   auto cachedWebps = std::vector<std::string>{};
   for (auto const& entry: fs::directory_iterator{inputDir / ".encro" / "webp"}) {
     if (entry.path().extension() == ".webp") {
-      cachedWebps.push_back(entry.path().filename().string());
+      cachedWebps.push_back(pathutf8::fromPath(entry.path().filename()));
     }
   }
   REQUIRE(cachedWebps.size() == 1);
 
   auto resumeEnv = env;
-  resumeEnv["ENCRO_FAKE_FFMPEG_MARKER_DIR"] = resumeMarkerDir.string();
+  resumeEnv["ENCRO_FAKE_FFMPEG_MARKER_DIR"] = pathutf8::fromPath(resumeMarkerDir);
   auto const resumed = e2e::runEncro(baseArgs, std::nullopt, resumeEnv);
   REQUIRE_SUCCESS(resumed);
 
@@ -2098,9 +2111,9 @@ TEST_CASE(
   // -j 1 keeps the second picture from ever starting (the -version tool probe
   // consumes no call index).
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countPath.string()},
+    {"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countPath)},
     {"ENCRO_FAKE_FFMPEG_CALL_PLAN", "1:15000:0"},
-    {"ENCRO_FAKE_FFMPEG_MARKER_DIR", markerDir.string()},
+    {"ENCRO_FAKE_FFMPEG_MARKER_DIR", pathutf8::fromPath(markerDir)},
   };
   auto const args = std::vector<std::string>{
     "-y",
@@ -2109,11 +2122,11 @@ TEST_CASE(
     "-r",
     "--compress",
     "-i",
-    inputDir.string(),
+    pathutf8::fromPath(inputDir),
     "-j",
     "1",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto proc = e2e::runEncroAsync(args, std::nullopt, env);
@@ -2163,22 +2176,22 @@ TEST_CASE(
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const slowEnv = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
-    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath(probeJson)},
     {"ENCRO_FAKE_FFMPEG_DELAY_MS", "15000"},
     logRootEnv(logRoot),
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--log-json",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, slowEnv);
@@ -2218,21 +2231,21 @@ TEST_CASE(
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const slowEnv = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
     {"ENCRO_FAKE_FFMPEG_DELAY_MS", "15000"},
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-f",
     "webp",
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, slowEnv);
@@ -2272,24 +2285,24 @@ TEST_CASE(
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const slowEnv = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
     {"ENCRO_FAKE_FFMPEG_DELAY_MS", "15000"},
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-I",
-    inputA.string(),
-    inputB.string(),
+    pathutf8::fromPath(inputA),
+    pathutf8::fromPath(inputB),
     "-f",
     "webp",
     "-j",
     "1",
     "-o",
-    (temp.path / "out").string(),
+    pathutf8::fromPath((temp.path / "out")),
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, slowEnv);
@@ -2340,13 +2353,13 @@ TEST_CASE(
     {
       "-y",
       "-i",
-      inputPath.string(),
+      pathutf8::fromPath(inputPath),
       "-j",
       "1",
       "--state-file",
-      statePath.string(),
+      pathutf8::fromPath(statePath),
       "--ffmpeg-path",
-      toolchain.root.string(),
+      pathutf8::fromPath(toolchain.root),
     },
     std::nullopt,
     {
@@ -2436,7 +2449,7 @@ auto createLongGopFixture(fs::path const& outputPath, double seconds, int size)
      "100",
      "-pix_fmt",
      "yuv420p",
-     outputPath.string()}
+     pathutf8::fromPath(outputPath)}
   );
   REQUIRE_SUCCESS(result);
   REQUIRE(fs::exists(outputPath));
@@ -2460,7 +2473,7 @@ TEST_CASE(
   // libx264 keeps the case runnable without a GPU; the cut cadence comes from
   // -force_key_frames, which the CPU path must honor as well.
   auto const result = e2e::runEncro(
-    {"-y", "-i", inputPath.string(), "-j", "1", "--video-codec", "libx264"},
+    {"-y", "-i", pathutf8::fromPath(inputPath), "-j", "1", "--video-codec", "libx264"},
     temp.path
   );
 
@@ -2492,13 +2505,13 @@ TEST_CASE(
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--video-codec",
     "libx264",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
   };
 
   auto const logEnv = std::map<std::string, std::string>{logRootEnv(logRoot)};
@@ -2514,7 +2527,7 @@ TEST_CASE(
       // not the case's verdict, so name the wait it belongs to.
       INFO(
         "polling "
-        << statePath.string()
+        << pathutf8::fromPath(statePath)
         << " for a running task with segmentIndex >= 1 (180 s deadline)"
       );
       try {
@@ -2566,19 +2579,19 @@ TEST_CASE(
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
-    {"ENCRO_FAKE_FFPROBE_JSON_FILE", probeJson.string()},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath(probeJson)},
   };
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto failEnv = env;
@@ -2630,14 +2643,14 @@ TEST_CASE(
       {
         "-y",
         "-i",
-        inputPath.string(),
+        pathutf8::fromPath(inputPath),
         "-f",
         "webp",
         "-j",
         "1",
         "--log-json",
         "--ffmpeg-path",
-        toolchain.root.string(),
+        pathutf8::fromPath(toolchain.root),
       },
       std::nullopt,
       logEnv
@@ -2671,12 +2684,12 @@ TEST_CASE(
         "pic",
         "-c",
         "-i",
-        inputDir.string(),
+        pathutf8::fromPath(inputDir),
         "-o",
-        outputDir.string(),
+        pathutf8::fromPath(outputDir),
         "--log-json",
         "--ffmpeg-path",
-        toolchain.root.string(),
+        pathutf8::fromPath(toolchain.root),
       },
       std::nullopt,
       logEnv
@@ -2698,7 +2711,7 @@ TEST_CASE("a subcommand run ends with a summary record", "[e2e][logging][config]
   auto const configPath = temp.path / "user-config.json";
   auto const logRoot = temp.path / "logroot";
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_CONFIG", configPath.string()},
+    {"ENCRO_CONFIG", pathutf8::fromPath(configPath)},
     logRootEnv(logRoot),
   };
 
@@ -2746,7 +2759,7 @@ TEST_CASE(
     {"ENCRO_FAKE_FFPROBE_DURATION_SECS", "50"},
     {"ENCRO_FAKE_FFMPEG_WRITE_VMAF", "1"},
     {"ENCRO_FAKE_FFMPEG_VMAF_SCORES", "95"},
-    {"ENCRO_PROBE_CACHE", cachePath.string()},
+    {"ENCRO_PROBE_CACHE", pathutf8::fromPath(cachePath)},
   };
 
   SECTION("decisions persist across runs") {
@@ -2761,19 +2774,19 @@ TEST_CASE(
       return std::vector<std::string>{
         "-y",
         "-i",
-        inputPath.string(),
+        pathutf8::fromPath(inputPath),
         "-o",
-        outputDir.string(),
+        pathutf8::fromPath(outputDir),
         "-j",
         "1",
         "--ffmpeg-path",
-        toolchain.root.string(),
+        pathutf8::fromPath(toolchain.root),
       };
     };
 
     // First run: probing happens, scoring runs, the decision is persisted.
     auto env1 = env;
-    env1["ENCRO_FAKE_TOOL_LOG_FILE"] = log1.string();
+    env1["ENCRO_FAKE_TOOL_LOG_FILE"] = pathutf8::fromPath(log1);
     auto const result1 = e2e::runEncro(makeArgs(temp.path / "out1"), std::nullopt, env1);
     REQUIRE_SUCCESS(result1);
     CHECK(result1.stdoutText.find("(cached)") == std::string::npos);
@@ -2786,7 +2799,7 @@ TEST_CASE(
 
     // Second run against the same cache: skip probing, reuse the decision.
     auto env2 = env;
-    env2["ENCRO_FAKE_TOOL_LOG_FILE"] = log2.string();
+    env2["ENCRO_FAKE_TOOL_LOG_FILE"] = pathutf8::fromPath(log2);
     auto const result2 = e2e::runEncro(makeArgs(temp.path / "out2"), std::nullopt, env2);
     REQUIRE_SUCCESS(result2);
     CHECK(result2.stdoutText.find("(cached)") != std::string::npos);
@@ -2803,18 +2816,18 @@ TEST_CASE(
 
     testutils::writeTextFile(inputPath, "fake-video");
     auto env1 = env;
-    env1["ENCRO_FAKE_TOOL_LOG_FILE"] = log1.string();
+    env1["ENCRO_FAKE_TOOL_LOG_FILE"] = pathutf8::fromPath(log1);
     REQUIRE_SUCCESS(
       e2e::runEncro(
         {"-y",
          "-i",
-         inputPath.string(),
+         pathutf8::fromPath(inputPath),
          "-o",
-         (temp.path / "outA").string(),
+         pathutf8::fromPath((temp.path / "outA")),
          "-j",
          "1",
          "--ffmpeg-path",
-         toolchain.root.string()},
+         pathutf8::fromPath(toolchain.root)},
         std::nullopt,
         env1
       )
@@ -2827,17 +2840,17 @@ TEST_CASE(
     testutils::writeTextFile(inputPath, "fake-video-CHANGED");
 
     auto env2 = env;
-    env2["ENCRO_FAKE_TOOL_LOG_FILE"] = log2.string();
+    env2["ENCRO_FAKE_TOOL_LOG_FILE"] = pathutf8::fromPath(log2);
     auto const result2 = e2e::runEncro(
       {"-y",
        "-i",
-       inputPath.string(),
+       pathutf8::fromPath(inputPath),
        "-o",
-       (temp.path / "outB").string(),
+       pathutf8::fromPath((temp.path / "outB")),
        "-j",
        "1",
        "--ffmpeg-path",
-       toolchain.root.string()},
+       pathutf8::fromPath(toolchain.root)},
       std::nullopt,
       env2
     );
@@ -2872,14 +2885,14 @@ TEST_CASE(
     "-pix_fmt",
     "yuv420p",
   };
-  args.push_back(inputPath.string());
+  args.push_back(pathutf8::fromPath(inputPath));
   auto const makeResult = e2e::runProcess(systemToolPath("ffmpeg"), args);
   REQUIRE_SUCCESS(makeResult);
 
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--video-codec",
@@ -2888,7 +2901,7 @@ TEST_CASE(
 
   auto const outputDir = temp.path / "out";
   auto firstArgs = baseArgs;
-  firstArgs.insert(firstArgs.end(), {"-o", outputDir.string()});
+  firstArgs.insert(firstArgs.end(), {"-o", pathutf8::fromPath(outputDir)});
   auto const firstRun = e2e::runEncro(firstArgs);
   REQUIRE_SUCCESS(firstRun);
   auto const firstCq = extractPlanCq(firstRun.stdoutText);
@@ -2900,7 +2913,7 @@ TEST_CASE(
   // Re-run on a fresh output dir: probing must decide identically.
   auto const secondOut = temp.path / "out2";
   auto secondArgs = baseArgs;
-  secondArgs.insert(secondArgs.end(), {"-o", secondOut.string()});
+  secondArgs.insert(secondArgs.end(), {"-o", pathutf8::fromPath(secondOut)});
   auto const secondRun = e2e::runEncro(secondArgs);
   REQUIRE_SUCCESS(secondRun);
   CHECK(extractPlanCq(secondRun.stdoutText) == firstCq);
@@ -2939,18 +2952,18 @@ TEST_CASE(
     auto const original = temp.path / "preview60s.mp4";
     auto const encoded = temp.path / "preview60s.hevc.mp4";
     auto makeOriginal = makeArgs;
-    makeOriginal.push_back(original.string());
+    makeOriginal.push_back(pathutf8::fromPath(original));
     REQUIRE_SUCCESS(e2e::runProcess(systemToolPath("ffmpeg"), makeOriginal));
     auto makeEncoded = makeArgs;
-    makeEncoded.push_back(encoded.string());
+    makeEncoded.push_back(pathutf8::fromPath(encoded));
     REQUIRE_SUCCESS(e2e::runProcess(systemToolPath("ffmpeg"), makeEncoded));
 
     auto const result = e2e::runEncro({
       "--video-codec",
       "libx264",
       "preview",
-      original.string(),
-      encoded.string(),
+      pathutf8::fromPath(original),
+      pathutf8::fromPath(encoded),
       "--no-open",
     });
     REQUIRE_SUCCESS(result);
@@ -2961,14 +2974,14 @@ TEST_CASE(
   SECTION("single input") {
     auto const original = temp.path / "single60s.mp4";
     auto makeOriginal = makeArgs;
-    makeOriginal.push_back(original.string());
+    makeOriginal.push_back(pathutf8::fromPath(original));
     REQUIRE_SUCCESS(e2e::runProcess(systemToolPath("ffmpeg"), makeOriginal));
 
     auto const result = e2e::runEncro({
       "--video-codec",
       "libx264",
       "preview",
-      original.string(),
+      pathutf8::fromPath(original),
       "--no-open",
     });
     REQUIRE_SUCCESS(result);
@@ -2979,7 +2992,7 @@ TEST_CASE(
   SECTION("bare output filename writes to the working directory") {
     auto const original = temp.path / "bare60s.mp4";
     auto makeOriginal = makeArgs;
-    makeOriginal.push_back(original.string());
+    makeOriginal.push_back(pathutf8::fromPath(original));
     REQUIRE_SUCCESS(e2e::runProcess(systemToolPath("ffmpeg"), makeOriginal));
 
     // A bare --output name resolves against the working directory (the temp
@@ -2989,7 +3002,7 @@ TEST_CASE(
         "--video-codec",
         "libx264",
         "preview",
-        original.string(),
+        pathutf8::fromPath(original),
         "--output",
         "result.mp4",
         "--no-open",
@@ -3014,9 +3027,9 @@ TEST_CASE("encro config set feeds persisted values into encode runs", "[e2e][con
 
   auto const toolchain = e2e::installFakeToolchain(temp.path / "fake-tools");
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_CONFIG", configPath.string()},
-    {"ENCRO_FAKE_TOOL_LOG_FILE", logPath.string()},
-    {"ENCRO_FAKE_FFPROBE_JSON_FILE", (temp.path / "probe.json").string()},
+    {"ENCRO_CONFIG", pathutf8::fromPath(configPath)},
+    {"ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath)},
+    {"ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath((temp.path / "probe.json"))},
   };
   testutils::writeTextFile(
     temp.path / "probe.json",
@@ -3026,13 +3039,13 @@ TEST_CASE("encro config set feeds persisted values into encode runs", "[e2e][con
   auto const baseArgs = std::vector<std::string>{
     "-y",
     "-i",
-    inputPath.string(),
+    pathutf8::fromPath(inputPath),
     "-j",
     "1",
     "--state-file",
-    statePath.string(),
+    pathutf8::fromPath(statePath),
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto const setRun = e2e::runEncro({"config", "set", "crf", "23"}, std::nullopt, env);
@@ -3068,7 +3081,7 @@ TEST_CASE("encro config overrides and store failures work standalone", "[e2e][co
   TempDir temp;
   auto const configPath = temp.path / "user-config.json";
   auto const env = std::map<std::string, std::string>{
-    {"ENCRO_CONFIG", configPath.string()},
+    {"ENCRO_CONFIG", pathutf8::fromPath(configPath)},
   };
 
   SECTION("--no-pack overrides a persisted pack=true") {
@@ -3088,13 +3101,13 @@ TEST_CASE("encro config overrides and store failures work standalone", "[e2e][co
     auto const packedArgs = std::vector<std::string>{
       "-y",
       "-i",
-      makeInputDir("packed-run").string(),
+      pathutf8::fromPath(makeInputDir("packed-run")),
       "-f",
       "webp",
       "-j",
       "1",
       "--ffmpeg-path",
-      toolchain.root.string(),
+      pathutf8::fromPath(toolchain.root),
     };
     auto const packedRun = e2e::runEncro(packedArgs, std::nullopt, env);
     REQUIRE_SUCCESS(packedRun);
@@ -3103,7 +3116,7 @@ TEST_CASE("encro config overrides and store failures work standalone", "[e2e][co
     );
 
     auto noPackArgs = packedArgs;
-    noPackArgs[2] = makeInputDir("no-pack-run").string();
+    noPackArgs[2] = pathutf8::fromPath(makeInputDir("no-pack-run"));
     noPackArgs.push_back("--no-pack");
     auto const noPackRun = e2e::runEncro(noPackArgs, std::nullopt, env);
     REQUIRE_SUCCESS(noPackRun);
@@ -3116,10 +3129,10 @@ TEST_CASE("encro config overrides and store failures work standalone", "[e2e][co
     auto const inputPath = temp.path / "sample.avi";
     testutils::writeTextFile(inputPath, "fake-video");
     auto const badRun =
-      e2e::runEncro({"-y", "-i", inputPath.string()}, std::nullopt, env);
+      e2e::runEncro({"-y", "-i", pathutf8::fromPath(inputPath)}, std::nullopt, env);
     CHECK(badRun.exitCode != 0);
     CHECK(
-      (badRun.stdoutText + badRun.stderrText).find(configPath.string())
+      (badRun.stdoutText + badRun.stderrText).find(pathutf8::fromPath(configPath))
       != std::string::npos
     );
 
@@ -3144,13 +3157,13 @@ TEST_CASE(
 
   auto const result = e2e::runEncro({
     "batch",
-    root.string(),
+    pathutf8::fromPath(root),
     "--type",
     "picture",
     "--pack",
     "-y",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   });
   REQUIRE_SUCCESS(result);
   CAPTURE(result.stdoutText);
@@ -3192,13 +3205,13 @@ TEST_CASE(
   // the stop needs to arrive.
   auto const env = std::map<std::string, std::string>{
     {"ENCRO_FAKE_FFMPEG_OUTPUT_BYTES", "1"},
-    {"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", countPath.string()},
+    {"ENCRO_FAKE_FFMPEG_CALL_COUNT_FILE", pathutf8::fromPath(countPath)},
     {"ENCRO_FAKE_FFMPEG_CALL_PLAN", "3-:15000:0"},
-    {"ENCRO_FAKE_FFMPEG_MARKER_DIR", markerDir.string()},
+    {"ENCRO_FAKE_FFMPEG_MARKER_DIR", pathutf8::fromPath(markerDir)},
   };
   auto const baseArgs = std::vector<std::string>{
     "batch",
-    root.string(),
+    pathutf8::fromPath(root),
     "-f",
     "webp",
     "--pack",
@@ -3206,7 +3219,7 @@ TEST_CASE(
     "-j",
     "1",
     "--ffmpeg-path",
-    toolchain.root.string(),
+    pathutf8::fromPath(toolchain.root),
   };
 
   auto proc = e2e::runEncroAsync(baseArgs, std::nullopt, env);
@@ -3227,7 +3240,7 @@ TEST_CASE(
   CHECK(fs::exists(root / "2024-02" / "encoded_webp" / ".encro" / "job-state.json"));
 
   auto resumeEnv = env;
-  resumeEnv["ENCRO_FAKE_FFMPEG_MARKER_DIR"] = resumeMarkerDir.string();
+  resumeEnv["ENCRO_FAKE_FFMPEG_MARKER_DIR"] = pathutf8::fromPath(resumeMarkerDir);
   auto const resumed = e2e::runEncro(baseArgs, std::nullopt, resumeEnv);
   REQUIRE_SUCCESS(resumed);
 

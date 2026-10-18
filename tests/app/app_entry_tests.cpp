@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "app/app_entry.h"
 
 #include "infra/stop_signal.h"
@@ -45,7 +46,7 @@ TEST_CASE(
   fs::create_directories(root / "2024-01");
 
   auto const cmd = testutils::parseArgs(
-    {"encro", "batch", root.string(), "--type", "picture", "--compress"}
+    {"encro", "batch", pathutf8::fromPath(root), "--type", "picture", "--compress"}
   );
   REQUIRE_FALSE(cmd.error.has_value());
 
@@ -71,7 +72,12 @@ TEST_CASE(
   fs::create_directories(root);
 
   auto const cmd = testutils::parseArgs(
-    {"encro", "batch", root.string(), "-o", out.string(), "--pack-only"}
+    {"encro",
+     "batch",
+     pathutf8::fromPath(root),
+     "-o",
+     pathutf8::fromPath(out),
+     "--pack-only"}
   );
   REQUIRE_FALSE(cmd.error.has_value());
 
@@ -93,12 +99,12 @@ TEST_CASE(
   auto const cmd = testutils::parseArgs({
     "encro",
     "batch",
-    root.string(),
+    pathutf8::fromPath(root),
     "--type",
     "picture",
     "--compress",
     "-x",
-    emptyDir.string(),
+    pathutf8::fromPath(emptyDir),
   });
   REQUIRE_FALSE(cmd.error.has_value());
 
@@ -118,7 +124,12 @@ TEST_CASE(
   fs::create_directories(emptyDir);
 
   auto const cmd = testutils::parseArgs(
-    {"encro", "batch", root.string(), "--pack-only", "-x", emptyDir.string()}
+    {"encro",
+     "batch",
+     pathutf8::fromPath(root),
+     "--pack-only",
+     "-x",
+     pathutf8::fromPath(emptyDir)}
   );
   REQUIRE_FALSE(cmd.error.has_value());
 

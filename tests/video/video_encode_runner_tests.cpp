@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "core/app_context.h"
 #include "core/encoding_state.h"
 #include "infra/stop_signal.h"
@@ -42,7 +43,9 @@ struct WebpScaffold {
 
     logPath = temp.path / "invocations.log";
     envs.push_back(
-      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+      std::make_unique<
+        ScopedEnvVar
+      >("ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath))
     );
   }
 
@@ -90,7 +93,7 @@ TEST_CASE(
   // Same invocation, modulo the temp roots: the encoder, filter chain, loop
   // setting, starting quality and size target all come from one recipe.
   auto const scrubRoot = [](std::string text, fs::path const& root) {
-    auto const rootText = root.string();
+    auto const rootText = pathutf8::fromPath(root);
     for (
       auto pos = text.find(rootText); pos != std::string::npos;
       pos = text.find(rootText, pos)
@@ -154,7 +157,9 @@ TEST_CASE(
   );
   auto const gateFile = s.temp.path / "encode-gate";
   s.envs.push_back(
-    std::make_unique<ScopedEnvVar>("ENCRO_FAKE_FFMPEG_GATE_FILE", gateFile.string())
+    std::make_unique<
+      ScopedEnvVar
+    >("ENCRO_FAKE_FFMPEG_GATE_FILE", pathutf8::fromPath(gateFile))
   );
 
   std::optional<bool> outcome;
@@ -246,12 +251,14 @@ struct SegmentScaffold {
     envs.push_back(
       std::make_unique<
         ScopedEnvVar
-      >("ENCRO_FAKE_FFPROBE_JSON_FILE", probeJsonPath.string())
+      >("ENCRO_FAKE_FFPROBE_JSON_FILE", pathutf8::fromPath(probeJsonPath))
     );
 
     logPath = temp.path / "invocations.log";
     envs.push_back(
-      std::make_unique<ScopedEnvVar>("ENCRO_FAKE_TOOL_LOG_FILE", logPath.string())
+      std::make_unique<
+        ScopedEnvVar
+      >("ENCRO_FAKE_TOOL_LOG_FILE", pathutf8::fromPath(logPath))
     );
   }
 

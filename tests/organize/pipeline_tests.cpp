@@ -1,5 +1,6 @@
 // Pipeline integration over the FakeTagger seam (tasks 4.1-4.4): staging,
 // mixed/uncategorized semantics, dry-run, recluster, resume, rename teaching.
+#include "core/path_utf8.h"
 #include "core/display_text.h"
 #include "core/progress.h"
 #include "core/sha256.h"
@@ -48,9 +49,11 @@ public:
 
   auto classify(fs::path const& path) -> eh::Result<tagger::TaggerOutput> override {
     ++calls;
-    classifiedPaths.push_back(path.filename().string());
-    auto const it = byName.find(path.filename().string());
-    if (it == byName.end()) { return eh::makeError("no fixture for {}", path.string()); }
+    classifiedPaths.push_back(pathutf8::fromPath(path.filename()));
+    auto const it = byName.find(pathutf8::fromPath(path.filename()));
+    if (it == byName.end()) {
+      return eh::makeError("no fixture for {}", pathutf8::fromPath(path));
+    }
     return it->second;
   }
 };
@@ -66,8 +69,10 @@ public:
 
   auto extract(fs::path const& path) -> eh::Result<std::vector<float>> override {
     ++calls;
-    auto const it = byName.find(path.filename().string());
-    if (it == byName.end()) { return eh::makeError("no fixture for {}", path.string()); }
+    auto const it = byName.find(pathutf8::fromPath(path.filename()));
+    if (it == byName.end()) {
+      return eh::makeError("no fixture for {}", pathutf8::fromPath(path));
+    }
     auto feature = it->second;
     tagger::normalizeFeature(feature);
     return feature;
@@ -111,7 +116,9 @@ auto taughtFolderFor(double cosine) -> std::string {
 
   for (auto const& entry: fs::directory_iterator{temp.path / "organized"}) {
     if (!entry.is_directory()) { continue; }
-    if (fs::exists(entry.path() / "new.png")) { return entry.path().filename().string(); }
+    if (fs::exists(entry.path() / "new.png")) {
+      return pathutf8::fromPath(entry.path().filename());
+    }
   }
   return {};
 }
@@ -204,7 +211,7 @@ TEST_CASE(
   "[organize]"
 ) {
   auto temp = TempDir{};
-  auto const renamed = temp.path / "organized" / "初音ミク";
+  auto const renamed = temp.path / "organized" / testutils::u8Path("初音ミク");
   fs::create_directories(renamed);
   auto const seat = std::string{"old-bytes"};
   testutils::writeTextFile(renamed / "old.png", seat);
@@ -317,7 +324,7 @@ TEST_CASE("pipeline files known characters, clusters, and mixed", "[organize]") 
   // Single-subject remainder clustered into an unknown_ folder.
   auto foundUnknown = false;
   for (auto const& entry: fs::directory_iterator{temp.path / "organized"}) {
-    if (entry.path().filename().string().starts_with("unknown_")) {
+    if (pathutf8::fromPath(entry.path().filename()).starts_with("unknown_")) {
       foundUnknown = fs::exists(entry.path() / "oc-a.png");
     }
   }
@@ -654,7 +661,7 @@ TEST_CASE("renamed character folder teaches subsequent runs", "[organize]") {
   // recreates the old one.
   fs::rename(
     temp.path / "organized" / "hatsune_miku",
-    temp.path / "organized" / "初音ミク"
+    temp.path / "organized" / testutils::u8Path("初音ミク")
   );
   testutils::writeTextFile(temp.path / "miku2.png", "miku2");
   engine.byName["miku2.png"] = {.character = {tag("hatsune_miku", 0.9)}};
@@ -662,8 +669,10 @@ TEST_CASE("renamed character folder teaches subsequent runs", "[organize]") {
   auto const report =
     organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(report.has_value());
-  CHECK(fs::exists(temp.path / "organized" / "初音ミク" / "miku.png"));
-  CHECK(fs::exists(temp.path / "organized" / "初音ミク" / "miku2.png"));
+  CHECK(fs::exists(temp.path / "organized" / testutils::u8Path("初音ミク") / "miku.png"));
+  CHECK(
+    fs::exists(temp.path / "organized" / testutils::u8Path("初音ミク") / "miku2.png")
+  );
   CHECK(!fs::exists(temp.path / "organized" / "hatsune_miku"));
 }
 
@@ -733,7 +742,7 @@ TEST_CASE("a merged cluster shares one folder", "[organize]") {
 
   auto unknownFolders = std::map<std::string, int>{};
   for (auto const& entry: fs::directory_iterator{temp.path / "organized"}) {
-    auto const name = entry.path().filename().string();
+    auto const name = pathutf8::fromPath(entry.path().filename());
     if (!name.starts_with("unknown_")) { continue; }
     unknownFolders[name] = static_cast<int>(
       std::ranges::count_if(fs::directory_iterator{entry.path()}, [](auto const&) {
@@ -765,10 +774,11 @@ TEST_CASE("organize with the fake engine prints no provider notice", "[organize]
       core::sha256Hex(bytes)
     )
   );
-  auto const fakeEngine = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", fixture.string()};
+  auto const fakeEngine =
+    testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", pathutf8::fromPath(fixture)};
 
   auto cmd = CmdParseResult{};
-  cmd.organizeDir = pics.string();
+  cmd.organizeDir = pathutf8::fromPath(pics);
   auto exitCode = 1;
   auto const captured =
     testutils::captureStdout([&] { exitCode = organize::runOrganizeCommand(cmd); });
@@ -807,14 +817,14 @@ TEST_CASE(
     std::format(
       R"("{}" -hide_banner -loglevel error -y -f lavfi -i color=c=red:s=448x448 -frames:v 1 "{}")",
       quoteToolPath(*ffmpeg),
-      input.string()
+      pathutf8::fromPath(input)
     )
   );
   REQUIRE(exitCode == 0);
 
   auto cmd = CmdParseResult{};
-  cmd.organizeDir = pics.string();
-  cmd.organizeModelDir = modelDir.string();
+  cmd.organizeDir = pathutf8::fromPath(pics);
+  cmd.organizeModelDir = pathutf8::fromPath(modelDir);
   cmd.ffmpegPath = ffmpeg->string();
 
   auto runExit = 1;
@@ -973,10 +983,11 @@ TEST_CASE("organize names failed copies in its report", "[organize]") {
       core::sha256Hex(bytes)
     )
   );
-  auto const fakeEngine = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", fixture.string()};
+  auto const fakeEngine =
+    testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", pathutf8::fromPath(fixture)};
 
   auto cmd = CmdParseResult{};
-  cmd.organizeDir = pics.string();
+  cmd.organizeDir = pathutf8::fromPath(pics);
 
   auto exitCode = 0;
   auto const captured =
@@ -987,8 +998,13 @@ TEST_CASE("organize names failed copies in its report", "[organize]") {
   auto const destination = pics / "organized" / "hatsune_miku" / "miku.png";
   CHECK(captured.find("scanned 1 images: copied 0") != std::string::npos);
   CHECK(
-    captured
-      .find(std::format("copy failed: {} -> {}", source.string(), destination.string()))
+    captured.find(
+      std::format(
+        "copy failed: {} -> {}",
+        pathutf8::fromPath(source),
+        pathutf8::fromPath(destination)
+      )
+    )
     != std::string::npos
   );
   CHECK(exitCode == 0);
@@ -1008,7 +1024,7 @@ TEST_CASE("reference sampling caps members by content hash and caches", "[organi
   auto const buildDir = [](fs::path const& dir) {
     for (auto index = 0; index < 21; ++index) {
       testutils::writeTextFile(
-        dir / "角色A" / std::format("m{:02}.png", index),
+        dir / testutils::u8Path("角色A") / std::format("m{:02}.png", index),
         std::format("m{:02}", index)
       );
     }
@@ -1061,13 +1077,16 @@ TEST_CASE("reference sampling caps members by content hash and caches", "[organi
 
   // The reference folder itself is untouched; the loose image filed into the
   // mirrored skeleton.
-  CHECK(fs::exists(tempA.path / "角色A" / "m00.png"));
-  CHECK(fs::exists(tempA.path / "organized" / "角色A" / "new.png"));
+  CHECK(fs::exists(tempA.path / testutils::u8Path("角色A") / "m00.png"));
+  CHECK(fs::exists(tempA.path / "organized" / testutils::u8Path("角色A") / "new.png"));
 }
 
 TEST_CASE("a first-level folder teaches the run and is mirrored", "[organize]") {
   auto temp = TempDir{};
-  testutils::writeTextFile(temp.path / "角色A" / "member.png", "member");
+  testutils::writeTextFile(
+    temp.path / testutils::u8Path("角色A") / "member.png",
+    "member"
+  );
   testutils::writeTextFile(temp.path / "solo.png", "solo");
 
   auto engine = FakeTagger{};
@@ -1080,10 +1099,10 @@ TEST_CASE("a first-level folder teaches the run and is mirrored", "[organize]") 
   auto const report =
     organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(report.has_value());
-  CHECK(fs::exists(temp.path / "organized" / "角色A" / "solo.png"));
+  CHECK(fs::exists(temp.path / "organized" / testutils::u8Path("角色A") / "solo.png"));
   // The first-level folder and its member are untouched; no parallel
   // unknown_ folder appears.
-  CHECK(fs::exists(temp.path / "角色A" / "member.png"));
+  CHECK(fs::exists(temp.path / testutils::u8Path("角色A") / "member.png"));
   CHECK_FALSE(hasUnknownFolder(*report));
 }
 
@@ -1091,8 +1110,8 @@ TEST_CASE("a first-level folder teaches the run and is mirrored", "[organize]") 
 // folder matching AND tag ownership, without changing the folder's contents.
 TEST_CASE("a mixed sample demotes the folder from matching and ownership", "[organize]") {
   auto temp = TempDir{};
-  testutils::writeTextFile(temp.path / "温迪" / "a.png", "a");
-  testutils::writeTextFile(temp.path / "温迪" / "b.png", "b");
+  testutils::writeTextFile(temp.path / testutils::u8Path("温迪") / "a.png", "a");
+  testutils::writeTextFile(temp.path / testutils::u8Path("温迪") / "b.png", "b");
   testutils::writeTextFile(temp.path / "new.png", "new");
 
   auto engine = FakeTagger{};
@@ -1111,15 +1130,15 @@ TEST_CASE("a mixed sample demotes the folder from matching and ownership", "[org
   // Not demoted, the sampled sole-tag majority would own venti and file the
   // image under 温迪/; demoted, the raw tag folder is used.
   CHECK(fs::exists(temp.path / "organized" / "venti" / "new.png"));
-  CHECK_FALSE(fs::exists(temp.path / "organized" / "温迪"));
-  CHECK(fs::exists(temp.path / "温迪" / "a.png"));
-  CHECK(fs::exists(temp.path / "温迪" / "b.png"));
+  CHECK_FALSE(fs::exists(temp.path / "organized" / testutils::u8Path("温迪")));
+  CHECK(fs::exists(temp.path / testutils::u8Path("温迪") / "a.png"));
+  CHECK(fs::exists(temp.path / testutils::u8Path("温迪") / "b.png"));
 }
 
 TEST_CASE("a first-level folder owns its character tag", "[organize]") {
   auto temp = TempDir{};
-  testutils::writeTextFile(temp.path / "温迪" / "a.png", "a");
-  testutils::writeTextFile(temp.path / "温迪" / "b.png", "b");
+  testutils::writeTextFile(temp.path / testutils::u8Path("温迪") / "a.png", "a");
+  testutils::writeTextFile(temp.path / testutils::u8Path("温迪") / "b.png", "b");
   testutils::writeTextFile(temp.path / "new.png", "new");
 
   auto engine = FakeTagger{};
@@ -1134,7 +1153,7 @@ TEST_CASE("a first-level folder owns its character tag", "[organize]") {
   auto const report =
     organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(report.has_value());
-  CHECK(fs::exists(temp.path / "organized" / "温迪" / "new.png"));
+  CHECK(fs::exists(temp.path / "organized" / testutils::u8Path("温迪") / "new.png"));
   CHECK_FALSE(fs::exists(temp.path / "organized" / "venti"));
 }
 
@@ -1145,9 +1164,12 @@ TEST_CASE(
   "[organize]"
 ) {
   auto temp = TempDir{};
-  testutils::writeTextFile(temp.path / "角色A" / "s1.png", "s1");
-  testutils::writeTextFile(temp.path / "角色A" / "s2.png", "s2");
-  testutils::writeTextFile(temp.path / "organized" / "角色A" / "old.png", "old");
+  testutils::writeTextFile(temp.path / testutils::u8Path("角色A") / "s1.png", "s1");
+  testutils::writeTextFile(temp.path / testutils::u8Path("角色A") / "s2.png", "s2");
+  testutils::writeTextFile(
+    temp.path / "organized" / testutils::u8Path("角色A") / "old.png",
+    "old"
+  );
   testutils::writeTextFile(temp.path / "new.png", "new");
 
   // The output-root member carries venti from an earlier run; the sample
@@ -1176,7 +1198,7 @@ TEST_CASE(
   auto const report =
     organize::runOrganize(makeOptions(temp.path), engine, features, nullptr);
   REQUIRE(report.has_value());
-  CHECK(fs::exists(temp.path / "organized" / "角色A" / "new.png"));
+  CHECK(fs::exists(temp.path / "organized" / testutils::u8Path("角色A") / "new.png"));
   CHECK_FALSE(fs::exists(temp.path / "organized" / "venti"));
 }
 
@@ -1252,7 +1274,7 @@ TEST_CASE("a failed copy leaves no empty destination folder", "[organize]") {
 TEST_CASE("incremental entry is announced once, and only incrementally", "[organize]") {
   auto const runCommand = [](fs::path const& dir, bool recursive) {
     auto cmd = CmdParseResult{};
-    cmd.organizeDir = dir.string();
+    cmd.organizeDir = pathutf8::fromPath(dir);
     cmd.recursive = recursive;
     auto exitCode = 1;
     auto const captured =
@@ -1262,11 +1284,11 @@ TEST_CASE("incremental entry is announced once, and only incrementally", "[organ
 
   auto temp = TempDir{};
   auto const pics = temp.path / "pics";
-  fs::create_directories(pics / "角色A");
+  fs::create_directories(pics / testutils::u8Path("角色A"));
   fs::create_directories(pics / "mix");
   auto const bytes = std::string{"miku-bytes"};
   testutils::writeTextFile(pics / "miku.png", bytes);
-  testutils::writeTextFile(pics / "角色A" / "ref.png", "ref");
+  testutils::writeTextFile(pics / testutils::u8Path("角色A") / "ref.png", "ref");
   auto const fixture = temp.path / "fixture.json";
   testutils::writeTextFile(
     fixture,
@@ -1275,7 +1297,8 @@ TEST_CASE("incremental entry is announced once, and only incrementally", "[organ
       core::sha256Hex(bytes)
     )
   );
-  auto const fakeEngine = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", fixture.string()};
+  auto const fakeEngine =
+    testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", pathutf8::fromPath(fixture)};
 
   auto const [exitCode, captured] = runCommand(pics, false);
   CHECK(exitCode == 0);
@@ -1300,8 +1323,14 @@ TEST_CASE(
   "[organize]"
 ) {
   auto temp = TempDir{};
-  testutils::writeTextFile(temp.path / "角色A" / "member.png", "member");
-  testutils::writeTextFile(temp.path / "角色B" / "member.png", "member-b");
+  testutils::writeTextFile(
+    temp.path / testutils::u8Path("角色A") / "member.png",
+    "member"
+  );
+  testutils::writeTextFile(
+    temp.path / testutils::u8Path("角色B") / "member.png",
+    "member-b"
+  );
   testutils::writeTextFile(temp.path / "mix" / "x.png", "x");
   testutils::writeTextFile(temp.path / "new.png", "new");
 
@@ -1395,10 +1424,10 @@ TEST_CASE(
     auto const fixture = temp.path / "fixture.json";
     testutils::writeTextFile(fixture, "{}");
     auto const fakeEngine =
-      testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", fixture.string()};
+      testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", pathutf8::fromPath(fixture)};
 
     auto cmd = CmdParseResult{};
-    cmd.organizeDir = pics.string();
+    cmd.organizeDir = pathutf8::fromPath(pics);
 
     stopsignal::requestStop();
     auto exitCode = 0;

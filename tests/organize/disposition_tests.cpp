@@ -39,7 +39,7 @@ auto dispositionByName(
 
 TEST_CASE("dispositions default to reference and skip the output tree", "[organize]") {
   auto temp = TempDir{};
-  fs::create_directories(temp.path / "角色A");
+  fs::create_directories(temp.path / testutils::u8Path("角色A"));
   fs::create_directories(temp.path / "album");
   fs::create_directories(temp.path / "organized" / "miku");
 
@@ -61,9 +61,9 @@ TEST_CASE(
 ) {
   auto temp = TempDir{};
   fs::create_directories(temp.path / "mix");
-  fs::create_directories(temp.path / "未分类");
+  fs::create_directories(temp.path / testutils::u8Path("未分类"));
   fs::create_directories(temp.path / ".stash");
-  fs::create_directories(temp.path / "夏mix子");
+  fs::create_directories(temp.path / testutils::u8Path("夏mix子"));
 
   auto const dispositions = organize::computeFolderDispositions(temp.path, false, {}, {});
   auto const kinds = kindByName(dispositions);
@@ -82,7 +82,7 @@ TEST_CASE(
 
 TEST_CASE("disposition flags override the list and the default", "[organize]") {
   auto temp = TempDir{};
-  fs::create_directories(temp.path / "角色A");
+  fs::create_directories(temp.path / testutils::u8Path("角色A"));
   fs::create_directories(temp.path / "mix");
   fs::create_directories(temp.path / ".stash");
 
@@ -103,7 +103,7 @@ TEST_CASE("disposition flags override the list and the default", "[organize]") {
 
 TEST_CASE("a recursive run disposes every folder as input except ignored", "[organize]") {
   auto temp = TempDir{};
-  fs::create_directories(temp.path / "角色A");
+  fs::create_directories(temp.path / testutils::u8Path("角色A"));
   fs::create_directories(temp.path / "mix");
   fs::create_directories(temp.path / ".stash");
 
