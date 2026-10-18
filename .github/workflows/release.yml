@@ -166,9 +166,29 @@ jobs:
           }
           "version $version is above $boundary"
 
-      - name: Unit and end-to-end tests
+      - name: Build the test binaries
         timeout-minutes: 40
-        run: xmake test-report --suite=all
+        run: xmake build -vD encro encro_e2e_tool tests e2e_tests
+
+      - name: Unit tests
+        # Run the binaries directly, exactly as ci.yml does. `xmake test-report`
+        # shards and writes per-shard logs, which on a fresh runner meant a
+        # failure arrived as "a shard failed" with the assertions buried in a
+        # file nobody kept; the console output here is the evidence.
+        run: |
+          set -o pipefail
+          ./build/linux/x86_64/release/tests -r console -r junit::out=/tmp/ut.xml > /tmp/ut.log 2>&1
+          ec=$?
+          tail -25 /tmp/ut.log
+          if [ $ec -ne 0 ]; then
+            echo "::error::unit tests failed"
+            grep -oE '<testcase[^>]*>[^<]*<failure[^>]*>[^<]*' /tmp/ut.xml | head -10 || true
+          fi
+          exit $ec
+
+      - name: End-to-end tests
+        timeout-minutes: 20
+        run: xmake run e2e_tests
 
       - name: Tag contract
         run: pwsh -NoProfile -File scripts/verify-release-tags.ps1
@@ -229,14 +249,28 @@ jobs:
 
       - name: Build
         timeout-minutes: 60
-        run: xmake build -vD encro
+        run: xmake build -vD encro encro_e2e_tool tests e2e_tests
 
-      - name: Run the same suite on the platform being published
-        # The gate ran it on Linux. Publishing a Windows binary that was never
-        # tested on Windows would be the same class of mistake as publishing one
-        # that cannot start.
-        timeout-minutes: 40
-        run: xmake test-report --suite=all
+      - name: Unit tests
+        # The gate ran the suite on Linux; publishing a Windows binary that was
+        # never tested on Windows would be the same class of mistake as
+        # publishing one that cannot start.
+        shell: pwsh
+        run: |
+          & ".\build\windows\x64\release\tests.exe" -r console -r junit::out=$env:TEMP\ut.xml 2>&1 | Tee-Object -FilePath $env:TEMP\ut.log | Select-Object -Last 25
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Write-Host "::error::unit tests failed on Windows"
+            Select-String -Path "$env:TEMP\ut.xml" -Pattern "<failure" | Select-Object -First 10
+          }
+          exit $code
+
+      - name: End-to-end tests
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          & ".\build\windows\x64\release\e2e_tests.exe" 2>&1 | Tee-Object -FilePath $env:TEMP\e2e.log | Select-Object -Last 25
+          exit $LASTEXITCODE
 
       - name: Pack the runtime archive
         run: xmake pack -f zip encro
