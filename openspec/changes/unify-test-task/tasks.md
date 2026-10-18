@@ -1,0 +1,54 @@
+# Tasks
+
+## 1. Stop-signal watchdog grace (lands first, independently green)
+
+- [ ] 1.1 `src/infra/stop_signal.h`/`.cpp`: add the two read-only test hooks (`forceExitGracePeriodForTest()`, `forceExitHandlerForTest()`) beside the existing setters, then make `tests/test_utils.h`'s `ScopedStopSignalWatchdog` save the grace period and handler it finds and restore them in its destructor instead of hard-coding `std::chrono::seconds{3}` and a null handler; keep the declaration-order comment true. Verify: a new `_WIN32` case in `tests/infra/stop_signal_tests.cpp` sets a 50 ms grace, lets a guard destruct, and asserts the grace reads back as the process default — red before the fix, green after (`xmake test-report --tag="[stop-signal]"`).
+- [ ] 1.2 `tests/test_main.cpp`: on Windows set a hang-guard force-exit grace period (60 s) at start-up, so a stop case whose tail outlives a sharded run's scheduling cannot be killed by the watchdog. Verify: the `[stop-signal]` tag stays green, and the starvation reproducer (20 spinners pinned to one core, script kept out of the repo) reports `deaths=0` where it previously reported 2 of 6 — recorded in the change's backlog entry as the corroboration, not as the gate.
+
+## 2. One task: unit + e2e, sharded by default
+
+- [ ] 2.1 Move the sharding machinery (enumeration, escaping preflight, cost model, LPT partitioning, shard spawning, per-shard report verdicts) from `plugins/test_parallel/xmake.lua` into `plugins/test_report/xmake.lua`, keeping a single `run()` helper and making the stale-binary guard build only the selected suites' targets. Verify: `xmake test-report --selftest` still reports every existing helper check and exits 0.
+- [ ] 2.2 Add `--suite=unit|e2e|all` (default `unit`) and shard the selected suites by default with `clamp(cores/2,1,8)` (unit) and `clamp(cores/4,1,4)` (e2e); add `--shards`, `--unit-shards`, `--e2e-shards`, and report the effective counts and per-shard case counts. Verify: `xmake test-report` on this host reports 8 shards and executes all 965 unit cases; `xmake test-report --shards=1` reports 1 shard and the same case count.
+- [ ] 2.3 Apply `--tag` at the enumeration step (`<binary> <filter> --list-tests -r xml`), teach the console listing's cross-check that a filtered listing declares `N matching test cases` rather than `N test cases` (so the enumeration soundness check still compares like with like), clamp the shard count to the enumerated case count, fail naming the filter when it selects nothing in any selected suite, and skip with a notice a suite the filter leaves empty when another suite has work. Verify: `xmake test-report --tag="[test-utils][meta]"` runs in ≤2 shards green; `xmake test-report --tag="[no-such-tag]"` exits non-zero naming the filter; `xmake test-report --suite=all --tag="[real-model]"` prints the e2e skip notice and runs the unit model cases alone.
+- [ ] 2.4 Write the documented report paths in every mode: a one-shard suite writes `build/last-test-report.xml` / `build/last-test-console.log` (e2e: `build/last-e2e-report.xml` / `build/last-e2e-console.log`) directly, and a sharded suite writes per-shard files under `build/.test-parallel/<suite>/` plus an aggregate at the documented paths (spliced `<testsuite>` blocks; concatenated console in shard order). Verify: `xmake test-report --suite=all` leaves all four paths present, the unit report holds one `<testsuite>` block per shard, and the aggregate assertion total equals the sum of the shard logs.
+- [ ] 2.5 Replace the count source with the shard console summaries (singular, plural and totals-table forms) summed per suite, delete the JUnit `tests=` fallback, and print the success line as `<suite>: all tests passed (N assertions in M/M test cases)` in every mode. Verify: `xmake test-report` reports the same assertion total as a single-process `xmake run tests` run of the same tree (compare `assertions:` from `build/last-test-console.log` against `build/windows/x64/release/tests.exe -r console`).
+- [ ] 2.6 Replace the log-grep failure output with the shard report's `<failure>` case name and message plus the shard log path, and keep "missing or unreadable report fails the shard". Verify: break one assertion in a fast case, run its tag, confirm the output names the case, the message and the shard log, then restore the assertion and rebuild with `xmake build -r tests` (the stale-binary trap) and confirm green.
+- [ ] 2.7 Make the cost-model save merge instead of rewrite: measured entries replace, entries outside a filtered enumeration are preserved, and a full enumeration drops entries whose case is gone. Verify: after `xmake test-report --tag="[test-utils][meta]"`, `build/.test-cost-unit.txt` still lists the full unit case count; then `--selftest` covers the merge and prune cases.
+
+- [ ] 2.8 Keep the stale-binary guard honest for the new shape: with a deliberate compile error in a test file, `xmake test-report` fails naming the build and runs no test binary, and with `--suite=unit` it does not build the e2e targets. Verify: the injected error makes the task abort before any shard starts; restore the file and confirm the next run is green (a restored file can leave a cached object — confirm the exe mtime moved or use `xmake build -r tests`).
+
+## 3. Delete the second task
+
+- [ ] 3.1 Delete `plugins/test_parallel/` and add the three new self-checks (shard clamp on a filtered enumeration, empty-suite skip, cost-model merge) to `--selftest`. Verify: `xmake test-report --selftest` exits 0 with the new checks reported; `xmake test-parallel` is no longer a known task.
+- [ ] 3.2 Fold the two test-task bullets in `AGENTS.md` into one that documents `--suite`, the parallel default, `--tag` in every mode, the stable report paths, `--selftest`, and the measured shard ceiling (do not raise the counts), and repoint the separate e2e bullet at `xmake test-report --suite=e2e` so the e2e route also leaves a report. Verify: every command written there runs as written; `rg -n "test-parallel" AGENTS.md README.md docs/*.md` finds nothing outside `docs/backlog.md`, whose historical entries keep the old name on purpose.
+- [ ] 3.3 Record the findings in `docs/backlog.md` as a resolved entry: the measured per-suite shard ceiling and the `REQUIRE(started)` marker-wait flake it exposes; that a failing suite exits with Catch2's session code `42` on this host (observed 4 of 4 failing runs; not a code the repo defines, so the JUnit report stays the verdict source); that exit `130` with no report means the force-exit watchdog killed the shard, which the grace fix now prevents (with the starvation reproducer's before/after: 2 of 6 deaths, then `deaths=0`). Verify: the entry states how each was measured, and `rg -n "test-parallel" docs/backlog.md` finds only the historical entries the rename leaves alone.
+
+## 4. Integration verification
+
+- [ ] 4.1 `xmake test-report --suite=all` green: every shard's executed count equals its assignment, the unit aggregate equals the single-process unit total and the enumerated count (965 on this tree), and the e2e case count equals its enumeration (59); record the wall time against the 55-72 s baseline.
+- [ ] 4.2 `xmake test-report` (default, unit only) green with 8 shards and a wall time in the 38-45 s band measured for a standalone 8-shard run.
+- [ ] 4.3 `build/windows/x64/release/tests.exe -r console -s` reports 0 failures (reporter-mode probe), and `xmake test-report --tag="[test-utils][meta]"` is green so no new bare sleep or assertion-free case entered the suite.
+- [ ] 4.4 `xmake fmt` produces no diff, and `xmake build encro` plus `xmake build tests e2e_tests` are clean.
+- [ ] 4.5 A failing e2e suite honours the same contract as a failing unit suite: break one e2e assertion, run `xmake test-report --suite=e2e`, confirm the run exits non-zero, `build/last-e2e-report.xml` records the failure, and the printed summary names the case with its message and the shard log; restore the assertion and rebuild (`xmake build -r e2e_tests`) before continuing.
+
+## Planning-artifact review
+
+One independent reviewer, two lenses (Coherence, Ground truth), against the four artifacts before implementation; then a fresh verifier judged each finding against the fixed text (round 1 of the 2-round cap, no regressions).
+
+- F1 cost-model scenario asked a filtered run to prune what it cannot see — resolved (pruning moved to a full-enumeration scenario).
+- F2 tasks 3.2/3.3 verification criteria were mutually unsatisfiable over `docs/backlog.md` — resolved (3.2 scoped to exclude the backlog's historical entries).
+- F3 default shard counts were normative in two capabilities — resolved (kept in `test-task` only; the ceiling rationale lives in design.md).
+- F4 two delta scenarios had no task — resolved (added 2.8 build-failure guard, 4.5 failing e2e suite).
+- F5 single-shard environment inheritance contradicted `test-isolation` — resolved (every shard gets a private temp root; residual e2e assertion variance cited from the backlog).
+- F6 save/restore needed getters the header did not expose while the proposal excluded `src/` — resolved (two read-only hooks added to the Impact section).
+- F7 the grace fix had no regression test and leaned on an ignored build-tree script — resolved (a `_WIN32` guard case in `tests/infra/stop_signal_tests.cpp` is the gate; the reproducer is corroboration).
+- F8 the e2e route still produced no report — resolved (task 3.2 repoints the AGENTS.md e2e bullet).
+- F9 a unit-suite case was cited as e2e evidence — resolved (context corrected; the failing shard was `build/.test-parallel/unit/shard-3.xml`).
+- F10 filtering only the XML listing would trip the enumeration cross-check — resolved (both listings filtered; the check reads `N matching test cases`).
+- F11 exit code 42 was stated as if the repo defined it — resolved (attributed to Catch2's session code with the measured sample).
+- Report-only notes from the verifier (filter on both listings, `test-isolation` wording, the corroboration figure) — applied as wording fixes in the same pass.
+
+## Workflow follow-up
+
+- Run `openspec-verify-change` for this change, then the `code-review` skill with the change's spec path, per AGENTS.md.
+- Archive the change once the verify report and review are satisfied.

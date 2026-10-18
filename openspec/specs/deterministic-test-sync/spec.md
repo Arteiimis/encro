@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines how the test suites synchronize with asynchronous and subprocess activity so that test outcomes depend on observable state, never on wall-clock timing assumptions, keeping `xmake test-parallel` runs deterministic under machine load.
+Defines how the test suites synchronize with asynchronous and subprocess activity so that test outcomes depend on observable state, never on wall-clock timing assumptions, keeping sharded runs of the project's test task deterministic under machine load.
 
 ## Requirements
 
