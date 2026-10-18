@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-19
+
+The first version available as a download, following the `2.0.0` milestone. Every entry below `2.0.0` records history only: those versions were tagged retrospectively and were never distributed.
+
+### Added
+
+- Prebuilt packages for Windows and Linux, and a Scoop bucket that installs the Windows build with one command.
+- The Windows package carries the debug symbols as a separate download, so a crash report can be turned into function names long after the build.
+
+### Fixed
+
+- File names, arguments and paths are handled as UTF-8 on Windows. A machine whose system code page was not UTF-8 previously mangled any name outside ASCII: a Japanese or Chinese folder name could fail to open, and terminal output measured those names at the wrong width.
+
 ## [2.0.0] - 2026-10-18
 
 First public release. Everything below this version is reconstructed from the project's own history: these versions were tagged retrospectively and were never distributed, so the pre-release identifiers record milestones rather than published releases.
@@ -244,7 +257,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.0...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/Arteiimis/encro/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/Arteiimis/encro/compare/v2.0.0-rc.1...v2.0.0
 [2.0.0-rc.1]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.3...v2.0.0-rc.1
 [2.0.0-alpha.3]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.2...v2.0.0-alpha.3

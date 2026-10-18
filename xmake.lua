@@ -4,7 +4,7 @@ add_rules("plugin.compile_commands.autoupdate", { outputdir = "./build" })
 -- The release version is declared once, here. set_version() below and the
 -- generated version header both read this variable, so no second literal
 -- exists to drift from it.
-local encroVersion = "2.0.0"
+local encroVersion = "2.0.1"
 set_version(encroVersion)
 
 set_languages("c++26")
