@@ -51,9 +51,10 @@ The test task SHALL shard the selected suites by default, for a single suite as 
 
 #### Scenario: Defaults stay inside the host's core count
 
-- **WHEN** both suites run with their default shard counts
+- **WHEN** both suites run with their default shard counts on a host with at least two cores
 - **THEN** the number of concurrent shard processes does not exceed the host's core count
 - **AND** the task reports the counts it used, so a run a caller pushed past that ceiling is recognizable
+- **AND** on a host where that is impossible because both suites still need one shard each, the counts used are reported rather than silently reduced
 
 ### Requirement: A tag filter narrows the run in every mode
 

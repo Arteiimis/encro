@@ -32,7 +32,7 @@ task("test-report")
     -- xmake's io.readfile raises on a missing file, so every read goes through
     -- this: a shard that died mid-run leaves no log or report, and that is a
     -- verdict input, not an error.
-    local function readcontent(file)
+    local function read_content(file)
       if not os.exists(file) then
         return nil
       end
@@ -66,6 +66,11 @@ task("test-report")
         content:match("All tests passed %((%d+) assertions in (%d+) test cases?%)")
       if not assertions then
         assertions = content:match("assertions:%s+(%d+)%s*|")
+        if not assertions and content:find("assertions:%s*%-%s*none%s*%-") then
+          -- A shard whose every case was skipped prints "- none -" where the
+          -- number goes; it still ran what it was assigned.
+          assertions = "0"
+        end
         cases = content:match("test cases?:%s+(%d+)%s*|")
       end
       if not assertions or not cases then
@@ -252,7 +257,7 @@ task("test-report")
     -- One '<name>\t<seconds>' per case: the model lives outside the wiped work
     -- directory so a later run can pack by measured cost.
     local function load_costs(file)
-      local content = readcontent(file)
+      local content = read_content(file)
       if not content then
         return {}
       end
@@ -394,11 +399,11 @@ task("test-report")
       end
       run(binary, xml_args, {stdout = xml_file})
       run(binary, txt_args, {stdout = txt_file})
-      local names = xml_case_names(readcontent(xml_file) or "")
+      local names = xml_case_names(read_content(xml_file) or "")
       if #names == 0 then
         return names
       end
-      local declared = console_test_count(readcontent(txt_file) or "")
+      local declared = console_test_count(read_content(txt_file) or "")
       local err = enumeration_error(names, declared)
       if err then
         os.raise(string.format("%s enumeration is unsound: %s", suite, err))
@@ -425,7 +430,7 @@ task("test-report")
       local listing = path.join(workdir, string.format("%s-escape-probe.log", suite))
       io.writefile(spec, escape_spec(probe) .. "\n")
       run(binary, {"-f", spec, "--list-tests", "-r", "console"}, {stdout = listing})
-      local matched = (readcontent(listing) or ""):match("(%d+) matching test cases?")
+      local matched = (read_content(listing) or ""):match("(%d+) matching test cases?")
       if tonumber(matched) ~= 1 then
         os.raise(string.format(
           "%s: the escaped name %q selected %s case(s) instead of 1",
@@ -463,7 +468,6 @@ task("test-report")
     -- post-run read does not depend on the shard count.
     local function spawn_shards(binary, shards, workdir, suite)
       local procs = {}
-      local single = #shards == 1
       for i, shard in ipairs(shards) do
         local shard_dir = path.join(workdir, string.format("%d", i - 1))
         makedirs(shard_dir)
@@ -472,12 +476,11 @@ task("test-report")
         -- the shard log so a loaded run's slowest cases are identifiable
         -- post-mortem, and feeds the next run's cost model.
         local tmp = shard_dir:gsub("\\", "/")
-        local logfile = single
-          and documented[suite].console
-          or path.join(workdir, string.format("shard-%d.log", i - 1))
-        local report = single
-          and documented[suite].report
-          or path.join(workdir, string.format("shard-%d.xml", i - 1))
+        -- Every shard writes its own files under the run directory and the
+        -- documented paths always hold the aggregate, one shard or many, so a
+        -- post-run read never depends on the mode.
+        local logfile = path.join(workdir, string.format("shard-%d.log", i - 1))
+        local report = path.join(workdir, string.format("shard-%d.xml", i - 1))
         local proc = process.openv(
           binary,
           {
@@ -491,9 +494,10 @@ task("test-report")
         if not proc then
           os.raise(string.format("failed to spawn %s shard %d", binary, i - 1))
         end
+        shard.logfile = logfile
+        shard.report = report
         -- 1-based: the wait pass below iterates with ipairs and would skip a
         -- 0-keyed entry, leaking the process and losing its result.
-        shard.logfile = logfile
         procs[#procs + 1] = {
           name = string.format("%s shard %d", suite, i - 1),
           suite = suite,
@@ -511,7 +515,7 @@ task("test-report")
     -- concurrently (poller event bookkeeping under parallel waits). A shard
     -- that dies mid-run leaves no complete report, which counts as failed.
     local function shard_verdict(p)
-      local content = readcontent(p.report)
+      local content = read_content(p.report)
       if not content then
         return false, "no report written (shard died mid-run)"
       end
@@ -532,7 +536,7 @@ task("test-report")
     local function shard_counts(logfile)
       local content = ""
       for _ = 1, 40 do
-        content = readcontent(logfile) or ""
+        content = read_content(logfile) or ""
         if content:find("assertions", 1, true) then
           break
         end
@@ -576,7 +580,7 @@ task("test-report")
     local function aggregate_report(shard_reports, out_path)
       local blocks = {}
       for _, report in ipairs(shard_reports) do
-        local content = readcontent(report)
+        local content = read_content(report)
         if content then
           -- Anchored on a space so the outer <testsuites> tag is not matched
           -- by prefix; every shard report holds exactly one block.
@@ -597,7 +601,7 @@ task("test-report")
     local function aggregate_console(shard_logs, out_path)
       local parts = {}
       for _, log in ipairs(shard_logs) do
-        parts[#parts + 1] = readcontent(log) or ""
+        parts[#parts + 1] = read_content(log) or ""
       end
       io.writefile(out_path, table.concat(parts, ""))
     end
@@ -676,6 +680,15 @@ task("test-report")
       check("plural summary parsed", many_assertions == 254 and many_cases == 12)
       check("table summary parsed", table_assertions == 495 and table_cases == 91)
       check("absent summary reported", parse_summary("nothing here") == nil, "nil")
+      -- A shard whose cases all SKIP() (the opt-in [real-model] run without a
+      -- model dir) prints no assertion number at all.
+      local skipped_assertions, skipped_cases =
+        parse_summary("test cases: 1 | 1 skipped\nassertions: - none -\n")
+      check(
+        "skipped-only summary parsed",
+        skipped_assertions == 0 and skipped_cases == 1,
+        string.format("%s/%s", tostring(skipped_assertions), tostring(skipped_cases))
+      )
 
       local model = path.join(builddir, ".test-cost-selftest.txt")
       save_costs(model, {alpha = 1.25, beta = 2, ["com,ma"] = 0.5})
@@ -832,24 +845,11 @@ task("test-report")
       os.raise("shard counts must be >= 1")
     end
 
-    -- Build only what the selected suites run: a unit run must not pay for the
-    -- e2e targets. run() returns the exit code instead of raising, so check it
-    -- here: a failed build would otherwise shard the stale binaries.
-    local build_args = {"build"}
-    if suite == "unit" or suite == "all" then
-      build_args[#build_args + 1] = "tests"
-    end
-    if suite == "e2e" or suite == "all" then
-      build_args[#build_args + 1] = "e2e_tests"
-    end
-    if run("xmake", build_args) ~= 0 then
-      os.raise("test build failed; refusing to run a stale binary")
-    end
-
     local suites = {}
     if suite == "unit" or suite == "all" then
       suites[#suites + 1] = {
         name = "unit",
+        target = "tests",
         binary = path.join(bin_dir, "tests" .. ext),
         shards = unit_shards
       }
@@ -857,10 +857,23 @@ task("test-report")
     if suite == "e2e" or suite == "all" then
       suites[#suites + 1] = {
         name = "e2e",
+        target = "e2e_tests",
         binary = path.join(bin_dir, "e2e_tests" .. ext),
         shards = e2e_shards
       }
     end
+
+    -- Build only what the selected suites run: a unit run must not pay for the
+    -- e2e targets. run() returns the exit code instead of raising, so check it
+    -- here: a failed build would otherwise shard the stale binaries.
+    local build_args = {"build"}
+    for _, s in ipairs(suites) do
+      build_args[#build_args + 1] = s.target
+    end
+    if run("xmake", build_args) ~= 0 then
+      os.raise("test build failed; refusing to run a stale binary")
+    end
+
     for _, s in ipairs(suites) do
       if not os.exists(s.binary) then
         os.raise(string.format("test binary not found: %s", s.binary))
@@ -889,6 +902,13 @@ task("test-report")
     local running, skipped = split_by_work(suite_names, counts)
     for _, name in ipairs(skipped) do
       cprint("${yellow}%s: skipped - the filter %q selects no case in this suite", name, filter)
+      -- Remove the previous run's files: a post-run read of a documented path
+      -- must not see a report this run never wrote.
+      for _, stale in ipairs({documented[name].report, documented[name].console}) do
+        if os.exists(stale) then
+          os.rm(stale)
+        end
+      end
     end
     if #running == 0 then
       os.raise(string.format("the filter %q selects no case in any selected suite", filter or ""))
@@ -983,7 +1003,7 @@ task("test-report")
         -- The shard's own log path: a one-shard suite writes the documented
         -- console file instead, and reading the per-shard name there would
         -- silently drop every measurement.
-        for name, seconds in pairs(parse_durations(readcontent(shard.logfile) or "")) do
+        for name, seconds in pairs(parse_durations(read_content(shard.logfile) or "")) do
           if measured[name] == nil then
             measured[name] = seconds
           end
@@ -996,18 +1016,16 @@ task("test-report")
       )
     end
 
-    -- A one-shard suite already wrote the documented paths; a sharded one is
-    -- aggregated into them, so a post-run grep never depends on the mode.
+    -- The documented paths always hold the aggregate, so a post-run grep never
+    -- depends on the shard count.
     for _, plan in ipairs(plans) do
-      if #plan.shards > 1 then
-        local reports, logs = {}, {}
-        for i = 1, #plan.shards do
-          reports[#reports + 1] = path.join(plan.dir, string.format("shard-%d.xml", i - 1))
-          logs[#logs + 1] = path.join(plan.dir, string.format("shard-%d.log", i - 1))
-        end
-        aggregate_report(reports, documented[plan.name].report)
-        aggregate_console(logs, documented[plan.name].console)
+      local reports, logs = {}, {}
+      for _, shard in ipairs(plan.shards) do
+        reports[#reports + 1] = shard.report
+        logs[#logs + 1] = shard.logfile
       end
+      aggregate_report(reports, documented[plan.name].report)
+      aggregate_console(logs, documented[plan.name].console)
     end
 
     if #failures == 0 then
@@ -1032,21 +1050,16 @@ task("test-report")
     cprint("${red}%d shard(s) failed", #failures)
     for _, p in ipairs(failures) do
       cprint("${red}FAILED: %s - %s - log: %s", p.name, p.reason, p.logfile)
-      local content = readcontent(p.report)
+      local content = read_content(p.report)
       if content and report_failures(content) == 0 then
         print(string.format("  (no <failure> entries in %s)", p.report))
-      elseif not content then
-        for line in (readcontent(p.logfile) or ""):gmatch("[^\n]+") do
-          if line:find("FAILED", 1, true) then
-            print("  " .. line)
-          end
-        end
       end
     end
     for _, plan in ipairs(plans) do
       print(string.format("report: %s", documented[plan.name].report))
       print(string.format("console: %s", documented[plan.name].console))
     end
+    cprint("${dim}per-shard temp roots under %s (TMP/TEMP/TMPDIR)", workdir)
     -- A single shard ran alone, so its own status is meaningful (and keeps 130
     -- on cancellation); concurrent waits are not reliable, so sharded runs
     -- report a plain failure.

@@ -66,7 +66,9 @@ Consequence: the success line becomes `unit: all tests passed (N assertions in M
 
 ### D6: Verdicts stay report-based; failure text comes from the report
 
-Each shard is judged by its own JUnit report (`failures="0" errors="0"`) plus the executed-count check against its assignment; a missing or unreadable report fails the shard. On failure the task prints each `<failure>` block's case name and message from the shard report — Catch2 puts the failing assertion's `file(line): FAILED:` line at the head of that message, which is where the source location comes from — followed by that shard's log path. The log-grepping loop in `test_parallel` (`FAILED` lines, capped at 8) is deleted: it printed less information than the report already holds.
+Each shard is judged by its own JUnit report (`failures="0" errors="0"`) plus the executed-count check against its assignment; a missing or unreadable report fails the shard. On failure the task prints each `<failure>` block's case name and message from the shard report — Catch2 puts the failing assertion's `file(line): FAILED:` line at the head of that message, which is where the source location comes from — followed by that shard's log path. The log-grepping loop in `test_parallel` (`FAILED` lines, capped at 8) is deleted: it printed less information than the report already holds, and a shard with no report is named failed with its log path instead.
+
+Exit code: an invocation that ran exactly one shard process propagates that process's own status, so a cancellation still exits 130 and a failing single-process run exits with what Catch2 returned; a sharded run reports a plain 1, because concurrent wait statuses are not reliable. The delta only promises a non-zero exit, which both paths satisfy.
 
 ### D7: Every shard gets a private temp root, single-shard runs included
 
