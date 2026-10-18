@@ -128,7 +128,7 @@ The parallel test task SHALL decide each shard's verdict from that shard's own t
 
 ### Requirement: Shards partition the suite by an explicit case list
 
-The parallel test task SHALL enumerate the suite's test cases itself and assign each enumerated case to exactly one shard, passing that assignment to the runner as an explicit list of case names. It SHALL NOT rely on the runner's own shard selection over a randomised execution order. The assignment SHALL be a deterministic function of the enumerated case list and the recorded per-case cost, and the task SHALL write the spec files it used for the run to disk. Enumeration SHALL read a machine-readable listing rather than the human-readable one, and case names SHALL be passed in the spec form the runner accepts, with the characters that syntax reserves escaped. Before spawning any shard the task SHALL validate the enumeration, the escaping, the scan for reserved characters and the assignment, failing with the offending count or name instead of starting a run it cannot account for. After the run, each shard's executed case count SHALL match the count assigned to it, and the task SHALL fail naming the shard when it does not. A shard whose assignment would be empty SHALL NOT be started; the task SHALL fail with guidance to lower the shard count.
+The parallel test task SHALL enumerate the suite's test cases itself and assign each enumerated case to exactly one shard, passing that assignment to the runner as an explicit list of case names. It SHALL NOT rely on the runner's own shard selection over a randomised execution order. The assignment SHALL be a deterministic function of the enumerated case list and the recorded per-case cost, and the task SHALL write the spec files it used for the run to disk. Enumeration SHALL read a machine-readable listing rather than the human-readable one, and case names SHALL be passed in the spec form the runner accepts, with the characters that syntax reserves escaped. Before spawning any shard the task SHALL validate the enumeration, the escaping, the scan for reserved characters and the assignment, failing with the offending count or name instead of starting a run it cannot account for. After the run, each shard's executed case count SHALL match the count assigned to it, and the task SHALL fail naming the shard when it does not. A requested shard count larger than the enumerated case count SHALL be clamped to that count, because a filtered run legitimately selects fewer cases than the default shard count; no shard SHALL ever be started with an empty assignment.
 
 #### Scenario: Every case runs in exactly one shard
 
@@ -162,11 +162,12 @@ The parallel test task SHALL enumerate the suite's test cases itself and assign 
 #### Scenario: Shard count exceeds the number of cases
 
 - **WHEN** the requested shard count is larger than the enumerated case count
-- **THEN** the task fails instead of starting a shard with an empty assignment
+- **THEN** the task clamps it to the enumerated count and reports the effective count
+- **AND** every enumerated case runs in exactly one of the shards it started
 
 ### Requirement: Shard assignment follows measured case cost
 
-The parallel task SHALL assign cases to shards using measured per-case cost, so that no shard carries a disproportionate share of the suite's work, and it SHALL report the resulting distribution per suite. Per-case cost SHALL be derived from the durations the runs already record, SHALL be reused across runs, and SHALL have a defined fallback for cases it does not know yet, so a first run on a fresh checkout still partitions the suite correctly.
+The parallel task SHALL assign cases to shards using measured per-case cost, so that no shard carries a disproportionate share of the suite's work, and it SHALL report the resulting distribution per suite. Per-case cost SHALL be derived from the durations the runs already record, SHALL be reused across runs, and SHALL have a defined fallback for cases it does not know yet, so a first run on a fresh checkout still partitions the suite correctly. A run that executes only a subset of the suite SHALL preserve the recorded costs of the cases it did not run, so a filtered run cannot shrink the model later full runs are packed by.
 
 #### Scenario: Cost-heavy cases are spread across shards
 
@@ -185,6 +186,17 @@ The parallel task SHALL assign cases to shards using measured per-case cost, so 
 - **WHEN** the task runs again with a recorded per-case cost model
 - **THEN** the assignment uses those recorded costs instead of an equal split
 - **AND** the reported distribution reflects them
+
+#### Scenario: A filtered run does not truncate the model
+
+- **WHEN** a run executes a filtered subset of the suite
+- **THEN** the recorded costs of the cases outside that subset are still present afterwards
+- **AND** the costs measured during the filtered run replace the entries for the cases it ran
+
+#### Scenario: A full run prunes the deleted cases
+
+- **WHEN** a run enumerates the whole suite and a case recorded in the model is no longer in that enumeration
+- **THEN** that case's entry is dropped from the model
 
 ### Requirement: Reported totals are the sum of what ran
 

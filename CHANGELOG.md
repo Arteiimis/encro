@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-18
+
+First public release. Everything below this version is reconstructed from the project's own history: these versions were tagged retrospectively and were never distributed, so the pre-release identifiers record milestones rather than published releases.
+
+### Added
+
+- `batch` processes every first-level subfolder of a root directory as its own task, so a season or an artist folder can be handed over in one command.
+- Batch runs ask for confirmation once and then apply the answer to every subfolder, instead of prompting per folder.
+- A directory scan that skips files by policy — video that is already HEVC — says so in one hint line instead of leaving the reader to wonder why the count is short.
+
+### Changed
+
+- Version numbering, tagging and `CHANGELOG.md` are now part of the project's own contract, and `encro --version` reports the version declared in the build definition rather than a literal in source.
+- `organize --dry-run` resolves the same destination decisions as a real run and words its totals as "would copy".
+- The encoder settings that change an output — codec, `--crf`, `--preset`, `--min-vmaf` — now take part in job-state matching, so a resumed run can no longer mistake work done with different settings for its own.
+
+### Fixed
+
+- An explicitly named `.webm`, `.m4v`, `.ts`, `.mpg`, `.mpeg`, `.3gp` or `.m2ts` input is treated as video instead of being silently ignored with exit code 0.
+- A probe cache that cannot be read in full is discarded and re-probed, instead of aborting the run before the first encode.
+- The job-state file is replaced atomically, so a crash can no longer leave it missing.
+- Two distinct paths on a case-sensitive filesystem stay two distinct tasks, so a resume can no longer report a never-encoded file as done.
+- `--download-models` re-downloads a model file whose size does not match its pin instead of skipping it and reporting success.
+- A cuDNN extraction is staged and verified, so an interrupted install cannot look complete.
+- An unreadable directory no longer aborts the whole pack, organize pass or toolchain search.
+- Packing a directory skips encro's own `.encro` work directory.
+- A confirmation prompt whose standard input is closed fails with a message, instead of reporting a user cancellation.
+
 ## [2.0.0-rc.1] - 2026-10-05
 
 ### Added
@@ -216,7 +244,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.0-rc.1...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/Arteiimis/encro/compare/v2.0.0-rc.1...v2.0.0
 [2.0.0-rc.1]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.3...v2.0.0-rc.1
 [2.0.0-alpha.3]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.2...v2.0.0-alpha.3
 [2.0.0-alpha.2]: https://github.com/Arteiimis/encro/compare/v2.0.0-alpha.1...v2.0.0-alpha.2
