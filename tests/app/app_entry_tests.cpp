@@ -1,6 +1,7 @@
 #include "core/path_utf8.h"
 #include "app/app_entry.h"
 
+#include "infra/env.h"
 #include "infra/stop_signal.h"
 #include "test_utils.h"
 
@@ -44,6 +45,25 @@ TEST_CASE(
   TempDir temp;
   auto const root = temp.path / "root";
   fs::create_directories(root / "2024-01");
+
+  // Toolchain resolution runs as part of building the request, so the suite
+  // must not depend on a real ffmpeg being installed: any program that answers
+  // -version is enough.
+  auto const tools = temp.path / "tools";
+  fs::create_directories(tools);
+  testutils::copyFakeTool(tools, "ffmpeg");
+  testutils::copyFakeTool(tools, "ffprobe");
+#if defined(_WIN32)
+  constexpr auto kPathSeparator = ';';
+#else
+  constexpr auto kPathSeparator = ':';
+#endif
+  auto const pathGuard = testutils::ScopedEnvVar{
+    "PATH",
+    pathutf8::fromPath(tools)
+      + kPathSeparator
+      + processenv::readEnvVar("PATH").value_or("")
+  };
 
   auto const cmd = testutils::parseArgs(
     {"encro", "batch", pathutf8::fromPath(root), "--type", "picture", "--compress"}

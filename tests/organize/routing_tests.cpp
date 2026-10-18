@@ -422,12 +422,14 @@ TEST_CASE("renamed character folder keeps teaching under its new name", "[organi
 
   auto const references = organize::buildFolderReferences(temp.path, cache);
   REQUIRE(references.size() == 1);
-  CHECK(references[0].name == "初音ミク");
+  // Compared as UTF-8: a folder name is a path, and `path == "..."` decodes the
+  // literal with the process code page.
+  CHECK(pathutf8::fromPath(references[0].name) == "初音ミク");
   REQUIRE(organize::claimedTag(references[0]) == "hatsune_miku");
 
   auto const* owner = organize::owningFolder(references, "hatsune_miku");
   REQUIRE(owner != nullptr);
-  CHECK(owner->name == "初音ミク");
+  CHECK(pathutf8::fromPath(owner->name) == "初音ミク");
 }
 
 TEST_CASE("a lowered identity threshold reaches the clustering queue", "[organize]") {
