@@ -54,8 +54,9 @@ end
 
 if is_mode("release") and is_plat("windows") then
   -- Crash stacks must resolve: emit PDBs next to release binaries so crash
-  -- records show module!function instead of module+offset. Codegen is
-  -- unaffected and xpack ships the exe only.
+  -- records show module!function instead of module+offset. The symbol file is
+  -- kept out of the runtime archive by the xpack hook below and published as
+  -- its own asset instead.
   set_symbols("debug")
 end
 
@@ -243,12 +244,87 @@ target_end()
 
 includes("@builtin/xpack")
 
+-- xpack copies a target's symbol file into bin/ unconditionally and the DSL
+-- has no declarative exclude, so the runtime archive is trimmed here and the
+-- symbols ship as their own asset instead. The VC redistributable DLLs are
+-- added here too: they must come from the Visual Studio installation that
+-- built the binary, so their version follows the build rather than the target
+-- machine.
 xpack("encro")
-  set_formats("nsis", "srczip", "srctarxz", "zip", "tarxz")
+  set_formats("zip", "targz")
+  -- $(version) is the single declaration above; $(arch) and $(plat) are
+  -- whatever this platform's toolchain reports (x64 on Windows, x86_64 on
+  -- Linux), never a normalised value.
+  set_basename("encro-$(version)-$(arch)-$(plat)")
   set_title("Encro")
   set_author("Artemiss")
   set_description("encro: Universal video encoder/converter/packer")
+  set_homepage("https://github.com/Arteiimis/encro")
   add_targets("encro")
-  add_sourcefiles("(src/**.h)", "(src/**.cpp)")
+  -- licensefile is a specvar consumed only by the installer generators, so a
+  -- zip would carry neither the licence nor the README without these.
+  add_installfiles("LICENSE", "README.md")
+
+  after_installcmd(function (package, batchcmds)
+    -- Unconditional: batchcmds only queues commands, so the file does not
+    -- exist yet at registration time — it is ordered after the copy that
+    -- places it. Removing a path that ends up absent is tolerated, which is
+    -- how xmake's own uninstall commands use it.
+    batchcmds:rm(package:installdir("bin/encro.pdb"), {emptydirs = true})
+
+    if is_plat("windows") then
+      -- The Universal C Runtime (ucrtbase.dll, api-ms-win-crt-*) ships with
+      -- Windows, so it is deliberately absent. These five come from the
+      -- Visual C++ redistributable and are missing from a machine that never
+      -- installed one: encro.exe imports MSVCP140, MSVCP140_ATOMIC_WAIT,
+      -- VCRUNTIME140 and VCRUNTIME140_1, and onnxruntime.dll imports
+      -- MSVCP140, MSVCP140_1, VCRUNTIME140 and VCRUNTIME140_1.
+      local dlls = {
+        "msvcp140.dll",
+        "msvcp140_1.dll",
+        "msvcp140_atomic_wait.dll",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+      }
+
+      local candidates = {}
+      local toolsRedistDir = os.getenv("VCToolsRedistDir")
+      if toolsRedistDir then
+        table.insert(candidates, toolsRedistDir)
+      end
+      local pf86 = os.getenv("ProgramFiles(x86)") or "C:\\Program Files (x86)"
+      local vswhere = path.join(pf86, "Microsoft Visual Studio/Installer/vswhere.exe")
+      if os.isfile(vswhere) then
+        local vsPath = os.iorunv(vswhere, {"-latest", "-products", "*", "-property", "installationPath"})
+        vsPath = vsPath and vsPath:trim()
+        if vsPath and #vsPath > 0 then
+          local redistRoot = path.join(vsPath, "VC/Redist/MSVC")
+          for _, verdir in ipairs(os.dirs(path.join(redistRoot, "*"))) do
+            table.insert(candidates, path.join(verdir, "x64"))
+          end
+        end
+      end
+
+      local cruit = nil
+      for _, candidate in ipairs(candidates) do
+        for _, crtdir in ipairs(os.dirs(path.join(candidate, "Microsoft.VC*.CRT"))) do
+          cruit = crtdir
+          break
+        end
+        if cruit then break end
+      end
+      if not cruit then
+        raise("no Visual C++ redistributable directory found; the package would " ..
+              "not start on a machine that never had one (set VCToolsRedistDir)")
+      end
+      for _, dll in ipairs(dlls) do
+        local src = path.join(cruit, dll)
+        if not os.isfile(src) then
+          raise(dll .. " is missing from " .. cruit)
+        end
+        batchcmds:cp(src, package:installdir("bin"))
+      end
+    end
+  end)
 xpack_end()
 

@@ -4,7 +4,41 @@
 
 encro is a batch media processing CLI built on top of ffmpeg. Point it at a directory of videos and it transcodes them to HEVC/H.264 in parallel, with per-file progress bars and a job store that lets you resume an interrupted run where it stopped (`--resume`). In picture mode it converts images to WebP or recompresses JPEGs (quality 2–31, lower is better), turns any videos mixed into the image set into animated WebP (`--video-webp`) and packs them together, and either mode can pack its results into ZIP archives — or pack any directory directly with `--pack-only`. Output lands as structured NDJSON logs (`--log-json`) or human-readable progress bars, whichever fits your pipeline.
 
+## Installing
+
+Prebuilt binaries are on the [Releases](https://github.com/Arteiimis/encro/releases) page. A release entry that carries downloadable files is an installation; entries without files record the project's earlier history and were never distributed, so there is nothing to download for them.
+
+**Windows**, through Scoop:
+
+```sh
+scoop bucket add encro https://github.com/Arteiimis/scoop-encro
+scoop install encro
+```
+
+**Linux**: download `encro-<version>-x86_64-linux.tar.gz`, unpack it anywhere, and add its `bin/` to `PATH`.
+
+Both platforms need **ffmpeg and ffprobe** installed and reachable — on `PATH`, or named with `--ffmpeg-path`. encro drives them and does not bundle them.
+
+### What each build can do
+
+| | Windows | Linux |
+| --- | --- | --- |
+| video, picture, packing, `batch`, `preview`, `config`, `completion` | yes | yes |
+| `organize` | yes | **no inference runtime in the build** |
+
+On Linux, `organize` starts and copies nothing: the tagger has no inference backend there, so every image is reported uncategorized rather than filed. Use a Windows build to sort images.
+
+The Windows archive carries everything the binary needs to start, including the Visual C++ runtime libraries it imports (redistributed under the Microsoft licence). The only thing to install beforehand is ffmpeg.
+
+Crash reports resolve to function names only with the matching symbol file: each Windows release publishes a `-symbols.zip` beside the runtime archive. Unpack it next to `bin\encro.exe` when you are reporting a crash.
+
+### Archive layout
+
+The archive root holds `LICENSE`, `README.md` and `bin/`; the executable is `bin/encro` (`bin\encro.exe` on Windows). Keep the directory intact — the runtime libraries sit beside the executable and are found there.
+
 ## Quick start
+
+The examples below assume `encro` is on your `PATH`. From a source checkout, prefix each with `xmake run` and build first (see [Building](#building)).
 
 Requirements: [xmake](https://xmake.io), ffmpeg + ffprobe on `PATH` (or point to them with `--ffmpeg-path`).
 

@@ -100,6 +100,41 @@ jobs:
         timeout-minutes: 60
         run: xmake build -vD encro
 
+      - name: Pack the runtime archive
+        run: xmake pack -f zip encro
+
+      - name: Pack the debug symbols as their own asset
+        shell: pwsh
+        run: |
+          # xpack cannot exclude a target's symbol file declaratively and the
+          # runtime archive strips it in after_installcmd, so the symbols travel
+          # separately: a crash report can be symbolised with exactly the build
+          # that produced it, without every user downloading 41 MB of PDB.
+          $runtime = Get-ChildItem build/xpack/encro/*.zip | Where-Object { $_.Name -notlike '*symbols*' } | Select-Object -First 1
+          if (-not $runtime) { throw "no runtime archive was produced" }
+          $base = $runtime.BaseName
+          $stage = Join-Path $env:RUNNER_TEMP "symbols-stage"
+          New-Item -ItemType Directory -Path (Join-Path $stage "bin") -Force | Out-Null
+          Copy-Item "build/windows/x64/release/encro.pdb" (Join-Path $stage "bin/encro.pdb")
+          Compress-Archive -Path (Join-Path $stage "bin") -DestinationPath "build/xpack/encro/$base-symbols.zip"
+
+      - name: List the produced archives
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          Get-ChildItem build/xpack/encro -File | ForEach-Object {
+            "=== {0}  ({1:N0} bytes) ===" -f $_.Name, $_.Length
+            $z = [System.IO.Compression.ZipFile]::OpenRead($_.FullName)
+            $z.Entries | ForEach-Object { "    {0,-34} {1,12}" -f $_.FullName, $_.Length }
+            $z.Dispose()
+          }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-archives-windows
+          path: build/xpack/encro/*.zip
+          if-no-files-found: error
+
       - name: Locate the VC redistributable source
         shell: pwsh
         run: |
@@ -167,6 +202,22 @@ jobs:
       - name: Build
         timeout-minutes: 60
         run: xmake build -vD encro
+
+      - name: Pack the runtime archive
+        run: xmake pack -f targz encro
+
+      - name: List the produced archives
+        run: |
+          for f in build/xpack/encro/*; do
+            echo "=== $(basename "$f")  ($(stat -c%s "$f") bytes) ==="
+            tar -tzvf "$f" || unzip -l "$f"
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-archives-linux
+          path: build/xpack/encro/*
+          if-no-files-found: error
 
       - name: Save xmake packages cache
         if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
