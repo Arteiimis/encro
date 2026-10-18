@@ -257,24 +257,28 @@ jobs:
         # publishing one that cannot start.
         shell: pwsh
         run: |
-          & ".\build\windows\x64\release\tests.exe" -r console -r junit::out=$env:TEMP\ut.xml 2>&1 | Tee-Object -FilePath $env:TEMP\ut.log | Select-Object -Last 25
+          New-Item -ItemType Directory -Path test-output -Force | Out-Null
+          & ".\build\windows\x64\release\tests.exe" -r console -r junit::out=test-output/ut.xml 2>&1 |
+            Tee-Object -FilePath test-output/ut.log | Select-Object -Last 20
           $code = $LASTEXITCODE
           if ($code -ne 0) {
             Write-Host "::error::unit tests failed on Windows"
-            Select-String -Path "$env:TEMP\ut.xml" -Pattern "<failure" | Select-Object -First 20
+            # Every failing case by name with its assertion message: a 20-line
+            # tail of the console log does not identify them.
+            [xml]$report = Get-Content test-output/ut.xml
+            $report.testsuites.testsuite.testcase | Where-Object { $_.failure } | ForEach-Object {
+              Write-Host "FAILED: $($_.classname) :: $($_.name)"
+              Write-Host "   $($_.failure.message)"
+            }
           }
           exit $code
 
       - name: Upload the test output
-        # Only on failure, and it is the whole point: a tail of 25 lines was not
-        # enough to tell nine failures apart.
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: windows-test-output
-          path: |
-            ${{ runner.temp }}/ut.xml
-            ${{ runner.temp }}/ut.log
+          path: test-output/
           if-no-files-found: warn
 
       - name: End-to-end tests
