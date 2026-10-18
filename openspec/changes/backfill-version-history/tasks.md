@@ -210,7 +210,7 @@ Three reviewers, one per axis (tier L: 2505 changed lines / 30 files, with the 2
 
 | # | Finding | Verdict |
 |---|---|---|
-| 1 | `[2.0.0]` logged test-tooling work (outside the declared API, which the spec forbids) and omitted all 14 user-facing fixes from `2026-10-18-fix-audit-findings` | **resolved** — the section was rewritten from that proposal: 9 `### Fixed` entries, 2 `### Changed`, 1 `### Added`, and the test-task line is gone |
+| 1 | `[2.0.0]` logged test-tooling work (outside the declared API, which the spec forbids) and omitted all 14 user-facing fixes from `2026-10-18-fix-audit-findings` | **resolved** — the section was rewritten from that proposal: 3 `### Added`, 3 `### Changed`, 9 `### Fixed`, and the test-task line is gone |
 | 2 | Three tag messages carry an ASCII dash where the Appendix records U+2014, so the byte-for-byte check in 2.2 does not actually hold | **resolved by the second rewrite** — the three tags were re-created from the Appendix text with a real U+2014; verified present on all three |
 | 3 | D2's audit is one row short: `unify-test-task` declares `**BREAKING**: xmake test-parallel no longer exists` with no row | **resolved** — row 17 added (not breaking: dev tooling), counts updated to 15 lines / 13 proposals / 17 rows |
 | 4 | `[2.0.0-alpha.2]` re-records the CLI11 migration already listed under `1.6.0` | **resolved** — that line now says only that positional inputs are accepted alongside `-i`/`-I` |

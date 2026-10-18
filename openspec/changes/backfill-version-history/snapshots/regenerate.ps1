@@ -1,14 +1,13 @@
-# Regenerates snapshots/ from CHANGELOG.md. Run from the repository root.
-# Each snapshot is the file as it must read in that tag's tree: the header, the
-# [Unreleased] section, that version and every earlier one, and a link block
-# cropped to those versions with [unreleased] pointing at the tag itself.
 # Regenerates the snapshots under this directory from CHANGELOG.md. Run from
 # anywhere; the paths are derived from this file's location.
 # Each snapshot is the file as it must read in that tag's tree: the header, the
 # [Unreleased] section, that version and every earlier one, and a link block
 # cropped to those versions with [unreleased] pointing at the tag itself.
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..\..")).Path
-$lines = Get-Content (Join-Path $repoRoot "CHANGELOG.md")
+# -Raw on the working tree would carry the checkout's CRLF; read the blob so
+# the output is LF like every other file in the repository.
+$lines = (git -C $repoRoot show 'HEAD:CHANGELOG.md') | Out-String -Stream
+while ($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace($lines[-1])) { $lines = $lines[0..($lines.Count - 2)] }
 $secStarts = @()
 for ($i = 0; $i -lt $lines.Count; $i++) {
   if ($lines[$i] -match '^## \[') { $secStarts += $i }
@@ -45,8 +44,10 @@ foreach ($v in $ascending) {
   $out += $header
   $out += $lines[$secs[0][0]..$secs[0][1]]
   $out += ""
-  for ($k = $idx; $k -lt $versions.Count; $k++) { $out += $lines[$secs[$k][0]..$secs[$k][1]] }
-  $out += ""
+  for ($k = $idx; $k -lt $versions.Count; $k++) {
+    $out += $lines[$secs[$k][0]..$secs[$k][1]]
+    $out += ""            # keep the blank line between sections that CHANGELOG.md has
+  }
   $out += "[unreleased]: https://github.com/Arteiimis/encro/compare/v$v...HEAD"
   for ($k = $idx; $k -lt $versions.Count; $k++) {
     if ($k -eq 0) { continue }

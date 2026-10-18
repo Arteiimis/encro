@@ -17,7 +17,7 @@ encro has five subcommands and a default mode that runs when no subcommand is gi
 | `config` | Read and write user-level defaults |
 | `completion` | Print, install or uninstall shell completion scripts |
 
-`--version` prints one line naming the release the binary was built from. The **value** is a promise: it comes from the project's declared version (`xmake.lua`), never from a literal in source, so it can never name a release that does not exist. The wording and format of that line are not — they are rendering, covered by the "does not cover" section below.
+`--version` prints one line naming the release the binary was built from. The **value** is a promise: it comes from the project's declared version in `xmake.lua`, never from a literal in source, so it can never name a release that does not exist. The wording and format of that line are **not** a promise — they are rendering, and the "What this declaration does not cover" section below governs them.
 
 ### Default mode options
 
@@ -188,7 +188,7 @@ The following are deliberately outside the API and may change in any release wit
 
 - Internal C++ interfaces, class and function names, and header layout.
 - The test suite, its fixtures, fake tools and `xmake` task names.
-- The exact wording of error, warning and progress text, and every rendering decision: bar glyphs, colors, column layout, whether a frame is drawn when stdout is not a terminal.
+- The exact wording of error, warning and progress text, and every rendering decision: bar glyphs, colors, column layout, whether a frame is drawn when stdout is not a terminal. This includes the wording and format of the `--version` line itself — only the version value in it is a promise.
 - Files a run newly writes into the user's output directory, and the organization `organize` produces — a later version may create new files, but nothing it previously promised is removed or renamed.
 - Cache and scratch formats under `.encro/`, `.encro/segments/`, `.encro/webp/` and the probe cache, which are rebuildable by re-running.
 - The human-readable log file format.

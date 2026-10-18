@@ -138,8 +138,8 @@ target("encro_core")
 
   add_includedirs("src", {public = true})
 
-  -- The version has one declaration: `encroVersion` below, which both
-  -- set_version() and the generated header read. app_entry.cpp prints the
+  -- The version has one declaration: `encroVersion`, above. set_version()
+  -- and the generated header both read it, and app_entry.cpp prints the
   -- macro, never a literal.
   set_configvar("ENCRO_VERSION", encroVersion, {quote = true})
   add_configfiles("src/app/version.h.in", {prefixdir = "app"})

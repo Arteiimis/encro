@@ -18,8 +18,8 @@ TEST_CASE("--version reports the declared version and no other", "[appentry][ver
 
   REQUIRE(exitCode == 0);
 
-  // ENCRO_VERSION comes from set_version() in xmake.lua, so this fails whenever
-  // the reported string drifts from the declaration.
+  // ENCRO_VERSION comes from the `encroVersion` declaration in xmake.lua, so
+  // this fails whenever the reported string drifts from it.
   auto const expected = std::string{"encro "} + std::string{ENCRO_VERSION};
   CHECK(out.find(expected) != std::string::npos);
   CHECK(out.find("encro v") == std::string::npos);
