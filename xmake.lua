@@ -13,6 +13,16 @@ if is_plat("windows") then
   set_toolchains("clang-cl")
   set_toolset("ld", "lld-link")
   set_toolset("ar", "llvm-ar")
+  -- The program treats narrow text as UTF-8, but a Windows process converts
+  -- narrow <-> wide with its active code page; on a machine whose code page is
+  -- not UTF-8 that turns every CJK path into a conversion error inside the CRT,
+  -- the Win32 APIs and third-party libraries. The manifest below states UTF-8
+  -- as the process code page so all of them agree.
+  add_ldflags(
+    "/MANIFEST:EMBED",
+    "/MANIFESTINPUT:" .. path.join(os.projectdir(), "src/app/utf8-codepage.manifest"),
+    {force = true}
+  )
 else
   set_toolchains("clang")
   -- clang + GNU ld 的 thin-LTO 链接不可靠（catch2/boost 符号被裁剪）；
