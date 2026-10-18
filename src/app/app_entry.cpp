@@ -8,6 +8,7 @@
 #include "core/job_state.h"
 #include "app/pipeline.h"
 #include "app/prelude.h"
+#include "app/version.h"
 #include "infra/terminal.h"
 #include "infra/stop_signal.h"
 #include "infra/toolchain.h"
@@ -137,7 +138,7 @@ auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional
   }
 
   if (cmd.version) {
-    terminal::println(Plain, "encro v1.6 (build: {})", compileTimestamp());
+    terminal::println(Plain, "encro {} (build: {})", ENCRO_VERSION, compileTimestamp());
     return 0;
   }
 

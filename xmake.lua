@@ -1,6 +1,11 @@
 add_rules("mode.debug", "mode.release", "mode.releasedbg")
 add_rules("plugin.compile_commands.autoupdate", { outputdir = "./build" })
-set_version("0.1.5")
+
+-- The release version is declared once, here. set_version() below and the
+-- generated version header both read this variable, so no second literal
+-- exists to drift from it.
+local encroVersion = "2.0.0"
+set_version(encroVersion)
 
 set_languages("c++26")
 
@@ -132,6 +137,13 @@ target("encro_core")
   end
 
   add_includedirs("src", {public = true})
+
+  -- The version string has one source (set_version() above) and one consumer
+  -- (the generated header); app_entry.cpp prints the macro, never a literal.
+  set_configvar("ENCRO_VERSION", encroVersion, {quote = true})
+  add_configfiles("src/app/version.h.in", {prefixdir = "app"})
+  add_includedirs("$(builddir)", {public = true})
+
   add_files("src/**.cpp|main.cpp")
   -- ONNX inference links win-x64-only ORT binaries, and onnx_runtime.cpp plus
   -- every engine over it include the ORT headers; other hosts get the

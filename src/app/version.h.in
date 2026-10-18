@@ -1,0 +1,6 @@
+#pragma once
+
+// Generated at build time from the version declared by set_version() in
+// xmake.lua. Read that declaration to change the version; never pin a literal
+// in source.
+${define ENCRO_VERSION}
