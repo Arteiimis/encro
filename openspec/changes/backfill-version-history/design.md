@@ -119,7 +119,7 @@ The rewrite changes every hash from 2026-02-27 onward. Inside `openspec/changes/
 
 ### D9 — One atomic rewrite, gated on a quiet tree
 
-All history-touching work (tag creation, CHANGELOG injection, version-header commit if it must precede an anchor) happens in a single mirror rewrite, because splitting it doubles the hash churn and the D8 cleanup. The gate: `openspec list` shows no active change other than this one, `unify-test-task` has been archived, every working tree is clean, and no subagent session holds a checkpoint ref.
+All history-touching work (tag creation, CHANGELOG injection, version-header commit if it must precede an anchor) happens in a single mirror rewrite, because splitting it doubles the hash churn and the D8 cleanup. The gate: `openspec list` shows no active change other than this one, every working tree is clean, and no agent session is mid-run. Stale `refs/agents/**` checkpoints from finished sessions are deliberately left in place: they share no ancestor with `main`, no step here reads them (anchors and every check use `main`'s `--first-parent`, never `--all`), and the mirror is cloned from `origin`, which carries none of them.
 
 ## Risks / Trade-offs
 

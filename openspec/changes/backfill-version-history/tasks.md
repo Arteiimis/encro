@@ -3,7 +3,7 @@
 ## 1. Gate and public API declaration
 
 - [ ] 1.1 Write `docs/public-api.md`: the CLI subcommands and flag names with their accepted value sets, process exit codes, `config.json` keys and value types, the default `job-state.json` path and its persisted format, and the `--log-json` field names; state explicitly what is *not* judged (internal interfaces, test tasks, error wording, terminal rendering, newly written output files). Verify: every surface listed exists in the tree today — `encro -hh` and `encro config list` output, `src/cmd/config_store.cpp`'s key table, and the NDJSON field names in the logging code each match a line of the document; `rg` finds no listed flag absent from `src/cmd/`.
-- [ ] 1.2 Close the gate: `openspec list` shows no change other than this one, `unify-test-task` is archived, all three working trees are clean, and `git for-each-ref refs/agents` reports no live checkpoint refs. Verify: the four commands' output is recorded in this task's completion note; if any fails, stop and report rather than proceeding.
+- [ ] 1.2 Close the gate: `openspec list` shows no change other than this one, `main` equals `origin/main`, every working tree is clean, and no subagent is mid-run. Stale `refs/agents/**` checkpoints from finished sessions are **allowed and expected** — record how many exist and confirm each shares no ancestor with `main` (`git merge-base main <ref>` prints nothing); no step in this change reads them, because every anchor and check uses `main`'s `--first-parent` and the mirror is cloned from `origin`, which carries none. Verify: the five checks' output is recorded in this task's completion note; if any fails, stop and report rather than proceeding.
 
 ## 2. Anchor archaeology (produces the tag list; no tags yet)
 
