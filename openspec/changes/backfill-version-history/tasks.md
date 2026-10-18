@@ -187,6 +187,50 @@ One independent reviewer, two lenses (Coherence, Ground truth), against the four
 
 No critical issues. 1 warning, 1 suggestion. Ready for archive (with noted improvements).
 
+## Code review (code-diff stage)
+
+Three reviewers, one per axis (tier L: 2505 changed lines / 30 files, with the 22 generated snapshots reduced to `--stat`). Fixed point `7f32ba6`. Tooling pre-computed: `xmake fmt -k` passed for 245 files; `xmake tidy` not run (a full clang-tidy pass), noted and skipped.
+
+### Standards — 10 findings
+
+| # | Finding | Verdict |
+|---|---|---|
+| 1 | Three commit subjects are 72–78 chars, AGENTS.md asks for `<72` | **rejected** — cosmetic, and fixing it means another force push of `main` for no behavioural gain |
+| 2 | `snapshots/regenerate.ps1` writes `CHANGELOG.at-*.md` into the repo root, not its own directory | **resolved** — paths now derive from `$PSScriptRoot` on both read and write; verified the run leaves no stray file at the root |
+| 3 | The script's summary line advertised an `ancestry` check that no code performs, and section banners jumped 3 → 5 | **resolved** — the check is now named "precedence vs commit order" (which is what it does) and the banners run 1–5 |
+| 4 | `regenerate.ps1` hardcodes the 18 versions, so a new CHANGELOG section silently yields no snapshot | **resolved** — the list is derived from the file's own headings |
+| 5 | Commit types imprecise (`test:` adding a shipped script, `docs:` adding its self-tests) | **rejected** — same reason as #1 |
+| 6 | Dead variable `$tick = [char]96` | **resolved** — deleted |
+| 7 | `xmake.lua` / `version.h.in` comments name `set_version()` as the single source, but the single source is `local encroVersion` | **resolved** — both comments now name the variable |
+| 8 | `design.md` cites `app_entry.cpp:140`, but the added include moved the print to `:141` | **resolved** — cited by branch name instead of a line number, which cannot drift again |
+| 9 | Test tag `[app][version]` does not match the sibling suite's `[appentry]` | **resolved** — now `[appentry][version]`, test still passes |
+| 10 | Failure message interpolated the literal `## [` because the pattern had no capture group | **resolved** — the section pattern captures the heading |
+
+### Spec — 10 findings
+
+| # | Finding | Verdict |
+|---|---|---|
+| 1 | `[2.0.0]` logged test-tooling work (outside the declared API, which the spec forbids) and omitted all 14 user-facing fixes from `2026-10-18-fix-audit-findings` | **resolved** — the section was rewritten from that proposal: 9 `### Fixed` entries, 2 `### Changed`, 1 `### Added`, and the test-task line is gone |
+| 2 | Three tag messages carry an ASCII dash where the Appendix records U+2014, so the byte-for-byte check in 2.2 does not actually hold | **open** — needs the tags re-created; see below |
+| 3 | D2's audit is one row short: `unify-test-task` declares `**BREAKING**: xmake test-parallel no longer exists` with no row | **resolved** — row 17 added (not breaking: dev tooling), counts updated to 15 lines / 13 proposals / 17 rows |
+| 4 | `[2.0.0-alpha.2]` re-records the CLI11 migration already listed under `1.6.0` | **resolved** — that line now says only that positional inputs are accepted alongside `-i`/`-I` |
+| 5 | `[2.0.0-alpha.3]` re-records the `run_id` correlation that landed inside alpha.2's span | **resolved** — the entry moved to alpha.2 and names the `task_id`/`input` attributes too |
+| 6 | `regenerate.ps1` cannot regenerate the snapshots (writes to the wrong directory) | **resolved** — same fix as Standards #2 |
+| 7 | The committed snapshots differ from `git show <tag>:CHANGELOG.md` by a blank line | **open** — re-generating them now would also carry the corrected 2.0.0 section, which the tags do not have; see below |
+| 8 | `scripts/verify-release-tags.ps1` is behaviour no task asked for | **rejected as scope creep, recorded instead** — the verify report made it its only SUGGESTION (15 scenarios had no other automated evidence); task 7.3 now records it |
+| 9 | One pre-release tag carries two breaking boundaries, which the spec's scenario wording forbade | **resolved** — the scenario now allows a single pre-release tag to carry more than one boundary within the same unpublished MAJOR, which is the decision that cut the line from 15 tags to 4 |
+| 10 | D7 says `--version`'s output is outside the declared API, but `docs/public-api.md` described it | **resolved** — `public-api.md` now separates the value (a promise) from the wording and format (rendering, explicitly not covered) |
+
+### Leanness — 3 findings
+
+| # | Finding | Verdict |
+|---|---|---|
+| 1 | 37 hand-written lines re-implement semver precedence and a bubble sort, in a script whose job is to stop hand-maintained rules from drifting | **resolved** — replaced by PowerShell 7's own `[semver]` type plus `Sort-Object -Stable`; about 35 lines gone, and the reviewer verified the replacement reproduces the same order on this repo's 18 tags |
+| 2 | The snapshot generator hardcodes the version list | **resolved** — same fix as Standards #4 |
+| 3 | Two dead lines (`$tick`, and a `#### ` guard that can never match) | **resolved** — both deleted |
+
+Net: **20 resolved, 2 open (both needing tag/rewrite work), 2 rejected with reasons, 1 rejected-as-scope-creep recorded as task 7.3.**
+
 ## Workflow follow-up
 
 - Run `openspec-verify-change` for this change, then the `code-review` skill with the change's spec path, per AGENTS.md.
