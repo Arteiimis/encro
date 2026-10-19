@@ -90,12 +90,12 @@ One heredoc trap worth recording, because both halves of it fail silently: insid
 ## 5. First release
 
 - [x] 5.1 Run `mode=backfill` against the real repository with `until=2.0.0`, before any new tag exists — verified by `gh release list` showing exactly one entry per existing tag, every entry carrying zero assets, and an entry count equal to the tag count.
-- [x] 5.2 Cut the first distributed release: bump the single version declaration to the patch version, add its changelog section stating that it is the first downloadable version and naming `v2.0.0` as the milestone it follows, commit, and push the tag — verified by the publish path running unattended and producing a release with two assets, the correct body, and a bucket manifest naming that version.
+- [x] 5.2 Cut the first distributed release: bump the single version declaration to the patch version, add its changelog section stating that it is the first downloadable version and naming `v2.0.0` as the milestone it follows, commit, and push the tag — verified by the publish path running unattended and producing a release with three assets (two runtime archives plus the Windows symbol archive), the correct body, and a bucket manifest naming that version.
 - [x] 5.3 Install through Scoop on the maintainer machine and confirm the hand-written shim has been replaced — verified by `scoop install` succeeding, `encro --version` reporting the installed release rather than a build-directory binary, and exactly one `encro` command being on the PATH — with the same three checks repeated after an upgrade to the next published version, which must leave exactly one command reporting the newer version.
 
 ## 6. Integration verification
 
-- [x] 6.1 Verify the chain end to end from a freshly pushed tag — verified by tagging a further patch version, pushing it, and observing an unattended release with two assets, a correct body and an updated bucket manifest, with no manual step in between.
+- [x] 6.1 Verify the chain end to end from a freshly pushed tag — verified by tagging a further patch version, pushing it, and observing an unattended release with three assets, a correct body and an updated bucket manifest, with no manual step in between.
 - [x] 6.2 Verify the guard rails hold on the real repository — verified by a repeat publish of an already-published version leaving it byte-identical, a publish attempt with a mismatched declared version being refused, `mode=publish` for `v2.0.0` being refused because 2.0.0 is at or below the recorded boundary, and `pwsh scripts/verify-release-tags.ps1` still exiting 0.
 
 ## Planning-artifact review
@@ -178,6 +178,20 @@ Two limits are recorded honestly rather than claimed:
 
 - Task 3.7's publish-time refusal is exercised at the extractor, which exits 1 for a version with no section (`no changelog section for version '2.0.3'`), and the publish step runs it under `set -euo pipefail` so the release is never created. The same case is also caught earlier by the tag-contract job, which fails on any tag without a changelog section — so the deeper guard was not driven end to end on the real repository.
 - Task 4.3's "a forced bucket failure still leaves the release published" rests on `continue-on-error: true` plus the follow-up `Report a stale bucket` step rather than on a deliberately broken run; the successful path was exercised by both publishes.
+
+## Verification report (`openspec-verify-change`)
+
+Run by an independent reviewer against the artifacts and the live repository, after all 23 tasks were ticked. It returned **1 CRITICAL, 4 WARNING, 7 SUGGESTION**, and everything except the suggestions it left to judgement was fixed rather than argued with.
+
+**The CRITICAL was real and had already reached users.** The Scoop manifest step ran on every publish — including a repeat publish — and hashed the artifact this run had just rebuilt. A rebuild is not byte-identical, so the repeat publish I ran for task 6.2 overwrote the live manifest with a checksum the published asset would never match: `scoop install encro` would have failed its own verification for every user. Evidence: bucket commit `8f8c142a` carried `6378148c…` while the published asset's digest was `f2642294…`. Fixed in three places: the manifest is now built from the release's own asset digest (`gh api … /releases/tags/vX` `.assets[].digest`), a mismatch with the local rebuild is reported instead of used, and the live manifest was repaired to the published hash in a separate bucket commit.
+
+**Warnings fixed:** the build and publish jobs now check out the tag being published (`needs.resolve.outputs.ref`) and read the version declaration out of that tree with `git show`, so an on-demand publish of an existing tag builds that tag rather than whatever `main` has become; the packaged `README.md` no longer claims the release runs on CUDA, since the archive carries no provider library and `onnxruntime_providers_*` are only loaded from the executable's directory; `scripts/verify-changelog-sections.ps1` no longer hard-codes this checkout's path and now exits non-zero on a failure; and the archive-contents check became assertions that throw instead of a listing nobody reads — a missing `bin/onnxruntime.dll`, a stray `encro.pdb`, a provider DLL or a UCRT forwarder now fails the Windows job.
+
+**Verification gaps closed with real runs:** a probe tag whose tree declares a different version (`v2.0.3` over a tree declaring `2.0.2`) was refused by the agreement gate — run `39182255644`, nothing published, tag deleted afterwards; and backfill was re-run now that two tags exist above the boundary, reporting `tags above the boundary left alone: 2 (v2.0.1, v2.0.2)` (run `39182413244`), which is the branch that had no run before.
+
+**Suggestions accepted:** D4 now says the gate runs the test binaries directly rather than through `test-report`; D10 records the two cache facts (`runner.os` in the key, `XMAKE_GLOBALDIR` naming the parent) that make the Windows cache work; D7 gains the manifest-checksum rule and the yanked-version path; tasks 5.2 and 6.1 say three assets instead of two.
+
+**Not claimed:** the clean-machine condition behind "the archive alone is enough to run" still rests on the corrupted-DLL negative plus the packaged executable now being run in CI on a runner that happens to have the redistributable installed; and "a forced bucket failure still leaves the release published" rests on `continue-on-error` and the following warning step rather than on a deliberately broken run.
 
 ## Workflow follow-up
 

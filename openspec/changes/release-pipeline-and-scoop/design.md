@@ -68,7 +68,7 @@ The licence and README go in through `add_installfiles`: `licensefile` is a spec
 
 ### D4 — Gates run before anything is built
 
-`xmake test-report --suite=all` (unit + e2e), `scripts/verify-release-tags.ps1`, and the version-agreement check of D2 run as a job that both builds depend on. Nothing is packaged, uploaded or published when any of the three fails. Ordering the gate first means a broken commit costs one failed job rather than two platform builds followed by a failure.
+`xmake test-report --suite=all` (unit + e2e), `scripts/verify-release-tags.ps1`, and the version-agreement check of D2 run as a job that both builds depend on. Nothing is packaged, uploaded or published when any of the three fails. Ordering the gate first means a broken commit costs one failed job rather than two platform builds followed by a failure. The gate invokes the two test executables directly rather than through `test-report`: the report wrapper exists to shard a local run, and in a job that already has the binaries built it only adds a layer between a failure and its log. The cases that run are the same ones.
 
 The gate runs on Linux; the Windows job re-runs the same suite before packaging. Publishing a Windows binary that was never tested on Windows would be the same class of mistake as publishing one that cannot start — the suite is cheap there relative to the ONNX package install, and it is the only thing that exercises that platform's code paths.
 
@@ -96,6 +96,10 @@ Before publishing, the run asks whether a release for that version exists. If it
 
 A re-run still builds its artifacts and compares their hashes with the published ones, then prints whether they match. Refusing to compare would make "the same source produced the same bytes" unverifiable after the fact; silently replacing on a mismatch would break immutability. Reporting the difference and changing nothing satisfies both.
 
+The same rule reaches the Scoop manifest, and getting it wrong is how `2.0.2` briefly became uninstallable: the bucket step must describe the **published** asset's checksum, not the rebuild's. A rebuild differs in practice, so a manifest written from the local file tells users to expect a hash their download will never have, and the install fails the verification the checksum exists to perform. The manifest is therefore built from the release's own asset digest, and a mismatch with the local rebuild is reported rather than used.
+
+A version that turns out to be broken after it is published cannot be repaired in place: the tag is not re-pointed and the assets are not replaced. It is marked `[YANKED]` in the changelog and flagged pre-release, which is why the changelog capability carries that marker — and the fix ships as the next patch version.
+
 ### D8 — The bucket update is downstream of the release and cannot fail it
 
 The manifest is written to `Arteiimis/scoop-encro` by cloning that repository over SSH with a **deploy key** that has write access to it alone, writing `bucket/encro.json`, and pushing. A deploy key was chosen over a personal access token because it reaches exactly one repository, is useless anywhere else, carries no expiry that can silently stop updates, and — unlike a fine-grained token — can be created and registered without a browser session. The step runs **after** the release and its assets are published, and is marked continue-on-error: when the key is revoked or the bucket rejects the write, the release stands and the run says the bucket is stale. The alternative ordering — updating the bucket first — would publish a manifest pointing at an asset that does not exist yet, and a dropped connection between the two steps would leave every Scoop user broken.
@@ -111,6 +115,8 @@ ffmpeg and ffprobe are stated in `notes`, not in `depends`. A `depends` entry wo
 ### D10 — The Windows job caches the unpacked ONNX package, not the download
 
 `actions/cache` on `~/.xmake/packages`, keyed by `hashFiles('xmake.lua')` with a prefix restore-key — the pattern `ci.yml` already uses for the Linux legs. The first run pays the runtime package's full download and unpack; later runs restore the unpacked tree, which is large enough that paying it on every run is the difference between a usable pipeline and an unusable one. Keying on `xmake.lua` is deliberate: the runtime version is pinned there, so any change that could invalidate the cached package also invalidates the key.
+
+Two details are load-bearing and were both found by measuring rather than by reasoning. The key also carries `runner.os`, because the two platforms resolve different packages from the same `xmake.lua` and without it the second platform to save wins the entry and the first re-downloads every run. And the cached path is only real if xmake agrees with it: `XMAKE_GLOBALDIR` names the *parent* of the directory xmake appends `.xmake` to, so the job sets it to `$USERPROFILE` on Windows and `$HOME` elsewhere, and asserts the resulting package directory exists before the cache step runs — a silently empty cache path is how this failed twice while reporting success.
 
 ## Risks / Trade-offs
 

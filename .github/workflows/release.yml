@@ -340,12 +340,42 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $runtime = Get-ChildItem build/xpack/encro/*.zip | Where-Object { $_.Name -notlike '*symbols*' } | Select-Object -First 1
+          $symbols = Get-ChildItem build/xpack/encro/*.zip | Where-Object { $_.Name -like '*symbols*' } | Select-Object -First 1
           Get-ChildItem build/xpack/encro -File | ForEach-Object {
             "=== {0}  ({1:N0} bytes) ===" -f $_.Name, $_.Length
             $z = [System.IO.Compression.ZipFile]::OpenRead($_.FullName)
             $z.Entries | ForEach-Object { "    {0,-34} {1,12}" -f $_.FullName, $_.Length }
             $z.Dispose()
           }
+
+          # Listed above, asserted here: a listing nobody checks is how the
+          # 2.0.1 package shipped with the wrong runtime inside it.
+          $z = [System.IO.Compression.ZipFile]::OpenRead($runtime.FullName)
+          $names = @($z.Entries | ForEach-Object { $_.FullName })
+          $z.Dispose()
+
+          $required = @(
+            'bin/encro.exe', 'bin/onnxruntime.dll', 'LICENSE', 'README.md',
+            'bin/msvcp140.dll', 'bin/msvcp140_1.dll', 'bin/msvcp140_atomic_wait.dll',
+            'bin/vcruntime140.dll', 'bin/vcruntime140_1.dll'
+          )
+          foreach ($need in $required) {
+            if ($names -notcontains $need) { throw "$($runtime.Name) is missing $need" }
+          }
+          foreach ($name in $names) {
+            if ($name -match '\.pdb$') { throw "$($runtime.Name) ships debug symbols: $name" }
+            if ($name -match 'onnxruntime_providers_') { throw "$($runtime.Name) ships a provider library: $name" }
+            if ($name -match '(?i)(ucrtbase|api-ms-win-)') { throw "$($runtime.Name) ships an OS component: $name" }
+          }
+
+          $s = [System.IO.Compression.ZipFile]::OpenRead($symbols.FullName)
+          $symbolNames = @($s.Entries | ForEach-Object { $_.FullName })
+          $s.Dispose()
+          if ($symbolNames.Count -ne 1 -or $symbolNames[0] -ne 'bin/encro.pdb') {
+            throw "$($symbols.Name) should carry bin/encro.pdb and nothing else, found: $($symbolNames -join ', ')"
+          }
+          "archive contents match the intended file list"
 
       - uses: actions/upload-artifact@v7
         with:
