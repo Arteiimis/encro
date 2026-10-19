@@ -64,7 +64,7 @@ Rationale: unregistering collides with the key table (D4), and it degrades unkno
 ### D6 — tests declare which side of the predicate they are on
 
 - CLI-level visibility cases (`main help lists organize`, the `[organize]` rows in `cmd_cmd_tests.cpp`, the completion-model scope case) set `ENCRO_FAKE_TAGGER` through the existing `testutils::ScopedEnvVar` and assert the visible behaviour on every platform.
-- The negative cases — `organize` absent from help and completion, and the refusal message — call `inferenceAvailable()` first and `SKIP("no inference backend on this host")` when it is true, so they execute on Linux CI and stay honest on Windows instead of being deleted.
+- The negative cases — `organize` absent from help and completion, and the refusal message — call `inferenceAvailable()` first and `SKIP("an inference backend is present here")` when it is true, so they execute on Linux CI and stay honest on Windows instead of being deleted.
 - `e2e_tests` reaches `encro_core` through its `encro` dependency — it already calls `core::sha256Hex` — so its refusal cases call `inferenceAvailable()` and `SKIP()` like the CLI cases. The one existing case with a platform-dependent expectation (`missing models fail fast with guidance`, which deliberately runs without the fake) `SKIP()`s where `inferenceAvailable()` is false — letting the refusal case own that outcome — and keeps asserting the models message where a backend exists. No `#if` enters the test tree.
 - New e2e coverage: an unavailable run exits non-zero, names the backend, and creates no `organized/` tree; a fake-backed run keeps filing images exactly as before (the existing cases already prove this).
 
