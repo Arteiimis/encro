@@ -6,7 +6,7 @@ task("size")
     options = {
       {"d", "breakdown", "k", nil, "Per-object breakdown via the symbol file"},
       {"t", "target", "kv", "encro", "Target binary name (default: encro)"},
-      {"m", "mode", "kv", "release", "Build mode to analyze (default: release)"},
+      {"m", "mode", "kv", nil, "Build mode to analyze (default: the configured mode)"},
       {"n", "top", "kv", "20", "Rows to show per section (default: 20)"}
     }
   })
@@ -19,11 +19,15 @@ task("size")
     local platform = config.plat() or os.host()
     local builddir = config.builddir({absolute = true})
     local target = option.get("target")
-    local mode = option.get("mode")
+    -- --mode names another mode on purpose; a child `xmake f` cannot refresh this
+    -- process, so the path is joined here instead of asked of the target.
+    local mode = option.get("mode") or config.get("mode") or "release"
     local top = tonumber(option.get("top"))
     local ext = platform == "windows" and ".exe" or ""
 
-    local exe = path.join(builddir, platform, os.arch(), mode, target .. ext)
+    -- The configured architecture, not the host: for a binary target this join equals
+    -- targetfile() while no target overrides its output directory or name.
+    local exe = path.join(builddir, platform, config.arch() or os.arch(), mode, target .. ext)
     if not os.exists(exe) then
       os.raise(string.format("binary not found: %s (build it first)", exe))
     end
