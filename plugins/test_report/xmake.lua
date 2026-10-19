@@ -63,12 +63,12 @@ task("test-report")
     end
 
     -- Catch2 prints "All tests passed (N assertions in M test cases)" when
-    -- nothing is skipped or failed - singular when M is 1 - and a totals table
-    -- otherwise. Both carry the numbers this task reports, and a shard that
-    -- prints neither is unaccounted for.
+    -- nothing is skipped or failed - singular in either number when it is 1 -
+    -- and a totals table otherwise. Both carry the numbers this task reports,
+    -- and a shard that prints neither is unaccounted for.
     local function parse_summary(content)
       local assertions, cases =
-        content:match("All tests passed %((%d+) assertions in (%d+) test cases?%)")
+        content:match("All tests passed %((%d+) assertions? in (%d+) test cases?%)")
       if not assertions then
         assertions = content:match("assertions:%s+(%d+)%s*|")
         if not assertions and content:find("assertions:%s*%-%s*none%s*%-") then
@@ -536,7 +536,7 @@ task("test-report")
       local content = ""
       for _ = 1, 40 do
         content = read_content(logfile) or ""
-        if content:find("assertions", 1, true) then
+        if content:find("assertion", 1, true) then -- also matches "assertions"
           break
         end
         os.sleep(50)
@@ -684,6 +684,15 @@ task("test-report")
         "test cases:  91 |  89 passed | 2 skipped\nassertions: 495 | 495 passed | 0 failed\n"
       )
       check("singular summary parsed", one_assertions == 3 and one_cases == 1)
+      -- Catch2 pluralises the assertion count as well: a shard whose one case
+      -- makes a single assertion prints "1 assertion".
+      local single_assertions, single_cases =
+        parse_summary("All tests passed (1 assertion in 1 test case)\n")
+      check(
+        "single-assertion summary parsed",
+        single_assertions == 1 and single_cases == 1,
+        string.format("%s/%s", tostring(single_assertions), tostring(single_cases))
+      )
       check("plural summary parsed", many_assertions == 254 and many_cases == 12)
       check("table summary parsed", table_assertions == 495 and table_cases == 91)
       check("absent summary reported", parse_summary("nothing here") == nil, "nil")
