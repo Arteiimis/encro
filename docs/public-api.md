@@ -124,7 +124,7 @@ No other exit code is part of the contract.
 
 ## `config.json`
 
-Location: `%LOCALAPPDATA%\encro\config.json` on Windows, `~/.local/share/encro/config.json` elsewhere. The file is a JSON object whose keys are the token names below. Keys are written in this order so the file stays diff-stable; unknown keys are rejected, and a malformed file is an error rather than silently ignored.
+Location: `%LOCALAPPDATA%\encro\config.json` on Windows, `~/.config/encro/config.json` elsewhere (`$XDG_CONFIG_HOME` when set), overridable with `ENCRO_CONFIG`. The file is a JSON object whose keys are the token names below. Keys are written in this order so the file stays diff-stable; unknown keys are rejected, and a malformed file is an error rather than silently ignored.
 
 | Key | JSON type | Accepted values | Option it backs |
 | --- | --- | --- | --- |

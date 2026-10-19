@@ -7,7 +7,7 @@ encro is a batch media processing CLI built on top of ffmpeg. Point it at a dire
 
 ## Installing
 
-Every downloadable file is on the [Releases](https://github.com/Arteiimis/encro/releases) page. `2.0.1` is the first version with files: `2.0.0` was a milestone tag and everything below it was tagged retrospectively, so those entries record history rather than offer a download.
+Every downloadable file is on the [Releases](https://github.com/Arteiimis/encro/releases) page, and the newest release is the one to install. `2.0.0` was a milestone tag and everything below it was tagged retrospectively, so those entries record history rather than offer a download. The first release that did carry files (`2.0.1`) was withdrawn — its changelog entry is marked `[YANKED]`.
 
 **Windows**, through Scoop:
 
