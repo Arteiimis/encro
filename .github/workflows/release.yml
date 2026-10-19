@@ -49,6 +49,7 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
       until: ${{ steps.resolve.outputs.until }}
+      ref: ${{ steps.resolve.outputs.ref }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -93,6 +94,14 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "until=${{ inputs.until }}" >> "$GITHUB_OUTPUT"
+          # A published version is built from the commit its tag names, not from
+          # whatever main has become since; anything else publishes a release
+          # whose own source is not the source of its assets.
+          if [ "$mode" = "publish" ]; then
+            echo "ref=$tag" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
 
   gate:
     name: gate
@@ -135,9 +144,14 @@ jobs:
         if: needs.resolve.outputs.mode == 'publish'
         run: |
           set -euo pipefail
-          declared=$(grep -oE 'local encroVersion = "[^"]+"' xmake.lua | sed -E 's/.*"([^"]+)"/\1/')
+          # Read the declaration out of the tagged tree, not out of main: the
+          # build jobs check the tag out, so the tag's own xmake.lua is what
+          # decides the version the artifacts will carry.
+          declared=$(git show "${{ needs.resolve.outputs.tag }}:xmake.lua" \
+            | grep -oE 'local encroVersion = "[^"]+"' \
+            | sed -E 's/.*"([^"]+)"/\1/')
           if [ -z "$declared" ]; then
-            echo "::error::could not read the version declaration from xmake.lua"
+            echo "::error::could not read the version declaration from xmake.lua at ${{ needs.resolve.outputs.tag }}"
             exit 1
           fi
           if [ "$declared" != "${{ needs.resolve.outputs.version }}" ]; then
@@ -210,7 +224,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
+          ref: ${{ needs.resolve.outputs.ref }}
 
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
@@ -356,7 +370,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
+          ref: ${{ needs.resolve.outputs.ref }}
 
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
@@ -420,7 +434,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
+          ref: ${{ needs.resolve.outputs.ref }}
 
       - uses: actions/download-artifact@v8
         with:
@@ -487,13 +501,27 @@ jobs:
         id: bucket
         continue-on-error: true
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SCOOP_BUCKET_DEPLOY_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           asset="encro-$VERSION-x64-windows.zip"
           url="https://github.com/${{ github.repository }}/releases/download/v$VERSION/$asset"
-          hash=$(sha256sum "dist/$asset" | cut -d' ' -f1)
+          # The checksum has to describe the bytes a user downloads, not the ones
+          # this run just rebuilt: those differ (a rebuild is not reproducible in
+          # practice), and a manifest carrying a rebuild's hash makes every
+          # install fail the verification it exists to perform.
+          hash=$(gh api "repos/${{ github.repository }}/releases/tags/v$VERSION" \
+            --jq ".assets[] | select(.name == \"$asset\") | .digest" | sed 's/^sha256://')
+          if [ -z "$hash" ]; then
+            echo "::error::the release has no $asset to describe; leaving the bucket alone"
+            exit 1
+          fi
+          local_hash=$(sha256sum "dist/$asset" | cut -d' ' -f1)
+          if [ "$local_hash" != "$hash" ]; then
+            echo "::warning::the rebuild of $asset differs from the published bytes; the manifest describes the published ones"
+          fi
 
           # A deploy key scoped to the bucket repository, rather than a personal
           # access token: it reaches that one repository, is useless anywhere
@@ -562,7 +590,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
+          ref: ${{ needs.resolve.outputs.ref }}
 
       - name: Record every tag up to the boundary
         env:

@@ -1,4 +1,6 @@
-Set-Location "C:\Users\LEGION\Desktop\projs\cpp_test\encro.worktrees\release-process"
+$ErrorActionPreference = "Stop"
+# Run from the repository that holds these scripts, wherever it was cloned.
+Set-Location (Split-Path -Parent $PSScriptRoot)
 
 # Every tag has a section; extracting it must produce a body that starts with
 # that version's own heading and contains no other version's heading.
@@ -29,7 +31,13 @@ foreach ($t in $tags) {
 ""
 # The unreleased section must not be extractable: no tag names it.
 & pwsh -NoProfile -File scripts/get-changelog-section.ps1 -Version "unreleased" 2>&1 | Out-Null
-"unreleased extractable (expected non-zero exit): exit=$LASTEXITCODE"
+if ($LASTEXITCODE -eq 0) { "  FAIL the unreleased section was extractable"; $failures++ }
+else { "  ok   the unreleased section is not extractable (exit $LASTEXITCODE)" }
 
 ""
-if ($failures -eq 0) { "ALL SECTIONS OK ($($tags.Count) versions)" } else { "FAILURES: $failures" }
+if ($failures -eq 0) {
+    "ALL SECTIONS OK ($($tags.Count) versions)"
+    exit 0
+}
+"FAILURES: $failures"
+exit 1

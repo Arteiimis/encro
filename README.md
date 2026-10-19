@@ -170,7 +170,7 @@ xmake run encro organize <dir> --download-models
 
 A first run already groups what it can: the character folder this run's own tag routing creates becomes a reference, so a cluster whose profile matches it is filed there in the same run instead of waiting for a second one.
 
-Rename any output folder to rename a character — e.g. `hatsune_miku` → `初音ミク`; later runs file new images of that character under your name. `--dry-run` prints the plan without copying; results are cached by content hash, so re-runs and interrupted runs re-analyze nothing (`--recluster` discards the cache). On NVIDIA GPUs the model runs on CUDA; install the CUDA runtime once with `scoop install versions/cuda12.9` (cuDNN is downloaded automatically by `--download-models`). Without it, everything falls back to the CPU with a notice.
+Rename any output folder to rename a character — e.g. `hatsune_miku` → `初音ミク`; later runs file new images of that character under your name. `--dry-run` prints the plan without copying; results are cached by content hash, so re-runs and interrupted runs re-analyze nothing (`--recluster` discards the cache). The download in `## Installing` carries no CUDA provider, so `organize` uses the providers built into the inference runtime; to run on an NVIDIA GPU, place `onnxruntime_providers_cuda.dll` and `onnxruntime_providers_shared.dll` next to the executable along with the CUDA runtime (`scoop install versions/cuda12.9`; `--download-models` fetches cuDNN) — the provider libraries are only loaded from the executable's own directory. Without them everything runs on the CPU with a notice.
 
 ### Batch processing (`batch`)
 
