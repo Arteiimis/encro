@@ -235,6 +235,14 @@ TEST_CASE(
 
   REQUIRE(completion::installScript("bash") == 0);
 
+  auto const lazyScript =
+    env.home() / ".local" / "share" / "bash-completion" / "completions" / "encro";
+  // A host that ships the bash-completion framework (Ubuntu does) takes the
+  // lazy-load branch by design, so the fallback branch is unreachable there.
+  if (fs::exists(lazyScript)) {
+    SKIP("bash-completion is installed on this host: install takes the lazy-load branch");
+  }
+
   auto const bashScript = env.encroRoot() / "completion" / "encro.bash";
   auto const script = readIfExists(bashScript);
   REQUIRE(script.has_value());
@@ -381,17 +389,23 @@ TEST_CASE(
   );
 }
 
-TEST_CASE("bash uninstall deletes a startup file it emptied", "[completion][install]") {
+TEST_CASE("bash uninstall deletes the file install created", "[completion][install]") {
   requireInstallTestingOrSkip();
   TempDir temp;
   EnvGuard env{temp.path};
 
-  // No .bashrc and no bash-completion anywhere: install creates the file.
+  // Which layout install picks is the host's business — the lazy-load directory
+  // where the bash-completion framework exists, the startup file otherwise —
+  // and uninstall must remove exactly that one.
   auto const bashrc = env.home() / ".bashrc";
+  auto const lazyScript =
+    env.home() / ".local" / "share" / "bash-completion" / "completions" / "encro";
   REQUIRE_FALSE(fs::exists(bashrc));
   REQUIRE(completion::installScript("bash") == 0);
-  REQUIRE(fs::exists(bashrc));
+
+  auto const installed = fs::exists(bashrc) ? bashrc : lazyScript;
+  REQUIRE(fs::exists(installed));
 
   REQUIRE(completion::uninstallScript("bash") == 0);
-  CHECK_FALSE(fs::exists(bashrc));
+  CHECK_FALSE(fs::exists(installed));
 }
