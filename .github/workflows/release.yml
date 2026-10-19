@@ -124,9 +124,11 @@ jobs:
           xmake-version: latest
 
       - name: Pin xmake's global directory to a path the cache can name
-        run: |
-          # xmake appends `.xmake` to this variable, so it names the parent dir.
-          echo "XMAKE_GLOBALDIR=$HOME" >> "$GITHUB_ENV"
+        # xmake appends `.xmake` to this variable, so it names the parent
+        # directory: %USERPROFILE% on Windows, $HOME elsewhere. Without the pin
+        # Windows prefers %APPDATA%\.xmake, which leaves `~/.xmake/packages`
+        # empty and makes the cache silently store nothing.
+        run: python scripts/ci_env.py pin-xmake-globaldir
 
       - uses: actions/cache/restore@v6
         id: xmake-cache
@@ -229,13 +231,11 @@ jobs:
           xmake-version: latest
 
       - name: Pin xmake's global directory to a path the cache can name
-        shell: pwsh
-        run: |
-          # xmake appends `.xmake` to this variable, so it names the parent
-          # directory. Without the pin xmake prefers %APPDATA%\.xmake on
-          # Windows, which makes `~/.xmake/packages` an empty path and the
-          # cache silently stores nothing.
-          "XMAKE_GLOBALDIR=$env:USERPROFILE" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8NoBOM
+        # xmake appends `.xmake` to this variable, so it names the parent
+        # directory: %USERPROFILE% on Windows, $HOME elsewhere. Without the pin
+        # Windows prefers %APPDATA%\.xmake, which leaves `~/.xmake/packages`
+        # empty and makes the cache silently store nothing.
+        run: python scripts/ci_env.py pin-xmake-globaldir
 
       - uses: actions/cache/restore@v6
         id: xmake-cache
@@ -249,15 +249,9 @@ jobs:
         run: xmake f -m release -y
 
       - name: Report the package cache size
-        shell: pwsh
-        run: |
-          # A silently empty cache path is how the first attempt failed twice
-          # while reporting success, so its size is asserted every run.
-          $p = Join-Path $env:USERPROFILE ".xmake\packages"
-          if (Test-Path $p) {
-            $bytes = (Get-ChildItem $p -Recurse -File | Measure-Object Length -Sum).Sum
-            "packages: {0:N0} bytes" -f $bytes
-          } else { throw "packages dir does not exist: $p" }
+        # A silently empty cache path is how the first attempt failed twice
+        # while reporting success, so its size is asserted every run.
+        run: python scripts/ci_env.py report-package-cache
 
       - name: Build
         timeout-minutes: 60
@@ -338,8 +332,11 @@ jobs:
           xmake-version: latest
 
       - name: Pin xmake's global directory to a path the cache can name
-        run: |
-          echo "XMAKE_GLOBALDIR=$HOME" >> "$GITHUB_ENV"
+        # xmake appends `.xmake` to this variable, so it names the parent
+        # directory: %USERPROFILE% on Windows, $HOME elsewhere. Without the pin
+        # Windows prefers %APPDATA%\.xmake, which leaves `~/.xmake/packages`
+        # empty and makes the cache silently store nothing.
+        run: python scripts/ci_env.py pin-xmake-globaldir
 
       - uses: actions/cache/restore@v6
         id: xmake-cache
