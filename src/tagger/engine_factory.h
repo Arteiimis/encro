@@ -17,6 +17,16 @@ namespace tagger {
 // True when ENCRO_FAKE_TAGGER is set (model management is bypassed too).
 bool fakeTaggerRequested();
 
+#if defined(_WIN32)
+inline constexpr bool kLinksOnnxEngines = true;
+#else
+inline constexpr bool kLinksOnnxEngines = false;
+#endif
+
+// True when this build can classify anything: the local ONNX engines are
+// linked, or the fake tagger seam supplies a fixture backend.
+bool inferenceAvailable();
+
 // Builds the production OnnxTagger (throws std::runtime_error on load
 // failure) or the env-driven fake. ffmpegPath feeds preprocessing.
 auto makeTaggerEngine(fs::path const& modelDir, std::optional<fs::path> const& ffmpegPath)

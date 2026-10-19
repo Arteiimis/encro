@@ -4,6 +4,7 @@
 #include "cmd/cmd.h"
 #include "cmd/config_command.h"
 
+#include "tagger/engine_factory.h"
 #include "test_utils.h"
 
 #include <catch2/catch_all.hpp>
@@ -73,8 +74,39 @@ TEST_CASE("organize help states the local-only privacy line", "[cmd][organize]")
 }
 
 TEST_CASE("main help lists organize", "[cmd][organize]") {
+  // organize needs a backend to be offered: the ONNX engines on Windows, the
+  // fixture seam everywhere else.
+  auto const fake = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", "fixture.json"};
   auto const result = testutils::parseArgs({"encro", "-h"});
   CHECK(result.helpText().find("organize") != std::string::npos);
+}
+
+TEST_CASE("main help omits organize without an inference backend", "[cmd][organize]") {
+  [[maybe_unused]] auto const clearFake =
+    testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", ""};
+  if (tagger::inferenceAvailable()) { SKIP("no inference backend on this host"); }
+
+  auto const brief = testutils::parseArgs({"encro", "-h"});
+  REQUIRE(brief.help);
+  auto const plain = testutils::stripAnsi(brief.helpText());
+  CHECK(plain.find("encro commands:") != std::string::npos);
+  CHECK(plain.find("organize") == std::string::npos);
+  // The rows that remain keep the auto-fit description column.
+  CHECK(
+    plain.find(
+      "  preview      compare an original video with its encoded output side by "
+      "side"
+    )
+    != std::string::npos
+  );
+
+  auto const full = testutils::parseArgs({"encro", "-hh"});
+  CHECK(testutils::stripAnsi(full.helpText()).find("organize") == std::string::npos);
+
+  // The subcommand keeps its own help even while it is hidden.
+  auto const sub = testutils::parseArgs({"encro", "organize", "-h"});
+  CHECK(sub.help);
+  CHECK(sub.helpText().find("never leaves this machine") != std::string::npos);
 }
 
 TEST_CASE("model-dir config key set/get round-trips", "[cmd][organize][config]") {

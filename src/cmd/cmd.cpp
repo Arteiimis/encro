@@ -7,6 +7,7 @@
 #include "cmd/option_specs.h"
 #include "organize/disposition.h"
 #include "organize/organize_types.h"
+#include "tagger/engine_factory.h"
 
 #include <CLI/CLI.hpp>
 
@@ -91,6 +92,11 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
   };
   registerAll(sub, options, result.keyEntries);
   installOrganizeHelpFormatter(*sub);
+  // A build with no inference backend keeps the subcommand registered (its -h
+  // and its config keys still work) but marks it hidden: an empty CLI11 group
+  // is the library's own "not in help" convention, filtered by the help and
+  // completion renderers (design D2).
+  if (!tagger::inferenceAvailable()) { sub->group(""); }
   return sub;
 }
 

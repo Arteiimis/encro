@@ -5,6 +5,7 @@
 #include "e2e_test_utils.h"
 
 #include "core/sha256.h"
+#include "tagger/engine_factory.h"
 #include "test_utils.h"
 
 #include <boost/json.hpp>
@@ -259,7 +260,63 @@ TEST_CASE("renamed character folder teaches a later e2e run", "[e2e][organize]")
   CHECK(!fs::exists(pics / "organized" / "hatsune_miku"));
 }
 
+// Availability (image-character-organize): a build with no inference backend
+// refuses the run before it scans or copies anything.
+TEST_CASE("organize refuses to run without an inference backend", "[e2e][organize]") {
+  [[maybe_unused]] auto const clearFake =
+    testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", ""};
+  if (tagger::inferenceAvailable()) { SKIP("no inference backend on this host"); }
+
+  auto temp = TempDir{};
+  auto const pics = temp.path / "pics";
+  fs::create_directories(pics);
+  writeImage(pics / "miku1.png", "miku1");
+  auto const emptyModels = temp.path / "models";
+  fs::create_directories(emptyModels);
+
+  auto const run = e2e::runEncro(
+    {"organize", pathutf8::fromPath(pics), "--model-dir", pathutf8::fromPath(emptyModels)}
+  );
+  CHECK(run.exitCode != 0);
+  CHECK(
+    (run.stdoutText.find("no inference backend") != std::string::npos
+     || run.stderrText.find("no inference backend") != std::string::npos)
+  );
+  CHECK(!fs::exists(pics / "organized"));
+}
+
+// The guard sits ahead of --download-models, so an unavailable build cannot
+// pull the models it would never use. No red phase: before the guard this run
+// really fetched them.
+TEST_CASE(
+  "organize does not download models without an inference backend",
+  "[e2e][organize]"
+) {
+  [[maybe_unused]] auto const clearFake =
+    testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", ""};
+  if (tagger::inferenceAvailable()) { SKIP("no inference backend on this host"); }
+
+  auto temp = TempDir{};
+  auto const models = temp.path / "models";
+
+  auto const run = e2e::runEncro(
+    {"organize", "--download-models", "--model-dir", pathutf8::fromPath(models)}
+  );
+  INFO("stdout: " << run.stdoutText);
+  INFO("stderr: " << run.stderrText);
+  CHECK(run.exitCode != 0);
+  CHECK(
+    (run.stdoutText.find("no inference backend") != std::string::npos
+     || run.stderrText.find("no inference backend") != std::string::npos)
+  );
+  CHECK(!fs::exists(models));
+}
+
 TEST_CASE("missing models fail fast with guidance", "[e2e][organize]") {
+  // Without a backend the guard fires first and the refusal case above owns
+  // the outcome, so the models message is unreachable here.
+  if (!tagger::inferenceAvailable()) { SKIP("no inference backend on this host"); }
+
   auto temp = TempDir{};
   auto const pics = temp.path / "pics";
   fs::create_directories(pics);

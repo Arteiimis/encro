@@ -522,6 +522,9 @@ TEST_CASE("help auto-fits the description column with a 3-space gap", "[cmd]") {
 }
 
 TEST_CASE("main help lists subcommands in a git-style commands section", "[cmd]") {
+  // organize needs a backend to be offered: the ONNX engines on Windows, the
+  // fixture seam everywhere else.
+  auto const fake = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", "fixture.json"};
   // The organize row wraps at the terminal width, so rows are asserted
   // individually rather than as one contiguous block.
   auto const brief = stripAnsi(testutils::parseArgs({"encro", "-h"}).helpText());

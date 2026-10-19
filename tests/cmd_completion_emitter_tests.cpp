@@ -3,6 +3,7 @@
 
 #include "cmd/cmd.h"
 #include "cmd/completion_registry.h"
+#include "tagger/engine_factory.h"
 #include "test_utils.h"
 
 #include <CLI/CLI.hpp>
@@ -127,6 +128,10 @@ TEST_CASE(
 }
 
 TEST_CASE("model path ids resolve to real value options", "[completion]") {
+  // Path ids are recorded at registration, so the check needs every
+  // subcommand's options in the model: organize's --model-dir is the only one
+  // registered outside the main and preview scopes.
+  auto const fake = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", "fixture.json"};
   auto const model = completion::buildCompletionModel();
   REQUIRE_FALSE(model.pathIds.empty());
   for (auto const& id: model.pathIds) {
@@ -151,6 +156,9 @@ TEST_CASE("model derives path ids from the registry", "[completion]") {
 }
 
 TEST_CASE("model carries positional candidates per subcommand scope", "[completion]") {
+  // organize needs a backend to have a scope: the ONNX engines on Windows,
+  // the fixture seam everywhere else.
+  auto const fake = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", "fixture.json"};
   auto const model = completion::buildCompletionModel();
 
   auto const* completionScope = findScope(model, "completion");
@@ -181,6 +189,20 @@ TEST_CASE("model carries positional candidates per subcommand scope", "[completi
   for (auto const& positional: preview->positionals) { REQUIRE(positional.empty()); }
 }
 
+// shell-completion: a registered but unavailable subcommand is not part of the
+// emitted surface.
+TEST_CASE("model omits an unavailable subcommand", "[completion]") {
+  [[maybe_unused]] auto const clearFake =
+    testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", ""};
+  if (tagger::inferenceAvailable()) { SKIP("no inference backend on this host"); }
+
+  auto const model = completion::buildCompletionModel();
+  CHECK(findScope(model, "organize") == nullptr);
+
+  CHECK_FALSE(contains(completion::emitBashScript(model), "organize"));
+  CHECK_FALSE(contains(completion::emitPowerShellScript(model), "organize"));
+}
+
 TEST_CASE("model collects config keys with enumerated values", "[completion]") {
   auto const model = completion::buildCompletionModel();
   REQUIRE(has(model.configKeys, "jobs"));
@@ -191,6 +213,7 @@ TEST_CASE("model collects config keys with enumerated values", "[completion]") {
 }
 
 TEST_CASE("emitted scripts cover the full surface deterministically", "[completion]") {
+  auto const fake = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", "fixture.json"};
   auto const model = completion::buildCompletionModel();
   auto const bash = completion::emitBashScript(model);
   auto const powershell = completion::emitPowerShellScript(model);

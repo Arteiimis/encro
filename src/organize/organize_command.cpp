@@ -132,6 +132,18 @@ auto makeEngines(fs::path const& modelDir, std::optional<fs::path> const& ffmpeg
 }
 
 int runOrganizeCommand(CmdParseResult const& cmd) {
+  // Availability first (design D3): before --download-models, before the model
+  // check, and before the disposition walk, so a build without a backend
+  // touches neither the network nor the folder.
+  if (!tagger::inferenceAvailable()) {
+    terminal::messageln(
+      MessageKind::Error,
+      "organize is unavailable: this build has no inference backend "
+      "(onnxruntime is not linked and ENCRO_FAKE_TAGGER is unset)"
+    );
+    return 1;
+  }
+
   auto const modelDir = resolveModelDir(cmd);
   auto const fakeEngine = tagger::fakeTaggerRequested();
 

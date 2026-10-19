@@ -31,7 +31,7 @@ Both platforms need **ffmpeg and ffprobe** installed and reachable — on `PATH`
 | video, picture, packing, `batch`, `preview`, `config`, `completion` | yes | yes |
 | `organize` | yes | **no inference runtime** |
 
-On Linux, `organize` runs but cannot sort: with no inference backend, every image is filed under `organized/uncategorized/` instead of a character folder. Use a Windows build to sort images.
+On Linux, `organize` is not offered. It needs a local inference backend and only the Windows build links one, so `encro -h` and the generated completion scripts leave it out there, and `encro organize <dir>` exits non-zero with an error naming the missing backend before it scans, copies or downloads anything. Use a Windows build to sort images. If you already installed a completion script, re-run `encro completion <shell> --install` to drop the stale `organize` candidates.
 
 The Windows archive carries everything the binary needs to start, including the Visual C++ runtime libraries it imports (redistributed under the Microsoft licence) — ffmpeg is the only prerequisite left. Each release also publishes a `-symbols.zip` beside it: unpack that next to `bin\encro.exe` and a crash report resolves to function names.
 

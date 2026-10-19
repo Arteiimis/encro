@@ -157,8 +157,8 @@ private:
 
 #if !defined(_WIN32)
 // The local onnxruntime-gpu package ships win-x64 binaries only, so non-
-// Windows hosts build without the ONNX engines; organize still starts and
-// degrades each image to uncategorized/ through the classify/extract error.
+// Windows hosts build without the ONNX engines; organize refuses to run there
+// instead of degrading every image to uncategorized/.
 class UnsupportedPlatformTagger final: public TaggerEngine {
 public:
   auto classify(fs::path const&) -> eh::Result<TaggerOutput> override {
@@ -180,6 +180,10 @@ public:
 
 bool fakeTaggerRequested() {
   return processenv::readNonEmptyEnvVar("ENCRO_FAKE_TAGGER").has_value();
+}
+
+bool inferenceAvailable() {
+  return kLinksOnnxEngines || fakeTaggerRequested();
 }
 
 auto makeTaggerEngine(fs::path const& modelDir, std::optional<fs::path> const& ffmpegPath)

@@ -350,10 +350,19 @@ auto formatCommandsSection(
 ) -> std::string {
   if (subcommands.empty()) { return {}; }
 
+  // An unavailable subcommand carries an empty CLI11 group (cmd.cpp): the
+  // library's own "not in help" convention. It is left out of the width fit
+  // and the rows, exactly as the completion model leaves it out (design D2).
+  auto const hidden = [](CLI::App const* sub) { return sub->get_group().empty(); };
+
+  auto visibleCount = std::size_t{0};
   auto widest = 0u;
   for (auto const* sub: subcommands) {
+    if (hidden(sub)) { continue; }
+    ++visibleCount;
     widest = std::max(widest, static_cast<unsigned>(sub->get_name().size()));
   }
+  if (visibleCount == 0) { return {}; }
   auto const colWidth = computeColumnWidth(widest, layout);
 
   auto result = std::format(
@@ -361,6 +370,7 @@ auto formatCommandsSection(
     terminal::styled(terminal::Stream::Stdout, fmt::emphasis::bold, "encro commands")
   );
   for (auto const* sub: subcommands) {
+    if (hidden(sub)) { continue; }
     auto const name = sub->get_name();
     auto const nameWidth = static_cast<unsigned>(name.size());
     auto const gap = nameWidth < colWidth ? colWidth - nameWidth : 2u;
