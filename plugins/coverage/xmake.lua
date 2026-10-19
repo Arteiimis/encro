@@ -15,9 +15,17 @@ task("coverage")
     local option = import("core.base.option")
     local config = import("core.project.config")
 
+    -- A task starts with the project configuration unloaded: platform and mode
+    -- read as nil until this.
+    config.load()
     local platform = config.plat() or os.host()
+    -- The mode the caller had configured, restored when the run finishes.
+    local previous_mode = config.get("mode") or "release"
     local builddir = config.builddir({absolute = true})
     local coverage_dir = path.join(builddir, "coverage")
+    -- The binaries this task builds are in the coverage mode it switches to, not
+    -- in the configured mode: a child `xmake f` does not refresh the config or
+    -- the targets loaded in this process (verified), so the path is built here.
     local mode_dir = path.join(builddir, platform, os.arch(), "coverage")
     local ext = platform == "windows" and ".exe" or ""
 
@@ -38,9 +46,7 @@ task("coverage")
 
     local function find_tool(name)
       local tool = import("lib.detect.find_tool")(name)
-      if not tool then
-        os.raise(string.format("%s not found on PATH; install LLVM or add it to PATH", name))
-      end
+      assert(tool, string.format("%s not found on PATH; install LLVM or add it to PATH", name))
       return tool.program
     end
 
@@ -73,8 +79,8 @@ task("coverage")
     local failed = nil
     try {
       function()
-        run("xmake", {"f", "-m", "coverage", "-c", "-p", platform, "-y"})
-        run("xmake", {"build", "tests"})
+        run(os.programfile(), {"f", "-m", "coverage", "-c", "-p", platform, "-y"})
+        run(os.programfile(), {"build", "tests"})
         assert_instrumented()
 
         -- 直接运行二进制：xmake 3.1.0 的 run 在 Linux 上 execv 失败
@@ -84,7 +90,7 @@ task("coverage")
         })
 
         if option.get("e2e") then
-          run("xmake", {"build", "e2e_tests", "encro", "encro_e2e_tool"})
+          run(os.programfile(), {"build", "e2e_tests", "encro", "encro_e2e_tool"})
           local e2e_bin = path.join(mode_dir, "e2e_tests" .. ext)
           run(e2e_bin, {}, {
             envs = {LLVM_PROFILE_FILE = path.join(coverage_dir, "e2e-%p.profraw")}
@@ -154,9 +160,10 @@ task("coverage")
       }
     }
 
-    -- 无论成败都恢复 release 模式（--keep 时跳过，便于连续多次跑覆盖率）
+    -- Restore the mode the caller had configured, whatever the outcome (skipped
+    -- with --keep, so consecutive coverage runs reuse one instrumented build).
     if not option.get("keep") then
-      run("xmake", {"f", "-m", "release", "-c", "-p", platform, "-y"})
+      run(os.programfile(), {"f", "-m", previous_mode, "-c", "-p", platform, "-y"})
     end
 
     if failed then

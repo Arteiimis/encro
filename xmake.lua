@@ -217,19 +217,11 @@ target("tests")
   -- Shared deps (boost/spdlog/... + src includes) arrive via encro_core.
   add_packages("catch2", "cpp-httplib")
   add_includedirs("tests")
-  add_files("tests/*.cpp")
-  add_files("tests/app/*.cpp")
-  add_files("tests/batch/*.cpp")
-  add_files("tests/infra/*.cpp")
-  add_files("tests/organize/*.cpp")
-  add_files("tests/picture/*.cpp")
-  add_files("tests/preview/*.cpp")
-  add_files("tests/tagger/*.cpp")
+  add_files("tests/**.cpp|e2e/**") -- the exclude is relative to the glob root (`tests/`)
   -- Constructs OnnxTagger directly; windows-only like the engine it drives.
   if not is_plat("windows") then
     remove_files("tests/tagger/real_model_tests.cpp")
   end
-  add_files("tests/video/*.cpp")
 
   -- Unit tests spawn the fake media tool exe directly (no cmd.exe layer).
   add_deps("encro_e2e_tool", "encro_core")

@@ -20,14 +20,19 @@ task("test-report")
       {nil, "shards", "kv", nil, "Shard count for both suites (default: per suite, from the core count)"},
       {nil, "unit-shards", "kv", nil, "Shard count for unit tests (default: cores/2, capped at 8)"},
       {nil, "e2e-shards", "kv", nil, "Shard count for e2e tests (default: cores/4, capped at 4)"},
-      {nil, "selftest", "k", nil, "Check the partitioning helpers on fixtures and exit"}
+      {nil, "selftest", "k", nil, "Check the partitioning helpers and the resolved configuration, then exit"}
     }
   })
 
   on_run(function()
     local option = import("core.base.option")
     local config = import("core.project.config")
+    local project = import("core.project.project")
     local process = import("core.base.process")
+
+    -- A task starts with the project configuration unloaded: mode and platform
+    -- read as nil, so every path would fall back to the release build.
+    config.load()
 
     -- xmake's io.readfile raises on a missing file, so every read goes through
     -- this: a shard that died mid-run leaves no log or report, and that is a
@@ -322,12 +327,17 @@ task("test-report")
 
     --------------------------------------------------------------- process side
 
-    local platform = config.plat() or os.host()
-    local arch = os.arch()
-    local mode = config.get("mode") or "release"
     local builddir = config.builddir({absolute = true})
-    local ext = platform == "windows" and ".exe" or ""
-    local bin_dir = path.join(builddir, platform, arch, mode)
+
+    -- The configured binary of a suite's target. targetfile() is relative to
+    -- the project directory, and a child process need not run there.
+    local function suite_binary(name)
+      local target = project.target(name)
+      if not target then
+        os.raise(string.format("target %q is not defined", name))
+      end
+      return path.absolute(target:targetfile())
+    end
 
     -- The report paths a post-run read depends on, whatever the shard count.
     local documented = {
@@ -341,30 +351,14 @@ task("test-report")
       }
     }
 
-    local function makedirs(dir)
-      if os.isdir(dir) then
-        return
-      end
-      local parent = path.directory(dir)
-      if parent and parent ~= dir then
-        makedirs(parent)
-      end
-      os.mkdir(dir)
-    end
-
-    -- os.execv raises on non-zero exits and hides the exit code, so use the
-    -- process API directly to get the real exit code.
+    -- os.execv with try returns the child's exit code instead of raising, and
+    -- still lets its output reach the terminal unless stdout/stderr is given.
     local function run(cmd, args, opts)
-      local proc = process.openv(cmd, args, opts)
-      if not proc then
+      local code = os.execv(cmd, args, table.join(opts or {}, {try = true}))
+      if not code then
         os.raise(string.format("failed to run %s", cmd))
       end
-      local waitok, status = proc:wait(-1)
-      proc:close()
-      if not waitok or waitok <= 0 then
-        os.raise(string.format("failed to run %s", cmd))
-      end
-      return status
+      return code
     end
 
     -- The C layer REPLACES the child environment with the envs list, so the
@@ -397,8 +391,11 @@ task("test-report")
         table.insert(xml_args, 1, arg)
         table.insert(txt_args, 1, arg)
       end
-      run(binary, xml_args, {stdout = xml_file})
-      run(binary, txt_args, {stdout = txt_file})
+      -- A listing that fails would otherwise read as "this suite has no case".
+      if run(binary, xml_args, {stdout = xml_file}) ~= 0
+        or run(binary, txt_args, {stdout = txt_file}) ~= 0 then
+        os.raise(string.format("%s: the case listing failed", suite))
+      end
       local names = xml_case_names(read_content(xml_file) or "")
       if #names == 0 then
         return names
@@ -429,7 +426,9 @@ task("test-report")
       local spec = path.join(workdir, string.format("%s-escape-probe.txt", suite))
       local listing = path.join(workdir, string.format("%s-escape-probe.log", suite))
       io.writefile(spec, escape_spec(probe) .. "\n")
-      run(binary, {"-f", spec, "--list-tests", "-r", "console"}, {stdout = listing})
+      if run(binary, {"-f", spec, "--list-tests", "-r", "console"}, {stdout = listing}) ~= 0 then
+        os.raise(string.format("%s: the escaped-name probe failed to run", suite))
+      end
       local matched = (read_content(listing) or ""):match("(%d+) matching test cases?")
       if tonumber(matched) ~= 1 then
         os.raise(string.format(
@@ -470,7 +469,7 @@ task("test-report")
       local procs = {}
       for i, shard in ipairs(shards) do
         local shard_dir = path.join(workdir, string.format("%d", i - 1))
-        makedirs(shard_dir)
+        os.mkdir(shard_dir)
         -- Forward slashes keep the values intact; see shard_envs for the
         -- full-environment contract. --durations records per-test seconds in
         -- the shard log so a loaded run's slowest cases are identifiable
@@ -606,15 +605,6 @@ task("test-report")
       io.writefile(out_path, table.concat(parts, ""))
     end
 
-    local function cpu_count()
-      local n = tonumber(os.getenv("NUMBER_OF_PROCESSORS") or "")
-      if n then
-        return n
-      end
-      local info = os.cpuinfo()
-      return info and info.ncpu or 4
-    end
-
     local function clamp_shards(cores, divisor, max)
       return math.min(max, math.max(1, math.floor(cores / divisor)))
     end
@@ -629,6 +619,23 @@ task("test-report")
         end
         print(string.format("  %s %s%s", ok and "ok  " or "FAIL", label, detail and (" - " .. detail) or ""))
       end
+
+      -- The task reads the configuration the caller selected. Before
+      -- config.load() both of these are nil and every binary path resolves to
+      -- the release build, which is how a debug run used to look for a release
+      -- binary.
+      local mode, plat = config.get("mode"), config.plat()
+      check(
+        "configuration loaded",
+        mode ~= nil and plat ~= nil,
+        string.format("mode %s, plat %s", tostring(mode), tostring(plat))
+      )
+      local resolved = suite_binary("tests")
+      check(
+        "binary located through the target, in the configured mode",
+        path.is_absolute(resolved) and mode ~= nil and resolved:find(mode, 1, true) ~= nil,
+        resolved
+      )
 
       local xml = "<MatchingTests>\n  <TestCase>\n    <Name>plain name</Name>\n  </TestCase>\n"
         .. "  <TestCase>\n    <Name>a &lt;b&gt; &amp; c, d</Name>\n  </TestCase>\n</MatchingTests>\n"
@@ -833,7 +840,7 @@ task("test-report")
     end
     local filter = option.get("tag")
 
-    local cores = cpu_count()
+    local cores = (os.cpuinfo() or {}).ncpu or 4
     local both_shards = tonumber(option.get("shards"))
     local unit_shards = tonumber(option.get("unit-shards"))
       or both_shards
@@ -850,7 +857,7 @@ task("test-report")
       suites[#suites + 1] = {
         name = "unit",
         target = "tests",
-        binary = path.join(bin_dir, "tests" .. ext),
+        binary = suite_binary("tests"),
         shards = unit_shards
       }
     end
@@ -858,7 +865,7 @@ task("test-report")
       suites[#suites + 1] = {
         name = "e2e",
         target = "e2e_tests",
-        binary = path.join(bin_dir, "e2e_tests" .. ext),
+        binary = suite_binary("e2e_tests"),
         shards = e2e_shards
       }
     end
@@ -870,7 +877,7 @@ task("test-report")
     for _, s in ipairs(suites) do
       build_args[#build_args + 1] = s.target
     end
-    if run("xmake", build_args) ~= 0 then
+    if run(os.programfile(), build_args) ~= 0 then
       os.raise("test build failed; refusing to run a stale binary")
     end
 
@@ -884,13 +891,13 @@ task("test-report")
     if os.isdir(workdir) then
       os.rmdir(workdir)
     end
-    makedirs(workdir)
+    os.mkdir(workdir)
 
     -- Plan every suite first - enumeration, escaping, cost model, assignment -
     -- so no shard starts before the whole run can be accounted for.
     local enumerated, counts = {}, {}
     for _, s in ipairs(suites) do
-      makedirs(path.join(workdir, s.name))
+      os.mkdir(path.join(workdir, s.name))
       local names = enumerate(s.binary, workdir, s.name, filter)
       enumerated[s.name] = names
       counts[s.name] = #names

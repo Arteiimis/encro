@@ -15,6 +15,7 @@
 #include <vector>
 
 #if defined(_WIN32)
+  #include <crtdbg.h>   // IWYU pragma: keep -- Windows-only (guarded by _WIN32)
   #include <windows.h>  // IWYU pragma: keep -- Windows-only (guarded by _WIN32)
 #else
   #include <csignal>
@@ -103,9 +104,25 @@ int raiseFatalInsideDllLoadZone() {
 #endif
 }
 
+// The MSVC debug STL reports a hardened violation through the CRT assert path
+// before it traps. In a _DEBUG build that path opens a modal dialog, so the
+// violation neither terminates the process nor produces a crash record until
+// someone clicks: a crash probe waits on a human and a shard hangs. Sending the
+// report to stderr makes the trap the whole report in every build mode.
+#if defined(_WIN32)
+void routeCrtAssertsToStderr() {
+  // No `::`: in a release build these are no-op macros, not functions.
+  _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+  _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+}
+#endif
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
+#if defined(_WIN32)
+  routeCrtAssertsToStderr();
+#endif
   if (argc > 1 && std::string_view{argv[1]} == kCrashChildArg) { runCrashChild(); }
   if (argc > 1 && std::string_view{argv[1]} == kCrashChildOobArg) { runCrashChildOob(); }
   if (argc > 1 && std::string_view{argv[1]} == kCrashChildDllZoneArg) {

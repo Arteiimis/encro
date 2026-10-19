@@ -4,7 +4,7 @@ task("size")
     usage = "xmake size [options]",
     description = "Analyze binary size: section overview, or per-object breakdown via PDB",
     options = {
-      {"d", "breakdown", "k", nil, "Per-object breakdown (rebuilds with PDB if missing)"},
+      {"d", "breakdown", "k", nil, "Per-object breakdown via the symbol file"},
       {"t", "target", "kv", "encro", "Target binary name (default: encro)"},
       {"m", "mode", "kv", "release", "Build mode to analyze (default: release)"},
       {"n", "top", "kv", "20", "Rows to show per section (default: 20)"}
@@ -30,9 +30,7 @@ task("size")
 
     local function find_tool(name)
       local tool = import("lib.detect.find_tool")(name)
-      if not tool then
-        os.raise(string.format("%s not found on PATH; install LLVM or add it to PATH", name))
-      end
+      assert(tool, string.format("%s not found on PATH; install LLVM or add it to PATH", name))
       return tool.program
     end
 
@@ -50,20 +48,15 @@ task("size")
       return
     end
 
-    -- 2) per-object breakdown: PDB section contributions (exact bytes)
+    -- 2) per-object breakdown: PDB section contributions (exact bytes). The
+    -- symbol file is written beside the binary in the modes this analyses, so a
+    -- missing one means the build carried no symbols, not that a rebuild is due.
     local pdb = exe:gsub("%.exe$", ".pdb")
-    local pdb_stale = not os.exists(pdb) or os.mtime(pdb) < os.mtime(exe)
-    local orig_mode = config.get("mode")
-    local injected = false
-    if pdb_stale then
-      print(string.format(
-        "PDB missing or stale; switching to mode '%s' with debug info and rebuilding...",
-        mode
+    if not os.exists(pdb) then
+      os.raise(string.format(
+        "no symbol file next to %s; build it with debug symbols to get the per-object breakdown",
+        exe
       ))
-      run("xmake", {"f", "-m", mode, "-p", platform, "-y", "--cxxflags=-g", "--ldflags=/DEBUG"})
-      injected = true
-      -- config-level flags do not trigger xmake's incremental rebuild check
-      run("xmake", {"build", "-r", target})
     end
 
     local failed = nil
@@ -119,12 +112,6 @@ task("size")
         end
       }
     }
-
-    -- restore: back to original mode with original (empty) flags
-    if injected then
-      run("xmake", {"f", "-m", orig_mode, "-p", platform, "-y", "--cxxflags=", "--ldflags="})
-      print("\n(restored mode '" .. orig_mode .. "' with plain flags; next build regenerates the clean binary)")
-    end
 
     if failed then
       cprint("${red}size analysis failed: %s", failed)
