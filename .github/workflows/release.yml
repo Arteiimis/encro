@@ -111,7 +111,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # verify-release-tags.ps1 reads `git tag -l` and
+          # verify_release_tags.py reads `git tag -l` and
           # `git rev-list main --first-parent`; a default shallow, single-ref
           # checkout has neither, so the gate would fail on its first line
           # rather than test anything.

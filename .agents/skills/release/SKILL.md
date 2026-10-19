@@ -17,7 +17,7 @@ Read these for the contract; use this skill for the procedure.
 
 ### 1. Pre-flight, in the working tree
 
-```powershell
+```bash
 xmake build encro encro_e2e_tool tests e2e_tests
 xmake test-report --suite=all                         # AGENTS.md's single entry point
 python scripts/verify_release_tags.py                 # tag grammar, order, per-tag changelog section
@@ -47,7 +47,7 @@ Two releases may share a date; dates must not increase down the file.
 
 ### 4. Commit, push, tag
 
-```powershell
+```bash
 git commit -m "chore: release X.Y.Z"
 git push origin main
 git tag -a vX.Y.Z -m "<one line: what this release is>"
@@ -79,7 +79,7 @@ Expand-Archive ... ; "$env:TEMP\rel\bin\encro.exe" --version   # exit 0, prints 
 
 Then the bucket: clone `Arteiimis/scoop-encro`, confirm `bucket/encro.json`'s `version` and the sha256 of the **downloaded** zip match. On this machine:
 
-```powershell
+```bash
 scoop update            # refresh buckets FIRST — without it `scoop update encro` reports the old version
 scoop update encro
 encro --version         # exit 0, X.Y.Z
@@ -97,7 +97,7 @@ encro --version         # exit 0, X.Y.Z
 
 Once a release exists, its tag and its assets are fixed; the repair is a new patch version. Mark the changelog heading `[YANKED]`, flag the entry so it cannot be mistaken for the recommended download, and cut the next patch:
 
-```powershell
+```bash
 gh release edit vX.Y.Z --prerelease --notes-file <regenerated section>
 ```
 
