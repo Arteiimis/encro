@@ -75,24 +75,28 @@ Before going further, confirm the fixed point resolves (`git rev-parse <fixed-po
 Produce these once, in the main agent. They are deterministic and spend zero LLM tokens; a reviewer should never spend context re-deriving them.
 
 ```sh
-git diff <fixed-point>...HEAD --stat    # file list + size
+git diff <fixed-point>...HEAD --stat    # file list, whole range
+# the size that decides the tier
+git diff <fixed-point>...HEAD --shortstat -- . ':(exclude)openspec/**' ':(exclude)docs/**' ':(exclude)*.md'
 git log <fixed-point>..HEAD --oneline   # commit subjects
 git diff <fixed-point>...HEAD           # first ~1500 chars are the tier signal
 xmake fmt -k                            # layout already enforced?
 xmake tidy                              # clang-tidy findings, report-only
 ```
 
+**Size means code.** Step 3 reads the second stat — insertions plus deletions, tests included on purpose, since they are where a green-but-wrong change shows — and every threshold in that step, guard and fallbacks alike, reads it. `.md`, `docs/` and `openspec/` are out because they are prose a reviewer reads once, not surface to reason about: a generated snapshot once turned a 349-line change into a 2555-line one. A generated file that is not markdown has to be named in the pathspec too. Empty means docs-only — Exempt, not a failed command.
+
 Tidy's findings (or `tidy: clean`) go into the Standards brief verbatim — the reviewer judges them, it does not hunt for them. A tool failure is noted and skipped; it never blocks the review.
 
 ### 3. Tier the diff
 
 - **Exempt** — typo, docs-only, one-liner, mechanical refactor: skip the stage entirely and say so.
-- **Hard guard** — more than 1500 changed lines or more than 30 changed files: tier **L**, no call needed.
-- Otherwise, **one classifier call** in the main agent (codemode), with the stat line, the commit subjects, the changed-file list, the repo's module list and the first ~1500 characters of the diff as state. The tier question judges review surface only; mechanicalness is a separate question over the same state, and every policy (tie-breaks, thresholds) lives in the code, not in the prompt:
+- **Hard guard** — more than 1500 changed code lines or more than 30 changed files, both read off the code-only stat: tier **L**, no call needed.
+- Otherwise, **one classifier call** in the main agent (codemode). Its state: the code-only stat line with its `src` / `tests` / `build+CI` split (one `--numstat`, grouped by path), so a diff that is mostly tests or build glue is judged as what it is rather than by raw size; the commit subjects, the changed-file list, the repo's module list and the first ~1500 characters of the diff. The tier question judges review surface only; mechanicalness is a separate question over the same state, and every policy (tie-breaks, thresholds) lives in the code, not in the prompt:
 
 ```js
 const jev = await models.getModelOfType('classifier', 'opencode', 'jev-1.13'); // OpenCode Zen paid tier; needs OPENCODE_API_KEY
-const r = await models.classify(jev, { state: { stat, subjects, files, excerpt,
+const r = await models.classify(jev, { state: { stat, split, subjects, files, excerpt,
   modules: ['video','picture','pack','organize','tagger','preview','cmd','core','infra','logging','utils','app','tests','build','docs'] }, questions: {
   tier: { type: 'choice',
     instructions: 'Pick the code-review tier for this C++ CLI repo change (the whole diff since the fixed point, summarised by the state). Judge by review surface - what a reviewer must actually read and understand - not raw line count.',
@@ -116,7 +120,7 @@ if (r.answers.tier.confidence < 0.5 && order.indexOf(tier) < order.indexOf(mechT
 if (r.answers.mechanical.probability >= 0.6) tier = 'S';                                   // purely mechanical -> one reviewer, whatever the size
 ```
 
-- **Fallbacks**: no classifier configured, or the call errors — use the **mechanical thresholds** (≤200 changed lines and ≤8 files → S; >800 lines or >20 files → L; else M) as `mechTier`.
+- **Fallbacks**: no classifier configured, or the call errors — use the **mechanical thresholds** (≤200 changed code lines and ≤8 files → S; >800 code lines or >20 files → L; else M) as `mechTier`.
 - Calibrated 2026-10-09 on 60 repo commits (`git log --first-parent --until=2026-10-09 -n 60`): 98% tier agreement with full-information labels (guard included); the one miss over-provisions (a long docs-only plan read as M), and no miss under-provisions - over-reviewing, never under-reviewing. Docs/mechanical commits score mechanical >= 0.63, real-logic commits <= 0.12, so the 0.6 cut has margin on both sides; the adjacent-tier tie-break never fired in-sample (distributions are decisive, median confidence ~0.97). Do not tune the thresholds ad hoc; re-calibrate deliberately if the review mix changes.
 
 ### 4. Take the verify report
@@ -166,7 +170,7 @@ Each smell, one line — match it against the diff:
 
 ### 7. Dispatch by tier
 
-Briefs are self-contained: a reviewer starts with a fresh context, no skills loaded, and no memory of this conversation. On tiers S and M paste the diff into the brief instead of having the reviewer fetch it — every avoided fetch round-trip saves a full context re-send. On tier L pass the diff command and let each reviewer fetch it; reduce deleted, binary and rename-only files to `--stat` metadata.
+Briefs are self-contained: a reviewer starts with a fresh context, no skills loaded, and no memory of this conversation. On tiers S and M paste the diff into the brief instead of having the reviewer fetch it — every avoided fetch round-trip saves a full context re-send. On tier L pass the diff command and let each reviewer fetch it; reduce deleted, binary, rename-only and generated files to `--stat` metadata.
 
 Every finding, on every tier, cites `file:line` and quotes the hunk — that evidence contract is what keeps the fix loop cheap.
 
