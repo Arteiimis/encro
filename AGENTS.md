@@ -63,6 +63,7 @@ encrō (encro) is a batch media processing CLI on top of ffmpeg: parallel video 
 ## Platform & Git
 
 - **Platform:** primary Windows clang-cl; POSIX paths go through `generic_string()` wherever they are compared or serialized. External ffmpeg/ffprobe come from PATH or `--ffmpeg-path`.
+- **Release:** cutting, repairing or diagnosing a version follows the `release` skill (`.agents/skills/release/SKILL.md`) — changelog section, one version declaration, tag push publishes. The contract it satisfies lives in `openspec/specs/{release-pipeline,scoop-distribution,version-numbering,changelog-maintenance}`.
 - **Commits:** English only (no CJK in git metadata); conventional commits (`feat:`/`fix:`/`docs:`/`test:`/`refactor:`/`chore:`); subject <72 chars; batch large working trees by functional area.
   - **Subject-only by default** — a body must earn its place: non-obvious rationale (a *why* the diff cannot show), breaking behavior, or caveats a revert needs; never a routine summary of the change or narration of the workflow, and existing bodies in `git log` do not mandate new ones. When there is a body, wrap it at 80 columns (hard ceiling 90) — this overrides the global "one paragraph per line" default, which still governs every file in the repo (see Markdown docs); `git commit -F <pre-wrapped file>` is the easy way.
   - OpenSpec planning artifacts (proposal/specs/design) are committed before implementation, as their own `docs:` commit — they describe what will be built, not the build itself.
