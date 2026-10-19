@@ -212,3 +212,13 @@ Deferred issues, recorded with diagnosis so future fixes can skip the investigat
 - **Solution:** reproduce under `strace -f -e trace=epoll_wait,read,wait4,close` (or attach gdb to the stuck `do_epoll_wait`) to learn which fd it waits on and whether a shard child still holds a write end, then either close the pipe explicitly on the `process.openv` options or run shards through `os.execv` instead. Until then, use `--shards=1` (aggregate report intact) or run the binaries directly on Linux.
 - **Impact:** local Linux verification only; CI runs the binaries directly (`ci.yml`), so its jobs are unaffected.
 - **Notes:** the run also needs `XMAKE_ROOT=y` (root) and, on this machine, `boost` pinned to 1.90.0 in the WSL copy — the resolved 1.92.0 package installed empty (8 KB, no `include/`) and broke the build with `boost/uuid.hpp file not found`.
+
+## `xmake test-report` reports a failed shard whose only case passed
+
+- **Status:** open — workaround: run the test binary directly (tests.exe "<filter>" -r console)
+- **Found:** 2026-10-19, Windows (clang-cl), `ENCRO_TEST_COMPLETION=1 xmake test-report --tag="[completion]"`
+- **Severity:** tooling only — the tests pass; the run reports a failure and writes no usable aggregate
+- **Symptom:** `1 shard(s) failed` / `FAILED: unit shard 0 - no console summary to read`, while `build/.test-parallel/unit/shard-0.log` ends with `All tests passed (1 assertion in 1 test case)`.
+- **Root cause:** a shard that receives exactly one case gets Catch2's `All tests passed (…)` line instead of the `test cases: N | … passed` summary the reporter parses, so a green shard reads as "no summary". Narrow tag filters reach it — `[completion]` with the opt-in completion flag splits 39 cases into shards of about one.
+- **Solution:** accept `All tests passed` as a passing summary in the reporter's summary parse (`plugins/test_report/xmake.lua`), or keep every shard at two or more cases.
+- **Impact:** local tooling only; CI runs the test binaries directly.
