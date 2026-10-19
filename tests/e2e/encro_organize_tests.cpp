@@ -265,7 +265,7 @@ TEST_CASE("renamed character folder teaches a later e2e run", "[e2e][organize]")
 TEST_CASE("organize refuses to run without an inference backend", "[e2e][organize]") {
   [[maybe_unused]] auto const clearFake =
     testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", ""};
-  if (tagger::inferenceAvailable()) { SKIP("no inference backend on this host"); }
+  if (tagger::inferenceAvailable()) { SKIP("an inference backend is present here"); }
 
   auto temp = TempDir{};
   auto const pics = temp.path / "pics";
@@ -294,7 +294,7 @@ TEST_CASE(
 ) {
   [[maybe_unused]] auto const clearFake =
     testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", ""};
-  if (tagger::inferenceAvailable()) { SKIP("no inference backend on this host"); }
+  if (tagger::inferenceAvailable()) { SKIP("an inference backend is present here"); }
 
   auto temp = TempDir{};
   auto const models = temp.path / "models";

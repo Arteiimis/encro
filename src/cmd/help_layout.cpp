@@ -350,19 +350,15 @@ auto formatCommandsSection(
 ) -> std::string {
   if (subcommands.empty()) { return {}; }
 
-  // An unavailable subcommand carries an empty CLI11 group (cmd.cpp): the
-  // library's own "not in help" convention. It is left out of the width fit
-  // and the rows, exactly as the completion model leaves it out (design D2).
+  // An unavailable subcommand carries an empty CLI11 group (cmd.cpp): left out
+  // of the width fit and the rows, as the completion model leaves it out.
   auto const hidden = [](CLI::App const* sub) { return sub->get_group().empty(); };
 
-  auto visibleCount = std::size_t{0};
   auto widest = 0u;
   for (auto const* sub: subcommands) {
     if (hidden(sub)) { continue; }
-    ++visibleCount;
     widest = std::max(widest, static_cast<unsigned>(sub->get_name().size()));
   }
-  if (visibleCount == 0) { return {}; }
   auto const colWidth = computeColumnWidth(widest, layout);
 
   auto result = std::format(

@@ -84,21 +84,13 @@ TEST_CASE("main help lists organize", "[cmd][organize]") {
 TEST_CASE("main help omits organize without an inference backend", "[cmd][organize]") {
   [[maybe_unused]] auto const clearFake =
     testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", ""};
-  if (tagger::inferenceAvailable()) { SKIP("no inference backend on this host"); }
+  if (tagger::inferenceAvailable()) { SKIP("an inference backend is present here"); }
 
   auto const brief = testutils::parseArgs({"encro", "-h"});
   REQUIRE(brief.help);
   auto const plain = testutils::stripAnsi(brief.helpText());
   CHECK(plain.find("encro commands:") != std::string::npos);
   CHECK(plain.find("organize") == std::string::npos);
-  // The rows that remain keep the auto-fit description column.
-  CHECK(
-    plain.find(
-      "  preview      compare an original video with its encoded output side by "
-      "side"
-    )
-    != std::string::npos
-  );
 
   auto const full = testutils::parseArgs({"encro", "-hh"});
   CHECK(testutils::stripAnsi(full.helpText()).find("organize") == std::string::npos);

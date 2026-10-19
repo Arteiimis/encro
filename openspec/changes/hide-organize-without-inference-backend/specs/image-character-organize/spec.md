@@ -21,7 +21,7 @@
 
 ### Requirement: Unavailable invocation is refused before any work
 
-An `encro organize` invocation that passes argument validation on a build where the command is unavailable SHALL exit non-zero with an error naming the missing inference backend, before scanning, before creating or copying any file, and before any model download. The refusal SHALL NOT replace argument validation, and `encro organize -h` SHALL still print the subcommand help.
+An `encro organize` invocation that passes argument validation on a build where the command is unavailable SHALL exit non-zero with an error naming the missing inference backend, before scanning the images, before creating or copying any file, and before any model download. The refusal SHALL NOT replace argument validation, and `encro organize -h` SHALL still print the subcommand help.
 
 #### Scenario: An unavailable run touches nothing
 

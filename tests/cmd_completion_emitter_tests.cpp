@@ -194,7 +194,7 @@ TEST_CASE("model carries positional candidates per subcommand scope", "[completi
 TEST_CASE("model omits an unavailable subcommand", "[completion]") {
   [[maybe_unused]] auto const clearFake =
     testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", ""};
-  if (tagger::inferenceAvailable()) { SKIP("no inference backend on this host"); }
+  if (tagger::inferenceAvailable()) { SKIP("an inference backend is present here"); }
 
   auto const model = completion::buildCompletionModel();
   CHECK(findScope(model, "organize") == nullptr);

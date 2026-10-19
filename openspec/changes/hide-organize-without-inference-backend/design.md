@@ -45,7 +45,7 @@ Alternatives rejected: a name allowlist (repeats `"organize"` across four files)
 
 `runOrganizeCommand` starts with the availability check and returns 1 after `terminal::messageln(Error, ...)` naming the missing backend, in the same shape as the existing `requireModels` failure. The check sits **before** `--download-models` and **before** `requireModels`.
 
-Rationale: the argument-error channel would print `Invalid arguments:` plus a help hint, which misdescribes a build limitation as a typo. Ordering matters for the message a Linux user actually sees: behind `requireModels` the run would first report "models not found" (or, with `--download-models`, pull ~530 MB) and never mention that this build cannot classify anything.
+Rationale: the argument-error channel would print `Invalid arguments:` plus a help hint, which misdescribes a build limitation as a typo. Ordering matters for the message a Linux user actually sees: behind `requireModels` the run would first report "models not found" (or, with `--download-models`, pull ~530 MB) and never mention that this build cannot classify anything. Argument validation still runs before the guard — it includes the `--ingest`/`--ignore-folder` check, which reads the root's directory listing but no image — so "before any work" means before the scan, the copies and the network, not before the parser.
 
 ### D4 — config keys stay accepted everywhere
 

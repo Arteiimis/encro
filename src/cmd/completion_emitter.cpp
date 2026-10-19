@@ -182,10 +182,8 @@ auto buildCompletionModel() -> CompletionModel {
   auto model = CompletionModel{};
   model.main = buildScope(*tree.app, "");
   for (auto* sub: tree.app->get_subcommands([](CLI::App*) { return true; })) {
-    if (sub->get_name().empty()) { continue; }  // option groups: folded above
-    // An empty group marks a registered but unavailable subcommand (cmd.cpp);
-    // the help renderer omits it the same way.
-    if (sub->get_group().empty()) { continue; }
+    if (sub->get_name().empty()) { continue; }   // option groups: folded above
+    if (sub->get_group().empty()) { continue; }  // hidden (see help_layout)
     model.subcommands.push_back(buildScope(*sub, sub->get_name()));
   }
   std::ranges::sort(model.subcommands, {}, &ScopeInfo::name);
