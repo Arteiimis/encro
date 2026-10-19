@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-10-19
+
+### Changed
+
+- The Windows symbol archive carries `LICENSE` and `README.md` as well, so every downloadable file in a release states its licence.
+
+### Fixed
+
+- The Scoop manifest is written from the checksum of the file that was actually published. Publishing a version twice could previously describe the rebuild instead of the download, which made `scoop install` reject a correct package.
+
 ## [2.0.2] - 2026-10-19
 
 ### Fixed
@@ -263,7 +273,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.2...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.3...HEAD
+[2.0.3]: https://github.com/Arteiimis/encro/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/Arteiimis/encro/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/Arteiimis/encro/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/Arteiimis/encro/compare/v2.0.0-rc.1...v2.0.0
