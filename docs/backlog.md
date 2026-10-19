@@ -222,3 +222,13 @@ Deferred issues, recorded with diagnosis so future fixes can skip the investigat
 - **Root cause:** a shard that receives exactly one case gets Catch2's `All tests passed (…)` line instead of the `test cases: N | … passed` summary the reporter parses, so a green shard reads as "no summary". Narrow tag filters reach it — `[completion]` with the opt-in completion flag splits 39 cases into shards of about one.
 - **Solution:** accept `All tests passed` as a passing summary in the reporter's summary parse (`plugins/test_report/xmake.lua`), or keep every shard at two or more cases.
 - **Impact:** local tooling only; CI runs the test binaries directly.
+
+## The opt-in bash install cases fail on a host that ships bash-completion
+
+- **Status:** open — workaround: run the `[install]`/`[smoke]` cases on Windows, or accept these two failures on Linux
+- **Found:** 2026-10-19, WSL Ubuntu 24.04 (`ENCRO_TEST_COMPLETION=1 build/linux/x86_64/release/tests '[completion]'`)
+- **Severity:** test only — the installer behaves as designed; the cases assert the other branch
+- **Symptom:** `tests/cmd_completion_install_tests.cpp:240` (`REQUIRE(script.has_value())`) and `:393` (`REQUIRE(fs::exists(bashrc))`) fail. Both probe the fallback layout — `<user data>/encro/completion/encro.bash` plus a `source` line in `~/.bashrc`.
+- **Root cause:** `installBash` (`src/cmd/completion_install.cpp:329`) takes the bash-completion lazy-load branch whenever the framework is detected, writing `~/.local/share/bash-completion/completions/encro` and touching no startup file. Any distro that ships bash-completion (Ubuntu does) takes that branch, while the cases assume the fallback branch a Windows host takes.
+- **Solution:** have `EnvGuard` provide a home with no bash-completion tree so the fallback branch is reachable, and assert the lazy-load target separately when the framework is present — or `SKIP()` the fallback-branch cases where `bashCompletionDetected` is true.
+- **Impact:** local Linux runs of the opt-in completion suite only; CI enables no `ENCRO_TEST_COMPLETION` job.
