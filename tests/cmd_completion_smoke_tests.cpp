@@ -113,8 +113,13 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
   requireCompletionSmokeOrSkip();
   if (!shellAvailable("bash -c exit")) { SKIP("bash not available on PATH."); }
 
+  // organize is only offered with a backend; the path-delegation probe below
+  // needs its scope in the emitted script.
+  auto const fake = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", "fixture.json"};
+
   TempDir temp;
   auto const scriptPath = emitScriptTo(temp, "bash", "encro-bash.sh");
+  REQUIRE(testutils::readTextFile(scriptPath).find("organize") != std::string::npos);
 
   // Driver: source the completion, drive several positions, print candidates.
   auto const driver = temp.path / "drive.sh";
@@ -191,8 +196,13 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
   }
   if (!shell.has_value()) { SKIP("powershell not available on PATH."); }
 
+  // organize is only offered with a backend; the path-delegation probe below
+  // needs its scope in the emitted script.
+  auto const fake = testutils::ScopedEnvVar{"ENCRO_FAKE_TAGGER", "fixture.json"};
+
   TempDir temp;
   auto const scriptPath = emitScriptTo(temp, "powershell", "encro-pwsh.ps1");
+  REQUIRE(testutils::readTextFile(scriptPath).find("organize") != std::string::npos);
   auto const scriptRef = "\"" + forwardSlashes(pathutf8::fromPath(scriptPath)) + "\"";
 
   // Known file so the empty-return file fallback lists something assertable.
