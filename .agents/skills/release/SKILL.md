@@ -20,9 +20,11 @@ Read these for the contract; use this skill for the procedure.
 ```powershell
 xmake build encro encro_e2e_tool tests e2e_tests
 xmake test-report --suite=all                         # AGENTS.md's single entry point
-pwsh scripts/verify-release-tags.ps1                  # tag grammar, order, per-tag changelog section
-pwsh scripts/verify-changelog-sections.ps1            # the text that becomes release bodies
+python scripts/verify_release_tags.py                 # tag grammar, order, per-tag changelog section
+python scripts/verify_changelog_sections.py           # the text that becomes release bodies
 ```
+
+Every release script under `scripts/` is stdlib Python 3 — no PowerShell, so the same command works on Windows and Linux (Linux calls it `python3`). `setup-linux-env.sh` stays shell: it runs before any toolchain exists.
 
 `main` must equal `origin/main` and the tree must be clean. The bar is zero failures, not a case count — the suite grows every time a case is added, so a run that reports more cases than you remember is normal; the 13 skips are the pre-existing opt-in `[install]` / `[smoke]` / `[real-model]` cases.
 
@@ -70,7 +72,7 @@ gh run view $id.databaseId --json jobs      # per-step table
 
 ```powershell
 gh release view vX.Y.Z --json assets                   # exactly 3, none a PDB inside a runtime archive
-pwsh scripts/get-changelog-section.ps1 -Version X.Y.Z  # must equal the release body byte for byte
+python scripts/changelog.py section X.Y.Z  # must equal the release body byte for byte
 gh release download vX.Y.Z --pattern "*windows.zip" --dir $env:TEMP\rel
 Expand-Archive ... ; "$env:TEMP\rel\bin\encro.exe" --version   # exit 0, prints X.Y.Z
 ```
@@ -105,11 +107,11 @@ Two manual entry points cover what a tag push cannot, and a third previews them 
 
 - `gh workflow run release.yml --ref main -f mode=publish -f tag=vX.Y.Z` — publish an existing tag. Create-only: it reports identity instead of overwriting when the release is already there.
 - `gh workflow run release.yml --ref main -f mode=backfill -f until=X.Y.Z` — record every tag at or below the boundary, body only.
-- `pwsh scripts/record-release-history.ps1 -Until X.Y.Z -WhatIfOnly` — print what the backfill would do.
+- `python scripts/record_release_history.py --until X.Y.Z --what-if-only` — print what the backfill would do.
 
 ## Pitfalls
 
-- **Version comparison**: use `[semver]` (`$v = [semver]"2.0.0-alpha.1"`). `sort -V` ranks `2.0.0` *before* `2.0.0-alpha.1`, silently mis-handling pre-releases.
+- **Version comparison**: use `scripts/semver.py`. On this repo's real tags, both `sort -V` and `git tag --sort=v:refname` put `v2.0.0` **before** `v2.0.0-alpha.1` — SemVer puts every pre-release below its release. Git's own answer is `-c versionsort.suffix=-alpha -c versionsort.suffix=-rc`; ours is `python scripts/semver.py above X.Y.Z 2.0.0`, and `semver.py selftest` checks the comparator against the spec's own example chain.
 - **Tag counting**: `git ls-remote --tags` prints a `^{}` dereference line per annotated tag — de-duplicate before comparing counts.
 - **`git diff --quiet` succeeds on an untracked file**, so an uncommitted first-time manifest looks unchanged. Use `git add` then `git diff --cached --quiet`.
 - **The workflow runs the file at the tagged commit.** A workflow fix needs its own commit before the tag exists, else the tag builds the old definition.

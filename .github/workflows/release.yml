@@ -163,23 +163,20 @@ jobs:
 
       - name: Refuse a version this pipeline cannot package
         if: needs.resolve.outputs.mode == 'publish'
-        shell: pwsh
         run: |
           # Every tag at or below 2.0.0 predates the packaging work: its xmake.lua
           # still declares the five broken formats, so building from it would ship
           # the defect this pipeline exists to remove.
           #
-          # The comparison is semver, not version-sort: version-sort places 2.0.0
-          # BEFORE 2.0.0-alpha.1, while semver places every pre-release below its
-          # release — so a version-sort check would let the pre-release tags through.
-          $version = [semver]"${{ needs.resolve.outputs.version }}"
-          $boundary = [semver]"2.0.0"
-          if ($version -le $boundary) {
-            Write-Host "::error::$version is at or below the last version that predates this pipeline ($boundary); that tree cannot produce a working package."
+          # The comparison is SemVer precedence (scripts/semver.py), not version
+          # sort: version sort places 2.0.0 BEFORE 2.0.0-alpha.1 while SemVer puts
+          # every pre-release below its release, so a version-sort check would let
+          # the pre-release tags straight through.
+          version="${{ needs.resolve.outputs.version }}"
+          if ! python3 scripts/semver.py above "$version" 2.0.0; then
+            echo "::error::$version is at or below the last version that predates this pipeline (2.0.0); that tree cannot produce a working package."
             exit 1
-          }
-          "version $version is above $boundary"
-
+          fi
       - name: Build the test binaries
         timeout-minutes: 40
         run: xmake build -vD encro encro_e2e_tool tests e2e_tests
@@ -190,28 +187,23 @@ jobs:
         # failure arrived as "a shard failed" with the assertions buried in a
         # file nobody kept; the console output here is the evidence.
         run: |
-          set -o pipefail
-          ./build/linux/x86_64/release/tests -r console -r junit::out=/tmp/ut.xml > /tmp/ut.log 2>&1
-          ec=$?
-          tail -25 /tmp/ut.log
-          if [ $ec -ne 0 ]; then
-            echo "::error::unit tests failed"
-            grep -oE '<testcase[^>]*>[^<]*<failure[^>]*>[^<]*' /tmp/ut.xml | head -10 || true
-          fi
-          exit $ec
+          python3 scripts/run_test_suite.py \
+            --binary build/linux/x86_64/release/tests \
+            --report /tmp/ut.xml --log /tmp/ut.log --label "unit tests"
+
 
       - name: End-to-end tests
         timeout-minutes: 20
         run: xmake run e2e_tests
 
       - name: Tag contract
-        run: pwsh -NoProfile -File scripts/verify-release-tags.ps1
+        run: python3 scripts/verify_release_tags.py
 
       - name: Changelog sections
         # The extractor's output becomes release bodies, so it is checked here
         # rather than trusted: every tag's section must start with its own
         # heading and stop before the next one or the link block.
-        run: pwsh -NoProfile -File scripts/verify-changelog-sections.ps1
+        run: python3 scripts/verify_changelog_sections.py
 
       - name: Save xmake packages cache
         if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
@@ -274,24 +266,14 @@ jobs:
       - name: Unit tests
         # The gate ran the suite on Linux; publishing a Windows binary that was
         # never tested on Windows would be the same class of mistake as
-        # publishing one that cannot start.
-        shell: pwsh
+        # publishing one that cannot start. Same reporter as the gate, so a
+        # failure reads the same on both platforms.
         run: |
-          New-Item -ItemType Directory -Path test-output -Force | Out-Null
-          & ".\build\windows\x64\release\tests.exe" -r console -r junit::out=test-output/ut.xml 2>&1 |
-            Tee-Object -FilePath test-output/ut.log | Select-Object -Last 20
-          $code = $LASTEXITCODE
-          if ($code -ne 0) {
-            Write-Host "::error::unit tests failed on Windows"
-            # Every failing case by name with its assertion message: a 20-line
-            # tail of the console log does not identify them.
-            [xml]$report = Get-Content test-output/ut.xml
-            $report.testsuites.testsuite.testcase | Where-Object { $_.failure } | ForEach-Object {
-              Write-Host "FAILED: $($_.classname) :: $($_.name)"
-              Write-Host "   $($_.failure.message)"
-            }
-          }
-          exit $code
+          python scripts/run_test_suite.py `
+            --binary build/windows/x64/release/tests.exe `
+            --report test-output/ut.xml --log test-output/ut.log `
+            --label "unit tests on Windows"
+
 
       - name: Upload the test output
         if: failure()
@@ -303,108 +285,29 @@ jobs:
 
       - name: End-to-end tests
         timeout-minutes: 20
-        shell: pwsh
         run: |
-          & ".\build\windows\x64\release\e2e_tests.exe" 2>&1 | Tee-Object -FilePath $env:TEMP\e2e.log | Select-Object -Last 25
-          exit $LASTEXITCODE
+          python scripts/run_test_suite.py `
+            --binary build/windows/x64/release/e2e_tests.exe `
+            --report test-output/e2e.xml --log test-output/e2e.log `
+            --label "e2e tests on Windows"
+
 
       - name: Pack the runtime archive
         run: xmake pack -f zip encro
 
       - name: Pack the debug symbols as their own asset
-        shell: pwsh
-        run: |
-          # xpack copies a target's symbol file into bin/ unconditionally and has
-          # no declarative exclude, so after_installcmd strips it from the
-          # runtime archive; the symbols ship separately so a crash report can be
-          # symbolised by exactly the build that produced it. The licence and
-          # README travel with it too: every distributed artifact carries them.
-          $runtime = Get-ChildItem build/xpack/encro/*.zip | Where-Object { $_.Name -notlike '*symbols*' } | Select-Object -First 1
-          if (-not $runtime) { throw "no runtime archive was produced" }
-          $stage = Join-Path $env:RUNNER_TEMP "symbols-stage"
-          New-Item -ItemType Directory -Path (Join-Path $stage "bin") -Force | Out-Null
-          Copy-Item "build/windows/x64/release/encro.pdb" (Join-Path $stage "bin/encro.pdb")
-          Copy-Item "LICENSE", "README.md" $stage
-          Compress-Archive -Path (Join-Path $stage "bin"), (Join-Path $stage "LICENSE"), (Join-Path $stage "README.md") -DestinationPath "build/xpack/encro/$($runtime.BaseName)-symbols.zip"
-
-      - name: Run the packaged executable
+        # xpack copies a target's symbol file into bin/ unconditionally and has no
+        # declarative exclude, so after_installcmd strips it from the runtime
+        # archive; the symbols ship separately so a crash report can be symbolised
+        # by exactly the build that produced it, and they carry the licence and
+        # README because every distributed artifact does.
+        run: python scripts/windows_package.py pack-symbols
+      - name: Assert the package contents and run the packaged executable
         # The archive is what a user receives, so it is the thing to run: a
-        # package whose own binary cannot start is how 2.0.1 shipped.
-        shell: pwsh
-        run: |
-          $runtime = Get-ChildItem build/xpack/encro/*.zip | Where-Object { $_.Name -notlike '*symbols*' } | Select-Object -First 1
-          if (-not $runtime) { throw "no runtime archive was produced" }
-          $dir = Join-Path $env:RUNNER_TEMP "unpacked-package"
-          Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
-          Expand-Archive -Path $runtime.FullName -DestinationPath $dir
-          $exe = Join-Path $dir "bin/encro.exe"
-          if (-not (Test-Path $exe)) { throw "the archive has no bin/encro.exe" }
-          $printed = & $exe --version 2>&1 | Out-String
-          $code = $LASTEXITCODE
-          "exit=$code output=$($printed.Trim())"
-          if ($code -ne 0) { throw "the packaged executable did not start (exit $code)" }
-
-          # The runner has the redistributable installed, so the run above proves
-          # less than it looks: break the bundled copy and the executable must
-          # fail, which is what a machine without the redistributable relies on.
-          $runtimeDll = Join-Path $dir "bin/msvcp140.dll"
-          Copy-Item $runtimeDll "$runtimeDll.keep"
-          Set-Content -Path $runtimeDll -Value "not a dll"
-          & $exe --version *> $null
-          $broken = $LASTEXITCODE
-          Move-Item "$runtimeDll.keep" $runtimeDll -Force
-          "exit with the bundled runtime broken: $broken"
-          if ($broken -eq 0) { throw "the executable ran without its bundled runtime; the archive is not self-sufficient" }
-
-          & $exe --version *> $null
-          if ($LASTEXITCODE -ne 0) { throw "the restored package no longer starts" }
-          "the archive carries the runtime it loads"
-
-      - name: List the produced archives
-        shell: pwsh
-        run: |
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $runtime = Get-ChildItem build/xpack/encro/*.zip | Where-Object { $_.Name -notlike '*symbols*' } | Select-Object -First 1
-          $symbols = Get-ChildItem build/xpack/encro/*.zip | Where-Object { $_.Name -like '*symbols*' } | Select-Object -First 1
-          Get-ChildItem build/xpack/encro -File | ForEach-Object {
-            "=== {0}  ({1:N0} bytes) ===" -f $_.Name, $_.Length
-            $z = [System.IO.Compression.ZipFile]::OpenRead($_.FullName)
-            $z.Entries | ForEach-Object { "    {0,-34} {1,12}" -f $_.FullName, $_.Length }
-            $z.Dispose()
-          }
-
-          # Listed above, asserted here: a listing nobody checks is how the
-          # 2.0.1 package shipped with the wrong runtime inside it.
-          $z = [System.IO.Compression.ZipFile]::OpenRead($runtime.FullName)
-          $names = @($z.Entries | ForEach-Object { $_.FullName })
-          $z.Dispose()
-
-          $required = @(
-            'bin/encro.exe', 'bin/onnxruntime.dll', 'LICENSE', 'README.md',
-            'bin/msvcp140.dll', 'bin/msvcp140_1.dll', 'bin/msvcp140_atomic_wait.dll',
-            'bin/vcruntime140.dll', 'bin/vcruntime140_1.dll'
-          )
-          foreach ($need in $required) {
-            if ($names -notcontains $need) { throw "$($runtime.Name) is missing $need" }
-          }
-          foreach ($name in $names) {
-            if ($name -match '\.pdb$') { throw "$($runtime.Name) ships debug symbols: $name" }
-            if ($name -match 'onnxruntime_providers_') { throw "$($runtime.Name) ships a provider library: $name" }
-            if ($name -match '(?i)(ucrtbase|api-ms-win-)') { throw "$($runtime.Name) ships an OS component: $name" }
-          }
-
-          $s = [System.IO.Compression.ZipFile]::OpenRead($symbols.FullName)
-          $symbolNames = @($s.Entries | ForEach-Object { $_.FullName })
-          $s.Dispose()
-          $expectedSymbols = @('bin/encro.pdb', 'LICENSE', 'README.md')
-          if ($symbolNames.Count -ne $expectedSymbols.Count) {
-            throw "$($symbols.Name) should carry $($expectedSymbols.Count) entries, found: $($symbolNames -join ', ')"
-          }
-          foreach ($need in $expectedSymbols) {
-            if ($symbolNames -notcontains $need) { throw "$($symbols.Name) is missing $need" }
-          }
-          "archive contents match the intended file list"
-
+        # package whose own binary cannot start is how 2.0.1 shipped. Listing the
+        # contents without asserting them is how the wrong runtime shipped inside
+        # it, so both live in one script instead of two shell steps.
+        run: python scripts/windows_package.py verify
       - uses: actions/upload-artifact@v7
         with:
           name: release-archives-windows
@@ -536,7 +439,7 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          pwsh -NoProfile -File scripts/get-changelog-section.ps1 -Version "$VERSION" > body.md
+          python3 scripts/changelog.py section "$VERSION" > body.md
           if [ ! -s body.md ]; then
             echo "::error::the changelog has no section for $VERSION; refusing to publish an invented body"
             exit 1
@@ -648,4 +551,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          pwsh -NoProfile -File scripts/record-release-history.ps1 -Until "${{ needs.resolve.outputs.until }}"
+          python3 scripts/record_release_history.py --until "${{ needs.resolve.outputs.until }}"
