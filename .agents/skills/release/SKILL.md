@@ -1,13 +1,13 @@
 ---
 name: release
-description: Cut an encro release, or repair one — bump the version, write the changelog section, tag, and drive the publishing workflow; also diagnose a failed release run and a broken `scoop install encro`. Use when the user says 发版 / 发个版本 / cut a release / publish vX.Y.Z, or when a release run, a published artifact or a Scoop install is broken.
+description: Cut an encro release, or repair one — bump the version, write the changelog section, tag, and drive the publishing workflow; also diagnose a failed release run and a broken Scoop install. Use whenever the user says 发版 / 发个版本 / 发版失败 / cut a release / publish vX.Y.Z / bump the version, or when a release run failed, a published artifact is missing or wrong, or `scoop install` / `scoop update encro` fails.
 ---
 
 # Cutting a Release
 
 ## Where the contract lives
 
-Do not restate these; read them when the question is *whether* something is allowed, and use this skill for *how*.
+Read these for the contract; use this skill for the procedure.
 
 - `openspec/specs/release-pipeline/spec.md`, `scoop-distribution`, `version-numbering`, `changelog-maintenance` — the requirements and scenarios a release must satisfy.
 - `docs/public-api.md` — the surfaces semver judges, and which increment a change earns.
@@ -19,13 +19,14 @@ Do not restate these; read them when the question is *whether* something is allo
 
 ```powershell
 xmake build encro encro_e2e_tool tests e2e_tests
-.\build\windows\x64\release\tests.exe -r console      # expect 968 cases, 955 passed, 13 skipped
-xmake run e2e_tests                                   # expect 59 cases
+xmake test-report --suite=all                         # AGENTS.md's single entry point
 pwsh scripts/verify-release-tags.ps1                  # tag grammar, order, per-tag changelog section
 pwsh scripts/verify-changelog-sections.ps1            # the text that becomes release bodies
 ```
 
-CI runs these same two binaries directly — not `xmake test-report`, which only adds a sharding layer between a failure and its log. `main` must equal `origin/main` and the tree must be clean.
+`main` must equal `origin/main` and the tree must be clean. The bar is zero failures, not a case count — the suite grows every time a case is added, so a run that reports more cases than you remember is normal; the 13 skips are the pre-existing opt-in `[install]` / `[smoke]` / `[real-model]` cases.
+
+CI's gate runs the two test binaries directly instead of `test-report`: on a fresh runner the wrapper enumerated fewer cases than `ci.yml` reported, split them into two shards from an empty cost model, and aborted eight seconds later without naming a single assertion. `test-report` is the local entry point; the gate does what `ci.yml` does.
 
 ### 2. Write the changelog section
 
@@ -52,6 +53,8 @@ git push origin vX.Y.Z
 ```
 
 The tag message is not the release body — the body is cut from the changelog section. Two pushes, not one: `git push --follow-tags` on a branch with no new commits pushes nothing.
+
+Done when `git ls-remote --tags origin vX.Y.Z` prints the tag: at that moment the workflow is running against the commit the tag names.
 
 ### 5. Watch the run
 
@@ -90,7 +93,19 @@ encro --version         # exit 0, X.Y.Z
 
 ## Repairing a published version
 
-A published version is immutable: never move its tag, never replace its assets. Mark the changelog heading `[YANKED]`, `gh release edit vX.Y.Z --prerelease --notes-file <regenerated section>`, and ship the next patch. Record-only entries (tag at or below 2.0.0) carry no assets by design — they are history, not downloads.
+Once a release exists, its tag and its assets are fixed; the repair is a new patch version. Mark the changelog heading `[YANKED]`, flag the entry so it cannot be mistaken for the recommended download, and cut the next patch:
+
+```powershell
+gh release edit vX.Y.Z --prerelease --notes-file <regenerated section>
+```
+
+Record-only entries (tag at or below 2.0.0) carry no assets by design — they are history, not downloads.
+
+Two manual entry points cover what a tag push cannot, and a third previews them without network writes:
+
+- `gh workflow run release.yml --ref main -f mode=publish -f tag=vX.Y.Z` — publish an existing tag. Create-only: it reports identity instead of overwriting when the release is already there.
+- `gh workflow run release.yml --ref main -f mode=backfill -f until=X.Y.Z` — record every tag at or below the boundary, body only.
+- `pwsh scripts/record-release-history.ps1 -Until X.Y.Z -WhatIfOnly` — print what the backfill would do.
 
 ## Pitfalls
 
