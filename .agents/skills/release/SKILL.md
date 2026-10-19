@@ -30,7 +30,15 @@ Every release script under `scripts/` is stdlib Python 3 — no PowerShell, so t
 
 CI's gate runs the two test binaries directly instead of `test-report`: on a fresh runner the wrapper enumerated fewer cases than `ci.yml` reported, split them into two shards from an empty cost model, and aborted eight seconds later without naming a single assertion. `test-report` is the local entry point; the gate does what `ci.yml` does.
 
-### 2. Write the changelog section
+### 2. Decide the number
+
+No script derives it — `semver.py` compares precedence, the gate compares the tag to `local encroVersion` — so a too-small increment ships green, and this step is the entire judgement.
+
+The baseline is `local encroVersion` in `xmake.lua`, which already equals the newest tag, together with the entries under `## [Unreleased]` in `CHANGELOG.md`. Judge every one of those entries against the increment table in `docs/public-api.md`, then apply the two rules `openspec/specs/version-numbering/spec.md` adds to it: incompatible changes landing with no publication between them accumulate under one MAJOR, and a milestone that was never published carries a pre-release identifier rather than a normal version. Repairing a published version is always the next PATCH, per `Repairing a published version` below.
+
+Done when every `[Unreleased]` entry carries a MAJOR / MINOR / PATCH judgement and X.Y.Z is the highest of them — a breaking entry cannot ride in a PATCH.
+
+### 3. Write the changelog section
 
 A new `## [X.Y.Z] - YYYY-MM-DD` directly under `## [Unreleased]`, newest first. Group entries under `Added` / `Changed` / `Deprecated` / `Removed` / `Fixed` / `Security` — no empty group, no commit-subject narration, no internal refactor. Then add the link and re-point unreleased:
 
@@ -41,11 +49,11 @@ A new `## [X.Y.Z] - YYYY-MM-DD` directly under `## [Unreleased]`, newest first. 
 
 Two releases may share a date; dates must not increase down the file.
 
-### 3. Bump the one declaration
+### 4. Bump the one declaration
 
 `local encroVersion = "X.Y.Z"` at the top of `xmake.lua`. That single literal feeds `set_version` and the generated `app/version.h`, so `encro --version`, the artifact name and the tag agree. Nothing else carries the version — the declaration is the source of the gate that refuses a tag naming a version the build does not stamp.
 
-### 4. Commit, push, tag
+### 5. Commit, push, tag
 
 ```bash
 git commit -m "chore: release X.Y.Z"
@@ -58,7 +66,7 @@ The tag message is not the release body — the body is cut from the changelog s
 
 Done when `git ls-remote --tags origin vX.Y.Z` prints the tag: at that moment the workflow is running against the commit the tag names.
 
-### 5. Watch the run
+### 6. Watch the run
 
 ```powershell
 $id = (gh run list --workflow release.yml --limit 1 --json databaseId,event,headBranch | ConvertFrom-Json)
@@ -68,7 +76,7 @@ gh run view $id.databaseId --json jobs      # per-step table
 
 `gh run watch` can hang past completion here; poll instead. Budget **25–30 minutes**: gate ~10, each platform build ~5–6, publish ~1. Jobs: resolve → gate → windows + linux → publish.
 
-### 6. Verify what a user actually gets
+### 7. Verify what a user actually gets
 
 ```powershell
 gh release view vX.Y.Z --json assets                   # exactly 3, none a PDB inside a runtime archive
