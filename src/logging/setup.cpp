@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "logging/setup.h"
+#include "core/path_utf8.h"
 
 #include "core/app_context.h"
 #include "infra/env.h"

@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "tagger/vocabulary.h"
+#include "core/path_utf8.h"
 
 #include <charconv>
 #include <fstream>

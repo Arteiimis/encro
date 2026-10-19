@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "pack/packer.h"
+#include "core/path_utf8.h"
 
 #include "core/collision_naming.h"
 #include "core/media_scanner.h"

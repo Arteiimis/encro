@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "picture/picture_process.h"
+#include "core/path_utf8.h"
 
 #include "picture/picture_compress.h"
 #include "picture/picture_video_webp.h"

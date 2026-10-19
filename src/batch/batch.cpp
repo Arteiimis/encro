@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "batch/batch.h"
+#include "core/path_utf8.h"
 
 #include "app/pipeline.h"
 #include "core/collision_naming.h"

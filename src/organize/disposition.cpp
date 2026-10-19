@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "organize/disposition.h"
+#include "core/path_utf8.h"
 
 #include "core/display_text.h"
 #include "core/media_scanner.h"
@@ -60,7 +60,7 @@ auto computeFolderDispositions(
     {},
     [&](fs::directory_entry const& entry) {
       if (!entry.is_directory()) { return true; }
-      auto const name = displaytext::pathToUtf8String(entry.path().filename());
+      auto const name = pathutf8::fromPath(entry.path().filename());
       if (name == "organized") { return true; }
 
       auto kind = DispositionKind::Reference;
@@ -101,8 +101,7 @@ auto computeFolderDispositions(
     dispositions.begin(),
     dispositions.end(),
     [](FolderDisposition const& a, FolderDisposition const& b) {
-      return displaytext::pathToUtf8String(a.name)
-        < displaytext::pathToUtf8String(b.name);
+      return pathutf8::fromPath(a.name) < pathutf8::fromPath(b.name);
     }
   );
   return dispositions;
@@ -131,7 +130,7 @@ auto validateDispositionFlags(
   auto const dispositions = computeFolderDispositions(root, false, {}, {});
   auto names = std::set<std::string>{};
   for (auto const& disposition: dispositions) {
-    names.insert(displaytext::pathToUtf8String(disposition.name));
+    names.insert(pathutf8::fromPath(disposition.name));
   }
 
   auto const check = [&names](std::string_view flag, std::vector<std::string> const& list)

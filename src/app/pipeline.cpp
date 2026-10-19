@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "app/pipeline.h"
+#include "core/path_utf8.h"
 
 #include "core/job_state.h"
 #include "infra/terminal.h"

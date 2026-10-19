@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "tagger/onnx_tagger.h"
+#include "core/path_utf8.h"
 
 #include "tagger/mapping.h"
 #include "tagger/onnx_runtime.h"

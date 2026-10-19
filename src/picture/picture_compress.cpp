@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "picture/picture_compress.h"
+#include "core/path_utf8.h"
 
 #include "core/display_text.h"
 #include "core/media_item.h"

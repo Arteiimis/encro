@@ -32,7 +32,7 @@ The repository SHALL keep `CHANGELOG.md` at its root, following Keep a Changelog
 #### Scenario: Order is newest first
 
 - **WHEN** a reader opens `CHANGELOG.md`
-- **THEN** the highest version's section appears above every lower one, and dates decrease down the file
+- **THEN** the highest version's section appears above every lower one, and dates do not increase down the file (two versions released on one day share a date)
 
 ### Requirement: Unreleased and yanked markers
 

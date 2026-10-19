@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "tagger/model_store.h"
+#include "core/path_utf8.h"
 
 #include "core/sha256.h"
 #include "infra/crash_runtime.h"

@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "cmd/completion_install.h"
+#include "core/path_utf8.h"
 
 #include "cmd/cmd.h"
 #include "cmd/completion_emitter.h"

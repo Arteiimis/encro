@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "organize/pipeline.h"
+#include "core/path_utf8.h"
 
 #include "core/display_text.h"
 #include "core/media_item.h"
@@ -315,17 +315,17 @@ void clusterRemainder(
   auto usedNames = std::set<std::string>{};
   for (auto const& item: items) {
     if (!item.folderName.empty()) {
-      usedNames.insert(displaytext::pathToUtf8String(item.folderName));
+      usedNames.insert(pathutf8::fromPath(item.folderName));
     }
   }
   // A new cluster name must never collide with a folder that exists on disk
   // (spec): every first-level name — any disposition — and every output-root
   // name seeds the registry, and assignUniqueFolderName suffixes the rest.
   for (auto const& disposition: dispositions) {
-    usedNames.insert(displaytext::pathToUtf8String(disposition.name));
+    usedNames.insert(pathutf8::fromPath(disposition.name));
   }
   for (auto const& entry: outputRootFolderNames(options.root)) {
-    usedNames.insert(displaytext::pathToUtf8String(entry.filename()));
+    usedNames.insert(pathutf8::fromPath(entry.filename()));
   }
 
   // Folder-match: a cluster whose profile resembles an existing folder's joins
@@ -449,7 +449,7 @@ auto splitNonDemotedSamples(
     auto const clustered =
       clusterPending(members, pending, options.identityTau, options.clusterImageCeiling);
     if (clustered.clusters.size() >= 2) {
-      split.demotedNames.insert(displaytext::pathToUtf8String(span.name));
+      split.demotedNames.insert(pathutf8::fromPath(span.name));
       continue;
     }
     split.samples
@@ -532,7 +532,7 @@ auto runOrganize(
   auto dispositionLines = std::vector<DispositionLine>{};
   if (incremental) {
     for (auto const& disposition: dispositions) {
-      auto const name = displaytext::pathToUtf8String(disposition.name);
+      auto const name = pathutf8::fromPath(disposition.name);
       dispositionLines.push_back(
         DispositionLine{
           .folder = name,

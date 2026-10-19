@@ -20,7 +20,7 @@ auto kindByName(std::vector<organize::FolderDisposition> const& dispositions)
   -> std::map<std::string, organize::DispositionKind> {
   auto out = std::map<std::string, organize::DispositionKind>{};
   for (auto const& disposition: dispositions) {
-    out[displaytext::pathToUtf8String(disposition.name)] = disposition.kind;
+    out[pathutf8::fromPath(disposition.name)] = disposition.kind;
   }
   return out;
 }
@@ -30,7 +30,7 @@ auto dispositionByName(
   std::string const& name
 ) -> organize::FolderDisposition const& {
   for (auto const& disposition: dispositions) {
-    if (displaytext::pathToUtf8String(disposition.name) == name) { return disposition; }
+    if (pathutf8::fromPath(disposition.name) == name) { return disposition; }
   }
   FAIL("no disposition named " << name);
 }

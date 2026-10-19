@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "organize/cache.h"
+#include "core/path_utf8.h"
 
 #include "organize/assign.h"
 #include "organize/cluster.h"

@@ -26,7 +26,7 @@ Both platforms need **ffmpeg and ffprobe** installed and reachable — on `PATH`
 | video, picture, packing, `batch`, `preview`, `config`, `completion` | yes | yes |
 | `organize` | yes | **no inference runtime in the build** |
 
-On Linux, `organize` starts and copies nothing: the tagger has no inference backend there, so every image is reported uncategorized rather than filed. Use a Windows build to sort images.
+On Linux, `organize` starts but cannot sort: the tagger has no inference backend there, so every image fails to classify and is filed under `organized/uncategorized/` instead of a character folder. Use a Windows build to sort images.
 
 The Windows archive carries everything the binary needs to start, including the Visual C++ runtime libraries it imports (redistributed under the Microsoft licence). The only thing to install beforehand is ffmpeg.
 

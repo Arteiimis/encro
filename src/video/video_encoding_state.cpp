@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "video/video_batch_execution.h"
+#include "core/path_utf8.h"
 
 #include "video/video_info.h"
 #include "video/video_progress_parser.h"
@@ -145,8 +145,7 @@ void renderStalled(
   }
 
   if (barIndex.has_value()) {
-    auto const fileLabel =
-      displaytext::pathToUtf8String(activeState.inputPath.filename());
+    auto const fileLabel = pathutf8::fromPath(activeState.inputPath.filename());
     if (lastError.has_value()) {
       executionCtx.progress().setRole(barIndex.value(), terminal::Role::Bad);
       executionCtx.progress().setPostfixText(

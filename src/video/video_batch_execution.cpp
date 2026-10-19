@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "video/video_batch_execution.h"
+#include "core/path_utf8.h"
 
 #include "video/encode_probe.h"
 #include "video/video_encode_runner.h"
@@ -124,7 +124,7 @@ auto encodeOneItem(
 }
 
 auto makeSlotLabel(fs::path const& vidPath) -> std::string {
-  return displaytext::pathToUtf8String(vidPath.filename());
+  return pathutf8::fromPath(vidPath.filename());
 }
 
 void reportEncodingStatus(

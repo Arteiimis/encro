@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "core/media_scanner.h"
+#include "core/path_utf8.h"
 
 #include "logging/log_tags.h"
 #include "logging/logging.h"

@@ -63,11 +63,18 @@ try {
     }
 
     # Anything above the boundary must still have no entry, or the boundary
-    # logic silently regressed.
+    # logic silently regressed. Checking it rather than counting it is the
+    # difference between a guard and a log line.
     $above = @($tags | Where-Object {
         $v = $_.Substring(1); $p = $null
         [semver]::TryParse($v, [ref]$p) -and $p -gt $boundary
     })
+    foreach ($t in $above) {
+        gh release view $t *> $null
+        if ($LASTEXITCODE -eq 0) {
+            throw "$t is above the boundary ($Until) but already has a release; the boundary logic regressed"
+        }
+    }
     Write-Host ""
     Write-Host "boundary $Until : considered $considered tags, created $created, already present $kept"
     Write-Host "tags above the boundary left alone: $($above.Count) ($($above -join ', '))"

@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "preview/preview_process.h"
+#include "core/path_utf8.h"
 
 #include "infra/open_file.h"
 #include "infra/stop_signal.h"

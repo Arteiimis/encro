@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "organize/execute.h"
+#include "core/path_utf8.h"
 
 #include "core/sha256.h"
 #include "infra/stop_signal.h"

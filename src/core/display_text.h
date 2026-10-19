@@ -45,9 +45,8 @@ inline std::size_t utf8CodePointLength(std::string_view text, std::size_t offset
 
 // The code point starting at `offset`, whose encoded length is `length` as
 // returned by utf8CodePointLength.
-inline auto
-decodeUtf8CodePoint(std::string_view text, std::size_t offset, std::size_t length)
-  -> std::uint32_t {
+inline std::uint32_t
+decodeUtf8CodePoint(std::string_view text, std::size_t offset, std::size_t length) {
   auto const lead = static_cast<unsigned char>(text[offset]);
   if (length <= 1) { return lead; }
   auto codePoint = static_cast<std::uint32_t>(lead & (0xFFu >> (length + 1)));
@@ -229,14 +228,6 @@ inline auto layoutColumns(std::size_t terminalWidth) -> std::optional<TableLayou
   auto const width = terminalWidth > kFixedColumns ? terminalWidth - kFixedColumns : 0;
   if (width < kMinNameWidth) { return std::nullopt; }
   return TableLayout{width};
-}
-
-inline auto pathToUtf8String(std::filesystem::path const& path) -> std::string {
-  auto const utf8 = path.u8string();
-  auto out = std::string{};
-  out.reserve(utf8.size());
-  for (auto const ch: utf8) { out.push_back(static_cast<char>(ch)); }
-  return out;
 }
 
 // Rule lines of tabular reports share one glyph family (U+2500 box drawing).

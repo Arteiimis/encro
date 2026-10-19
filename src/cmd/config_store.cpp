@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "cmd/config_store.h"
+#include "core/path_utf8.h"
 
 #include "infra/env.h"
 #include "infra/terminal.h"

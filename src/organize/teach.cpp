@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "organize/teach.h"
+#include "core/path_utf8.h"
 
 #include "core/display_text.h"
 #include "core/media_scanner.h"
@@ -82,7 +82,7 @@ auto outputRootFolderNames(fs::path const& root) -> std::vector<fs::path> {
   }
   std::sort(names.begin(), names.end(), [](fs::path const& a, fs::path const& b) {
     // UTF-8 order, like the names this list is compared against.
-    return displaytext::pathToUtf8String(a) < displaytext::pathToUtf8String(b);
+    return pathutf8::fromPath(a) < pathutf8::fromPath(b);
   });
   return names;
 }
@@ -99,10 +99,10 @@ auto buildFolderReferences(
   auto byName = std::map<std::string, FolderReference>{};
   for (auto const& entry: entries) {
     auto reference = buildReference(entry, cache);
-    byName.emplace(displaytext::pathToUtf8String(reference.name), std::move(reference));
+    byName.emplace(pathutf8::fromPath(reference.name), std::move(reference));
   }
   for (auto const& sample: firstLevelSamples) {
-    auto& reference = byName[displaytext::pathToUtf8String(sample.name)];
+    auto& reference = byName[pathutf8::fromPath(sample.name)];
     if (reference.name.empty()) { reference.name = sample.name; }
     for (auto const& member: sample.members) {
       if (!member.analysis.has_value()) { continue; }
@@ -129,7 +129,7 @@ auto buildSameRunReferences(
   // name become one reference.
   auto byName = std::map<std::string, FolderReference>{};
   for (auto const& reference: onDisk) {
-    byName[displaytext::pathToUtf8String(reference.name)] = reference;
+    byName[pathutf8::fromPath(reference.name)] = reference;
   }
 
   // This run's filed images, folded in content-hash order: the stored mean must
@@ -164,7 +164,7 @@ auto buildSameRunReferences(
   });
 
   for (auto const& entry: filed) {
-    auto& reference = byName[displaytext::pathToUtf8String(entry.destination)];
+    auto& reference = byName[pathutf8::fromPath(entry.destination)];
     // A destination the routing created has no name yet; an on-disk reference
     // keeps the one the user sees.
     if (reference.name.empty()) { reference.name = entry.destination; }
@@ -181,8 +181,7 @@ auto buildSameRunReferences(
     references.begin(),
     references.end(),
     [](FolderReference const& a, FolderReference const& b) {
-      return displaytext::pathToUtf8String(a.name)
-        < displaytext::pathToUtf8String(b.name);
+      return pathutf8::fromPath(a.name) < pathutf8::fromPath(b.name);
     }
   );
   return references;

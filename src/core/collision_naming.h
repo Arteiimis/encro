@@ -1,5 +1,6 @@
-#include "core/path_utf8.h"
 #pragma once
+
+#include "core/path_utf8.h"
 
 #include <algorithm>
 #include <cctype>

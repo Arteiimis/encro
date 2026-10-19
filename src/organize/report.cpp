@@ -1,3 +1,4 @@
+#include "core/path_utf8.h"
 #include "organize/report.h"
 
 #include "core/display_text.h"
@@ -17,7 +18,7 @@ auto buildFoldersSection(std::vector<ImageItem> const& items)
   // folder name -> (count, highest-priority source seen)
   auto counts = std::map<std::string, std::pair<std::size_t, FolderSource>>{};
   for (auto const& item: items) {
-    auto const key = displaytext::pathToUtf8String(item.folderName);
+    auto const key = pathutf8::fromPath(item.folderName);
     auto [entry, inserted] = counts.try_emplace(key, 1, item.folderSource);
     if (inserted) { continue; }
     entry->second.first += 1;

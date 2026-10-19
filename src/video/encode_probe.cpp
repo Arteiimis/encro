@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "video/encode_probe.h"
+#include "core/path_utf8.h"
 
 #include "core/collision_naming.h"
 #include "core/display_text.h"
@@ -974,8 +974,8 @@ auto collectPlanStats(std::span<ProbePlan const> plans) -> PlanStats {
   }
   auto sortByName = [](std::vector<ProbePlan const*>& group) {
     std::ranges::sort(group, [](ProbePlan const* a, ProbePlan const* b) {
-      return displaytext::pathToUtf8String(a->inputPath.filename())
-        < displaytext::pathToUtf8String(b->inputPath.filename());
+      return pathutf8::fromPath(a->inputPath.filename())
+        < pathutf8::fromPath(b->inputPath.filename());
     });
   };
   sortByName(stats.normal);
@@ -1005,7 +1005,7 @@ auto resolvePlanNameWidth(
   for (auto const& plan: plans) {
     maxName = std::max(
       maxName,
-      displaytext::displayWidth(displaytext::pathToUtf8String(plan.inputPath.filename()))
+      displaytext::displayWidth(pathutf8::fromPath(plan.inputPath.filename()))
     );
   }
   auto const rowCap = kMaxPlanRowWidth - kRuleFixedWidth - kRatioMarkerSlack;
@@ -1025,7 +1025,7 @@ auto formatProbePlanRow(
     return displaytext::displayWidth(prefix);
   };
   auto const name = displaytext::truncateMiddle(
-    displaytext::pathToUtf8String(plan.inputPath.filename()),
+    pathutf8::fromPath(plan.inputPath.filename()),
     nameWidth - prefixWidth(marker)
   );
   auto const ratio = probePlanRatio(plan);

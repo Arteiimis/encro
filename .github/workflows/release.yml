@@ -207,6 +207,12 @@ jobs:
       - name: Tag contract
         run: pwsh -NoProfile -File scripts/verify-release-tags.ps1
 
+      - name: Changelog sections
+        # The extractor's output becomes release bodies, so it is checked here
+        # rather than trusted: every tag's section must start with its own
+        # heading and stop before the next one or the link block.
+        run: pwsh -NoProfile -File scripts/verify-changelog-sections.ps1
+
       - name: Save xmake packages cache
         if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -311,13 +317,15 @@ jobs:
           # xpack copies a target's symbol file into bin/ unconditionally and has
           # no declarative exclude, so after_installcmd strips it from the
           # runtime archive; the symbols ship separately so a crash report can be
-          # symbolised by exactly the build that produced it.
+          # symbolised by exactly the build that produced it. The licence and
+          # README travel with it too: every distributed artifact carries them.
           $runtime = Get-ChildItem build/xpack/encro/*.zip | Where-Object { $_.Name -notlike '*symbols*' } | Select-Object -First 1
           if (-not $runtime) { throw "no runtime archive was produced" }
           $stage = Join-Path $env:RUNNER_TEMP "symbols-stage"
           New-Item -ItemType Directory -Path (Join-Path $stage "bin") -Force | Out-Null
           Copy-Item "build/windows/x64/release/encro.pdb" (Join-Path $stage "bin/encro.pdb")
-          Compress-Archive -Path (Join-Path $stage "bin") -DestinationPath "build/xpack/encro/$($runtime.BaseName)-symbols.zip"
+          Copy-Item "LICENSE", "README.md" $stage
+          Compress-Archive -Path (Join-Path $stage "bin"), (Join-Path $stage "LICENSE"), (Join-Path $stage "README.md") -DestinationPath "build/xpack/encro/$($runtime.BaseName)-symbols.zip"
 
       - name: Run the packaged executable
         # The archive is what a user receives, so it is the thing to run: a
@@ -335,6 +343,22 @@ jobs:
           $code = $LASTEXITCODE
           "exit=$code output=$($printed.Trim())"
           if ($code -ne 0) { throw "the packaged executable did not start (exit $code)" }
+
+          # The runner has the redistributable installed, so the run above proves
+          # less than it looks: break the bundled copy and the executable must
+          # fail, which is what a machine without the redistributable relies on.
+          $runtimeDll = Join-Path $dir "bin/msvcp140.dll"
+          Copy-Item $runtimeDll "$runtimeDll.keep"
+          Set-Content -Path $runtimeDll -Value "not a dll"
+          & $exe --version *> $null
+          $broken = $LASTEXITCODE
+          Move-Item "$runtimeDll.keep" $runtimeDll -Force
+          "exit with the bundled runtime broken: $broken"
+          if ($broken -eq 0) { throw "the executable ran without its bundled runtime; the archive is not self-sufficient" }
+
+          & $exe --version *> $null
+          if ($LASTEXITCODE -ne 0) { throw "the restored package no longer starts" }
+          "the archive carries the runtime it loads"
 
       - name: List the produced archives
         shell: pwsh
@@ -372,8 +396,12 @@ jobs:
           $s = [System.IO.Compression.ZipFile]::OpenRead($symbols.FullName)
           $symbolNames = @($s.Entries | ForEach-Object { $_.FullName })
           $s.Dispose()
-          if ($symbolNames.Count -ne 1 -or $symbolNames[0] -ne 'bin/encro.pdb') {
-            throw "$($symbols.Name) should carry bin/encro.pdb and nothing else, found: $($symbolNames -join ', ')"
+          $expectedSymbols = @('bin/encro.pdb', 'LICENSE', 'README.md')
+          if ($symbolNames.Count -ne $expectedSymbols.Count) {
+            throw "$($symbols.Name) should carry $($expectedSymbols.Count) entries, found: $($symbolNames -join ', ')"
+          }
+          foreach ($need in $expectedSymbols) {
+            if ($symbolNames -notcontains $need) { throw "$($symbols.Name) is missing $need" }
           }
           "archive contents match the intended file list"
 
@@ -444,13 +472,6 @@ jobs:
           name: release-archives-linux
           path: build/xpack/encro/*
           if-no-files-found: error
-
-      - name: Save xmake packages cache
-        if: always() && steps.xmake-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ~/.xmake/packages
-          key: xmake-packages-${{ runner.os }}-${{ hashFiles('xmake.lua') }}
 
   publish:
     name: publish

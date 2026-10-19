@@ -4,7 +4,8 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 
 # Every tag has a section; extracting it must produce a body that starts with
 # that version's own heading and contains no other version's heading.
-$tags = (git tag -l | Sort-Object)
+# Only `v<version>` tags carry a section; another tag is not a release.
+$tags = @(git tag -l | Where-Object { $_ -match '^v\d' } | Sort-Object)
 "tags: $($tags.Count)"
 $failures = 0
 $previousLines = 0

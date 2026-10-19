@@ -68,7 +68,7 @@ bool requireModels(fs::path const& modelDir) {
   terminal::messageln(
     MessageKind::Error,
     "models not found in {}",
-    displaytext::pathToUtf8String(modelDir)
+    pathutf8::fromPath(modelDir)
   );
   for (auto const& name: missing) {
     terminal::eprintln(MessageKind::Plain, "  missing: {}", name);
@@ -89,7 +89,7 @@ bool downloadModels(fs::path const& modelDir) {
   terminal::println(
     MessageKind::Info,
     "fetching missing model files into {}",
-    displaytext::pathToUtf8String(modelDir)
+    pathutf8::fromPath(modelDir)
   );
   auto const downloaded = tagger::downloadMissing(modelDir, [](std::string_view line) {
     terminal::println(MessageKind::Plain, "{}", line);
@@ -233,7 +233,7 @@ int runOrganizeCommand(CmdParseResult const& cmd) {
     terminal::println(
       MessageKind::Info,
       "no images found in {}",
-      displaytext::pathToUtf8String(options.root)
+      pathutf8::fromPath(options.root)
     );
     return 0;
   }

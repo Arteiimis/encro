@@ -1,5 +1,5 @@
-#include "core/path_utf8.h"
 #include "core/job_state_detail.h"
+#include "core/path_utf8.h"
 
 #include "core/work_dirs.h"
 

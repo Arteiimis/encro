@@ -1,6 +1,6 @@
-#include "core/path_utf8.h"
 #include "pack/pack_service.h"
 #include "pack/pack_internal.h"
+#include "core/path_utf8.h"
 
 #include "core/task_executor.h"
 #include "core/collision_naming.h"
