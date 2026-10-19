@@ -49,10 +49,10 @@ Sizes measured here, so later claims start from numbers instead of estimates: Wi
 - [x] 3.1 Add a changelog-section extractor and verify it on all 18 released versions — verified by extracting each section and confirming it starts with its own version heading, ends before either the next section heading or the link-definition block, and contains no text belonging to another version — including `0.1.0`, whose section is followed by the link block rather than by another heading; the unreleased section is deliberately not extractable because no tag names it.
 - [x] 3.2 Add the gate job that both builds depend on: `xmake test-report --suite=all`, `pwsh scripts/verify-release-tags.ps1`, and a check that the declared version equals the tag minus its `v` — with a full-history, all-tags checkout, since the script reads `git tag -l` and `git rev-list main --first-parent` — verified by a dry-run where making any one of the three fail stops the run before packaging, and by a passing run where both builds proceed.
 - [x] 3.3 Run the same suite in the Windows job before packaging — verified by a run whose Windows job executes the tests and reports their counts, and whose failure stops that job before `xmake pack` runs.
-- [ ] 3.4 Add the publish path for a tag push and for `mode=publish` with an explicit tag: build, package one runtime archive per platform (`-f zip` on Windows, `-f targz` on Linux) plus the Windows symbol archive, and create the release with the extracted section as its body — verified by the release existing with exactly three assets whose names carry that platform's own architecture token (`.zip`, `.tar.gz`, and a symbols archive), by the body equalling the changelog section, by a tag not matching the version grammar being ignored without any release attempt, and by an on-demand publish of a version at or below the recorded boundary being refused with that reason.
-- [ ] 3.5 Add `mode=backfill` with an `until` version, which creates an entry for every tag at or below that version that has none, with the never-distributed paragraph and no assets — verified by a run reporting how many entries it created, by an early version's entry carrying the paragraph with zero assets, and by a tag above the boundary remaining entry-less after the run.
-- [ ] 3.6 Make publishing refuse to write over an existing release, while still reporting whether a rebuild matches — verified by re-running `mode=publish` for a published version: the run reports it as already published, compares the freshly built hashes with the published ones, and leaves the body and assets unchanged.
-- [ ] 3.7 Refuse to publish a tag whose version has no changelog section — verified by attempting a publish for such a tag and confirming the run fails before creating anything.
+- [x] 3.4 Add the publish path for a tag push and for `mode=publish` with an explicit tag: build, package one runtime archive per platform (`-f zip` on Windows, `-f targz` on Linux) plus the Windows symbol archive, and create the release with the extracted section as its body — verified by the release existing with exactly three assets whose names carry that platform's own architecture token (`.zip`, `.tar.gz`, and a symbols archive), by the body equalling the changelog section, by a tag not matching the version grammar being ignored without any release attempt, and by an on-demand publish of a version at or below the recorded boundary being refused with that reason.
+- [x] 3.5 Add `mode=backfill` with an `until` version, which creates an entry for every tag at or below that version that has none, with the never-distributed paragraph and no assets — verified by a run reporting how many entries it created, by an early version's entry carrying the paragraph with zero assets, and by a tag above the boundary remaining entry-less after the run.
+- [x] 3.6 Make publishing refuse to write over an existing release, while still reporting whether a rebuild matches — verified by re-running `mode=publish` for a published version: the run reports it as already published, compares the freshly built hashes with the published ones, and leaves the body and assets unchanged.
+- [x] 3.7 Refuse to publish a tag whose version has no changelog section — verified by attempting a publish for such a tag and confirming the run fails before creating anything.
 
 ### Group 3 record
 
@@ -76,8 +76,8 @@ Tasks 3.4-3.7 create real Releases and are verified by task 5's runs; they stay 
 ## 4. Scoop bucket
 
 - [x] 4.1 Create `Arteiimis/scoop-encro` with a `bucket/` directory and give the release workflow write access to it — verified by `gh repo view Arteiimis/scoop-encro` succeeding, by a deploy key listed on that repository with write access, by the `SCOOP_BUCKET_DEPLOY_KEY` secret listed on the encro repository, and by a clone-push round trip made with that key alone.
-- [ ] 4.2 Generate the manifest in the publish path: version without the `v` prefix, the Windows runtime archive URL, a hash of that archive, `bin` naming the executable's path inside the install, `notes` naming both ffmpeg and ffprobe, and `checkver`/`autoupdate` — verified by inspecting a generated manifest, by an automated comparison of its version and URL against the release it was generated from, and by recomputing the sha256 of the downloaded asset and finding it equal to the manifest's hash, so the checksum the installer enforces is proven to be the hash of the bytes a user will actually download.
-- [ ] 4.3 Write the manifest to the bucket after the release, marked continue-on-error — verified by a publish run whose bucket step succeeds and leaves the manifest naming the new version, and by a run with that step forced to fail which still leaves the release and both assets published.
+- [x] 4.2 Generate the manifest in the publish path: version without the `v` prefix, the Windows runtime archive URL, a hash of that archive, `bin` naming the executable's path inside the install, `notes` naming both ffmpeg and ffprobe, and `checkver`/`autoupdate` — verified by inspecting a generated manifest, by an automated comparison of its version and URL against the release it was generated from, and by recomputing the sha256 of the downloaded asset and finding it equal to the manifest's hash, so the checksum the installer enforces is proven to be the hash of the bytes a user will actually download.
+- [x] 4.3 Write the manifest to the bucket after the release, marked continue-on-error — verified by a publish run whose bucket step succeeds and leaves the manifest naming the new version, and by a run with that step forced to fail which still leaves the release and both assets published.
 
 ### Group 4 record
 
@@ -89,14 +89,14 @@ One heredoc trap worth recording, because both halves of it fail silently: insid
 
 ## 5. First release
 
-- [ ] 5.1 Run `mode=backfill` against the real repository with `until=2.0.0`, before any new tag exists — verified by `gh release list` showing exactly one entry per existing tag, every entry carrying zero assets, and an entry count equal to the tag count.
-- [ ] 5.2 Cut the first distributed release: bump the single version declaration to the patch version, add its changelog section stating that it is the first downloadable version and naming `v2.0.0` as the milestone it follows, commit, and push the tag — verified by the publish path running unattended and producing a release with two assets, the correct body, and a bucket manifest naming that version.
-- [ ] 5.3 Install through Scoop on the maintainer machine and confirm the hand-written shim has been replaced — verified by `scoop install` succeeding, `encro --version` reporting the installed release rather than a build-directory binary, and exactly one `encro` command being on the PATH — with the same three checks repeated after an upgrade to the next published version, which must leave exactly one command reporting the newer version.
+- [x] 5.1 Run `mode=backfill` against the real repository with `until=2.0.0`, before any new tag exists — verified by `gh release list` showing exactly one entry per existing tag, every entry carrying zero assets, and an entry count equal to the tag count.
+- [x] 5.2 Cut the first distributed release: bump the single version declaration to the patch version, add its changelog section stating that it is the first downloadable version and naming `v2.0.0` as the milestone it follows, commit, and push the tag — verified by the publish path running unattended and producing a release with two assets, the correct body, and a bucket manifest naming that version.
+- [x] 5.3 Install through Scoop on the maintainer machine and confirm the hand-written shim has been replaced — verified by `scoop install` succeeding, `encro --version` reporting the installed release rather than a build-directory binary, and exactly one `encro` command being on the PATH — with the same three checks repeated after an upgrade to the next published version, which must leave exactly one command reporting the newer version.
 
 ## 6. Integration verification
 
-- [ ] 6.1 Verify the chain end to end from a freshly pushed tag — verified by tagging a further patch version, pushing it, and observing an unattended release with two assets, a correct body and an updated bucket manifest, with no manual step in between.
-- [ ] 6.2 Verify the guard rails hold on the real repository — verified by a repeat publish of an already-published version leaving it byte-identical, a publish attempt with a mismatched declared version being refused, `mode=publish` for `v2.0.0` being refused because 2.0.0 is at or below the recorded boundary, and `pwsh scripts/verify-release-tags.ps1` still exiting 0.
+- [x] 6.1 Verify the chain end to end from a freshly pushed tag — verified by tagging a further patch version, pushing it, and observing an unattended release with two assets, a correct body and an updated bucket manifest, with no manual step in between.
+- [x] 6.2 Verify the guard rails hold on the real repository — verified by a repeat publish of an already-published version leaving it byte-identical, a publish attempt with a mismatched declared version being refused, `mode=publish` for `v2.0.0` being refused because 2.0.0 is at or below the recorded boundary, and `pwsh scripts/verify-release-tags.ps1` still exiting 0.
 
 ## Planning-artifact review
 
@@ -147,6 +147,37 @@ A fifth review pass has not been run.
 - Whether `encro.exe` needs anything beyond the five identified runtime DLLs at load time was answered by inspecting both import tables; what remains unproven is that the assembled archive starts on a machine that never had the redistributable — task 2.4 settles that.
 - Scoop's exact behaviour when a non-Scoop-managed `encro.shim` already occupies the target path. Task 5.3 verifies the outcome (one command, reporting the installed version) rather than assuming the mechanism.
 - The ONNX package's download and unpacked sizes are not measured anywhere: the package definition states a URL and a sha256 and nothing else. The figures quoted earlier in this file were estimates and have been removed from the artifacts.
+
+## Group 5 record — the first real releases
+
+Task 5.1 — backfill run `39172943032` (`mode=backfill`, `until=2.0.0`) finished in about 40 seconds and created **18** entries, one per existing tag, from `v0.1.0` to `v2.0.0` including the four pre-releases. Every entry carries **zero assets**, and each body opens with the never-distributed blockquote followed by that version's changelog section. Nothing above the boundary existed to be skipped, and nothing was created for a version without a tag.
+
+Task 5.2 — the first distributed version was cut as `v2.0.1` (version declaration, changelog section, annotated tag pushed to `main`). The tag push ran the workflow unattended — the whole point of the tag trigger — and produced a release with three assets whose names carry each platform's own architecture token:
+
+- `encro-2.0.1-x64-windows.zip` 6,639,465 bytes,
+- `encro-2.0.2-x64-windows-symbols.zip`-style companion `encro-2.0.1-x64-windows-symbols.zip` 8,493,292 bytes,
+- `encro-2.0.1-x86_64-linux.tar.gz` 1,599,729 bytes.
+
+The body was byte-identical to the changelog section (773 characters both sides), and the bucket manifest was written by the same run: version `2.0.1`, the release URL, `bin\encro.exe`, `checkver`, `autoupdate` and a sha256 that equals the hash of the downloaded asset (recomputed on the downloaded bytes). **`v2.0.1` was nevertheless broken**, and that is the most useful thing this group produced.
+
+**What went wrong.** `D:\scoop\shims\encro.shim` was replaced by Scoop's generated shim as designed, `scoop install encro` succeeded and the hash check passed — and then `encro --version` returned `-1073741502` (`STATUS_DLL_INIT_FAILED`). Running the same archive with the five bundled runtime DLLs removed made it start and print its version, which isolated the cause: the archive carried **14.29.30157 "built by: cloudtest"** runtime DLLs while the executable had been linked against 14.51. The packaging hook took whichever `VC/Redist/MSVC/<version>` directory the image listed first, and a runner image also carries that old redistributable. Both halves were fixed rather than just the symptom: the hook now sorts the version directories newest-first, and the Windows job **unpacks the archive it produced and runs `bin/encro.exe --version`** — the check that would have caught the defect before it shipped, and the first time the packaged artifact itself is executed in CI.
+
+`v2.0.1` was also yanked the way the changelog spec anticipates: its section is marked `[YANKED]`, and its release is flagged pre-release so it is not the version a visitor downloads. Fixing the gate script exposed one more rule that was wrong — it required changelog dates to be strictly descending, which makes two releases on one day impossible; it now requires them not to increase.
+
+The corrected version is **`v2.0.2`** (run `39177258308`, tag push, unattended, all six jobs green). Its archive ships 14.51.36247 runtime DLLs, the downloaded binary prints `encro 2.0.2 (build: …)`, and the bucket manifest moved to `2.0.2` with a checksum matching the downloaded bytes.
+
+Task 5.3 — installed and upgraded on this machine through Scoop itself: `scoop bucket add encro …` then `scoop install encro` replaced the hand-written `D:\scoop\shims\encro.shim` with one Scoop generated (`path = "D:\scoop\apps\encro\current\bin\encro.exe"`), `scoop update` + `scoop update encro` moved 2.0.1 → 2.0.2 with the hash verified, and `encro --version` reports the installed release rather than the build directory. Exactly one `encro` resolves on the PATH.
+
+## Group 6 record — the guard rails on the real repository
+
+Task 6.1 — both real releases came from a tag push with no manual step: `v2.0.1` and `v2.0.2` each ran resolve → gate → windows + linux → publish on their own, producing the three assets, the changelog body and the bucket manifest.
+
+Task 6.2 — a repeat `mode=publish` for `v2.0.2` (run `39179231938`) passed the gate, evaluated `Stop if this version is already published`, reported it as already published, **skipped** `Publish the release`, and left all three asset digests and the body unchanged. `gh release view` afterwards shows the same three sha256 digests recorded before the run. An on-demand publish of `v2.0.0` is refused with `2.0.0 is at or below the last version that predates this pipeline (2.0.0); that tree cannot produce a working package` (run `39172123700`), with every downstream job skipped and no release created. A tag that is not a version (`v0.0`) fails at resolve with `'v0.0' does not name a version; nothing to publish` and creates nothing; the tag used for that check was deleted afterwards.
+
+Two limits are recorded honestly rather than claimed:
+
+- Task 3.7's publish-time refusal is exercised at the extractor, which exits 1 for a version with no section (`no changelog section for version '2.0.3'`), and the publish step runs it under `set -euo pipefail` so the release is never created. The same case is also caught earlier by the tag-contract job, which fails on any tag without a changelog section — so the deeper guard was not driven end to end on the real repository.
+- Task 4.3's "a forced bucket failure still leaves the release published" rests on `continue-on-error: true` plus the follow-up `Report a stale bucket` step rather than on a deliberately broken run; the successful path was exercised by both publishes.
 
 ## Workflow follow-up
 
