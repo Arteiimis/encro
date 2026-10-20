@@ -41,6 +41,18 @@ bool contains(std::string const& haystack, std::string const& needle) {
   return haystack.find(needle) != std::string::npos;
 }
 
+auto splitWords(std::string const& text) -> std::vector<std::string> {
+  auto words = std::vector<std::string>{};
+  auto const* begin = text.data();
+  auto const* end = begin + text.size();
+  while (begin != end) {
+    auto const* space = std::find(begin, end, ' ');
+    words.emplace_back(begin, space);
+    begin = space == end ? end : space + 1;
+  }
+  return words;
+}
+
 // Every registered option name in the live tree (all scopes).
 auto allTreeNames() -> std::vector<std::string> {
   auto result = CmdParseResult{};
@@ -317,11 +329,20 @@ TEST_CASE(
     REQUIRE(contains(*script, "--template"));
   }
 
-  // The main-position candidate list carries the subcommand.
-  REQUIRE(contains(
-    bash,
-    "_ENCRO_SUB_NAMES=\"batch completion config organize preview template\""
-  ));
+  // The main-position candidate list carries the subcommand. `organize` joins it
+  // only where an inference backend exists (the ONNX engines on Windows), so the
+  // emitted list is read rather than pinned.
+  auto const marker = std::string{"_ENCRO_SUB_NAMES=\""};
+  auto const from = bash.find(marker);
+  REQUIRE(from != std::string::npos);
+  auto const to = bash.find('"', from + marker.size());
+  REQUIRE(to != std::string::npos);
+  auto const listed =
+    splitWords(bash.substr(from + marker.size(), to - from - marker.size()));
+  for (auto const* name: {"batch", "completion", "config", "preview", "template"}) {
+    INFO("missing main-position candidate: " << name);
+    CHECK(has(listed, name));
+  }
 
   // The template scope carries its own options only: CLI11 appends the
   // fallthrough parent's list to get_options(), which would offer --version and
