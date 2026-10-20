@@ -144,17 +144,21 @@ struct CheckedTransformer {
   // {{a, b}, {c, d}} like upstream CheckedTransformer
   CheckedTransformer(std::initializer_list<std::pair<std::string, std::string>> values)
     : mapping(values) { }
-  void operator()(CLI::Option* option) const {
-    option->transform(CLI::CheckedTransformer(mapping));
-    // completion offers the canonical (target) values, first occurrence wins
+  // Canonical (target) values, first occurrence wins: completion offers them,
+  // and the template schema declares them as the legal values.
+  auto canonicals() const -> std::vector<std::string> {
     auto canonical = std::vector<std::string>{};
     for (auto const& [from, to]: mapping) {
       if (std::ranges::find(canonical, to) == canonical.end()) {
         canonical.push_back(to);
       }
     }
+    return canonical;
+  }
+  void operator()(CLI::Option* option) const {
+    option->transform(CLI::CheckedTransformer(mapping));
     if (auto const name = captureLongName(option)) {
-      completion::recordCandidates(*name, std::move(canonical));
+      completion::recordCandidates(*name, canonicals());
     }
   }
 };
@@ -178,6 +182,14 @@ struct Needs {
 // key's table entry (kind, long name, built-in default, validators) while the
 // option is registered. The token carries the name only (design D2).
 struct ConfigKey {
+  std::string_view name;
+  void operator()(CLI::Option*) const { }
+};
+
+// Marks the option as storable in a command template: registerOne records the
+// entry in the template table instead of the config table (command-templates
+// design D1/D3). A spec may carry both tokens.
+struct TemplateKey {
   std::string_view name;
   void operator()(CLI::Option*) const { }
 };
@@ -211,14 +223,14 @@ constexpr auto jsonKindFor() -> configstore::JsonKind {
   }
 }
 
-// Name of the spec's cfg::ConfigKey token, empty when it carries none.
-template<typename... Cfg>
-constexpr auto configKeyName(std::tuple<Cfg...> const& cfg) -> std::string_view {
+// Name carried by the spec's `Token` cfg item, empty when it carries none.
+template<typename Token, typename... Cfg>
+constexpr auto keyTokenName(std::tuple<Cfg...> const& cfg) -> std::string_view {
   auto name = std::string_view{};
   std::apply(
     [&name](auto const&... cfgItems) {
       auto const take = [&name](auto const& item) {
-        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(item)>, ConfigKey>) {
+        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(item)>, Token>) {
           name = item.name;
         }
       };
@@ -227,6 +239,34 @@ constexpr auto configKeyName(std::tuple<Cfg...> const& cfg) -> std::string_view 
     cfg
   );
   return name;
+}
+
+// Schema metadata the spec's cfg tuple declares (command-templates design D5):
+// the enumerated legal values and the numeric bound each bound-carrying token
+// enforces. The stateless positive validators contribute the bound they check,
+// because they carry no member values of their own.
+template<typename... Cfg>
+void fillSchemaMeta(std::tuple<Cfg...> const& cfg, configstore::KeyDef& def) {
+  auto const take = [&def](auto const& item) {
+    using Ty = std::remove_cvref_t<decltype(item)>;
+    if constexpr (std::is_same_v<Ty, Members>) {
+      def.enumValues = item.legal;
+    } else if constexpr (std::is_same_v<Ty, CheckedTransformer>) {
+      def.enumValues = item.canonicals();
+    } else if constexpr (std::is_same_v<Ty, Range>) {
+      def.minimum = static_cast<double>(item.lo);
+      def.maximum = static_cast<double>(item.hi);
+    } else if constexpr (std::is_same_v<Ty, FloatRange>) {
+      def.minimum = item.lo;
+      def.maximum = item.hi;
+    } else if constexpr (std::is_same_v<Ty, PositiveNumber>) {
+      def.minimum = 1.0;  // integers: > 0 is >= 1
+    } else if constexpr (std::is_same_v<Ty, PositiveFloat>) {
+      def.minimum = 0.0;
+      def.minimumExclusive = true;
+    }
+  };
+  std::apply([&](auto const&... items) { (take(items), ...); }, cfg);
 }
 
 }  // namespace cfg
@@ -261,13 +301,16 @@ inline void appendValidators(CLI::Option* option, std::vector<CLI::Validator>& o
 
 // Phase 1: register and configure one option. bool bindings are flags,
 // everything else takes a value. A cfg::ConfigKey token also records the
-// option's table entry, after the whole cfg tuple has run: the validators the
-// spec's later tokens add are part of the key's contract.
+// option's config entry, a cfg::TemplateKey token its template entry, after the
+// whole cfg tuple has run: the validators the spec's later tokens add are part
+// of the key's contract. `templateEntries` is null for surfaces that own no
+// templateable option (the subcommands mirror main bindings instead).
 template<typename Spec>
 auto registerOne(
   CLI::App* app,
   Spec const& spec,
-  std::vector<configstore::KeyDef>& entries
+  std::vector<configstore::KeyDef>& entries,
+  std::vector<configstore::KeyDef>* templateEntries
 ) -> CLI::Option* {
   auto* option = [&]() -> CLI::Option* {
     if constexpr (
@@ -280,17 +323,33 @@ auto registerOne(
   }();
   std::apply([&](auto const&... cfgItems) { (cfgItems(option), ...); }, spec.cfg);
 
-  if (auto const key = cfg::configKeyName(spec.cfg); !key.empty()) {
-    auto def = configstore::KeyDef{
-      .key = key,
-      .kind = cfg::jsonKindFor<typename Spec::binding_type>(),
-      .longName = cfg::captureLongName(option).value_or(std::string{}),
-      .builtinDefault = option->get_default_str(),
-    };
-    appendValidators(option, def.validators);
-    entries.push_back(std::move(def));
+  if (auto const key = cfg::keyTokenName<cfg::ConfigKey>(spec.cfg); !key.empty()) {
+    entries.push_back(keyDef(spec, option, key));
+  }
+  if (templateEntries != nullptr) {
+    if (auto const key = cfg::keyTokenName<cfg::TemplateKey>(spec.cfg); !key.empty()) {
+      templateEntries->push_back(keyDef(spec, option, key));
+    }
   }
   return option;
+}
+
+// The table entry a key token captures: kind from the binding type, long name,
+// built-in default at registration, a copy of the validator chain, and the
+// schema metadata the spec declares.
+template<typename Spec>
+auto keyDef(Spec const& spec, CLI::Option* option, std::string_view key)
+  -> configstore::KeyDef {
+  auto def = configstore::KeyDef{
+    .key = key,
+    .kind = cfg::jsonKindFor<typename Spec::binding_type>(),
+    .longName = cfg::captureLongName(option).value_or(std::string{}),
+    .builtinDefault = option->get_default_str(),
+    .desc = spec.desc,
+  };
+  appendValidators(option, def.validators);
+  cfg::fillSchemaMeta(spec.cfg, def);
+  return def;
 }
 
 // Phase 2: resolve Excludes/Needs by long name against the same app scope.
@@ -324,11 +383,12 @@ template<typename... Specs>
 void registerAll(
   CLI::App* app,
   std::tuple<Specs...> const& specs,
-  std::vector<configstore::KeyDef>& entries
+  std::vector<configstore::KeyDef>& entries,
+  std::vector<configstore::KeyDef>* templateEntries = nullptr
 ) {
   [&]<std::size_t... I>(std::index_sequence<I...>) {
     auto const options = std::array<CLI::Option*, sizeof...(Specs)>{
-      registerOne(app, std::get<I>(specs), entries)...
+      registerOne(app, std::get<I>(specs), entries, templateEntries)...
     };
     (applyDeps(app, options[I], std::get<I>(specs)), ...);
   }(std::index_sequence_for<Specs...>{});

@@ -6,6 +6,7 @@
 #include <CLI/CLI.hpp>
 
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -91,6 +92,22 @@ struct CmdParseResult {
   bool completionInstall = false;
   bool completionUninstall = false;
 
+  // ── template subcommand (positional action verbs) ──────
+  bool templates = false;
+  std::string templateVerb;                // list|show|save|unset|delete|path|schema
+  std::optional<std::string> templateName;
+  std::optional<std::string> templateKey;  // unset only
+
+  // ── selected template (-T) ──────
+  std::optional<std::string> selectedTemplate;  // name given with -T
+  bool templateListRequested = false;           // -T with no name
+  // Values `template save` would store, collected from the probe parse (never
+  // from config-injected defaults), and the attribution of the template the
+  // default layer applied (for the -v line).
+  std::map<std::string, std::string> capturedTemplateValues;
+  std::optional<std::string> appliedTemplateName;
+  std::string appliedTemplatePath;
+
   // ── Config-key table (design D4/D5) ────────────────────────────
   // keyEntries holds the registration-time drafts (registration order),
   // consumed once by the assemble step in buildAppTree; every registrar
@@ -98,6 +115,8 @@ struct CmdParseResult {
   // assembled table every config reader goes through.
   std::vector<configstore::KeyDef> keyEntries;
   configstore::KeyTable keyTable;
+  std::vector<configstore::KeyDef> templateEntries;
+  configstore::KeyTable templateTable;
 
   // ── Help output (rendered by formatter_fn) ──────────────────────
   // Help is rendered lazily: the formatter queries the terminal color mode
@@ -123,14 +142,22 @@ struct AppTree {
   CLI::App* batchSub = nullptr;
   CLI::App* configSub = nullptr;
   CLI::App* completionSub = nullptr;
+  CLI::App* templateSub = nullptr;
 };
 
 // Registers the whole command surface onto a fresh CLI11 app. With
 // injectConfig set, stored user config is applied as forced option defaults;
 // the completion emitter passes false so emission never reads the stored
-// config (add-shell-completion design D1).
-auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool injectConfig)
-  -> AppTree;
+// config (add-shell-completion design D1). `selectedTemplate` is the name the
+// probe parse read from -T: injection happens before the parse that would
+// populate the binding itself, so the name has to arrive as an argument
+// (command-templates design D3).
+auto buildAppTree(
+  CmdParseResult& result,
+  std::string const& introLine,
+  bool injectConfig,
+  std::string const& selectedTemplate = {}
+) -> AppTree;
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   -> CmdParseResult;

@@ -34,6 +34,12 @@ auto realTable() -> configstore::KeyTable const& {
   return table;
 }
 
+// The template table from the same registration pass.
+auto realTemplateTable() -> configstore::KeyTable const& {
+  static auto const table = testutils::parseArgs({"encro"}).templateTable;
+  return table;
+}
+
 // A registration-time entry draft for the assembler cases: only the key is
 // load-bearing for ordering.
 auto draftKey(
@@ -220,6 +226,107 @@ TEST_CASE(
   CHECK(table.find("jobs") != nullptr);
   CHECK(table.find("model-dir") != nullptr);
   CHECK(table.find("dry-run") == nullptr);
+}
+
+TEST_CASE(
+  "the template table holds the shape options only",
+  "[cmd][config-store][template]"
+) {
+  auto const& table = realTemplateTable();
+
+  REQUIRE_FALSE(table.keys.empty());
+  CHECK(table.keys.size() == configstore::canonicalTemplateKeyOrder().size());
+  CHECK(table.keys.front().key == "quiet");  // General group first
+  CHECK(table.keys.back().key == "pack-only");
+
+  CHECK(table.find("crf") != nullptr);      // a config key is templateable
+  CHECK(table.find("dry-run") != nullptr);  // a non-config flag too
+  CHECK(table.find("type") != nullptr);     // and a non-config value
+
+  // Paths and the occurrence-counting flag never enter a template.
+  CHECK(table.find("input") == nullptr);
+  CHECK(table.find("inputs") == nullptr);
+  CHECK(table.find("state-file") == nullptr);
+  CHECK(table.find("verbose") == nullptr);
+}
+
+TEST_CASE(
+  "the template table rejects drift from the canonical order",
+  "[cmd][config-store][template]"
+) {
+  auto const entries = testutils::parseArgs({"encro"}).templateEntries;
+  REQUIRE_FALSE(entries.empty());
+
+  auto missing = entries;  // every entry the order names is registered
+  std::erase_if(missing, [](configstore::KeyDef const& def) { return def.key == "crf"; });
+  auto const shortTable = configstore::assembleKeyTable(
+    configstore::canonicalTemplateKeyOrder(),
+    missing,
+    "template key table"
+  );
+  REQUIRE_FALSE(shortTable.has_value());
+  CHECK(shortTable.error().find("crf") != std::string::npos);
+
+  auto extra = entries;  // an unlisted token is a registration mistake
+  extra.push_back(draftKey("not-a-template-key"));
+  auto const longer = configstore::assembleKeyTable(
+    configstore::canonicalTemplateKeyOrder(),
+    extra,
+    "template key table"
+  );
+  REQUIRE_FALSE(longer.has_value());
+  CHECK(longer.error().find("not-a-template-key") != std::string::npos);
+  CHECK(longer.error().find("template key table") != std::string::npos);
+}
+
+TEST_CASE(
+  "the template table captures each key's schema metadata",
+  "[cmd][config-store][template]"
+) {
+  auto const& table = realTemplateTable();
+
+  auto const* crf = table.find("crf");
+  REQUIRE(crf != nullptr);
+  CHECK(crf->kind == configstore::JsonKind::Number);
+  REQUIRE(crf->minimum.has_value());
+  REQUIRE(crf->maximum.has_value());
+  CHECK(*crf->minimum == 0.0);
+  CHECK(*crf->maximum == 51.0);
+  CHECK_FALSE(crf->minimumExclusive);
+  CHECK(crf->builtinDefault == "28");
+  CHECK_FALSE(crf->desc.empty());
+
+  auto const* preset = table.find("preset");
+  REQUIRE(preset != nullptr);
+  CHECK(preset->enumValues.size() == 8);
+  CHECK_FALSE(preset->minimum.has_value());
+
+  // PositiveNumber carries no members, so the bound comes from the token type.
+  auto const* jobs = table.find("jobs");
+  REQUIRE(jobs != nullptr);
+  REQUIRE(jobs->minimum.has_value());
+  CHECK(*jobs->minimum == 1.0);
+
+  // A transformer's canonical targets are the legal values.
+  auto const* type = table.find("type");
+  REQUIRE(type != nullptr);
+  CHECK(type->enumValues == std::vector<std::string>{"video", "picture"});
+
+  // A plain string key declares neither an enum nor a bound.
+  auto const* codec = table.find("video-codec");
+  REQUIRE(codec != nullptr);
+  CHECK(codec->kind == configstore::JsonKind::String);
+  CHECK(codec->enumValues.empty());
+  CHECK_FALSE(codec->minimum.has_value());
+  CHECK(codec->builtinDefault == "hevc_nvenc");
+
+  // A boolean flag is a boolean with no bounds; a flag declares no default
+  // string, so the schema carries none for it.
+  auto const* keep = table.find("keep");
+  REQUIRE(keep != nullptr);
+  CHECK(keep->kind == configstore::JsonKind::Boolean);
+  CHECK(keep->builtinDefault.empty());
+  CHECK_FALSE(keep->minimum.has_value());
 }
 
 TEST_CASE("save writes pretty canonical form and round-trips", "[cmd][config-store]") {

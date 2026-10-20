@@ -46,6 +46,10 @@ auto initStartup(int argc, char* argv[], std::string const& introLine) -> Startu
     loggingActive = true;
   }
 
+  // After setupLogging, so the line follows the run's echo level (-v) and
+  // --quiet (design D8).
+  logTemplateAttribution(cmd);
+
   // Reclaim leftovers from crashed runs: stale per-run scratch entries older
   // than 24h are removed (design D3). Fresh files belong to live runs and are
   // never touched.
@@ -100,6 +104,15 @@ void logConfigSummary(appctx::AppConfig const& config) {
   if (config.maxParallelJobs.has_value()) {
     LOG_INFO("Using custom max parallel jobs: {}", config.maxParallelJobs.value());
   }
+}
+
+void logTemplateAttribution(CmdParseResult const& cmd) {
+  if (!cmd.appliedTemplateName.has_value()) { return; }
+  LOG_INFO(
+    "Applied template '{}' from {}.",
+    *cmd.appliedTemplateName,
+    cmd.appliedTemplatePath
+  );
 }
 
 }  // namespace prelude

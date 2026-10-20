@@ -524,6 +524,11 @@ constexpr auto kCompletionUsageLines = std::array{
   "encro completion powershell --install"sv,
 };
 
+constexpr auto kTemplateUsageLines = std::array{
+  "encro template list | show <name> | save <name> [options] | unset <name> <key>"sv,
+  "               | delete <name> | path | schema"sv,
+};
+
 constexpr auto kOrganizeUsageLines = std::array{
   "encro organize [dir] [-r] [--min-confidence <f>] [--model-dir <dir>] "
   "[--identity-tau <f>] [--download-models] [--dry-run]"sv,
@@ -567,4 +572,8 @@ auto installConfigHelpFormatter(CLI::App& subApp) -> void {
 
 auto installCompletionHelpFormatter(CLI::App& subApp) -> void {
   subApp.formatter_fn(makeSubcommandHelpFormatter(&subApp, kCompletionUsageLines));
+}
+
+auto installTemplateHelpFormatter(CLI::App& subApp) -> void {
+  subApp.formatter_fn(makeSubcommandHelpFormatter(&subApp, kTemplateUsageLines));
 }

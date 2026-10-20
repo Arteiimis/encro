@@ -32,6 +32,15 @@ struct KeyDef {
   std::string longName;                    // "--crf"
   std::string builtinDefault;              // option->get_default_str() at registration
   std::vector<CLI::Validator> validators;  // copied in run order (transform first)
+
+  // Schema metadata, also captured at registration (command-templates D5): the
+  // option's help text, its enumerated legal values when the spec declares
+  // them, and the numeric bound the spec's validators enforce.
+  std::string desc;
+  std::vector<std::string> enumValues;
+  std::optional<double> minimum;
+  std::optional<double> maximum;
+  bool minimumExclusive = false;  // the bound itself is not allowed
 };
 
 struct KeyTable {
@@ -54,12 +63,20 @@ struct KeyTable {
 // is registered inside the organize subcommand yet written last.
 auto canonicalKeyOrder() -> std::span<std::string_view const>;
 
+// Templateable keys in canonical (file-write) order, grouped like the CLI help
+// groups: the main command's value options and flags, minus the options that
+// carry input locations, the job-state file, and -v. A second contract list
+// over the same registration capture (command-templates design D1).
+auto canonicalTemplateKeyOrder() -> std::span<std::string_view const>;
+
 // Orders registration-time `entries` by `order` and rejects a token whose key
 // is not in the order, an order entry no token registers, and a duplicate.
-// Pure: no app, no CLI::Option*, no globals.
+// Pure: no app, no CLI::Option*, no globals. `tableName` labels the error, so
+// the template table does not report itself as the config table.
 auto assembleKeyTable(
   std::span<std::string_view const> order,
-  std::span<KeyDef const> entries
+  std::span<KeyDef const> entries,
+  std::string_view tableName = "config key table"
 ) -> eh::Result<KeyTable>;
 
 // Resolution order: ENCRO_CONFIG; then the platform user-config root
@@ -69,15 +86,26 @@ auto resolveConfigPath() -> std::filesystem::path;
 
 // NOLINTNEXTLINE(bugprone-exception-escape): standard-container members only, move is noexcept in practice
 struct LoadResult {
-  std::map<std::string, std::string> values;  // scalar values as canonical text
-  std::vector<std::string> unknownKeys;       // reported once by the caller
-  std::optional<std::string> error;           // malformed JSON / bad value type
+  std::map<std::string, std::string> values;         // scalar values as canonical text
+  std::map<std::string, std::string> unknownValues;  // raw JSON text of unknown keys
+  std::vector<std::string> unknownKeys;              // reported once by the caller
+  std::optional<std::string> error;                  // malformed JSON / bad value type
 };
 
-auto load(std::filesystem::path const& path, KeyTable const& table) -> LoadResult;
+// `fileLabel` names the kind of file in the error text, so a template file
+// reports "invalid template file ..." rather than "invalid config file ...".
+auto load(
+  std::filesystem::path const& path,
+  KeyTable const& table,
+  std::string_view fileLabel = "config file"
+) -> LoadResult;
 
 // Prints one warning line per unknown key found by load().
 void warnUnknownKeys(LoadResult const& loaded, std::filesystem::path const& path);
+
+// JSON text for one stored scalar on a single line; numbers/booleans stay
+// unquoted so the file keeps native JSON types.
+auto scalarJsonText(std::string const& raw, JsonKind kind) -> std::string;
 
 // Rewrites the whole file in canonical pretty form (creates parent dirs).
 auto save(

@@ -4,6 +4,7 @@
 #include "cmd/completion_command.h"
 #include "cmd/config_builder.h"
 #include "cmd/config_command.h"
+#include "cmd/template_command.h"
 #include "core/app_context.h"
 #include "core/job_state.h"
 #include "core/path_utf8.h"
@@ -317,6 +318,8 @@ int run(int argc, char* argv[]) {
     exitCode = runBatch(startup);
   } else if (startup.cmd.config) {
     exitCode = cmd::runConfigCommand(startup.cmd);
+  } else if (startup.cmd.templates) {
+    exitCode = cmd::runTemplateCommand(startup.cmd);
   } else if (startup.cmd.completion) {
     exitCode = cmd::runCompletionCommand(startup.cmd);
   } else if (auto config = buildAppConfig(startup); config.has_value()) {

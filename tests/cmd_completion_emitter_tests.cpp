@@ -230,8 +230,8 @@ TEST_CASE("emitted scripts cover the full surface deterministically", "[completi
   REQUIRE(powershell == completion::emitPowerShellScript(model));
 
   REQUIRE(contains(bash, "_ENCRO_CANDS_output_format=\"mp4 webp\""));
-  REQUIRE(contains(bash, "_ENCRO_HIDDEN_resume=\"--restart\""));
-  REQUIRE(contains(bash, "_ENCRO_HIDDEN_restart=\"--resume\""));
+  REQUIRE(contains(bash, "_ENCRO_HIDDEN_resume=\"--no-restart --restart\""));
+  REQUIRE(contains(bash, "_ENCRO_HIDDEN_restart=\"--no-resume --resume\""));
   REQUIRE(contains(bash, "compgen -W \"$_ENCRO_CONFIG_KEYS\""));
   REQUIRE(contains(bash, "_ENCRO_POSN_completion=1"));
   REQUIRE(contains(bash, "_ENCRO_POSCANDS_completion=\"bash powershell\""));
@@ -303,4 +303,25 @@ TEST_CASE("scope model keeps a short-only option", "[completion]") {
     });
   REQUIRE(found != scope.options.end());
   CHECK_FALSE(found->id.empty());
+}
+
+TEST_CASE(
+  "the template subcommand and its verbs are completed",
+  "[completion][template]"
+) {
+  auto const model = completion::buildCompletionModel();
+  auto const bash = completion::emitBashScript(model);
+  auto const powershell = completion::emitPowerShellScript(model);
+
+  for (auto const* script: {&bash, &powershell}) {
+    REQUIRE(contains(*script, "template"));
+    REQUIRE(contains(*script, "--template"));
+  }
+
+  // Three positional slots, verbs in the first, nothing for name/key.
+  REQUIRE(contains(bash, "_ENCRO_POSN_template=3"));
+  REQUIRE(contains(
+    bash,
+    "_ENCRO_POSCANDS_template=\"list show save unset delete path schema::\""
+  ));
 }

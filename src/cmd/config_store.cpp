@@ -52,6 +52,40 @@ auto canonicalKeyOrder() -> std::span<std::string_view const> {
   return kCanonicalKeyOrder;
 }
 
+inline constexpr auto kCanonicalTemplateKeyOrder = std::to_array<std::string_view>({
+  "quiet",
+  "log-json",
+  "debug",
+  "full-progress",
+  "color",
+  "yes",
+  "output",
+  "output-format",
+  "keep",
+  "force-conflict-handling",
+  "folder-summary",
+  "recursive",
+  "type",
+  "jobs",
+  "resume",
+  "restart",
+  "ffmpeg-path",
+  "compress",
+  "video-webp",
+  "image-quality",
+  "crf",
+  "min-vmaf",
+  "dry-run",
+  "preset",
+  "video-codec",
+  "pack",
+  "pack-only",
+});
+
+auto canonicalTemplateKeyOrder() -> std::span<std::string_view const> {
+  return kCanonicalTemplateKeyOrder;
+}
+
 auto KeyTable::find(std::string_view key) const -> KeyDef const* {
   auto const it = std::ranges::find(keys, key, &KeyDef::key);
   return it == keys.end() ? nullptr : &*it;
@@ -59,7 +93,8 @@ auto KeyTable::find(std::string_view key) const -> KeyDef const* {
 
 auto assembleKeyTable(
   std::span<std::string_view const> order,
-  std::span<KeyDef const> entries
+  std::span<KeyDef const> entries,
+  std::string_view tableName
 ) -> eh::Result<KeyTable> {
   auto table = KeyTable{};
   table.keys.reserve(order.size());
@@ -67,11 +102,12 @@ auto assembleKeyTable(
   for (auto const& key: order) {
     auto const entry = std::ranges::find(entries, key, &KeyDef::key);
     if (entry == entries.end()) {
-      return eh::makeError("config key table: no option registers key '{}'", key);
+      return eh::makeError("{} key table: no option registers key '{}'", tableName, key);
     }
     if (std::ranges::count(entries, key, &KeyDef::key) > 1) {
       return eh::makeError(
-        "config key table: key '{}' is registered more than once",
+        "{} key table: key '{}' is registered more than once",
+        tableName,
         key
       );
     }
@@ -83,7 +119,8 @@ auto assembleKeyTable(
   });
   if (missingKey != entries.end()) {
     return eh::makeError(
-      "config key table: key '{}' is missing from the canonical order",
+      "{} key table: key '{}' is missing from the canonical order",
+      tableName,
       missingKey->key
     );
   }
@@ -161,10 +198,12 @@ auto stringifyScalar(json::value const& value) -> std::optional<std::string> {
   return std::nullopt;
 }
 
+}  // namespace
+
 // JSON text for one stored scalar; numbers/booleans stay unquoted so the file
 // keeps native JSON types. A number-kind value that is not numeric falls back
 // to a quoted string (defensive; set-time validation keeps this from happening).
-auto scalarJson(std::string const& raw, JsonKind kind) -> std::string {
+auto scalarJsonText(std::string const& raw, JsonKind kind) -> std::string {
   switch (kind) {
     case JsonKind::Boolean: return raw == "true" ? "true" : "false";
     case JsonKind::Number :
@@ -179,8 +218,6 @@ auto scalarJson(std::string const& raw, JsonKind kind) -> std::string {
   return json::serialize(json::string(raw));
 }
 
-}  // namespace
-
 void warnUnknownKeys(LoadResult const& loaded, fs::path const& path) {
   for (auto const& key: loaded.unknownKeys) {
     terminal::eprintln(
@@ -192,7 +229,8 @@ void warnUnknownKeys(LoadResult const& loaded, fs::path const& path) {
   }
 }
 
-auto load(fs::path const& path, KeyTable const& table) -> LoadResult {
+auto load(fs::path const& path, KeyTable const& table, std::string_view fileLabel)
+  -> LoadResult {
   auto result = LoadResult{};
 
   auto ec = std::error_code{};
@@ -200,7 +238,7 @@ auto load(fs::path const& path, KeyTable const& table) -> LoadResult {
 
   auto file = std::ifstream{path, std::ios::binary};
   if (!file.is_open()) {
-    result.error = std::format("cannot open config file: {}", pathutf8::fromPath(path));
+    result.error = std::format("cannot open {}: {}", fileLabel, pathutf8::fromPath(path));
     return result;
   }
 
@@ -209,7 +247,8 @@ auto load(fs::path const& path, KeyTable const& table) -> LoadResult {
   auto const parsed = json::parse(content, jsonEc);
   if (jsonEc) {
     result.error = std::format(
-      "invalid config file {}: {}",
+      "invalid {} {}: {}",
+      fileLabel,
       pathutf8::fromPath(path),
       jsonEc.message()
     );
@@ -217,7 +256,8 @@ auto load(fs::path const& path, KeyTable const& table) -> LoadResult {
   }
   if (!parsed.is_object()) {
     result.error = std::format(
-      "invalid config file {}: top-level value must be a JSON object",
+      "invalid {} {}: top-level value must be a JSON object",
+      fileLabel,
       pathutf8::fromPath(path)
     );
     return result;
@@ -226,13 +266,15 @@ auto load(fs::path const& path, KeyTable const& table) -> LoadResult {
   for (auto const& entry: parsed.as_object()) {
     if (table.find(entry.key()) == nullptr) {
       result.unknownKeys.emplace_back(entry.key());
+      result.unknownValues.emplace(entry.key(), json::serialize(entry.value()));
       continue;
     }
     if (auto const text = stringifyScalar(entry.value()); text.has_value()) {
       result.values.insert_or_assign(std::string{entry.key()}, *text);
     } else {
       result.error = std::format(
-        "invalid config file {}: key \"{}\" must be a scalar value",
+        "invalid {} {}: key \"{}\" must be a scalar value",
+        fileLabel,
         pathutf8::fromPath(path),
         entry.key()
       );
@@ -277,7 +319,7 @@ auto save(
       << "    "
       << json::serialize(json::string(it->first))
       << ": "
-      << scalarJson(it->second, def.kind);
+      << scalarJsonText(it->second, def.kind);
   }
   out << (first ? "}\n" : "\n}\n");
   out.flush();

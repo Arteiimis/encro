@@ -121,7 +121,7 @@ Run `encro -hh` for the full option list, `encro -h` for the brief view.
 
 ### Persisting defaults (`encro config`)
 
-Preference options can be stored in a user-level config so they do not have to be repeated on every command line. Precedence is always command line > config file > built-in default.
+Preference options can be stored in a user-level config so they do not have to be repeated on every command line. Precedence is always command line > template > config file > built-in default.
 
 ```sh
 encro config set crf 23      # store (validated like the CLI option)
@@ -133,6 +133,26 @@ encro config path            # where the file lives
 ```
 
 The file is pretty-printed JSON at `%LOCALAPPDATA%\encro\config.json` (Windows) or `~/.config/encro/config.json` (POSIX, `$XDG_CONFIG_HOME` when set); point `ENCRO_CONFIG` at another path to override. Persisted boolean flags (`pack`, `yes`, `keep`, `compress`, `recursive`, `folder-summary`) can be turned off for a single run with their negation form, e.g. `--no-pack`.
+
+### Per-task shapes (`encro template`)
+
+Where `config` holds this machine's preferences, a template holds the argument cluster that shapes one kind of task — and it is per task, so "anime" and "phone clips" no longer overwrite each other. The command line still speaks last.
+
+```sh
+encro template save anime -t video --video-codec hevc_nvenc --preset p5 --crf 24 --keep -p
+encro -T anime D:\shows          # the whole cluster above, plus the path
+encro -T anime --crf 20 D:\shows # one option overridden for this run
+encro -T anime --no-pack D:\shows # one stored boolean cleared for this run
+encro template list              # names and what each one stores
+encro template show anime        # the file itself
+encro template unset anime crf   # drop one key, fall back to config/default
+encro template delete anime
+encro template path              # where the files live
+```
+
+Every value and boolean flag of the main command is templateable except input paths, `--state-file` and `-v`: paths stay on the command line because they are what changes between runs. Template values behave as defaults, so a stored `--dry-run` never collides with an explicit `--crf`, and any stored boolean can be cleared with its `--no-…` form. A second `save` merges instead of replacing, so `encro template save anime --crf 22` only touches `crf`.
+
+Templates live one file per name in `templates/` beside the config file, in the same JSON shape as `config.json`. Each file references `templates.schema.json`, which `save` writes beside it from the binary's own option table (editors pick it up for validation and completion; `encro template schema` prints it).
 
 ### Quality probing (MP4 encodes)
 

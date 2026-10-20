@@ -408,7 +408,7 @@ TEST_CASE("CLI --color decides help coloring at read time", "[cmd][color]") {
   }
 
   SECTION("--color never disables every subcommand help") {
-    for (auto const* sub: {"preview", "organize", "config", "completion"}) {
+    for (auto const* sub: {"preview", "organize", "config", "completion", "template"}) {
       CAPTURE(sub);
       auto const result = testutils::parseArgs({"encro", "--color", "never", sub, "-h"});
       REQUIRE_FALSE(result.error.has_value());
@@ -633,7 +633,7 @@ TEST_CASE("help content survives color injection", "[cmd][color]") {
   CHECK(help.find("--input") != std::string::npos);
   CHECK(help.find("--verbose") != std::string::npos);
   CHECK(help.find("--output-format") != std::string::npos);
-  CHECK(help.find("--pack") != std::string::npos);
+  CHECK(help.find("--[no-]pack") != std::string::npos);
 
   // ...and the group headers (used by formatGroupHeader via get_description()).
   CHECK(help.find("General") != std::string::npos);

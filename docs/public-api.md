@@ -16,6 +16,7 @@ encro has five subcommands and a default mode that runs when no subcommand is gi
 | `batch` | Run every first-level subfolder of a root directory as its own task |
 | `config` | Read and write user-level defaults |
 | `completion` | Print, install or uninstall shell completion scripts |
+| `template` | Store, inspect and apply per-task argument templates |
 
 `organize` requires a local inference backend, and the Windows builds are the ones that carry it. A build without one does not offer the command: `-h` and the generated completion scripts leave it out, and `encro organize <dir>` exits non-zero with an error naming the missing backend, before scanning, copying or downloading anything. Offering it instead — as releases before this one did, filing every image under `organized/uncategorized/` and exiting 0 — makes the change a **MAJOR** one by the table below, because an exit code changed. A completion script installed before an upgrade keeps its old candidates until `encro completion <shell> --install` is re-run.
 
@@ -30,11 +31,12 @@ encro has five subcommands and a default mode that runs when no subcommand is gi
 | `-h`, `--help` | — | — | — |
 | `-hh` | — | — | — |
 | `--version` | — | — | — |
+| `-T`, `--template` | `<name>` | a stored template name; without a name, lists the templates | — |
 | `-v`, `--verbose` | count | repeatable; more repetitions mean more output | `0` |
-| `--quiet` | — | — | — |
-| `--log-json` | — | — | off |
-| `--debug` | — | — | — |
-| `-F`, `--full-progress` | — | — | — |
+| `--quiet` | — | negation `--no-quiet` | — |
+| `--log-json` | — | negation `--no-log-json` | off |
+| `--debug` | — | negation `--no-debug` | — |
+| `-F`, `--full-progress` | — | negation `--no-full-progress` | — |
 | `--color` | `<mode>` | `auto`, `always`, `never` | `auto` |
 | `-y`, `--yes` | — | negation `--no-yes` | off |
 | `-i`, `--input` | `<path>` | one input | — |
@@ -48,19 +50,19 @@ encro has five subcommands and a default mode that runs when no subcommand is gi
 | `-r`, `--recursive` | — | negation `--no-recursive` | off |
 | `-t`, `--type` | `<type>` | `video`, `vid`, `picture`, `pic` | `video` |
 | `-j`, `--jobs` | `<n>` | integer `>= 1` | `10` |
-| `--resume` | — | mutually exclusive with `--restart` | — |
-| `--restart` | — | mutually exclusive with `--resume` | — |
+| `--resume` | — | negation `--no-resume`; mutually exclusive with `--restart` | — |
+| `--restart` | — | negation `--no-restart`; mutually exclusive with `--resume` | — |
 | `-x`, `--ffmpeg-path` | `<path>` | directory containing `ffmpeg`/`ffprobe` | `PATH` |
 | `-c`, `--compress` | — | negation `--no-compress` | off |
-| `--video-webp` | — | — | off |
+| `--video-webp` | — | negation `--no-video-webp` | off |
 | `-q`, `--image-quality` | `<n>` | integer `2`–`31`, lower is better | `2` |
 | `--crf` | `<n>` | integer `0`–`51`, lower is better | `28` |
 | `--min-vmaf` | `<n>` | integer `0`–`100` | `92` |
-| `--dry-run` | — | — | — |
+| `--dry-run` | — | negation `--no-dry-run` | — |
 | `--preset` | `<preset>` | `p1`–`p7`, `auto` | `auto` |
 | `--video-codec` | `<codec>` | `hevc_nvenc`, `libx265`, `libx264` | `hevc_nvenc` |
 | `-p`, `--pack` | — | negation `--no-pack` | off |
-| `-z`, `--pack-only` | — | — | — |
+| `-z`, `--pack-only` | — | negation `--no-pack-only` | — |
 
 Positional arguments are input paths and are accepted in place of `-i`/`-I`.
 
@@ -114,6 +116,12 @@ Accepts `-o`, `-t`, `-j`, `--resume`, `--restart`, `-x`, `-c`, `--video-webp`, `
 
 `--install` and `--uninstall` are mutually exclusive; without either, the script is printed to stdout.
 
+### `template`
+
+`encro template <list | show <name> | save <name> [options] | unset <name> <key> | delete <name> | path | schema>`
+
+`save` stores the templateable options given on its own command line, merging them into the named template; `list` prints one line per template with the options it stores; `show` prints the template file; `path` prints the templates directory; `schema` prints the JSON Schema for template files. An unknown template name, an unknown key, or an option that is not templateable is an error. Options after `save <name>` are the parent command's own options (`encro template save anime --crf 24`).
+
 ## Exit codes
 
 | Code | Meaning |
@@ -123,6 +131,18 @@ Accepts `-o`, `-t`, `-j`, `--resume`, `--restart`, `-x`, `-c`, `--video-webp`, `
 | `130` | The run was cancelled by a stop request (Ctrl-C, a signal, or a terminal prompt abort) |
 
 No other exit code is part of the contract.
+
+## `templates/<name>.json`
+
+Location: the `templates` directory beside `config.json` (`%LOCALAPPDATA%\encro\templates\` on Windows, `~/.config/encro/templates/` elsewhere), so `ENCRO_CONFIG` relocates both. One file per template, named for the template (`<name>.json`); a name is lowercase letters, digits, `.`, `_` and `-`, starting with a letter or digit, and is matched case-insensitively.
+
+A template file has the same shape as `config.json`: a JSON object keyed by the token names of the task-shape options, written in the same stable order, with native JSON types and one key per line. It always carries `"$schema": "./templates.schema.json"`, a reserved key the tool ignores. A key outside the templateable set is ignored with a warning and preserved by the next rewrite; a malformed file is an error naming it. `save` and `unset` rewrite the whole file canonically.
+
+The templateable keys are the default-mode options except the input paths (`-i`, `-I`, positional inputs), `--state-file`, `-v`/`--verbose` and `-T`/`--template`. Booleans are stored as JSON booleans and cleared per run through their negation form (`--no-keep`, `--no-dry-run`, ...).
+
+`templates.schema.json`, written by `save` beside the templates and printed by `encro template schema`, describes exactly those keys: JSON type, legal values or numeric bounds, built-in default and description. It is generated from the binary's own option table, never fetched from the network, and ships inside the binary rather than as a release asset.
+
+A run's effective value for a configurable option is the command line first, then the selected template, then `config.json`, then the built-in default. Template values are defaults rather than parsed arguments, so a stored value never trips a flag's mutual-exclusion rule.
 
 ## `config.json`
 
@@ -206,6 +226,7 @@ The following are deliberately outside the API and may change in any release wit
 | The default job-state path moved, or its field names or types changed incompatibly | MAJOR |
 | An NDJSON field removed or renamed | MAJOR |
 | A new subcommand, flag, config key, state field or NDJSON field, or a widened value set | MINOR |
+| A new templateable key, a new schema field, or a change to the template file's shape | MINOR |
 | A behavior fix with no change to the surfaces above | PATCH |
 
 Incompatible changes accumulate under a single MAJOR as long as no version carrying them has been published; a published version's tag is never re-pointed.

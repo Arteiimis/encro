@@ -50,7 +50,7 @@ TEST_CASE(
   CHECK(isLastNonEmptyLine(help, kHintLine));
 
   // --quiet is a visible General option (no -q alias; -q is image quality).
-  CHECK(help.find("--quiet") != std::string::npos);
+  CHECK(help.find("--[no-]quiet") != std::string::npos);
   CHECK(help.find("--input") != std::string::npos);
   CHECK(help.find("--crf") != std::string::npos);
 }
@@ -62,10 +62,10 @@ TEST_CASE("full help via -hh shows advanced options and no hint", "[cmd][tiering
 
   auto const& help = result.helpText();
   CHECK(help.find("--verbose") != std::string::npos);
-  CHECK(help.find("--debug") != std::string::npos);
+  CHECK(help.find("--[no-]debug") != std::string::npos);
   CHECK(help.find("echo progress detail to the terminal") != std::string::npos);
   CHECK(help.find("suppress narration and progress output") != std::string::npos);
-  CHECK(help.find("--log-json") != std::string::npos);
+  CHECK(help.find("--[no-]log-json") != std::string::npos);
   CHECK(help.find("--color") != std::string::npos);
   CHECK(help.find("--inputs") != std::string::npos);
   CHECK(help.find("--state-file") != std::string::npos);
@@ -137,7 +137,7 @@ TEST_CASE("full help shows accurate option descriptions and defaults", "[cmd][ti
   auto const resumeLine =
     testutils::findHelpLine(help, "require matching previous job state");
   REQUIRE(resumeLine.has_value());
-  CHECK(resumeLine->find("--resume") != std::string::npos);
+  CHECK(resumeLine->find("--[no-]resume") != std::string::npos);
   CHECK(resumeLine->find("error if missing or mismatched") != std::string::npos);
 
   auto const conflictLine = testutils::findHelpLine(help, "--force-conflict-handling");
@@ -190,7 +190,7 @@ TEST_CASE(
     auto const optionLine =
       testutils::findHelpLine(help, "convert videos found in a picture input");
     REQUIRE(optionLine.has_value());
-    CHECK(optionLine->find("--video-webp") != std::string::npos);
+    CHECK(optionLine->find("--[no-]video-webp") != std::string::npos);
 
     auto const processingHeader = help.find("Processing options:");
     auto const fileopHeader = help.find("File operation options:");
@@ -219,4 +219,36 @@ TEST_CASE("brief help shows the crf default", "[cmd][tiering]") {
   auto const crfLine = testutils::findHelpLine(result.helpText(), "--crf");
   REQUIRE(crfLine.has_value());
   CHECK(crfLine->find("(=28)") != std::string::npos);
+}
+
+TEST_CASE(
+  "every negatable flag renders as one collapsed pair",
+  "[cmd][tiering][template]"
+) {
+  auto const colorGuard = ScopedColorNever{};
+  auto const result = testutils::parseArgs({"encro", "-hh"});
+  REQUIRE_FALSE(result.error.has_value());
+
+  auto const& help = result.helpText();
+  for (
+    auto const& name:
+    {"--[no-]quiet",
+     "--[no-]log-json",
+     "--[no-]debug",
+     "--[no-]full-progress",
+     "--[no-]resume",
+     "--[no-]restart",
+     "--[no-]video-webp",
+     "--[no-]dry-run",
+     "--[no-]pack-only"}
+  ) {
+    INFO(name);
+    CHECK(help.find(name) != std::string::npos);
+    // Collapsed: the negation is not a second entry of its own.
+    auto const standalone = std::string{name};
+    CHECK(
+      help.find(standalone.substr(0, 2) + "no-" + standalone.substr(7))
+      == std::string::npos
+    );
+  }
 }

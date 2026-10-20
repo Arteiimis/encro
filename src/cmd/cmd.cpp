@@ -5,6 +5,9 @@
 #include "cmd/config_store.h"
 #include "cmd/help_layout.h"
 #include "cmd/option_specs.h"
+#include "cmd/template_store.h"
+#include "core/path_utf8.h"
+#include "infra/terminal.h"
 #include "organize/disposition.h"
 #include "organize/organize_types.h"
 #include "tagger/engine_factory.h"
@@ -15,9 +18,11 @@
 #include <algorithm>
 #include <cctype>
 #include <format>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -75,7 +80,11 @@ auto registerOrganizeSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
       &result.organizeDownloadModels,
       "fetch missing model files (~530 MB), then run (no dir: fetch only)"
     ),
-    opt("--dry-run", &result.dryRun, "classify and print the plan; copy nothing"),
+    opt(
+      "--dry-run,--no-dry-run{false}",
+      &result.dryRun,
+      "classify and print the plan; copy nothing"
+    ),
     opt("--recluster", &result.organizeRecluster, "discard cached analysis and redo it"),
     opt(
       "--ingest",
@@ -129,12 +138,16 @@ auto registerBatchSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App*
       cfg::PositiveNumber{}
     ),
     opt(
-      "--resume",
+      "--resume,--no-resume{false}",
       &result.resume,
       "require matching previous job state; error if missing or mismatched",
       cfg::Excludes{"--restart"}
     ),
-    opt("--restart", &result.restart, "ignore previous job state and start a fresh run"),
+    opt(
+      "--restart,--no-restart{false}",
+      &result.restart,
+      "ignore previous job state and start a fresh run"
+    ),
     opt(
       "-x,--ffmpeg-path",
       &result.ffmpegPath,
@@ -147,7 +160,7 @@ auto registerBatchSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App*
       "enable JPEG compression during picture processing"
     ),
     opt(
-      "--video-webp",
+      "--video-webp,--no-video-webp{false}",
       &result.videoWebp,
       "convert videos found in a picture input to animated WebP"
     ),
@@ -174,7 +187,7 @@ auto registerBatchSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App*
       cfg::Range{0, 100}
     ),
     opt(
-      "--dry-run",
+      "--dry-run,--no-dry-run{false}",
       &result.dryRun,
       "probe and print the encoding plan, then exit without encoding",
       cfg::Excludes{"--crf"}
@@ -199,7 +212,7 @@ auto registerBatchSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App*
       cfg::Excludes{"--pack-only"}
     ),
     opt(
-      "-z,--pack-only",
+      "-z,--pack-only,--no-pack-only{false}",
       &result.packOnly,
       "pack only: zip all files in input directory"
     ),
@@ -386,6 +399,59 @@ auto organizeDirError(CmdParseResult const& result) -> std::optional<std::string
   return "dir is required";
 }
 
+// Command templates (spec: command-templates). Git-style positional actions
+// like `config`, plus CLI11 fallthrough so `encro template save anime --crf 24`
+// resolves the parent's options after the subcommand name. Scoped to this
+// subcommand: a global fallthrough would weaken unknown-option errors
+// everywhere else.
+auto registerTemplateSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
+  auto* sub = app.add_subcommand(
+    "template",
+    "store the argument cluster that shapes one kind of task and replay it "
+    "with -T"
+  );
+  sub->set_help_flag("-h,--help", "show template help");
+  sub->fallthrough();
+  auto const options = std::tuple{
+    opt(
+      "action",
+      &result.templateVerb,
+      "list | show <name> | save <name> [options] | unset <name> <key> | "
+      "delete <name> | path | schema",
+      cfg::Members{"list", "show", "save", "unset", "delete", "path", "schema"}
+    ),
+    opt("name", &result.templateName, "template name (show/save/unset/delete)"),
+    opt("key", &result.templateKey, "template key (unset)"),
+  };
+  registerAll(sub, options, result.keyEntries);
+  installTemplateHelpFormatter(*sub);
+  return sub;
+}
+
+// Sibling of configActionArityError: each action fixes how many of the name/key
+// positionals are present; words past the last positional are rejected natively.
+auto templateActionArityError(CmdParseResult const& result)
+  -> std::optional<std::string> {
+  auto const required = result.templateVerb == "unset" ? 2
+    : result.templateVerb == "show"
+      || result.templateVerb == "save"
+      || result.templateVerb == "delete"
+    ? 1
+    : 0;
+  auto const given = static_cast<int>(result.templateName.has_value())
+    + static_cast<int>(result.templateKey.has_value());
+  if (given != required) {
+    return std::format(
+      "template {}: {} argument{} expected, but {} given",
+      result.templateVerb,
+      required,
+      required == 1 ? "" : "s",
+      given
+    );
+  }
+  return std::nullopt;
+}
+
 // Completion scripts for supported shells; install/uninstall are mutually
 // exclusive; bare `encro completion` shows the subcommand help.
 auto registerCompletionSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App* {
@@ -436,21 +502,36 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
   );
   auto const options = std::tuple{
     opt(
-      "--quiet",
+      "-T,--template",
+      &result.selectedTemplate,
+      "replay a stored argument template by name (without a name: list "
+      "templates)",
+      cfg::Expected{0, 1}
+    ),
+    opt(
+      "--quiet,--no-quiet{false}",
       &result.quiet,
-      "suppress narration and progress output; errors and the summary still print"
+      "suppress narration and progress output; errors and the summary still print",
+      cfg::TemplateKey{"quiet"}
     ),
     opt(
-      "--log-json",
+      "--log-json,--no-log-json{false}",
       &result.jsonEnabled,
-      "enable NDJSON structured log output (one JSON object per line)"
+      "enable NDJSON structured log output (one JSON object per line)",
+      cfg::TemplateKey{"log-json"}
     ),
-    opt("--debug", &result.debug, "echo full debug diagnostics to the terminal (stderr)"),
     opt(
-      "-F,--full-progress",
+      "--debug,--no-debug{false}",
+      &result.debug,
+      "echo full debug diagnostics to the terminal (stderr)",
+      cfg::TemplateKey{"debug"}
+    ),
+    opt(
+      "-F,--full-progress,--no-full-progress{false}",
       &result.fullProgress,
       "show full progress with per-worker encoding bars and per-archive packing "
-      "bars"
+      "bars",
+      cfg::TemplateKey{"full-progress"}
     ),
     opt(
       "--color",
@@ -458,6 +539,7 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
       "terminal colors: auto, always, never",
       cfg::OptionalDefault{"auto"},
       cfg::ConfigKey{"color"},
+      cfg::TemplateKey{"color"},
       cfg::Transform{[](std::string value) {
         std::ranges::transform(value, value.begin(), [](unsigned char ch) {
           return static_cast<char>(std::tolower(ch));
@@ -470,10 +552,11 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
       "-y,--yes,--no-yes{false}",
       &result.yesToAll,
       "automatic yes to prompts",
-      cfg::ConfigKey{"yes"}
+      cfg::ConfigKey{"yes"},
+      cfg::TemplateKey{"yes"}
     ),
   };
-  registerAll(general, options, result.keyEntries);
+  registerAll(general, options, result.keyEntries, &result.templateEntries);
 
   // --color must commit before any help flag short-circuits the parse:
   // subcommand -h flags run at First priority and throw CallForHelp before
@@ -505,6 +588,7 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
       &result.output,
       "custom output directory path\n  aliases: + or input:// for input "
       "root, = or common:// for common root",
+      cfg::TemplateKey{"output"},
       cfg::Path{}
     ),
     opt("--state-file", &result.stateFile, "custom job state file path", cfg::Path{}),
@@ -514,6 +598,7 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
       "target format: mp4 or webp",
       cfg::OptionalDefault{"mp4"},
       cfg::ConfigKey{"output-format"},
+      cfg::TemplateKey{"output-format"},
       cfg::Members{"mp4", "webp"}
     ),
     opt(
@@ -521,7 +606,8 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
       &result.keep,
       "preserve relative input subdirectories inside the output directory "
       "(default: flatten)",
-      cfg::ConfigKey{"keep"}
+      cfg::ConfigKey{"keep"},
+      cfg::TemplateKey{"keep"}
     ),
     opt(
       "--force-conflict-handling",
@@ -530,22 +616,25 @@ void registerIoFlags(CLI::App* io, CmdParseResult& result) {
       "duplicates",
       cfg::OptionalDefault{"y"},
       cfg::ConfigKey{"force-conflict-handling"},
+      cfg::TemplateKey{"force-conflict-handling"},
       cfg::CheckedTransformer{{{"y", "y"}, {"Y", "y"}, {"n", "n"}, {"N", "n"}}}
     ),
     opt(
       "-s,--folder-summary,--no-folder-summary{false}",
       &result.folderSummary,
       "enable picture-mode folder summary images in flat packs",
-      cfg::ConfigKey{"folder-summary"}
+      cfg::ConfigKey{"folder-summary"},
+      cfg::TemplateKey{"folder-summary"}
     ),
     opt(
       "-r,--recursive,--no-recursive{false}",
       &result.recursive,
       "enable recursively search",
-      cfg::ConfigKey{"recursive"}
+      cfg::ConfigKey{"recursive"},
+      cfg::TemplateKey{"recursive"}
     ),
   };
-  registerAll(io, options, result.keyEntries);
+  registerAll(io, options, result.keyEntries, &result.templateEntries);
   auto const positional = std::tuple{
     opt(
       "input-paths",
@@ -567,6 +656,7 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       &result.processType,
       "process type: video(vid)|picture(pic)",
       cfg::OptionalDefault{"video"},
+      cfg::TemplateKey{"type"},
       cfg::CheckedTransformer{{"vid", "video"}, {"pic", "picture"}}
     ),
     opt(
@@ -575,32 +665,42 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       "max parallel jobs (>=1)",
       cfg::OptionalDefault{"10"},
       cfg::ConfigKey{"jobs"},
+      cfg::TemplateKey{"jobs"},
       cfg::PositiveNumber{}
     ),
     opt(
-      "--resume",
+      "--resume,--no-resume{false}",
       &result.resume,
       "require matching previous job state; error if missing or mismatched",
+      cfg::TemplateKey{"resume"},
       cfg::Excludes{"--restart"}
     ),
-    opt("--restart", &result.restart, "ignore previous job state and start a fresh run"),
+    opt(
+      "--restart,--no-restart{false}",
+      &result.restart,
+      "ignore previous job state and start a fresh run",
+      cfg::TemplateKey{"restart"}
+    ),
     opt(
       "-x,--ffmpeg-path",
       &result.ffmpegPath,
       "custom ffmpeg install path",
       cfg::ConfigKey{"ffmpeg-path"},
+      cfg::TemplateKey{"ffmpeg-path"},
       cfg::Path{}
     ),
     opt(
       "-c,--compress,--no-compress{false}",
       &result.compress,
       "enable JPEG compression during picture processing",
-      cfg::ConfigKey{"compress"}
+      cfg::ConfigKey{"compress"},
+      cfg::TemplateKey{"compress"}
     ),
     opt(
-      "--video-webp",
+      "--video-webp,--no-video-webp{false}",
       &result.videoWebp,
-      "convert videos found in a picture input to animated WebP"
+      "convert videos found in a picture input to animated WebP",
+      cfg::TemplateKey{"video-webp"}
     ),
     opt(
       "-q,--image-quality",
@@ -608,6 +708,7 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       "JPEG compression quality (2-31, lower=better)",
       cfg::RequiredDefault{"2"},
       cfg::ConfigKey{"image-quality"},
+      cfg::TemplateKey{"image-quality"},
       cfg::Range{2, 31},
       cfg::Needs{"--compress"}
     ),
@@ -617,6 +718,7 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       "video encode quality (0-51, lower=better)",
       cfg::RequiredDefault{"28"},
       cfg::ConfigKey{"crf"},
+      cfg::TemplateKey{"crf"},
       cfg::Range{0, 51}
     ),
     opt(
@@ -625,12 +727,14 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       "minimum p5-VMAF quality floor for probing (0-100)",
       cfg::OptionalDefault{std::to_string(appctx::kDefaultMinVmaf)},
       cfg::ConfigKey{"min-vmaf"},
+      cfg::TemplateKey{"min-vmaf"},
       cfg::Range{0, 100}
     ),
     opt(
-      "--dry-run",
+      "--dry-run,--no-dry-run{false}",
       &result.dryRun,
       "probe and print the encoding plan, then exit without encoding",
+      cfg::TemplateKey{"dry-run"},
       cfg::Excludes{"--crf"}
     ),
     opt(
@@ -639,6 +743,7 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       "NVENC preset (p1-p7; auto picks by resolution)",
       cfg::RequiredDefault{"auto"},
       cfg::ConfigKey{"preset"},
+      cfg::TemplateKey{"preset"},
       cfg::Members{"auto", "p1", "p2", "p3", "p4", "p5", "p6", "p7"}
     ),
     opt(
@@ -646,10 +751,11 @@ void registerProcessingFlags(CLI::App* processing, CmdParseResult& result) {
       &result.videoCodec,
       "video encoder (default hevc_nvenc; libx265/libx264 on cpu)",
       cfg::DefaultValue{"hevc_nvenc"},
-      cfg::ConfigKey{"video-codec"}
+      cfg::ConfigKey{"video-codec"},
+      cfg::TemplateKey{"video-codec"}
     ),
   };
-  registerAll(processing, options, result.keyEntries);
+  registerAll(processing, options, result.keyEntries, &result.templateEntries);
 }
 
 void registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) {
@@ -659,15 +765,17 @@ void registerFileOpFlags(CLI::App* fileop, CmdParseResult& result) {
       &result.pack,
       "pack encoded video outputs into zip files",
       cfg::ConfigKey{"pack"},
+      cfg::TemplateKey{"pack"},
       cfg::Excludes{"--pack-only"}
     ),
     opt(
-      "-z,--pack-only",
+      "-z,--pack-only,--no-pack-only{false}",
       &result.packOnly,
-      "pack only: zip all files in input directory"
+      "pack only: zip all files in input directory",
+      cfg::TemplateKey{"pack-only"}
     ),
   };
-  registerAll(fileop, options, result.keyEntries);
+  registerAll(fileop, options, result.keyEntries, &result.templateEntries);
 }
 
 // Batch keeps per-subfolder state files, so an explicit single state file has
@@ -690,17 +798,45 @@ auto batchOptionError(CmdParseResult const& result) -> std::optional<std::string
   return std::nullopt;
 }
 
-// Loads the user config and applies each stored value as a forced option
-// default (design D1). The table supplies the known-key set. Returns a
-// load-error message, or nullopt.
-auto injectConfigDefaults(CLI::App& app, configstore::KeyTable const& table)
+// Loads the user config, applies each stored value as a forced option default
+// (design D1), then overlays the selected template on top of the same layer
+// (command-templates design D2). Returns a load-error message, or nullopt.
+auto injectStoredDefaults(CLI::App& app, CmdParseResult& result)
   -> std::optional<std::string> {
   auto const configPath = configstore::resolveConfigPath();
-  auto const loaded = configstore::load(configPath, table);
+  auto const loaded = configstore::load(configPath, result.keyTable);
   if (loaded.error) { return loaded.error; }
 
   configstore::warnUnknownKeys(loaded, configPath);
-  for (auto const& [key, value]: loaded.values) {
+
+  // One merged map: the template overwrites same-named config values, and
+  // later default_str writes win, so the precedence chain lives in one place
+  // (command line > template > config > built-in).
+  auto values = loaded.values;
+  auto const selected = result.selectedTemplate.value_or(std::string{});
+  if (!selected.empty()) {
+    auto const dir = templatestore::resolveTemplatesDir();
+    auto const path = templatestore::find(dir, selected);
+    if (!path.has_value()) {
+      return std::format("unknown template: {} (run 'encro template list')", selected);
+    }
+
+    auto const stored = templatestore::load(*path, result.templateTable);
+    if (stored.error) { return stored.error; }
+    for (auto const& key: stored.unknownKeys) {
+      terminal::eprintln(
+        terminal::MessageKind::Warning,
+        "ignoring unknown key \"{}\" in template {}",
+        key,
+        selected
+      );
+    }
+    for (auto const& [key, value]: stored.values) { values.insert_or_assign(key, value); }
+    result.appliedTemplateName = selected;
+    result.appliedTemplatePath = pathutf8::fromPath(*path);
+  }
+
+  for (auto const& [key, value]: values) {
     if (auto* opt = app.get_option_no_throw(std::format("--{}", key))) {
       opt->default_str(value);
       opt->force_callback();
@@ -725,7 +861,7 @@ auto injectConfigDefaults(CLI::App& app, configstore::KeyTable const& table)
   // the parent app): inject as forced defaults on the sub's own option.
   // Safe against explicit CLI values: the callback reads parsed results and
   // only fires when that subcommand is parsed.
-  for (auto const& [key, value]: loaded.values) {
+  for (auto const& [key, value]: values) {
     if (app.get_option_no_throw(std::format("--{}", key)) != nullptr) { continue; }
     for (auto* subc: app.get_subcommands([](CLI::App*) { return true; })) {
       if (subc->get_name().empty()) { continue; }
@@ -738,14 +874,67 @@ auto injectConfigDefaults(CLI::App& app, configstore::KeyTable const& table)
   return std::nullopt;
 }
 
+// Every option on the main command surface: the app's own options plus those of
+// its nameless option groups (get_option_no_throw descends into groups, the
+// enumerating getters do not).
+auto mainSurfaceOptions(CLI::App& app) -> std::vector<CLI::Option*> {
+  auto options = app.get_options();
+  for (auto* const group: app.get_subcommands([](CLI::App* sub) {
+         return sub->get_name().empty();
+       })) {
+    for (auto* const opt: group->get_options()) { options.push_back(opt); }
+  }
+  return options;
+}
+
+// Values `template save` should store: the templateable options this command
+// line actually gave. Runs on the probe parse, so config-injected defaults are
+// absent and the capture is pure command-line input. A given option with no
+// template key is an error rather than a silent drop.
+auto captureTemplateValues(
+  CLI::App& app,
+  configstore::KeyTable const& table,
+  std::map<std::string, std::string>& captured
+) -> std::optional<std::string> {
+  for (auto const& def: table.keys) {
+    auto* const opt = app.get_option_no_throw(def.longName);
+    if (opt == nullptr || opt->count() == 0) { continue; }
+    auto const& results = opt->results();
+    if (results.empty()) { continue; }
+    captured.insert_or_assign(std::string{def.key}, results.back());
+  }
+
+  for (auto* const opt: mainSurfaceOptions(app)) {
+    if (opt->count() == 0) { continue; }
+    auto const longName = cfg::captureLongName(opt);
+    if (!longName.has_value()) { continue; }  // help/version have no long name?
+    auto const key = std::string_view{*longName}.substr(2);
+    if (key == "help" || key == "version") { continue; }
+    if (table.find(key) != nullptr) { continue; }
+    return std::format(
+      "{} cannot be stored in a template: it is not a templateable option",
+      *longName
+    );
+  }
+
+  if (captured.empty()) {
+    return std::string{
+      "nothing to save: pass at least one templateable option (for example "
+      "--crf 24)"
+    };
+  }
+  return std::nullopt;
+}
+
 auto buildAndParse(
   int argc,
   char* argv[],
   std::string const& introLine,
-  bool injectConfig
+  bool injectConfig,
+  std::string const& selectedTemplate
 ) -> CmdParseResult {
   auto result = CmdParseResult{};
-  auto tree = buildAppTree(result, introLine, injectConfig);
+  auto tree = buildAppTree(result, introLine, injectConfig, selectedTemplate);
   // Default help target so every return path (including the config-injection
   // error below) yields renderable help; subcommand matches overwrite it.
   result.helpApp_ = tree.app;
@@ -758,6 +947,15 @@ auto buildAndParse(
     result.helpApp_ = tree.app;
     if (result.debug) { result.verbosity = std::max(result.verbosity, 2); }
     result.verbosity = std::min(result.verbosity, 2);
+    // -T takes an optional name: an empty result means the flag carried none,
+    // which asks for the template list rather than a run.
+    if (
+      auto const* const templateOpt = tree.app->get_option_no_throw("--template");
+      templateOpt != nullptr && templateOpt->count() > 0
+    ) {
+      result.templateListRequested =
+        !result.selectedTemplate.has_value() || result.selectedTemplate->empty();
+    }
     if (tree.app->got_subcommand(tree.previewSub)) { result.preview = true; }
     if (tree.app->got_subcommand(tree.organizeSub)) {
       result.organize = true;
@@ -796,6 +994,26 @@ auto buildAndParse(
       result.completion = true;
       result.helpApp_ = tree.completionSub;
     }
+    if (tree.app->got_subcommand(tree.templateSub)) {
+      result.templates = true;
+      result.helpApp_ = tree.templateSub;
+      if (auto const error = templateActionArityError(result); error.has_value()) {
+        result.error = *error;
+      } else if (result.templateVerb == "save" && !injectConfig) {
+        // Captured from the probe parse only (see 5.x): the check and the
+        // collection share one walk, so a rejected save writes nothing.
+        if (
+          auto const error = captureTemplateValues(
+            *tree.app,
+            result.templateTable,
+            result.capturedTemplateValues
+          );
+          error.has_value()
+        ) {
+          result.error = *error;
+        }
+      }
+    }
   } catch (CLI::CallForHelp const&) {
     // The preview/config/completion subcommands carry the native help flags
     // (the parent app cleared its own), so the help text comes from whichever
@@ -803,6 +1021,8 @@ auto buildAndParse(
     result.help = true;
     if (tree.app->got_subcommand(tree.completionSub)) {
       result.helpApp_ = tree.completionSub;
+    } else if (tree.app->got_subcommand(tree.templateSub)) {
+      result.helpApp_ = tree.templateSub;
     } else if (tree.app->got_subcommand(tree.configSub)) {
       result.helpApp_ = tree.configSub;
     } else if (tree.app->got_subcommand(tree.batchSub)) {
@@ -821,8 +1041,15 @@ auto buildAndParse(
 
 }  // namespace
 
-auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool injectConfig)
-  -> AppTree {
+auto buildAppTree(
+  CmdParseResult& result,
+  std::string const& introLine,
+  bool injectConfig,
+  std::string const& selectedTemplate
+) -> AppTree {
+  // The probe parse already resolved the name; injection runs before this
+  // parse repopulates the binding, so seed it here (design D3).
+  if (!selectedTemplate.empty()) { result.selectedTemplate = selectedTemplate; }
   // Leaked on purpose (never freed): the completion registry keeps pointers to
   // positional options (design D2), so the app must outlive this call. One
   // small allocation per parse keeps them process-lifetime.
@@ -854,16 +1081,18 @@ auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool inj
   auto* batchSub = registerBatchSubcommand(*app, result);
   auto* configSub = registerConfigSubcommand(*app, result);
   auto* completionSub = registerCompletionSubcommand(*app, result);
+  auto* templateSub = registerTemplateSubcommand(*app, result);
   // Option groups are CLI11 subcommands too, so the commands section is given
   // the real subcommand apps explicitly. The array is leaked with the app:
   // the formatter lambda captures the span by value, while parse and help
   // rendering happen after this call returns.
-  auto* const commandSubs = new std::array<CLI::App const*, 5>{
+  auto* const commandSubs = new std::array<CLI::App const*, 6>{
     previewSub,
     organizeSub,
     batchSub,
     configSub,
-    completionSub
+    completionSub,
+    templateSub
   };
 
   // The leaked commandSubs array outlives the formatter's span.
@@ -893,18 +1122,37 @@ auto buildAppTree(CmdParseResult& result, std::string const& introLine, bool inj
     result.error = table.error();
   }
 
+  // ── Template-key table: assembled from the same registration capture. A
+  // marker that drifts from the template order fails the run here.
+  auto const templateTable = configstore::assembleKeyTable(
+    configstore::canonicalTemplateKeyOrder(),
+    result.templateEntries,
+    "template key table"
+  );
+  if (templateTable.has_value()) {
+    result.templateTable = *templateTable;
+  } else if (!result.error.has_value()) {
+    result.error = templateTable.error();
+  }
+
   // ── Config injection (design D1): config values become forced option
   // defaults, so CLI values win, validators run on applied defaults, and the
   // help (=default) display shows effective defaults. A failed table already
   // failed the run, so it skips injection.
   if (injectConfig && !result.error.has_value()) {
-    if (
-      auto const error = injectConfigDefaults(*app, result.keyTable); error.has_value()
-    ) {
+    if (auto const error = injectStoredDefaults(*app, result); error.has_value()) {
       result.error = *error;
     }
   }
-  return AppTree{app, previewSub, organizeSub, batchSub, configSub, completionSub};
+  return AppTree{
+    app,
+    previewSub,
+    organizeSub,
+    batchSub,
+    configSub,
+    completionSub,
+    templateSub
+  };
 }
 
 auto commandLineInit(int argc, char* argv[], std::string const& introLine)
@@ -914,9 +1162,39 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   // key), and pure CLI errors surface unchanged. Every other path re-parses
   // with injection so option defaults and the help (=default) display reflect
   // the config.
-  auto probe = buildAndParse(argc, argv, introLine, false);
+  auto probe = buildAndParse(argc, argv, introLine, false, {});
+
+  // The template actions never read stored defaults, so a selected template
+  // has nothing to shape there: reject it instead of silently ignoring it.
+  auto const wantsTemplate =
+    probe.selectedTemplate.has_value() || probe.templateListRequested;
+  if (wantsTemplate && (probe.config || probe.completion || probe.templates)) {
+    auto const& other = probe.config ? "config"
+      : probe.completion             ? "completion"
+                                     : "template";
+    probe.error = std::format("--template has no effect with the {} subcommand", other);
+    return probe;
+  }
+
+  // A name-less -T asks for the template list: the same action as
+  // `encro template list`, and just as free of stored defaults.
+  if (probe.templateListRequested && !probe.selectedTemplate.has_value()) {
+    probe.templates = true;
+    probe.templateVerb = "list";
+  }
+
   // completion joins config here: emission never reads the stored config, so
-  // a corrupt config file must not fail it (add-shell-completion spec).
-  if (probe.error.has_value() || probe.config || probe.completion) { return probe; }
-  return buildAndParse(argc, argv, introLine, true);
+  // a corrupt config file must not fail it (add-shell-completion spec). The
+  // template actions join them for the same reason: they operate on the
+  // template store, never on the injected defaults.
+  if (probe.error.has_value() || probe.config || probe.completion || probe.templates) {
+    return probe;
+  }
+  return buildAndParse(
+    argc,
+    argv,
+    introLine,
+    true,
+    probe.selectedTemplate.value_or(std::string{})
+  );
 }

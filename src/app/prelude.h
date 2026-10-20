@@ -12,7 +12,10 @@ struct StartupContext {
 };
 
 auto initStartup(int argc, char* argv[], std::string const& introLine) -> StartupContext;
-
 void logConfigSummary(appctx::AppConfig const& config);
+
+// Names the template the default layer applied, so "why did this run use crf
+// 24" has an answer under -v. Silent when no template was applied.
+void logTemplateAttribution(CmdParseResult const& cmd);
 
 }  // namespace prelude
