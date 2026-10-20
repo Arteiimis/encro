@@ -65,6 +65,15 @@ Ran after the implementation commit: 19/19 tasks, 16/16 ADDED+MODIFIED requireme
 - [SUGGESTION] Doc precision: the template key order now names `encro template schema` as its source, and `README.md` lists `-T` among the non-templateable options.
 - [SUGGESTION, rejected] `templatestore::LoadResult` mirrors `configstore::LoadResult` — the eight-line `$schema` filter is the price of keeping config.json's unknown-key policy untouched; folding it into `configstore::load` would add a reserved-key concept to the config store for one caller.
 
+## Code review (tier L: Standards, Spec, Leanness)
+
+Fixed in `4e35de5f` and `40160bbf`; an independent verifier judged all 18 accepted findings resolved and all 7 rejections defensible, none regressed.
+
+- Standards: trailing `auto … -> int|bool|void` replaced by prefix returns in the new files; `isAlnum` renamed to `isLowerAlnum`; `keyDef` moved above its first use; the dangling blank line in `prelude.h` and the include order in the new test restored; two key-table order pins dropped from the tests.
+- Spec: the schema now emits a boolean key's built-in default (`false`); the delta's templateable set names `-T/--template` as excluded, and its negation requirement says "wherever the flag is registered", which is what the batch/organize mirrors do.
+- Leanness: `templatestore::LoadResult` removed (returns `configstore::LoadResult`, filtering `$schema` in place); the file-write block now exists once (`configstore::writeTextFile`); `defaultJson` no longer round-trips a literal; `pathFor` deleted; the two arity checks share `actionArityError`; the capture walk inspects the main surface once; `warnUnknownKeys` gained a file label; the unknown-template text lives in `templatestore::unknownTemplateMessage`; `appliedTemplate{name,path}` travels as one struct.
+- Rejected with reasons: `std::cout` for verbatim output (its buffer escapes the console redirect in the shard runner, which is why `writeStdout` exists), a shared `cmd::reportError` (no existing home, one 2-line function), a value return for the capture map (it must live in `CmdParseResult`), the unreachable-action guards, the `JsonKind` switch tails, the four-file split of the seven verbs (it mirrors `config`), and the test-helper duplicates.
+
 ## Workflow follow-up
 
 - Run the `openspec-verify-change` pass for this change and resolve its CRITICALs before reviewing.
