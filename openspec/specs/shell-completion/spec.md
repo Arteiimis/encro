@@ -32,7 +32,7 @@ Lets terminals complete encro's command surface: `encro completion <shell>` prin
 
 ### Requirement: Generated scripts complete the full registered command surface
 
-A generated script SHALL offer as candidates every option registered for the current command context (short forms, long forms, and negated flag variants such as `--no-keep`), every subcommand this build offers on the host (`preview`, `batch`, `config`, and `completion`, plus `organize` where an inference backend exists) at the main-command position, and `--help`/`--version`. Internal notation SHALL NOT appear in candidates (for example a flag's `{false}` suffix is stripped). Candidates SHALL match the current command context: options registered only on the main command SHALL NOT be offered inside a subcommand context, and subcommand-only options SHALL NOT be offered outside it. The script SHALL present candidates that extend the word being completed: the candidate set for the current context is filtered by the typed prefix before display.
+A generated script SHALL offer as candidates every option registered for the current command context (short forms, long forms, and negated flag variants such as `--no-keep`), every subcommand this build offers on the host (`preview`, `batch`, `config`, `completion`, and `template`, plus `organize` where an inference backend exists) at the main-command position, and `--help`/`--version`. Internal notation SHALL NOT appear in candidates (for example a flag's `{false}` suffix is stripped). Candidates SHALL match the current command context: options registered only on the main command SHALL NOT be offered inside a subcommand context, and subcommand-only options SHALL NOT be offered outside it. The script SHALL present candidates that extend the word being completed: the candidate set for the current context is filtered by the typed prefix before display.
 
 #### Scenario: All name forms are in the candidate set
 
@@ -59,6 +59,11 @@ A generated script SHALL offer as candidates every option registered for the cur
 
 - **WHEN** the user types `encro comp` and requests completion
 - **THEN** `completion` is offered
+
+#### Scenario: The template subcommand is offered
+
+- **WHEN** the user types `encro temp` and requests completion
+- **THEN** `template` is offered
 
 #### Scenario: Candidates respect subcommand context
 
