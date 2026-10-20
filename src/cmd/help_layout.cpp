@@ -474,6 +474,23 @@ auto makeHelpFormatter(
     };
 }
 
+// CLI11's get_options() appends the fallthrough parent's options when the app
+// allows fallthrough (App_inl get_options), and the template subcommand does,
+// so `encro template -h` would render the parent's --version and -v as if they
+// were its own. The parent's list is exactly what gets appended, so subtracting
+// it leaves this subcommand's own definitions.
+auto ownOptionsOf(CLI::App const& app) -> std::vector<CLI::Option const*> {
+  auto opts = app.get_options();
+  auto const* parent = app.get_parent();
+  if (parent == nullptr) { return opts; }
+
+  auto const inherited = parent->get_options();
+  std::erase_if(opts, [&inherited](CLI::Option const* opt) {
+    return std::ranges::find(inherited, opt) != inherited.end();
+  });
+  return opts;
+}
+
 // Subcommand help: rendered from the subcommand's own option definitions with
 // the same style helpers as the main help. It deliberately does not reuse
 // makeHelpFormatter, which renders the whole main option table (captured
@@ -500,7 +517,7 @@ auto makeSubcommandHelpFormatter(
         computeMaxColumnLen(nullptr, std::span{&subApp, 1}, appPtr, {}, true);
       auto const colWidth = computeColumnWidth(maxColumnLen, layout);
 
-      for (auto const* opt: subApp->get_options()) {
+      for (auto const* opt: ownOptionsOf(*subApp)) {
         if (!hasOptionNames(opt)) continue;
         result += formatOptionHelp(opt, colWidth, layout.lineLength);
         result += '\n';

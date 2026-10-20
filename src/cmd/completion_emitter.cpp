@@ -40,7 +40,10 @@ auto displayNames(CLI::Option const* option) -> std::vector<std::string> {
 
 // Options of one scope: the app's own options plus those of its nameless
 // option-group children (CLI11 nests groups as subcommands; the repo's help
-// code relies on the same distinction, cmd.cpp option-group comments).
+// code relies on the same distinction, cmd.cpp option-group comments). CLI11's
+// get_options() also appends the fallthrough parent's options for an app that
+// allows fallthrough (the template subcommand does), so those are subtracted:
+// they belong to the main scope and would otherwise be offered twice.
 auto collectOptionPtrs(CLI::App const& app) -> std::vector<CLI::Option const*> {
   auto ptrs = std::vector<CLI::Option const*>{};
   auto const gather = [&ptrs](CLI::App const& scope) {
@@ -49,6 +52,13 @@ auto collectOptionPtrs(CLI::App const& app) -> std::vector<CLI::Option const*> {
   gather(app);
   for (auto const* child: app.get_subcommands([](CLI::App const*) { return true; })) {
     if (child->get_name().empty()) { gather(*child); }
+  }
+
+  if (auto const* parent = app.get_parent()) {
+    auto const inherited = parent->get_options();
+    std::erase_if(ptrs, [&inherited](CLI::Option const* opt) {
+      return std::ranges::find(inherited, opt) != inherited.end();
+    });
   }
   return ptrs;
 }

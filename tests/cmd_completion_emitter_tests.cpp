@@ -323,6 +323,11 @@ TEST_CASE(
     "_ENCRO_SUB_NAMES=\"batch completion config organize preview template\""
   ));
 
+  // The template scope carries its own options only: CLI11 appends the
+  // fallthrough parent's list to get_options(), which would offer --version and
+  // -v twice.
+  REQUIRE(contains(bash, "_ENCRO_OPTS_template=\"--help -h\""));
+
   // Three positional slots, verbs in the first, nothing for name/key.
   REQUIRE(contains(bash, "_ENCRO_POSN_template=3"));
   REQUIRE(contains(

@@ -544,6 +544,23 @@ TEST_CASE(
   CHECK(unknown.exitCode == 1);
 }
 
+TEST_CASE(
+  "the template subcommand help shows only its own options",
+  "[cmd][template][actions]"
+) {
+  auto const temp = TempDir{};
+  auto const guard = ConfigEnvScope(temp.path / "config.json");
+
+  // The subcommand allows fallthrough so `encro template save anime --crf 24`
+  // parses; CLI11 then appends the parent's options to get_options(), which
+  // must not reach the rendered help.
+  auto const run = runTemplate(temp, {"encro", "template", "-h"});
+  CHECK(run.exitCode == 0);
+  CHECK(run.stdoutText.find("--help") != std::string::npos);
+  CHECK(run.stdoutText.find("--version") == std::string::npos);
+  CHECK(run.stdoutText.find("--verbose") == std::string::npos);
+}
+
 TEST_CASE("the schema action prints what save wrote", "[cmd][template][actions]") {
   auto const temp = TempDir{};
   auto const guard = ConfigEnvScope(temp.path / "config.json");
