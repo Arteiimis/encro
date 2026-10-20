@@ -4,7 +4,7 @@ add_rules("plugin.compile_commands.autoupdate", { outputdir = "./build" })
 -- The release version is declared once, here. set_version() below and the
 -- generated version header both read this variable, so no second literal
 -- exists to drift from it.
-local encroVersion = "2.0.3"
+local encroVersion = "2.1.0"
 set_version(encroVersion)
 
 -- The git stamp in the generated version header must not age: without this,

@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-21
+
+### Added
+
+- `encro template save <name> [options]` stores the task-shape options given on that command line under a name, and `-T/--template <name>` applies one to a run: an option's effective value is the command line first, then the selected template, then `config.json`, then the built-in default. `encro template list`, `show`, `unset`, `delete` and `path` manage the stored files, and `encro template schema` prints the JSON Schema for them.
+- Every boolean option that could not be cleared gains its negation form (`--no-quiet`, `--no-log-json`, `--no-debug`, `--no-full-progress`, `--no-resume`, `--no-restart`, `--no-video-webp`, `--no-dry-run`, `--no-pack-only`), so a value a template or `config.json` stores as on can be turned off for a single run.
+
+### Changed
+
+- `-h`, `-hh` and `--version` name the release the binary was built from (`v2.1.0+<commit>`) instead of a compile timestamp that an incremental build could leave stale.
+
+### Fixed
+
+- A build without a local inference backend no longer offers `organize`: help and the generated completion scripts leave the command out, and `encro organize <dir>` exits non-zero naming the missing backend instead of filing every image under `organized/uncategorized/` and reporting success.
+
 ## [2.0.3] - 2026-10-19
 
 ### Changed
@@ -273,7 +288,8 @@ No user-visible changes: this milestone moved the packing subsystem onto an obje
 - Packing the encoded output into zip archives.
 - Command-line options for output format, output directory and recursion.
 
-[unreleased]: https://github.com/Arteiimis/encro/compare/v2.0.3...HEAD
+[unreleased]: https://github.com/Arteiimis/encro/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/Arteiimis/encro/compare/v2.0.3...v2.1.0
 [2.0.3]: https://github.com/Arteiimis/encro/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/Arteiimis/encro/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/Arteiimis/encro/compare/v2.0.0...v2.0.1

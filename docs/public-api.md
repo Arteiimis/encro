@@ -18,7 +18,7 @@ encro has six subcommands and a default mode that runs when no subcommand is giv
 | `completion` | Print, install or uninstall shell completion scripts |
 | `template` | Store, inspect and apply per-task argument templates |
 
-`organize` requires a local inference backend, and the Windows builds are the ones that carry it. A build without one does not offer the command: `-h` and the generated completion scripts leave it out, and `encro organize <dir>` exits non-zero with an error naming the missing backend, before scanning, copying or downloading anything. Offering it instead — as releases before this one did, filing every image under `organized/uncategorized/` and exiting 0 — makes the change a **MAJOR** one by the table below, because an exit code changed. A completion script installed before an upgrade keeps its old candidates until `encro completion <shell> --install` is re-run.
+`organize` requires a local inference backend, and the Windows builds are the ones that carry it. A build without one does not offer the command: `-h` and the generated completion scripts leave it out, and `encro organize <dir>` exits non-zero with an error naming the missing backend, before scanning, copying or downloading anything. Such a build used to accept the command, file every image under `organized/uncategorized/` and exit 0 — a run breaching the exit-code table below, not extending it, so reporting `1` for that outcome is conforming to the table rather than changing it. Scripts that read the old exit code, or that expected the `uncategorized/` tree, do notice the difference; no promise is withdrawn, and no file is removed or renamed. A completion script installed before an upgrade keeps its old candidates until `encro completion <shell> --install` is re-run.
 
 `--version` prints one line naming the release the binary was built from. The **value** is a promise: it comes from the project's declared version in `xmake.lua`, never from a literal in source, so it can never name a release that does not exist. The wording and format of that line are **not** a promise — they are rendering, and the "What this declaration does not cover" section below governs them.
 
@@ -221,7 +221,7 @@ The following are deliberately outside the API and may change in any release wit
 | --- | --- |
 | A subcommand, flag, or positional argument removed or renamed | MAJOR |
 | A flag's accepted value set narrowed, or its meaning replaced | MAJOR |
-| An exit code changed | MAJOR |
+| An exit code's meaning changed, or a defined outcome reports a different code | MAJOR |
 | A `config.json` key removed, renamed, or changed in type | MAJOR |
 | The default job-state path moved, or its field names or types changed incompatibly | MAJOR |
 | An NDJSON field removed or renamed | MAJOR |
@@ -230,3 +230,5 @@ The following are deliberately outside the API and may change in any release wit
 | A behavior fix with no change to the surfaces above | PATCH |
 
 Incompatible changes accumulate under a single MAJOR as long as no version carrying them has been published; a published version's tag is never re-pointed.
+
+The exit-code row judges the mapping from outcome to code, not the code a bug happened to produce: a run that reported `0` for an outcome it had not achieved was in breach of the table above, so correcting it to the code the table already assigns to that outcome is a fix, not a change to the exit-code surface.

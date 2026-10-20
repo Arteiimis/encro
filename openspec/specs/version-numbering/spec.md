@@ -92,12 +92,12 @@ A version increment SHALL follow semver 2.0.0 §6-§8 applied to the declared pu
 
 #### Scenario: Internal and cosmetic changes are not breaking
 
-- **WHEN** a change touches internal C++ interfaces, the test tooling, error-message wording, or adds output files the previous version neither wrote nor promised
+- **WHEN** a change touches internal C++ interfaces, the test tooling, error-message wording, adds output files the previous version neither wrote nor promised, or reports the exit code the documented contract already assigns to an outcome that was previously reported as success
 - **THEN** it is not a breaking change and does not raise MAJOR
 
 #### Scenario: A declared surface change is breaking
 
-- **WHEN** a change removes or renames a flag, changes a flag's accepted values, changes an exit code, changes a `config.json` key or its type, or moves the default job-state path
+- **WHEN** a change removes or renames a flag, changes a flag's accepted values, changes the code a defined outcome reports, changes a `config.json` key or its type, or moves the default job-state path
 - **THEN** it is a breaking change and the next published version raises MAJOR
 
 #### Scenario: Several breaking changes share one unpublished MAJOR
