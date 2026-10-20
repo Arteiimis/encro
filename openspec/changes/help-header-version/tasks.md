@@ -2,25 +2,25 @@
 
 ## 1. Generated commit stamp
 
-- [ ] 1.1 Add `${define ENCRO_GIT_COMMIT}` to `src/app/version.h.in` and enable `set_policy("build.always_update_configfiles", true)` in `xmake.lua`. Verify: `xmake f -y` renders `build/app/version.h` with `ENCRO_VERSION` and a commit equal to `git rev-parse --short HEAD`; after `git commit --allow-empty`, a plain `xmake build` (no `xmake f`) rewrites the commit to the new HEAD and touches nothing outside `build/`; drop the scratch commit with `git reset --hard HEAD~1` afterwards.
+- [x] 1.1 Add the commit stamp to `src/app/version.h.in` as a raw `#define ENCRO_GIT_COMMIT "${GIT_COMMIT}"` - the builtin is a substitution variable, not a configvar, so the `${define ...}` form cannot name it - and enable `set_policy("build.always_update_configfiles", true)` in `xmake.lua`. Verify: `xmake f -y` renders `build/app/version.h` with `ENCRO_VERSION` and a commit equal to `git rev-parse --short HEAD`; after `git commit --allow-empty`, a plain `xmake build` (no `xmake f`) rewrites the commit to the new HEAD and touches nothing outside `build/`; drop the scratch commit with `git reset --hard HEAD~1` afterwards.
 
 ## 2. Tests first
 
-- [ ] 2.1 Rewrite `tests/app/version_tests.cpp` to assert the captured `--version` output equals `encro v<ENCRO_VERSION>[+<ENCRO_GIT_COMMIT>]` followed by a newline, and contains no `build:` clause. Verify: the case fails against the current binary, which still prints `encro 2.0.3 (build: ...)`.
-- [ ] 2.2 In `tests/app/app_entry_tests.cpp`, replace the build-timestamp case with an exact-equality assertion: `appentry::helpIntroLine()` equals `encro: Universal video encoder/converter/packer | v<ENCRO_VERSION>`, followed by `+<ENCRO_GIT_COMMIT>` unless that macro is empty or `"none"` (the file needs `#include "app/version.h"`). Verify: the case fails by assertion against the current banner, not by a compile error.
+- [x] 2.1 Rewrite `tests/app/version_tests.cpp` to assert the captured `--version` output equals `encro v<ENCRO_VERSION>[+<ENCRO_GIT_COMMIT>]` followed by a newline; that exact line is also what forbids a `build:` clause. Verify: the case fails against the current binary, which still prints `encro 2.0.3 (build: ...)`.
+- [x] 2.2 In `tests/app/app_entry_tests.cpp`, replace the build-timestamp case with an exact-equality assertion: `appentry::helpIntroLine()` equals `encro: Universal video encoder/converter/packer | v<ENCRO_VERSION>`, followed by `+<ENCRO_GIT_COMMIT>` unless that macro is empty or `"none"` (the file needs `#include "app/version.h"`). Verify: the case fails by assertion against the current banner, not by a compile error.
 
 ## 3. Implementation
 
-- [ ] 3.1 Add the token's own cases to `tests/app/app_entry_tests.cpp` first - a present commit, an empty commit and `"none"` - then declare `appentry::versionToken(std::string_view version, std::string_view commit)` in `src/app/app_entry.h` and implement it in `app_entry.cpp` (prefix `v`, append `+<commit>` unless the commit is empty or `"none"`); compose `helpIntroLine()` and the `--version` line with it; delete `compileTimestamp()`, `parseDecimal()` and `monthNumber()`. Verify: the new cases are red (unresolved symbol) before the declaration and green after it; 2.1 and 2.2 pass; `xmake run encro -h`'s first line reads `encro: Universal video encoder/converter/packer | v2.0.3+<hash>` and `xmake run encro --version` reads `encro v2.0.3+<hash>`, neither containing a date or a time of day.
+- [x] 3.1 Add the token's own cases to `tests/app/app_entry_tests.cpp` first - a present commit, an empty commit and `"none"` - then declare `appentry::versionToken(std::string_view version, std::string_view commit)` in `src/app/app_entry.h` and implement it in `app_entry.cpp` (prefix `v`, append `+<commit>` unless the commit is empty or `"none"`); compose `helpIntroLine()` and the `--version` line with it; delete `compileTimestamp()`, `parseDecimal()` and `monthNumber()`. Verify: the new cases are red (unresolved symbol) before the declaration and green after it; 2.1 and 2.2 pass; `xmake run encro -h`'s first line reads `encro: Universal video encoder/converter/packer | v2.0.3+<hash>` and `xmake run encro --version` reads `encro v2.0.3+<hash>`, neither containing a date or a time of day.
 
 ## 4. Documentation
 
-- [ ] 4.1 Update the two manual `encro --version` checks in `.agents/skills/release/SKILL.md` (downloaded archive, installed binary) to expect the `v`-prefixed token with its commit suffix. Verify: running the documented command against the freshly built binary prints exactly the documented shape.
+- [x] 4.1 Update the two manual `encro --version` checks in `.agents/skills/release/SKILL.md` (downloaded archive, installed binary) to expect the `v`-prefixed token with its commit suffix. Verify: running the documented command against the freshly built binary prints exactly the documented shape.
 
 ## 5. Integration checks
 
-- [ ] 5.1 `xmake test-report --suite=all` is green, and the reporter-mode probe `build/windows/x64/release/tests.exe -r console -s` reports 0 failures.
-- [ ] 5.2 With the implementation committed and the worktree clean, `git commit --allow-empty -m "tmp: commit refresh"` then `xmake build encro` makes the banner report the new hashed commit; `git reset --hard HEAD~1` afterwards returns the tree to its committed state. Verify: the printed token changes with the commit and `git status` is clean at the end.
+- [x] 5.1 `xmake test-report --suite=all` is green, and the reporter-mode probe `build/windows/x64/release/tests.exe -r console -s` reports 0 failures.
+- [x] 5.2 With the implementation committed and the worktree clean, `git commit --allow-empty -m "tmp: commit refresh"` then `xmake build encro` makes the banner report the new hashed commit; `git reset --hard HEAD~1` afterwards returns the tree to its committed state. Verify: the printed token changes with the commit and `git status` is clean at the end.
 
 ## Planning-artifact review
 
@@ -33,6 +33,16 @@ One fresh reviewer ran the `code-review` skill's planning stage (Coherence, then
 5. [P2][Ground truth] The Impact list omitted `src/app/app_entry.h`, where the helper must be declared - resolved (planning review): named together with `app_entry.cpp`.
 6. [P2][Ground truth] Task 2.1 demanded an assertion-level red it could not produce, because the test needed a helper that only a later task adds - resolved (planning review): 2.1 now pins `--version` and 2.2 the header line, both reddable against today's binary, and 3.1 adds the token's own cases red-first against the unresolved symbol.
 7. [P2][Ground truth] Task 2.1 used `ENCRO_VERSION`/`ENCRO_GIT_COMMIT` in a translation unit that never includes the generated header - resolved (planning review): 2.2 names the `#include "app/version.h"` it needs (`version_tests.cpp` already has it).
+
+## Code-diff review
+
+One fresh reviewer ran the code stage (Standards, Spec, Leanness) over `git diff c0400e92...HEAD -- src tests xmake.lua .agents/skills/release/SKILL.md openspec`, folding in the verify coverage pass; a second fresh reviewer verified each fix against the tree.
+
+1. [P2][Standards] Both surface tests carried an identical `expectedVersionToken()` helper, against the rule that fixtures and helpers live in `tests/test_utils.h` - resolved: both copies are gone; each surface test composes its expectation from `appentry::versionToken(...)`, and the exact token values are pinned by the token's own cases, so nothing is duplicated and no shared test header drags the generated version header into every test translation unit.
+2. [P2][Spec] The "rebuild picks up a new commit" and "a stale literal cannot survive" scenarios had no test - resolved (manual evidence): the procedure in task 5.2 was run - after `git commit --allow-empty`, a plain `xmake build` made the banner print `encro v2.0.3+d6f6f35c`, the scratch commit's hash - and `.agents/skills/release/SKILL.md` now documents the `vX.Y.Z+<tag commit>` shape a released binary must print.
+3. [P2][Spec] The surface tests derive their expectation from `ENCRO_GIT_COMMIT`, so a silently broken substitution would still pass - rejected: the value is a build-time artifact, and a build without git metadata legitimately has no hash to print, so no in-process case may require one; the wiring is gated by item 2's manual rebuild and by the release check.
+4. [P2][Leanness] Both surface cases asserted `find("build:")` right after an exact-equality check that already forbids it, and `helpIntroLine()` was called twice - resolved: one binding, exact equality only.
+5. [P2][Leanness] `src/app/version.h.in` mixed `${define ...}` with a raw `#define ... "${GIT_COMMIT}"` without recording why - resolved: the comment now states the git builtin is a substitution variable rather than a configvar, so the preprocessor form could only have named the macro `GIT_COMMIT`.
 
 ## Workflow follow-up
 

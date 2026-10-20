@@ -4,3 +4,11 @@
 // xmake.lua and passed to set_version(). Read that declaration to change the
 // version; never pin a literal in source.
 ${define ENCRO_VERSION}
+
+// The commit this build was made from, filled by xmake's git builtin variable
+// (git rev-parse --short HEAD). Reads "none" when the tree carries no git
+// metadata, which the banner treats as "no commit to report". A raw define
+// because the builtin is a substitution variable, not a configvar: the
+// preprocessor form names the macro after the variable, so it could only spell
+// this one GIT_COMMIT.
+#define ENCRO_GIT_COMMIT "${GIT_COMMIT}"

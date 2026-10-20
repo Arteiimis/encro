@@ -82,7 +82,7 @@ gh run view $id.databaseId --json jobs      # per-step table
 gh release view vX.Y.Z --json assets                   # exactly 3, none a PDB inside a runtime archive
 python scripts/changelog.py section X.Y.Z  # must equal the release body byte for byte
 gh release download vX.Y.Z --pattern "*windows.zip" --dir $env:TEMP\rel
-Expand-Archive ... ; "$env:TEMP\rel\bin\encro.exe" --version   # exit 0, prints X.Y.Z
+Expand-Archive ... ; "$env:TEMP\rel\bin\encro.exe" --version   # exit 0, prints vX.Y.Z+<tag commit>
 ```
 
 Then the bucket: clone `Arteiimis/scoop-encro`, confirm `bucket/encro.json`'s `version` and the sha256 of the **downloaded** zip match. On this machine:
@@ -90,7 +90,7 @@ Then the bucket: clone `Arteiimis/scoop-encro`, confirm `bucket/encro.json`'s `v
 ```bash
 scoop update            # refresh buckets FIRST — without it `scoop update encro` reports the old version
 scoop update encro
-encro --version         # exit 0, X.Y.Z
+encro --version         # exit 0, vX.Y.Z+<tag commit>
 ```
 
 ## Diagnosing a failed run
