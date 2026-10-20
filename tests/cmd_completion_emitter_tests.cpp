@@ -314,9 +314,14 @@ TEST_CASE(
   auto const powershell = completion::emitPowerShellScript(model);
 
   for (auto const* script: {&bash, &powershell}) {
-    REQUIRE(contains(*script, "template"));
     REQUIRE(contains(*script, "--template"));
   }
+
+  // The main-position candidate list carries the subcommand.
+  REQUIRE(contains(
+    bash,
+    "_ENCRO_SUB_NAMES=\"batch completion config organize preview template\""
+  ));
 
   // Three positional slots, verbs in the first, nothing for name/key.
   REQUIRE(contains(bash, "_ENCRO_POSN_template=3"));

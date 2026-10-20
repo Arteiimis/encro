@@ -907,13 +907,17 @@ auto captureTemplateValues(
   for (auto* const opt: mainSurfaceOptions(app)) {
     if (opt->count() == 0) { continue; }
     auto const longName = cfg::captureLongName(opt);
-    if (!longName.has_value()) { continue; }  // help/version have no long name?
-    auto const key = std::string_view{*longName}.substr(2);
+    // A positional has no long name; it is still a given value, so it is
+    // reported by its own name rather than skipped.
+    auto const positional = std::string{opt->get_name(true)};
+    auto const label = longName.value_or(positional);
+    auto const key = longName.has_value() ? std::string_view{*longName}.substr(2)
+                                          : std::string_view{positional};
     if (key == "help" || key == "version") { continue; }
     if (table.find(key) != nullptr) { continue; }
     return std::format(
       "{} cannot be stored in a template: it is not a templateable option",
-      *longName
+      label
     );
   }
 
@@ -1178,7 +1182,7 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
 
   // A name-less -T asks for the template list: the same action as
   // `encro template list`, and just as free of stored defaults.
-  if (probe.templateListRequested && !probe.selectedTemplate.has_value()) {
+  if (probe.templateListRequested) {
     probe.templates = true;
     probe.templateVerb = "list";
   }

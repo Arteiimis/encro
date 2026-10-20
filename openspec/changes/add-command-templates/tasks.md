@@ -52,6 +52,19 @@ Reviewed against the artifacts before implementation; every finding below was fi
 - [P2] `KeyTable` citation (`config_store.h:22-40`) did not span `KeyTable` — resolved: corrected to `config_store.h:29-50`.
 - not checked → promoted to a design risk: CLI11 `fallthrough` routing is documented but unused in `src/` today, so task 4.2's first test uses the post-subcommand order.
 
+## Verification (openspec-verify-change)
+
+Ran after the implementation commit: 19/19 tasks, 16/16 ADDED+MODIFIED requirements mapped, 55/57 scenarios asserted, design D1–D8 followed, no CRITICAL issues.
+
+- [WARNING] "Unset falls back to the config value" was unasserted end to end — fixed by `unset falls back to the stored config value`.
+- [WARNING] `docs/public-api.md` still said "five subcommands" — fixed to six.
+- [SUGGESTION] A positional input on a `save` line was silently skipped by the capture walk — fixed: the walk now reports any given option, positional included, and the stale comment is gone. The subcommand's own positional slots absorb the word first, so the arity check is what rejects it; the test asserts that.
+- [SUGGESTION] The stored-boolean override scenario was covered by analogy only — fixed by `a stored boolean is cleared by its negation form`.
+- [SUGGESTION] `--template ""` ran with neither a list nor an error — fixed: a name-less flag lists templates.
+- [SUGGESTION] The completion test matched `template` loosely — tightened to the `_ENCRO_SUB_NAMES` candidate line.
+- [SUGGESTION] Doc precision: the template key order now names `encro template schema` as its source, and `README.md` lists `-T` among the non-templateable options.
+- [SUGGESTION, rejected] `templatestore::LoadResult` mirrors `configstore::LoadResult` — the eight-line `$schema` filter is the price of keeping config.json's unknown-key policy untouched; folding it into `configstore::load` would add a reserved-key concept to the config store for one caller.
+
 ## Workflow follow-up
 
 - Run the `openspec-verify-change` pass for this change and resolve its CRITICALs before reviewing.

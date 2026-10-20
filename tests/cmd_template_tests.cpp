@@ -374,6 +374,20 @@ TEST_CASE("save refuses an input path and writes nothing", "[cmd][template][acti
   CHECK_FALSE(fs::exists(temp.path / "templates" / "anime.json"));
 }
 
+TEST_CASE("save refuses a positional input path", "[cmd][template][actions]") {
+  auto const temp = TempDir{};
+  auto const guard = ConfigEnvScope(temp.path / "config.json");
+
+  // The word cannot reach the capture walk: the subcommand's own positional
+  // slots take it, so the arity check rejects the line before anything is
+  // written.
+  auto const refused =
+    testutils::parseArgs({"encro", "template", "save", "anime", "C:\\footage"});
+  REQUIRE(refused.error.has_value());
+  CHECK(refused.error->find("1 argument expected") != std::string::npos);
+  CHECK_FALSE(fs::exists(temp.path / "templates" / "anime.json"));
+}
+
 TEST_CASE("save with nothing to store is an error", "[cmd][template][actions]") {
   auto const temp = TempDir{};
   auto const guard = ConfigEnvScope(temp.path / "config.json");
@@ -484,6 +498,26 @@ TEST_CASE("unset drops one key and leaves the rest", "[cmd][template][actions]")
     runTemplate(temp, {"encro", "template", "unset", "anime", "nosuchkey"});
   CHECK(unknown.exitCode == 1);
   CHECK(testutils::readTextFile(path) == before);
+}
+
+TEST_CASE("unset falls back to the stored config value", "[cmd][template][actions]") {
+  auto const temp = TempDir{};
+  auto const guard = ConfigEnvScope(temp.path / "config.json");
+  testutils::writeTextFile(temp.path / "config.json", R"({"crf": 23})");
+  REQUIRE(
+    runTemplate(temp, {"encro", "template", "save", "anime", "--crf", "24"}).exitCode == 0
+  );
+
+  auto const withTemplate = testutils::parseArgs({"encro", "-T", "anime"});
+  REQUIRE_FALSE(withTemplate.error.has_value());
+  CHECK(withTemplate.crf == 24);
+
+  REQUIRE(
+    runTemplate(temp, {"encro", "template", "unset", "anime", "crf"}).exitCode == 0
+  );
+  auto const afterUnset = testutils::parseArgs({"encro", "-T", "anime"});
+  REQUIRE_FALSE(afterUnset.error.has_value());
+  CHECK(afterUnset.crf == 23);
 }
 
 TEST_CASE(
@@ -628,6 +662,22 @@ TEST_CASE("a stored boolean does not trip an exclusion rule", "[cmd][template][s
   REQUIRE_FALSE(result.error.has_value());
   CHECK(result.dryRun);
   CHECK(result.crf == 20);
+}
+
+TEST_CASE("a stored boolean is cleared by its negation form", "[cmd][template][select]") {
+  auto const temp = TempDir{};
+  auto const guard = ConfigEnvScope(temp.path / "config.json");
+  REQUIRE(
+    runTemplate(temp, {"encro", "template", "save", "anime", "--keep"}).exitCode == 0
+  );
+
+  auto const stored = testutils::parseArgs({"encro", "-T", "anime"});
+  REQUIRE_FALSE(stored.error.has_value());
+  CHECK(stored.keep);
+
+  auto const cleared = testutils::parseArgs({"encro", "-T", "anime", "--no-keep"});
+  REQUIRE_FALSE(cleared.error.has_value());
+  CHECK_FALSE(cleared.keep);
 }
 
 TEST_CASE(

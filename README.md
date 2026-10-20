@@ -150,7 +150,7 @@ encro template delete anime
 encro template path              # where the files live
 ```
 
-Every value and boolean flag of the main command is templateable except input paths, `--state-file` and `-v`: paths stay on the command line because they are what changes between runs. Template values behave as defaults, so a stored `--dry-run` never collides with an explicit `--crf`, and any stored boolean can be cleared with its `--no-…` form. A second `save` merges instead of replacing, so `encro template save anime --crf 22` only touches `crf`.
+Every value and boolean flag of the main command is templateable except input paths, `--state-file`, `-v` and `-T` itself: paths stay on the command line because they are what changes between runs. Template values behave as defaults, so a stored `--dry-run` never collides with an explicit `--crf`, and any stored boolean can be cleared with its `--no-…` form. A second `save` merges instead of replacing, so `encro template save anime --crf 22` only touches `crf`.
 
 Templates live one file per name in `templates/` beside the config file, in the same JSON shape as `config.json`. Each file references `templates.schema.json`, which `save` writes beside it from the binary's own option table (editors pick it up for validation and completion; `encro template schema` prints it).
 

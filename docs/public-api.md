@@ -6,7 +6,7 @@ Everything listed here is a promise. If a change alters any of it, the version i
 
 ## Command line
 
-encro has five subcommands and a default mode that runs when no subcommand is given.
+encro has six subcommands and a default mode that runs when no subcommand is given.
 
 | Command | Purpose |
 | --- | --- |
@@ -136,7 +136,7 @@ No other exit code is part of the contract.
 
 Location: the `templates` directory beside `config.json` (`%LOCALAPPDATA%\encro\templates\` on Windows, `~/.config/encro/templates/` elsewhere), so `ENCRO_CONFIG` relocates both. One file per template, named for the template (`<name>.json`); a name is lowercase letters, digits, `.`, `_` and `-`, starting with a letter or digit, and is matched case-insensitively.
 
-A template file has the same shape as `config.json`: a JSON object keyed by the token names of the task-shape options, written in the same stable order, with native JSON types and one key per line. It always carries `"$schema": "./templates.schema.json"`, a reserved key the tool ignores. A key outside the templateable set is ignored with a warning and preserved by the next rewrite; a malformed file is an error naming it. `save` and `unset` rewrite the whole file canonically.
+A template file has the same shape as `config.json`: a JSON object keyed by the token names of the task-shape options, with native JSON types and one key per line, written in the order `encro template schema` lists them. It always carries `"$schema": "./templates.schema.json"`, a reserved key the tool ignores. A key outside the templateable set is ignored with a warning and preserved by the next rewrite; a malformed file is an error naming it. `save` and `unset` rewrite the whole file canonically.
 
 The templateable keys are the default-mode options except the input paths (`-i`, `-I`, positional inputs), `--state-file`, `-v`/`--verbose` and `-T`/`--template`. Booleans are stored as JSON booleans and cleared per run through their negation form (`--no-keep`, `--no-dry-run`, ...).
 
