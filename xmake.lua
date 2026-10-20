@@ -7,6 +7,11 @@ add_rules("plugin.compile_commands.autoupdate", { outputdir = "./build" })
 local encroVersion = "2.0.3"
 set_version(encroVersion)
 
+-- The git stamp in the generated version header must not age: without this,
+-- xmake regenerates configfiles only when xmake.lua changes, so the banner
+-- would keep reporting the commit the last configure saw.
+set_policy("build.always_update_configfiles", true)
+
 set_languages("c++26")
 
 if is_plat("windows") then

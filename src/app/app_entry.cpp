@@ -21,7 +21,6 @@
 #include "logging/logging.h"
 #include "logging/setup.h"
 
-#include <array>
 #include <chrono>
 #include <filesystem>
 #include <format>
@@ -68,50 +67,6 @@ auto buildSummary(appctx::AppContext const* ctx, std::string status)
   return data;
 }
 
-int parseDecimal(std::string_view text) {
-  auto value = 0;
-  for (char const ch: text) {
-    if (ch == ' ') { continue; }
-    value = value * 10 + (ch - '0');
-  }
-  return value;
-}
-
-int monthNumber(std::string_view month) {
-  using namespace std::literals;
-  constexpr auto months = std::array{
-    "Jan"sv,
-    "Feb"sv,
-    "Mar"sv,
-    "Apr"sv,
-    "May"sv,
-    "Jun"sv,
-    "Jul"sv,
-    "Aug"sv,
-    "Sep"sv,
-    "Oct"sv,
-    "Nov"sv,
-    "Dec"sv,
-  };
-
-  for (auto index = std::size_t{0}; index < months.size(); ++index) {
-    if (months[index] == month) { return static_cast<int>(index) + 1; }
-  }
-
-  return 0;
-}
-
-auto compileTimestamp() -> std::string {
-  constexpr auto buildDate = std::string_view{__DATE__};
-  constexpr auto buildTime = std::string_view{__TIME__};
-
-  auto const year = parseDecimal(buildDate.substr(7, 4));
-  auto const month = monthNumber(buildDate.substr(0, 3));
-  auto const day = parseDecimal(buildDate.substr(4, 2));
-
-  return std::format("{:04d}-{:02d}-{:02d} {}", year, month, day, buildTime);
-}
-
 void printHelpHint() {
   terminal::messageln(Hint, "Run encro -h for help (or -hh for all options).");
 }
@@ -140,7 +95,11 @@ auto handleParseAndHelp(prelude::StartupContext const& startup) -> std::optional
   }
 
   if (cmd.version) {
-    terminal::println(Plain, "encro {} (build: {})", ENCRO_VERSION, compileTimestamp());
+    terminal::println(
+      Plain,
+      "encro {}",
+      appentry::versionToken(ENCRO_VERSION, ENCRO_GIT_COMMIT)
+    );
     return 0;
   }
 
@@ -250,10 +209,15 @@ int runBatch(prelude::StartupContext const& startup) {
 
 namespace appentry {
 
+auto versionToken(std::string_view version, std::string_view commit) -> std::string {
+  if (commit.empty() || commit == "none") { return std::format("v{}", version); }
+  return std::format("v{}+{}", version, commit);
+}
+
 auto helpIntroLine() -> std::string {
   return std::format(
-    "encro: Universal video encoder/converter/packer | build: {}",
-    compileTimestamp()
+    "encro: Universal video encoder/converter/packer | {}",
+    versionToken(ENCRO_VERSION, ENCRO_GIT_COMMIT)
   );
 }
 

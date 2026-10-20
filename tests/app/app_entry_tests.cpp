@@ -1,5 +1,6 @@
 #include "core/path_utf8.h"
 #include "app/app_entry.h"
+#include "app/version.h"
 
 #include "infra/env.h"
 #include "infra/stop_signal.h"
@@ -8,24 +9,21 @@
 #include <catch2/catch_all.hpp>  // IWYU pragma: keep
 
 #include <filesystem>
-#include <string_view>
+#include <string>
 
 namespace fs = std::filesystem;
 
-TEST_CASE("help intro line includes description and build timestamp", "[appentry]") {
-  auto const line = appentry::helpIntroLine();
-  constexpr auto prefix =
-    std::string_view{"encro: Universal video encoder/converter/packer | build: "};
+TEST_CASE("help intro line names the release and no build time", "[appentry]") {
+  auto const expected = std::string{"encro: Universal video encoder/converter/packer | "}
+    + appentry::versionToken(ENCRO_VERSION, ENCRO_GIT_COMMIT);
 
-  REQUIRE(line.starts_with(prefix));
+  CHECK(appentry::helpIntroLine() == expected);
+}
 
-  auto const timestamp = line.substr(prefix.size());
-  REQUIRE(timestamp.size() == 19);
-  CHECK(timestamp[4] == '-');
-  CHECK(timestamp[7] == '-');
-  CHECK(timestamp[10] == ' ');
-  CHECK(timestamp[13] == ':');
-  CHECK(timestamp[16] == ':');
+TEST_CASE("version token appends the commit only when there is one", "[appentry]") {
+  CHECK(appentry::versionToken("2.0.3", "c0400e92") == "v2.0.3+c0400e92");
+  CHECK(appentry::versionToken("2.0.3", "") == "v2.0.3");
+  CHECK(appentry::versionToken("2.0.3", "none") == "v2.0.3");
 }
 
 TEST_CASE("run status maps the exit code and the stop fact", "[appentry]") {
