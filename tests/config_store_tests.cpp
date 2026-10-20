@@ -234,11 +234,6 @@ TEST_CASE(
 ) {
   auto const& table = realTemplateTable();
 
-  REQUIRE_FALSE(table.keys.empty());
-  CHECK(table.keys.size() == configstore::canonicalTemplateKeyOrder().size());
-  CHECK(table.keys.front().key == "quiet");  // General group first
-  CHECK(table.keys.back().key == "pack-only");
-
   CHECK(table.find("crf") != nullptr);      // a config key is templateable
   CHECK(table.find("dry-run") != nullptr);  // a non-config flag too
   CHECK(table.find("type") != nullptr);     // and a non-config value

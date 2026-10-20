@@ -107,11 +107,11 @@ void logConfigSummary(appctx::AppConfig const& config) {
 }
 
 void logTemplateAttribution(CmdParseResult const& cmd) {
-  if (!cmd.appliedTemplateName.has_value()) { return; }
+  if (!cmd.appliedTemplate.has_value()) { return; }
   LOG_INFO(
     "Applied template '{}' from {}.",
-    *cmd.appliedTemplateName,
-    cmd.appliedTemplatePath
+    cmd.appliedTemplate->name,
+    cmd.appliedTemplate->path
   );
 }
 

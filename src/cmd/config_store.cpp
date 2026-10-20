@@ -218,15 +218,47 @@ auto scalarJsonText(std::string const& raw, JsonKind kind) -> std::string {
   return json::serialize(json::string(raw));
 }
 
-void warnUnknownKeys(LoadResult const& loaded, fs::path const& path) {
+void warnUnknownKeys(
+  LoadResult const& loaded,
+  fs::path const& path,
+  std::string_view fileLabel
+) {
   for (auto const& key: loaded.unknownKeys) {
     terminal::eprintln(
       Warning,
-      "ignoring unknown config key \"{}\" in {}",
+      "ignoring unknown {} \"{}\" in {}",
+      fileLabel,
       key,
       pathutf8::fromPath(path)
     );
   }
+}
+
+auto writeTextFile(fs::path const& path, std::string const& text, std::string_view label)
+  -> std::optional<std::string> {
+  auto ec = std::error_code{};
+  if (path.has_parent_path()) {
+    fs::create_directories(path.parent_path(), ec);
+    if (ec) {
+      return std::format(
+        "cannot create {} directory {}: {}",
+        label,
+        pathutf8::fromPath(path.parent_path()),
+        ec.message()
+      );
+    }
+  }
+
+  auto out = std::ofstream{path, std::ios::binary};
+  if (!out.is_open()) {
+    return std::format("cannot write {}: {}", label, pathutf8::fromPath(path));
+  }
+  out << text;
+  out.flush();
+  if (!out) {
+    return std::format("failed to write {}: {}", label, pathutf8::fromPath(path));
+  }
+  return std::nullopt;
 }
 
 auto load(fs::path const& path, KeyTable const& table, std::string_view fileLabel)
@@ -289,44 +321,22 @@ auto save(
   std::map<std::string, std::string> const& values,
   KeyTable const& table
 ) -> std::optional<std::string> {
-  auto ec = std::error_code{};
-  if (path.has_parent_path()) {
-    fs::create_directories(path.parent_path(), ec);
-    if (ec) {
-      return std::format(
-        "cannot create config directory {}: {}",
-        pathutf8::fromPath(path.parent_path()),
-        ec.message()
-      );
-    }
-  }
-
-  auto out = std::ofstream{path, std::ios::binary};
-  if (!out.is_open()) {
-    return std::format("cannot write config file: {}", pathutf8::fromPath(path));
-  }
-
   // Flat object, pretty-printed by hand: one key per line in canonical table
   // order. Deterministic output keeps the file hand-editable and diff-stable.
-  out << "{\n";
+  auto body = std::string{"{\n"};
   auto first = true;
   for (auto const& def: table.keys) {
     auto const it = values.find(std::string{def.key});
     if (it == values.end()) { continue; }
-    if (!first) { out << ",\n"; }
+    if (!first) { body += ",\n"; }
     first = false;
-    out
-      << "    "
-      << json::serialize(json::string(it->first))
-      << ": "
-      << scalarJsonText(it->second, def.kind);
+    body += "    ";
+    body += json::serialize(json::string(it->first));
+    body += ": ";
+    body += scalarJsonText(it->second, def.kind);
   }
-  out << (first ? "}\n" : "\n}\n");
-  out.flush();
-  if (!out) {
-    return std::format("failed to write config file: {}", pathutf8::fromPath(path));
-  }
-  return std::nullopt;
+  body += first ? "}\n" : "\n}\n";
+  return writeTextFile(path, body, "config file");
 }
 
 }  // namespace configstore

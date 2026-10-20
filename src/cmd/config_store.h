@@ -100,8 +100,22 @@ auto load(
   std::string_view fileLabel = "config file"
 ) -> LoadResult;
 
-// Prints one warning line per unknown key found by load().
-void warnUnknownKeys(LoadResult const& loaded, std::filesystem::path const& path);
+// Prints one warning line per unknown key found by load(). `fileLabel` names the
+// kind of file, so a template's keys do not report themselves as config keys.
+void warnUnknownKeys(
+  LoadResult const& loaded,
+  std::filesystem::path const& path,
+  std::string_view fileLabel = "config key"
+);
+
+// Writes `text` to `path`, creating parent directories; `label` names the kind
+// of file in the error text. One place for the open/write/flush diagnostics the
+// config store, the template store and the schema writer all need.
+auto writeTextFile(
+  std::filesystem::path const& path,
+  std::string const& text,
+  std::string_view label
+) -> std::optional<std::string>;
 
 // JSON text for one stored scalar on a single line; numbers/booleans stay
 // unquoted so the file keeps native JSON types.

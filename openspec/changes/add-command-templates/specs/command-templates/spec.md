@@ -56,7 +56,7 @@ A template file SHALL be pretty-formatted JSON: one key per line, keys in a stab
 
 ### Requirement: Templateable option set
 
-A template SHALL accept only the options that shape a task: every value option and every boolean flag reachable on the main command, plus the subcommand-shared encode options. Input locations (`-i`, `-I`, positional input paths), `--state-file` and `-v` SHALL NOT be templateable; `-o/--output` SHALL be templateable. The generated template schema SHALL enumerate exactly the templateable options.
+A template SHALL accept only the options that shape a task: every value option and every boolean flag reachable on the main command, plus the subcommand-shared encode options. Input locations (`-i`, `-I`, positional input paths), `--state-file`, `-v` and `-T/--template` itself SHALL NOT be templateable; `-o/--output` SHALL be templateable. The generated template schema SHALL enumerate exactly the templateable options.
 
 #### Scenario: A shape option can be stored
 
@@ -108,7 +108,7 @@ A template value SHALL take effect only when the command line does not express t
 
 ### Requirement: Overriding a stored boolean
 
-Every boolean flag that a template can store SHALL have a registered negation form, so a stored `true` can be turned off for a single run. A negation form given on the command line SHALL set that option to false regardless of what the template stores, and SHALL render in help as the collapsed `--[no-]name` form.
+Every boolean flag a template can store SHALL have a registered negation form wherever the flag is registered, so a stored `true` can be turned off for a single run. A negation form given on the command line SHALL set that option to false regardless of what the template stores, and SHALL render in help as the collapsed `--[no-]name` form.
 
 #### Scenario: Negation turns a stored flag off
 

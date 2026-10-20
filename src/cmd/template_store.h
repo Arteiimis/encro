@@ -41,23 +41,10 @@ auto find(std::filesystem::path const& dir, std::string_view name)
 // missing directory is an empty set.
 auto list(std::filesystem::path const& dir) -> std::vector<std::string>;
 
-// Path a template with `name` lives at, whether or not the file exists. The
-// name is normalized first; empty when it is illegal.
-auto pathFor(std::filesystem::path const& dir, std::string_view name)
-  -> std::optional<std::filesystem::path>;
-
-// NOLINTNEXTLINE(bugprone-exception-escape): standard-container members only
-struct LoadResult {
-  std::map<std::string, std::string> values;         // canonical scalar text
-  std::map<std::string, std::string> unknownValues;  // raw JSON, preserved on write
-  std::vector<std::string> unknownKeys;              // warned about once
-  std::optional<std::string> error;                  // malformed JSON
-};
-
 // Reads one template file. `$schema` is reserved: it never reaches values,
 // unknownKeys or unknownValues.
 auto load(std::filesystem::path const& path, configstore::KeyTable const& table)
-  -> LoadResult;
+  -> configstore::LoadResult;
 
 // Rewrites the file canonically: `$schema` first, then the known keys in table
 // order, then whatever unknown keys the file carried.
@@ -76,5 +63,9 @@ auto schema(configstore::KeyTable const& table) -> std::string;
 // Writes the schema as kSchemaFileName inside `dir`, creating the directory.
 auto writeSchema(std::filesystem::path const& dir, configstore::KeyTable const& table)
   -> std::optional<std::string>;
+
+// The one error text an unknown template name produces, shared by the run path
+// and the subcommand actions.
+auto unknownTemplateMessage(std::string_view name) -> std::string;
 
 }  // namespace templatestore

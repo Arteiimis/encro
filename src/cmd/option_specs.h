@@ -299,6 +299,24 @@ inline void appendValidators(CLI::Option* option, std::vector<CLI::Validator>& o
   }
 }
 
+// The table entry a key token captures: kind from the binding type, long name,
+// built-in default at registration, a copy of the validator chain, and the
+// schema metadata the spec declares.
+template<typename Spec>
+auto keyDef(Spec const& spec, CLI::Option* option, std::string_view key)
+  -> configstore::KeyDef {
+  auto def = configstore::KeyDef{
+    .key = key,
+    .kind = cfg::jsonKindFor<typename Spec::binding_type>(),
+    .longName = cfg::captureLongName(option).value_or(std::string{}),
+    .builtinDefault = option->get_default_str(),
+    .desc = spec.desc,
+  };
+  appendValidators(option, def.validators);
+  cfg::fillSchemaMeta(spec.cfg, def);
+  return def;
+}
+
 // Phase 1: register and configure one option. bool bindings are flags,
 // everything else takes a value. A cfg::ConfigKey token also records the
 // option's config entry, a cfg::TemplateKey token its template entry, after the
@@ -332,24 +350,6 @@ auto registerOne(
     }
   }
   return option;
-}
-
-// The table entry a key token captures: kind from the binding type, long name,
-// built-in default at registration, a copy of the validator chain, and the
-// schema metadata the spec declares.
-template<typename Spec>
-auto keyDef(Spec const& spec, CLI::Option* option, std::string_view key)
-  -> configstore::KeyDef {
-  auto def = configstore::KeyDef{
-    .key = key,
-    .kind = cfg::jsonKindFor<typename Spec::binding_type>(),
-    .longName = cfg::captureLongName(option).value_or(std::string{}),
-    .builtinDefault = option->get_default_str(),
-    .desc = spec.desc,
-  };
-  appendValidators(option, def.validators);
-  cfg::fillSchemaMeta(spec.cfg, def);
-  return def;
 }
 
 // Phase 2: resolve Excludes/Needs by long name against the same app scope.

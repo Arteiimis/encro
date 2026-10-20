@@ -574,6 +574,6 @@ auto installCompletionHelpFormatter(CLI::App& subApp) -> void {
   subApp.formatter_fn(makeSubcommandHelpFormatter(&subApp, kCompletionUsageLines));
 }
 
-auto installTemplateHelpFormatter(CLI::App& subApp) -> void {
+void installTemplateHelpFormatter(CLI::App& subApp) {
   subApp.formatter_fn(makeSubcommandHelpFormatter(&subApp, kTemplateUsageLines));
 }

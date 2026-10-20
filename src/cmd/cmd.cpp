@@ -371,22 +371,30 @@ auto registerConfigSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::App
 // key/value positionals are present"; words past the last positional are
 // rejected natively by CLI11, this closes the under-filled cases through the
 // same native-error channel (spec: wrong argument count exits non-zero).
+auto actionArityError(
+  std::string_view subcommand,
+  std::string const& verb,
+  int required,
+  int given
+) -> std::optional<std::string> {
+  if (given == required) { return std::nullopt; }
+  return std::format(
+    "{} {}: {} argument{} expected, but {} given",
+    subcommand,
+    verb,
+    required,
+    required == 1 ? "" : "s",
+    given
+  );
+}
+
 auto configActionArityError(CmdParseResult const& result) -> std::optional<std::string> {
   auto const required = result.configVerb == "set"               ? 2
     : result.configVerb == "get" || result.configVerb == "unset" ? 1
                                                                  : 0;
   auto const given = static_cast<int>(result.configKey.has_value())
     + static_cast<int>(result.configValue.has_value());
-  if (given != required) {
-    return std::format(
-      "config {}: {} argument{} expected, but {} given",
-      result.configVerb,
-      required,
-      required == 1 ? "" : "s",
-      given
-    );
-  }
-  return std::nullopt;
+  return actionArityError("config", result.configVerb, required, given);
 }
 
 // --download-models is a complete request on its own: fetching the models
@@ -440,16 +448,7 @@ auto templateActionArityError(CmdParseResult const& result)
     : 0;
   auto const given = static_cast<int>(result.templateName.has_value())
     + static_cast<int>(result.templateKey.has_value());
-  if (given != required) {
-    return std::format(
-      "template {}: {} argument{} expected, but {} given",
-      result.templateVerb,
-      required,
-      required == 1 ? "" : "s",
-      given
-    );
-  }
-  return std::nullopt;
+  return actionArityError("template", result.templateVerb, required, given);
 }
 
 // Completion scripts for supported shells; install/uninstall are mutually
@@ -817,23 +816,16 @@ auto injectStoredDefaults(CLI::App& app, CmdParseResult& result)
   if (!selected.empty()) {
     auto const dir = templatestore::resolveTemplatesDir();
     auto const path = templatestore::find(dir, selected);
-    if (!path.has_value()) {
-      return std::format("unknown template: {} (run 'encro template list')", selected);
-    }
+    if (!path.has_value()) { return templatestore::unknownTemplateMessage(selected); }
 
     auto const stored = templatestore::load(*path, result.templateTable);
     if (stored.error) { return stored.error; }
-    for (auto const& key: stored.unknownKeys) {
-      terminal::eprintln(
-        terminal::MessageKind::Warning,
-        "ignoring unknown key \"{}\" in template {}",
-        key,
-        selected
-      );
-    }
+    configstore::warnUnknownKeys(stored, *path, "template key");
     for (auto const& [key, value]: stored.values) { values.insert_or_assign(key, value); }
-    result.appliedTemplateName = selected;
-    result.appliedTemplatePath = pathutf8::fromPath(*path);
+    result.appliedTemplate = CmdParseResult::TemplateAttribution{
+      .name = selected,
+      .path = pathutf8::fromPath(*path),
+    };
   }
 
   for (auto const& [key, value]: values) {
@@ -874,37 +866,27 @@ auto injectStoredDefaults(CLI::App& app, CmdParseResult& result)
   return std::nullopt;
 }
 
-// Every option on the main command surface: the app's own options plus those of
-// its nameless option groups (get_option_no_throw descends into groups, the
-// enumerating getters do not).
-auto mainSurfaceOptions(CLI::App& app) -> std::vector<CLI::Option*> {
+// Values `template save` should store: the templateable options this command
+// line actually gave. Runs on the probe parse, so config-injected defaults are
+// absent and the capture is pure command-line input. One walk over the main
+// command surface does both jobs, because a template key is exactly its first
+// long name without the dashes. A given option with no template key is an
+// error rather than a silent drop.
+auto captureTemplateValues(
+  CLI::App& app,
+  configstore::KeyTable const& table,
+  std::map<std::string, std::string>& captured
+) -> std::optional<std::string> {
+  // The app's own options plus those of its nameless option groups
+  // (get_option_no_throw descends into groups, the enumerating getters do not).
   auto options = app.get_options();
   for (auto* const group: app.get_subcommands([](CLI::App* sub) {
          return sub->get_name().empty();
        })) {
     for (auto* const opt: group->get_options()) { options.push_back(opt); }
   }
-  return options;
-}
 
-// Values `template save` should store: the templateable options this command
-// line actually gave. Runs on the probe parse, so config-injected defaults are
-// absent and the capture is pure command-line input. A given option with no
-// template key is an error rather than a silent drop.
-auto captureTemplateValues(
-  CLI::App& app,
-  configstore::KeyTable const& table,
-  std::map<std::string, std::string>& captured
-) -> std::optional<std::string> {
-  for (auto const& def: table.keys) {
-    auto* const opt = app.get_option_no_throw(def.longName);
-    if (opt == nullptr || opt->count() == 0) { continue; }
-    auto const& results = opt->results();
-    if (results.empty()) { continue; }
-    captured.insert_or_assign(std::string{def.key}, results.back());
-  }
-
-  for (auto* const opt: mainSurfaceOptions(app)) {
+  for (auto* const opt: options) {
     if (opt->count() == 0) { continue; }
     auto const longName = cfg::captureLongName(opt);
     // A positional has no long name; it is still a given value, so it is
@@ -914,11 +896,15 @@ auto captureTemplateValues(
     auto const key = longName.has_value() ? std::string_view{*longName}.substr(2)
                                           : std::string_view{positional};
     if (key == "help" || key == "version") { continue; }
-    if (table.find(key) != nullptr) { continue; }
-    return std::format(
-      "{} cannot be stored in a template: it is not a templateable option",
-      label
-    );
+    if (table.find(key) == nullptr) {
+      return std::format(
+        "{} cannot be stored in a template: it is not a templateable option",
+        label
+      );
+    }
+    auto const& results = opt->results();
+    if (results.empty()) { continue; }
+    captured.insert_or_assign(std::string{key}, results.back());
   }
 
   if (captured.empty()) {
@@ -1173,9 +1159,9 @@ auto commandLineInit(int argc, char* argv[], std::string const& introLine)
   auto const wantsTemplate =
     probe.selectedTemplate.has_value() || probe.templateListRequested;
   if (wantsTemplate && (probe.config || probe.completion || probe.templates)) {
-    auto const& other = probe.config ? "config"
-      : probe.completion             ? "completion"
-                                     : "template";
+    auto const* const other = probe.config ? "config"
+      : probe.completion                   ? "completion"
+                                           : "template";
     probe.error = std::format("--template has no effect with the {} subcommand", other);
     return probe;
   }

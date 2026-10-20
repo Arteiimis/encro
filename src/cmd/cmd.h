@@ -12,6 +12,12 @@
 #include <vector>
 
 struct CmdParseResult {
+  // Which stored template the default layer applied and where it came from:
+  // always set together, so they travel as one value.
+  struct TemplateAttribution {
+    std::string name;
+    std::string path;  // UTF-8
+  };
   // ── General options ────────────────────────────────────────────
   bool help = false;
   bool version = false;
@@ -105,8 +111,7 @@ struct CmdParseResult {
   // from config-injected defaults), and the attribution of the template the
   // default layer applied (for the -v line).
   std::map<std::string, std::string> capturedTemplateValues;
-  std::optional<std::string> appliedTemplateName;
-  std::string appliedTemplatePath;
+  std::optional<TemplateAttribution> appliedTemplate;
 
   // ── Config-key table (design D4/D5) ────────────────────────────
   // keyEntries holds the registration-time drafts (registration order),

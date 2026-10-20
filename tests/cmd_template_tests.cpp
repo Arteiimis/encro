@@ -1,11 +1,11 @@
 // Command templates: the templateable option contract and the `template`
 // subcommand (spec: command-templates).
+#include "app/prelude.h"
 #include "cmd/cmd.h"
 #include "cmd/config_builder.h"
 #include "cmd/config_store.h"
 #include "cmd/template_command.h"
 #include "cmd/template_store.h"
-#include "app/prelude.h"
 #include "core/path_utf8.h"
 #include "test_utils.h"
 
@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -67,8 +68,9 @@ TEST_CASE(
     CHECK(std::ranges::find(longNames, std::format("no-{}", def.key)) != longNames.end());
   }
 
-  // The fifteen flags a template can store; a new flag without a negation form
-  // fails here instead of leaving a stored value unoverridable.
+  // The fifteen flags a template can store, each with a negation form; a new
+  // flag without one fails here instead of leaving a stored value
+  // unoverridable.
   CHECK(booleans.size() == 15);
 }
 
@@ -238,6 +240,7 @@ TEST_CASE(
 
   auto const& keep = properties.at("keep").as_object();
   CHECK(keep.at("type").as_string() == "boolean");
+  CHECK_FALSE(keep.at("default").as_bool());  // a flag's built-in default
   CHECK_FALSE(keep.contains("minimum"));
 }
 
@@ -584,7 +587,7 @@ TEST_CASE("a plain run reads no template", "[cmd][template][select]") {
   auto const result = testutils::parseArgs({"encro", "--crf", "24"});
   REQUIRE_FALSE(result.error.has_value());
   CHECK_FALSE(result.selectedTemplate.has_value());
-  CHECK_FALSE(result.appliedTemplateName.has_value());
+  CHECK_FALSE(result.appliedTemplate.has_value());
   CHECK(result.crf == 24);
 }
 
@@ -638,7 +641,7 @@ TEST_CASE("the template beats a stored config value", "[cmd][template][select]")
     REQUIRE_FALSE(result.error.has_value());
     CHECK(result.crf == 24);                         // template wins
     CHECK(result.nvencPreset == std::string{"p5"});  // config value survives
-    CHECK(result.appliedTemplateName == std::string{"anime"});
+    CHECK(result.appliedTemplate->name == std::string{"anime"});
   }
 
   SECTION("an explicit value wins over both") {

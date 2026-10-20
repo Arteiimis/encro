@@ -24,30 +24,17 @@ using enum terminal::MessageKind;
 
 namespace {
 
-auto reportError(std::string_view message) -> int {
+int reportError(std::string_view message) {
   terminal::eprintln(Error, "{}", message);
   return 1;
 }
 
 // Byte-exact stdout write (no added newline), through C stdio: `show` and
 // `schema` print a file's content verbatim, and stdio is the stream the
-// console redirects target.
+// console redirects target (std::cout's own buffer escapes that redirect).
 void writeStdout(std::string const& text) {
   std::fwrite(text.data(), 1, text.size(), stdout);
   std::fflush(stdout);
-}
-
-auto reportUnknownTemplate(std::string_view name) -> int {
-  return reportError(
-    std::format("unknown template: {} (run 'encro template list')", name)
-  );
-}
-
-// 0 on success, 1 with the store's message otherwise.
-auto reportSaveResult(std::optional<std::string> const& error) -> int {
-  if (!error.has_value()) { return 0; }
-  terminal::eprintln(Error, "{}", *error);
-  return 1;
 }
 
 // One stored key in CLI form: a boolean reads as the flag that sets it, so a
@@ -60,7 +47,7 @@ auto cliForm(configstore::KeyDef const& def, std::string const& value) -> std::s
   return std::format("--{} {}", def.key, value);
 }
 
-auto listAction(fs::path const& dir, configstore::KeyTable const& table) -> int {
+int listAction(fs::path const& dir, configstore::KeyTable const& table) {
   auto const names = templatestore::list(dir);
   if (names.empty()) {
     terminal::println(
@@ -86,7 +73,7 @@ auto listAction(fs::path const& dir, configstore::KeyTable const& table) -> int 
   return 0;
 }
 
-auto showAction(fs::path const& path) -> int {
+int showAction(fs::path const& path) {
   auto file = std::ifstream{path, std::ios::binary};
   if (!file.is_open()) {
     return reportError(
@@ -98,9 +85,11 @@ auto showAction(fs::path const& path) -> int {
   return 0;
 }
 
-auto deleteAction(fs::path const& dir, std::string const& name) -> int {
+int deleteAction(fs::path const& dir, std::string const& name) {
   auto const path = templatestore::find(dir, name);
-  if (!path.has_value()) { return reportUnknownTemplate(name); }
+  if (!path.has_value()) {
+    return reportError(templatestore::unknownTemplateMessage(name));
+  }
 
   auto ec = std::error_code{};
   fs::remove(*path, ec);
@@ -116,12 +105,12 @@ auto deleteAction(fs::path const& dir, std::string const& name) -> int {
   return 0;
 }
 
-auto unsetAction(
+int unsetAction(
   fs::path const& dir,
   configstore::KeyTable const& table,
   std::string const& name,
   std::string const& key
-) -> int {
+) {
   if (table.find(key) == nullptr) {
     return reportError(
       std::format(
@@ -134,30 +123,30 @@ auto unsetAction(
   }
 
   auto const path = templatestore::find(dir, name);
-  if (!path.has_value()) { return reportUnknownTemplate(name); }
+  if (!path.has_value()) {
+    return reportError(templatestore::unknownTemplateMessage(name));
+  }
 
   auto loaded = templatestore::load(*path, table);
   if (loaded.error) { return reportError(*loaded.error); }
   // Absent key: nothing to rewrite, same exit code as config's unset.
   if (loaded.values.erase(key) == 0) { return 0; }
 
-  return reportSaveResult(
-    templatestore::save(*path, loaded.values, loaded.unknownValues, table)
-  );
+  auto const error =
+    templatestore::save(*path, loaded.values, loaded.unknownValues, table);
+  return error.has_value() ? reportError(*error) : 0;
 }
 
-auto saveAction(
+int saveAction(
   fs::path const& dir,
   configstore::KeyTable const& table,
   std::string const& name,
   std::map<std::string, std::string> const& captured
-) -> int {
+) {
   // An existing template is merged into, so a short save cannot silently
   // truncate one; a new name gets the canonical path.
   auto const existing = templatestore::find(dir, name);
-  auto const path = existing.has_value()
-    ? *existing
-    : templatestore::pathFor(dir, name).value_or(dir / (name + ".json"));
+  auto const path = existing.value_or(dir / (name + ".json"));
 
   auto loaded = templatestore::load(path, table);
   if (loaded.error) { return reportError(*loaded.error); }
@@ -224,9 +213,11 @@ int runTemplateCommand(CmdParseResult const& cmd) {
     );
   }
 
-  auto const path = templatestore::find(dir, name);
   if (cmd.templateVerb == "show") {
-    if (!path.has_value()) { return reportUnknownTemplate(name); }
+    auto const path = templatestore::find(dir, name);
+    if (!path.has_value()) {
+      return reportError(templatestore::unknownTemplateMessage(name));
+    }
     return showAction(*path);
   }
   if (cmd.templateVerb == "delete") { return deleteAction(dir, name); }
@@ -237,6 +228,8 @@ int runTemplateCommand(CmdParseResult const& cmd) {
     return saveAction(dir, table, name, cmd.capturedTemplateValues);
   }
 
+  // Unreachable while cfg::Members gates the verbs; kept so a verb added there
+  // without a handler fails loudly instead of exiting 0.
   return reportError(std::format("unknown template action: {}", cmd.templateVerb));
 }
 

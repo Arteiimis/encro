@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cctype>
 #include <format>
-#include <fstream>
 #include <system_error>
 
 namespace fs = std::filesystem;
@@ -32,7 +31,7 @@ auto lowercased(std::string_view text) -> std::string {
   return out;
 }
 
-auto isNameChar(char ch) -> bool {
+bool isNameChar(char ch) {
   return (ch >= 'a' && ch <= 'z')
     || (ch >= '0' && ch <= '9')
     || ch == '.'
@@ -40,7 +39,8 @@ auto isNameChar(char ch) -> bool {
     || ch == '-';
 }
 
-auto isAlnum(char ch) -> bool {
+// Letters and digits only, lowercase: the first character's rule.
+bool isLowerAlnum(char ch) {
   return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9');
 }
 
@@ -62,108 +62,6 @@ auto stemsIn(fs::path const& dir) -> std::vector<std::string> {
   return stems;
 }
 
-}  // namespace
-
-auto resolveTemplatesDir() -> fs::path {
-  return configstore::resolveConfigPath().parent_path() / "templates";
-}
-
-auto normalizeName(std::string_view name) -> std::string {
-  auto const normalized = lowercased(name);
-  if (normalized.empty() || normalized == reservedStem()) { return {}; }
-  if (!isAlnum(normalized.front())) { return {}; }
-  if (!std::ranges::all_of(normalized, isNameChar)) { return {}; }
-  return normalized;
-}
-
-auto find(fs::path const& dir, std::string_view name) -> std::optional<fs::path> {
-  auto const normalized = normalizeName(name);
-  if (normalized.empty()) { return std::nullopt; }
-
-  auto const stems = stemsIn(dir);
-  if (std::ranges::find(stems, normalized) == stems.end()) { return std::nullopt; }
-  return dir / (normalized + ".json");
-}
-
-auto list(fs::path const& dir) -> std::vector<std::string> {
-  auto stems = stemsIn(dir);
-  std::ranges::sort(stems);
-  stems.erase(std::unique(stems.begin(), stems.end()), stems.end());
-  return stems;
-}
-
-auto pathFor(fs::path const& dir, std::string_view name) -> std::optional<fs::path> {
-  auto const normalized = normalizeName(name);
-  if (normalized.empty()) { return std::nullopt; }
-  return dir / (normalized + ".json");
-}
-
-auto load(fs::path const& path, configstore::KeyTable const& table) -> LoadResult {
-  auto result = LoadResult{};
-
-  auto loaded = configstore::load(path, table, "template file");
-  result.error = std::move(loaded.error);
-  result.values = std::move(loaded.values);
-  for (auto const& key: loaded.unknownKeys) {
-    // The schema reference is part of the format, not a stored option.
-    if (key == "$schema") { continue; }
-    result.unknownKeys.push_back(key);
-  }
-  for (auto const& [key, raw]: loaded.unknownValues) {
-    if (key == "$schema") { continue; }
-    result.unknownValues.emplace(key, raw);
-  }
-  return result;
-}
-
-auto save(
-  fs::path const& path,
-  std::map<std::string, std::string> const& values,
-  std::map<std::string, std::string> const& unknownValues,
-  configstore::KeyTable const& table
-) -> std::optional<std::string> {
-  auto ec = std::error_code{};
-  if (path.has_parent_path()) {
-    fs::create_directories(path.parent_path(), ec);
-    if (ec) {
-      return std::format(
-        "cannot create template directory {}: {}",
-        pathutf8::fromPath(path.parent_path()),
-        ec.message()
-      );
-    }
-  }
-
-  auto out = std::ofstream{path, std::ios::binary};
-  if (!out.is_open()) {
-    return std::format("cannot write template file: {}", pathutf8::fromPath(path));
-  }
-
-  // Hand-pretty-printed like the config file: one key per line, known keys in
-  // canonical order, `$schema` first, unknown keys after (preserved, not lost).
-  out << "{\n    \"$schema\": \"" << kSchemaRef << "\"";
-  for (auto const& def: table.keys) {
-    auto const it = values.find(std::string{def.key});
-    if (it == values.end()) { continue; }
-    out
-      << ",\n    "
-      << json::serialize(json::string(it->first))
-      << ": "
-      << configstore::scalarJsonText(it->second, def.kind);
-  }
-  for (auto const& [key, raw]: unknownValues) {
-    out << ",\n    " << json::serialize(json::string(key)) << ": " << raw;
-  }
-  out << "\n}\n";
-  out.flush();
-  if (!out) {
-    return std::format("failed to write template file: {}", pathutf8::fromPath(path));
-  }
-  return std::nullopt;
-}
-
-namespace {
-
 // JSON Schema type name for a key's stored kind.
 auto schemaType(configstore::JsonKind kind) -> std::string_view {
   switch (kind) {
@@ -175,41 +73,18 @@ auto schemaType(configstore::JsonKind kind) -> std::string_view {
   return "string";
 }
 
-// The built-in default as JSON, or nothing when the flag declares none.
+// The built-in default as JSON. A flag declares no default string, and every
+// templateable flag defaults to false, so a boolean always reports one.
 auto defaultJson(configstore::KeyDef const& def) -> std::optional<std::string> {
-  if (def.builtinDefault.empty()) { return std::nullopt; }
   switch (def.kind) {
     case configstore::JsonKind::Boolean:
       return def.builtinDefault == "true" ? "true" : "false";
-    case configstore::JsonKind::Number: {
-      auto parsed = 0LL;
-      auto const [ptr, ec] = std::from_chars(
-        def.builtinDefault.data(),
-        def.builtinDefault.data() + def.builtinDefault.size(),
-        parsed
-      );
-      if (
-        ec != std::errc{} || ptr != def.builtinDefault.data() + def.builtinDefault.size()
-      ) {
-        return std::nullopt;
-      }
-      return std::format("{}", parsed);
-    }
-    case configstore::JsonKind::Real: {
-      auto parsed = 0.0;
-      auto const [ptr, ec] = std::from_chars(
-        def.builtinDefault.data(),
-        def.builtinDefault.data() + def.builtinDefault.size(),
-        parsed
-      );
-      if (
-        ec != std::errc{} || ptr != def.builtinDefault.data() + def.builtinDefault.size()
-      ) {
-        return std::nullopt;
-      }
-      return std::format("{}", parsed);
-    }
+    case configstore::JsonKind::Number:
+    case configstore::JsonKind::Real:
+      if (def.builtinDefault.empty()) { return std::nullopt; }
+      return def.builtinDefault;  // registration-time literal, already JSON
     case configstore::JsonKind::String:
+      if (def.builtinDefault.empty()) { return std::nullopt; }
       return json::serialize(json::string{def.builtinDefault});
   }
   return std::nullopt;
@@ -247,6 +122,71 @@ auto propertySchema(configstore::KeyDef const& def) -> std::string {
 
 }  // namespace
 
+auto resolveTemplatesDir() -> fs::path {
+  return configstore::resolveConfigPath().parent_path() / "templates";
+}
+
+auto normalizeName(std::string_view name) -> std::string {
+  auto const normalized = lowercased(name);
+  if (normalized.empty() || normalized == reservedStem()) { return {}; }
+  if (!isLowerAlnum(normalized.front())) { return {}; }
+  if (!std::ranges::all_of(normalized, isNameChar)) { return {}; }
+  return normalized;
+}
+
+auto find(fs::path const& dir, std::string_view name) -> std::optional<fs::path> {
+  auto const normalized = normalizeName(name);
+  if (normalized.empty()) { return std::nullopt; }
+
+  auto const stems = stemsIn(dir);
+  if (std::ranges::find(stems, normalized) == stems.end()) { return std::nullopt; }
+  return dir / (normalized + ".json");
+}
+
+auto list(fs::path const& dir) -> std::vector<std::string> {
+  auto stems = stemsIn(dir);
+  std::ranges::sort(stems);
+  stems.erase(std::unique(stems.begin(), stems.end()), stems.end());
+  return stems;
+}
+
+auto load(fs::path const& path, configstore::KeyTable const& table)
+  -> configstore::LoadResult {
+  auto loaded = configstore::load(path, table, "template file");
+  // The schema reference is part of the format, not a stored option: it is
+  // neither applied nor warned about, and a rewrite writes its own.
+  std::erase(loaded.unknownKeys, std::string{"$schema"});
+  loaded.unknownValues.erase("$schema");
+  return loaded;
+}
+
+auto save(
+  fs::path const& path,
+  std::map<std::string, std::string> const& values,
+  std::map<std::string, std::string> const& unknownValues,
+  configstore::KeyTable const& table
+) -> std::optional<std::string> {
+  // Hand-pretty-printed like the config file: one key per line, known keys in
+  // canonical order, `$schema` first, unknown keys after (preserved, not lost).
+  auto body = std::format("{{\n    \"$schema\": \"{}\"", kSchemaRef);
+  for (auto const& def: table.keys) {
+    auto const it = values.find(std::string{def.key});
+    if (it == values.end()) { continue; }
+    body += ",\n    ";
+    body += json::serialize(json::string(it->first));
+    body += ": ";
+    body += configstore::scalarJsonText(it->second, def.kind);
+  }
+  for (auto const& [key, raw]: unknownValues) {
+    body += ",\n    ";
+    body += json::serialize(json::string(key));
+    body += ": ";
+    body += raw;
+  }
+  body += "\n}\n";
+  return configstore::writeTextFile(path, body, "template file");
+}
+
 auto schema(configstore::KeyTable const& table) -> std::string {
   auto out = std::string{};
   out += "{\n";
@@ -268,27 +208,15 @@ auto schema(configstore::KeyTable const& table) -> std::string {
 
 auto writeSchema(fs::path const& dir, configstore::KeyTable const& table)
   -> std::optional<std::string> {
-  auto ec = std::error_code{};
-  fs::create_directories(dir, ec);
-  if (ec) {
-    return std::format(
-      "cannot create template directory {}: {}",
-      pathutf8::fromPath(dir),
-      ec.message()
-    );
-  }
+  return configstore::writeTextFile(
+    dir / std::string{kSchemaFileName},
+    schema(table),
+    "template schema"
+  );
+}
 
-  auto const path = dir / std::string{kSchemaFileName};
-  auto out = std::ofstream{path, std::ios::binary};
-  if (!out.is_open()) {
-    return std::format("cannot write template schema: {}", pathutf8::fromPath(path));
-  }
-  out << schema(table);
-  out.flush();
-  if (!out) {
-    return std::format("failed to write template schema: {}", pathutf8::fromPath(path));
-  }
-  return std::nullopt;
+auto unknownTemplateMessage(std::string_view name) -> std::string {
+  return std::format("unknown template: {} (run 'encro template list')", name);
 }
 
 }  // namespace templatestore
