@@ -40,6 +40,9 @@ def failing_cases(report):
 
 
 def main(argv):
+    # A Windows runner's console is cp1252, and the captured test output carries
+    # progress glyphs; echoing it must not be what fails the job.
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--binary', required=True)
