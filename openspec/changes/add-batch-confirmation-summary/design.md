@@ -92,4 +92,4 @@ The block prints through `Info`, which the quiet gate suppresses (`src/infra/ter
 - [Video counts can overstate the encoded total] → D5 and the spec's "counts are scan-time values" requirement; the wording never promises work, and the two causes (probe skips, already-encoded HEVC files) are named in D5.
 - [`--pack-only` batches gain no scope block, so a long zip run still shows no up-front total] → Accepted non-goal: it needs a full-tree count that the presence-only pre-check exists to avoid. The pack-path defects recorded in proposal.md's Impact are where that belongs.
 - [`--quiet` shows the prompt with no scope block above it] → D7 and the spec's quiet scenario: the flag's contract is "narration off, prompts intact".
-- [Fourteen existing pre-check assertions move from a bool to a count] → Mechanical edit (`CHECK(x > 0)` / `CHECK(x == 0)`); the case names and their fixture setups stay as they are.
+- [Thirteen existing pre-check assertions move from a bool to a count] → Mechanical edit (`CHECK(x == 1)` / `CHECK(x == 0)`); the case names and their fixture setups stay as they are.
