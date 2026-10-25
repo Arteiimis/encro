@@ -17,8 +17,8 @@ auto pathOptions() -> std::set<std::string>& {
   return registry;
 }
 
-auto positionalOptions() -> std::map<CLI::Option const*, std::vector<std::string>>& {
-  static std::map<CLI::Option const*, std::vector<std::string>> registry;
+auto positionals() -> std::map<CLI::Option const*, PositionalInfo>& {
+  static std::map<CLI::Option const*, PositionalInfo> registry;
   return registry;
 }
 
@@ -39,7 +39,15 @@ void recordPath(std::string longName) {
 }
 
 void recordPositional(CLI::Option const* option, std::vector<std::string> values) {
-  positionalOptions().insert_or_assign(option, std::move(values));
+  positionals()[option].candidates = std::move(values);
+}
+
+void recordProvider(std::string longName, std::string_view provider) {
+  optionValues()[std::move(longName)].provider = provider;
+}
+
+void recordPositionalProvider(CLI::Option const* option, std::string_view provider) {
+  positionals()[option].provider = provider;
 }
 
 auto valueInfoOf(std::string const& longName) -> ValueInfo const* {
@@ -61,9 +69,8 @@ auto longNameOfConfigKey(std::string const& key) -> std::string const* {
   return found == registry.end() ? nullptr : &found->second;
 }
 
-auto positionalCandidatesOf(CLI::Option const* option)
-  -> std::vector<std::string> const* {
-  auto const& registry = positionalOptions();
+auto positionalInfoOf(CLI::Option const* option) -> PositionalInfo const* {
+  auto const& registry = positionals();
   auto const found = registry.find(option);
   return found == registry.end() ? nullptr : &found->second;
 }

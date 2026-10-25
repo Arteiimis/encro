@@ -57,7 +57,7 @@ The channel answers for the template-name slot with the template files' stems th
 
 ### D4: Declarative provider tokens, beside `cfg::Path`
 
-`cfg::ValueProvider{id}` records a provider for a named value option (`-T/--template`); `cfg::PositionalProvider{id}` records one for a positional, keyed by option pointer like `recordPositional`. The emitter keeps walking the tree generically — it never learns that a `template` subcommand exists.
+`cfg::Provider{id}` records the provider for its slot in either key space: a named value option (`-T/--template`) is keyed by long name, a positional by option pointer like `recordPositional` records its candidates. The emitter keeps walking the tree generically — it never learns that a `template` subcommand exists.
 
 Alternative rejected: identifying the slots by name inside the emitter. The generator does already hardcode the `config` action verbs in both glues, so a template-specific hardcode would work — but it would turn one per-shell special case into a set of them, and the next live-data slot would have no path that does not add another.
 

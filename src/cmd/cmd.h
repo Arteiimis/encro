@@ -97,6 +97,9 @@ struct CmdParseResult {
   std::string completionShell;  // "powershell" or "bash"; empty when absent
   bool completionInstall = false;
   bool completionUninstall = false;
+  // --candidates <slot>: the machine channel the emitted scripts call back into
+  // for dynamically-backed slots; empty when absent.
+  std::optional<std::string> completionCandidates;
 
   // ── template subcommand (positional action verbs) ──────
   bool templates = false;

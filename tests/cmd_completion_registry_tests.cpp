@@ -1,5 +1,7 @@
 #include "cmd/completion_registry.h"
 
+#include "cmd/option_specs.h"
+
 #include <CLI/CLI.hpp>
 
 #include <catch2/catch_all.hpp>
@@ -7,6 +9,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -19,7 +22,7 @@ struct RegistryGuard {
     : options_(completion::optionValues()),
       config_(completion::configKeyOptions()),
       paths_(completion::pathOptions()),
-      positionals_(completion::positionalOptions()) {
+      positionals_(completion::positionals()) {
     clear();
   }
 
@@ -27,7 +30,7 @@ struct RegistryGuard {
     completion::optionValues() = std::move(options_);
     completion::configKeyOptions() = std::move(config_);
     completion::pathOptions() = std::move(paths_);
-    completion::positionalOptions() = std::move(positionals_);
+    completion::positionals() = std::move(positionals_);
   }
 
   RegistryGuard(RegistryGuard const&) = delete;
@@ -38,13 +41,13 @@ private:
     completion::optionValues().clear();
     completion::configKeyOptions().clear();
     completion::pathOptions().clear();
-    completion::positionalOptions().clear();
+    completion::positionals().clear();
   }
 
   std::map<std::string, completion::ValueInfo> options_;
   std::map<std::string, std::string> config_;
   std::set<std::string> paths_;
-  std::map<CLI::Option const*, std::vector<std::string>> positionals_;
+  std::map<CLI::Option const*, completion::PositionalInfo> positionals_;
 };
 
 }  // namespace
@@ -125,11 +128,10 @@ TEST_CASE("registry records positional candidates by option pointer", "[completi
 
   completion::recordPositional(shell, {"bash", "powershell"});
 
-  REQUIRE(
-    *completion::positionalCandidatesOf(shell)
-    == std::vector<std::string>{"bash", "powershell"}
-  );
-  REQUIRE(completion::positionalCandidatesOf(dir) == nullptr);
+  auto const* shellInfo = completion::positionalInfoOf(shell);
+  REQUIRE(shellInfo != nullptr);
+  REQUIRE(shellInfo->candidates == std::vector<std::string>{"bash", "powershell"});
+  REQUIRE(completion::positionalInfoOf(dir) == nullptr);
 }
 
 TEST_CASE("registry guard restores the metadata it hides", "[completion]") {
@@ -148,7 +150,7 @@ TEST_CASE("registry guard restores the metadata it hides", "[completion]") {
     REQUIRE(completion::valueInfoOf("--output-format") == nullptr);
     REQUIRE(completion::longNameOfConfigKey("jobs") == nullptr);
     REQUIRE(completion::pathOptions().empty());
-    REQUIRE(completion::positionalCandidatesOf(shell) == nullptr);
+    REQUIRE(completion::positionalInfoOf(shell) == nullptr);
   }
 
   auto const* info = completion::valueInfoOf("--output-format");
@@ -158,7 +160,69 @@ TEST_CASE("registry guard restores the metadata it hides", "[completion]") {
   REQUIRE(longName != nullptr);
   REQUIRE(*longName == "--jobs");
   REQUIRE(completion::pathOptions() == std::set<std::string>{"--model-dir"});
-  auto const* positional = completion::positionalCandidatesOf(shell);
-  REQUIRE(positional != nullptr);
-  REQUIRE(*positional == std::vector<std::string>{"bash"});
+  auto const* restored = completion::positionalInfoOf(shell);
+  REQUIRE(restored != nullptr);
+  REQUIRE(restored->candidates == std::vector<std::string>{"bash"});
+}
+
+TEST_CASE("registry records runtime providers by both key spaces", "[completion]") {
+  RegistryGuard guard;
+  CLI::App app{"registry tests"};
+  auto* name = app.add_option("name", "template name");
+  auto* dir = app.add_option("dir", "folder");
+
+  completion::recordProvider("--template", completion::kTemplateNameProvider);
+  completion::recordPositionalProvider(name, completion::kTemplateNameProvider);
+
+  auto const* info = completion::valueInfoOf("--template");
+  REQUIRE(info != nullptr);
+  REQUIRE(info->provider == completion::kTemplateNameProvider);
+  REQUIRE(info->candidates.empty());
+
+  auto const* nameInfo = completion::positionalInfoOf(name);
+  REQUIRE(nameInfo != nullptr);
+  REQUIRE(nameInfo->provider == completion::kTemplateNameProvider);
+  REQUIRE(completion::positionalInfoOf(dir) == nullptr);
+
+  // Re-record overwrites, mirroring the candidate capture.
+  completion::recordProvider("--template", "other-slot");
+  REQUIRE(completion::valueInfoOf("--template")->provider == "other-slot");
+}
+
+TEST_CASE("provider tokens capture through the spec table", "[completion]") {
+  RegistryGuard guard;
+  CLI::App app{"registry tests"};
+  auto name = std::string{};
+  auto key = std::string{};
+  auto entries = std::vector<configstore::KeyDef>{};
+  // One token, both key spaces: a named option records by long name, a
+  // positional by pointer, and the positional keeps its static candidates.
+  auto const options = std::tuple{
+    opt(
+      "--template",
+      &name,
+      "template name",
+      cfg::Provider{completion::kTemplateNameProvider}
+    ),
+    opt(
+      "key",
+      &key,
+      "template key",
+      cfg::Members{"crf", "preset"},
+      cfg::Provider{completion::kTemplateNameProvider}
+    ),
+  };
+
+  registerAll(&app, options, entries);
+
+  auto const* info = completion::valueInfoOf("--template");
+  REQUIRE(info != nullptr);
+  REQUIRE(info->provider == completion::kTemplateNameProvider);
+
+  auto* keyOpt = app.get_option_no_throw("key");
+  REQUIRE(keyOpt != nullptr);
+  auto const* slot = completion::positionalInfoOf(keyOpt);
+  REQUIRE(slot != nullptr);
+  REQUIRE(slot->candidates == std::vector<std::string>{"crf", "preset"});
+  REQUIRE(slot->provider == completion::kTemplateNameProvider);
 }

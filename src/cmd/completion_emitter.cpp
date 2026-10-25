@@ -77,10 +77,10 @@ auto buildScope(CLI::App const& app, std::string name) -> ScopeInfo {
   for (auto const* option: ptrs) {
     auto const found = namesOf.find(option);
     if (found == namesOf.end()) {
-      // Positional (no display names): candidates only when the registry
-      // captured enumerated values for the option pointer.
-      auto slot = std::vector<std::string>{};
-      if (auto const* candidates = positionalCandidatesOf(option)) { slot = *candidates; }
+      // Positional (no display names): candidates and/or a provider id, both
+      // keyed by option pointer in the registry.
+      auto slot = PositionalInfo{};
+      if (auto const* info = positionalInfoOf(option)) { slot = *info; }
       scope.positionals.push_back(std::move(slot));
       continue;
     }
@@ -94,6 +94,7 @@ auto buildScope(CLI::App const& app, std::string name) -> ScopeInfo {
     if (auto const* value = longName ? valueInfoOf(*longName) : nullptr) {
       info.candidates = value->candidates;
       info.numeric = value->numeric;
+      info.provider = value->provider;
     }
     // CLI11 symmetrizes the exclusion graph, so one-sided declarations yield
     // symmetric hiding; positionals contribute no names and are skipped.
@@ -121,43 +122,52 @@ auto sortedUnique(std::vector<std::string> values) -> std::vector<std::string> {
   return values;
 }
 
+// Walks every scope's options once; the id-keyed tables below differ only in
+// what they project.
+template<typename Project>
+void forEachOption(CompletionModel const& model, Project project) {
+  auto const walk = [&project](ScopeInfo const& scope) {
+    for (auto const& option: scope.options) { project(option); }
+  };
+  walk(model.main);
+  for (auto const& scope: model.subcommands) { walk(scope); }
+}
+
 // id -> data, merged across scopes (preview twins carry identical metadata).
 auto candidatesById(CompletionModel const& model)
   -> std::map<std::string, std::vector<std::string>> {
   auto merged = std::map<std::string, std::vector<std::string>>{};
-  auto const absorb = [&merged](ScopeInfo const& scope) {
-    for (auto const& option: scope.options) {
-      if (!option.candidates.empty()) { merged[option.id] = option.candidates; }
-    }
-  };
-  absorb(model.main);
-  for (auto const& scope: model.subcommands) { absorb(scope); }
+  forEachOption(model, [&merged](OptionInfo const& option) {
+    if (!option.candidates.empty()) { merged[option.id] = option.candidates; }
+  });
   return merged;
 }
 
 auto hiddenById(CompletionModel const& model)
   -> std::map<std::string, std::vector<std::string>> {
   auto merged = std::map<std::string, std::vector<std::string>>{};
-  auto const absorb = [&merged](ScopeInfo const& scope) {
-    for (auto const& option: scope.options) {
-      if (!option.hiddenBy.empty()) { merged[option.id] = option.hiddenBy; }
-    }
-  };
-  absorb(model.main);
-  for (auto const& scope: model.subcommands) { absorb(scope); }
+  forEachOption(model, [&merged](OptionInfo const& option) {
+    if (!option.hiddenBy.empty()) { merged[option.id] = option.hiddenBy; }
+  });
   return merged;
 }
 
 auto valueIds(CompletionModel const& model) -> std::vector<std::string> {
   auto ids = std::vector<std::string>{};
-  auto const absorb = [&ids](ScopeInfo const& scope) {
-    for (auto const& option: scope.options) {
-      if (option.takesValue) { ids.push_back(option.id); }
-    }
-  };
-  absorb(model.main);
-  for (auto const& scope: model.subcommands) { absorb(scope); }
+  forEachOption(model, [&ids](OptionInfo const& option) {
+    if (option.takesValue) { ids.push_back(option.id); }
+  });
   return sortedUnique(std::move(ids));
+}
+
+// id -> provider, merged across scopes (a provider-backed option is registered
+// once per scope that names it).
+auto providersById(CompletionModel const& model) -> std::map<std::string, std::string> {
+  auto merged = std::map<std::string, std::string>{};
+  forEachOption(model, [&merged](OptionInfo const& option) {
+    if (!option.provider.empty()) { merged[option.id] = option.provider; }
+  });
+  return merged;
 }
 
 auto scopeNames(ScopeInfo const& scope) -> std::vector<std::string> {
@@ -242,19 +252,30 @@ auto emitBashScript(CompletionModel const& model) -> std::string {
       out << "_ENCRO_OPTS_" << key << "=\"" << join(scopeNames(scope)) << "\"\n";
       if (!isSub) { return; }
       out << "_ENCRO_POSN_" << key << "=" << scope.positionals.size() << "\n";
-      // Colon-separated candidate groups, one per positional slot; omitted
-      // entirely when no positional carries candidates.
-      auto const hasCandidates =
-        std::ranges::any_of(scope.positionals, [](std::vector<std::string> const& slot) {
-          return !slot.empty();
-        });
-      if (!hasCandidates) { return; }
-      out << "_ENCRO_POSCANDS_" << key << "=\"";
-      for (std::size_t i = 0; i < scope.positionals.size(); ++i) {
-        if (i > 0) { out << ':'; }
-        out << join(scope.positionals[i]);
-      }
-      out << "\"\n";
+      // Colon-separated per-slot table, omitted entirely when every slot is
+      // empty. One text per positional slot; the empty text means "nothing
+      // here" to the glue.
+      auto const emitSlotTable = [&out,
+                                  &key,
+                                  &scope](std::string_view prefix, auto const& slotText) {
+        auto const any =
+          std::ranges::any_of(scope.positionals, [&slotText](PositionalInfo const& slot) {
+            return !slotText(slot).empty();
+          });
+        if (!any) { return; }
+        out << prefix << key << "=\"";
+        for (std::size_t i = 0; i < scope.positionals.size(); ++i) {
+          if (i > 0) { out << ':'; }
+          out << slotText(scope.positionals[i]);
+        }
+        out << "\"\n";
+      };
+      emitSlotTable("_ENCRO_POSPROV_", [](PositionalInfo const& slot) {
+        return slot.provider;
+      });
+      emitSlotTable("_ENCRO_POSCANDS_", [](PositionalInfo const& slot) {
+        return join(slot.candidates);
+      });
     };
   emitScope("main", model.main, false);
   for (auto const& scope: model.subcommands) { emitScope(scope.name, scope, true); }
@@ -265,6 +286,9 @@ auto emitBashScript(CompletionModel const& model) -> std::string {
 
   for (auto const& [id, candidates]: candidatesById(model)) {
     out << "_ENCRO_CANDS_" << id << "=\"" << join(candidates) << "\"\n";
+  }
+  for (auto const& [id, provider]: providersById(model)) {
+    out << "_ENCRO_PROV_" << id << "=\"" << provider << "\"\n";
   }
   out << "\n";
   for (auto const& [id, hidden]: hiddenById(model)) {
@@ -293,6 +317,19 @@ _encro_files() {
   COMPREPLY=( $(compgen -A file -- "$cur") )
 }
 
+# Candidates of a slot backed by live data, resolved by the binary that the
+# typed word names. Output is one candidate per line; a text-mode stdout adds a
+# CR on Windows, so it is stripped. Returns false when the call fails, which the
+# caller turns into "no candidates" and no file fallback.
+_encro_slot_from() {
+  local out
+  out="$("${COMP_WORDS[0]}" completion --candidates "$1" 2>/dev/null)" || return 1
+  out="${out//$'\r'/}"
+  [ -n "$out" ] || return 1
+  COMPREPLY=( $(compgen -W "$out" -- "$cur") )
+  [ "${#COMPREPLY[@]}" -gt 0 ]
+}
+
 # Suppress the `-o default` file fallback for slots that must offer nothing.
 _encro_no_candidates() {
   compopt +o default 2>/dev/null
@@ -318,6 +355,12 @@ _encro_complete() {
   if [ -n "$prev_id" ] && [[ " $_ENCRO_VALUE_IDS " == *" $prev_id "* ]]; then
     if [[ " $_ENCRO_PATH_IDS " == *" $prev_id "* ]]; then
       _encro_files
+      return 0
+    fi
+    local prov_var="_ENCRO_PROV_$prev_id"
+    local prov="${!prov_var-}"
+    if [ -n "$prov" ]; then
+      _encro_slot_from "$prov" || _encro_no_candidates
       return 0
     fi
     local cands_var="_ENCRO_CANDS_$prev_id"
@@ -401,6 +444,16 @@ _encro_complete() {
       _encro_no_candidates
       return 0
     fi
+    local provs_var="_ENCRO_POSPROV_$scope"
+    local provs="${!provs_var-}"
+    if [ -n "$provs" ]; then
+      local slot_prov
+      slot_prov="$(cut -d: -f$((slot+1)) <<<"$provs")"
+      if [ -n "$slot_prov" ]; then
+        _encro_slot_from "$slot_prov" || _encro_no_candidates
+        return 0
+      fi
+    fi
     local pc_var="_ENCRO_POSCANDS_$scope"
     local pc="${!pc_var-}"
     if [ -n "$pc" ]; then
@@ -479,29 +532,42 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
     out << "  '" << scope.name << "' = " << scope.positionals.size() << "\n";
   }
   out << "}\n";
-  out << "$__encroPosCands = @{\n";
-  for (auto const& scope: model.subcommands) {
-    auto const hasCandidates =
-      std::ranges::any_of(scope.positionals, [](std::vector<std::string> const& slot) {
-        return !slot.empty();
-      });
-    if (!hasCandidates) { continue; }
-    // Leading comma only for single-slot scopes: without it PowerShell unrolls
-    // the single-element outer array when storing, collapsing the per-slot
-    // nesting by one level; with it, multi-slot scopes gain a spurious wrapper
-    // that shifts every slot index by one level.
-    out
-      << "  '"
-      << scope.name
-      << "' = "
-      << (scope.positionals.size() == 1 ? ",@(" : "@(");
-    for (std::size_t i = 0; i < scope.positionals.size(); ++i) {
-      if (i > 0) { out << ", "; }
-      out << psList(scope.positionals[i]);
+  // One per-slot table per kind of positional data: the element text per slot,
+  // `@()` for a slot with nothing of that kind, and the whole scope omitted
+  // when every slot is empty.
+  auto const emitPosTable = [&out, &model](std::string_view name, auto const& elementOf) {
+    out << "$__encro" << name << " = @{\n";
+    for (auto const& scope: model.subcommands) {
+      auto const any =
+        std::ranges::any_of(scope.positionals, [&elementOf](PositionalInfo const& slot) {
+          return !elementOf(slot).empty();
+        });
+      if (!any) { continue; }
+      // Leading comma only for single-slot scopes: without it PowerShell
+      // unrolls the single-element outer array when storing, collapsing the
+      // per-slot nesting by one level; with it, multi-slot scopes gain a
+      // spurious wrapper that shifts every slot index by one level.
+      out
+        << "  '"
+        << scope.name
+        << "' = "
+        << (scope.positionals.size() == 1 ? ",@(" : "@(");
+      for (std::size_t i = 0; i < scope.positionals.size(); ++i) {
+        if (i > 0) { out << ", "; }
+        auto const element = elementOf(scope.positionals[i]);
+        out << (element.empty() ? "@()" : element);
+      }
+      out << ")\n";
     }
-    out << ")\n";
-  }
-  out << "}\n\n";
+    out << "}\n";
+  };
+  emitPosTable("PosCands", [&psList](PositionalInfo const& slot) {
+    return slot.candidates.empty() ? std::string{} : psList(slot.candidates);
+  });
+  emitPosTable("PosProvider", [&psList](PositionalInfo const& slot) {
+    return slot.provider.empty() ? std::string{} : psList({slot.provider});
+  });
+  out << "\n";
 
   out << "$__encroCands = @{\n";
   for (auto const& [id, candidates]: candidatesById(model)) {
@@ -511,6 +577,11 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
   out << "$__encroHidden = @{\n";
   for (auto const& [id, hidden]: hiddenById(model)) {
     out << "  '" << id << "' = " << psList(hidden) << "\n";
+  }
+  out << "}\n";
+  out << "$__encroProvider = @{\n";
+  for (auto const& [id, provider]: providersById(model)) {
+    out << "  '" << id << "' = '" << provider << "'\n";
   }
   out << "}\n";
 
@@ -543,6 +614,18 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
     [System.Management.Automation.CompletionResult]::new($text, $text, 'Text', $text)
   }
 
+  # Candidates of a slot backed by live data, resolved by the binary the typed
+  # word names. A missing or failing binary yields no candidates, which the
+  # caller turns into the empty-offering self-echo.
+  $__encroSlotFrom = {
+    param([string] $commandName, [string] $provider, [string] $prefix)
+    try {
+      $output = @(& $commandName completion --candidates $provider 2>$null)
+      if ($LASTEXITCODE -ne 0) { return @() }
+    } catch { return @() }
+    & $__encroResults @($output | Where-Object { $_ -ne '' }) $prefix
+  }
+
   Register-ArgumentCompleter -CommandName encro -Native -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
     # $wordToComplete is authoritative for the word being completed; the AST
@@ -570,6 +653,11 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
     $prevId = if ($__encroNameId.ContainsKey($prev)) { $__encroNameId[$prev] } else { '' }
     if ($prevId -and ($__encroValueIds -contains $prevId)) {
       if ($__encroPathIds -contains $prevId) { return @() }
+      if ($__encroProvider.ContainsKey($prevId)) {
+        $result = & $__encroSlotFrom $tokens[0] $__encroProvider[$prevId] $wordToComplete
+        if ($result.Count -gt 0) { return $result }
+        return & $__encroSelf $wordToComplete
+      }
       if ($__encroCands.ContainsKey($prevId)) {
         $result = & $__encroResults $__encroCands[$prevId] $wordToComplete
         if ($result.Count -gt 0) { return $result }
@@ -638,6 +726,14 @@ auto emitPowerShellScript(CompletionModel const& model) -> std::string {
       }
       $posn = if ($__encroPosN.ContainsKey($scope)) { $__encroPosN[$scope] } else { 0 }
       if ($slot -ge $posn) { return & $__encroSelf $wordToComplete }
+      if ($__encroPosProvider.ContainsKey($scope)) {
+        $slotProvider = $__encroPosProvider[$scope][$slot]
+        if ($slotProvider) {
+          $result = & $__encroSlotFrom $tokens[0] $slotProvider $wordToComplete
+          if ($result.Count -gt 0) { return $result }
+          return & $__encroSelf $wordToComplete
+        }
+      }
       if ($__encroPosCands.ContainsKey($scope)) {
         $cands = @($__encroPosCands[$scope][$slot])
         if ($cands.Count -gt 0) {

@@ -116,6 +116,23 @@ struct Path {
   }
 };
 
+// Marks the slot as backed by a runtime candidate provider: the emitted script
+// asks the binary for the values at completion time instead of embedding a
+// snapshot (complete-template-names design D4). One token covers both key
+// spaces: a positional has no display name, so it is recorded by pointer the
+// way Members records its own positional capture.
+struct Provider {
+  std::string_view id;
+  void operator()(CLI::Option* option) const {
+    if (option->get_lnames().empty() && option->get_snames().empty()) {
+      completion::recordPositionalProvider(option, id);
+    }
+    if (auto const name = captureLongName(option)) {
+      completion::recordProvider(*name, id);
+    }
+  }
+};
+
 struct Required {
   void operator()(CLI::Option* option) const { option->required(); }
 };

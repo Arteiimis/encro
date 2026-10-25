@@ -107,6 +107,25 @@ void requireCompletionSmokeOrSkip() {
   SKIP("Completion smoke coverage is opt-in; set ENCRO_TEST_COMPLETION=1 to run it.");
 }
 
+// The line a driver probe printed, so an assertion can check a whole candidate
+// set instead of a substring. Missing marker yields an empty string.
+auto lineStartingWith(std::string const& text, std::string const& marker) -> std::string {
+  auto const from = text.find(marker);
+  if (from == std::string::npos) { return {}; }
+  auto const to = text.find('\n', from);
+  return text.substr(from, to == std::string::npos ? std::string::npos : to - from);
+}
+
+// Seeds a template store through the real subcommand, so the dynamic slots have
+// names to complete. The caller holds the ENCRO_CONFIG override.
+bool seedTemplateStore(fs::path const& storeDir, std::string const& args) {
+  std::error_code ec;
+  fs::create_directories(storeDir, ec);
+  auto const command =
+    "\"" + forwardSlashes(pathutf8::fromPath(encroBinary())) + "\" " + args;
+  return runCapture(command).first == 0;
+}
+
 }  // namespace
 
 TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke]") {
@@ -120,6 +139,21 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
   TempDir temp;
   auto const scriptPath = emitScriptTo(temp, "bash", "encro-bash.sh");
   REQUIRE(testutils::readTextFile(scriptPath).find("organize") != std::string::npos);
+
+  // The dynamic slots read the live template store through the binary on PATH,
+  // so the store is seeded first and the working directory gains a marker
+  // `.json` file: a broken file-fallback suppression would surface it.
+  auto const storeDir = temp.path / "store";
+  auto const cwd = temp.path / "cwd";
+  auto const emptyConfig = temp.path / "empty" / "config.json";
+  std::error_code ec;
+  fs::create_directories(cwd, ec);
+  REQUIRE(fs::exists(cwd));
+  { auto marker = std::ofstream{cwd / "marker.json", std::ios::binary}; }
+  auto const configOverride =
+    testutils::ScopedEnvVar{"ENCRO_CONFIG", pathutf8::fromPath(storeDir / "config.json")};
+  REQUIRE(seedTemplateStore(storeDir, "template save anime --crf 24"));
+  REQUIRE(seedTemplateStore(storeDir, "template save webp --preset p5"));
 
   // Driver: source the completion, drive several positions, print candidates.
   auto const driver = temp.path / "drive.sh";
@@ -153,7 +187,41 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
       << "echo \"POSFLAG: $(probe encro completion --install '')\"\n"
       << "echo \"POSDONE: $(probe encro completion bash '')\"\n"
       << "echo \"POSNOMATCH: $(probe encro completion zz)\"\n"
-      << "echo \"POSPATH: $(probe encro organize --model-dir X '')\"\n";
+      << "echo \"POSPATH: $(probe encro organize --model-dir X '')\"\n"
+      // Dynamic template-name slots: the glue runs `encro completion
+      // --candidates`, so the store probes need the build dir on PATH.
+      << "export PATH=\"$(cygpath -u '"
+      << forwardSlashes(pathutf8::fromPath(executableDir()))
+      << "'):$PATH\"\n"
+      << "cd \""
+      << forwardSlashes(pathutf8::fromPath(cwd))
+      << "\"\n"
+      << "echo \"TNAME: $(probe encro -T '')\"\n"
+      << "echo \"TNAMEPREFIX: $(probe encro -T a)\"\n"
+      << "echo \"TEMPLONGFORM: $(probe encro --template w)\"\n"
+      << "echo \"SHOWNAME: $(probe encro template show '')\"\n"
+      << "echo \"DELPREFIX: $(probe encro template delete a)\"\n"
+      << "echo \"KEYS: $(probe encro template unset anime '')\"\n"
+      << "echo \"KEYPREFIX: $(probe encro template unset anime cr)\"\n"
+      << "echo \"UNSETSLOT: $(probe encro template unset '')\"\n"
+      << "echo \"LISTSLOT: $(probe encro template list '')\"\n"
+      << "echo \"TSECOND: $(probe encro -T anime -T '')\"\n"
+      << "echo \"TPLVERB: $(probe encro template '')\"\n"
+      << "echo \"TPLSTATIC: $(probe encro --output-format '')\"\n"
+      // Provider unavailable: the binary is off PATH, so the dynamic slots go
+      // quiet while the embedded candidate data keeps answering.
+      << "export PATH=/usr/bin:/bin\n"
+      << "echo \"TNAMEOFF: $(probe encro -T '')\"\n"
+      << "echo \"TPLSTATICOFF: $(probe encro --output-format '')\"\n"
+      << "echo \"KEYSOFF: $(probe encro template unset anime '')\"\n"
+      // Empty store: nothing to offer, and still no file fallback.
+      << "export PATH=\"$(cygpath -u '"
+      << forwardSlashes(pathutf8::fromPath(executableDir()))
+      << "'):$PATH\"\n"
+      << "export ENCRO_CONFIG=\""
+      << forwardSlashes(pathutf8::fromPath(emptyConfig))
+      << "\"\n"
+      << "echo \"TNAMEEMPTY: $(probe encro -T '')\"\n";
   }
 
   auto const [exitCode, output] =
@@ -183,6 +251,35 @@ TEST_CASE("bash smoke: sourced script completes candidates", "[completion][smoke
   // function falls through (no suppression), leaving file completion to bash.
   CHECK(output.find("POSPATH: SUPPRESSED") == std::string::npos);
   CHECK(output.find("POSPATH: --") == std::string::npos);
+  // Dynamic template-name slots read the live store through the binary, so the
+  // candidates are the stored names, filtered by the typed prefix, and never
+  // the marker .json file in the working directory.
+  CHECK(lineStartingWith(output, "TNAME: ") == "TNAME: anime webp");
+  CHECK(lineStartingWith(output, "TNAMEPREFIX: ") == "TNAMEPREFIX: anime");
+  CHECK(lineStartingWith(output, "TEMPLONGFORM: ") == "TEMPLONGFORM: webp");
+  CHECK(lineStartingWith(output, "SHOWNAME: ") == "SHOWNAME: anime webp");
+  CHECK(lineStartingWith(output, "DELPREFIX: ") == "DELPREFIX: anime");
+  auto const keys = lineStartingWith(output, "KEYS: ");
+  CHECK(keys.find(" crf") != std::string::npos);
+  CHECK(keys.find(" preset") != std::string::npos);
+  CHECK(keys.find("input") == std::string::npos);
+  CHECK(lineStartingWith(output, "KEYPREFIX: ") == "KEYPREFIX: crf");
+  // Candidates belong to the slot, not the action: the name slot is filled
+  // whatever verb was typed, and a second -T still completes the value slot.
+  CHECK(lineStartingWith(output, "UNSETSLOT: ") == "UNSETSLOT: anime webp");
+  CHECK(lineStartingWith(output, "LISTSLOT: ") == "LISTSLOT: anime webp");
+  CHECK(lineStartingWith(output, "TSECOND: ") == "TSECOND: anime webp");
+  CHECK(
+    lineStartingWith(output, "TPLVERB: ")
+    == "TPLVERB: list show save unset delete path schema"
+  );
+  CHECK(lineStartingWith(output, "TPLSTATIC: ") == "TPLSTATIC: mp4 webp");
+  // Binary off PATH: dynamic slots go quiet, embedded candidates still answer.
+  CHECK(lineStartingWith(output, "TNAMEOFF: ") == "TNAMEOFF: SUPPRESSED");
+  CHECK(lineStartingWith(output, "TPLSTATICOFF: ") == "TPLSTATICOFF: mp4 webp");
+  CHECK(lineStartingWith(output, "KEYSOFF: ").find(" crf") != std::string::npos);
+  // Empty store: nothing to offer, and no file fallback either.
+  CHECK(lineStartingWith(output, "TNAMEEMPTY: ") == "TNAMEEMPTY: SUPPRESSED");
 }
 
 TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][smoke]") {
@@ -207,6 +304,21 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
 
   // Known file so the empty-return file fallback lists something assertable.
   { auto stream = std::ofstream{temp.path / "zzz.txt", std::ios::binary}; }
+
+  // The dynamic slots read the live template store through the binary on PATH,
+  // so the store is seeded first; the marker `.json` file makes a broken
+  // file-fallback suppression visible.
+  auto const storeDir = temp.path / "store";
+  auto const cwd = temp.path / "cwd";
+  auto const emptyConfig = temp.path / "empty" / "config.json";
+  std::error_code ec;
+  fs::create_directories(cwd, ec);
+  REQUIRE(fs::exists(cwd));
+  { auto marker = std::ofstream{cwd / "marker.json", std::ios::binary}; }
+  auto const configOverride =
+    testutils::ScopedEnvVar{"ENCRO_CONFIG", pathutf8::fromPath(storeDir / "config.json")};
+  REQUIRE(seedTemplateStore(storeDir, "template save anime --crf 24"));
+  REQUIRE(seedTemplateStore(storeDir, "template save webp --preset p5"));
 
   auto const driver = temp.path / "drive-ps.ps1";
   {
@@ -235,7 +347,41 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
       << "echo \"POSPREFIX: $(Probe 'encro completion p')\"\n"
       << "echo \"POSFLAG: $(Probe 'encro completion --install ')\"\n"
       << "echo \"POSDONE: $(Probe 'encro completion bash zz')\"\n"
-      << "echo \"POSPATH: $(Probe 'encro organize --model-dir X ')\"\n";
+      << "echo \"POSPATH: $(Probe 'encro organize --model-dir X ')\"\n"
+      // Dynamic template-name slots: the glue runs `encro completion
+      // --candidates`, so the store probes need the build dir on PATH.
+      << "$env:PATH = '"
+      << forwardSlashes(pathutf8::fromPath(executableDir()))
+      << ";' + $env:PATH\n"
+      << "Set-Location -LiteralPath '"
+      << forwardSlashes(pathutf8::fromPath(cwd))
+      << "'\n"
+      << "echo \"TNAME: $(Probe 'encro -T ')\"\n"
+      << "echo \"TNAMEPREFIX: $(Probe 'encro -T a')\"\n"
+      << "echo \"TEMPLONGFORM: $(Probe 'encro --template w')\"\n"
+      << "echo \"SHOWNAME: $(Probe 'encro template show ')\"\n"
+      << "echo \"DELPREFIX: $(Probe 'encro template delete a')\"\n"
+      << "echo \"KEYS: $(Probe 'encro template unset anime ')\"\n"
+      << "echo \"KEYPREFIX: $(Probe 'encro template unset anime cr')\"\n"
+      << "echo \"UNSETSLOT: $(Probe 'encro template unset ')\"\n"
+      << "echo \"LISTSLOT: $(Probe 'encro template list ')\"\n"
+      << "echo \"TSECOND: $(Probe 'encro -T anime -T ')\"\n"
+      << "echo \"TPLVERB: $(Probe 'encro template ')\"\n"
+      << "echo \"TPLSTATIC: $(Probe 'encro --output-format ')\"\n"
+      // Provider unavailable: the binary is off PATH, so the dynamic slots go
+      // quiet while the embedded candidate data keeps answering.
+      << "$env:PATH = $env:SystemRoot + '\\System32'\n"
+      << "echo \"TNAMEOFF: $(Probe 'encro -T ')\"\n"
+      << "echo \"TPLSTATICOFF: $(Probe 'encro --output-format ')\"\n"
+      << "echo \"KEYSOFF: $(Probe 'encro template unset anime ')\"\n"
+      // Empty store: nothing to offer, and still no file fallback.
+      << "$env:PATH = '"
+      << forwardSlashes(pathutf8::fromPath(executableDir()))
+      << ";' + $env:PATH\n"
+      << "$env:ENCRO_CONFIG = '"
+      << forwardSlashes(pathutf8::fromPath(emptyConfig))
+      << "'\n"
+      << "echo \"TNAMEEMPTY: $(Probe 'encro -T ')\"\n";
   }
 
   auto const [exitCode, output] = runCapture(
@@ -271,4 +417,33 @@ TEST_CASE("powershell smoke: TabExpansion2 returns candidates", "[completion][sm
     output.substr(pospathPos, output.find('\n', pospathPos) - pospathPos);
   CHECK(pospathLine.find("zzz.txt") != std::string::npos);
   CHECK(pospathLine.find("--") == std::string::npos);
+  // Dynamic template-name slots read the live store through the binary; the
+  // candidates are the stored names, filtered by the typed prefix, and never
+  // the marker .json file in the working directory.
+  CHECK(lineStartingWith(output, "TNAME: ") == "TNAME: anime,webp");
+  CHECK(lineStartingWith(output, "TNAMEPREFIX: ") == "TNAMEPREFIX: anime");
+  CHECK(lineStartingWith(output, "TEMPLONGFORM: ") == "TEMPLONGFORM: webp");
+  CHECK(lineStartingWith(output, "SHOWNAME: ") == "SHOWNAME: anime,webp");
+  CHECK(lineStartingWith(output, "DELPREFIX: ") == "DELPREFIX: anime");
+  auto const keys = lineStartingWith(output, "KEYS: ");
+  CHECK(keys.find(",crf") != std::string::npos);
+  CHECK(keys.find("preset") != std::string::npos);
+  CHECK(keys.find("input") == std::string::npos);
+  CHECK(lineStartingWith(output, "KEYPREFIX: ") == "KEYPREFIX: crf");
+  // Candidates belong to the slot, not the action: the name slot is filled
+  // whatever verb was typed, and a second -T still completes the value slot.
+  CHECK(lineStartingWith(output, "UNSETSLOT: ") == "UNSETSLOT: anime,webp");
+  CHECK(lineStartingWith(output, "LISTSLOT: ") == "LISTSLOT: anime,webp");
+  CHECK(lineStartingWith(output, "TSECOND: ") == "TSECOND: anime,webp");
+  CHECK(
+    lineStartingWith(output, "TPLVERB: ")
+    == "TPLVERB: list,show,save,unset,delete,path,schema"
+  );
+  CHECK(lineStartingWith(output, "TPLSTATIC: ") == "TPLSTATIC: mp4,webp");
+  // Binary off PATH: dynamic slots go quiet, embedded candidates still answer.
+  CHECK(lineStartingWith(output, "TNAMEOFF: ") == "TNAMEOFF:  ");
+  CHECK(lineStartingWith(output, "TPLSTATICOFF: ") == "TPLSTATICOFF: mp4,webp");
+  CHECK(lineStartingWith(output, "KEYSOFF: ").find(",crf") != std::string::npos);
+  // Empty store: nothing to offer, and no file fallback either.
+  CHECK(lineStartingWith(output, "TNAMEEMPTY: ") == "TNAMEEMPTY:  ");
 }

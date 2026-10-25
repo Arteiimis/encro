@@ -12,8 +12,12 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
+
+namespace fs = std::filesystem;
 
 namespace {
 
@@ -177,28 +181,31 @@ TEST_CASE("model carries positional candidates per subcommand scope", "[completi
   REQUIRE(completionScope != nullptr);
   REQUIRE(completionScope->positionals.size() == 1);
   REQUIRE(
-    completionScope->positionals.front() == std::vector<std::string>{"bash", "powershell"}
+    completionScope->positionals.front().candidates
+    == std::vector<std::string>{"bash", "powershell"}
   );
 
   auto const* config = findScope(model, "config");
   REQUIRE(config != nullptr);
   REQUIRE(config->positionals.size() == 3);  // verb, key, value
   REQUIRE(
-    config->positionals.front()
+    config->positionals.front().candidates
     == std::vector<std::string>{"list", "get", "set", "unset", "path"}
   );
-  REQUIRE(config->positionals[1].empty());  // key slot: dynamic, no enum
-  REQUIRE(config->positionals[2].empty());  // value slot: dynamic, no enum
+  REQUIRE(config->positionals[1].candidates.empty());  // key slot: dynamic, no enum
+  REQUIRE(config->positionals[2].candidates.empty());  // value slot: dynamic, no enum
 
   auto const* organize = findScope(model, "organize");
   REQUIRE(organize != nullptr);
   REQUIRE(organize->positionals.size() == 1);
-  REQUIRE(organize->positionals.front().empty());
+  REQUIRE(organize->positionals.front().candidates.empty());
 
   auto const* preview = findScope(model, "preview");
   REQUIRE(preview != nullptr);
   REQUIRE(preview->positionals.size() == 2);
-  for (auto const& positional: preview->positionals) { REQUIRE(positional.empty()); }
+  for (auto const& positional: preview->positionals) {
+    REQUIRE(positional.candidates.empty());
+  }
 }
 
 // shell-completion: a registered but unavailable subcommand is not part of the
@@ -261,6 +268,26 @@ TEST_CASE("emitted scripts cover the full surface deterministically", "[completi
   REQUIRE(contains(powershell, "Register-ArgumentCompleter -CommandName encro -Native"));
 }
 
+TEST_CASE("emission does not depend on the template store", "[completion][template]") {
+  auto const baseline = completion::emitBashScript(completion::buildCompletionModel());
+
+  TempDir temp;
+  testutils::ScopedEnvVar const
+    env{"ENCRO_CONFIG", pathutf8::fromPath(temp.path / "config.json")};
+  std::error_code ec;
+  fs::create_directories(temp.path / "templates", ec);
+  for (auto const* name: {"anime.json", "zzz.json"}) {
+    auto stream = std::ofstream{temp.path / "templates" / name, std::ios::binary};
+    stream << "{\"$schema\": \"./templates.schema.json\"}\n";
+  }
+
+  auto const withStore = completion::emitBashScript(completion::buildCompletionModel());
+
+  REQUIRE(withStore == baseline);
+  CHECK_FALSE(contains(withStore, "anime"));
+  CHECK_FALSE(contains(withStore, "zzz"));
+}
+
 TEST_CASE("emission is independent of stored config", "[completion]") {
   auto const model = completion::buildCompletionModel();
   auto const baseline = completion::emitBashScript(model);
@@ -317,6 +344,31 @@ TEST_CASE("scope model keeps a short-only option", "[completion]") {
   CHECK_FALSE(found->id.empty());
 }
 
+TEST_CASE("scope model projects providers for values and positionals", "[completion]") {
+  // Leaked on purpose: positional registrations are keyed by option pointer, so
+  // the app has to outlive its entry (production trees are leaked the same way).
+  // The value slot reuses a real long name, so the process registry keeps no
+  // entry the live tree cannot resolve (the capture tests assert exactly that).
+  auto* app = new CLI::App{"synthetic"};
+  auto* positional = app->add_option("slot", "positional slot");
+  app->add_option("--template", "value slot");
+
+  completion::recordProvider("--template", completion::kTemplateNameProvider);
+  completion::recordPositional(positional, {"static"});
+  completion::recordPositionalProvider(positional, completion::kTemplateNameProvider);
+
+  auto const scope = completion::buildScope(*app, "synthetic");
+
+  auto const* option = findOption(scope, "template");
+  REQUIRE(option != nullptr);
+  CHECK(option->provider == completion::kTemplateNameProvider);
+  CHECK(option->candidates.empty());
+
+  REQUIRE(scope.positionals.size() == 1);
+  CHECK(scope.positionals.front().candidates == std::vector<std::string>{"static"});
+  CHECK(scope.positionals.front().provider == completion::kTemplateNameProvider);
+}
+
 TEST_CASE(
   "the template subcommand and its verbs are completed",
   "[completion][template]"
@@ -349,10 +401,48 @@ TEST_CASE(
   // -v twice.
   REQUIRE(contains(bash, "_ENCRO_OPTS_template=\"--help -h\""));
 
-  // Three positional slots, verbs in the first, nothing for name/key.
+  // The name slots are provider-backed: -T's value and the template scope's
+  // name slot resolve from the template store at completion time.
+  auto const* selected = findOption(model.main, "template");
+  REQUIRE(selected != nullptr);
+  REQUIRE(selected->provider == completion::kTemplateNameProvider);
+
+  // The emitted script carries the provider ids and no template name.
+  REQUIRE(contains(bash, "_ENCRO_PROV_template=\"template-name\""));
+  REQUIRE(contains(bash, "_ENCRO_POSPROV_template=\":template-name:\""));
+  REQUIRE(contains(powershell, "  'template' = 'template-name'"));
+  REQUIRE(contains(powershell, "  'template' = @(@(), @('template-name'), @())"));
+
+  auto const* templateScope = findScope(model, "template");
+  REQUIRE(templateScope != nullptr);
+  REQUIRE(templateScope->positionals.size() == 3);
+  REQUIRE(templateScope->positionals[1].provider == completion::kTemplateNameProvider);
+  REQUIRE(templateScope->positionals[1].candidates.empty());
+
+  // The key slot stays static: the templateable keys, sorted, and no input path.
+  auto const& slots = templateScope->positionals;
+  auto const& keys = slots[2].candidates;
+  REQUIRE_FALSE(keys.empty());
+  CHECK(std::ranges::is_sorted(keys));
+  CHECK(has(keys, "crf"));
+  CHECK(has(keys, "preset"));
+  CHECK(has(keys, "output"));
+  CHECK_FALSE(has(keys, "input"));
+  CHECK_FALSE(has(keys, "state-file"));
+  CHECK(slots[2].provider.empty());
+
+  // Three positional slots: verbs first, the provider-backed name, then keys.
   REQUIRE(contains(bash, "_ENCRO_POSN_template=3"));
-  REQUIRE(contains(
-    bash,
-    "_ENCRO_POSCANDS_template=\"list show save unset delete path schema::\""
-  ));
+  auto const verbMarker =
+    std::string{"_ENCRO_POSCANDS_template=\"list show save unset delete path schema::"};
+  auto const verbFrom = bash.find(verbMarker);
+  REQUIRE(verbFrom != std::string::npos);
+  auto const verbTo = bash.find('"', verbFrom + verbMarker.size());
+  REQUIRE(verbTo != std::string::npos);
+  auto const emittedKeys = splitWords(
+    bash.substr(verbFrom + verbMarker.size(), verbTo - verbFrom - verbMarker.size())
+  );
+  CHECK(has(emittedKeys, "crf"));
+  CHECK(has(emittedKeys, "preset"));
+  CHECK_FALSE(has(emittedKeys, "input"));
 }

@@ -88,7 +88,7 @@ The `template` subcommand's `<key>` positional SHALL offer the templateable keys
 
 ### Requirement: The candidate provider is a machine-readable channel
 
-`encro completion --candidates <slot>` SHALL print the named slot's candidates one per line and exit 0, print nothing and exit 0 when that set is empty, and exit non-zero with an error naming an unknown slot id. It SHALL resolve the templates directory as `encro template path` does, SHALL read no stored config values, and SHALL parse no template files, so a malformed template file leaves the candidate set intact.
+`encro completion --candidates <slot>` SHALL print the named slot's candidates one per line and exit 0, print nothing and exit 0 when that set is empty, and exit non-zero with an error naming an unknown slot id. It SHALL be mutually exclusive with `--install` and `--uninstall`. It SHALL resolve the templates directory as `encro template path` does, SHALL read no stored config values, and SHALL parse no template files, so a malformed template file leaves the candidate set intact.
 
 #### Scenario: Names are printed one per line
 
@@ -104,6 +104,11 @@ The `template` subcommand's `<key>` positional SHALL offer the templateable keys
 
 - **WHEN** the user runs `encro completion --candidates nosuch-slot`
 - **THEN** the command exits non-zero and the error names `nosuch-slot`
+
+#### Scenario: The channel cannot be combined with an install action
+
+- **WHEN** the user runs `encro completion --candidates template-name --install`
+- **THEN** the command is rejected during argument parsing, because the channel answers instead of acting on the installed script
 
 #### Scenario: Candidates follow the slot, not the action
 

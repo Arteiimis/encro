@@ -66,7 +66,7 @@ encro batch ./releases -t picture -c
 
 ## Shell completion
 
-Tab completion for options, enum values, and config keys is generated from the CLI itself, so it always matches your build.
+Tab completion for options, enum values, and config keys is generated from the CLI itself, so it always matches your build. Stored template names are the exception: `encro -T <TAB>` and the name slot of `encro template show/save/unset/delete` ask the binary for them at completion time, so saving or deleting a template changes what completes without re-installing anything.
 
 ```sh
 # PowerShell — install (one guarded block per profile:
@@ -77,7 +77,7 @@ encro completion powershell --install
 encro completion bash --install
 ```
 
-`--uninstall` removes everything `--install` created; re-run `--install` after upgrading encro to refresh the embedded candidates. `encro completion bash` and `encro completion powershell` print the script to stdout without installing anything.
+`--uninstall` removes everything `--install` created; re-run `--install` after upgrading encro to refresh the embedded candidates (template names need no refresh — they are resolved when you press TAB). `encro completion bash` and `encro completion powershell` print the script to stdout without installing anything.
 
 > Note: on Git Bash the bash installer targets `%USERPROFILE%` (the Git-for-Windows default `HOME`); with a custom MSYS `HOME`, wire the printed script manually.
 

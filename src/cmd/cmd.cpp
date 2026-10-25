@@ -428,7 +428,12 @@ auto registerTemplateSubcommand(CLI::App& app, CmdParseResult& result) -> CLI::A
       "delete <name> | path | schema",
       cfg::Members{"list", "show", "save", "unset", "delete", "path", "schema"}
     ),
-    opt("name", &result.templateName, "template name (show/save/unset/delete)"),
+    opt(
+      "name",
+      &result.templateName,
+      "template name (show/save/unset/delete)",
+      cfg::Provider{completion::kTemplateNameProvider}
+    ),
     opt("key", &result.templateKey, "template key (unset)"),
   };
   registerAll(sub, options, result.keyEntries);
@@ -478,6 +483,14 @@ auto registerCompletionSubcommand(CLI::App& app, CmdParseResult& result) -> CLI:
       "remove the installed completion script",
       cfg::Excludes{"--install"}
     ),
+    opt(
+      "--candidates",
+      &result.completionCandidates,
+      "print one dynamic slot's candidates, one per line (called by the "
+      "generated scripts)",
+      cfg::Excludes{"--install"},
+      cfg::Excludes{"--uninstall"}
+    ),
   };
   registerAll(sub, options, result.keyEntries);
   installCompletionHelpFormatter(*sub);
@@ -505,7 +518,10 @@ auto registerGeneralFlags(CLI::App& app, CLI::App* general, CmdParseResult& resu
       &result.selectedTemplate,
       "replay a stored argument template by name (without a name: list "
       "templates)",
-      cfg::Expected{0, 1}
+      cfg::Expected{0, 1},
+      // Names live on disk, so the emitted script asks the binary for them at
+      // completion time (complete-template-names design D2).
+      cfg::Provider{completion::kTemplateNameProvider}
     ),
     opt(
       "--quiet,--no-quiet{false}",
@@ -1121,6 +1137,16 @@ auto buildAppTree(
   );
   if (templateTable.has_value()) {
     result.templateTable = *templateTable;
+    // Completion offers the templateable keys at the `template` key positional
+    // (complete-template-names design D5). Sorted, so the embedded candidate
+    // list is stable rather than following the table's write order.
+    if (auto* keyOpt = templateSub->get_option_no_throw("key"); keyOpt != nullptr) {
+      auto keys = std::vector<std::string>{};
+      keys.reserve(result.templateTable.keys.size());
+      for (auto const& def: result.templateTable.keys) { keys.emplace_back(def.key); }
+      std::ranges::sort(keys);
+      completion::recordPositional(keyOpt, std::move(keys));
+    }
   } else if (!result.error.has_value()) {
     result.error = templateTable.error();
   }

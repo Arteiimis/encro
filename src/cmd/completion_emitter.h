@@ -3,6 +3,8 @@
 // with static candidate data embedded (add-shell-completion design D2/D3/D4).
 #pragma once
 
+#include "cmd/completion_registry.h"
+
 #include <map>
 #include <optional>
 #include <string>
@@ -23,15 +25,16 @@ struct OptionInfo {
   bool takesValue = false;
   std::vector<std::string> candidates;  // registry-captured legal values
   bool numeric = false;
+  std::string provider;                 // runtime candidate source (empty: static)
   std::vector<std::string> hiddenBy;    // names: any typed => hide this option
 };
 
+// One positional slot in registration order. A slot with neither candidates nor
+// a provider delegates to the shell's native file completion.
 struct ScopeInfo {
   std::string name;  // "" for the main command
   std::vector<OptionInfo> options;
-  // Positional slots in registration order; an empty entry delegates the
-  // slot to the shell's native file completion.
-  std::vector<std::vector<std::string>> positionals;
+  std::vector<PositionalInfo> positionals;
 };
 
 struct CompletionModel {
