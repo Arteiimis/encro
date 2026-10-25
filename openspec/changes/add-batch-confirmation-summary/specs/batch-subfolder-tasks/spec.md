@@ -38,16 +38,16 @@ The count's noun SHALL follow the run's work: `video(s)` in a video run, `pictur
 
 ### Requirement: Scope-block counts are scan-time values
 
-The block SHALL report the counts the run's scans find — the quantities each phase's `Found <n> ...` line reports, summed for a picture run that converts videos — and SHALL NOT state how many entries will be encoded, converted or kept.
+The block SHALL report the counts the run's scans find, and SHALL NOT state how many entries will be encoded, converted or kept. A count can therefore exceed what a phase's `Found <n> ...` line reports, because the pipeline's own video scan drops an already-encoded HEVC file before that line prints.
 
 #### Scenario: Counts are scanned entries, not a work promise
 
 - **WHEN** a video subfolder holds videos that the later scan and probe drop (already-encoded HEVC files, or a probe estimating an output larger than the source)
 - **THEN** the block still reports the scanned count it printed before the run, and no line of the block states how many entries will be encoded or kept
 
-### Requirement: A batch that asks no confirmation prints no scope block
+### Requirement: Runs that ask nothing or stay quiet print no scope block
 
-A batch that will not ask a confirmation, or whose narration is suppressed, SHALL print no scope block: `--yes`, `--pack-only`, `--dry-run` and `--quiet` runs, and batches whose subfolders all have no processable media.
+A batch SHALL print no scope block for a `--yes`, `--pack-only`, `--dry-run` or `--quiet` run, for a batch whose subfolders all have no processable media, and for a batch whose stop request arrived before the first subfolder.
 
 #### Scenario: --yes prints no block
 
@@ -73,3 +73,8 @@ A batch that will not ask a confirmation, or whose narration is suppressed, SHAL
 
 - **WHEN** every enumerated subfolder has no processable media
 - **THEN** no scope block prints, every subfolder is skipped with its notice, and the summary table reports the run as today
+
+#### Scenario: A stop that already arrived prints no block
+
+- **WHEN** a stop request arrives before the first subfolder starts work
+- **THEN** no scope block prints, and every subfolder is skipped as a stop exactly as before

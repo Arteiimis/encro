@@ -2,10 +2,12 @@
 #include "batch/batch.h"
 #include "core/app_context.h"
 #include "infra/stop_signal.h"
+#include "infra/terminal.h"
 #include "test_utils.h"
 
 #include <array>
 #include <filesystem>
+#include <format>
 #include <istream>
 #include <sstream>
 #include <string>
@@ -14,6 +16,7 @@
 
 namespace fs = std::filesystem;
 
+using testutils::copyFakeProbe;
 using testutils::copyFakeTool;
 using testutils::countOccurrences;
 using testutils::readTextFile;
@@ -92,6 +95,47 @@ auto namesOf(std::vector<fs::path> const& paths) -> std::vector<std::string> {
   return names;
 }
 
+constexpr auto kBlockClosing =
+  std::string_view{"The confirmation below covers every subfolder in this batch."};
+
+// The scope block runs from its header through its closing statement; below it
+// come the first subfolder's own narration and then the question. Empty when
+// no block printed.
+auto scopeBlockOf(std::string const& text) -> std::string {
+  constexpr auto kHeader = std::string_view{"Batch: "};
+  auto const start = text.find(kHeader);
+  if (start == std::string::npos) { return {}; }
+  auto const end = text.find(kBlockClosing, start);
+  if (end == std::string::npos) { return {}; }
+  return text.substr(start, end + kBlockClosing.size() - start);
+}
+
+// One batch run with stdout captured: the per-subfolder results and the
+// colour-free console text the assertions read.
+struct CapturedRun {
+  eh::Result<std::vector<batch::SubTaskResult>> results;
+  std::string text;
+};
+
+auto runCaptured(batch::BatchRequest& request) -> CapturedRun {
+  auto run = CapturedRun{};
+  auto const captured =
+    testutils::captureStdout([&] { run.results = batch::runTasks(request); });
+  run.text = testutils::stripAnsi(captured);
+  return run;
+}
+
+// Two processable subfolders (2 and 1 pictures) plus one media-less subfolder,
+// all reaching the packing confirmation in name order.
+auto makeScopedPictureBatch(TempDir const& temp) -> fs::path {
+  auto const root = temp.path / "root";
+  for (auto const* name: {"a", "b", "c"}) { fs::create_directories(root / name); }
+  writeTextFile(root / "a" / "one.jpg");
+  writeTextFile(root / "a" / "two.jpg");
+  writeTextFile(root / "b" / "one.jpg");
+  return root;
+}
+
 }  // namespace
 
 TEST_CASE("batch enumeration keeps first-level subdirectories in name order", "[batch]") {
@@ -148,24 +192,24 @@ TEST_CASE("batch pre-check matches the video encode scan", "[batch]") {
 
   SECTION("a video file counts") {
     writeTextFile(temp.path / "a.mkv");
-    CHECK(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 1);
   }
 
   SECTION("a non-video file does not") {
     writeTextFile(temp.path / "a.txt");
-    CHECK_FALSE(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 0);
   }
 
   SECTION("an oversized video does not count for webp output") {
     config.outputFormat = "webp";
     testutils::writeSizedFile(temp.path / "big.mkv", 33 * 1024 * 1024);
-    CHECK_FALSE(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 0);
   }
 
   SECTION("a small video counts for webp output") {
     config.outputFormat = "webp";
     testutils::writeSizedFile(temp.path / "small.mkv", 128);
-    CHECK(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 1);
   }
 }
 
@@ -177,12 +221,12 @@ TEST_CASE("batch pre-check matches the picture compress scan", "[batch]") {
 
   SECTION("a picture file counts") {
     writeTextFile(temp.path / "a.jpg");
-    CHECK(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 1);
   }
 
   SECTION("a video file does not") {
     writeTextFile(temp.path / "a.mkv");
-    CHECK_FALSE(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 0);
   }
 }
 
@@ -195,22 +239,22 @@ TEST_CASE("batch pre-check counts videos as tasks under video-webp", "[batch]") 
 
   SECTION("a video-only subfolder counts") {
     writeTextFile(temp.path / "a.mkv");
-    CHECK(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 1);
   }
 
   SECTION("a picture-only subfolder counts") {
     writeTextFile(temp.path / "a.png");
-    CHECK(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 1);
   }
 
   SECTION("an oversized video-only subfolder does not count") {
     testutils::writeSizedFile(temp.path / "big.mkv", 33 * 1024 * 1024);
-    CHECK_FALSE(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 0);
   }
 
   SECTION("neither does not") {
     writeTextFile(temp.path / "a.txt");
-    CHECK_FALSE(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 0);
   }
 }
 
@@ -222,17 +266,18 @@ TEST_CASE("batch pre-check treats any file as packable under pack-only", "[batch
 
   SECTION("a loose file counts") {
     writeTextFile(temp.path / "a.bin");
-    CHECK(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 1);
   }
 
   SECTION("a nested file counts") {
     fs::create_directories(temp.path / "nested");
     writeTextFile(temp.path / "nested" / "b.bin");
-    CHECK(batch::hasProcessableMedia(config, temp.path));
+    // Presence-only: pack-only reports 1 for "has files", never a real count.
+    CHECK(batch::countProcessableMedia(config, temp.path) == 1);
   }
 
   SECTION("an empty tree does not") {
-    CHECK_FALSE(batch::hasProcessableMedia(config, temp.path));
+    CHECK(batch::countProcessableMedia(config, temp.path) == 0);
   }
 }
 
@@ -638,6 +683,274 @@ TEST_CASE("a batch with --yes asks nothing", "[batch]") {
     testutils::stripAnsi(captured).find("do you want to proceed with packing")
     == std::string::npos
   );
+  // No confirmation means no scope block either.
+  CHECK(scopeBlockOf(testutils::stripAnsi(captured)).empty());
   CHECK(zipFilesIn(root / "packed" / "a").size() == 1);
   CHECK(zipFilesIn(root / "packed" / "b").size() == 1);
+}
+
+TEST_CASE("a batch states its scope before the confirmation", "[batch]") {
+  TempDir temp;
+  auto const root = makeScopedPictureBatch(temp);
+
+  auto input = std::istringstream{"y\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+  auto request = makePictureRequest(root, root / "packed");
+  auto const run = runCaptured(request);
+
+  REQUIRE(run.results);
+  CHECK(run.text.find("Batch: 3 picture(s) in 2 of 3 subfolder(s)") != std::string::npos);
+  CHECK(
+    run.text.find(std::format("  2  {}", pathutf8::fromPath(root / "a")))
+    != std::string::npos
+  );
+  CHECK(
+    run.text.find(std::format("  1  {}", pathutf8::fromPath(root / "b")))
+    != std::string::npos
+  );
+  CHECK(run.text.find(kBlockClosing) != std::string::npos);
+
+  // The block states the scope before the first subfolder's own narration and
+  // before the question whose scope it disambiguates.
+  auto const blockAt = run.text.find("Batch: ");
+  auto const firstScanAt = run.text.find("Found ");
+  auto const questionAt = run.text.find("do you want to proceed with packing");
+  REQUIRE(blockAt != std::string::npos);
+  REQUIRE(firstScanAt != std::string::npos);
+  REQUIRE(questionAt != std::string::npos);
+  CHECK(blockAt < firstScanAt);
+  CHECK(firstScanAt < questionAt);
+}
+
+TEST_CASE("the scope block leaves the confirmation question unchanged", "[batch]") {
+  TempDir temp;
+  auto const root = makeScopedPictureBatch(temp);
+
+  auto input = std::istringstream{"y\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+  auto request = makePictureRequest(root, root / "packed");
+  auto const run = runCaptured(request);
+  auto const block = scopeBlockOf(run.text);
+
+  REQUIRE(run.results);
+  REQUIRE_FALSE(block.empty());
+  // One question, byte-identical to the single-directory wording, and the block
+  // itself asks nothing and carries no badge or severity prefix.
+  CHECK(
+    countOccurrences(
+      run.text,
+      "do you want to proceed with packing the pictures? (Y/n): "
+    )
+    == 1
+  );
+  CHECK(countOccurrences(run.text, "(Y/n)") == 1);
+  CHECK(block.find("warning: ") == std::string::npos);
+  CHECK(block.find("error: ") == std::string::npos);
+  CHECK(block.find('[') == std::string::npos);
+}
+
+TEST_CASE("a media-less subfolder has no scope row", "[batch]") {
+  TempDir temp;
+  auto const root = makeScopedPictureBatch(temp);
+
+  auto input = std::istringstream{"y\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+  auto request = makePictureRequest(root, root / "packed");
+  auto const run = runCaptured(request);
+
+  REQUIRE(run.results);
+  REQUIRE_FALSE(run.text.empty());
+  CHECK(scopeBlockOf(run.text).find(pathutf8::fromPath(root / "c")) == std::string::npos);
+  // It keeps its own skip notice at its turn.
+  CHECK(
+    run.text.find(
+      std::format("Skipping {}: no processable media.", pathutf8::fromPath(root / "c"))
+    )
+    != std::string::npos
+  );
+}
+
+TEST_CASE("a video run counts videos", "[batch]") {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  fs::create_directories(root / "a");
+  fs::create_directories(root / "b");
+  writeTextFile(root / "a" / "one.mkv");
+  writeTextFile(root / "a" / "two.mkv");
+  writeTextFile(root / "b" / "one.mkv");
+
+  auto request = makePictureRequest(root, root / "packed");
+  request.baseConfig.processType = "video";
+  // The question, not the encode, is what this case reaches: --crf skips the
+  // size-estimation probe, and the fake probe answers the scan that still runs.
+  request.baseConfig.crf = 28;
+  request.toolchain.ffmpegPath = copyFakeTool(temp.path, "ffmpeg");
+  request.toolchain.ffprobePath = copyFakeTool(temp.path, "ffprobe");
+  auto const probeJson = copyFakeProbe(temp.path);
+
+  auto input = std::istringstream{"n\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+  auto const run = runCaptured(request);
+
+  REQUIRE(run.results);
+  CHECK(run.text.find("Batch: 3 video(s) in 2 of 2 subfolder(s)") != std::string::npos);
+  CHECK(
+    run.text.find(std::format("  2  {}", pathutf8::fromPath(root / "a")))
+    != std::string::npos
+  );
+}
+
+TEST_CASE("a video-webp picture run counts items", "[batch]") {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  fs::create_directories(root / "a");
+  fs::create_directories(root / "vids");
+  writeTextFile(root / "a" / "one.png");
+  writeTextFile(root / "a" / "clip.mkv");
+  writeTextFile(root / "vids" / "only.mkv");
+
+  auto request = makePictureRequest(root, root / "packed");
+  request.baseConfig.videoWebp = true;
+
+  // The packing question comes before any conversion, so a decline keeps this
+  // case toolchain-free while the block still prints.
+  auto input = std::istringstream{"n\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+  auto const run = runCaptured(request);
+
+  REQUIRE(run.results);
+  CHECK(run.text.find("Batch: 3 item(s) in 2 of 2 subfolder(s)") != std::string::npos);
+  CHECK(
+    run.text.find(std::format("  1  {}", pathutf8::fromPath(root / "vids")))
+    != std::string::npos
+  );
+}
+
+TEST_CASE("the scope block promises scope not work", "[batch]") {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  fs::create_directories(root / "a");
+  writeTextFile(root / "a" / "one.png");
+
+  auto request = makePictureRequest(root, root / "packed");
+  request.baseConfig.videoWebp = true;
+
+  auto input = std::istringstream{"n\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+  auto const run = runCaptured(request);
+  auto const block = scopeBlockOf(run.text);
+
+  REQUIRE(run.results);
+  REQUIRE_FALSE(block.empty());
+  // The numbers are scanned entries; a probe or the HEVC filter may drop some.
+  // Rows carry user paths, which can hold any of these words (this suite's own
+  // temp dir is named video_encoder_tests-...), so the prose lines carry the
+  // rule: the header and the closing statement.
+  auto const header = block.substr(0, block.find('\n'));
+  CHECK(header.find("will") == std::string::npos);
+  CHECK(header.find("encode") == std::string::npos);
+  CHECK(header.find("convert") == std::string::npos);
+  auto const closing = block.substr(block.find(kBlockClosing));
+  CHECK(closing.find("will") == std::string::npos);
+  CHECK(closing.find("encode") == std::string::npos);
+  CHECK(closing.find("convert") == std::string::npos);
+}
+
+TEST_CASE("a pack-only batch prints no block", "[batch]") {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  for (auto const* name: {"a", "b"}) {
+    fs::create_directories(root / name);
+    writeTextFile(root / name / "note.bin");
+  }
+
+  auto request = makePictureRequest(root, root / "packed");
+  request.baseConfig.processType = "video";
+  request.baseConfig.packOnly = true;
+  auto const run = runCaptured(request);
+
+  REQUIRE(run.results);
+  for (auto const& result: run.results.value()) {
+    CHECK(result.outcome == batch::TaskOutcome::Done);
+  }
+  CHECK(scopeBlockOf(run.text).empty());
+  CHECK(zipFilesIn(root / "packed" / "a").size() == 1);
+}
+
+TEST_CASE("a dry-run batch prints no block", "[batch]") {
+  TempDir temp;
+  auto const root = makeTwoPictureSubfolders(temp);
+
+  auto request = makePictureRequest(root, root / "packed");
+  request.baseConfig.dryRun = true;
+  auto const run = runCaptured(request);
+
+  REQUIRE(run.results);
+  for (auto const& result: run.results.value()) {
+    CHECK(result.outcome == batch::TaskOutcome::Done);
+  }
+  CHECK(scopeBlockOf(run.text).empty());
+}
+
+TEST_CASE("a quiet batch prints no block but still asks", "[batch]") {
+  auto const terminalGuard = testutils::ScopedTerminalReset{};
+  terminal::setQuiet(true);
+  TempDir temp;
+  auto const root = makeTwoPictureSubfolders(temp);
+
+  auto input = std::istringstream{"y\n"};
+  auto const cinGuard = testutils::ScopedCinBuf{input};
+  auto request = makePictureRequest(root, root / "packed");
+  auto const run = runCaptured(request);
+
+  REQUIRE(run.results);
+  // The rows ride the same gate as the header: a `Plain` row would slip through
+  // quiet mode and leave an orphan line above the prompt.
+  CHECK(scopeBlockOf(run.text).empty());
+  CHECK(
+    run.text.find(std::format("  1  {}", pathutf8::fromPath(root / "a")))
+    == std::string::npos
+  );
+  CHECK(
+    run.text.find(std::format("  1  {}", pathutf8::fromPath(root / "b")))
+    == std::string::npos
+  );
+  CHECK(
+    run.text.find("do you want to proceed with packing the pictures? (Y/n): ")
+    != std::string::npos
+  );
+}
+
+TEST_CASE("a batch whose stop already arrived prints no block", "[batch]") {
+  ScopedStopSignalReset stopGuard;
+  TempDir temp;
+  auto const root = makeTwoPictureSubfolders(temp);
+
+  auto request = makePictureRequest(root, root / "packed");
+
+  // A stop that arrived before the first subfolder leaves no confirmation to
+  // read, so the block has nothing to introduce.
+  stopsignal::requestStop();
+  auto const run = runCaptured(request);
+
+  REQUIRE(run.results);
+  for (auto const& result: run.results.value()) {
+    CHECK(result.outcome == batch::TaskOutcome::Skipped);
+  }
+  CHECK(scopeBlockOf(run.text).empty());
+}
+
+TEST_CASE("a batch whose subfolders hold no media prints no block", "[batch]") {
+  TempDir temp;
+  auto const root = temp.path / "root";
+  for (auto const* name: {"a", "b"}) { fs::create_directories(root / name); }
+
+  auto request = makePictureRequest(root, root / "packed");
+  auto const run = runCaptured(request);
+
+  REQUIRE(run.results);
+  for (auto const& result: run.results.value()) {
+    CHECK(result.outcome == batch::TaskOutcome::Skipped);
+  }
+  CHECK(scopeBlockOf(run.text).empty());
 }

@@ -6,7 +6,7 @@ See proposal.md — Why.
 
 - `batch::runTasks` (`src/batch/batch.cpp:139`) enumerates the root, then walks the subfolders in name order running `pipeline::run` for each. Everything printed above a confirmation today comes from that subfolder's own pipeline run: `Found <n> picture(s) under <dir>.` (`src/picture/picture_process.cpp:453`, `:765`), `Found <n> video(s) under <dir>.` (`:871`), the probe plan table (`src/video/video_batch_execution.cpp:400`), then the prompt.
 - The prompt already belongs to the workflow, not the driver: `confirmPicturePack` (`src/picture/picture_process.cpp:232`), `confirmEncodingStart` (`src/video/video_batch_execution.cpp:517`), and the resumed-encode packing question (`src/video/video_process.cpp:391`) all go through `readUserIptOnce`, which returns the batch's stored answer without printing anything when `RuntimeContext::promptConsent` already holds one (`src/utils/utils.cpp:484`).
-- The only per-subfolder pre-check is `hasProcessableMedia` (`src/batch/batch.cpp:105-118`): a bool built from `media::scanByExtensions` matches (`hasMediaFile`, `hasKeptVideo`) or from `hasAnyRegularFile`, whose recursive iterator stops at the first regular file (`:40-58`). It is called once, inside the loop (`:169`), and only by the batch.
+- The only per-subfolder pre-check is `hasProcessableMedia`, which this change turns into `countProcessableMedia` (`src/batch/batch.cpp`): a bool built from `media::scanByExtensions` matches (`hasMediaFile`, `hasKeptVideo`) or from `hasAnyRegularFile`, whose recursive iterator stops at the first regular file (`:40-58`). It was called once, inside the loop, and only by the batch; the count-returning version runs once per subfolder before the loop.
 - `countProcessableMedia`'s inputs already enumerate the full match lists, so counting costs nothing extra; pack-only is the one mode whose pre-check is deliberately partial.
 - `--pack-only` asks no confirmation at all: `runPackOnly` (`src/app/pipeline.cpp:100-128`) calls `pack::execute` and never touches the prompt primitives. `--dry-run` asks none either (`pipeline.cpp:163-176` exits early; the video probe stage returns `DryRun` before the prompt). `--yes` is short-circuited inside `readUserIptOnce`'s underlying `readUserIpt`.
 
@@ -39,7 +39,7 @@ Pack-only reports presence as an entry count of `1` and never a real one, docume
 
 **D2 — The block prints only when a confirmation will be asked.**
 
-Condition: at least one subfolder is processable **and** `!packOnly && !yesToAll && !dryRun`; the quiet gate then applies on its own, because the block prints through `Info` (D7). The block's whole purpose is to disambiguate the prompt's scope, so the runs that never prompt skip it: pack-only asks nothing and would pay a full-tree count, `--yes` is the scripted path whose stdout this change leaves alone, and dry-run asks nothing either.
+Condition: at least one subfolder is processable **and** `!packOnly && !yesToAll && !dryRun && !stopsignal::isStopRequested()`; the quiet gate then applies on its own, because every block line prints through `Info` (D7). The block's whole purpose is to disambiguate the prompt's scope, so the runs that never prompt skip it: pack-only asks nothing and would pay a full-tree count, `--yes` is the scripted path whose stdout this change leaves alone, dry-run asks nothing either, and a stop that already arrived leaves no answer to read.
 
 - Alternative: print always — changes every scripted batch's output and adds the pack-only walk for information nothing consumes.
 - Alternative: print when the batch has ≥2 processable subfolders — silently withholds the scope exactly when a single subfolder holds thousands of pictures.
@@ -53,11 +53,11 @@ Batch: 20 picture(s) in 2 of 3 subfolder(s)
 The confirmation below covers every subfolder in this batch.
 ```
 
-The header prints as `Info`, rows as `Plain`, the closing line as `Info`, with `terminal::count` and `terminal::path` carrying the values' own styles (no badge, no severity prefix, `console-output-conventions`). Counts sit left-aligned after a two-space indent, the shape `printSummary`'s rows already use (`src/batch/batch.cpp:238-244`).
+The header, the rows and the closing line all print as `Info`, with `terminal::count` and `terminal::path` carrying the values' own styles (no badge, no severity prefix, `console-output-conventions`). `Info` and `Plain` render identically — empty prefix, `StyleSite::None` (`src/infra/terminal.cpp:47-59`, `:97-109`) — so the kind here decides only whether quiet mode drops the line, and the block needs all three lines to share one gate: a `Plain` row would slip past the quiet gate and leave orphan rows above the prompt. Counts sit left-aligned after a two-space indent, the shape `printSummary`'s rows already use (`src/batch/batch.cpp:238-244`), though those rows are `Plain` because a run summary must survive quiet mode.
 
 The header keeps its leading `Batch:` label rather than reading as a bare count line: `console-output-conventions`' "a label ending in a colon followed by its content" rule is scoped to a diagnostic group's severity-marked announcement, not to narration, and the label is what keeps the block from being read as a phase line (`pipeline-narration`).
 
-Per-subfolder rows rather than a bare total: the reported defect is an invisible scope, and a total alone still hides that one subfolder holds 5000 pictures while another holds 2. The rows also report the same quantities each phase's `Found <n> ...` line reports (summed for the picture run that converts videos), so the two never disagree. Media-less subfolders get no row — their existing `Skipping <path>: no processable media.` notice names them at their turn, and the header's `2 of 3` already accounts for them.
+Per-subfolder rows rather than a bare total: the reported defect is an invisible scope, and a total alone still hides that one subfolder holds 5000 pictures while another holds 2. The rows report the quantities the run's scans find, which is exactly what each phase's `Found <n> ...` line reports wherever the run's own video filter has not dropped an entry first (D5). Media-less subfolders get no row — their existing `Skipping <path>: no processable media.` notice names them at their turn, and the header's `2 of 3` already accounts for them.
 
 The closing line exists because the prompt can sit several lines lower (a video run prints probe bars and the plan table in between) and the prompt's own text must stay byte-identical to the single-directory question.
 
@@ -82,14 +82,14 @@ Entries are what the run's own scans find. A video run has two ways to end up pr
 
 **D7 — `--quiet` hides the block, and the spec says so.**
 
-The block prints through `Info`, which the quiet gate suppresses (`src/infra/terminal.h:145-161`), while the prompt prints through `Plain` and still appears. A quiet batch therefore asks its single question with no scope above it, which is what `--quiet` means (narration off, prompts intact) and is stated in the spec rather than special-cased in the driver.
+Every line of the block prints as `Info`, which the quiet gate suppresses (`src/infra/terminal.h:145-161`), while the prompt prints through `Plain` and still appears. A quiet batch therefore asks its single question with no scope above it, which is what `--quiet` means (narration off, prompts intact) and is stated in the spec rather than special-cased in the driver.
 
 ## Risks / Trade-offs
 
-- [The block's numbers repeat each phase's own `Found <n> ...` line] → Deliberate: the block states the confirmation's scope before any work, the phase line states what that phase scanned. They report the same quantity, so the repetition reads as agreement rather than contradiction.
+- [The block's numbers repeat each phase's own `Found <n> ...` line] → Deliberate: the block states the confirmation's scope before any work, the phase line states what that phase scanned. Where the run's video filter drops nothing, both report the same quantity, so the repetition reads as agreement rather than contradiction (D5 covers the one place they differ).
 - [All subfolders are scanned before the first one starts] → The same work each subfolder would do at its turn; only the timing moves. The first console output is delayed by N scans instead of one, and a later subfolder's unreadable media now surfaces before the first subfolder runs — the outcome is unchanged (that subfolder is skipped).
-- [A stop pending at start still prints the block, then the first subfolder reports the stop] → Harmless ordering; the stop path and exit codes are untouched.
+- [A stop pending at start prints no block] → D2 includes the stop in the guard: a cancelled batch has no confirmation to introduce, and the existing stop path reports each subfolder.
 - [Video counts can overstate the encoded total] → D5 and the spec's "counts are scan-time values" requirement; the wording never promises work, and the two causes (probe skips, already-encoded HEVC files) are named in D5.
 - [`--pack-only` batches gain no scope block, so a long zip run still shows no up-front total] → Accepted non-goal: it needs a full-tree count that the presence-only pre-check exists to avoid. The pack-path defects recorded in proposal.md's Impact are where that belongs.
-- [`--quiet` shows the prompt with no scope block above it] → D7 and the spec's quiet scenario: the flag's contract is "narration off, prompts intact".
+- [`--quiet` shows the prompt with no scope block above it] → D7 and the spec's quiet scenario: the flag's contract is "narration off, prompts intact". The block's three line kinds are uniform (`Info`) so the gate cannot half-drop it, and the quiet case asserts the rows' absence, not only the header's.
 - [Thirteen existing pre-check assertions move from a bool to a count] → Mechanical edit (`CHECK(x == 1)` / `CHECK(x == 0)`); the case names and their fixture setups stay as they are.

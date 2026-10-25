@@ -3,6 +3,7 @@
 #include "core/app_context.h"
 #include "core/error_handle.h"
 
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -42,13 +43,16 @@ struct SubTaskResult {
 auto enumerateSubfolders(fs::path const& root, fs::path const& packedRoot)
   -> eh::Result<std::vector<fs::path>>;
 
-// True when `dir` holds at least one file the effective option combination
-// would process: video encode → video extensions the scan keeps for the output
-// format; picture → picture extensions (plus videos the conversion scan keeps
-// when the run converts them); pack-only → any regular file. Mirrors the
+// Entry count `dir` contributes to the run under the effective option
+// combination: video encode → videos the scan keeps for the output format;
+// picture → pictures (plus videos the conversion scan keeps when the run
+// converts them); pack-only → presence only, 1 when the directory holds a
+// regular file. 0 means the subfolder has nothing to process. Mirrors the
 // pipeline's own scans so a subfolder is skipped exactly when its
-// single-directory run would find nothing to do.
-bool hasProcessableMedia(appctx::AppConfig const& config, fs::path const& dir);
+// single-directory run would find nothing to do. Pack-only's 1 is a sentinel,
+// not a count: its scope block never prints, and counting a whole tree would
+// defeat the presence check's early exit.
+std::size_t countProcessableMedia(appctx::AppConfig const& config, fs::path const& dir);
 
 // The per-subfolder config: the batch's options with the subfolder as the
 // input, its archives redirected under the packed root, and no batch-level

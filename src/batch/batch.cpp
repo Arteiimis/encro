@@ -19,22 +19,23 @@ namespace batch {
 
 namespace {
 
-bool hasMediaFile(
+std::size_t countMediaFiles(
   fs::path const& dir,
   std::span<std::string_view const> extensions,
   bool recursive
 ) {
   auto const scanRes = media::scanByExtensions(dir, extensions, recursive);
-  return scanRes && !scanRes->matches.empty();
+  return scanRes ? scanRes->matches.size() : 0;
 }
 
 // Video files the scan would keep for the given config: the webp size gate
 // lives in the video module, so the pre-check cannot drift from it.
 template<class Keep>
-bool hasKeptVideo(fs::path const& dir, bool recursive, Keep const& keep) {
+std::size_t countKeptVideos(fs::path const& dir, bool recursive, Keep const& keep) {
   auto const scanRes =
     media::scanByExtensions(dir, videoinfo::videoExtensions(), recursive);
-  return scanRes && std::ranges::any_of(scanRes->matches, keep);
+  if (!scanRes) { return 0; }
+  return static_cast<std::size_t>(std::ranges::count_if(scanRes->matches, keep));
 }
 
 bool hasAnyRegularFile(fs::path const& dir) {
@@ -71,6 +72,54 @@ auto outcomeStyle(TaskOutcome outcome) -> OutcomeStyle {
   return kOutcomeStyles[static_cast<std::size_t>(outcome)];
 }
 
+// One enumerated subfolder with the entry count it contributes to the run.
+struct SubfolderScope {
+  fs::path subfolder;
+  std::size_t entries;
+};
+
+// The entry count's noun follows the run's work: a picture run that converts
+// videos counts both kinds as one number, so it needs a noun covering both.
+auto scopeNoun(appctx::AppConfig const& config) -> std::string_view {
+  if (config.processType == "video") { return "video(s)"; }
+  return config.videoWebp ? "item(s)" : "picture(s)";
+}
+
+// States what the batch's single confirmation covers. The counts are the ones
+// the scans found, so a probe or the pipeline's own video filter may still drop
+// entries before they are encoded: the block promises scope, never work. Every
+// line is an `Info`, so quiet mode drops the block whole — a `Plain` row would
+// slip through the gate and leave orphan rows above the prompt.
+void printScopeBlock(std::span<SubfolderScope const> scopes, std::string_view noun) {
+  auto processable = std::size_t{0};
+  auto total = std::size_t{0};
+  for (auto const& scope: scopes) {
+    if (scope.entries == 0) { continue; }
+    ++processable;
+    total += scope.entries;
+  }
+  if (processable == 0) { return; }
+
+  terminal::println(
+    Info,
+    "Batch: {} {} in {} of {} subfolder(s)",
+    terminal::count(total),
+    noun,
+    terminal::count(processable),
+    terminal::count(scopes.size())
+  );
+  for (auto const& scope: scopes) {
+    if (scope.entries == 0) { continue; }
+    terminal::println(
+      Info,
+      "  {}  {}",
+      terminal::count(scope.entries),
+      terminal::path(scope.subfolder)
+    );
+  }
+  terminal::println(Info, "The confirmation below covers every subfolder in this batch.");
+}
+
 }  // namespace
 
 auto enumerateSubfolders(fs::path const& root, fs::path const& packedRoot)
@@ -102,20 +151,20 @@ auto enumerateSubfolders(fs::path const& root, fs::path const& packedRoot)
   return subfolders;
 }
 
-bool hasProcessableMedia(appctx::AppConfig const& config, fs::path const& dir) {
-  if (config.packOnly) { return hasAnyRegularFile(dir); }
+std::size_t countProcessableMedia(appctx::AppConfig const& config, fs::path const& dir) {
+  if (config.packOnly) { return hasAnyRegularFile(dir) ? 1 : 0; }
 
   if (config.processType == "video") {
-    return hasKeptVideo(dir, config.recursive, [&config](fs::path const& file) {
+    return countKeptVideos(dir, config.recursive, [&config](fs::path const& file) {
       return videoinfo::keepsForEncoding(config, file);
     });
   }
 
-  if (hasMediaFile(dir, pictureExtensions(), config.recursive)) { return true; }
-  if (!config.videoWebp) { return false; }
-  return hasKeptVideo(dir, config.recursive, [](fs::path const& file) {
-    return videoinfo::keepsForConversion(file);
-  });
+  auto const pictures = countMediaFiles(dir, pictureExtensions(), config.recursive);
+  if (!config.videoWebp) { return pictures; }
+  return pictures + countKeptVideos(dir, config.recursive, [](fs::path const& file) {
+           return videoinfo::keepsForConversion(file);
+         });
 }
 
 auto resolvePackedRoot(
@@ -137,16 +186,39 @@ auto subConfigFor(BatchRequest const& request, fs::path const& subfolder)
 }
 
 auto runTasks(BatchRequest const& request) -> eh::Result<std::vector<SubTaskResult>> {
-  auto const subfoldersRes = enumerateSubfolders(request.root, request.packedRoot);
+  auto subfoldersRes = enumerateSubfolders(request.root, request.packedRoot);
   if (!subfoldersRes) { return eh::makeError("{}", subfoldersRes.error()); }
 
+  // One scan per subfolder answers both questions the driver has: what will the
+  // confirmation cover, and does this subfolder have anything to do.
+  auto scopes = std::vector<SubfolderScope>{};
+  scopes.reserve(subfoldersRes->size());
+  for (auto& subfolder: subfoldersRes.value()) {
+    auto const entries = countProcessableMedia(request.baseConfig, subfolder);
+    scopes.push_back(SubfolderScope{std::move(subfolder), entries});
+  }
+
+  // The block exists to disambiguate the single confirmation below, so a run
+  // that asks nothing keeps its output byte-identical: an already-requested
+  // stop leaves no answer to read either. Pack-only additionally keeps its
+  // presence-only pre-check instead of paying for a tree walk.
+  if (
+    !request.baseConfig.packOnly
+    && !request.baseConfig.yesToAll
+    && !request.baseConfig.dryRun
+    && !stopsignal::isStopRequested()
+  ) {
+    printScopeBlock(scopes, scopeNoun(request.baseConfig));
+  }
+
   auto results = std::vector<SubTaskResult>{};
-  results.reserve(subfoldersRes->size());
+  results.reserve(scopes.size());
   // One confirmation for the whole batch: the first subfolder that reaches a
   // prompt stores its answer here and every later subfolder reuses it.
   auto consent = std::optional<bool>{};
 
-  for (auto const& subfolder: subfoldersRes.value()) {
+  for (auto const& scope: scopes) {
+    auto const& subfolder = scope.subfolder;
     auto result = SubTaskResult{.subfolder = subfolder};
     auto const skip = [&](std::string_view reason) {
       terminal::println(Info, "Skipping {}: {}", terminal::path(subfolder), reason);
@@ -166,7 +238,7 @@ auto runTasks(BatchRequest const& request) -> eh::Result<std::vector<SubTaskResu
       continue;
     }
 
-    if (!hasProcessableMedia(request.baseConfig, subfolder)) {
+    if (scope.entries == 0) {
       skip("no processable media.");
       continue;
     }

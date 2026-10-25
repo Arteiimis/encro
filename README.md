@@ -208,6 +208,8 @@ ffmpeg and ffprobe are resolved once before the first subfolder, so a missing to
 
 The confirmation prompt is asked once, by the first subfolder that reaches it, and that answer covers the rest; declining ends the batch and exits 0. `--yes` skips it — the mode to use in scripts.
 
+Before that prompt the batch prints what it covers: how many of the enumerated subfolders have something to process, the entry count of each one, and the total — so the single answer is given against the whole run instead of the first subfolder's count. The counts are the scanned entries (a video probe may still skip some), and the block names them in the run's own terms: videos, pictures, or items when the run also converts videos. Runs that ask nothing print none of it — `--yes`, `--pack-only`, `--dry-run`, and `--quiet` with the rest of the narration.
+
 ## Building
 
 C++26, xmake build system. Primary platform is Windows (clang-cl + lld-link); Linux (clang + lld) is CI-tested. `xmake run encro <args>` runs the build; it forwards extra arguments straight to the program, so never insert `--` before them.
