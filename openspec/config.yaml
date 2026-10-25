@@ -26,8 +26,8 @@ schema: spec-driven
 operations:
   apply:
     guidance:
-      - Finish by checking off tasks.md; before committing, follow the review chain in AGENTS.md (verify first, then code review).
+      - Finish by checking off tasks.md; before committing, follow the review chain in AGENTS.md (one review pass, then its fix round).
   archive:
     guidance:
-      - The change should already carry a verify report; any REMOVED/RENAMED entry that report marks not verified is either resolved or explicitly accepted.
+      - The change should already carry its review record in tasks.md; any REMOVED/RENAMED entry that record leaves unresolved is either resolved or explicitly accepted.
       - Two or more changes ready at once are archived through the bulk-archive workflow, not as repeated single archives.

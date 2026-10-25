@@ -1,35 +1,42 @@
 ---
 name: code-review
-description: Two review stages sharing one protocol. Planning stage — reviews a change's proposal/specs/design/tasks before implementation, through a Coherence and a Ground-truth lens. Code stage — reviews the diff since a fixed point (commit, branch, tag, or merge-base) along three axes (Standards — this repo's documented standards; Spec — fidelity and scope against the originating spec, whose coverage half comes from the verify report; Leanness — what in the diff is over-engineering), with the reviewer count tiered by diff size — one consolidated reviewer on small diffs, parallel sub-agents on large ones. Use for reviewing an OpenSpec change's artifacts, or a branch, a PR, work-in-progress changes, or "review since X".
+description: Two review stages sharing one protocol. Planning stage — a four-check self-check by the author over proposal/specs/design/tasks, escalating to one independent reviewer only when the change introduces a new capability or touches five or more requirements. Code stage — reviews the diff since a fixed point (commit, branch, tag, merge-base) along three axes (Standards — this repo's documented standards; Spec — fidelity, scope creep and spec coverage against the originating change; Leanness — over-engineering), carried by one reviewer, or two on a large diff, with the fix loop resuming that same reviewer for one round. Use for reviewing an OpenSpec change's artifacts, a branch, a PR, work-in-progress changes, or "review since X".
 ---
 
-Two stages share one protocol — a fresh, independent, read-only reviewer; findings that quote their own evidence; and the fix loop in step 9 below.
+Two stages share one protocol: a reviewer that quotes its own evidence, a report split by lens, and a single fix round that goes back to the reviewer who raised the findings.
 
 | Stage | Input | When |
 | --- | --- | --- |
 | Planning artifacts | `proposal.md`, delta `specs/**/spec.md`, `design.md`, `tasks.md` | all four written, nothing implemented |
 | Code diff | the diff since a fixed point | implementation done and self-verified |
 
+Staffing is one reviewer in both stages. A second appears only under the code stage's size rule — never per functional area, never as a verifier of someone else's fix.
+
 ## The child agent
 
-Every dispatch below — the planning reviewer, the step 4 verify pass, the tier reviewers, the step 9 verifier — launches the harness's read-only reviewer: `reviewer` under pi (`read`, `grep`, `find`, `ls`, `watchdog_diff`; no shell). Where no such agent exists, spawn a fresh-context sub-agent whose tools are read and search only. Never dispatch a step of this skill to a write-capable agent (`worker`, `scout`, `delegate`): a reviewer that can write stops being an independent verifier, and it can mutate the worktree it is reviewing.
+Every dispatch below — the planning reviewer, the code reviewer, the resumed fix round, the fallback — launches the harness's read-only reviewer: `reviewer` under pi (`read`, `grep`, `find`, `ls`, `watchdog_diff`; no shell). Where no such agent exists, spawn a fresh-context sub-agent whose tools are read and search only. Never dispatch a step of this skill to a write-capable agent (`worker`, `scout`, `delegate`): a reviewer that can write stops being an independent verifier, and it can mutate the worktree it is reviewing.
 
-A reviewer has no shell, so everything it needs is materialised before it is dispatched — the diff as a file (step 2), the pre-computed findings and reports pasted into the brief. A brief that tells a reviewer to run a command is a broken brief.
+A reviewer has no shell, so everything it needs is materialised before it is dispatched — the diff as a file, the pre-computed lists and reports pasted into the brief. A brief that tells a reviewer to run a command is a broken brief.
 
-## Planning-artifact review
+**The fix round continues the reviewer, it does not replace it.** A completed child is revived from its own session, keeping its agent, model, tools and the whole diff in context: under pi, `subagent({ action: "resume", id, message })` — a top-level resume is detached, so collect its result with `bg_wait`. Where the harness has no such action, or resume rejects the child (no persisted session, a stopped run), dispatch a fresh reviewer with the findings and the fix patch and **label it a fallback** wherever the round is recorded.
 
-The stage before implementation. Input: a change's `proposal.md`, its delta `specs/**/spec.md`, `design.md` and `tasks.md` — all four written, none implemented. Reviewing earlier cannot check the contract *between* them; reviewing later pays for their defects in code.
+## Planning stage
 
-Two lenses, reported separately and in this order — they find different defects, and neither may be dropped silently:
+The default is a self-check by the author, because most planning findings are mechanical and the author can see them without a second context. Four checks over the written artifacts:
+
+1. `openspec validate --strict` passes.
+2. Every `<path>:<line>` citation in the artifacts resolves, and the file says what the artifact claims it says (a symbol, a test name, a config key, an exit code).
+3. Every scenario has a task and every task has a scenario — a scenario with no task is unimplemented by construction.
+4. The capability's existing requirements are listed (`rg -n "^### Requirement:" openspec/specs/<capability>`) so a `MODIFIED` block cannot silently contradict one, and the proposal's Impact names the files the change actually needs.
+
+Escalate to **one independent reviewer** when the delta introduces a new capability or touches five or more requirements (`### Requirement:` headers, `FROM:`/`TO:` pairs, `MODIFIED` blocks, counted across the delta). The reviewer runs two lenses, reported separately and in this order:
 
 - **Coherence** — the four artifacts against each other. A requirement stated two ways across two deltas, design, or tasks; a capability the change touches but the proposal does not list, or a listed capability with no delta; a scenario no task implements, or a task no scenario asked for.
-- **Ground truth** — the artifacts against the repository as it is. Every `<path>:<line>` citation resolves and says what the artifact claims; file paths, symbols, test names, config keys and exit codes exist as described; a claimed behavior is not contradicted by the current main spec or the current code; a mechanism the design proposes is not one the codebase already provides under another name; the proposal's Impact section names the files the change actually needs; each `MODIFIED` block matches the main spec's requirement header and carries the whole existing requirement.
+- **Ground truth** — the artifacts against the repository as it is. Every `<path>:<line>` citation resolves and says what the artifact claims; file paths, symbols, test names, config keys and exit codes exist as described; a claimed behavior is not contradicted by the current main spec or the current code; a mechanism the design proposes is not one the codebase already provides under another name; each `MODIFIED` block matches the main spec's requirement header and carries the whole existing requirement.
 
-Leanness is absent on purpose: it needs measurements that only exist once code does, so it belongs to the code-diff stage. So is the verify report that stage takes in step 4 — it checks implementations against the artifacts, and at this point there are none. The structural checks are absent too — `openspec validate --strict` already gates them.
+Leanness is absent on purpose: it needs measurements that only exist once code does, so it belongs to the code stage.
 
-### Pre-compute the mechanical half
-
-Produce these first and pass them in as input. They are cheap, and the reviewer should not spend context re-deriving them.
+Pre-compute the mechanical half first and pass it in — they are cheap, and the reviewer should not spend context re-deriving them:
 
 ```sh
 openspec validate --strict                                              # structure — a gate, not review work
@@ -38,35 +45,19 @@ rg -n "^### Requirement:" openspec/specs openspec/changes/<name>/specs  # requir
 rg -o "[A-Za-z0-9_./-]+\.(cpp|h|lua|md):[0-9]+" openspec/changes/<name>  # citations to resolve
 ```
 
-### The reviewer
-
-One reviewer, one pass, fresh context, spawned as the read-only reviewer (_The child agent_) — do not fan out per lens here: these artifacts are small enough to hold at once, and one cheap reviewer beats four expensive ones. What keeps a lens from masking another is the report's structure and its required quotes, not a separate context.
-
-Brief it with the change directory, the pre-computed lists, and this contract verbatim:
+Brief the reviewer with the change directory, those lists, and this contract verbatim:
 
 > Report exactly two sections, in this order: `## Coherence`, then `## Ground truth`. Under each, one line per finding: `[severity] what is wrong — <path>:<line>: "<quoted text>" vs <path>:<line>: "<quoted text>"`. Quote **both sides** of every conflict — the artifact's claim and the text it contradicts. Write `none` when a lens is clean, and list whatever you could not check. No summary, no praise, no suggestions section. At most 10 findings, worst first.
 
-### Converge
+Converge by resuming that reviewer (see _The child agent_) with the findings and `git diff <planning-commit>...HEAD -- openspec/changes/<name>` written to a file: it returns a per-finding verdict, and one round is the cap.
 
-Triage, fix the artifacts, then verify through the fix loop in step 9 below — the rule that carries over unchanged is that whoever wrote the fix does not grade it. Because every finding quotes both sides, the verifier needs only the findings list and the diff (`git diff <planning-commit>...HEAD -- openspec/changes/<name>`) written to a file the same way step 2 does — it has no shell either, so it works in any harness. One with a cheap way to continue the reviewer's own context may use that instead, but nothing here depends on it existing.
-
-### Record the outcome in the repository
-
-Append the findings and their verdicts — `resolved (<commit>)` or `rejected: <reason>` — to the change's `tasks.md` in their own section, before the implementation commit. A verdict living only in a chat log cannot be checked from another harness or a later session, and archiving requires `tasks.md` to be complete anyway.
-
-### Skip when
-
-The change has no delta (`.openspec.yaml` sets `skip_specs: true`), or the artifact edit is a typo or one-liner: run `openspec validate --strict` and move on.
-
-## Process — code-diff stage
+## Code stage
 
 Review of the diff between `HEAD` and a fixed point the user supplies, along three axes:
 
 - **Standards** — does the code conform to this repo's documented coding standards?
-- **Spec** — does the diff faithfully implement the originating spec, and does it do anything no requirement asked for? The *coverage* half of this axis — requirement → implementation, scenario → test — belongs to the `openspec-verify-change` workflow, taken in step 4 below; verify never reads a diff, so this axis keeps what it cannot see.
+- **Spec** — does the diff faithfully implement the originating change, and does it do anything no requirement asked for? This axis owns spec coverage too: requirement → implementation, scenario → test, task counts, and the REMOVED/RENAMED inversion — the checks `openspec-verify-change` defines, run by the reviewer as its first step.
 - **Leanness** — what in the diff is over-engineering, and what replaces it?
-
-How many reviewers carry the axes is a tier decision (step 3): a small diff goes to **one** reviewer holding all three lenses — what keeps an axis from masking the others is the report's structure and its required quotes, not separate contexts. Tooling findings are pre-computed (step 2) so reviewers spend context only on judgement.
 
 ### 1. Pin the fixed point
 
@@ -74,7 +65,7 @@ Whatever the user said is the fixed point — a commit SHA, branch name, tag, `m
 
 Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so the comparison is against the merge-base). Also note the list of commits via `git log <fixed-point>..HEAD --oneline`.
 
-Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here — not inside the reviewers.
+Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here — not inside the reviewer.
 
 ### 2. Pre-compute the mechanical half
 
@@ -83,68 +74,28 @@ Produce these once, in the main agent. They are deterministic and spend zero LLM
 ```sh
 mkdir -p build/.review                  # ignored, never committed (PowerShell: New-Item -Force -ItemType Directory build/.review)
 git diff <fixed-point>...HEAD --stat    # file list, whole range
-# the size that decides the tier
+# the size that decides the staffing
 git diff <fixed-point>...HEAD --shortstat -- . ':(exclude)openspec/**' ':(exclude)docs/**' ':(exclude)*.md'
 git log <fixed-point>..HEAD --oneline   # commit subjects
-git diff <fixed-point>...HEAD           # first ~1500 chars are the tier signal
 git diff <fixed-point>...HEAD > build/.review/diff.patch    # reviewers' copy; append a pathspec for a generated snapshot
 git diff <fixed-point>...HEAD --stat > build/.review/diff.stat
 xmake fmt -k                            # layout already enforced?
 xmake tidy                              # clang-tidy findings, report-only
 ```
 
-**Size means code.** Step 3 reads the second stat — insertions plus deletions, tests included on purpose, since they are where a green-but-wrong change shows — and every threshold in that step, guard and fallbacks alike, reads it. `.md`, `docs/` and `openspec/` are out because they are prose a reviewer reads once, not surface to reason about: a generated snapshot once turned a 349-line change into a 2555-line one. A generated file that is not markdown has to be named in the pathspec too. Empty means docs-only — Exempt, not a failed command.
+**Size means code.** Step 3 reads the second stat — insertions plus deletions, tests included on purpose, since they are where a green-but-wrong change shows. `.md`, `docs/` and `openspec/` are out because they are prose a reviewer reads once, not surface to reason about: a generated snapshot once turned a 349-line change into a 2555-line one. A generated file that is not markdown has to be named in the pathspec too. Empty means docs-only — Exempt, not a failed command.
 
 **`build/.review/diff.patch` is the reviewers' only view of the diff.** Append a pathspec for a generated snapshot when the change carries one — a reviewer has no shell to filter it later, and a file a reviewer cannot see is a file it must treat as unreviewed. `diff.stat` carries the file list and per-file counts, so the reviewer reads it first to aim its paging; a patch larger than one `read` page is fine, since `read` takes `offset`/`limit`.
 
 Tidy's findings (or `tidy: clean`) go into the Standards brief verbatim — the reviewer judges them, it does not hunt for them. A tool failure is noted and skipped; it never blocks the review.
 
-### 3. Tier the diff
+### 3. Size the diff
 
 - **Exempt** — typo, docs-only, one-liner, mechanical refactor: skip the stage entirely and say so.
-- **Hard guard** — more than 1500 changed code lines or more than 30 changed files, both read off the code-only stat: tier **L**, no call needed.
-- Otherwise, **one classifier call** in the main agent (codemode). Its state: the code-only stat line with its `src` / `tests` / `build+CI` split (one `--numstat`, grouped by path), so a diff that is mostly tests or build glue is judged as what it is rather than by raw size; the commit subjects, the changed-file list, the repo's module list and the first ~1500 characters of the diff. The tier question judges review surface only; mechanicalness is a separate question over the same state, and every policy (tie-breaks, thresholds) lives in the code, not in the prompt:
+- **One reviewer** — at most 300 changed code lines and at most 20 changed files.
+- **Two reviewers** — anything larger: (a) Standards+Leanness, (b) Spec. Two is the ceiling; split by lens, never by functional area.
 
-```js
-const jev = await models.getModelOfType('classifier', 'opencode', 'jev-1.13'); // OpenCode Zen paid tier; needs OPENCODE_API_KEY
-const r = await models.classify(jev, { state: { stat, split, subjects, files, excerpt,
-  modules: ['video','picture','pack','organize','tagger','preview','cmd','core','infra','logging','utils','app','tests','build','docs'] }, questions: {
-  tier: { type: 'choice',
-    instructions: 'Pick the code-review tier for this C++ CLI repo change (the whole diff since the fixed point, summarised by the state). Judge by review surface - what a reviewer must actually read and understand - not raw line count.',
-    criteria: {
-      S: 'small: one reviewer, single context. Effective (non-mechanical) change roughly <=200 lines. Shallow per-file edits, single topic.',
-      M: 'medium: two reviewers (standards+leanness vs spec). Effective change roughly 200-800 lines, or moderate multi-file surface with real logic changes, or heavy spec cross-checking.',
-      L: 'large: three or more reviewers, shard by functional area. Effective change >800 lines of new logic across 3+ modules, or a clearly multi-area feature.' } },
-  mechanical: { type: 'bool',
-    instructions: 'Is this change purely mechanical - code moves/renames, comment or style shifts, formatting reflows, bulk deletions, generated or table data, docs-only edits - leaving no new logic or behaviour for a reviewer to reason about?',
-    criteria: {
-      true: 'Every hunk is a mechanical transform or docs text; nothing changes behaviour or needs design understanding.',
-      false: 'Somewhere a reviewer must read, the change adds, fixes or reworks logic, behaviour or contracts.' } } } });
-// Policy lives here, not in the prompt. mechTier = the mechanical thresholds below.
-const p = r.answers.tier.probabilities, order = ['S', 'M', 'L'];
-const top = order.map(t => [t, p[t]]).sort((a, b) => b[1] - a[1]);
-let tier = top[0][0];
-if (Math.abs(order.indexOf(top[0][0]) - order.indexOf(top[1][0])) === 1 && top[0][1] - top[1][1] < 0.10) {
-  tier = order[Math.max(order.indexOf(top[0][0]), order.indexOf(top[1][0]))];              // near-tie on adjacent tiers -> the larger
-}
-if (r.answers.tier.confidence < 0.5 && order.indexOf(tier) < order.indexOf(mechTier)) tier = mechTier; // never under-provision a low-confidence call
-if (r.answers.mechanical.probability >= 0.6) tier = 'S';                                   // purely mechanical -> one reviewer, whatever the size
-```
-
-- **Fallbacks**: no classifier configured, or the call errors — use the **mechanical thresholds** (≤200 changed code lines and ≤8 files → S; >800 code lines or >20 files → L; else M) as `mechTier`.
-- Calibrated 2026-10-09 on 60 repo commits (`git log --first-parent --until=2026-10-09 -n 60`): 98% tier agreement with full-information labels (guard included); the one miss over-provisions (a long docs-only plan read as M), and no miss under-provisions - over-reviewing, never under-reviewing. Docs/mechanical commits score mechanical >= 0.63, real-logic commits <= 0.12, so the 0.6 cut has margin on both sides; the adjacent-tier tie-break never fired in-sample (distributions are decisive, median confidence ~0.97). Do not tune the thresholds ad hoc; re-calibrate deliberately if the review mix changes.
-
-### 4. Take the verify report
-
-A diff that belongs to an active OpenSpec change has a second, cheaper source of truth: the change's verify report, from the `openspec-verify-change` workflow (`.agents/skills/openspec-verify-change/SKILL.md`). It reads no diff, so it cannot see scope creep — what it owns is coverage: requirement → implementation with `file:line` evidence, scenario → test, task counts, design decisions against the code, and the inverted REMOVED/RENAMED checks, each under the rule that `not verified` is never a pass. Delegate it and the Spec reviewer judges coverage instead of rediscovering it.
-
-- **Tier M/L** — reuse this session's report; otherwise spawn the read-only reviewer as its own sub-agent (fresh context, `.agents/skills/openspec-verify-change/SKILL.md` pasted into the brief since it loads no skills, scorecard back verbatim, the same reason the reviewers are separate contexts). Fix its CRITICALs before dispatching: an unimplemented requirement, an unfinished task, a removal still in the code, a rename that lost its behaviour. Reviewers handed a diff the spec says should not exist yet spend their context on a false baseline.
-- **Tier S** — no second agent for a small diff: the one reviewer runs that protocol itself before reporting (step 7).
-- **No active change, or `skip_specs: true`** — no verify pass. Step 2's `openspec list --json` already covers the one thing it would still add: the task count.
-
-The report is not a gate — its WARNINGs get reported and the flow moves on.
-
-### 5. Identify the spec source
+### 4. Identify the spec source
 
 Look for the originating spec, in this order:
 
@@ -153,9 +104,11 @@ Look for the originating spec, in this order:
 3. Archived changes under `openspec/changes/archive/` if the work is already merged.
 4. If nothing is found, ask the user where the spec is. If they say there isn't one, the **Spec** lens is skipped and the final report notes "no spec available".
 
-For an active change, the step 4 report indexes that delta's coverage: pass it to the Spec reviewer, which then judges the delta against the diff instead of searching for implementations of its own.
+A diff that belongs to an active change also passes its artifacts (`proposal.md`, delta specs, `design.md`, `tasks.md`) to the reviewer — coverage is judged against them, not against a report of them.
 
-### 6. Identify the standards sources
+Before dispatching, check the tasks are finished and the requirements the change adds are actually in the diff. A requirement the artifacts say is implemented but the code lacks is a CRITICAL the parent fixes first: a reviewer handed a diff the spec says should not exist yet spends its context on a false baseline.
+
+### 5. Identify the standards sources
 
 `AGENTS.md` documents how code should be written in this repo (naming, conventions, error handling, testing, commits). Paste its Code Conventions table and Testing rules into the brief as an extract — do not point the reviewer at the whole file.
 
@@ -179,37 +132,42 @@ Each smell, one line — match it against the diff:
 - **Middle Man** — a class or function that mostly delegates onward → cut it, call the target direct.
 - **Refused Bequest** — an implementer ignoring most of what it inherits → drop the inheritance, compose.
 
-### 7. Dispatch by tier
+### 6. Dispatch
 
-Briefs are self-contained: a reviewer starts with a fresh context, no skills loaded, no memory of this conversation, and no shell. Every brief names the read-only reviewer (_The child agent_) as the agent to launch. On tiers S and M paste the diff into the brief — it is already in hand, and every avoided file read saves a full context re-send. On tier L pass the paths of `build/.review/diff.patch` and `build/.review/diff.stat` from step 2 and tell the reviewer to read the stat first, then page the patch.
+Briefs are self-contained: a reviewer starts with a fresh context, no skills loaded, no memory of this conversation, and no shell. Every brief names the read-only reviewer (_The child agent_) as the agent to launch and points at `build/.review/diff.patch` and `build/.review/diff.stat` from step 2, telling the reviewer to read the stat first, then page the patch with `offset`/`limit`.
 
-Every finding, on every tier, cites `file:line` and quotes the hunk — that evidence contract is what keeps the fix loop cheap.
+Every finding, on either size, cites `file:line` and quotes the hunk — that evidence contract is what keeps the fix round cheap.
 
-- **Tier S — one reviewer, three lenses.** One sub-agent with the Standards half, the Spec brief and the Leanness half below; it also runs the step 4 coverage protocol itself before reporting, one agent and one disposable context. Contract: report exactly three sections, in this order — `## Standards`, `## Spec`, `## Leanness`; under 150 words per section; at most 10 findings total, worst first.
-- **Tier M — two reviewers.** (a) **Standards+Leanness**: both lenses read only the diff and the repo conventions, so they share one context — the Standards half plus the Leanness half, sections `## Standards` and `## Leanness`, under 300 words each. (b) **Spec**: the Spec brief below.
-- **Tier L — three reviewers**, one per axis, spawned in a single message so they run concurrently: Standards half alone, Spec brief, Leanness half alone. For large multi-area changes AGENTS.md allows ≤1 extra sub-agent per functional area, edge cases only.
+- **One reviewer — three lenses.** One sub-agent holding all three briefs; it runs the Spec axis's coverage checks itself before reporting, one agent and one disposable context. Contract: report exactly three sections, in this order — `## Standards`, `## Spec`, `## Leanness`; under 150 words per section; at most 10 findings total, worst first.
+- **Two reviewers.** (a) **Standards+Leanness**: both lenses read only the diff and the repo conventions, so they share one context — the Standards half plus the Leanness half, sections `## Standards` and `## Leanness`, under 300 words each. (b) **Spec**: the Spec brief below.
 
-**Standards half** — include the inline diff (S/M) or the `build/.review/` paths (L), the commit list, the tidy findings (`tidy: clean` if none), the conventions extract and the smell baseline from step 6 (the reviewer has no other access to either). Brief:
+**Standards half** — include the `build/.review/` paths, the commit list, the tidy findings (`tidy: clean` if none), the conventions extract and the smell baseline from step 5 (the reviewer has no other access to either). Brief:
 
 > Report — per file/hunk where relevant — every place the diff violates a documented standard: cite the standard (file + the rule); and any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls — documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words.
 
-**Spec brief** — include the inline diff (S/M) or the `build/.review/` paths (L), the commit list, the path or pasted contents of the spec, and the step 4 verify report. Brief:
+**Spec brief** — include the `build/.review/` paths, the commit list, the change's artifacts (proposal, delta specs, design, tasks) and `.agents/skills/openspec-verify-change/SKILL.md`, whose checks are this lens's coverage half. Brief:
 
-> Coverage — which requirements have implementations, which scenarios have tests — is the step 4 verify report's job and arrives as your input: do not re-derive it. Report only: (a) requirements the report marks missing or not verified that the diff does not implement either; (b) behaviour in the diff that no requirement asked for (scope creep); (c) requirements the report marks implemented, where the implementation still looks wrong. Quote the spec line for each finding. Under 400 words.
+> Run the coverage checks the named skill defines — requirement → implementation with `file:line`, scenario → test, task counts, and the inverted REMOVED/RENAMED checks, where `not verified` is never a pass — and report what they found. Then report only: (a) requirements missing an implementation; (b) behaviour in the diff that no requirement asked for (scope creep); (c) requirements that are implemented, where the implementation still looks wrong. Quote the spec line for each finding. Under 400 words.
 
-**Leanness half** — include the inline diff (S/M) or the `build/.review/` paths (L), the commit list, and the tag rules from the `ponytail-review` skill pasted verbatim — sub-agents inherit neither skills nor ponytail mode, and the tags are the whole output format. Brief:
+**Leanness half** — include the `build/.review/` paths, the commit list, and the tag rules from the `ponytail-review` skill pasted verbatim — sub-agents inherit neither skills nor ponytail mode, and the tags are the whole output format. Brief:
 
 > List only over-engineering in this diff: reinvented standard library, unneeded dependencies, speculative abstractions, dead flexibility. Correctness, security, and performance are out of scope — other axes own those. Never flag a mandated test or a tooling-enforced rule. One line per finding, then the `net: -<N> lines possible.` score.
 
-### 8. Aggregate
+### 7. Aggregate
 
 Present the reports under `## Standards`, `## Spec`, and `## Leanness` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings — the axes are deliberately separate (see _Why separate axes_).
 
 End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes — that's the reranking the separation exists to prevent.
 
-### 9. Converge on the findings
+### 8. Converge on the findings
 
-The author of a fix never grades it alone. After triaging and fixing the accepted findings — proposal reviews of planning artifacts included — spawn the read-only reviewer with the findings list and the fix diff written to `build/.review/fix.patch` (same mechanism as step 2); it returns a per-finding verdict: resolved / not resolved / regressed (the fix broke something else). Loop until every finding resolves; hard cap 2 fix→verify rounds, then stop and hand the unresolved findings — plus anything rejected during triage, with its justification — to the user. A triage that accepts zero findings needs no verification round. A fix that changes code a requirement rests on invalidates that requirement's part of the step 4 report — re-run those checks, not the whole pass.
+Triage the findings, then fix the accepted ones — the author of a fix never grades it. Once the fixes are in, resume the reviewer that raised them (_The child agent_) with the findings list and the fix diff written to `build/.review/fix.patch` (same mechanism as step 2); it returns a per-finding verdict: resolved / not resolved / regressed (the fix broke something else). One round is the cap: stop after it and hand the unresolved findings — plus anything rejected during triage, with its justification — to the user. A triage that accepts zero findings needs no round. A fix that changes code a requirement rests on invalidates that requirement's coverage verdict — re-check those requirements, not the whole pass.
+
+## The record
+
+Both stages record their outcome in the change's `tasks.md`, under their own heading, in at most five lines: the size and reviewer count, findings per lens, unresolved findings with their one-line reasons, and `fallback` when the fix round could not resume. What changed is in the commit that changed it; the reviewer's report is a working artifact, not an archived one. Write the record before the implementation commit so archive does not have to reopen the change.
+
+A change with no delta (`.openspec.yaml` sets `skip_specs: true`) or a typo/one-liner edit runs the planning self-check only; docs-only and mechanical diffs add no review stage at all.
 
 ## Why separate axes
 
@@ -219,4 +177,4 @@ A change can pass one axis and fail the others:
 - Code that does exactly what the issue asked but breaks the project's conventions → **Spec pass, Standards fail.**
 - Code that does the right thing in more machinery than it needs → **Standards pass, Spec pass, Leanness fail.**
 
-Reporting them separately stops one axis from masking the others — which is also why one reviewer carrying all three lenses (tier S) still reports three sections.
+Reporting them separately stops one axis from masking the others — which is also why one reviewer carrying all three lenses still reports three sections.

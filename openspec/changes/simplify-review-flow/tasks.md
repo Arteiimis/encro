@@ -2,27 +2,27 @@
 
 ## 1. Prerequisites
 
-- [ ] 1.1 Read `writing-for-agents` and `review-claude-md` in full before touching `AGENTS.md` or a skill; note which of their rules the rewrite must satisfy (name the two files read in the task's completion note)
+- [x] 1.1 Read `writing-for-agents` and `review-claude-md` in full before touching `AGENTS.md` or a skill; note which of their rules the rewrite must satisfy (name the two files read in the task's completion note)
 
 ## 2. The code-review skill
 
-- [ ] 2.1 Rewrite the stage table and the planning stage of `.agents/skills/code-review/SKILL.md`: the four-check self-check as the default, the independent reviewer only when the delta introduces a new capability or touches five or more requirements, the two lenses with no separate verification pass, and the five-line record (design D4, D5, D6)
-- [ ] 2.2 Rewrite the code stage's pre-compute, tiering, verify intake and dispatch sections: one 300-line binary rule replacing the classifier, guard, tie-break and fallbacks; the coverage protocol run by the reviewer at every size; the per-functional-area allowance removed; two reviewers as the ceiling (design D1, D2)
-- [ ] 2.3 Rewrite the converge step as a single resumed round: `resume` the reviewer with the findings and `build/.review/fix.patch`, per-finding verdicts, hard cap one round, and the labelled fresh-reviewer fallback when resume is rejected (design D3)
-- [ ] 2.4 Verify the skill is internally consistent: no surviving reference to tier S/M/L staffing, the classifier, a separate verify report, or a verifier sub-agent — `rg -n 'tier L|classifier|verify report|verifier' .agents/skills/code-review/SKILL.md` returns only intentional mentions
+- [x] 2.1 Rewrite the stage table and the planning stage of `.agents/skills/code-review/SKILL.md`: the four-check self-check as the default, the independent reviewer only when the delta introduces a new capability or touches five or more requirements, the two lenses with no separate verification pass, and the five-line record (design D4, D5, D6)
+- [x] 2.2 Rewrite the code stage's pre-compute, tiering, verify intake and dispatch sections: one 300-line binary rule replacing the classifier, guard, tie-break and fallbacks; the coverage protocol run by the reviewer at every size; the per-functional-area allowance removed; two reviewers as the ceiling (design D1, D2)
+- [x] 2.3 Rewrite the converge step as a single resumed round: `resume` the reviewer with the findings and `build/.review/fix.patch`, per-finding verdicts, hard cap one round, and the labelled fresh-reviewer fallback when resume is rejected (design D3)
+- [x] 2.4 Verify the skill is internally consistent: no surviving reference to tier S/M/L staffing, the classifier, a separate verify report, or a verifier sub-agent — `rg -n 'tier L|classifier|verify report|verifier' .agents/skills/code-review/SKILL.md` returns only intentional mentions
 
 ## 3. AGENTS.md
 
-- [ ] 3.1 Rewrite the four review bullets (review timing, verify ordering, bulk archive, Post-Change Review) to the new chain: self-check → implementation → one review pass → resumed fix round → archive; drop the verify-first ordering and the `≤1 extra sub-agent per functional area` allowance
-- [ ] 3.2 Verify no other bullet contradicts the new chain: `rg -n 'openspec-verify-change|verify pass|tier L|functional area' AGENTS.md` returns only the mentions the new text intends, and the archive bullet no longer requires a verify pass before archiving
+- [x] 3.1 Rewrite the four review bullets (review timing, verify ordering, bulk archive, Post-Change Review) to the new chain: self-check → implementation → one review pass → resumed fix round → archive; drop the verify-first ordering and the `≤1 extra sub-agent per functional area` allowance
+- [x] 3.2 Verify no other bullet contradicts the new chain: `rg -n 'openspec-verify-change|verify pass|tier L|functional area' AGENTS.md` returns only the mentions the new text intends, and the archive bullet no longer requires a verify pass before archiving
 
 ## 4. Configuration pointers
 
-- [ ] 4.1 Rewrite `openspec/config.yaml`'s `operations.apply` and `operations.archive` guidance so they point at the review record instead of a verify report, keeping them pointers only (no restatement of ordering)
+- [x] 4.1 Rewrite `openspec/config.yaml`'s `operations.apply` and `operations.archive` guidance so they point at the review record instead of a verify report, keeping them pointers only (no restatement of ordering)
 
 ## 5. Self-check
 
-- [ ] 5.1 Run the design's four self-checks over this change's own artifacts (`openspec validate simplify-review-flow --strict`; every `file:line` citation in `proposal.md`/`design.md` resolves; every design decision has a task; the cited measurements match the archived `tasks.md` records) and record the result in at most five lines under `## Planning self-check` in this file
+- [x] 5.1 Run the design's four self-checks over this change's own artifacts (`openspec validate simplify-review-flow --strict`; every `file:line` citation in `proposal.md`/`design.md` resolves; every design decision has a task; the cited measurements match the archived `tasks.md` records) and record the result in at most five lines under `## Planning self-check` in this file
 
 ## Planning self-check
 
